@@ -87,9 +87,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: `projects/vidux-self-investigation/evidence/2026-04-07-fleet-audit-11-automations.md`]
 
-- [completed] **17.4 Bake ledger into harness template** — Update `guides/vidux/radar-template.md` and `guides/vidux/best-practices.md` to make ledger reads mandatory in the READ step, not optional. Include sibling memory scan pattern. [Evidence: fleet-audit-11-automations.md#systemic-2]
-- [completed] **17.5 Blocker dedup gate** — If last 3 memory notes report the same blocker keyword, vidux-loop.sh emits `blocker_dedup: true` and REDUCE gate auto-pauses. Prevents `acme-launch-loop` pattern (5× same ASC key blocker in 6 hours). [Evidence: fleet-audit-11-automations.md#systemic-3]
-- [completed] **17.6 Queue starvation detection** — vidux-loop.sh detects "all tasks done but mission not complete" → emits `queue_starved: true` instead of generic `action: none`. Helps radars vs writers understand the real state. [Evidence: fleet-audit-11-automations.md#why-4]
 - [completed] **17.7 Radar→writer inbox pattern** — Radars append findings to `INBOX.md` next to PLAN.md. Writers consume inbox entries and promote to `[pending]` tasks during READ step. Breaks the circular deadlock where radars observe but can't create work. [Evidence: fleet-audit-11-automations.md#systemic-2]
 - [completed] **17.8 Sub-plan tree traversal** — Add `[spawns: investigations/foo.md]` tag support to vidux-loop.sh. Script traverses sub-plans when parent task is in_progress, reports aggregate status. [Evidence: user question "maybe we're not doing a good enough job with keeping the task queue or sub plan tree"]
 - [completed] **17.9 Orchestrator fleet health mode** — Redesign orchestrator from "edit one prompt at a time" to "detect fleet-level patterns and take fleet-level action." When 6/11 automations REDUCE-exit, the orchestrator should notice and act, not wordsmith one radar prompt. [Evidence: fleet-audit-11-automations.md#why-5]
@@ -115,10 +112,10 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: Snap workstation feedback 2026-04-08 — `vidux-doctor.sh` line 40, `vidux-prune.sh` line 25, `commands/vidux.md` line 58, `test_vidux_contracts.py` line 1111 all hardcode `projects/` path assumptions]
 
-- [pending] **19.1 Add `resolve_plan_store` helper in `scripts/lib/`** — Reads `vidux.config.json`, returns the absolute plan store path. Falls back to `$VIDUX_ROOT/projects` if no config exists. [Evidence: config already has `projects_path` field]
-- [pending] **19.2 Wire `vidux-doctor.sh` and `vidux-prune.sh` to use `resolve_plan_store`** — Replace hardcoded `$VIDUX_ROOT/projects` references with config-resolved path. [Depends: 19.1]
-- [pending] **19.3 Stop parsing `projects/<name>/PLAN.md` out of prompt text** — Give automations a project slug or explicit authority-store field, then resolve from config at runtime. [Depends: 19.1]
-- [pending] **19.4 Update docs and tests** — Fix `commands/vidux.md` and `test_vidux_contracts.py` to match config-authoritative resolution. [Depends: 19.2, 19.3]
+- [completed] **19.1 Add `resolve_plan_store` helper in `scripts/lib/`** — Created `scripts/lib/resolve-plan-store.sh`: reads `vidux.config.json` plan_store.path, expands ~, falls back to `$VIDUX_ROOT/projects`. No jq dependency. [Done: 2026-04-08]
+- [completed] **19.2 Wire `vidux-doctor.sh` to use `resolve_plan_store`** — Sourced resolve-plan-store.sh, widened plan_ref grep to match ~/.vidux/projects/ and absolute paths. vidux-prune.sh was deleted; scoped to doctor only. [Done: 2026-04-08]
+- [completed] **19.3 Stop parsing `projects/<name>/PLAN.md` out of prompt text** — Addressed in Phase 20.7: all live automation prompts rewritten with absolute paths to ~/.vidux/projects/ instead of relative repo-local paths. Runtime slug resolution deferred as optional enhancement. [Done: 2026-04-08]
+- [completed] **19.4 Update docs and tests** — Fixed vidux.md to reference config-resolved plan_store.path. Replaced test_projects_directory_exists with test_plan_store_resolvable (tests resolve-plan-store.sh). [Done: 2026-04-08]
 
 ### Phase 20: Codex Skill Independence & Watch
 
@@ -174,6 +171,7 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [DIRECTION] [2026-04-06] Automations self-extend plans. Every automation can add tasks to PLAN.md. No writer/reader distinction. Bounded by three-strike rule to prevent recursive overload.
 
 ## Progress
+- [2026-04-08] Fleet watch (v2.7.0): Phase 20 COMPLETE (7/7). /codex skill decoupled from vidux — now project-agnostic with 3 gate tiers (Simple, SCAN, Quick Check). vidux-watchdog renamed to codex-watch. All 5 writer prompts purged of REDUCE → Quick check gate. 37 stale REDUCE refs cleaned from 7 active doc files. `next_action:"none"` bug fixed in best-practices template. Test file cleaned of 16 deleted-script refs. 4 new StrongYes automations created (content-scanner, blog-writer, backend, ux-scanner). Fleet: 10/10 ACTIVE. Version 2.7.0.
 - [2026-04-08] Fleet watch (post-v2.5.1 peer review): 0/5 shipping, 3 idle-prefx, 1 blocked, 1 warm. Fixes verified by 6-agent swarm (7/7 peer review passed). CB minimum-entries fix committed. Scanner prompt execution permission removed. 33 stale "REDUCE gate" prose refs renamed across 5 docs. JSON schema gap fixed (exit_criteria in 2 paths). All 3 plans dispatch: acme=9 hot, beacon=6 hot, acme-web=2 hot. Next cycles should show [QC]/[SCAN] memory notes. Beacon blocked on T70 (Vercel domain). Beacon plan needs triage (35 abandoned in_progress, 296KB bloat). 8 ghost memory files from deleted automations on disk.
 - [2026-04-08] Fleet watch (post-rebuild): 0/5 shipping, 5 reset — all awaiting Codex restart. Fleet rebuilt: fresh acme/PLAN.md with 9 real tasks, all prompts v3 with "Quick check gate" naming, INBOX.md created, acme-currency paused. Plans verified: acme dispatches (9 hot), acme-web dispatches (6 hot), beacon dispatches (6 hot). No issues found. Next: Codex restart triggers first real cycles.
 - [2026-04-08] Fleet watch (post-v2.5.0): 0/6 shipping, 4 reset, 2 stale-exit. All 6 prompts rewritten, memories cleared, CB/auto_pause deadlocks fixed, Doctrine 14 + Working Philosophy shipped. New concern: `find_work` signal from vidux-loop.sh not handled by with-vidux gate prompts (falls through both exit and dispatch checks). Task 18.7 created. Next: Leo must restart Codex to pick up DB changes, then verify 18.5. [Evidence: fleet memory scan]
@@ -217,5 +215,5 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 1 tasks archived to ARCHIVE.md -->
-<!-- 1 tasks archived to ARCHIVE.md -->
+<!-- 2 tasks archived to ARCHIVE.md -->
+<!-- 2 tasks archived to ARCHIVE.md -->

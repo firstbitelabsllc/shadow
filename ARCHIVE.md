@@ -104,3 +104,11 @@ Tasks completed and archived from PLAN.md to keep context lean.
 
 ## Archived 2026-04-08
 - [completed] **17.1 Fix SIGPIPE in vidux-loop.sh** — Wrapped 3 `grep|head` pipe patterns with `|| true` to prevent exit 141 under `set -euo pipefail`. Moved circuit breaker + auto_pause evaluation before early exits. Added `_FLEET_SUFFIX` to all 4 early-exit JSON paths for consistent schema. Fixed `self.ROOT` test bug and DOCTRINE.md `stateless` keyword. 30/30 loop tests pass. [Done: 2026-04-07] [Evidence: fleet-audit-11-automations.md#systemic-1]
+
+
+## Archived 2026-04-08
+## Archived 2026-04-08
+- [completed] **17.4 Bake ledger into harness template** — Update `guides/vidux/radar-template.md` and `guides/vidux/best-practices.md` to make ledger reads mandatory in the READ step, not optional. Include sibling memory scan pattern. [Evidence: fleet-audit-11-automations.md#systemic-2]
+- [completed] **17.4 Bake ledger into harness template** — Update `guides/vidux/radar-template.md` and `guides/vidux/best-practices.md` to make ledger reads mandatory in the READ step, not optional. Include sibling memory scan pattern. [Evidence: fleet-audit-11-automations.md#systemic-2]
+- [completed] **17.5 Blocker dedup gate** — If last 3 memory notes report the same blocker keyword, vidux-loop.sh emits `blocker_dedup: true` and REDUCE gate auto-pauses. Prevents `acme-launch-loop` pattern (5× same ASC key blocker in 6 hours). [Evidence: fleet-audit-11-automations.md#systemic-3]
+- [completed] **17.5 Blocker dedup gate** — If last 3 memory notes report the same blocker keyword, vidux-loop.sh emits `blocker_dedup: true` and REDUCE gate auto-pauses. Prevents `acme-launch-loop` pattern (5× same ASC key blocker in 6 hours). [Evidence: fleet-audit-11-automations.md#systemic-3]
