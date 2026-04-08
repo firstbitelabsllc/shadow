@@ -494,8 +494,8 @@ A harness prompt is not prose. It is a machine-readable contract between the cro
 4. AUTHORITY      — Read order for plan files. Primary state file is #1.
 5. CROSS-LANE     — Read sibling memory notes + hot-files. Dedup, yield, skip.
 6. ROLE BOUNDARY  — What this lane owns. What belongs to siblings.
-7. EXECUTION      — How to do the work. Mid-zone kill rule. Queue drain rule.
-8. CHECKPOINT     — Memory format. Lead line. What to leave explicit.
+7. EXECUTION      — How to do the work. Mid-zone kill rule. Queue drain rule. Worktree merge-back rule.
+8. CHECKPOINT     — Memory format. Lead line. What to leave explicit. Worktree state.
 ```
 
 **Why this order matters:** The gate must run before authority reads. An agent that reads 6 authority files before discovering it has nothing to do just wasted 90 seconds. Cross-lane must come after authority but before execution, so the agent never starts work without knowing fleet state.
@@ -590,10 +590,14 @@ Execution:
 - Every failure produces a process fix alongside the code fix (Doctrine 6).
 - If 3+ minutes pass with no file write, checkpoint and exit.
 - Keep working until the queue is empty or a hard blocker stops you.
+- WORKTREE RULE: Before stopping, merge your worktree commits to main
+  (or record in Decision Log why not). Never exit with unmerged commits.
+  Next cycle must not create a parallel worktree for the same lane.
 
 Checkpoint:
 - Lead with ASC: hot or ASC: cold.
 - Update memory (last 3 notes). Leave bug IDs, proof, blocker, next bug.
+- If worktree was used: state whether commits were merged to main or not.
 ```
 
 **What changed:** Gate targets the actual bug tracker (not the "done" meta-plan). Doctrine is loaded via `$vidux`, not restated. Cross-lane and role boundary are explicit. Mid-zone kill is present. Size dropped from ~4800 to ~2400 chars.
@@ -636,7 +640,36 @@ What does the automation DO?
 
 **8. Exiting on empty queue without scanning.** The queue being empty does not mean there is no work. The ASC bug tracker had 71 open items while the automation exited "nothing to do" for 24 hours. Doctrine 14 requires a five-point idle scan before any "nothing to do" exit. Every clean exit must cite what was scanned.
 
-### 14e. Skill Token Format
+### 14e. Worktree Merge-Back Rule
+
+**Every automation that uses `execution_environment = "worktree"` MUST merge its commits back to the default branch before exiting.** This is non-negotiable.
+
+Without this rule, Codex creates a fresh worktree each cycle. The agent works, commits, checkpoints, exits. The commits stay in the worktree branch. Next cycle: new worktree, new branch, duplicated work. After 48 hours you have 90+ orphan worktrees with real commits that never reached main.
+
+**The rule (add to block 7 — Execution):**
+```
+WORKTREE RULE: Before stopping, merge your worktree commits to the default branch.
+- If the work is complete and tests pass: merge to main, push, delete the worktree branch.
+- If the work is incomplete but safe: merge what you have, note remaining work in memory.
+- If the work conflicts or is unsafe to merge: record in Decision Log why not, and leave
+  the branch name in your memory note so the next cycle can resume it instead of creating new.
+- NEVER exit with unmerged worktree commits without explanation.
+- NEVER create a new worktree if a previous one for this lane has unmerged commits.
+```
+
+**How to detect orphan worktrees:**
+```bash
+# List worktrees with real branches (not detached HEAD)
+git worktree list | grep -v "detached HEAD" | grep -v "\[main\]"
+```
+
+**How to clean them up:**
+1. For each branch: check if commits are already on main (`git log main..<branch> --oneline`)
+2. If unique commits exist: cherry-pick or merge the valuable ones to main
+3. If already superseded: `git worktree remove <path> && git branch -D <branch>`
+4. For bulk cleanup: `git worktree prune` removes stale entries
+
+### 14f. Skill Token Format
 
 Skill tokens use the `$name` convention. They are shorthand for "load this skill file."
 
