@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+QUEUE.jsonl
+
+# Private project plans — never commit to public repo
+# Plans are external-mode (vidux.config.json) and stay local
+projects/
+
+# Temp files from checkpoint script
+tmp*.md
+
+# Claude Code local state
+.claude/

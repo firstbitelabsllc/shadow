@@ -1,0 +1,11 @@
+{
+  "name": "vidux",
+  "version": "1.0.0",
+  "description": "Plan-first orchestration for long-running AI work. The Redux of planned vibe coding.",
+  "author": "Leo Kwan",
+  "homepage": "https://github.com/leojkwan/vidux",
+  "commands": [
+    "commands"
+  ],
+  "hooks": "hooks"
+}

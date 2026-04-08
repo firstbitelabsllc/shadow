@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Vidux Discussion
+    url: https://github.com/leojkwan/vidux/issues
+    about: Use issues for adoption feedback, gaps, and public critique.
