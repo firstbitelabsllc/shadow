@@ -95,3 +95,12 @@ Tasks completed and archived from PLAN.md to keep context lean.
 - [completed] **16.1 Archive phases 8-12 to ARCHIVE.md** — 38 completed tasks moved. PLAN.md dropped from 230 to ~130 lines. Phases 1-7 were already headers-only. Phases 13-15 kept as recent context. [Done: 2026-04-07] [Evidence: loop context_warning]
 - [completed] **16.2 Prune stale project plans** — Scanned 9 project plans. Archived 2 (nextjs-cve-sweep 4/4, vidux-stress-test 6/6). 7 still active with pending tasks. vidux-v230 has 1 in_progress investigation (D3 backpressure). [Done: 2026-04-07] [Evidence: project scan]
 - [completed] **16.3 Update README.md with Phase 13-15 features** — Added "Fleet Intelligence (v2.3+)" section: circuit breaker, idle-churn detection, REDUCE gate, mid-zone kill, radar template, cross-platform compat. Updated "What Ships Here" with scripts/lib/, tests/, radar template. [Done: 2026-04-07] [Evidence: self-extending plan, Doctrine 11]
+
+## Archived 2026-04-08
+- [completed] **17.1 Fix SIGPIPE in vidux-loop.sh** — Wrapped 3 `grep|head` pipe patterns with `|| true` to prevent exit 141 under `set -euo pipefail`. Moved circuit breaker + auto_pause evaluation before early exits. Added `_FLEET_SUFFIX` to all 4 early-exit JSON paths for consistent schema. Fixed `self.ROOT` test bug and DOCTRINE.md `stateless` keyword. 30/30 loop tests pass. [Done: 2026-04-07] [Evidence: fleet-audit-11-automations.md#systemic-1]
+
+## Archived 2026-04-08
+- [completed] **17.1 Fix SIGPIPE in vidux-loop.sh** — Wrapped 3 `grep|head` pipe patterns with `|| true` to prevent exit 141 under `set -euo pipefail`. Moved circuit breaker + auto_pause evaluation before early exits. Added `_FLEET_SUFFIX` to all 4 early-exit JSON paths for consistent schema. Fixed `self.ROOT` test bug and DOCTRINE.md `stateless` keyword. 30/30 loop tests pass. [Done: 2026-04-07] [Evidence: fleet-audit-11-automations.md#systemic-1]
+
+## Archived 2026-04-08
+- [completed] **17.1 Fix SIGPIPE in vidux-loop.sh** — Wrapped 3 `grep|head` pipe patterns with `|| true` to prevent exit 141 under `set -euo pipefail`. Moved circuit breaker + auto_pause evaluation before early exits. Added `_FLEET_SUFFIX` to all 4 early-exit JSON paths for consistent schema. Fixed `self.ROOT` test bug and DOCTRINE.md `stateless` keyword. 30/30 loop tests pass. [Done: 2026-04-07] [Evidence: fleet-audit-11-automations.md#systemic-1]
