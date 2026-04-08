@@ -112,3 +112,6 @@ Tasks completed and archived from PLAN.md to keep context lean.
 - [completed] **17.4 Bake ledger into harness template** — Update `guides/vidux/radar-template.md` and `guides/vidux/best-practices.md` to make ledger reads mandatory in the READ step, not optional. Include sibling memory scan pattern. [Evidence: fleet-audit-11-automations.md#systemic-2]
 - [completed] **17.5 Blocker dedup gate** — If last 3 memory notes report the same blocker keyword, vidux-loop.sh emits `blocker_dedup: true` and REDUCE gate auto-pauses. Prevents `acme-launch-loop` pattern (5× same ASC key blocker in 6 hours). [Evidence: fleet-audit-11-automations.md#systemic-3]
 - [completed] **17.5 Blocker dedup gate** — If last 3 memory notes report the same blocker keyword, vidux-loop.sh emits `blocker_dedup: true` and REDUCE gate auto-pauses. Prevents `acme-launch-loop` pattern (5× same ASC key blocker in 6 hours). [Evidence: fleet-audit-11-automations.md#systemic-3]
+
+## Archived 2026-04-08
+- [completed] **17.7 Radar→writer inbox pattern** — Radars append findings to `INBOX.md` next to PLAN.md. Writers consume inbox entries and promote to `[pending]` tasks during READ step. Breaks the circular deadlock where radars observe but can't create work. [Evidence: fleet-audit-11-automations.md#systemic-2]

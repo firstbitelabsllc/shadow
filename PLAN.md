@@ -87,7 +87,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: `projects/vidux-self-investigation/evidence/2026-04-07-fleet-audit-11-automations.md`]
 
-- [completed] **17.7 Radar→writer inbox pattern** — Radars append findings to `INBOX.md` next to PLAN.md. Writers consume inbox entries and promote to `[pending]` tasks during READ step. Breaks the circular deadlock where radars observe but can't create work. [Evidence: fleet-audit-11-automations.md#systemic-2]
 - [completed] **17.8 Sub-plan tree traversal** — Add `[spawns: investigations/foo.md]` tag support to vidux-loop.sh. Script traverses sub-plans when parent task is in_progress, reports aggregate status. [Evidence: user question "maybe we're not doing a good enough job with keeping the task queue or sub plan tree"]
 - [completed] **17.9 Orchestrator fleet health mode** — Redesign orchestrator from "edit one prompt at a time" to "detect fleet-level patterns and take fleet-level action." When 6/11 automations REDUCE-exit, the orchestrator should notice and act, not wordsmith one radar prompt. [Evidence: fleet-audit-11-automations.md#why-5]
 
@@ -130,6 +129,17 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [completed] **20.5 Update PLAN.md Progress references** — Changed "Fleet watchdog" → "Fleet watch" in 5 Progress entries. [Done: 2026-04-08]
 - [completed] **20.6 Update vidux SKILL.md and DOCTRINE.md** — No watchdog refs in vidux docs. Fleet health scanning documented in /codex skill under `/codex watch`. Clean boundary: vidux = plans, codex = fleet ops. [Done: 2026-04-08]
 - [completed] **20.7 Rewrite all live automation prompts** — All 5 writers purged of REDUCE → Quick check gate with [QC] notes. Fixed exit conditions (removed `next_action:"none"` bug, added blocker_dedup). Fixed plan paths to ~/.vidux/projects/. 0 REDUCE refs across 6 automations. [Done: 2026-04-08]
+
+### Phase 21: Worktree Merge-Back Enforcement
+
+**Goal:** 90+ orphan worktrees found in resplit-ios. Automations create worktrees, do work, checkpoint, and exit — but never merge back to main. Next cycle creates a new worktree instead of resuming. This is a vidux core gap: the Worktree Handoff Protocol exists in SKILL.md but is not enforced in automation prompts or tooling.
+
+[Evidence: `git -C resplit-ios worktree list` shows 90+ branches with real commits stranded outside main. resplit-launch-loop correctly parks because only 1 commit landed on trunk — the other 90+ commits are in worktrees nobody merges.]
+
+- [completed] **21.1 Add merge-back rule to prompt templates** — Update `guides/vidux/best-practices.md` prompt structure: block 7 (Execution) must include "Before stopping: if you created commits in a worktree, merge to main or record why not. Never exit with unmerged worktree commits." Update the /codex skill Create template to match. [Evidence: 90+ orphan worktrees in resplit-ios]
+- [pending] **21.2 Add worktree-check to Quick Check gate** — Before creating a new worktree, the gate must check if a previous worktree for this lane has unmerged commits. If yes: resume it, merge it, or abandon with Decision Log entry. Never create a parallel worktree for the same lane. [Depends: 21.1]
+- [pending] **21.3 Update all live automation prompts with merge-back rule** — Add the merge-back directive to all 10 TOML files. Same pattern as 20.7 but for worktree discipline. [Depends: 21.1]
+- [pending] **21.4 Document worktree pruning guidance** — Add to /codex skill: how to audit and clean orphan worktrees. `git worktree list | grep -v "detached HEAD" | grep -v main` to find stranded work. Guidance on cherry-pick vs merge vs abandon. [Evidence: process gap]
 
 ### Phase 10 Open Questions
 - [x] Q6: Max plan nesting depth = 3, 4th allowed but flagged. Enforced by dashboard. [Decision Log entry exists.] [Done: 2026-04-07]
@@ -215,5 +225,4 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 2 tasks archived to ARCHIVE.md -->
-<!-- 2 tasks archived to ARCHIVE.md -->
+<!-- 1 tasks archived to ARCHIVE.md -->
