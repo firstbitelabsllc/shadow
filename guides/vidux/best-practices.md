@@ -318,9 +318,13 @@ Quick check gate (run FIRST, before any other work):
    Do NOT read authority files, load skills, or do any other work. Exit now.
 3. Read the last 3 memory notes. If the top note is a [QC] exit with the
    same reason as this run's JSON, exit with: "[QC] <date> unchanged. No deep work."
-4. If next_action is "dispatch": proceed to full execution below.
-Budget: steps 1-3 must complete in under 60 seconds. If you are still in the quick check
-after 60 seconds, you are in the mid-zone. Checkpoint what you know and exit.
+4. WORKTREE CHECK: Before creating a new worktree, check if a previous
+   worktree for this lane has unmerged commits:
+   git worktree list | grep "<this-lane-id>"
+   If found with unmerged commits: resume it (cd into it), do not create new.
+   If found but work is stale/superseded: remove it first, log in Decision Log.
+5. If next_action is "dispatch": proceed to full execution below.
+Budget: steps 1-4 must complete in under 60 seconds.
 ```
 
 ### Standalone variant (~800 chars)
@@ -342,7 +346,9 @@ Quick check gate (run FIRST, before any other work):
    INBOX.md → sibling memory → git log on owned paths → blocked task recheck → codebase TODO/FIXME scan.
    If any scan finds work: add to plan, proceed to execution.
    If all scans clean: exit with "[QC] <date> Five-point scan clean. No deep work."
-4. If actionable work exists: proceed to full execution below.
+4. WORKTREE CHECK: Before creating a new worktree, check if a previous
+   worktree for this lane has unmerged commits. If found: resume, merge, or abandon.
+5. If actionable work exists: proceed to full execution below.
 Budget: steps 1-3 must complete in under 60 seconds.
 ```
 
