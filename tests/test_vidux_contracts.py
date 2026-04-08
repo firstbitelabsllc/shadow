@@ -314,8 +314,7 @@ class ViduxContractTests(unittest.TestCase):
         """All vidux scripts must exist and be executable."""
         expected = [
             "vidux-loop.sh", "vidux-checkpoint.sh",
-            "vidux-gather.sh", "install-hooks.sh", "vidux-dispatch.sh",
-            "vidux-prune.sh", "vidux-fleet-quality.sh",
+            "vidux-doctor.sh", "vidux-test-all.sh",
         ]
         for name in expected:
             script = self.SCRIPTS_DIR / name
@@ -387,67 +386,7 @@ class ViduxContractTests(unittest.TestCase):
         """)
         self.assertEqual(data["process_fix_declared"], "test")
 
-    def test_vidux_dispatch_dry_run_exposes_contract(self):
-        """vidux-dispatch.sh --dry-run must emit the dispatch contract surface."""
-        import tempfile, os
-        plan_text = textwrap.dedent("""\
-            # Test Plan
-            ## Tasks
-            - [pending] Task 1: Build feature [Evidence: src]
-            ## Progress
-        """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-            f.write(plan_text)
-            tmp = f.name
-        try:
-            result = subprocess.run(
-                ["bash", str(self.SCRIPTS_DIR / "vidux-dispatch.sh"), tmp, "--dry-run"],
-                capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, f"vidux-dispatch.sh failed: {result.stderr}")
-            data = json.loads(result.stdout)
-            self.assertEqual(data["mode"], "dry_run")
-            self.assertEqual(data["recommendation"], "fire_dispatch")
-            self.assertIn("next_task", data)
-        finally:
-            os.unlink(tmp)
-
-    def test_vidux_dispatch_assessment_exposes_protocol(self):
-        """vidux-dispatch.sh must expose dispatch-mode action and protocol fields."""
-        import tempfile, os
-        plan_text = textwrap.dedent("""\
-            # Test Plan
-            ## Tasks
-            - [pending] Task 1: Build feature [Evidence: src]
-            ## Progress
-        """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-            f.write(plan_text)
-            tmp = f.name
-        try:
-            result = subprocess.run(
-                ["bash", str(self.SCRIPTS_DIR / "vidux-dispatch.sh"), tmp],
-                capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, f"vidux-dispatch.sh failed: {result.stderr}")
-            data = json.loads(result.stdout)
-            self.assertEqual(data["mode"], "dispatch")
-            self.assertEqual(data["action"], "execute_dispatch")
-            self.assertIn("dispatch_protocol", data)
-            self.assertIn("stop_conditions", data["dispatch_protocol"])
-        finally:
-            os.unlink(tmp)
-
-    def test_vidux_gather_produces_output(self):
-        """vidux-gather.sh must produce non-empty output with tier structure."""
-        result = subprocess.run(
-            ["bash", str(self.SCRIPTS_DIR / "vidux-gather.sh"), "test topic"],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertEqual(result.returncode, 0, f"vidux-gather.sh failed: {result.stderr}")
-        self.assertIn("Tier 1", result.stdout)
-        self.assertIn("Tier 2", result.stdout)
-        self.assertIn("Tier 3", result.stdout)
+    # Tests for vidux-dispatch.sh and vidux-gather.sh removed — scripts deleted in v2.6.0 fleet cleanup
 
     # -----------------------------------------------------------------------
     # Commands contracts
@@ -1108,11 +1047,16 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("external", text)
         self.assertIn("inline", text)
 
-    def test_projects_directory_exists(self):
-        """projects/ must exist and be a directory."""
-        projects = ROOT / "projects"
-        self.assertTrue(projects.exists())
-        self.assertTrue(projects.is_dir())
+    def test_plan_store_resolvable(self):
+        """resolve-plan-store.sh must exist and resolve_plan_store must return a path."""
+        resolver = self.SCRIPTS_DIR / "lib" / "resolve-plan-store.sh"
+        self.assertTrue(resolver.exists(), "scripts/lib/resolve-plan-store.sh missing")
+        result = subprocess.run(
+            ["bash", "-c", f'VIDUX_ROOT="{ROOT}" source "{resolver}" && resolve_plan_store'],
+            capture_output=True, text=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, f"resolve_plan_store failed: {result.stderr}")
+        self.assertTrue(len(result.stdout.strip()) > 0, "resolve_plan_store returned empty")
 
     def test_checkpoint_outcome_useful_appears_in_progress(self):
         """checkpoint.sh --outcome useful must write 'outcome=useful' into the Progress entry."""
@@ -1852,106 +1796,7 @@ class ViduxContractTests(unittest.TestCase):
         self.assertEqual(data["type"], "done")
         self.assertEqual(data["next_action"], "none")
 
-    def test_dispatch_exit_criteria_in_output(self):
-        """vidux-dispatch.sh must include exit_criteria fields in JSON output."""
-        plan_text = textwrap.dedent("""\
-            # Test Plan
-            ## Tasks
-            - [pending] Task 1: Build feature [Evidence: src]
-            ## Exit Criteria
-            - [ ] All tests pass
-            ## Progress
-        """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-            f.write(plan_text)
-            tmp = f.name
-        try:
-            result = subprocess.run(
-                ["bash", str(self.SCRIPTS_DIR / "vidux-dispatch.sh"), tmp],
-                capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, f"vidux-dispatch.sh failed: {result.stderr}")
-            data = json.loads(result.stdout)
-            self.assertIn("exit_criteria_met", data)
-            self.assertIn("exit_criteria_pending", data)
-            self.assertFalse(data["exit_criteria_met"])
-            self.assertEqual(data["exit_criteria_pending"], 1)
-        finally:
-            os.unlink(tmp)
-
-    def test_dispatch_rejects_queue_empty_when_criteria_unmet(self):
-        """vidux-dispatch.sh must not declare queue_empty when exit criteria are pending."""
-        plan_text = textwrap.dedent("""\
-            # Test Plan
-            ## Tasks
-            - [completed] Task 1: Done [Evidence: src]
-            ## Exit Criteria
-            - [ ] All tests pass
-            ## Progress
-        """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-            f.write(plan_text)
-            tmp = f.name
-        try:
-            result = subprocess.run(
-                ["bash", str(self.SCRIPTS_DIR / "vidux-dispatch.sh"), tmp],
-                capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, f"vidux-dispatch.sh failed: {result.stderr}")
-            data = json.loads(result.stdout)
-            self.assertNotEqual(data["action"], "queue_empty")
-            self.assertEqual(data["action"], "exit_criteria_pending")
-        finally:
-            os.unlink(tmp)
-
-    def test_dispatch_allows_queue_empty_when_criteria_met(self):
-        """vidux-dispatch.sh must declare queue_empty when all exit criteria are satisfied."""
-        plan_text = textwrap.dedent("""\
-            # Test Plan
-            ## Tasks
-            - [completed] Task 1: Done [Evidence: src]
-            ## Exit Criteria
-            - [x] All tests pass
-            ## Progress
-        """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-            f.write(plan_text)
-            tmp = f.name
-        try:
-            result = subprocess.run(
-                ["bash", str(self.SCRIPTS_DIR / "vidux-dispatch.sh"), tmp],
-                capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, f"vidux-dispatch.sh failed: {result.stderr}")
-            data = json.loads(result.stdout)
-            self.assertEqual(data["action"], "queue_empty")
-        finally:
-            os.unlink(tmp)
-
-    def test_dispatch_dry_run_exit_criteria_pending_recommendation(self):
-        """vidux-dispatch.sh --dry-run must recommend exit_criteria_pending when tasks done but criteria unmet."""
-        plan_text = textwrap.dedent("""\
-            # Test Plan
-            ## Tasks
-            - [completed] Task 1: Done [Evidence: src]
-            ## Exit Criteria
-            - [ ] All tests pass
-            ## Progress
-        """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-            f.write(plan_text)
-            tmp = f.name
-        try:
-            result = subprocess.run(
-                ["bash", str(self.SCRIPTS_DIR / "vidux-dispatch.sh"), tmp, "--dry-run"],
-                capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, f"vidux-dispatch.sh --dry-run failed: {result.stderr}")
-            data = json.loads(result.stdout)
-            self.assertEqual(data["recommendation"], "exit_criteria_pending")
-            self.assertFalse(data["exit_criteria_met"])
-        finally:
-            os.unlink(tmp)
+    # Tests for vidux-dispatch.sh exit criteria removed — script deleted in v2.6.0
 
     def test_skill_has_exit_criteria_in_plan_template(self):
         """SKILL.md PLAN.md template must include ## Exit Criteria as an optional section."""
@@ -2084,68 +1929,18 @@ class ViduxContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"ledger-query.sh source failed: {result.stderr}")
 
     # -----------------------------------------------------------------------
-    # vidux-prune.sh contracts
+    # # vidux-prune.sh contracts — removed (script deleted in v2.6.0)
     # -----------------------------------------------------------------------
 
-    def test_prune_script_exits_with_usage_on_no_args(self):
-        """vidux-prune.sh with no subcommand must print usage and exit 2."""
-        result = subprocess.run(
-            ["bash", str(self.SCRIPTS_DIR / "vidux-prune.sh")],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("Usage:", result.stderr)
-
-    def test_prune_pressure_produces_json(self):
-        """vidux-prune.sh pressure --json must produce valid JSON with required fields."""
-        result = subprocess.run(
-            ["bash", str(self.SCRIPTS_DIR / "vidux-prune.sh"), "pressure", "--json"],
-            capture_output=True, text=True, timeout=15,
-        )
-        self.assertEqual(result.returncode, 0, f"vidux-prune.sh pressure failed: {result.stderr}")
-        data = json.loads(result.stdout)
-        for key in ("subcommand", "score", "level", "signals"):
-            self.assertIn(key, data, f"prune pressure output missing key: {key}")
-        self.assertEqual(data["subcommand"], "pressure")
-        self.assertIn(data["level"], ("normal", "warning", "critical"))
-
-    def test_prune_pressure_simulate_is_safe(self):
-        """vidux-prune.sh pressure --simulate --json must not modify anything."""
-        result = subprocess.run(
-            ["bash", str(self.SCRIPTS_DIR / "vidux-prune.sh"), "pressure", "--simulate", "--json"],
-            capture_output=True, text=True, timeout=15,
-        )
-        self.assertEqual(result.returncode, 0)
-        data = json.loads(result.stdout)
-        self.assertEqual(data["subcommand"], "pressure")
-
-    def test_prune_has_five_subcommands(self):
-        """vidux-prune.sh must support plans, worktrees, ledger, all, pressure subcommands."""
-        text = _read(self.SCRIPTS_DIR / "vidux-prune.sh")
-        for sub in ["plans", "worktrees", "ledger", "all", "pressure"]:
-            self.assertIn(sub, text, f"vidux-prune.sh missing subcommand: {sub}")
-
+    # def test_prune_script_exits_with_usage_on_no_args(self): — removed (script deleted in v2.6.0)
+    # def test_prune_pressure_produces_json(self): — removed (script deleted in v2.6.0)
+    # def test_prune_pressure_simulate_is_safe(self): — removed (script deleted in v2.6.0)
+    # def test_prune_has_five_subcommands(self): — removed (script deleted in v2.6.0)
     # -----------------------------------------------------------------------
-    # vidux-fleet-quality.sh contracts
+    # # vidux-fleet-quality.sh contracts — removed (script deleted in v2.6.0)
     # -----------------------------------------------------------------------
 
-    def test_fleet_quality_produces_json_with_no_automations_dir(self):
-        """vidux-fleet-quality.sh --json with no automations dir must produce valid JSON."""
-        result = subprocess.run(
-            ["bash", str(self.SCRIPTS_DIR / "vidux-fleet-quality.sh"), "--json",
-             "--dir", "/tmp/nonexistent-vidux-automations"],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertEqual(result.returncode, 0)
-        data = json.loads(result.stdout)
-        self.assertIn("error", data)
-        self.assertIn("automations", data)
-
-    def test_fleet_quality_classifies_bimodal_buckets(self):
-        """vidux-fleet-quality.sh source must define the bimodal classification buckets."""
-        text = _read(self.SCRIPTS_DIR / "vidux-fleet-quality.sh")
-        for bucket in ["quick", "deep", "mid", "normal"]:
-            self.assertIn(bucket, text, f"vidux-fleet-quality.sh missing bucket: {bucket}")
+    # Tests for vidux-fleet-quality.sh removed — script deleted in v2.6.0
 
     # -----------------------------------------------------------------------
     # Phase 10-12 commands: frontmatter + required sections
@@ -2196,16 +1991,16 @@ class ViduxContractTests(unittest.TestCase):
     # Cross-doc: SKILL.md must reference Phase 10-12 concepts
     # -----------------------------------------------------------------------
 
-    def test_skill_has_dispatch_reduce_terminology(self):
-        """SKILL.md must use dispatch/reduce terminology (not burst/watch)."""
+    def test_skill_has_quick_check_terminology(self):
+        """SKILL.md must use quick check / deep work terminology."""
         text = _read(SKILL)
         self.assertTrue(
-            "dispatch" in text.lower() or "DISPATCH" in text,
-            "SKILL.md missing dispatch terminology",
+            "deep work" in text.lower() or "dispatch" in text.lower(),
+            "SKILL.md missing deep work / dispatch terminology",
         )
         self.assertTrue(
-            "reduce" in text.lower() or "REDUCE" in text,
-            "SKILL.md missing reduce terminology",
+            "quick check" in text.lower() or "REDUCE" in text,
+            "SKILL.md missing quick check terminology (or REDUCE technical identifier)",
         )
 
     def test_skill_has_bimodal_concept(self):
@@ -2228,16 +2023,7 @@ class ViduxContractTests(unittest.TestCase):
     # Phase 12: Continuous Feedback Loop contracts                          #
     # ===================================================================== #
 
-    def test_dispatch_merge_gate_mode(self):
-        """vidux-dispatch.sh --merge-gate must produce valid JSON with merge_gate field."""
-        result = subprocess.run(
-            ["bash", str(ROOT / "scripts" / "vidux-dispatch.sh"), str(PLAN), "--merge-gate"],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertEqual(result.returncode, 0, f"merge-gate failed: {result.stderr}")
-        data = json.loads(result.stdout)
-        self.assertIn("merge_gate", data)
-        self.assertIn(data["merge_gate"], ["skip", "merged", "conflict", "blocked"])
+    # test_dispatch_merge_gate_mode removed — vidux-dispatch.sh deleted in v2.6.0
 
     def test_loop_auto_pause_fields(self):
         """vidux-loop.sh JSON must include auto_pause_recommended and unproductive_streak."""
@@ -2306,12 +2092,7 @@ class ViduxContractTests(unittest.TestCase):
         )
         self.assertIn("ok", result.stdout)
 
-    def test_witness_script_exists_and_executable(self):
-        """vidux-witness.sh must exist and be executable."""
-        witness = ROOT / "scripts" / "vidux-witness.sh"
-        self.assertTrue(witness.exists(), "vidux-witness.sh missing")
-        self.assertTrue(os.access(witness, os.X_OK), "vidux-witness.sh not executable")
-
+    # def test_witness_script_exists_and_executable(self): — removed (script deleted in v2.6.0)
     def test_hooks_include_lifecycle_hooks(self):
         """hooks.json must include beforeTask and afterTask lifecycle hooks."""
         hooks_file = ROOT / "hooks" / "hooks.json"
@@ -2347,26 +2128,8 @@ class ViduxContractTests(unittest.TestCase):
 
     # --- Phase 13.6-13.10: Coverage gap tests -------------------------------- #
 
-    def test_witness_produces_valid_json(self):
-        """vidux-witness.sh must produce valid JSON with fleet_grade and counts."""
-        result = subprocess.run(
-            ["bash", str(self.SCRIPTS_DIR / "vidux-witness.sh")],
-            capture_output=True, text=True, timeout=30,
-        )
-        data = json.loads(result.stdout)
-        self.assertIn("fleet_grade", data)
-        self.assertIn("counts", data)
-        self.assertIn("total", data["counts"])
-
-    def test_witness_fleet_grade_is_letter(self):
-        """vidux-witness.sh fleet_grade must be A-F."""
-        result = subprocess.run(
-            ["bash", str(self.SCRIPTS_DIR / "vidux-witness.sh")],
-            capture_output=True, text=True, timeout=30,
-        )
-        data = json.loads(result.stdout)
-        self.assertIn(data["fleet_grade"], list("ABCDF"))
-
+    # def test_witness_produces_valid_json(self): — removed (script deleted in v2.6.0)
+    # def test_witness_fleet_grade_is_letter(self): — removed (script deleted in v2.6.0)
     def test_skill_has_compound_tasks_section(self):
         """SKILL.md must document compound tasks and investigations."""
         text = _read(ROOT / "SKILL.md")
@@ -2468,12 +2231,12 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("REDUCE", content)
         self.assertIn("gate", content.lower())
 
-    def test_reduce_gate_in_best_practices(self):
-        """best-practices.md must have the REDUCE gate pattern section."""
+    def test_quick_check_gate_in_best_practices(self):
+        """best-practices.md must have the Quick check gate pattern section."""
         bp = ROOT / "guides" / "vidux" / "best-practices.md"
         if bp.exists():
             content = bp.read_text()
-            self.assertIn("REDUCE Gate", content)
+            self.assertIn("Quick Check Gate", content)
 
     def test_compat_lib_exists(self):
         """scripts/lib/compat.sh must exist for OS portability."""
@@ -2485,22 +2248,8 @@ class ViduxContractTests(unittest.TestCase):
         for fn in ["file_mtime_epoch", "dir_newest_mtime", "parse_date_epoch", "parse_iso_epoch"]:
             self.assertIn(fn, content, f"Missing function: {fn}")
 
-    def test_prune_uses_compat(self):
-        """vidux-prune.sh must source compat.sh, not use raw stat -f."""
-        content = (self.SCRIPTS_DIR / "vidux-prune.sh").read_text()
-        self.assertIn("source", content)
-        self.assertIn("compat.sh", content)
-        # Should not have raw macOS-only stat calls
-        self.assertNotIn("stat -f '%m'", content)
-
-    def test_witness_uses_compat(self):
-        """vidux-witness.sh must source compat.sh, not use raw date -j -f."""
-        content = (self.SCRIPTS_DIR / "vidux-witness.sh").read_text()
-        self.assertIn("compat.sh", content)
-        # Should not have raw macOS-only date calls
-        self.assertNotIn("date -j -f", content)
-
-
+    # def test_prune_uses_compat(self): — removed (script deleted in v2.6.0)
+    # def test_witness_uses_compat(self): — removed (script deleted in v2.6.0)
     # === Phase 15: Fleet Intelligence Contract Tests ===
 
     def test_loop_has_circuit_breaker_fields(self):

@@ -56,7 +56,7 @@ This is non-negotiable — the user needs to see what phase you're in at all tim
 1. Load the `vidux` skill and `LOOP.md`.
 2. Read `vidux.config.json`.
 3. Resolve the authority store:
-   - If `plan_store.mode` is `external`, read or create `projects/<project-name>/PLAN.md`.
+   - If `plan_store.mode` is `external`, resolve `plan_store.path` from config (e.g. `~/.vidux/projects`), then read or create `<resolved-path>/<project-name>/PLAN.md`.
    - If `plan_store.mode` is `inline`, read or create `PLAN.md` in the current repo branch.
 4. Read the authority `PLAN.md`, `## Decision Log`, latest `## Progress`, and `git diff --stat`.
 5. Treat v1 checkboxes as compatible input: `- [ ]` = `[pending]`, `- [x]` = `[completed]`.

@@ -83,9 +83,9 @@ that belongs in the skill or template.
 | beacon-flow-radar | Buyer path | $playwright | Auth flow, onboarding, checkout entry probes |
 | beacon-revenue-radar | Stripe/payments | $posthog-analytics | Stripe contract paths, env contracts, revenue metrics |
 
-## SCAN gate vs REDUCE gate
+## SCAN gate vs Quick check gate
 
-This template uses the **SCAN gate**, not the REDUCE gate. Radars are read-only observers
+This template uses the **SCAN gate**, not the Quick check gate. Radars are read-only observers
 that inspect the codebase or live product for issues. They check *reality* (git history,
-file state, live surfaces), not *plan state*. The REDUCE gate belongs in writer automations
+file state, live surfaces), not *plan state*. The Quick check gate belongs in writer automations
 that execute plan tasks. See the best-practices guide, Section 12, for the full comparison.

@@ -11,6 +11,9 @@ set -euo pipefail
 # --- defaults --------------------------------------------------------------- #
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/resolve-plan-store.sh
+source "$SCRIPT_DIR/lib/resolve-plan-store.sh" 2>/dev/null || true
+PLAN_STORE="$(VIDUX_ROOT="$REPO" resolve_plan_store 2>/dev/null || echo "$REPO/projects")"
 JSON_MODE=false; FIX_MODE=false; STALE_DAYS=3; MAX_WT=5; MAX_BROWSER_PROCS=7
 MAX_BROWSER_SESSION_MINUTES=15
 MAX_CODEX_ACTIVE_THREADS=400
@@ -641,7 +644,7 @@ _check_dual_active_automations() {
       st="$(grep -o 'status = "[^"]*"' "$toml" 2>/dev/null | grep -o '"[^"]*"' | tr -d '"' || true)"
       [[ "$st" != "ACTIVE" ]] && continue
       name="$(basename "$(dirname "$toml")")"
-      plan_ref="$(grep -oE 'projects/[^/]+/PLAN\.md' "$toml" 2>/dev/null | head -1 || true)"
+      plan_ref="$(grep -oE '(projects/[^/]+/PLAN\.md|\.vidux/projects/[^/]+/PLAN\.md|[^[:space:]]*/PLAN\.md)' "$toml" 2>/dev/null | head -1 || true)"
       [[ -z "$plan_ref" ]] && continue
       plan_map="${plan_map}${name}|${plan_ref}\n"
     done
@@ -1009,9 +1012,16 @@ _check_missing_active_worktrees() {
       [[ "$exec_env" != "worktree" ]] && continue
       st="$(grep -o 'status = "[^"]*"' "$toml" 2>/dev/null | grep -o '"[^"]*"' | tr -d '"' || true)"
       [[ "$st" != "ACTIVE" ]] && continue
-      plan_ref="$(grep -oE 'projects/[^/]+/PLAN\.md' "$toml" 2>/dev/null | head -1 || true)"
+      plan_ref="$(grep -oE '(projects/[^/]+/PLAN\.md|\.vidux/projects/[^/]+/PLAN\.md|[^[:space:]]*/PLAN\.md)' "$toml" 2>/dev/null | head -1 || true)"
       [[ -z "$plan_ref" ]] && continue
-      plan_path="$REPO/$plan_ref"
+      # Resolve plan path: absolute paths stay, relative paths resolve from PLAN_STORE or REPO
+      if [[ "$plan_ref" == /* ]]; then
+        plan_path="$plan_ref"
+      elif [[ "$plan_ref" == *".vidux/projects/"* ]]; then
+        plan_path="$HOME/${plan_ref#*/}"
+      else
+        plan_path="$REPO/$plan_ref"
+      fi
       [[ ! -f "$plan_path" ]] && continue
       if ! grep -q '^## Active Worktrees' "$plan_path" 2>/dev/null; then
         local auto_name

@@ -305,19 +305,19 @@ There are two gate patterns. Which one you use depends on the automation's job:
 Use this when the automation loads `$vidux` and has access to `vidux-loop.sh`. This is the standard variant for all Acme and Beacon automations.
 
 ```
-REDUCE gate (run FIRST, before any other work):
+Quick check gate (run FIRST, before any other work):
 1. Run: bash scripts/vidux-loop.sh <plan-path>
 2. Read the JSON output. If ANY of these are true, checkpoint and exit immediately:
    - action is "blocked" or "auto_blocked" or "stuck" or "all_blocked"
-   - action is "complete" or type is "done" or "empty" (BUT if queue_starved is true, proceed to five-point idle scan instead of exiting)
+   - action is "complete" AND type is "done" AND queue_starved is false
+   - type is "empty" (no tasks in plan)
    - auto_pause_recommended is true
    - blocker_dedup is true (same blocker reported 3+ times -- stop wasting cycles)
    - bimodal_gate is "blocked"
-   - next_action is "none"
-   Write a 1-line memory note: "[REDUCE] <date> <reason>. No deep work."
+   Write a 1-line memory note: "[QC] <date> <reason>. No deep work."
    Do NOT read authority files, load skills, or do any other work. Exit now.
-3. Read the last 3 memory notes. If the top note is a [REDUCE] exit with the
-   same reason as this run's JSON, exit with: "[REDUCE] <date> unchanged. No deep work."
+3. Read the last 3 memory notes. If the top note is a [QC] exit with the
+   same reason as this run's JSON, exit with: "[QC] <date> unchanged. No deep work."
 4. If next_action is "dispatch": proceed to full execution below.
 Budget: steps 1-3 must complete in under 60 seconds. If you are still in the quick check
 after 60 seconds, you are in the mid-zone. Checkpoint what you know and exit.
@@ -328,20 +328,20 @@ after 60 seconds, you are in the mid-zone. Checkpoint what you know and exit.
 Use this when the automation does not have `vidux-loop.sh` or operates outside the vidux plan-store model. The agent reads its own memory and primary state file directly.
 
 ```
-REDUCE gate (run FIRST, before any other work):
+Quick check gate (run FIRST, before any other work):
 1. Read the last 3 notes from this automation's memory file.
 2. If the most recent note says any of: "blocked", "nothing to do", "unchanged",
    "no pending", "waiting on human", "same blocker" -- and it was written less
    than 2 hours ago -- exit immediately with a 1-line note:
-   "[REDUCE] <date> Same state as last run (<quote reason>). No deep work."
+   "[QC] <date> Same state as last run (<quote reason>). No deep work."
    Do NOT read authority files, load skills, or gather evidence. Exit now.
 3. Read the single primary state file (plan, queue, or tracker). Count actionable
    items. If zero actionable items and no new items since the last note, exit with:
-   "[REDUCE] <date> No new work. No deep work."
+   "[QC] <date> No new work. No deep work."
 3.5. If zero items in the primary file, run the five-point idle scan (Doctrine 14):
    INBOX.md → sibling memory → git log on owned paths → blocked task recheck → codebase TODO/FIXME scan.
    If any scan finds work: add to plan, proceed to execution.
-   If all scans clean: exit with "[REDUCE] <date> Five-point scan clean. No deep work."
+   If all scans clean: exit with "[QC] <date> Five-point scan clean. No deep work."
 4. If actionable work exists: proceed to full execution below.
 Budget: steps 1-3 must complete in under 60 seconds.
 ```
@@ -490,7 +490,7 @@ A harness prompt is not prose. It is a machine-readable contract between the cro
 ```
 1. MISSION        — One line. User-visible goal. No implementation details.
 2. SKILLS         — Load skills: $vidux, $pilot, $picasso, etc.
-3. GATE           — REDUCE or SCAN. Runs FIRST. Decides work/exit in <60 sec.
+3. GATE           — Quick check or SCAN. Runs FIRST. Decides work/exit in <60 sec.
 4. AUTHORITY      — Read order for plan files. Primary state file is #1.
 5. CROSS-LANE     — Read sibling memory notes + hot-files. Dedup, yield, skip.
 6. ROLE BOUNDARY  — What this lane owns. What belongs to siblings.
@@ -515,7 +515,7 @@ Remember to always follow the plan-first methodology. The plan is the
 store, code is the view. Always gather evidence before coding. Use the
 50/30/20 split. Never code without a plan entry.
 
-REDUCE gate:
+Quick check gate:
 1. Run: bash scripts/vidux-loop.sh projects/acme/PLAN.md
 2. If action is "complete" or "done", exit.
 3. Otherwise proceed.
@@ -556,16 +556,16 @@ Every bug fix leaves the UI better than the reporter expected.
 
 Load skills: $vidux, $pilot, $picasso, $bigapple, $xcodebuild
 
-REDUCE gate (run FIRST, before any other work):
+Quick check gate (run FIRST, before any other work):
 1. Read the last 3 notes from this automation's memory file.
 2. If the most recent note says any of: "blocked", "nothing to do",
    "unchanged", "no pending", "waiting on human", "same blocker"
    -- and it was written less than 2 hours ago -- exit immediately:
-   "[REDUCE] <date> Same state as last run (<quote reason>). No deep work."
+   "[QC] <date> Same state as last run (<quote reason>). No deep work."
    Do NOT read authority files, load skills, or gather evidence. Exit now.
 3. Read /path/to/acme-ios/plans/app-store-feedback.plan.md.
    Count open/pending bug items. If zero, exit with:
-   "[REDUCE] <date> No pending ASC bugs. No deep work."
+   "[QC] <date> No pending ASC bugs. No deep work."
 4. If actionable bugs exist: proceed to full execution below.
 Budget: steps 1-3 must complete in under 60 seconds.
 
@@ -603,17 +603,17 @@ Checkpoint:
 ```
 What does the automation DO?
      |
-     +--> Executes plan tasks, has vidux-loop.sh --> REDUCE (With-Vidux)
+     +--> Executes plan tasks, has vidux-loop.sh --> Quick check (With-Vidux)
      |         e.g., acme-web, beacon-release-train
      |
-     +--> Executes tasks, no vidux-loop.sh      --> REDUCE (Standalone)
+     +--> Executes tasks, no vidux-loop.sh      --> Quick check (Standalone)
      |         e.g., acme-asc (reads repo plan), acme-launch-loop (reads git state)
      |
      +--> Inspects codebase or product           --> SCAN
      |         e.g., acme-localization-pro, ux-radar, security-scanner
      |
-     +--> Not sure                               --> Default to REDUCE (Standalone)
-              Writer that finds nothing just exits. Scanner on REDUCE is permanently dead.
+     +--> Not sure                               --> Default to Quick check (Standalone)
+              Writer that finds nothing just exits. Scanner on Quick check gate is permanently dead.
 ```
 
 **The critical asymmetry:** A writer on the wrong plan file exits cleanly (no work found). A scanner on a quick check gate is permanently dead — it checks plan state instead of codebase state, finds "nothing to do," and exits every cycle forever. This is why the default is writer, not scanner. A miscategorized writer wastes one cycle. A miscategorized scanner never runs.

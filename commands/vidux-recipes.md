@@ -258,7 +258,7 @@ Generate a lean harness file for a specific role on a project. WRITES one new au
    - **Taste/self-extend:** "add tasks you discover; UI proof gates required"
    - **Bounded recursion:** "stop polishing surfaces that are honestly good enough"
 
-   **Gate selection:** Writers and coordinators get the REDUCE gate (checks PLAN.md task state). Radars and specialists with scanner focus get the SCAN gate (checks codebase for changes since last scan). See `guides/vidux/best-practices.md` Section 12 for both gate blocks.
+   **Gate selection:** Writers and coordinators get the Quick check gate (checks PLAN.md task state). Radars and specialists with scanner focus get the SCAN gate (checks codebase for changes since last scan). See `guides/vidux/best-practices.md` Section 12 for both gate blocks.
 
 3. **⚡ EXECUTE — Generate the harness.**
 
@@ -415,7 +415,7 @@ Score existing automations for a project against Doctrine 8 + the new automation
    | Check | Pass criteria | Severity if fail |
    |-------|--------------|------------------|
    | Line count | ≤ 15 lines (hard) / ≤ 20 lines (critical) | high / blocker |
-   | Correct gate | Writers have REDUCE gate; radars have SCAN gate (not REDUCE) | high |
+   | Correct gate | Writers have Quick check gate; radars have SCAN gate (not Quick check) | high |
    | "Keep working" directive (writers only) | Contains "keep working" or "until a real boundary" | high |
    | UI proof gate (writers + UX radars) | Mentions screenshot/visual/$picasso/$bigapple/$playwright | medium |
    | Self-extend directive | Mentions "add tasks", "file related", "extend the plan" | medium |
@@ -437,7 +437,7 @@ Score existing automations for a project against Doctrine 8 + the new automation
    ────────────────────────────────────
    acme-vidux (writer)              8/9 ✓
      ✓ Lines 12/15
-     ✓ correct gate (REDUCE — writer)
+     ✓ correct gate (Quick check — writer)
      ✓ keep-working
      ✓ UI proof gate ($picasso, $bigapple)
      ✓ self-extend
@@ -459,14 +459,14 @@ Score existing automations for a project against Doctrine 8 + the new automation
 
    acme-launch-loop (radar/flow)    4/9 ✗ NEEDS REWRITE
      ✗ Lines 22/15 — over by 7
-     ✗ correct gate — has REDUCE gate, should be SCAN (radar)
+     ✗ correct gate — has Quick check gate, should be SCAN (radar)
      ✗ bounded-recursion missing
      ✗ doctrine restated lines 12-18 (FSM rules) — REMOVE
      ⚠ bimodal 1 quick / 3 mid — STUCK IN MIDDLE
 
    acme-oversight (coordinator)     8/9 ✓
      ✓ Lines 14/15
-     ✓ correct gate (REDUCE — coordinator)
+     ✓ correct gate (Quick check — coordinator)
      ✓ keep-working (coord variant)
      N/A UI proof gate (coordinator)
      ✓ bounded-recursion

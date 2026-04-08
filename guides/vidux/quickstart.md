@@ -88,7 +88,7 @@ This is how Vidux runs unattended (cron loops, overnight work). Two modes:
 **Deep work** (15+ minutes, real work): Drains the queue. Executes tasks, runs builds, ships code. No upper time bound -- it yields only on queue drain, hard blocker, or context budget.
 
 ```
-Cron fires quick check (REDUCE gate)
+Cron fires quick check gate
     |
     +--> nothing pending? --> exit
     |

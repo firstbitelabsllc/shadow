@@ -72,7 +72,7 @@ Vidux includes self-healing mechanisms for automation fleets:
 
 - **Circuit breaker** — `vidux-loop.sh` blocks deep work after N consecutive idle cycles (configurable, default 3). Prevents automations from burning cycles without shipping.
 - **Idle-churn detection** — `vidux-witness.sh` reports per-automation `idle_churn_pct`. Automations where >50% of runs produce nothing get flagged.
-- **Quick check gate** (REDUCE gate in scripts) — a copy-paste prompt block that forces agents to check for actionable work before loading skills or reading files. Exits in <60s when nothing to do.
+- **Quick check gate** (quick check in scripts) — a copy-paste prompt block that forces agents to check for actionable work before loading skills or reading files. Exits in <60s when nothing to do.
 - **Mid-zone kill** — deep-work enforcement: 3+ minutes with no file write = checkpoint and exit. Targets the 3-8 minute "stuck agent masquerading as polite" pattern.
 - **Radar template** — shared harness template for read-only observer automations (`guides/vidux/radar-template.md`). ~800-1200 chars per radar prompt.
 - **Cross-platform** — `scripts/lib/compat.sh` abstracts macOS/Linux differences (stat, date).
