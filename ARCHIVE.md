@@ -115,3 +115,7 @@ Tasks completed and archived from PLAN.md to keep context lean.
 
 ## Archived 2026-04-08
 - [completed] **17.7 Radar→writer inbox pattern** — Radars append findings to `INBOX.md` next to PLAN.md. Writers consume inbox entries and promote to `[pending]` tasks during READ step. Breaks the circular deadlock where radars observe but can't create work. [Evidence: fleet-audit-11-automations.md#systemic-2]
+
+## Archived 2026-04-08
+- [completed] **17.8 Sub-plan tree traversal** — Add `[spawns: investigations/foo.md]` tag support to vidux-loop.sh. Script traverses sub-plans when parent task is in_progress, reports aggregate status. [Evidence: user question "maybe we're not doing a good enough job with keeping the task queue or sub plan tree"]
+- [completed] **17.9 Orchestrator fleet health mode** — Redesign orchestrator from "edit one prompt at a time" to "detect fleet-level patterns and take fleet-level action." When 6/11 automations REDUCE-exit, the orchestrator should notice and act, not wordsmith one radar prompt. [Evidence: fleet-audit-11-automations.md#why-5]
