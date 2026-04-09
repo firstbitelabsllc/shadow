@@ -1,9 +1,9 @@
 {
   "version": "1.0",
   "plan_store": {
-    "mode": "external",
-    "path": "~/.vidux/projects",
-    "_comment": "Plans live at ~/.vidux/projects/ — NOT in the repo. Each machine resolves ~ to its own home dir."
+    "mode": "local",
+    "path": "~/Development/vidux/projects",
+    "_comment": "Plans live in the leojkwan/vidux repo at ~/Development/vidux/projects/ — tracked in git and synced across machines."
   },
   "defaults": {
     "archive_threshold": 30,
