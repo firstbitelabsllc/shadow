@@ -622,14 +622,37 @@ in the plan. Without this protocol, cron agents duplicate work or create competi
    edits — confine changes to their own task status updates. A branch that carries a full PLAN.md
    rewrite from 3 weeks ago will silently delete every task added since it diverged.
 
-6. **Branch absorption.** The lead writer for each plan must check for unmerged sibling branches during its READ step:
-   ```bash
-   git branch -r --list "origin/codex/*" | while read branch; do
-     ahead=$(git rev-list --count origin/main..$branch 2>/dev/null)
-     [ "$ahead" -gt 0 ] && echo "UNMERGED: $branch ($ahead commits)"
-   done
-   ```
-   If unmerged branches exist from sibling lanes: absorb them (merge or cherry-pick) before creating new work. This prevents branch accumulation overnight.
+6. **Branch absorber role.** In a multi-automation fleet, sibling automations push code to
+   `codex/*` branches but never merge them to main. Without an explicit absorber, branches
+   accumulate overnight until a human manually cleans up. The lead writer (e.g., release-train)
+   owns this role.
+
+   **Protocol — run during the lead writer's READ step, before popping new tasks:**
+
+   a. **Scan for unmerged sibling branches:**
+      ```bash
+      git fetch origin
+      git branch -r --list "origin/codex/*" | while read b; do
+        commits=$(git rev-list --count origin/main..$b)
+        [ "$commits" -gt 0 ] && echo "$b ($commits unmerged)"
+      done
+      ```
+
+   b. **If branches have unmerged commits:** merge them to main before starting new work.
+      This keeps trunk current and prevents branch accumulation across overnight fleet cycles.
+
+   c. **If merge is unsafe (conflicts):** do not force it. Record the conflicting branch in
+      the automation's memory note and skip it. A human or the owning automation resolves it.
+
+   d. **After absorbing:** push main to origin so other automations see the updated trunk:
+      ```bash
+      git push origin main
+      ```
+
+   e. **Why this is non-optional:** 10 automations x 8 hours = 80 cycles. If each pushes to
+      a branch instead of main, that is 80 branches nobody absorbs. `vidux-loop.sh` counts
+      these as unproductive (no PLAN.md state change), which triggers auto-pause, which makes
+      the accumulation worse. The absorber breaks this cycle.
 
 ### Fan-out pattern for plan refinement
 

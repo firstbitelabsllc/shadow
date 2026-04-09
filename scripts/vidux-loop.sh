@@ -170,7 +170,7 @@ if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
   _recent_progress=$(printf '%s\n' "$_cb_prog_block" | { grep -E '^\- \[' || true; } | head -"$CB_THRESHOLD")
   _shipping_signals=0
   while IFS= read -r line; do
-    if echo "$line" | grep -qiE 'shipped|commit|fixed|merged|created|built|added|wrote|pushed'; then
+    if echo "$line" | grep -qiE 'shipped|commit|fixed|merged|created|built|added|wrote|pushed|branch:|origin/codex/|cherry-picked|worktree'; then
       _shipping_signals=$((_shipping_signals + 1))
     fi
   done <<< "$_recent_progress"
@@ -193,6 +193,10 @@ if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
     while IFS= read -r pline; do
       [ -z "$pline" ] && continue
       _AP_TOTAL=$((_AP_TOTAL + 1))
+      # Branch pushes are real shipped work — override unproductive signals
+      if printf '%s' "$pline" | grep -qiE 'branch:|pushed to origin|origin/codex/|cherry-picked|worktree.*(commit|merged)'; then
+        continue
+      fi
       if printf '%s' "$pline" | grep -qiE 'blocked|proof-refresh only|nothing to do|no pending|all blocked|checkpoint_only|escalate|no actionable'; then
         _AP_UNPRODUCTIVE=$((_AP_UNPRODUCTIVE + 1))
       fi
