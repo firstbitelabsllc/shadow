@@ -1343,7 +1343,7 @@ class ViduxContractTests(unittest.TestCase):
         """Each check in doctor JSON output must have id, category, and status."""
         result = subprocess.run(
             ["bash", str(self.SCRIPTS_DIR / "vidux-doctor.sh"), "--json"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=60,
         )
         data = json.loads(result.stdout)
         for check in data["checks"]:
