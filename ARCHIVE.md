@@ -146,3 +146,9 @@ Tasks completed and archived from PLAN.md to keep context lean.
 
 ## Archived 2026-04-09
 - [completed] **19.3 Stop parsing `projects/<name>/PLAN.md` out of prompt text** — Addressed in Phase 20.7: all live automation prompts rewritten with absolute paths to ~/.vidux/projects/ instead of relative repo-local paths. Runtime slug resolution deferred as optional enhancement. [Done: 2026-04-08]
+
+## Archived 2026-04-09
+- [completed] **19.4 Update docs and tests** — Fixed vidux.md to reference config-resolved plan_store.path. Replaced test_projects_directory_exists with test_plan_store_resolvable (tests resolve-plan-store.sh). [Done: 2026-04-08]
+- [completed] **20.1 Restructure /codex skill into generic core + vidux section** — Rewrote SKILL.md: generic core (DB, memory, Simple Gate, SCAN Gate, fleet ops, `/codex watch`, 13 known bugs) + "Vidux Integration (Optional)" section (Quick Check Gate, safety mechanisms, CB guard). [Done: 2026-04-08]
+- [completed] **20.2 Add generic gate pattern for non-vidux automations** — Added "Simple Gate": memory-based exit logic, no external deps. Three tiers: Simple (generic) → SCAN (scanners) → Quick Check (vidux writers). [Done: 2026-04-08]
+- [completed] **20.3 Rename vidux-watchdog → codex-watch in DB** — Killed app-server, renamed ID/name in sqlite, moved memory dir. Prompt: "Fleet health scanner for Codex automations." [Done: 2026-04-08]

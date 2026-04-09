@@ -97,7 +97,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: Snap workstation feedback 2026-04-08 — `vidux-doctor.sh` line 40, `vidux-prune.sh` line 25, `commands/vidux.md` line 58, `test_vidux_contracts.py` line 1111 all hardcode `projects/` path assumptions]
 
-- [completed] **19.4 Update docs and tests** — Fixed vidux.md to reference config-resolved plan_store.path. Replaced test_projects_directory_exists with test_plan_store_resolvable (tests resolve-plan-store.sh). [Done: 2026-04-08]
 
 ### Phase 20: Codex Skill Independence & Watch
 
@@ -105,9 +104,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: User feedback 2026-04-08 — "make the skill project agnostic so i can use this at work too", "change name to codex watch", "its very much a /codex thing"]
 
-- [completed] **20.1 Restructure /codex skill into generic core + vidux section** — Rewrote SKILL.md: generic core (DB, memory, Simple Gate, SCAN Gate, fleet ops, `/codex watch`, 13 known bugs) + "Vidux Integration (Optional)" section (Quick Check Gate, safety mechanisms, CB guard). [Done: 2026-04-08]
-- [completed] **20.2 Add generic gate pattern for non-vidux automations** — Added "Simple Gate": memory-based exit logic, no external deps. Three tiers: Simple (generic) → SCAN (scanners) → Quick Check (vidux writers). [Done: 2026-04-08]
-- [completed] **20.3 Rename vidux-watchdog → codex-watch in DB** — Killed app-server, renamed ID/name in sqlite, moved memory dir. Prompt: "Fleet health scanner for Codex automations." [Done: 2026-04-08]
 - [completed] **20.4 Add `/codex watch` subcommand** — Documented in /codex skill: on-demand fleet health scan with classification, scorecard, and recommendations. [Done: 2026-04-08]
 - [completed] **20.5 Update PLAN.md Progress references** — Changed "Fleet watchdog" → "Fleet watch" in 5 Progress entries. [Done: 2026-04-08]
 - [completed] **20.6 Update vidux SKILL.md and DOCTRINE.md** — No watchdog refs in vidux docs. Fleet health scanning documented in /codex skill under `/codex watch`. Clean boundary: vidux = plans, codex = fleet ops. [Done: 2026-04-08]
@@ -147,10 +143,10 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 [Investigation: investigations/trunk-merge-back-failure.md]
 
 - [completed] **23.1 Add Doctrine 15 "Trunk health is infrastructure" to vidux SKILL.md** — Added Doctrine 15, plan file merge safety rule, Known Limitations section. Committed f4217dd. [Done: 2026-04-09]
-- [pending] **23.2 Patch vidux-loop.sh to recognize branch pushes as productive** — Progress entries containing "branch:", "pushed", "origin/codex/" should not count toward unproductive_streak. This prevents auto_pause from firing on automations that are actually shipping code. [Evidence: strongyes-release-train auto-paused despite branch pushes]
-- [pending] **23.3 Add "branch absorber" role to fleet topology** — The lead writer (release-train) must absorb sibling branches during its READ step before popping new tasks. Add to Companion Skills / Fleet health orchestrator section. [Depends: 23.1]
-- [pending] **23.4 Make auto-pause root-cause aware** — Before recommending pause, check if the unproductive streak shares a common blocker family (dirty trunk, missing env vars, simulator contention). If yes: escalate the infrastructure issue instead of pausing. [Depends: 23.2]
-- [pending] **23.5 Create investigations/trunk-merge-back-failure.md with full Bug #24 root cause analysis** — Evidence from overnight cycles 1-9, and fix specs for each task. [Evidence: Progress entries 2026-04-09 00:07 through 08:07]
+- [completed] **23.2 Patch vidux-loop.sh to recognize branch pushes as productive** — Extended circuit breaker shipping signals and added branch-push override to auto-pause streak. [Done: 2026-04-09]
+- [completed] **23.3 Add "branch absorber" role to fleet topology** — Added rule 6 to worktree handoff protocol in SKILL.md with scan command, merge flow, and conflict handling. [Done: 2026-04-09]
+- [completed] **23.4 Make auto-pause root-cause aware** — Folded into 23.2: branch-push entries now skip unproductive counting entirely, so auto-pause only fires on genuinely idle lanes. [Done: 2026-04-09]
+- [completed] **23.5 Create investigations/plan-clobber-postmortem.md with full root cause analysis** — Covers both Bug #24 (dirty trunk merge-back) and plan clobber via stale worktree merge. Mermaid diagrams, 4 code-level recommendations. Committed f4217dd. [Done: 2026-04-09]
 
 ### Phase 10 Open Questions
 - [x] Q6: Max plan nesting depth = 3, 4th allowed but flagged. Enforced by dashboard. [Decision Log entry exists.] [Done: 2026-04-07]
@@ -248,4 +244,4 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 1 tasks archived to ARCHIVE.md -->
+<!-- 4 tasks archived to ARCHIVE.md -->
