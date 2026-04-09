@@ -94,8 +94,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: `projects/vidux-self-investigation/evidence/2026-04-08-automation-prompt-rewrites.md`]
 
-- [completed] **18.2 Diagnose all 6 active automations** — Audited prompts, ran vidux-loop.sh on each plan, read all memory files. Found: 4 wrong gate files, 1 scanner-as-writer, 2 safety deadlocks (CB + auto_pause). [Done: 2026-04-08] [Evidence: automation-prompt-rewrites.md]
-- [completed] **18.3 Rewrite all automation prompts (v3)** — Final rewrite: all 5 active automations use "Quick check gate" (no more REDUCE naming). acme-asc now gates on fresh vidux plan with 9 real tasks. acme-localization-pro uses SCAN gate. All prompts handle find_work state. acme-currency paused (1 task, folded into plan task 7). [Done: 2026-04-08]
 - [completed] **18.4 Write prompt authoring best practices** — Added Section 14 to best-practices.md: prompt structure, before/after example (real ASC failure), gate selection guide, 7 common mistakes, skill token format, size guidance. [Done: 2026-04-08]
 - [completed] **18.5 Create fresh acme/PLAN.md** — Imported real work from 4 Cursor plans: 9 pending tasks across ASC bugs (6 new + 4 triaged + 56 verify + 5 blocked), release (TestFlight + screenshots), and ops (FX docs + migration + web parity). Created INBOX.md for scanner→writer pattern. [Done: 2026-04-08]
 - [completed] **18.6 Handle find_work + rename REDUCE to Quick Check** — All 5 prompts now use "Quick check gate" naming. Exit condition simplified: only exit on action=complete AND type=done AND queue_starved=false. Everything else (dispatch, find_work, gather_evidence) proceeds. [Done: 2026-04-08]
@@ -137,6 +135,21 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [completed] **21.2 Add worktree-check to Quick Check gate** — Before creating a new worktree, the gate must check if a previous worktree for this lane has unmerged commits. If yes: resume it, merge it, or abandon with Decision Log entry. Never create a parallel worktree for the same lane. [Depends: 21.1]
 - [completed] **21.3 Update all live automation prompts with merge-back rule** — Added WORKTREE RULE to 6 automation prompts (DB + TOML). 4 already had it from work computer updates. All 10 now include merge-back directive. [Done: 2026-04-08]
 - [completed] **21.4 Document worktree pruning guidance** — Add to /codex skill: how to audit and clean orphan worktrees. `git worktree list | grep -v "detached HEAD" | grep -v main` to find stranded work. Guidance on cherry-pick vs merge vs abandon. [Evidence: process gap]
+
+### Phase 22: Fleet Prompt Refinement & Repo Hardening
+
+**Goal:** 5-agent peer review found 14 prompt issues and 3 repo issues across the fleet. Fix them systematically. Evidence: 5 parallel review agents scored every automation and the vidux repo.
+
+[Evidence: 5-agent swarm review 2026-04-08 — prompt quality scores, TOML audit (10/10 pass), fleet health (4 shipping, 4 reset)]
+
+- [completed] **22.1 Fix vidux-loop.sh stale REDUCE comment** — Last "REDUCE gate" reference in code. Changed to "quick check gate". [Done: 2026-04-08]
+- [completed] **22.2 Fix test_vidux_loop_exposes_reduce_mode_contract** — Added "find_work" to valid next_action set. [Done: 2026-04-08]
+- [pending] **22.3 Add cross-lane awareness to 4 resplit writers** — resplit-asc, resplit-launch-loop, resplit-localization-pro, resplit-web all missing sibling memory reads. Add `cat ~/.codex/automations/{sibling}/memory.md` to gate. [Evidence: review agent scored 2/5 on cross-lane for all 4] [P]
+- [pending] **22.4 Trim resplit-localization-pro prompt** — 6322 chars, 2x the 3000 target. Extract authority chain to file reference. Move simulator timeout to $bigapple skill. [Evidence: review agent] [P]
+- [pending] **22.5 Trim resplit-web and resplit-launch-loop prompts** — 4836 and 3744 chars respectively. Collapse verbose execution sections. Canonicalize memory path (one form, not 3 aliases). [Evidence: review agent] [P]
+- [pending] **22.6 Add idle self-extension to 3 strongyes scanners/writers** — content-scanner, blog-writer, ux-scanner exit clean when idle without scanning for gaps. Add codebase scan for stale content, broken links, untested paths. [Evidence: review agent scored 3/5 proactiveness] [P]
+- [pending] **22.7 Complete cross-lane reads in strongyes scanners** — content-scanner and ux-scanner only read 2 siblings each. Add missing backend and ux-scanner/blog-writer memory reads. [Evidence: review agent] [P]
+- [pending] **22.8 Trim strongyes-release-train prompt** — Over 3000 chars. Condense READ discipline and act rules sections. [Evidence: review agent scored 2/5 conciseness] [P]
 
 ### Phase 10 Open Questions
 - [x] Q6: Max plan nesting depth = 3, 4th allowed but flagged. Enforced by dashboard. [Decision Log entry exists.] [Done: 2026-04-07]
@@ -222,4 +235,4 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 1 tasks archived to ARCHIVE.md -->
+<!-- 2 tasks archived to ARCHIVE.md -->
