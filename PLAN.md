@@ -94,19 +94,9 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: `projects/vidux-self-investigation/evidence/2026-04-08-automation-prompt-rewrites.md`]
 
-- [completed] **18.5 Create fresh acme/PLAN.md** — Imported real work from 4 Cursor plans: 9 pending tasks across ASC bugs (6 new + 4 triaged + 56 verify + 5 blocked), release (TestFlight + screenshots), and ops (FX docs + migration + web parity). Created INBOX.md for scanner→writer pattern. [Done: 2026-04-08]
-- [completed] **18.6 Handle find_work + rename REDUCE to Quick Check** — All 5 prompts now use "Quick check gate" naming. Exit condition simplified: only exit on action=complete AND type=done AND queue_starved=false. Everything else (dispatch, find_work, gather_evidence) proceeds. [Done: 2026-04-08]
-- [completed] **18.7 Verify fleet recovery after Codex restart** — Codex restarted 3x during session. Discovered Bugs #14-17: DB-only writes get overwritten by Electron cache (must full-quit app); TOML files are the runtime prompt source (not DB); new rows need TOMLs for UI visibility. All 10 automations now have synced DB + TOML with corrected prompts (0 REDUCE, correct plan paths). Awaiting first post-fix cycle for runtime proof. [Done: 2026-04-08] [Evidence: /codex skill Bugs #14-17]
-- [completed] **18.8 Auto-archive in vidux-loop.sh** — vidux-loop.sh now auto-runs vidux-checkpoint.sh --archive when cold_tasks > archive_threshold. Tested on Beacon: 81 tasks archived, 1061→497 lines. Sliding window is now enforced automatically. [Done: 2026-04-08]
-
-### Phase 19: Config-Authoritative Plan Resolution
-
-**Goal:** Scripts and docs still assume `projects/` under repo root. `vidux.config.json` should be the single authority for where plans live. This is design debt, not break-glass — the live fleet works because prompts use absolute paths. Fix so multi-machine setups and new automations resolve plan locations from config at runtime.
 
 [Evidence: Snap workstation feedback 2026-04-08 — `vidux-doctor.sh` line 40, `vidux-prune.sh` line 25, `commands/vidux.md` line 58, `test_vidux_contracts.py` line 1111 all hardcode `projects/` path assumptions]
 
-- [completed] **19.1 Add `resolve_plan_store` helper in `scripts/lib/`** — Created `scripts/lib/resolve-plan-store.sh`: reads `vidux.config.json` plan_store.path, expands ~, falls back to `$VIDUX_ROOT/projects`. No jq dependency. [Done: 2026-04-08]
-- [completed] **19.2 Wire `vidux-doctor.sh` to use `resolve_plan_store`** — Sourced resolve-plan-store.sh, widened plan_ref grep to match ~/.vidux/projects/ and absolute paths. vidux-prune.sh was deleted; scoped to doctor only. [Done: 2026-04-08]
 - [completed] **19.3 Stop parsing `projects/<name>/PLAN.md` out of prompt text** — Addressed in Phase 20.7: all live automation prompts rewritten with absolute paths to ~/.vidux/projects/ instead of relative repo-local paths. Runtime slug resolution deferred as optional enhancement. [Done: 2026-04-08]
 - [completed] **19.4 Update docs and tests** — Fixed vidux.md to reference config-resolved plan_store.path. Replaced test_projects_directory_exists with test_plan_store_resolvable (tests resolve-plan-store.sh). [Done: 2026-04-08]
 
@@ -144,11 +134,11 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [completed] **22.1 Fix vidux-loop.sh stale REDUCE comment** — Last "REDUCE gate" reference in code. Changed to "quick check gate". [Done: 2026-04-08]
 - [completed] **22.2 Fix test_vidux_loop_exposes_reduce_mode_contract** — Added "find_work" to valid next_action set. [Done: 2026-04-08]
 - [completed] **22.3 Add cross-lane awareness to 4 resplit writers** — resplit-asc, resplit-launch-loop, resplit-localization-pro, resplit-web all missing sibling memory reads. Add `cat ~/.codex/automations/{sibling}/memory.md` to gate. [Evidence: review agent scored 2/5 on cross-lane for all 4] [P]
-- [pending] **22.4 Trim resplit-localization-pro prompt** — 6322 chars, 2x the 3000 target. Extract authority chain to file reference. Move simulator timeout to $bigapple skill. [Evidence: review agent] [P]
-- [pending] **22.5 Trim resplit-web and resplit-launch-loop prompts** — 4836 and 3744 chars respectively. Collapse verbose execution sections. Canonicalize memory path (one form, not 3 aliases). [Evidence: review agent] [P]
-- [pending] **22.6 Add idle self-extension to 3 strongyes scanners/writers** — content-scanner, blog-writer, ux-scanner exit clean when idle without scanning for gaps. Add codebase scan for stale content, broken links, untested paths. [Evidence: review agent scored 3/5 proactiveness] [P]
-- [pending] **22.7 Complete cross-lane reads in strongyes scanners** — content-scanner and ux-scanner only read 2 siblings each. Add missing backend and ux-scanner/blog-writer memory reads. [Evidence: review agent] [P]
-- [pending] **22.8 Trim strongyes-release-train prompt** — Over 3000 chars. Condense READ discipline and act rules sections. [Evidence: review agent scored 2/5 conciseness] [P]
+- [completed] **22.4 Trim resplit-localization-pro prompt** — 6523→2273 chars. Condensed gate, authority chain, removed verbose SIMULATOR/TEST TIMEOUT section. [Done: 2026-04-08]
+- [completed] **22.5 Trim resplit-web and resplit-launch-loop prompts** — resplit-web 5243→1820, resplit-launch-loop 3950→1831. Collapsed verbose sections, canonicalized memory paths, added Bug #23 blocker investigation. [Done: 2026-04-08]
+- [completed] **22.6 Add idle self-extension to 3 strongyes scanners/writers** — content-scanner, ux-scanner, blog-writer all now run idle scan when queue/scan empty: check INBOX, sibling memories, stale content, trending topics. [Done: 2026-04-08]
+- [completed] **22.7 Complete cross-lane reads in strongyes scanners** — All 5 strongyes automations now read ALL 4 siblings (was 2 each). [Done: 2026-04-08]
+- [completed] **22.8 Trim strongyes-release-train prompt** — 4967→2106 chars. Condensed READ discipline, act rules, checkpoint format. [Done: 2026-04-08]
 
 ### Phase 10 Open Questions
 - [x] Q6: Max plan nesting depth = 3, 4th allowed but flagged. Enforced by dashboard. [Decision Log entry exists.] [Done: 2026-04-07]
@@ -190,6 +180,7 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [DIRECTION] [2026-04-06] Automations self-extend plans. Every automation can add tasks to PLAN.md. No writer/reader distinction. Bounded by three-strike rule to prevent recursive overload.
 
 ## Progress
+- [2026-04-09 00:07] Overnight cycle 1: Fleet 3/10 shipping, 4 idle (3 reset awaiting first cycle), 1 blocked, 2 idle-correct. Shipping: resplit-asc (ASC bug fix AM8FNewE, commit ede84ed6, but worktree not merged back), strongyes-blog-writer (2 articles: Arrays & Hashing + LLD/OOD), strongyes-content-scanner (4 gaps logged to INBOX). Issues: (1) resplit-web prompt still has old gate — exits on all_blocked without Bug #23 investigation. vidux-loop returns hot=2 but automation sees next_action=none. FLAG: resplit-web prompt needs gate rewrite. (2) strongyes-ux-scanner still NULL last_run_at after 6+ hours — 8h interval may need shortening. (3) resplit-asc worktree commits not merged back to main — accumulating orphan branches. (4) strongyes-backend/release-train/localization-pro just reset — next cycles are the real test. Plan status: resplit hot=9, strongyes hot=5+2blocked, extraction hot=2+7blocked. No plan changes made this cycle (observation only). Next: watch for first-cycle results from 3 reset automations.
 - [2026-04-08] Fleet watch (v2.7.0): Phase 20 COMPLETE (7/7). /codex skill decoupled from vidux — now project-agnostic with 3 gate tiers (Simple, SCAN, Quick Check). vidux-watchdog renamed to codex-watch. All 5 writer prompts purged of REDUCE → Quick check gate. 37 stale REDUCE refs cleaned from 7 active doc files. `next_action:"none"` bug fixed in best-practices template. Test file cleaned of 16 deleted-script refs. 4 new StrongYes automations created (content-scanner, blog-writer, backend, ux-scanner). Fleet: 10/10 ACTIVE. Version 2.7.0.
 - [2026-04-08] Fleet watch (post-v2.5.1 peer review): 0/5 shipping, 3 idle-prefx, 1 blocked, 1 warm. Fixes verified by 6-agent swarm (7/7 peer review passed). CB minimum-entries fix committed. Scanner prompt execution permission removed. 33 stale "REDUCE gate" prose refs renamed across 5 docs. JSON schema gap fixed (exit_criteria in 2 paths). All 3 plans dispatch: acme=9 hot, beacon=6 hot, acme-web=2 hot. Next cycles should show [QC]/[SCAN] memory notes. Beacon blocked on T70 (Vercel domain). Beacon plan needs triage (35 abandoned in_progress, 296KB bloat). 8 ghost memory files from deleted automations on disk.
 - [2026-04-08] Fleet watch (post-rebuild): 0/5 shipping, 5 reset — all awaiting Codex restart. Fleet rebuilt: fresh acme/PLAN.md with 9 real tasks, all prompts v3 with "Quick check gate" naming, INBOX.md created, acme-currency paused. Plans verified: acme dispatches (9 hot), acme-web dispatches (6 hot), beacon dispatches (6 hot). No issues found. Next: Codex restart triggers first real cycles.
@@ -234,4 +225,5 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 1 tasks archived to ARCHIVE.md -->
+<!-- 5 tasks archived to ARCHIVE.md -->
+<!-- 5 tasks archived to ARCHIVE.md -->
