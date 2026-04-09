@@ -25,14 +25,14 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [completed] 1.4 Extract harness authoring to guides/harness.md [Done: 2026-04-09]
 - [completed] 1.5 Extract evidence format to guides/evidence-format.md [Done: 2026-04-09]
 - [completed] 1.6 Replace SKILL.md with SKILL-v3.md — 1000→208 lines, 14 tests updated, 144/144 pass [Done: 2026-04-09]
-- [pending] 1.7 Update /claude skill to reference v3 patterns
+- [completed] 1.7 Verified /claude skill has no v2 references (vidux-loop.sh, Redux jargon, etc.) — already clean [Done: 2026-04-09]
 
 ### Phase 2: Resplit automation revamp [spawns: investigations/resplit-revamp.md]
 
 - [completed] 2.1 Rewrite 6 resplit prompts — drop vidux-loop.sh, use v3 gate [Done: 2026-04-09]
 - [completed] 2.2 Apply prompts to Codex DB + restart [Done: 2026-04-09]
 - [completed] 2.3 Verify: resplit-web-ux SHIPPED (CTA fix, 20min run). Others idle/reset. [Done: 2026-04-09]
-- [pending] 2.4 Clean up stale resplit worktrees (351) and branches (71)
+- [completed] 2.4 GC stale worktrees + branches — 394 worktree dirs removed (33GB), 38 merged branches deleted. 130 resplit-ios branches with unmerged work left for trunk guardian. Disk: 2.8GB→147GB free. [Done: 2026-04-09]
 
 ### Phase 3: StrongYes automation revamp [spawns: investigations/strongyes-revamp.md]
 
@@ -66,4 +66,5 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 
 ## Progress
 - [2026-04-09] Plan created. SKILL-v3.md drafted (220 lines). 4 guides extracted (810 lines). /claude skill created. Remote trigger created then disabled (pushed hallucinated copy to main).
-- [2026-04-09] All 12 Codex automations on v3 prompts. 0 vidux-loop.sh refs. resplit-web-ux SHIPPED (CTA fix). codex-watch ran fleet scan. StrongYes T92 shipped (/prep 44→101 companies). Bad copy reverted + COPY SAFETY added. 4 repos synced (0/0). Remaining: replace SKILL.md with v3, GC 351 resplit worktrees + 71 branches.
+- [2026-04-09] All 12 Codex automations on v3 prompts. 0 vidux-loop.sh refs. resplit-web-ux SHIPPED (CTA fix). codex-watch ran fleet scan. StrongYes T92 shipped (/prep 44→101 companies). Bad copy reverted + COPY SAFETY added. 4 repos synced (0/0).
+- [2026-04-09] SKILL.md replaced with v3 (1000→208 lines). 14 contract tests updated. 394 worktree dirs GC'd (33GB freed, disk 2.8→147GB). 38 merged branches deleted. All 4 phases complete — v3 revamp shipped.
