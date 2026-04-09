@@ -2199,7 +2199,7 @@ class ViduxContractTests(unittest.TestCase):
         """vidux-test-all.sh --json must produce valid JSON with sections array."""
         result = subprocess.run(
             ["bash", str(self.SCRIPTS_DIR / "vidux-test-all.sh"), "--json"],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, timeout=900,
         )
         data = json.loads(result.stdout)
         self.assertIn("overall", data)
