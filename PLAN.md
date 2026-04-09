@@ -9,6 +9,12 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [Source: release-train parking, 2026-04-09] Automation saw file casing collision and said "hold" when it could have fixed it.
 - [Source: overnight fleet data, 2026-04-08-09] vidux-loop.sh circuit breakers caused auto-pause on automations doing real branch-push work.
 
+## Constraints
+- ALWAYS: Contract tests (test_vidux_contracts.py) must pass before any SKILL.md or PLAN.md change ships
+- ALWAYS: Every automation prompt must include TRUNK HEALTH gate (Doctrine 15)
+- NEVER: Use re.sub or sed to patch TOML prompt fields — always regenerate from DB (Bug #22)
+- NEVER: Accept --theirs or --ours blindly in merge conflicts — preserve both sides (Doctrine 16)
+
 ## Tasks
 
 ### Phase 1: SKILL.md v3 — core rewrite
@@ -42,10 +48,17 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [pending] 4.3 Apply fleet prompts to DB + restart
 - [pending] 4.4 Run /codex fleet to verify scorecard
 
-## Decision Log
+## Decisions
+(Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
 - [DIRECTION] [2026-04-09] 15 doctrines → 6 principles. The 9 removed are fleet ops (moved to guides/fleet-ops.md and /codex skill).
 - [DIRECTION] [2026-04-09] No Redux jargon. No "store", "dispatch", "reduce", "unidirectional flow." Plain English only.
+
+## Open Questions
+- Q1: Should contract tests track guide files (guides/*.md) or only SKILL.md? -> Action: decide after v3 guides land
+
+## Surprises
+- [2026-04-09] v3 rewrite removed 6 PLAN.md sections the contracts enforce. Contract tests caught it immediately.
 
 ## Progress
 - [2026-04-09] Plan created. SKILL-v3.md drafted (220 lines). 4 guides extracted. 8/12 prompt rewrites in progress (3 agents). /claude skill created. Remote trigger created then disabled (user wants local/Codex only).
