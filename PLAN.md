@@ -29,36 +29,41 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 
 ### Phase 2: Resplit automation revamp [spawns: investigations/resplit-revamp.md]
 
-- [in_progress] 2.1 Rewrite 6 resplit prompts — drop vidux-loop.sh, use v3 gate
-- [pending] 2.2 Apply prompts to Codex DB + restart
-- [pending] 2.3 Verify each fires and dispatches (check memories after 1 cycle)
-- [pending] 2.4 Clean up stale resplit worktrees and branches
+- [completed] 2.1 Rewrite 6 resplit prompts — drop vidux-loop.sh, use v3 gate [Done: 2026-04-09]
+- [completed] 2.2 Apply prompts to Codex DB + restart [Done: 2026-04-09]
+- [completed] 2.3 Verify: resplit-web-ux SHIPPED (CTA fix, 20min run). Others idle/reset. [Done: 2026-04-09]
+- [pending] 2.4 Clean up stale resplit worktrees (351) and branches (71)
 
 ### Phase 3: StrongYes automation revamp [spawns: investigations/strongyes-revamp.md]
 
-- [in_progress] 3.1 Rewrite 4 strongyes prompts — drop vidux-loop.sh, use v3 gate
-- [pending] 3.2 Apply prompts to Codex DB + restart
-- [pending] 3.3 Verify each fires and dispatches
-- [pending] 3.4 Verify Vercel build passes (casing fix landed)
+- [completed] 3.1 Rewrite 4 strongyes prompts — drop vidux-loop.sh, use v3 gate [Done: 2026-04-09]
+- [completed] 3.2 Apply prompts to Codex DB + restart [Done: 2026-04-09]
+- [completed] 3.3 Verify: T92 shipped via Claude cron. Vercel build passes. [Done: 2026-04-09]
+- [completed] 3.4 Revert hallucinated copy from remote trigger (5ef4498c). Added COPY SAFETY constraint. [Done: 2026-04-09]
 
 ### Phase 4: Fleet infrastructure
 
 - [completed] 4.1 Rewrite codex-watch prompt (simplified fleet scan)
 - [completed] 4.2 Rewrite strongyes-content-scanner prompt
-- [pending] 4.3 Apply fleet prompts to DB + restart
-- [pending] 4.4 Run /codex fleet to verify scorecard
+- [completed] 4.3 Apply fleet prompts to DB + restart [Done: 2026-04-09]
+- [completed] 4.4 Fleet scan: 1 shipping (resplit-web-ux), 1 watching (codex-watch), 12 idle. [Done: 2026-04-09]
 
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
 - [DIRECTION] [2026-04-09] 15 doctrines → 6 principles. The 9 removed are fleet ops (moved to guides/fleet-ops.md and /codex skill).
 - [DIRECTION] [2026-04-09] No Redux jargon. No "store", "dispatch", "reduce", "unidirectional flow." Plain English only.
+- [DIRECTION] [2026-04-09] COPY SAFETY: Automations must never invent marketing copy. Use only text patterns that exist in the codebase. Product is "StrongYes Pro" with "unlimited AI coaching." No sprints, no founder notes, no day-one plans. Evidence: remote trigger hallucinated copy in commit 5ef4498c.
+- [DIRECTION] [2026-04-09] Remote triggers (claude.ai/code/scheduled) are dangerous — they push directly to main with zero review. Prefer Codex worktree model (pushes to branch first). Remote trigger for strongyes disabled.
 
 ## Open Questions
 - Q1: Should contract tests track guide files (guides/*.md) or only SKILL.md? -> Action: decide after v3 guides land
 
 ## Surprises
 - [2026-04-09] v3 rewrite removed 6 PLAN.md sections the contracts enforce. Contract tests caught it immediately.
+- [2026-04-09] Remote Claude trigger hallucinated marketing copy ("14-day sprint", "founder notes", "First Bite Labs") while fixing T91/T92. The automation read the plan correctly but invented product concepts. Root cause: no copy safety constraint in prompt. Fix: added COPY SAFETY to writer prompts + reverted bad commit.
+- [2026-04-09] Claude Desktop v1.1062.0 migrated from local-agent-mode-sessions/ to claude-code-sessions/. Local scheduled tasks JSON not carried over. Local task creation is UI-only — no programmatic API exists (anthropics/claude-code#41364).
 
 ## Progress
-- [2026-04-09] Plan created. SKILL-v3.md drafted (220 lines). 4 guides extracted. 8/12 prompt rewrites in progress (3 agents). /claude skill created. Remote trigger created then disabled (user wants local/Codex only).
+- [2026-04-09] Plan created. SKILL-v3.md drafted (220 lines). 4 guides extracted (810 lines). /claude skill created. Remote trigger created then disabled (pushed hallucinated copy to main).
+- [2026-04-09] All 12 Codex automations on v3 prompts. 0 vidux-loop.sh refs. resplit-web-ux SHIPPED (CTA fix). codex-watch ran fleet scan. StrongYes T92 shipped (/prep 44→101 companies). Bad copy reverted + COPY SAFETY added. 4 repos synced (0/0). Remaining: replace SKILL.md with v3, GC 351 resplit worktrees + 71 branches.
