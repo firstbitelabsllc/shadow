@@ -368,7 +368,7 @@ fi
 # If this task is blocked (dep-gated or FSM [blocked]), check whether the same
 # blocker keyword appears in the last 3 Progress entries. If the same blocker
 # has been reported 3 times already, the loop is wasting cycles. Set
-# blocker_dedup=true so the REDUCE gate can recommend auto-pause.
+# blocker_dedup=true so the quick check gate can recommend auto-pause.
 if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
   _BD_IS_BLOCKED=false
   echo "$TASK_REST" | grep -qE '^\- \[blocked\] ' && _BD_IS_BLOCKED=true

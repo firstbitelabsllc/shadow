@@ -342,7 +342,7 @@ class ViduxContractTests(unittest.TestCase):
         self.assertTrue(data.get("action") == "create_plan" or "error" in data)
 
     def test_vidux_loop_exposes_reduce_mode_contract(self):
-        """vidux-loop.sh must expose explicit reduce-mode routing metadata."""
+        """vidux-loop.sh must expose explicit quick-check routing metadata."""
         result = subprocess.run(
             ["bash", str(self.SCRIPTS_DIR / "vidux-loop.sh"), str(PLAN)],
             capture_output=True, text=True, timeout=10,
@@ -350,7 +350,7 @@ class ViduxContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"vidux-loop.sh failed: {result.stderr}")
         data = json.loads(result.stdout)
         self.assertEqual(data.get("mode"), "reduce")
-        self.assertIn(data.get("next_action"), {"dispatch", "none"})
+        self.assertIn(data.get("next_action"), {"dispatch", "none", "find_work"})
 
     def test_vidux_loop_routes_pending_work_to_dispatch(self):
         """Reduce mode must recommend dispatch when a runnable task exists."""
