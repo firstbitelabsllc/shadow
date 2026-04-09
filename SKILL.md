@@ -413,6 +413,26 @@ not when the queue happens to be empty. It makes Doctrine 12 (bounded recursion)
 brake — self-extension during idle scans is still bounded by "good enough" on already-shipped
 surfaces.
 
+### 15. Trunk health is infrastructure — check it first, not last
+
+> **A dirty or diverged canonical checkout is a fleet-level infrastructure failure, not a per-task blocker. Detect it in 10 seconds, not after 45 minutes of deep work.**
+
+Every automation works in a worktree and tries to merge back to the default branch at the end. If the canonical checkout is dirty, diverged, or behind origin, that merge-back fails. The automation then pushes to a branch instead — real work that nobody absorbs.
+
+Overnight this compounds: 10 automations × 8 hours = 80 cycles producing branches that never land on main. vidux-loop.sh counts these as "unproductive" because no PLAN.md task state changed, which triggers auto-pause, which makes it worse.
+
+**How to apply:** Every writer gate must include a trunk health check in the first 10 seconds:
+```bash
+git -C <repo> status --short --branch
+git -C <repo> rev-list --count HEAD..origin/main
+git -C <repo> rev-list --count origin/main..HEAD
+```
+If diverged >5 commits: escalate immediately ("trunk diverged, needs human reconciliation") instead of doing deep work that will fail to merge back. If dirty: escalate ("trunk dirty, unsafe to merge").
+
+**Branch pushes are productive output.** An automation that ships code to a branch, pushes it to origin, and records the branch name in its memory note is shipping. The unproductive streak counter must not penalize this — the work exists, it just needs absorption.
+
+**The lead writer absorbs branches.** The release-train or equivalent lead writer must check for unmerged sibling branches during its READ step and merge them before popping new tasks. This is not optional. Without it, branches accumulate until a human manually merges them.
+
 ---
 
 ## Advisors
@@ -586,6 +606,15 @@ in the plan. Without this protocol, cron agents duplicate work or create competi
 4. **Stale detection.** If a worktree entry persists across 3 cron cycles with no progress
    (same status, no new commits on the branch), mark the associated task `[blocked]` with
    `[Blocker: stale worktree — no progress in 3 cycles]` and log it in Surprises.
+
+5. **Branch absorption.** The lead writer for each plan must check for unmerged sibling branches during its READ step:
+   ```bash
+   git branch -r --list "origin/codex/*" | while read branch; do
+     ahead=$(git rev-list --count origin/main..$branch 2>/dev/null)
+     [ "$ahead" -gt 0 ] && echo "UNMERGED: $branch ($ahead commits)"
+   done
+   ```
+   If unmerged branches exist from sibling lanes: absorb them (merge or cherry-pick) before creating new work. This prevents branch accumulation overnight.
 
 ### Fan-out pattern for plan refinement
 
@@ -1095,6 +1124,7 @@ When a Codex orchestrator manages multiple automations, it must operate at fleet
    - Fix gate mismatches (scanner -> SCAN, writer -> quick check)
    - Redistribute work when queues are imbalanced across lanes
 5. **Report a fleet scorecard** every cycle: N shipping, N idle, N blocked, N crashed, N mid-zone. The scorecard is the orchestrator's primary output — not prompt edits.
+6. **Detect trunk health** — Before any fleet-level action, check if canonical checkouts in target repos are clean, up-to-date, and not diverged. If dirty/diverged, escalate as an infrastructure blocker that affects all dependent lanes. Do not report the same merge-back blocker N times per N automations — cluster it as one root cause.
 
 **The orchestrator should NOT:**
 
