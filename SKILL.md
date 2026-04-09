@@ -429,6 +429,8 @@ git -C <repo> rev-list --count origin/main..HEAD
 ```
 If diverged >5 commits: escalate immediately ("trunk diverged, needs human reconciliation") instead of doing deep work that will fail to merge back. If dirty: escalate ("trunk dirty, unsafe to merge").
 
+**Trunk health includes plan file integrity.** A "clean" trunk (no dirty files, no divergence) can still be catastrophically broken if PLAN.md was clobbered by a stale worktree merge. A dirty trunk is visible; a clobbered plan is invisible — tasks silently vanish, automations park on `auto_pause_recommended` because their tasks no longer exist, and the plan looks "complete" when it is actually destroyed. The trunk health check must verify task count stability, not just git status.
+
 **Branch pushes are productive output.** An automation that ships code to a branch, pushes it to origin, and records the branch name in its memory note is shipping. The unproductive streak counter must not penalize this — the work exists, it just needs absorption.
 
 **The lead writer absorbs branches.** The release-train or equivalent lead writer must check for unmerged sibling branches during its READ step and merge them before popping new tasks. This is not optional. Without it, branches accumulate until a human manually merges them.
@@ -607,7 +609,20 @@ in the plan. Without this protocol, cron agents duplicate work or create competi
    (same status, no new commits on the branch), mark the associated task `[blocked]` with
    `[Blocker: stale worktree — no progress in 3 cycles]` and log it in Surprises.
 
-5. **Branch absorption.** The lead writer for each plan must check for unmerged sibling branches during its READ step:
+5. **Plan file merge safety.** Any merge that touches PLAN.md must verify that the task count
+   did not decrease unless tasks were explicitly marked `[completed]` and archived. PLAN.md is
+   append-mostly by design — new tasks are added, completed tasks are archived, but tasks are
+   never silently removed. Before completing a merge that modifies PLAN.md, compare task counts:
+   ```bash
+   pre=$(git show origin/main:path/to/PLAN.md | grep -c '^\- \[')
+   post=$(grep -c '^\- \[' path/to/PLAN.md)
+   [ "$post" -lt "$pre" ] && echo "PLAN CLOBBER: task count dropped from $pre to $post"
+   ```
+   If the count drops, abort the merge and escalate. Worktree branches should minimize PLAN.md
+   edits — confine changes to their own task status updates. A branch that carries a full PLAN.md
+   rewrite from 3 weeks ago will silently delete every task added since it diverged.
+
+6. **Branch absorption.** The lead writer for each plan must check for unmerged sibling branches during its READ step:
    ```bash
    git branch -r --list "origin/codex/*" | while read branch; do
      ahead=$(git rev-list --count origin/main..$branch 2>/dev/null)
@@ -1069,6 +1084,36 @@ The process fix is the valuable output. It makes the system smarter for next tim
 If PLAN.md format is unexpected (missing sections, unusual markup), the enforcement
 degrades gracefully: stuck detection still reports `stuck: true` in JSON, but the
 auto-block write is skipped. No data is lost.
+
+---
+
+## Known Limitations & Surprises
+
+Failure modes discovered in production. Each entry documents a class of failure so agents
+and operators can recognize the pattern before it causes damage.
+
+### Plan clobber via stale worktree merge
+
+**The pattern:** A worktree branch carries a PLAN.md edit (e.g., updating a single task status).
+While that branch lives, origin/main advances — 20+ new tasks are added across Phases 12/13.
+When the worktree branch merges to main, the merge conflict on PLAN.md resolves in favor of
+the branch version. Every task added since the branch diverged is silently deleted.
+
+**Why it's dangerous:** The plan looks "complete" — no pending tasks, no errors, a clean git
+status. But it is actually clobbered. Automations whose tasks vanished enter `auto_pause_recommended`
+because their task IDs no longer exist in the plan. They park silently for hours. No alarm fires
+because from the plan's perspective, there is simply nothing to do. The failure is invisible
+until a human notices the missing tasks.
+
+**Real incident:** strongyes-web, branch `codex/t74-prep-mobile-honesty`. The branch predated
+20+ tasks from Phases 12/13. On merge, the conflict resolved branch-side, deleting all those
+tasks. Two automations parked for hours.
+
+**Mitigation:**
+- PLAN.md is append-mostly. Worktree branches should confine PLAN.md edits to their own task's status line, never rewrite the file.
+- Pre-merge task count validation (see Worktree handoff protocol, rule 5).
+- If a worktree branch is long-lived (>1 week), rebase it against origin/main before merging to pick up new tasks.
+- Any merge that decreases the task count without corresponding `[completed]` entries is suspect and must be manually reviewed.
 
 ---
 
