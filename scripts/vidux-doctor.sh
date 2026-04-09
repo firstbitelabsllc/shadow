@@ -72,7 +72,7 @@ print(c.get('min_system_memory_free_pct',15))
   [[ "$STALE_DAYS" -eq 3 ]] && STALE_DAYS="$STALE_DAYS_CFG"
 fi
 
-VERSION="2.3.2"
+VERSION="$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | head -1 || echo "unknown")"
 HOST="$(hostname -s 2>/dev/null || echo unknown)"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
