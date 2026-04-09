@@ -94,7 +94,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: `projects/vidux-self-investigation/evidence/2026-04-08-automation-prompt-rewrites.md`]
 
-- [completed] **18.1 Remove personal project data from repo** — Untracked 5 files in projects/, deleted fleet-rebuild script, genericized 92 private project references to acme/beacon across 10 docs, removed hardcoded paths. [Done: 2026-04-08]
 - [completed] **18.2 Diagnose all 6 active automations** — Audited prompts, ran vidux-loop.sh on each plan, read all memory files. Found: 4 wrong gate files, 1 scanner-as-writer, 2 safety deadlocks (CB + auto_pause). [Done: 2026-04-08] [Evidence: automation-prompt-rewrites.md]
 - [completed] **18.3 Rewrite all automation prompts (v3)** — Final rewrite: all 5 active automations use "Quick check gate" (no more REDUCE naming). acme-asc now gates on fresh vidux plan with 9 real tasks. acme-localization-pro uses SCAN gate. All prompts handle find_work state. acme-currency paused (1 task, folded into plan task 7). [Done: 2026-04-08]
 - [completed] **18.4 Write prompt authoring best practices** — Added Section 14 to best-practices.md: prompt structure, before/after example (real ASC failure), gate selection guide, 7 common mistakes, skill token format, size guidance. [Done: 2026-04-08]
@@ -136,7 +135,7 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 - [completed] **21.1 Add merge-back rule to prompt templates** — Update `guides/vidux/best-practices.md` prompt structure: block 7 (Execution) must include "Before stopping: if you created commits in a worktree, merge to main or record why not. Never exit with unmerged worktree commits." Update the /codex skill Create template to match. [Evidence: 90+ orphan worktrees in resplit-ios]
 - [completed] **21.2 Add worktree-check to Quick Check gate** — Before creating a new worktree, the gate must check if a previous worktree for this lane has unmerged commits. If yes: resume it, merge it, or abandon with Decision Log entry. Never create a parallel worktree for the same lane. [Depends: 21.1]
-- [pending] **21.3 Update all live automation prompts with merge-back rule** — Add the merge-back directive to all 10 TOML files. Same pattern as 20.7 but for worktree discipline. [Depends: 21.1]
+- [completed] **21.3 Update all live automation prompts with merge-back rule** — Added WORKTREE RULE to 6 automation prompts (DB + TOML). 4 already had it from work computer updates. All 10 now include merge-back directive. [Done: 2026-04-08]
 - [completed] **21.4 Document worktree pruning guidance** — Add to /codex skill: how to audit and clean orphan worktrees. `git worktree list | grep -v "detached HEAD" | grep -v main` to find stranded work. Guidance on cherry-pick vs merge vs abandon. [Evidence: process gap]
 
 ### Phase 10 Open Questions
@@ -223,4 +222,4 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 2 tasks archived to ARCHIVE.md -->
+<!-- 1 tasks archived to ARCHIVE.md -->
