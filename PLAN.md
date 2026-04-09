@@ -97,7 +97,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: Snap workstation feedback 2026-04-08 — `vidux-doctor.sh` line 40, `vidux-prune.sh` line 25, `commands/vidux.md` line 58, `test_vidux_contracts.py` line 1111 all hardcode `projects/` path assumptions]
 
-- [completed] **19.3 Stop parsing `projects/<name>/PLAN.md` out of prompt text** — Addressed in Phase 20.7: all live automation prompts rewritten with absolute paths to ~/.vidux/projects/ instead of relative repo-local paths. Runtime slug resolution deferred as optional enhancement. [Done: 2026-04-08]
 - [completed] **19.4 Update docs and tests** — Fixed vidux.md to reference config-resolved plan_store.path. Replaced test_projects_directory_exists with test_plan_store_resolvable (tests resolve-plan-store.sh). [Done: 2026-04-08]
 
 ### Phase 20: Codex Skill Independence & Watch
@@ -147,7 +146,7 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Investigation: investigations/trunk-merge-back-failure.md]
 
-- [pending] **23.1 Add Doctrine 15 "Trunk health is infrastructure" to vidux SKILL.md** — Dirty/diverged checkout must be detected in gate (first 10 seconds), not at merge-back time (45min in). Include: `git status --short --branch` check, >5 commit divergence = escalate, dirty trunk = escalate before deep work. [Evidence: overnight cycles 1-9 show merge-back ceiling hit at cycle 4, worsening through cycle 9]
+- [completed] **23.1 Add Doctrine 15 "Trunk health is infrastructure" to vidux SKILL.md** — Added Doctrine 15, plan file merge safety rule, Known Limitations section. Committed f4217dd. [Done: 2026-04-09]
 - [pending] **23.2 Patch vidux-loop.sh to recognize branch pushes as productive** — Progress entries containing "branch:", "pushed", "origin/codex/" should not count toward unproductive_streak. This prevents auto_pause from firing on automations that are actually shipping code. [Evidence: strongyes-release-train auto-paused despite branch pushes]
 - [pending] **23.3 Add "branch absorber" role to fleet topology** — The lead writer (release-train) must absorb sibling branches during its READ step before popping new tasks. Add to Companion Skills / Fleet health orchestrator section. [Depends: 23.1]
 - [pending] **23.4 Make auto-pause root-cause aware** — Before recommending pause, check if the unproductive streak shares a common blocker family (dirty trunk, missing env vars, simulator contention). If yes: escalate the infrastructure issue instead of pausing. [Depends: 23.2]
@@ -249,5 +248,4 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 5 tasks archived to ARCHIVE.md -->
-<!-- 5 tasks archived to ARCHIVE.md -->
+<!-- 1 tasks archived to ARCHIVE.md -->
