@@ -166,69 +166,12 @@ Use MCP (team chat history, PR review comments, design docs) to ground simulatio
 ### 7. Bug tickets are nested investigations, not tasks
 
 A bug ticket is NOT a task to check off. It is a **nested investigation** — a plan-within-a-plan
-that follows the same unidirectional flow as the parent. This is the "tree of viduxing":
-the parent plan spawns sub-investigations, each with its own evidence/root-cause/fix cycle.
+that follows the same unidirectional flow as the parent. Before writing code for a bug ticket,
+produce a nested investigation. Mark the parent task with `[Investigation: investigations/<slug>.md]`.
 
-**Why this matters:** When we treated tickets as line items — "fix AO0: title truncation" —
-agents jumped straight to code. The fix addressed one symptom but missed the root cause.
-Then the next ticket on the same surface regressed it. The popover amount-editor had 8+ tickets
-and 8+ "fixes" that kept undoing each other because no one mapped the full system first.
-
-**The rule:** Before writing code for a bug ticket, produce a nested investigation.
-Mark the parent task with `[Investigation: investigations/<slug>.md]`.
-
-**The nested investigation template** (produce this BEFORE any code):
-
-```markdown
-# Investigation: [surface name]
-
-## Reporter Says
-[exact quote from feedback]
-
-## Evidence
-- Files that own this surface: [list with line numbers]
-- Related tickets on same surface: [list]
-- Recent commits: `git log --oneline -5 -- <files>`
-- Repro: [steps or screenshot path]
-
-## Root Cause
-What is actually broken and why. Not symptoms — the specific code path.
-
-## Impact Map
-- Other UI paths that render this surface: [list]
-- Other tickets fixed/broken by this change: [list]
-- State flow: [data model → view model → view chain]
-
-## Fix Spec
-- File:line — change X to Y
-- File:line — add Z
-- [Evidence: why this is the right fix]
-
-## Regression Tests
-- Test 1: [what it asserts, covering THIS ticket]
-- Test 2: [what it asserts, covering RELATED tickets]
-- Test 3: [what it asserts, preventing reintroduction]
-
-## Gate
-- [ ] build passes
-- [ ] tests pass (including new)
-- [ ] visual check or runtime smoke (for UI)
-```
-
-**If the Fix Spec is missing, the cycle is investigation only — no code.**
-
-**When to investigate vs just fix:**
-- ALWAYS for 2+ tickets on the same surface (bundle them into one investigation)
-- ALWAYS for UI bugs needing runtime/visual verification
-- ALWAYS when root cause is unclear
-- OPTIONAL for pure data/logic bugs with obvious single-file fixes
-
-**Three-strike escalation:** If a surface has had 3+ tickets filed against it,
-the investigation MUST include a full Impact Map before any code.
-A surface with 3+ tickets is not a series of bugs — it's a design problem.
-
-See "Compound Tasks & Investigations" section below for the full architecture,
-status propagation rules, and directory structure.
+> See `guides/investigation.md` for the full investigation template, compound task architecture,
+> sub-plan linking (`[spawns:]`), status propagation rules, three-strike escalation, and
+> when to investigate vs just fix.
 
 ### 8. Cron prompts are harnesses, not snapshots
 
@@ -254,7 +197,7 @@ includes the SCAN gate -- checks file changes since last scan, checks last N sca
 A scanner that gates on plan state will never scan. See "Quick Check Gate Pattern" in best-practices
 for both gate templates.
 
-> For the full harness template and authoring guidance, see `guides/vidux/best-practices.md`.
+> For the full harness authoring reference (8-block structure, gate selection, size guidance, amp flow), see `guides/harness.md`. For gate templates and fleet patterns, see `guides/vidux/best-practices.md`.
 
 ### 9. Subagent coordinator pattern
 
@@ -434,6 +377,23 @@ If diverged >5 commits: escalate immediately ("trunk diverged, needs human recon
 **Branch pushes are productive output.** An automation that ships code to a branch, pushes it to origin, and records the branch name in its memory note is shipping. The unproductive streak counter must not penalize this — the work exists, it just needs absorption.
 
 **The lead writer absorbs branches.** The release-train or equivalent lead writer must check for unmerged sibling branches during its READ step and merge them before popping new tasks. This is not optional. Without it, branches accumulate until a human manually merges them.
+
+---
+
+### 16. Merge conflicts preserve both sides — never silently drop work
+
+> **When two worktrees merge back to main, both sides' work must survive. A conflict resolved by deleting one side is not a resolution — it's data loss.**
+
+Multiple automations ship real work to separate branches overnight. When they merge back, conflicts happen because both touched the same files (PLAN.md, shared UI, tests). Blindly accepting `--theirs` or `--ours` silently drops the other's work — hours of compute wasted, tasks that look "done" but whose code vanished.
+
+**How to apply:** Every merge conflict must follow this protocol:
+
+1. **Try additive merge first.** If both sides added different things (new tests, new tasks, new functions), keep both. Most conflicts are additive, not contradictory.
+2. **If genuine conflict (same line, different intent):** Check commit timestamps. The more recent change is likely more correct — it was written with knowledge of the earlier state.
+3. **If tie (same timestamp, both valid):** Read both versions. Pick the one that better serves the mission. Never coin-flip.
+4. **LOG every resolution.** Add a Decision Log entry: `[MERGE] <date> Conflict on <file>. Kept <branch>'s version because <reason>. Dropped: <summary>.`
+5. **Never silently resolve.** A merge that touches 10 files and resolves 3 conflicts without a single log entry is suspicious. The log IS the proof that no work was lost.
+6. **PLAN.md special rule:** Task count must not decrease (worktree handoff rule 5). A merge that reduces the task count without `[completed]` entries is a plan clobber, not a resolution.
 
 ---
 
@@ -808,180 +768,17 @@ Writers delete promoted entries and annotate non-actionable ones. Maximum 20 ent
 
 ## Compound Tasks & Investigations
 
-Not every task is atomic. Some require investigation before code — root cause analysis, impact mapping, evidence gathering across related tickets. These are **compound tasks**.
+> See `guides/investigation.md` for the full compound task architecture, investigation template,
+> sub-plan linking (`[spawns:]`), status propagation rules, and when to use compound vs atomic tasks.
 
-### Atomic vs Compound
-
-```
-Parent PLAN.md (the expedition)
-├── [pending] Task 1: update copy token          ← atomic: execute directly
-├── [pending] Task 2: fix popover amount-editor   ← compound: needs investigation
-│   └── investigations/popover-amount-editor.md   ← sub-plan
-├── [pending] Task 3: folder nav dismiss          ← atomic
-└── [pending] Task 4: assignment label rendering  ← compound
-    └── investigations/assignment-labels.md       ← sub-plan
-```
-
-**Atomic tasks** have self-contained descriptions with inline evidence. Pop, execute, checkpoint.
-
-**Compound tasks** link to an investigation file. The task in PLAN.md looks like:
-
-```markdown
-- [pending] Task 2: Fix popover amount-editor system [Investigation: `investigations/popover-amount-editor.md`] [Depends: none]
-```
-
-The `[Investigation: ...]` marker tells the agent: read the sub-plan before coding.
-
-### When to use compound tasks
-
-- 2+ tickets on the same surface (bundle them)
-- UI bug needing runtime/visual verification
-- Unclear root cause ("it's weird", "even buggier than before")
-- Three-strike: 3+ prior fixes on the same area
-- OPTIONAL for pure data/logic bugs with obvious single-file fixes (keep atomic)
-
-### Investigation template
-
-Lives in `investigations/` alongside `evidence/` in the project directory:
-
-```markdown
-# Investigation: [surface name]
-
-## Tickets
-- [ASC-ID] "[exact reporter quote]" — [triaged|fixed|blocked]
-- [ASC-ID] "[exact reporter quote]" — [triaged|fixed|blocked]
-
-## Evidence
-- Files that own this surface: [list with line numbers]
-- Related tickets (same surface, any status): [list]
-- Recent commits: `git log --oneline -5 -- <files>`
-- Repro: [steps or screenshot path]
-
-## Root Cause
-What is actually broken and why. Not symptoms — the specific code path.
-
-## Impact Map
-- Other UI paths that render this surface: [list]
-- Other tickets fixed/broken by this change: [list]
-- State flow: [data model → view model → view chain]
-
-## Fix Spec
-- File:line — change X to Y
-- File:line — add Z
-- [Evidence: why this is the right fix]
-
-## Tests
-- Test 1: [what it asserts, covering THIS ticket]
-- Test 2: [what it asserts, covering RELATED tickets]
-- Test 3: [what it asserts, preventing reintroduction]
-
-## Gate
-- [ ] build passes
-- [ ] tests pass (including new)
-- [ ] visual check or runtime smoke (for UI)
-```
-
-### Sub-plan linking with `[spawns:]`
-
-A task can link to its sub-plan explicitly using the `[spawns:]` tag:
-
-```markdown
-- [in_progress] Task 5: Fix payment flow [spawns: investigations/payment-flow.md]
-```
-
-Rules:
-- The sub-plan follows the same PLAN.md structure (tasks with `[pending]`/`[in_progress]`/`[completed]`/`[blocked]` states)
-- vidux-loop.sh reports sub-plan status in its JSON output when the parent task is `in_progress` or `pending`
-- Sub-plan tasks inherit the parent's priority unless overridden
-- Traversal is 1 level deep (sub-plans do not recurse into their own `[spawns:]` tags)
-- `[spawns:]` and `[Investigation:]` serve the same purpose; `[spawns:]` is the machine-readable form that vidux-loop.sh traverses
-
-### Status propagation
-
-The parent task in PLAN.md reflects the investigation lifecycle:
-
-| Investigation state | Parent task status |
-|--------------------|--------------------|
-| Not started | `[pending]` |
-| Evidence gathering in progress | `[in_progress]` |
-| Investigation complete, fix spec ready | `[in_progress]` (agent executes) |
-| Code done, verified | `[completed]` |
-| Blocked on external dependency | `[blocked]` |
-
-### When tickets share a surface
-
-Bundle them into ONE investigation. The evidence gathering and root cause analysis cover ALL tickets. The fix spec addresses all of them. The tests cover every ticket's scenario. One plan, one agent, one surface. This prevents the ping-pong pattern where fix A breaks ticket B.
-
-### Relationship to Doctrine 7
-
-Doctrine 7 ("Bug tickets are investigations, not tasks") establishes the WHY. This section defines the HOW — the file structure, template, and status propagation rules that make nested plans work in practice.
+A compound task links to a sub-plan: `[Investigation: investigations/<slug>.md]`. The investigation template sections: Reporter Says, Evidence, Root Cause, Impact Map, Fix Spec, Tests, Gate. If the Fix Spec is missing, the cycle is investigation only — no code. Status propagation: when a sub-plan completes, the parent task status updates automatically.
 
 ---
 
 ## Evidence Directory
 
-Long-form evidence lives in `evidence/` files alongside `PLAN.md`, not inline in the plan.
-Tasks cite file paths; the plan stays lean. Each snapshot is an auditable evidence record.
-
-### Naming convention
-
-```
-evidence/YYYY-MM-DD-<slug>.md
-```
-
-- Use ISO date prefix for chronological ordering in git history.
-- Slug should be 2-4 words: `harness-retro`, `auth-patterns`, `api-latency-analysis`.
-- One file per research session or material cycle. Do not append unrelated findings to existing files.
-
-### Required format
-
-```markdown
-# YYYY-MM-DD <Descriptive Title>
-
-## Goal
-One sentence: why this snapshot was created and what question it answers.
-
-## Sources
-- [Source: <tool/file/url>, <date>] <what was queried or read>
-- [Source: codebase grep] <file:line pattern found>
-- [Source: MCP query] <tool + query used>
-
-## Findings
-
-### 1. <Finding title>
-<Finding body. Be specific: quote, file path, line number, metric value.>
-
-### 2. <Finding title>
-...
-
-## Recommendations
-- <Actionable next step derived from findings. Optional — omit if findings speak for themselves.>
-```
-
-### Referencing from PLAN.md
-
-Task evidence citations point to the file and section, not the full content:
-
-```markdown
-- [pending] Task 5: ... [Evidence: `evidence/2026-04-03-api-patterns.md#findings`]
-```
-
-When a single snapshot covers multiple tasks, each task cites the relevant section anchor.
-
-### When to create vs append
-
-| Situation | Action |
-|-----------|--------|
-| New research session on a new topic | Create a new file with today's date |
-| Adding a follow-up finding to an existing session | Append a new `### N. Title` under existing `## Findings` |
-| Existing snapshot is from a different date | Create a new file (keep date-accurate audit trail) |
-| Findings contradict an earlier snapshot | Note the contradiction in the new file; do not edit the old one |
-
-### Relationship to PLAN.md Evidence section
-
-`PLAN.md ## Evidence` summarizes what is known at plan creation — one bullet per key finding.
-`evidence/` files store the raw, cited, time-stamped snapshots that back those summaries.
-Both are required. Summaries without snapshots are guesses.
+> See `guides/evidence-format.md` for naming conventions (`YYYY-MM-DD-slug.md`), required format
+> (Goal/Sources/Findings/Recommendations), when to create vs append, and how to reference from PLAN.md.
 
 ---
 
@@ -1010,6 +807,8 @@ Vidux does NOT activate for:
 ---
 
 ## Prompt Amplification (built-in)
+
+> See `guides/harness.md` for the standalone reference (amp flow, 8-block structure, writer/scanner detection).
 
 When `/vidux` is invoked interactively with arguments, amplify the request before executing.
 This is the default entry behavior — prompt amplification is built into `/vidux`.
