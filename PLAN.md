@@ -94,7 +94,6 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 [Evidence: `projects/vidux-self-investigation/evidence/2026-04-08-automation-prompt-rewrites.md`]
 
-- [completed] **18.4 Write prompt authoring best practices** — Added Section 14 to best-practices.md: prompt structure, before/after example (real ASC failure), gate selection guide, 7 common mistakes, skill token format, size guidance. [Done: 2026-04-08]
 - [completed] **18.5 Create fresh acme/PLAN.md** — Imported real work from 4 Cursor plans: 9 pending tasks across ASC bugs (6 new + 4 triaged + 56 verify + 5 blocked), release (TestFlight + screenshots), and ops (FX docs + migration + web parity). Created INBOX.md for scanner→writer pattern. [Done: 2026-04-08]
 - [completed] **18.6 Handle find_work + rename REDUCE to Quick Check** — All 5 prompts now use "Quick check gate" naming. Exit condition simplified: only exit on action=complete AND type=done AND queue_starved=false. Everything else (dispatch, find_work, gather_evidence) proceeds. [Done: 2026-04-08]
 - [completed] **18.7 Verify fleet recovery after Codex restart** — Codex restarted 3x during session. Discovered Bugs #14-17: DB-only writes get overwritten by Electron cache (must full-quit app); TOML files are the runtime prompt source (not DB); new rows need TOMLs for UI visibility. All 10 automations now have synced DB + TOML with corrected prompts (0 REDUCE, correct plan paths). Awaiting first post-fix cycle for runtime proof. [Done: 2026-04-08] [Evidence: /codex skill Bugs #14-17]
@@ -144,7 +143,7 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 
 - [completed] **22.1 Fix vidux-loop.sh stale REDUCE comment** — Last "REDUCE gate" reference in code. Changed to "quick check gate". [Done: 2026-04-08]
 - [completed] **22.2 Fix test_vidux_loop_exposes_reduce_mode_contract** — Added "find_work" to valid next_action set. [Done: 2026-04-08]
-- [pending] **22.3 Add cross-lane awareness to 4 resplit writers** — resplit-asc, resplit-launch-loop, resplit-localization-pro, resplit-web all missing sibling memory reads. Add `cat ~/.codex/automations/{sibling}/memory.md` to gate. [Evidence: review agent scored 2/5 on cross-lane for all 4] [P]
+- [completed] **22.3 Add cross-lane awareness to 4 resplit writers** — resplit-asc, resplit-launch-loop, resplit-localization-pro, resplit-web all missing sibling memory reads. Add `cat ~/.codex/automations/{sibling}/memory.md` to gate. [Evidence: review agent scored 2/5 on cross-lane for all 4] [P]
 - [pending] **22.4 Trim resplit-localization-pro prompt** — 6322 chars, 2x the 3000 target. Extract authority chain to file reference. Move simulator timeout to $bigapple skill. [Evidence: review agent] [P]
 - [pending] **22.5 Trim resplit-web and resplit-launch-loop prompts** — 4836 and 3744 chars respectively. Collapse verbose execution sections. Canonicalize memory path (one form, not 3 aliases). [Evidence: review agent] [P]
 - [pending] **22.6 Add idle self-extension to 3 strongyes scanners/writers** — content-scanner, blog-writer, ux-scanner exit clean when idle without scanning for gaps. Add codebase scan for stale content, broken links, untested paths. [Evidence: review agent scored 3/5 proactiveness] [P]
@@ -235,4 +234,4 @@ Create a net-new plan-first orchestration system that makes quarter-long iOS pro
 - [2026-04-01 07:07] Cycle 7: Answered Q3 — SKILL.md alone is the cross-tool format (agentskills.io standard). Plugin manifests NOT needed for interop. Surprise: Phase 4 was over-engineered. Next: Q4.
 - [2026-04-01 08:07] Cycle 8: Answered Q4 — Agent subagents beat Teams for cron fan-out. Teams violate stateless doctrine. Next: Q1 (EARS notation).
 - [2026-04-01 09:07] Cycle 9: Answered Q1 — EARS for acceptance criteria only (Done-When tags). All 4 open questions now answered. All 5 phases complete except 2 human-blocked tasks. Vidux 1.0 autonomous build is DONE. Remaining: Leo tests cross-tool and cross-machine manually.
-<!-- 2 tasks archived to ARCHIVE.md -->
+<!-- 1 tasks archived to ARCHIVE.md -->

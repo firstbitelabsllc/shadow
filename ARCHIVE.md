@@ -126,3 +126,6 @@ Tasks completed and archived from PLAN.md to keep context lean.
 ## Archived 2026-04-08
 - [completed] **18.2 Diagnose all 6 active automations** — Audited prompts, ran vidux-loop.sh on each plan, read all memory files. Found: 4 wrong gate files, 1 scanner-as-writer, 2 safety deadlocks (CB + auto_pause). [Done: 2026-04-08] [Evidence: automation-prompt-rewrites.md]
 - [completed] **18.3 Rewrite all automation prompts (v3)** — Final rewrite: all 5 active automations use "Quick check gate" (no more REDUCE naming). acme-asc now gates on fresh vidux plan with 9 real tasks. acme-localization-pro uses SCAN gate. All prompts handle find_work state. acme-currency paused (1 task, folded into plan task 7). [Done: 2026-04-08]
+
+## Archived 2026-04-08
+- [completed] **18.4 Write prompt authoring best practices** — Added Section 14 to best-practices.md: prompt structure, before/after example (real ASC failure), gate selection guide, 7 common mistakes, skill token format, size guidance. [Done: 2026-04-08]
