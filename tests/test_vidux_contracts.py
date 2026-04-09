@@ -46,26 +46,18 @@ class ViduxContractTests(unittest.TestCase):
     # SKILL.md contracts
     # -----------------------------------------------------------------------
 
-    def test_skill_has_twelve_doctrine_principles(self):
-        """SKILL.md must contain all 12 numbered doctrine principles."""
+    def test_skill_has_five_principles(self):
+        """SKILL.md must contain all 5 numbered principles under Five Principles."""
         text = _read(SKILL)
-        for n in range(1, 13):
+        self.assertIn("## Five Principles", text, "SKILL.md missing '## Five Principles' heading")
+        for n in range(1, 6):
             self.assertRegex(
                 text, rf"###\s+{n}\.",
-                f"SKILL.md missing doctrine principle #{n}",
+                f"SKILL.md missing principle #{n}",
             )
 
-    def test_skill_has_two_data_structures(self):
-        """SKILL.md must mention both core data structures."""
-        text = _read(SKILL)
-        self.assertIn("Documentation Tree", text, "SKILL.md missing 'Documentation Tree'")
-        self.assertIn("Work Queue", text, "SKILL.md missing 'Work Queue'")
-
-    def test_skill_has_advisors(self):
-        """SKILL.md must reference both advisor philosophies."""
-        text = _read(SKILL)
-        self.assertIn("Steve Yegge", text, "SKILL.md missing Steve Yegge advisor")
-        self.assertIn("Jeffrey Lee-Chan", text, "SKILL.md missing Jeffrey Lee-Chan advisor")
+    # test_skill_has_two_data_structures — removed in v3 (framing replaced by Five Principles)
+    # test_skill_has_advisors — removed in v3 (advisors concept removed)
 
     def test_skill_is_company_agnostic_layer1(self):
         """Doctrine + architecture sections must have zero company-specific terms."""
@@ -84,17 +76,7 @@ class ViduxContractTests(unittest.TestCase):
                 f"Company-specific term '{term}' found in Layer 1: {hits}",
             )
 
-    def test_skill_has_layer_separation(self):
-        """SKILL.md must explicitly separate Layer 1 and Layer 2."""
-        text = _read(SKILL)
-        self.assertIn("Layer 1", text)
-        self.assertIn("Layer 2", text)
-        self.assertTrue(
-            "company-agnostic" in text.lower()
-            or "open-sourceable" in text
-            or "Layer 1 vs Layer 2" in text,
-            "SKILL.md missing layer separation marker",
-        )
+    # test_skill_has_layer_separation — removed in v3 (layer separation removed)
 
     def test_skill_has_activation_criteria(self):
         """SKILL.md must define when Vidux activates and when it does NOT."""
@@ -108,23 +90,7 @@ class ViduxContractTests(unittest.TestCase):
             "SKILL.md missing negative activation criteria",
         )
 
-    def test_skill_has_failure_protocol(self):
-        """SKILL.md must contain the failure protocol with dual five-whys."""
-        text = _read(SKILL)
-        self.assertIn("Failure Protocol", text)
-        self.assertTrue(
-            "Five Whys" in text or "five-whys" in text.lower(),
-            "SKILL.md missing Five Whys",
-        )
-        self.assertTrue(
-            "three-strike" in text.lower() or "Three-strike" in text,
-            "SKILL.md missing three-strike gate",
-        )
-        has_dual = bool(
-            re.search(r"(?:dual|two).*(?:five-whys|Five Whys)", text, re.IGNORECASE)
-            or re.search(r"(?:five-whys|Five Whys).*(?:dual|two)", text, re.IGNORECASE)
-        )
-        self.assertTrue(has_dual, "SKILL.md failure protocol missing 'dual' near 'five-whys'")
+    # test_skill_has_failure_protocol — removed in v3 (covered by principle 5: Prove it mechanically)
 
     # -----------------------------------------------------------------------
     # DOCTRINE.md contracts
@@ -452,39 +418,27 @@ class ViduxContractTests(unittest.TestCase):
             self.assertTrue(doc.exists(), f"Core doc missing: {doc.name}")
 
     def test_skill_mentions_all_core_docs(self):
-        """SKILL.md should reference all companion documents."""
+        """SKILL.md should reference key file artifacts."""
         text = _read(SKILL)
-        self.assertTrue("DOCTRINE" in text or "doctrine" in text.lower())
-        self.assertTrue("LOOP" in text or "loop" in text.lower())
-        self.assertIn("PLAN.md", text)
+        self.assertIn("PLAN.md", text, "SKILL.md missing PLAN.md reference")
+        self.assertIn("evidence/", text, "SKILL.md missing evidence/ reference")
+        self.assertIn("investigations/", text, "SKILL.md missing investigations/ reference")
 
     # -----------------------------------------------------------------------
     # Cross-doc consistency
     # -----------------------------------------------------------------------
 
-    def test_skill_has_fifty_thirty_twenty(self):
-        """SKILL.md must contain the 50/30/20 split."""
-        text = _read(SKILL)
-        self.assertIn("50%", text)
-        self.assertIn("30%", text)
-        self.assertIn("20%", text)
+    # test_skill_has_fifty_thirty_twenty — removed in v3 (50/30/20 split removed)
 
     def test_doctrine_principles_match_skill(self):
-        """DOCTRINE.md and SKILL.md must agree on key principle wording."""
-        doctrine = _read(DOCTRINE)
+        """SKILL.md principles must cover plan-first and process-fix concepts."""
         skill = _read(SKILL)
-        d_p1 = re.search(r"##\s+1\.\s+Plan.*?(?=^##\s+2\.)", doctrine, re.DOTALL | re.MULTILINE)
         s_p1 = re.search(r"###\s+1\.\s+Plan.*?(?=^###\s+2\.)", skill, re.DOTALL | re.MULTILINE)
-        self.assertIsNotNone(d_p1)
-        self.assertIsNotNone(s_p1)
-        self.assertIn("Plan is the store", d_p1.group())
-        self.assertIn("Plan is the store", s_p1.group())
-        d_p6 = re.search(r"##\s+6\..*?(?=^---|^$|\Z)", doctrine, re.DOTALL | re.MULTILINE)
-        s_p6 = re.search(r"###\s+6\..*?(?=^---|^###|\Z)", skill, re.DOTALL | re.MULTILINE)
-        self.assertIsNotNone(d_p6)
-        self.assertIsNotNone(s_p6)
-        self.assertIn("Process fixes", d_p6.group())
-        self.assertIn("Process fixes", s_p6.group())
+        self.assertIsNotNone(s_p1, "SKILL.md missing principle 1 (Plan first)")
+        self.assertIn("source of truth", s_p1.group())
+        s_p5 = re.search(r"###\s+5\..*?(?=^---|^###|\Z)", skill, re.DOTALL | re.MULTILINE)
+        self.assertIsNotNone(s_p5, "SKILL.md missing principle 5 (Prove it)")
+        self.assertIn("process fix", s_p5.group())
 
     def test_hooks_scripts_exist(self):
         """Every script referenced in hooks/hooks.json must exist on disk."""
@@ -1040,12 +994,7 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn("Archived 5", result.stdout)
             self.assertTrue(os.path.exists(os.path.join(tmpdir, "ARCHIVE.md")))
 
-    def test_skill_has_configuration_section(self):
-        """SKILL.md must have a Configuration section."""
-        text = _read(SKILL)
-        self.assertIn("## Configuration", text)
-        self.assertIn("external", text)
-        self.assertIn("inline", text)
+    # test_skill_has_configuration_section — removed in v3 (configuration section removed)
 
     def test_plan_store_resolvable(self):
         """resolve-plan-store.sh must exist and resolve_plan_store must return a path."""
@@ -1798,11 +1747,7 @@ class ViduxContractTests(unittest.TestCase):
 
     # Tests for vidux-dispatch.sh exit criteria removed — script deleted in v2.6.0
 
-    def test_skill_has_exit_criteria_in_plan_template(self):
-        """SKILL.md PLAN.md template must include ## Exit Criteria as an optional section."""
-        text = _read(SKILL)
-        self.assertIn("## Exit Criteria", text)
-        self.assertIn("Optional", text.split("## Exit Criteria")[1].split("##")[0])
+    # test_skill_has_exit_criteria_in_plan_template — removed in v3 (plan template simplified)
 
     # ===================================================================== #
     # Phase 10-12 contract tests
@@ -1991,32 +1936,16 @@ class ViduxContractTests(unittest.TestCase):
     # Cross-doc: SKILL.md must reference Phase 10-12 concepts
     # -----------------------------------------------------------------------
 
-    def test_skill_has_quick_check_terminology(self):
-        """SKILL.md must use quick check / deep work terminology."""
-        text = _read(SKILL)
-        self.assertTrue(
-            "deep work" in text.lower() or "dispatch" in text.lower(),
-            "SKILL.md missing deep work / dispatch terminology",
-        )
-        self.assertTrue(
-            "quick check" in text.lower() or "REDUCE" in text,
-            "SKILL.md missing quick check terminology (or REDUCE technical identifier)",
-        )
+    # test_skill_has_quick_check_terminology — removed in v3 (quick check/deep work simplified)
 
-    def test_skill_has_bimodal_concept(self):
-        """SKILL.md must reference the bimodal distribution concept from Doctrine 10."""
-        text = _read(SKILL)
-        self.assertTrue(
-            "bimodal" in text.lower() or "Bimodal" in text,
-            "SKILL.md missing bimodal distribution concept",
-        )
+    # test_skill_has_bimodal_concept — removed in v3 (moved to fleet ops guide)
 
-    def test_skill_has_bounded_recursion_concept(self):
-        """SKILL.md must reference bounded recursion from Doctrine 12."""
+    def test_skill_has_self_extend_with_brake(self):
+        """SKILL.md principle 4 must describe self-extension with a stopping rule."""
         text = _read(SKILL)
         self.assertTrue(
-            "bounded recursion" in text.lower() or "Bounded recursion" in text,
-            "SKILL.md missing bounded recursion concept",
+            "brake" in text.lower() or "stop polishing" in text.lower(),
+            "SKILL.md missing 'brake' or 'stop polishing' in principle 4",
         )
 
     # ===================================================================== #
@@ -2133,11 +2062,10 @@ class ViduxContractTests(unittest.TestCase):
     def test_skill_has_compound_tasks_section(self):
         """SKILL.md must document compound tasks and investigations."""
         text = _read(ROOT / "SKILL.md")
-        self.assertIn("Compound Tasks", text)
-        self.assertIn("Investigation", text)
-        self.assertIn("Impact Map", text)
-        self.assertIn("Fix Spec", text)
-        self.assertIn("status propagation", text.lower())
+        self.assertIn("Compound tasks", text, "SKILL.md missing 'Compound tasks' subsection")
+        self.assertIn("Investigation", text, "SKILL.md missing 'Investigation' reference")
+        self.assertIn("Impact Map", text, "SKILL.md missing 'Impact Map'")
+        self.assertIn("Fix Spec", text, "SKILL.md missing 'Fix Spec'")
 
     def test_skill_investigation_template_has_required_sections(self):
         """SKILL.md investigation template must have all required sections."""
@@ -2145,12 +2073,20 @@ class ViduxContractTests(unittest.TestCase):
         for section in ["Reporter Says", "Root Cause", "Impact Map", "Fix Spec", "Gate"]:
             self.assertIn(section, text, f"Investigation template missing: {section}")
 
-    def test_skill_principle5_mentions_compaction(self):
-        """SKILL.md Principle 5 must mention compaction survival."""
+    def test_skill_principle2_mentions_context_loss(self):
+        """SKILL.md Principle 2 must address context loss and disk-based re-read."""
         text = _read(ROOT / "SKILL.md")
         self.assertTrue(
-            "compaction" in text.lower(),
-            "SKILL.md missing compaction guidance in Principle 5",
+            "context will be lost" in text.lower(),
+            "SKILL.md missing 'Context will be lost' in principle 2",
+        )
+        self.assertTrue(
+            "re-read plan" in text.lower() or "re-read PLAN.md" in text,
+            "SKILL.md missing re-read guidance in principle 2",
+        )
+        self.assertTrue(
+            "never trust summaries" in text.lower() or "never trust summaries or memory" in text.lower(),
+            "SKILL.md missing 'Never trust summaries' in principle 2",
         )
 
     def test_doctrine_principle7_mentions_investigation(self):

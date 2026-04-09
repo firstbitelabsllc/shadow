@@ -24,7 +24,7 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [completed] 1.3 Extract investigation template to guides/investigation.md [Done: 2026-04-09]
 - [completed] 1.4 Extract harness authoring to guides/harness.md [Done: 2026-04-09]
 - [completed] 1.5 Extract evidence format to guides/evidence-format.md [Done: 2026-04-09]
-- [pending] 1.6 Replace SKILL.md with SKILL-v3.md (after testing automations with new prompts)
+- [completed] 1.6 Replace SKILL.md with SKILL-v3.md — 1000→208 lines, 14 tests updated, 144/144 pass [Done: 2026-04-09]
 - [pending] 1.7 Update /claude skill to reference v3 patterns
 
 ### Phase 2: Resplit automation revamp [spawns: investigations/resplit-revamp.md]
