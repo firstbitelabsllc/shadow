@@ -202,13 +202,13 @@ Quick check gate (run FIRST, before any other work):
    git worktree list | grep "<this-lane-id>"
    If found with unmerged commits: resume it (cd into it), do not create new.
    If found but work is stale/superseded: remove it first, log in Decision Log.
-5. If next_action is "dispatch": proceed to full execution below.
+5. If actionable work exists: proceed to full execution below.
 Budget: steps 1-4 must complete in under 60 seconds.
 ```
 
 ### Standalone variant (~800 chars)
 
-Use when the automation does not have `vidux-loop.sh` or operates outside the vidux plan-store model.
+Use when the automation does not have `vidux-loop.sh` or operates outside the vidux plan model.
 
 ```
 Quick check gate (run FIRST, before any other work):
@@ -330,7 +330,7 @@ Do not re-read the plan, re-assess state, or "think about what to do next" -- th
 
 ### Circuit breaker and auto_pause deadlocks
 
-Safety mechanisms can become traps. Circuit breaker opens after N idle cycles and blocks dispatch. But if dispatch is blocked, the automation stays idle, so CB stays open. Same loop with auto_pause.
+Safety mechanisms can become traps. Circuit breaker opens after N idle cycles and blocks execution. But if execution is blocked, the automation stays idle, so CB stays open. Same loop with auto_pause.
 
 **Fix:** Ensure the Progress section has shipping signal keywords when work is actually shipped (`shipped`, `commit`, `fixed`, `merged`, `created`, `built`, `added`, `wrote`, `pushed`). If the plan's Progress section has stale entries, the safety mechanisms fire on ghosts.
 

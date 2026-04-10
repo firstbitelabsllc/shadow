@@ -1,18 +1,18 @@
 # Vidux Doctrine
 
-> If an agent reads one file, this is it. 14 principles plus the quick check / deep work execution model and gate patterns, each battle-tested across 40+ cycles building Vidux itself, a 10-automation fleet across Acme and Beacon, and overnight cron loops that run unsupervised.
+> If an agent reads one file, this is it. 12 principles plus the quick check / deep work execution model and gate patterns, each battle-tested across 40+ cycles building Vidux itself, a 10-automation fleet across Acme and Beacon, and overnight cron loops that run unsupervised.
 
 ## Working Philosophy
 
-Every vidux agent — writer, scanner, coordinator — is proactive by default. No task assigned does not mean nothing to do. Scan the plan, read the evidence, check what changed. The whole point is anticipating what needs to happen next.
+Every vidux agent is a worker — proactive by default. No task assigned does not mean nothing to do. Scan the plan, read the evidence, check what changed. The whole point is anticipating what needs to happen next.
 
 When the human returns: brief them. What happened. What the options are. What you picked and why. "Steer me." Take one direction and make the alternatives crystal clear.
 
 Silence is not confirmation. Be hungry for steering.
 
-## 1. Plan is the store
+## 1. Plan is truth
 
-PLAN.md is the single source of truth. Code is a derived view. If the code is wrong, the plan is wrong. Fix the plan first. An agent that edits code without a corresponding plan entry is mutating state outside the reducer.
+PLAN.md is the single source of truth. Code is derived from it. If the code is wrong, the plan is wrong. Fix the plan first. An agent that edits code without a corresponding plan entry is violating the plan-first rule.
 
 *Why this matters: The Acme iOS fleet drifted 400+ lines from spec in 6 cycles before this rule existed. SlopCodeBench confirms it -- agent code degradation is monotonic.*
 
@@ -44,7 +44,7 @@ Every plan entry cites a source. No source = no entry. Sources: MCP queries, cod
 
 ## 5. Design for completion
 
-Deep work runs end. Context is lost. Auth expires. The store persists. State lives in files, not memory. Every cycle reads fresh. Checkpoints are structured. Any agent can resume from the last checkpoint. Tool state (.claude/, .cursor/) lives outside the working tree.
+Deep work runs end. Context is lost. Auth expires. The plan persists. State lives in files, not memory. Every cycle reads fresh. Checkpoints are structured. Any agent can resume from the last checkpoint. Tool state (.claude/, .cursor/) lives outside the working tree.
 
 *Why this matters: A Beacon overnight loop lost auth at 3am. The next cron fire committed recovered work and continued. Zero human intervention.*
 
@@ -118,26 +118,26 @@ When the user returns interactively: present what happened, numbered options for
 
 Two execution modes. No middle ground.
 
-**Quick check** (REDUCE gate in scripts) -- read the store, evaluate state, decide in under 2 minutes. Always read-only. The cron fires a quick check. If work is pending, it fires a deep work run. If nothing is pending, it exits.
+**Quick check** (quick check gate in scripts) -- read the plan, evaluate state, decide in under 2 minutes. Always read-only. The cron fires a quick check. If work is pending, it fires a deep work run. If nothing is pending, it exits.
 
-**Deep work** (DISPATCH in scripts) -- drain the queue, ship code, do real work. No upper time bound. Deep work yields only on queue drain, hard blocker, or context budget.
+**Deep work** (deep work mode in scripts) -- drain the queue, ship code, do real work. No upper time bound. Deep work yields only on queue drain, hard blocker, or context budget.
 
 Mid-zone (3-8 min) is structurally eliminated -- the agent never decides when to stop because the mode already decided.
 
-> **Technical names:** Scripts and JSON output use REDUCE and DISPATCH as gate/mode identifiers. In prose and harness prompts, prefer "quick check" and "deep work."
+> Scripts and JSON output use `quick_check` and `deep_work` as gate/mode identifiers.
 
 ```
 Cron
  |
  v
-QUICK CHECK / REDUCE (<2 min, read-only)
+QUICK CHECK (<2 min, read-only)
  |
  +--> nothing pending? --> checkpoint, exit
  |
  +--> work pending? --> fire DEEP WORK
                          |
                          v
-                    DEEP WORK / DISPATCH (15+ min)
+                    DEEP WORK (15+ min)
                          |
                          +--> drain queue until:
                               - queue empty
@@ -148,52 +148,21 @@ QUICK CHECK / REDUCE (<2 min, read-only)
                     checkpoint, exit
 ```
 
-**Terminology:** In prose, say "quick check" and "deep work." In scripts and JSON, REDUCE and DISPATCH are the technical identifiers. Never "burst" or "watch" -- those terms are rejected.
+**Terminology:** Always say "quick check" and "deep work." Never "burst," "watch," "reduce," or "dispatch" -- those terms are rejected.
 
-### Writers vs Scanners
+### Every agent is a worker
 
-Not all automations consume a queue. There are two kinds:
+There is no scanner/writer split. Every agent finds work AND does work.
 
-**Writers** pop tasks from PLAN.md, execute them, verify, checkpoint. Their quick check evaluates plan state: "is there work in the queue?" If no, exit. This is the default and everything above describes it.
+When the queue has tasks: pop, execute, verify, checkpoint. When the queue is empty: scan for new work (inbox, codebase, git log, blocked task recheck). If a scan finds work, add it to the plan and execute it in the same cycle. An agent that only observes and reports is a parked car with the engine running.
 
-**Scanners** (also called radars) inspect reality -- the codebase, a live API, a build log, a set of assets -- for problems the plan doesn't know about yet. Their quick check evaluates reality state: "has anything changed since my last scan?" If no, exit. A scanner that checks PLAN.md for work will always find nothing and exit without scanning. This is the failure mode that kills scanner automations.
-
-The distinction matters because vidux generates harness prompts. When vidux creates an automation, it must detect the intent -- is this automation consuming queued work or discovering new work? -- and generate the correct gate. Signals: if the prompt says "find," "scan," "audit," "detect," "check for," or "inspect," it is a scanner. If it says "implement," "build," "fix," "ship," or "wire up," it is a writer. Ambiguous prompts default to writer (safer -- a writer that finds no work just exits cleanly).
-
-Writers produce code and consume tasks. Scanners produce evidence and create tasks. Both feed the same store. The unidirectional flow holds: scanners are the Gather step that feeds Plan.
-
-### Entry Gates: Quick Check and Scan
+### Entry Gate
 
 Every automation harness starts with a gate that forces the agent to evaluate actionable work *before* loading skills or reading authority files. The gate is how Principle 10 (bimodal runs) gets enforced in practice -- agents that have nothing to do never enter the mid-zone because they exit before doing any real work.
 
-Two variants exist for writers: **with-vidux** (runs `vidux-loop.sh`, reads JSON, exits on blocked/complete/stuck/blocker_dedup) and **standalone** (reads memory + primary state file directly). Both enforce the same contract: steps 1-3 complete in under 60 seconds, and an agent that finds no actionable work writes a one-line `[QC]` memory note and exits immediately.
+Two variants: **with-vidux** (runs `vidux-loop.sh`, reads JSON, exits on blocked/complete/stuck/blocker_dedup) and **standalone** (reads memory + primary state file directly). Both enforce the same contract: steps 1-3 complete in under 60 seconds, and an agent that finds no actionable work writes a one-line `[QC]` memory note and exits immediately.
 
 **Blocker dedup:** `vidux-loop.sh` detects when the same blocker keyword (first 40 chars) appears in the last 3 Progress entries. When `blocker_dedup` is true, the gate also sets `auto_pause_recommended: true` -- stop wasting cycles re-reporting a known blocker.
-
-```
-SCAN gate (for scanner/radar automations):
-1. Read last 3 memory notes. If same "no issues" verdict 3x --> exit.
-2. git log --since="<last scan timestamp>" -- <watched paths>.
-   If no changes AND last scan was clean --> exit.
-3. Otherwise --> full scan.
-```
-
-The SCAN gate replaces the quick check gate in scanner harnesses. It checks reality, not plan state. A scanner that passes the SCAN gate enters deep work and runs its full inspection. Findings become evidence files and/or new PLAN.md entries -- the scanner never fixes what it finds (that is a writer's job). If a scanner finds nothing, it writes a `[SCAN: clean]` memory note and exits. Three consecutive clean notes trigger the early exit in step 1.
-
-See `guides/vidux/best-practices.md` Section 12 for the full copy-paste gate blocks and insertion guidance.
-
----
-
-## The Redux Analogy
-
-| Redux | Vidux |
-|-------|-------|
-| Store | PLAN.md |
-| Actions | Plan amendments (require evidence) |
-| Reducers | Quick check mode (REDUCE) -- read store, produce new state |
-| dispatch() | Deep work mode (DISPATCH) -- drain the queue |
-| View | Code (derived, never independent) |
-| DevTools | Git log + Ledger (reconstruct any mission) |
 
 ---
 

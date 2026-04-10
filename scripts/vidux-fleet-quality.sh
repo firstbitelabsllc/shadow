@@ -75,9 +75,18 @@ extract_durations() {
       { prev = $1 }
     '
   else
-    # Fallback: use file modification timestamps from memory content
-    # Look for ISO timestamps in the memory file
-    grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}' "$mem_file" 2>/dev/null | sort | uniq
+    # Fallback: parse ISO timestamps from memory content and compute deltas in minutes
+    grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}' "$mem_file" 2>/dev/null | sort | uniq | while read -r ts; do
+      # Convert ISO timestamp to epoch seconds (macOS date -j)
+      epoch=$(date -j -f "%Y-%m-%dT%H:%M" "$ts" "+%s" 2>/dev/null || echo "")
+      [[ -n "$epoch" ]] && echo "$epoch"
+    done | awk '
+      NR > 1 {
+        delta = $1 - prev
+        if (delta > 30 && delta < 7200) print int(delta / 60)
+      }
+      { prev = $1 }
+    '
   fi
 }
 

@@ -77,5 +77,5 @@ When a single snapshot covers multiple tasks, each task cites the relevant secti
 ## Relationship to PLAN.md Evidence Section
 
 `PLAN.md ## Evidence` summarizes what is known at plan creation -- one bullet per key finding.
-`evidence/` files store the raw, cited, time-stamped snapshots that back those summaries.
+`evidence/` files contain the raw, cited, time-stamped snapshots that back those summaries.
 Both are required. Summaries without snapshots are guesses.

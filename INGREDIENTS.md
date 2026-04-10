@@ -53,7 +53,7 @@ https://github.com/zueai/PAUL
 
 **How Vidux adopts it.** LOOP.md adopts all four escalation statuses in the "Escalation Statuses" table, with identical semantics. The UNIFY step appears in LOOP.md's "UNIFY Step (Planned vs Actual)" section: at the end of each cycle, reconcile what the plan said would happen with what the git diff shows actually happened. If they diverge, the plan updates to reflect reality (not the other way around) and a Surprise entry is logged. This closed-loop reconciliation is what prevents plan drift over multi-day projects.
 
-**What we do NOT adopt.** PAUL's rigid Execute/Qualify/Unify sequencing within a single task. Vidux's cycle is coarser-grained: one task per cycle, with UNIFY happening at checkpoint time. PAUL also lacks a plan document — it operates task-by-task without a persistent store. Vidux's plan-as-store architecture is the fundamental difference.
+**What we do NOT adopt.** PAUL's rigid Execute/Qualify/Unify sequencing within a single task. Vidux's cycle is coarser-grained: one task per cycle, with UNIFY happening at checkpoint time. PAUL also lacks a plan document — it operates task-by-task without a persistent plan. Vidux's plan-first architecture is the fundamental difference.
 
 ---
 

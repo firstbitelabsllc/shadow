@@ -26,7 +26,7 @@ Vidux uses **prompt** hooks for plan compliance. Here is why:
 
 ## Hook 1: PreToolUse — Write/Edit Gate
 
-**Doctrine enforced:** #2 (Unidirectional flow), #1 (Plan is the store)
+**Doctrine enforced:** #2 (Unidirectional flow), #1 (Plan is truth)
 
 **Trigger:** Before any `Write` or `Edit` tool call.
 
@@ -43,7 +43,7 @@ Vidux uses **prompt** hooks for plan compliance. Here is why:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. The plan is the store. Code is the view. All code changes flow from plan entries."
+            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. The plan is truth. Code is derived from it. All code changes flow from plan entries."
           }
         ]
       }
@@ -220,7 +220,7 @@ The command hook here is `async: true` — it prints a warning but does not bloc
 
 ## Hook 4: SessionStart — Resume Protocol
 
-**Doctrine enforced:** #5 (Design for completion), #1 (Plan is the store)
+**Doctrine enforced:** #5 (Design for completion), #1 (Plan is truth)
 
 **Trigger:** When a new session starts.
 
@@ -236,7 +236,7 @@ The command hook here is `async: true` — it prints a warning but does not bloc
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry — that's where the previous session left off.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, commit it first.\n5. Find the first unchecked task (- [ ]) — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. The plan is the store. You are the view."
+            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry — that's where the previous session left off.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, commit it first.\n5. Find the first unchecked task (- [ ]) — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. The plan is truth. Code is derived from it."
           }
         ]
       }
@@ -310,7 +310,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. The plan is the store. Code is the view. All code changes flow from plan entries."
+            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. The plan is truth. Code is derived from it. All code changes flow from plan entries."
           }
         ]
       }
@@ -341,7 +341,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry — that's where the previous session left off.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, commit it first.\n5. Find the first unchecked task (- [ ]) — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. The plan is the store. You are the view."
+            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry — that's where the previous session left off.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, commit it first.\n5. Find the first unchecked task (- [ ]) — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. The plan is truth. Code is derived from it."
           }
         ]
       }
