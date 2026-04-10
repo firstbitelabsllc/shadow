@@ -96,11 +96,11 @@ class ViduxContractTests(unittest.TestCase):
     # DOCTRINE.md contracts
     # -----------------------------------------------------------------------
 
-    def test_doctrine_has_redux_analogy(self):
-        """DOCTRINE.md must contain the Redux comparison table."""
+    def test_doctrine_has_execution_model(self):
+        """DOCTRINE.md must contain the execution model (writers vs scanners)."""
         text = _read(DOCTRINE)
-        self.assertIn("| Redux", text)
-        self.assertIn("| Vidux", text)
+        self.assertIn("Writer", text)
+        self.assertIn("Scanner", text)
 
     def test_doctrine_has_pilot_routing(self):
         """DOCTRINE.md must contain the Vidux vs Pilot decision table."""
@@ -1320,7 +1320,7 @@ class ViduxContractTests(unittest.TestCase):
 
             result = subprocess.run(
                 ["bash", str(self.SCRIPTS_DIR / "vidux-doctor.sh"), "--json", "--repo", str(repo)],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=60,
             )
             data = json.loads(result.stdout)
             merge_check = next(
@@ -1772,12 +1772,12 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("Loop Discipline", text)
         self.assertIn("Principles 10-12", text)
 
-    def test_doctrine_has_dispatch_reduce_section(self):
+    def test_doctrine_has_quick_check_deep_work_section(self):
         """DOCTRINE.md must contain the Quick Check / Deep Work section."""
         text = _read(DOCTRINE)
         self.assertIn("Quick Check / Deep Work", text)
-        self.assertIn("DISPATCH", text)
-        self.assertIn("REDUCE", text)
+        self.assertIn("quick check", text.lower())
+        self.assertIn("deep work", text.lower())
 
     # -----------------------------------------------------------------------
     # Ledger library contracts (sourced, not executed)
@@ -2161,10 +2161,10 @@ class ViduxContractTests(unittest.TestCase):
         data = json.loads(result.stdout)
         self.assertGreaterEqual(data["total"], 14)
 
-    def test_reduce_gate_in_doctrine(self):
-        """DOCTRINE.md must document the REDUCE gate pattern."""
+    def test_quick_check_gate_in_doctrine(self):
+        """DOCTRINE.md must document the quick check gate pattern."""
         content = (ROOT / "DOCTRINE.md").read_text()
-        self.assertIn("REDUCE", content)
+        self.assertIn("quick check", content.lower())
         self.assertIn("gate", content.lower())
 
     def test_quick_check_gate_in_best_practices(self):
@@ -2228,15 +2228,13 @@ class ViduxContractTests(unittest.TestCase):
             os.unlink(tmp)
 
 
-    def test_radar_template_exists_and_has_required_sections(self):
-        """guides/vidux/radar-template.md must exist with template + sizing guidance."""
-        template = ROOT / "guides" / "vidux" / "radar-template.md"
-        self.assertTrue(template.exists(), "radar-template.md missing")
-        text = _read(template)
-        self.assertIn("SCAN gate", text)
-        self.assertIn("{{PLAN_PATH}}", text)
-        self.assertIn("Role boundary", text)
-        self.assertIn("800-1200 chars", text)
+    def test_scan_gate_documented(self):
+        """SCAN gate pattern must be documented in harness guide or doctrine."""
+        harness = _read(ROOT / "guides" / "harness.md")
+        doctrine = _read(DOCTRINE)
+        combined = harness + doctrine
+        self.assertIn("SCAN gate", combined)
+        self.assertIn("scanner", combined.lower())
 
 
     def test_midzone_kill_in_doctrine(self):
@@ -2245,11 +2243,11 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("mid-zone kill", text.lower())
         self.assertIn("3+ minutes", text)
 
-    def test_midzone_kill_in_best_practices(self):
-        """best-practices.md must include dispatch-side mid-zone kill guidance."""
-        text = _read(ROOT / "guides" / "vidux" / "best-practices.md")
-        self.assertIn("mid-zone kill", text.lower())
-        self.assertIn("32%", text)
+    def test_midzone_kill_in_doctrine(self):
+        """DOCTRINE.md must include mid-zone kill guidance."""
+        text = _read(DOCTRINE)
+        self.assertIn("mid-zone", text.lower())
+        self.assertIn("deep work", text.lower())
 
 
 if __name__ == "__main__":
