@@ -58,36 +58,36 @@ classify_minutes() {
 }
 
 # --- extract run durations from memory.md ----------------------------------- #
-# Memory files typically contain timestamps from agent runs.
-# We parse git log on the memory file for accurate cycle timing.
+# Parses agent-reported "Runtime: Xm" labels — the per-cycle wall clock that
+# the agents themselves write into their memory entries.
+#
+# Why not delta-between-timestamps:
+#   1. Header-timestamp deltas measure CRON CADENCE (always ~20m for a 20-min
+#      cron) not runtime per cycle.
+#   2. ISO timestamps embedded in entry bodies (e.g. Sentry health-check
+#      return times) get conflated with cycle markers, producing bogus 4-min
+#      "deltas" that false-positive into the 3-8m mid zone.
+# Both bugs were reproduced against ~/.codex/automations/strongyes-backend/
+# on 2026-04-10. The Runtime-label parser is the source-of-truth approach.
+#
+# Handles all formats seen in the live fleet:
+#   "Runtime: ~12m"   "Runtime this cycle: ~20m"   "Runtime: 10m"   "Runtime: <2m"
+#   "Runtime: \`~41m\`."   (backtick-quoted, used by resplit-launch-loop)
 extract_durations() {
   local mem_file="$1"
-  local repo_dir
-  repo_dir="$(cd "$(dirname "$mem_file")" && git rev-parse --show-toplevel 2>/dev/null || echo "")"
-
-  if [[ -n "$repo_dir" ]]; then
-    # Use git log timestamps for accuracy
-    git -C "$repo_dir" log --format='%at' -- "$mem_file" 2>/dev/null | sort -n | awk '
-      NR > 1 {
-        delta = $1 - prev
-        if (delta > 30 && delta < 7200) print int(delta / 60)
+  grep -oE 'Runtime[^:]*:[[:space:]]*`?[~<]?[0-9]+[[:space:]]*m\b' "$mem_file" 2>/dev/null | \
+    awk '{
+      match($0, /[~<]?[0-9]+/)
+      tok = substr($0, RSTART, RLENGTH)
+      if (substr(tok, 1, 1) == "~") {
+        print substr(tok, 2) + 0
+      } else if (substr(tok, 1, 1) == "<") {
+        n = substr(tok, 2) + 0
+        print (n > 0 ? n - 1 : 0)
+      } else {
+        print tok + 0
       }
-      { prev = $1 }
-    '
-  else
-    # Fallback: parse ISO timestamps from memory content and compute deltas in minutes
-    grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}' "$mem_file" 2>/dev/null | sort | uniq | while read -r ts; do
-      # Convert ISO timestamp to epoch seconds (macOS date -j)
-      epoch=$(date -j -f "%Y-%m-%dT%H:%M" "$ts" "+%s" 2>/dev/null || echo "")
-      [[ -n "$epoch" ]] && echo "$epoch"
-    done | awk '
-      NR > 1 {
-        delta = $1 - prev
-        if (delta > 30 && delta < 7200) print int(delta / 60)
-      }
-      { prev = $1 }
-    '
-  fi
+    }'
 }
 
 # --- main scan -------------------------------------------------------------- #
@@ -177,7 +177,9 @@ AUTOMATIONS_JSON="$AUTOMATIONS_JSON]"
 FLEET_MID_PCT=0
 [[ "$FLEET_TOTAL" -gt 0 ]] && FLEET_MID_PCT=$((FLEET_MID * 100 / FLEET_TOTAL))
 FLEET_VERDICT="ok"
-if [[ "$FLEET_MID_PCT" -gt 30 ]]; then
+if [[ "$FLEET_TOTAL" -eq 0 ]]; then
+  FLEET_VERDICT="no-data"
+elif [[ "$FLEET_MID_PCT" -gt 30 ]]; then
   FLEET_VERDICT="stuck-in-middle"
 elif [[ "$FLEET_MID_PCT" -gt 0 ]]; then
   FLEET_VERDICT="mostly-bimodal"
