@@ -97,10 +97,11 @@ class ViduxContractTests(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_doctrine_has_execution_model(self):
-        """DOCTRINE.md must contain the execution model (writers vs scanners)."""
+        """DOCTRINE.md must contain the execution model (quick check vs deep work)."""
         text = _read(DOCTRINE)
-        self.assertIn("Writer", text)
-        self.assertIn("Scanner", text)
+        self.assertIn("quick check", text.lower())
+        self.assertIn("deep work", text.lower())
+        self.assertIn("worker", text.lower())
 
     def test_doctrine_has_pilot_routing(self):
         """DOCTRINE.md must contain the Vidux vs Pilot decision table."""
