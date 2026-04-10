@@ -10,7 +10,7 @@ A cron prompt is a **stateless harness** -- it encodes the end goal and project-
 
 **The harness is the PROCESS. PLAN.md is the STATE. Never mix them.**
 
-**IN the harness:** end goal, authority store path, role boundary, design DNA, guardrails, skills to invoke.
+**IN the harness:** end goal, authority plan path, role boundary, design DNA, guardrails, skills to invoke.
 
 **NEVER in the harness:** task numbers, cycle counts, progress summaries, branch names, file lists, implementation tasks, current blockers, or any snapshot of state.
 
@@ -37,21 +37,20 @@ Every harness follows these eight blocks, in this order. Rearranging or omitting
 
 ---
 
-## Writer vs Scanner Detection
+## Every Automation is a Doer
 
-The gate type must match the automation type. A scanner on a quick check gate is permanently dead -- it checks plan state, finds nothing, and exits every cycle.
+There is no scanner/writer split. Every automation finds work AND does work. An automation that only observes and logs findings is a parked car with the engine running.
 
-| Signal in request | Type | Gate |
-|---|---|---|
-| scan, watch, monitor, audit, check quality, find issues, radar, lint, detect, sweep, inspect | **Scanner** | SCAN gate (file changes + last scan results) |
-| build, ship, release, deploy, execute tasks, pop queue, run plan, train | **Writer** | Quick check gate (vidux-loop.sh + plan state) |
-| Ambiguous | Ask: "scanner (inspects for issues) or writer (executes plan tasks)?" | |
+**Gate pattern (universal):**
+1. Trunk health check (dirty = commit sibling work, diverged >5 = exit)
+2. Read plan for [pending] tasks in this lane's scope
+3. If tasks exist: execute them
+4. If no tasks: scan owned surfaces for issues → fix what you find → add unfixable items as [pending] tasks
+5. If all clean: exit with proof of what was scanned
 
-**Quick check gate** -- for writers. Checks plan state via `vidux-loop.sh` or memory + primary state file. Exits when all tasks are done/blocked.
+Gate must complete in under 60 seconds. The full cycle (scan + fix) has no time limit — keep working until the queue is empty.
 
-**SCAN gate** -- for scanners. Checks reality via `git log --since` on watched paths + last scan results. Exits when no codebase changes and 3 consecutive clean scans.
-
-Both gates must complete in under 60 seconds. See `guides/vidux/best-practices.md` Section 12 for full gate templates.
+**The old scanner pattern is dead.** Never create an automation whose role says "scanner only" or "no code changes" or "log to INBOX.md." Every automation ships code or it's waste.
 
 ---
 
@@ -76,7 +75,7 @@ Both gates must complete in under 60 seconds. See `guides/vidux/best-practices.m
 
 1. **Gating on the wrong file.** Three of six automations gated on a meta-plan marked "done." The agent saw "complete" and exited before loading a single skill.
 2. **Scanner with a writer gate.** Checks plan state, finds no tasks, exits. Never scans.
-3. **Restating doctrine.** 500-1000 chars of "plan is the store" prose the agent already knows from `$vidux`. Delete it.
+3. **Restating doctrine.** 500-1000 chars of "plan is truth" prose the agent already knows from `$vidux`. Delete it.
 4. **Vague authority.** "Read the bug tracker" forces a search. Give absolute paths.
 5. **Missing mid-zone kill.** Without "if 3+ min pass with no file write, exit," agents drift into plan-reading loops.
 6. **Missing role boundary.** Agent drifts into sibling work, creates merge conflicts.
@@ -99,7 +98,7 @@ RAW INPUT -> GATHER -> AMPLIFY -> PRESENT -> [STEER...] -> FIRE -> EXECUTE
 
 | Signal | Mode |
 |---|---|
-| cron, automation, schedule, loop, recurring | **HARNESS** -- produce evergreen cron prompt per Doctrine 8 (then detect writer vs scanner) |
+| cron, automation, schedule, loop, recurring | **HARNESS** -- produce evergreen cron prompt per Doctrine 8 (every automation is a doer) |
 | plan, project, investigate, research | **PLAN** -- produce mission description, no code |
 | Everything else | **EXECUTE** -- produce specific, evidence-cited, actionable prompt |
 
