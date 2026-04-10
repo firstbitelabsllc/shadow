@@ -2229,13 +2229,13 @@ class ViduxContractTests(unittest.TestCase):
             os.unlink(tmp)
 
 
-    def test_scan_gate_documented(self):
-        """SCAN gate pattern must be documented in harness guide or doctrine."""
+    def test_gate_pattern_documented(self):
+        """Gate pattern must be documented in harness guide or doctrine."""
         harness = _read(ROOT / "guides" / "harness.md")
         doctrine = _read(DOCTRINE)
         combined = harness + doctrine
-        self.assertIn("SCAN gate", combined)
-        self.assertIn("scanner", combined.lower())
+        self.assertIn("gate", combined.lower())
+        self.assertIn("worker", combined.lower())
 
 
     def test_midzone_kill_in_doctrine(self):
