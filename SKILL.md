@@ -105,7 +105,11 @@ Reconcile planned vs actual: compare what the plan SAID with what the git diff S
 
 ## PLAN.md Template
 
-Every project has a PLAN.md. Required sections:
+**Every project has exactly ONE PLAN.md.** Course corrections — even dramatic pivots — update the existing plan's Decision Log. They do NOT spawn a sibling plan store. If you catch yourself justifying a new plan with phrases like "clean slate," "emotional separation," or "this rewrite deserves its own home," stop: that's fabricated reasoning. The correct move is to open the existing PLAN.md, add a `[DIRECTION]` entry to the Decision Log, mark now-obsolete tasks `[blocked]` with a pointer to the new direction, and append the new direction as fresh `[pending]` tasks in the same queue. New plan stores are for new PROJECTS (different codebase, different product, different problem surface), not for new OPINIONS about how the same project should look. "Rewrite resplit-web from scratch" and "polish resplit-web" are the same project — one plan. "Build a new iOS app for Resplit 2.0" and "ship resplit-web" are different projects — different plans.
+
+Planning itself can happen in Claude's main thread (planning is taste, not delegation — per `/vidux-codex`). What matters is WHERE the output lands: the existing PLAN.md for the project, always.
+
+Required sections:
 
 ```markdown
 # [Project Name]
@@ -178,6 +182,55 @@ The `[Investigation: ...]` marker tells the agent: read the sub-plan before codi
 
 **Status propagation:** When an L2 investigation's Fix Spec is coded, tested, and gated, the parent task in L1 PLAN.md moves to `[completed]`. An L2 with no Fix Spec yet means the parent stays `[in_progress]` -- the investigation IS the work.
 
+#### Worked example: L1 compound task + L2 investigation lifecycle
+
+Parent task in L1 `PLAN.md`:
+
+```
+- [in_progress] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
+  [Evidence: Sentry def-123, 47 occurrences; grep "checkout" → 4 hits across 3 files]
+```
+
+**Stage 1 — investigation stub, no Fix Spec yet.**
+
+`investigations/payment-flow.md`:
+
+```
+## Reporter Says
+"Checkout double-charges on fast retry." — Sentry def-123, PR #4567 comment.
+
+## Evidence
+- src/checkout/submit.ts:42 — no idempotency key
+- src/checkout/retry.ts:18 — no in-flight guard
+- Sentry def-123 — 47 occurrences / 7 days
+
+## Root Cause    (pending)
+## Impact Map    (pending)
+## Fix Spec      (pending)
+## Tests         (pending)
+## Gate          (pending)
+```
+
+L1 Task 3 STAYS `[in_progress]`. This cycle is investigation-only — no code. The agent's job is to push one `(pending)` section forward (Root Cause → Impact Map → Fix Spec → Tests → Gate) and checkpoint. Any cycle that tries to ship code while Fix Spec is still `(pending)` is a mechanism violation — catch it at VERIFY.
+
+**Stage 2 — Fix Spec + Tests + Gate land. Code ships. L1 flips.**
+
+Once the Gate section confirms build + tests + visual pass, the parent task in L1 flips:
+
+```
+- [completed] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
+  [Fix: src/checkout/submit.ts:42, src/checkout/retry.ts:18] [Shipped: <commit sha>]
+```
+
+The investigation file is NOT deleted on completion. It stays as the historical record of *why* the fix looks the way it does. Future agents who touch the same surface read it before acting.
+
+**Four rules this example illustrates:**
+
+1. **No Fix Spec = no code.** The investigation IS the work until the Fix Spec section is filled. Cycles that find `(pending)` in Fix Spec may only push sections forward, not ship code.
+2. **Status flows UP.** L1 completion is driven by L2 state — never mark L1 `[completed]` while L2 has any `(pending)` section.
+3. **Sub-plans are durable.** Keep `investigations/<slug>.md` after the parent task completes. Archive it via the GC rules (older than 180 days, not "task done"), not immediately.
+4. **Decision Log stays in L1.** L2 has Root Cause + Impact Map, but directional choices ("we chose idempotency over a distributed lock") belong in the parent PLAN.md Decision Log so they survive even after the investigation file is archived. L2 is the *why this bug happened*; L1 Decision Log is *why we fixed it this way*.
+
 ### Inbox
 
 `INBOX.md` is where humans or external tools drop findings for agents to act on:
@@ -244,6 +297,45 @@ For complex bugs or surfaces with 2+ tickets, create `investigations/<slug>.md`:
 ```
 
 If the Fix Spec is missing, the cycle is investigation only -- no code.
+
+---
+
+---
+
+## The Observer Pair (highest-ROI pattern)
+
+Every vidux writer lane should have a separate **read-only observer lane** that audits its files on a schedule. Claude self-audit operates inside its own worldview and cannot catch "I used the wrong flag" or "I rewrote PROGRESS.md retroactively" — those look fine from the inside. An independent agent reading the same files fresh catches what the writer can't see.
+
+### Pattern
+
+```
+Writer lane (Claude, 15-60 min cadence)
+  reads PLAN.md, does one task, edits files, appends PROGRESS.md
+
+Observer lane (Codex, offset cadence, read-only)
+  reads writer's PLAN.md + PROGRESS.md + memory.md + logs
+  emits 3-section audit → writer's evidence/codex-audit-<timestamp>.md
+  never touches code, plan, or state
+  verdict: SHIPPING | IDLE | WARNING | BLOCKED | CRASHED
+```
+
+The writer reads the latest audit at the top of each cycle. If verdict=WARNING, the writer addresses the recommendation before any other task.
+
+### What observers catch that writers can't
+
+Measured in the Frankenstein experiment (2026-04-11, 38 audits, 100% signal-to-noise):
+
+- **Wrong flag in invocation** — writer reads its own log, sees "reasoning=xhigh" in header, assumes it was set correctly. Observer reads the same header independently and notices the CLI flag was silently ignored.
+- **Non-chronological PROGRESS.md** — writer appends to wrong location, observer spots the timestamps are out of order.
+- **Stale authority refs in prompt.md** — writer updated one rule but not the cross-reference. Observer flags the drift.
+- **Queue FSM violations** — task jumped directly to `[completed]` without passing through `[in_progress]`. Writer's worldview treats this as fine; observer enforces the FSM contract.
+- **Strategic drift** — writer keeps doing "polish" work after the queue closes. Observer enforces hard stop.
+
+**Setup:** create the observer as a separate Codex automation (use `/codex`) offset from the writer's schedule. Observer prompt is always "read these files, emit 3-section audit, do not write code, verdict in {SHIPPING,IDLE,WARNING,BLOCKED,CRASHED}." See `/vidux-codex` for the full delegation mechanics behind observer-style audits.
+
+### Delegation: when the writer needs help
+
+When the writer's READ step pulls in more than ~3 KB of source every cycle, delegate the read to `codex exec` via `/vidux-codex`. This keeps Claude's main budget tight while the observer catches anything the delegated summary misses. Writer + observer + `/vidux-codex` together is the standard production pattern for long-running lanes.
 
 ---
 
