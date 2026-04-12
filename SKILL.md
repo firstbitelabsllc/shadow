@@ -39,6 +39,8 @@ But a shipped surface that works is done -- stop polishing and move to the next 
 
 Never assert "it works." Run the build, run the tests, show the screenshot. Definition of done for UI work is a visual proof, never just "the build passes."
 
+When an audit or grep produces a count or classification, **spot-check at least one entry from each category** before making decisions on it. A grep hit is not a fact -- it's a lead. A line matching "git push" might be a prohibition ("NEVER git push"), not an instruction. An automation classified as "push-capable" might operate on a non-git directory. Validate before you plan; plan before you code.
+
 After a failure, produce two artifacts: a code fix (the immediate repair) and a process fix (a hook, a test, a constraint, a plan update). The process fix is the valuable output -- it makes the system smarter for next time.
 
 ---
@@ -58,6 +60,14 @@ CHECKPOINT -> Structured commit: what changed, what's next, blockers
 **Crash recovery:** If `git diff` shows uncommitted work from a dead session, commit it first: `vidux: recover uncommitted work from crashed session`.
 
 **Stuck detection:** If the same task appears in 3+ Progress entries while still `[in_progress]`, it is stuck. Mark it `[blocked]` with a Decision Log entry. Only a human can unblock it.
+
+**Push authorization:** Not all pushes carry the same risk. Agents should act on the safest tier without asking and escalate for riskier tiers:
+
+1. **Draft PRs** — always safe. Push to a feature branch + `gh pr create --draft` without asking. The PR is the review gate; the push itself is low-risk because nothing reaches main without human merge.
+2. **Direct-to-main** — explicit authorization required per lane or per session. A blanket "you can push" from the human covers this tier.
+3. **Destructive** (force push, branch delete, `git reset --hard`) — per-action authorization. Never batch these under a blanket approval.
+
+If the lane prompt says "NEVER push" with no tier distinction, treat it as tier 2+3 blocked but tier 1 (draft PRs) still allowed. An agent that parks for 8 hours on a draft-PR push is wasting time on a safe operation.
 
 ### When to plan vs when to code
 
@@ -133,6 +143,10 @@ Ordered, with status tags and evidence citations.
 - [in_progress] Task 2: description [Evidence: ...]
 - [completed] Task 3: description [Evidence: ...]
 - [blocked] Task 4: description [Blocker: ...]
+
+Inside ## Tasks, every line starting with `- ` MUST be a task with a
+status tag. Use numbered lists (1. 2. 3.) or headers for non-task
+content like rollout strategies or phase preambles.
 
 Status FSM: pending -> in_progress -> completed
                  \-> blocked -> pending
