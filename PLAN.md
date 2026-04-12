@@ -89,6 +89,47 @@ Every wave boundary is reversible. Leo gates each transition.
 - [pending] 5.4.1 Branch protection: reject direct-main pushes from automation actors, preserve human pushes. [Depends: Wave 3 complete]
 - [pending] 5.4.2 Smoke test both paths. [Depends: 5.4.1]
 
+### Phase 6: Skill consolidation — 54 → ~42 skills [in_progress]
+
+**Goal:** Cut dead weight and merge overlapping skills. 54 skills is bloat — vendor research (Anthropic + OpenAI) says: "earn your complexity" and "eval-driven pruning." Description quality drives activation (20%→90% with optimized descriptions per Anthropic testing). Every unused skill is noise in the routing table.
+
+**Evidence:**
+- [Source: nia_research, 2026-04-12] Anthropic Claude Code best practices: "Start minimal, add skills after 2 weeks of production use proves the need." OpenAI Codex best practices: "Test skills with evals to find overlap."
+- [Source: ai/skills/ inventory, 2026-04-12] 54 skills, 12,830 total lines. 8 skills are bulk-import cruft with zero project references. 5 skill pairs overlap.
+- [Source: design skill audit, 2026-04-12] Naming convention shipped: brand-* (identity), craft-* (platform), figma-* (workflow). 4 renames + 1 new (brand-leojkwan). All cross-refs updated (11 lane prompts, 4 skill files). Zero stale references.
+
+**Approach:** Three tiers. Tier 1 (delete) and Tier 2 (merge) are safe — evidence is clear. Tier 3 needs Leo's call.
+
+#### Tier 1 — DELETE dead weight (8 skills, ~1,294 lines)
+
+Bulk-import cruft from Codex skill installer. Zero project references in any lane prompt or PLAN.md.
+
+- [completed] 6.1.1 Delete `hooks` — done 2026-04-12
+- [completed] 6.1.2 Delete `jed` — done 2026-04-12
+- [completed] 6.1.3 Delete `atlas` — done 2026-04-12
+- [completed] 6.1.4 Delete `greenapple` — done 2026-04-12
+- [completed] 6.1.5 Delete `judge0` — done 2026-04-12
+- [completed] 6.1.6 Delete `doc` — done 2026-04-12
+- [completed] 6.1.7 Delete `jupyter-notebook` — done 2026-04-12
+- [completed] 6.1.8 Delete `spreadsheet` — done 2026-04-12
+
+#### Tier 2 — MERGE overlapping skills (5 merges, net -5 skills)
+
+- [completed] 6.2.1 Merge `ahrefs-seo` into `seo` — done 2026-04-12 (3 lane prompt refs updated)
+- [completed] 6.2.2 Fold `figma` into `figma-implement` — done 2026-04-12 (MCP rules + references merged)
+- [completed] 6.2.3 Merge `vidux-loop` + `vidux-recipes` → `vidux-fleet` — done 2026-04-12 (symlinks swapped)
+- [completed] 6.2.4 Fold `vidux-version` + `vidux-status` — removed as standalone commands, done 2026-04-12
+- [completed] 6.2.5 Delete `splitter` — done 2026-04-12 (Leo: "can be deleted")
+
+#### Tier 3 — EVALUATE with Leo (needs human judgment)
+
+- [completed] 6.3.1 `codex` (455 lines) — Deleted. Codex fleet deprecated, vidux is the super champ now. [Done: 2026-04-12]
+- [completed] 6.3.2 `multithready` (198 lines) — Deleted. Worktree isolation absorbed by bigapple. [Done: 2026-04-12]
+- [completed] 6.3.3 Fold `resplit-engineering` into `bigapple` — done 2026-04-12 (9 lane prompt refs updated). Leo confirmed.
+- [completed] 6.3.4 `imagegen` — KEEP. Leo: "yes i think i do"
+- [completed] 6.3.5 `maily` — KEEP. Leo: "yes i use maily"
+- [completed] 6.3.6 Merge `media-studio` + `fcp` → `media` — done 2026-04-12 (2 lane prompt refs updated). Leo confirmed.
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -98,6 +139,8 @@ Every wave boundary is reversible. Leo gates each transition.
 - [DIRECTION] [2026-04-09] Remote triggers (claude.ai/code/scheduled) are dangerous — they push directly to main with zero review. Prefer Codex worktree model (pushes to branch first). Remote trigger for strongyes disabled.
 - [DIRECTION] [2026-04-11] All automation pushes go through draft PRs — NEVER direct-to-main. Draft PRs are the durable, worktree-loss-proof manifest of in-flight work (recoverable via `gh pr list`). Phase 5 implements the cloud-agnostic core. Builds on the 2026-04-09 remote-trigger direction. Closes the Phase 2.4 loop (130 stranded resplit-ios branches with no PR metadata).
 - [DIRECTION] [2026-04-11] vidux core is open-source and cloud-agnostic. Phase 5 contains ONLY draft-PR mechanics — no Greptile, no Sentry, no Nia, no Seer. Paid-service integrations live in `/vidux-codex` scope as composable skills, not in this plan. "Keep side effects like greptile and followups agnostic, that is more a /vidux-codex kinda thing." — Leo.
+- [DIRECTION] [2026-04-12] Design skill naming convention: `brand-*` (identity), `craft-*` (platform patterns), `figma-*` (workflow). Renames: strongyes-design→brand-strongyes, picasso→craft-ios, preview-svg-design→craft-svg, figma-implement-design→figma-implement. New: brand-leojkwan. Do not revert these names.
+- [DIRECTION] [2026-04-12] Skill consolidation: 54→~42 skills. Vendor research (Anthropic + OpenAI) confirms: "earn your complexity," "eval-driven pruning." Unused skills are noise in the routing table. Tier 1 deletes bulk-import cruft; Tier 2 merges overlapping pairs; Tier 3 needs Leo's call. vidux-skill-refiner cron (20 min) handles ongoing quality.
 
 ## Open Questions
 - Q1: Should contract tests track guide files (guides/*.md) or only SKILL.md? -> Action: decide after v3 guides land
@@ -121,4 +164,5 @@ Every wave boundary is reversible. Leo gates each transition.
 - [2026-04-11] Wave 0 tasks 5.0.1 (plan) and 5.0.2 (audit) completed. Audit discovered: 37 total lanes (35 Claude + 2 Codex observers), NOT the 14 stated in Phases 2-4. ~20 are push-capable, 0 create PRs today. Full audit at investigations/draft-pr-flow.md. Codex-to-Claude migration is effectively complete (only 2 Codex observers remain). CronCreate lane `vidux-draft-pr` created (every 15 min, session-only — CronCreate durable mode did not persist to disk). Claude automation prompt written at ~/.claude/automations/vidux-draft-pr/prompt.md. Wave 0 now blocked on: Leo Q2-Q7 answers (5.0.3) and pilot lane decision (5.0.4). Delegation Track + Track B (paid-service skills, sentry cleanup) moved out of this plan per Leo direction — lives in /vidux-codex scope. Good night cycle — cron takes over.
 - [2026-04-11] Phase 5 restructured from 3-track (Core + Delegation + Track B) to clean core-only after Leo direction: "vidux is open source — keep side effects agnostic, paid tooling lives in /vidux-codex." Removed Delegation Track (5D.1-5D.5), Track B (5B.1-5B.2), and all Greptile/Sentry/Seer/Nia references from Phase 5 tasks, Decision Log, and Open Questions. Research results preserved at investigations/paid-tooling-pr-integration.md for /vidux-codex to consume. Key research findings: Nia has NO PR surface; Greptile supports drafts via triggerOnDrafts; Seer Code Review hard-skips drafts. Phase 5 now contains 15 tasks across 5 waves (Wave 0 plan+audit → Wave 1 pilot → Wave 2 batch → Wave 3 fleet → Wave 4 gate). 6 Open Questions with provisional answers (Q2-Q7) await Leo's confirm/overturn. Cron and team agents being set up to grind on Phase 5 continuously.
 - [2026-04-11] Leak audit clean. Phase 5 opened as draft-PR flow with wave-based rollout strategy. Research dispatched to background Agent. Leo: "this is a huge change up since we've mainly done things local and merged back to main."
+- [2026-04-12] Phase 6 opened: skill consolidation 54→42. Design skill renames shipped (4 renames, 1 new brand-leojkwan, 15 cross-refs updated, 0 stale). Nia research confirms vendor guidance: Anthropic says "start minimal, earn complexity," OpenAI says "eval-driven pruning." Tier 1 (8 deletes: hooks, jed, atlas, greenapple, judge0, doc, jupyter-notebook, spreadsheet — all bulk-import cruft with zero lane references). Tier 2 (5 merges: seo+ahrefs-seo, figma+figma-implement, vidux-loop+vidux-recipes, vidux-version+vidux-status→vidux, splitter→pilot). Tier 3 (6 evaluate: codex, multithready, resplit-engineering, imagegen, maily, media-studio+fcp — need Leo). vidux-skill-refiner cron live (20 min, session-only). Next: Leo approves Tier 1+2 cuts, then execute.
 - [2026-04-10 04:58 EDT] Overnight quality cycle 1: Fleet scorecard 6 SHIPPING / 4 IDLE / 0 blocked / 0 crashed / 0 mid-zone. SHIPPING: resplit-bug-fixer (re-verifying AJBM/AI4/AJL5 family on build 1648), resplit-code-quality (UITestLaunchConfigurationTests + dead-code prune), resplit-currency (CLF/CNH/FOK/GGP/IMP/JEP/XDR catalog gap), resplit-ios-ux (ja/es-ES/fr-FR locale screenshots, 5 locales remaining), resplit-web-ux (claim tap-target + desktop grid + heading hierarchy), strongyes-ux-scanner (problems metadata fix). IDLE: resplit-launch-loop (1648 already uploaded + distributed), strongyes-backend, strongyes-blog-writer (pivoted to DSA landers, evidence file pending), strongyes-release-train. ASC tracker: 17 fixed / 79 verified / 3 blocked / 0 new — bug-fixer is *correctly* idle-scanning per nurse log; 3 blocked rows (ABv07GVF OCR polling singleton, AFw7znl8 address geocoding, AKigU4Rh OCR key-value extraction) are architecture/eng-design tasks needing human input, not auto-resolvable. Vidux: pushed `f84b53e fix: align gate test with worker-first model` to origin/main (was 1 ahead); uncommitted v3 cleanup (-1834 lines: SKILL-v3 drafts + guides/vidux/* legacy guides + DOCTRINE/SKILL/commands/vidux.md consolidation) left untouched as in-progress sibling work. Flagged: `test_checkpoint_accepts_untracked_matching_process_fix_artifact` is a pre-existing flake — hangs at 10s subprocess timeout under pytest's capture_output but completes in 1-2s under raw subprocess.run; not caused by v3 cleanup, exists at HEAD.
