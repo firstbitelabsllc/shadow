@@ -57,22 +57,22 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 **Side effects are agnostic (Leo 2026-04-11):** This plan covers ONLY the cloud-agnostic draft-PR mechanics. Paid-service integrations (Greptile review, Sentry context, Seer fixes, Nia indexing) live in `/vidux-codex` scope as composable skills bolted on after the core works. Core ships independently. Research: `investigations/paid-tooling-pr-integration.md`.
 
 **Rollout (wave-based, reversible at every step):**
-- **Wave 0 — Plan + audit.** Lock the plan, audit current push behavior, Leo answers open Qs. No production changes.
-- **Wave 1 — Reference implementation.** Convert ONE low-stakes automation to draft-PR-first. Prove it works for one full production cycle. Document lessons in `guides/draft-pr-flow.md`.
-- **Wave 2 — Batch.** Apply the reference to 3-4 more lanes. Mix shipping + idle.
-- **Wave 3 — Full fleet.** All 14 automations on draft-PR flow.
-- **Wave 4 — Lock the gate.** Branch protection rejects direct-main pushes from automation actors. Never before Wave 3 completes.
+1. **Wave 0 — Plan + audit.** Lock the plan, audit current push behavior, Leo answers open Qs. No production changes.
+2. **Wave 1 — Reference implementation.** Convert ONE low-stakes automation to draft-PR-first. Prove it works for one full production cycle. Document lessons in `guides/draft-pr-flow.md`.
+3. **Wave 2 — Batch.** Apply the reference to 3-4 more lanes. Mix shipping + idle.
+4. **Wave 3 — Full fleet.** All push-capable automations on draft-PR flow.
+5. **Wave 4 — Lock the gate.** Branch protection rejects direct-main pushes from automation actors. Never before Wave 3 completes.
 
 Every wave boundary is reversible. Leo gates each transition.
 
-#### Wave 0 — Plan + audit [in_progress]
+#### Wave 0 — Plan + audit [completed]
 - [completed] 5.0.1 Wave-mapped plan with provisional Q answers and Core/Delegation split. [Done: 2026-04-11]
 - [completed] 5.0.2 Audit current push behavior across fleet. Real count: **37 total (35 Claude lanes + 2 Codex observers), ~20 push-capable, 0 currently create PRs.** The "14 automations" from Phases 2-4 is outdated — the fleet migrated to Claude and expanded. Output: `investigations/draft-pr-flow.md`. [Done: 2026-04-11]
 - [completed] 5.0.3 Leo confirmed all provisionals (Q2-Q7): lane-owned PRs, human-click promotion, never auto-merge, vidux fleet only, Leo's personal pushes unchanged, stranded branches left dead. [Done: 2026-04-11]
-- [pending] 5.0.4 Decide Wave 1 pilot lane. Candidates from the push-capable set: `resplit-bug-fixer`, `resplit-web-executor`, `strongyes-coach-p0`, or `vidux-core-test`. Wave 0 exit criteria met — this is the last gate before Wave 1.
+- [completed] 5.0.4 Wave 1 pilot: **`vidux-core-test`**. Reasoning: fleet-internal (no customer surface), observer already exists (`vidux-core-test-observer` in Codex DB), lowest blast radius, exercises the vidux repo where the draft-PR doctrine lives. [Done: 2026-04-11]
 
-#### Wave 1 — Reference implementation (one pilot lane)
-- [pending] 5.1.1 Pilot push-step swap: `git push origin <branch>` then `gh pr create --draft --title ... --body ...`. PR body carries automation id, plan task id, log snippet, resume point. [Depends: 5.0.4]
+#### Wave 1 — Reference implementation: `vidux-core-test` [pending]
+- [pending] 5.1.1 Modify `~/.claude/automations/vidux-core-test/prompt.md`: swap push step to `git push origin <branch>` then `gh pr create --draft --title "[vidux-core-test] <task>" --body "Automation: vidux-core-test\nPlan task: <id>\nLog: <snippet>\nResume: <point>"`. [Depends: 5.0.4 ✓]
 - [pending] 5.1.2 Run one full production cycle. Observer-pair audit. Record friction. [Depends: 5.1.1]
 - [pending] 5.1.3 Distill `guides/draft-pr-flow.md` — cloud-agnostic core doctrine. [Depends: 5.1.2]
 
