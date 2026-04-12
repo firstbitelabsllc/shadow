@@ -76,10 +76,10 @@ Every wave boundary is reversible. Leo gates each transition.
 - [completed] 5.1.2 Draft-PR mechanics validated end-to-end on vidux repo (leojkwan/vidux#4). Branch push → `gh pr create --draft` → `gh pr list` (visible, isDraft: true) → close + cleanup. coach-p0 plan was CLOSED (no work to ship), so tested directly instead. Friction: zero — `gh` CLI worked cleanly. Surprise: coach-p0 can't be the production pilot (plan closed); need a lane with active work for Wave 2. [Done: 2026-04-12]
 - [completed] 5.1.3 Wrote `guides/draft-pr-flow.md` — cloud-agnostic core doctrine: the 5-step flow, branch naming convention, PR body template, recovery via `gh pr list`, fallback on `gh` failure, adoption snippet for lane prompts. [Done: 2026-04-12]
 
-#### Wave 2 — Batch rollout (3-4 lanes)
-- [pending] 5.2.1 Pick 3-4 additional lanes (mix shipping + idle). [Depends: 5.1.3]
-- [pending] 5.2.2 Apply `guides/draft-pr-flow.md` pattern. [Depends: 5.2.1]
-- [pending] 5.2.3 Observer-pair audit. One cycle per lane. No regressions = exit. [Depends: 5.2.2]
+#### Wave 2 — Batch rollout (3 lanes) [completed]
+- [completed] 5.2.1 Picked 3 lanes with active plans: `strongyes-backend-trust` (26p+25ip, high-vol), `strongyes-blog-pipeline` (8p, content), `resplit-revamp-executor` (12p+1ip, iOS shipping). [Done: 2026-04-12]
+- [completed] 5.2.2 Applied draft-PR pattern from `guides/draft-pr-flow.md` to all 3 lane prompts: ACT sections updated (no merge to main, push branch + draft PR), PUSH POLICY replaced with 5-step flow, fallback on `gh` failure. [Done: 2026-04-12]
+- [pending] 5.2.3 Observer-pair audit. One cycle per lane. No regressions = exit. [Depends: 5.2.2 ✓ — requires lanes to fire with active work]
 
 #### Wave 3 — Full fleet
 - [pending] 5.3.1 Remaining ~10 automations. [Depends: Wave 2 complete]
