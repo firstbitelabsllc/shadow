@@ -69,10 +69,10 @@ Every wave boundary is reversible. Leo gates each transition.
 - [completed] 5.0.1 Wave-mapped plan with provisional Q answers and Core/Delegation split. [Done: 2026-04-11]
 - [completed] 5.0.2 Audit current push behavior across fleet. Real count: **37 total (35 Claude lanes + 2 Codex observers), ~20 push-capable, 0 currently create PRs.** The "14 automations" from Phases 2-4 is outdated — the fleet migrated to Claude and expanded. Output: `investigations/draft-pr-flow.md`. [Done: 2026-04-11]
 - [completed] 5.0.3 Leo confirmed all provisionals (Q2-Q7): lane-owned PRs, human-click promotion, never auto-merge, vidux fleet only, Leo's personal pushes unchanged, stranded branches left dead. [Done: 2026-04-11]
-- [completed] 5.0.4 Wave 1 pilot: **`vidux-core-test`**. Reasoning: fleet-internal (no customer surface), observer already exists (`vidux-core-test-observer` in Codex DB), lowest blast radius, exercises the vidux repo where the draft-PR doctrine lives. [Done: 2026-04-11]
+- [completed] 5.0.4 Wave 1 pilot: **`strongyes-coach-p0`**. Original pick `vidux-core-test` is invalid — it operates on a non-git experiment dir with explicit "NEVER git push" in its Authority block. Corrected to `strongyes-coach-p0`: currently pushes directly to origin/main (the exact behavior to replace), StrongYes is smaller than Resplit (lower blast radius), lane is P0-active so it exercises real production cycles. [Corrected: 2026-04-11, see Surprise]
 
-#### Wave 1 — Reference implementation: `vidux-core-test` [pending]
-- [pending] 5.1.1 Modify `~/.claude/automations/vidux-core-test/prompt.md`: swap push step to `git push origin <branch>` then `gh pr create --draft --title "[vidux-core-test] <task>" --body "Automation: vidux-core-test\nPlan task: <id>\nLog: <snippet>\nResume: <point>"`. [Depends: 5.0.4 ✓]
+#### Wave 1 — Reference implementation: `strongyes-coach-p0` [in_progress]
+- [completed] 5.1.1 Modified `~/.claude/automations/strongyes-coach-p0/prompt.md`: ACT section changed from "merge to main" to "push branch + draft PR". PUSH POLICY replaced: 5-step flow (push branch → `gh pr create --draft` → never direct-to-main → sync main each cycle → fallback on `gh` failure). PR body template carries lane id, plan task, resume point. [Done: 2026-04-11]
 - [pending] 5.1.2 Run one full production cycle. Observer-pair audit. Record friction. [Depends: 5.1.1]
 - [pending] 5.1.3 Distill `guides/draft-pr-flow.md` — cloud-agnostic core doctrine. [Depends: 5.1.2]
 
@@ -109,6 +109,7 @@ Every wave boundary is reversible. Leo gates each transition.
 - Q7: 130 stranded resplit-ios branches left dead. **Confirmed 2026-04-11.**
 
 ## Surprises
+- [2026-04-11] `vidux-core-test` cannot be the Wave 1 pilot — it operates on a non-git experiment directory (`~/Development/vidux-core-test/`) with explicit "NEVER do: `git push` anywhere" in its Authority block. The audit falsely classified it as "push-capable" because the prohibition text matched the grep pattern. Corrected pilot to `strongyes-coach-p0` which pushes directly to origin/main (the exact behavior to replace).
 - [2026-04-09] v3 rewrite removed 6 PLAN.md sections the contracts enforce. Contract tests caught it immediately.
 - [2026-04-09] Remote Claude trigger hallucinated marketing copy ("14-day sprint", "founder notes", "First Bite Labs") while fixing T91/T92. The automation read the plan correctly but invented product concepts. Root cause: no copy safety constraint in prompt. Fix: added COPY SAFETY to writer prompts + reverted bad commit.
 - [2026-04-09] Claude Desktop v1.1062.0 migrated from local-agent-mode-sessions/ to claude-code-sessions/. Local scheduled tasks JSON not carried over. Local task creation is UI-only — no programmatic API exists (anthropics/claude-code#41364).
