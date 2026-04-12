@@ -152,3 +152,22 @@ Tasks completed and archived from PLAN.md to keep context lean.
 - [completed] **20.1 Restructure /codex skill into generic core + vidux section** — Rewrote SKILL.md: generic core (DB, memory, Simple Gate, SCAN Gate, fleet ops, `/codex watch`, 13 known bugs) + "Vidux Integration (Optional)" section (Quick Check Gate, safety mechanisms, CB guard). [Done: 2026-04-08]
 - [completed] **20.2 Add generic gate pattern for non-vidux automations** — Added "Simple Gate": memory-based exit logic, no external deps. Three tiers: Simple (generic) → SCAN (scanners) → Quick Check (vidux writers). [Done: 2026-04-08]
 - [completed] **20.3 Rename vidux-watchdog → codex-watch in DB** — Killed app-server, renamed ID/name in sqlite, moved memory dir. Prompt: "Fleet health scanner for Codex automations." [Done: 2026-04-08]
+
+## Archived 2026-04-12
+- [completed] 1.1 Draft SKILL-v3.md (220 lines, 6 principles) [Done: 2026-04-09]
+- [completed] 1.2 Extract fleet ops to guides/fleet-ops.md [Done: 2026-04-09]
+- [completed] 1.3 Extract investigation template to guides/investigation.md [Done: 2026-04-09]
+- [completed] 1.4 Extract harness authoring to guides/harness.md [Done: 2026-04-09]
+- [completed] 1.5 Extract evidence format to guides/evidence-format.md [Done: 2026-04-09]
+- [completed] 1.6 Replace SKILL.md with SKILL-v3.md — 1000→208 lines, 14 tests updated, 144/144 pass [Done: 2026-04-09]
+- [completed] 1.7 Verified /claude skill has no v2 references (vidux-loop.sh, Redux jargon, etc.) — already clean [Done: 2026-04-09]
+- [completed] 2.1 Rewrite 6 resplit prompts — drop vidux-loop.sh, use v3 gate [Done: 2026-04-09]
+- [completed] 2.2 Apply prompts to Codex DB + restart [Done: 2026-04-09]
+- [completed] 2.3 Verify: resplit-web-ux SHIPPED (CTA fix, 20min run). Others idle/reset. [Done: 2026-04-09]
+- [completed] 2.4 GC stale worktrees + branches — 394 worktree dirs removed (33GB), 38 merged branches deleted. 130 resplit-ios branches with unmerged work left for trunk guardian. Disk: 2.8GB→147GB free. [Done: 2026-04-09]
+- [completed] 3.1 Rewrite 4 strongyes prompts — drop vidux-loop.sh, use v3 gate [Done: 2026-04-09]
+- [completed] 3.2 Apply prompts to Codex DB + restart [Done: 2026-04-09]
+- [completed] 3.3 Verify: T92 shipped via Claude cron. Vercel build passes. [Done: 2026-04-09]
+- [completed] 3.4 Revert hallucinated copy from remote trigger (5ef4498c). Added COPY SAFETY constraint. [Done: 2026-04-09]
+- [completed] 4.1 Rewrite codex-watch prompt (simplified fleet scan)
+- [completed] 4.2 Rewrite strongyes-content-scanner prompt
