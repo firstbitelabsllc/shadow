@@ -71,10 +71,10 @@ Every wave boundary is reversible. Leo gates each transition.
 - [completed] 5.0.3 Leo confirmed all provisionals (Q2-Q7): lane-owned PRs, human-click promotion, never auto-merge, vidux fleet only, Leo's personal pushes unchanged, stranded branches left dead. [Done: 2026-04-11]
 - [completed] 5.0.4 Wave 1 pilot: **`strongyes-coach-p0`**. Original pick `vidux-core-test` is invalid — it operates on a non-git experiment dir with explicit "NEVER git push" in its Authority block. Corrected to `strongyes-coach-p0`: currently pushes directly to origin/main (the exact behavior to replace), StrongYes is smaller than Resplit (lower blast radius), lane is P0-active so it exercises real production cycles. [Corrected: 2026-04-11, see Surprise]
 
-#### Wave 1 — Reference implementation: `strongyes-coach-p0` [in_progress]
+#### Wave 1 — Reference implementation [completed]
 - [completed] 5.1.1 Modified `~/.claude/automations/strongyes-coach-p0/prompt.md`: ACT section changed from "merge to main" to "push branch + draft PR". PUSH POLICY replaced: 5-step flow (push branch → `gh pr create --draft` → never direct-to-main → sync main each cycle → fallback on `gh` failure). PR body template carries lane id, plan task, resume point. [Done: 2026-04-11]
 - [completed] 5.1.2 Draft-PR mechanics validated end-to-end on vidux repo (leojkwan/vidux#4). Branch push → `gh pr create --draft` → `gh pr list` (visible, isDraft: true) → close + cleanup. coach-p0 plan was CLOSED (no work to ship), so tested directly instead. Friction: zero — `gh` CLI worked cleanly. Surprise: coach-p0 can't be the production pilot (plan closed); need a lane with active work for Wave 2. [Done: 2026-04-12]
-- [pending] 5.1.3 Distill `guides/draft-pr-flow.md` — cloud-agnostic core doctrine. [Depends: 5.1.2]
+- [completed] 5.1.3 Wrote `guides/draft-pr-flow.md` — cloud-agnostic core doctrine: the 5-step flow, branch naming convention, PR body template, recovery via `gh pr list`, fallback on `gh` failure, adoption snippet for lane prompts. [Done: 2026-04-12]
 
 #### Wave 2 — Batch rollout (3-4 lanes)
 - [pending] 5.2.1 Pick 3-4 additional lanes (mix shipping + idle). [Depends: 5.1.3]
