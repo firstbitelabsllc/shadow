@@ -73,7 +73,7 @@ Every wave boundary is reversible. Leo gates each transition.
 
 #### Wave 1 — Reference implementation: `strongyes-coach-p0` [in_progress]
 - [completed] 5.1.1 Modified `~/.claude/automations/strongyes-coach-p0/prompt.md`: ACT section changed from "merge to main" to "push branch + draft PR". PUSH POLICY replaced: 5-step flow (push branch → `gh pr create --draft` → never direct-to-main → sync main each cycle → fallback on `gh` failure). PR body template carries lane id, plan task, resume point. [Done: 2026-04-11]
-- [pending] 5.1.2 Run one full production cycle. Observer-pair audit. Record friction. [Depends: 5.1.1]
+- [blocked] 5.1.2 Run one full production cycle. Observer-pair audit. Record friction. [Depends: 5.1.1 ✓] [Blocker: (a) coach-p0 lane has no CronCreate schedule — fleet is dormant, needs scheduling; (b) draft-PR push to strongyes-web remote needs explicit Leo authorization per cron constraint]
 - [pending] 5.1.3 Distill `guides/draft-pr-flow.md` — cloud-agnostic core doctrine. [Depends: 5.1.2]
 
 #### Wave 2 — Batch rollout (3-4 lanes)
