@@ -8,6 +8,9 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [Source: plan clobber postmortem, 2026-04-09] Gate was too blunt (dirty=stop). Needs green/yellow/red triage.
 - [Source: release-train parking, 2026-04-09] Automation saw file casing collision and said "hold" when it could have fixed it.
 - [Source: overnight fleet data, 2026-04-08-09] vidux-loop.sh circuit breakers caused auto-pause on automations doing real branch-push work.
+- [Source: nia_research, 2026-04-12] Anthropic Claude Code best practices: "Start minimal, add skills after 2 weeks of production use proves the need." OpenAI Codex best practices: "Test skills with evals to find overlap."
+- [Source: ai/skills/ inventory, 2026-04-12] 54 skills, 12,830 total lines. 8 skills are bulk-import cruft with zero project references. 5 skill pairs overlap.
+- [Source: design skill audit, 2026-04-12] Naming convention shipped: brand-* (identity), craft-* (platform), figma-* (workflow). 4 renames + 1 new (brand-leojkwan). All cross-refs updated (11 lane prompts, 4 skill files). Zero stale references.
 
 ## Constraints
 - ALWAYS: Contract tests (test_vidux_contracts.py) must pass before any SKILL.md or PLAN.md change ships
@@ -75,11 +78,6 @@ Every wave boundary is reversible. Leo gates each transition.
 ### Phase 6: Skill consolidation — 54 → ~42 skills [in_progress]
 
 **Goal:** Cut dead weight and merge overlapping skills. 54 skills is bloat — vendor research (Anthropic + OpenAI) says: "earn your complexity" and "eval-driven pruning." Description quality drives activation (20%→90% with optimized descriptions per Anthropic testing). Every unused skill is noise in the routing table.
-
-**Evidence:**
-- [Source: nia_research, 2026-04-12] Anthropic Claude Code best practices: "Start minimal, add skills after 2 weeks of production use proves the need." OpenAI Codex best practices: "Test skills with evals to find overlap."
-- [Source: ai/skills/ inventory, 2026-04-12] 54 skills, 12,830 total lines. 8 skills are bulk-import cruft with zero project references. 5 skill pairs overlap.
-- [Source: design skill audit, 2026-04-12] Naming convention shipped: brand-* (identity), craft-* (platform), figma-* (workflow). 4 renames + 1 new (brand-leojkwan). All cross-refs updated (11 lane prompts, 4 skill files). Zero stale references.
 
 **Approach:** Three tiers. Tier 1 (delete) and Tier 2 (merge) are safe — evidence is clear. Tier 3 needs Leo's call.
 

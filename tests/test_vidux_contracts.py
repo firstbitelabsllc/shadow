@@ -145,6 +145,9 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_plan_tasks_have_valid_status(self):
         """Every task line must use v1 checkboxes or v2 FSM states."""
+        # Lines starting with - [Source: or - [DIRECTION] are evidence/metadata,
+        # not tasks — skip them even when nested inside ## Tasks subsections.
+        evidence_re = re.compile(r"^- \[(Source|DIRECTION)")
         text = _read(PLAN)
         in_tasks = False
         for lineno, line in enumerate(text.splitlines(), 1):
@@ -154,6 +157,8 @@ class ViduxContractTests(unittest.TestCase):
             if in_tasks and re.match(r"^##\s+", line):
                 break
             if in_tasks and line.startswith("- "):
+                if evidence_re.match(line):
+                    continue
                 self.assertRegex(
                     line, TASK_LINE_RE,
                     f"PLAN.md Tasks line {lineno} not a valid task: {line!r}",
@@ -364,16 +369,16 @@ class ViduxContractTests(unittest.TestCase):
     def test_commands_exist(self):
         """All vidux commands must exist."""
         for name in [
-            "vidux.md", "vidux-plan.md", "vidux-status.md",
-            "vidux-dashboard.md", "vidux-manager.md", "vidux-recipes.md",
+            "vidux.md", "vidux-plan.md", "vidux-fleet.md",
+            "vidux-dashboard.md", "vidux-manager.md",
         ]:
             self.assertTrue((self.COMMANDS_DIR / name).exists(), f"Command missing: {name}")
 
     def test_commands_have_frontmatter(self):
         """Each command file must have YAML frontmatter with name and description."""
         for name in [
-            "vidux.md", "vidux-plan.md", "vidux-status.md",
-            "vidux-dashboard.md", "vidux-manager.md", "vidux-recipes.md",
+            "vidux.md", "vidux-plan.md", "vidux-fleet.md",
+            "vidux-dashboard.md", "vidux-manager.md",
         ]:
             text = _read(self.COMMANDS_DIR / name)
             self.assertTrue(text.startswith("---"), f"{name} missing frontmatter")
@@ -1914,23 +1919,23 @@ class ViduxContractTests(unittest.TestCase):
         for stage in ["GATHER", "PLAN", "EXECUTE", "VERIFY", "CHECKPOINT", "COMPLETE"]:
             self.assertIn(stage, text, f"vidux-manager.md missing stage: {stage}")
 
-    def test_recipes_command_has_subcommands_section(self):
-        """vidux-recipes.md must have a Subcommands section."""
-        text = _read(self.COMMANDS_DIR / "vidux-recipes.md")
+    def test_fleet_command_has_subcommands_section(self):
+        """vidux-fleet.md must have a Subcommands section (successor to vidux-recipes)."""
+        text = _read(self.COMMANDS_DIR / "vidux-fleet.md")
         self.assertIn("## Subcommands", text)
 
-    def test_recipes_command_has_stage_system(self):
-        """vidux-recipes.md must define the stage system."""
-        text = _read(self.COMMANDS_DIR / "vidux-recipes.md")
+    def test_fleet_command_has_stage_system(self):
+        """vidux-fleet.md must define the stage system (successor to vidux-recipes)."""
+        text = _read(self.COMMANDS_DIR / "vidux-fleet.md")
         self.assertIn("## Stage System", text)
 
-    def test_recipes_command_mentions_automation_doctrine(self):
-        """vidux-recipes.md must reference automation doctrine concepts."""
-        text = _read(self.COMMANDS_DIR / "vidux-recipes.md")
+    def test_fleet_command_mentions_automation_doctrine(self):
+        """vidux-fleet.md must reference automation doctrine concepts (successor to vidux-recipes)."""
+        text = _read(self.COMMANDS_DIR / "vidux-fleet.md")
         self.assertTrue(
             "no mid-zone" in text.lower() or "no mid zone" in text.lower()
             or "mid-zone" in text.lower(),
-            "vidux-recipes.md missing mid-zone doctrine reference",
+            "vidux-fleet.md missing mid-zone doctrine reference",
         )
 
     # -----------------------------------------------------------------------
@@ -2132,6 +2137,7 @@ class ViduxContractTests(unittest.TestCase):
         finally:
             os.unlink(tmp)
 
+    @unittest.skipIf(os.environ.get("VIDUX_TEST_ALL_RUNNING"), "skip when called from vidux-test-all.sh to avoid infinite recursion")
     def test_test_all_json_output(self):
         """vidux-test-all.sh --json must produce valid JSON with sections array."""
         result = subprocess.run(

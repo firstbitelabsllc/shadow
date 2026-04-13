@@ -32,6 +32,7 @@ FAILURES=0
 SECTIONS=""
 
 # --- 1. Contract tests ------------------------------------------------------ #
+export VIDUX_TEST_ALL_RUNNING=1
 TEST_OUTPUT="$(python3 -m unittest tests/test_vidux_contracts.py 2>&1 || true)"
 TEST_PASS="$(echo "$TEST_OUTPUT" | grep -oE 'Ran [0-9]+ tests?' | grep -oE '[0-9]+' || echo "0")"
 TEST_FAIL="$(echo "$TEST_OUTPUT" | grep -oE 'failures?=[0-9]+' | grep -oE '[0-9]+' || echo "0")"
@@ -60,18 +61,18 @@ DOCTOR_WARNS=$((DOCTOR_TOTAL - DOCTOR_PASS))
 
 SECTIONS="${SECTIONS}{\"name\":\"doctor\",\"status\":\"$DOCTOR_STATUS\",\"pass\":$DOCTOR_PASS,\"total\":$DOCTOR_TOTAL,\"warns\":$DOCTOR_WARNS},"
 
-# --- 3. Witness fleet grade ------------------------------------------------- #
-WITNESS_OUTPUT="$(bash "$SCRIPT_DIR/vidux-witness.sh" 2>&1 || true)"
-FLEET_GRADE="$(echo "$WITNESS_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('fleet_grade','F'))" 2>/dev/null || echo "F")"
-FLEET_TOTAL="$(echo "$WITNESS_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['counts']['total'])" 2>/dev/null || echo "0")"
-FLEET_SHIPPING="$(echo "$WITNESS_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['counts']['shipping'])" 2>/dev/null || echo "0")"
-FLEET_STUCK="$(echo "$WITNESS_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['counts']['stuck'])" 2>/dev/null || echo "0")"
-FLEET_IDLE="$(echo "$WITNESS_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['counts']['idle'])" 2>/dev/null || echo "0")"
-FLEET_MZ="$(echo "$WITNESS_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['counts']['mid_zone'])" 2>/dev/null || echo "0")"
+# --- 3. Fleet quality grade ------------------------------------------------- #
+FLEET_OUTPUT="$(bash "$SCRIPT_DIR/vidux-fleet-quality.sh" --json 2>&1 || true)"
+FLEET_VERDICT="$(echo "$FLEET_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('verdict','no-data'))" 2>/dev/null || echo "no-data")"
+FLEET_TOTAL="$(echo "$FLEET_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total_runs',0))" 2>/dev/null || echo "0")"
+FLEET_DEEP="$(echo "$FLEET_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('deep',0))" 2>/dev/null || echo "0")"
+FLEET_QUICK="$(echo "$FLEET_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('quick',0))" 2>/dev/null || echo "0")"
+FLEET_MID="$(echo "$FLEET_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('mid',0))" 2>/dev/null || echo "0")"
+FLEET_MID_PCT="$(echo "$FLEET_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('mid_pct',0))" 2>/dev/null || echo "0")"
 FLEET_STATUS="pass"
-[[ "$FLEET_GRADE" = "D" || "$FLEET_GRADE" = "F" ]] && { FLEET_STATUS="warn"; FAILURES=$((FAILURES + 1)); }
+[[ "$FLEET_VERDICT" = "unhealthy" ]] && { FLEET_STATUS="warn"; FAILURES=$((FAILURES + 1)); }
 
-SECTIONS="${SECTIONS}{\"name\":\"fleet_witness\",\"status\":\"$FLEET_STATUS\",\"grade\":\"$FLEET_GRADE\",\"total\":$FLEET_TOTAL,\"shipping\":$FLEET_SHIPPING,\"stuck\":$FLEET_STUCK,\"idle\":$FLEET_IDLE,\"mid_zone\":$FLEET_MZ},"
+SECTIONS="${SECTIONS}{\"name\":\"fleet_quality\",\"status\":\"$FLEET_STATUS\",\"verdict\":\"$FLEET_VERDICT\",\"total\":$FLEET_TOTAL,\"deep\":$FLEET_DEEP,\"quick\":$FLEET_QUICK,\"mid\":$FLEET_MID,\"mid_pct\":$FLEET_MID_PCT},"
 
 # --- 4. Loop validation ----------------------------------------------------- #
 LOOP_OUTPUT=""
@@ -143,7 +144,7 @@ else
   echo ""
   echo "1. Contract Tests:  $TEST_STATUS ($TEST_PASS tests, $TEST_FAIL failures, $TEST_ERR errors)"
   echo "2. Doctor:          $DOCTOR_STATUS ($DOCTOR_PASS/$DOCTOR_TOTAL pass, $DOCTOR_WARNS warns)"
-  echo "3. Fleet Witness:   $FLEET_STATUS (grade=$FLEET_GRADE, $FLEET_SHIPPING shipping, $FLEET_STUCK stuck, $FLEET_IDLE idle)"
+  echo "3. Fleet Quality:   $FLEET_STATUS (verdict=$FLEET_VERDICT, $FLEET_DEEP deep, $FLEET_QUICK quick, $FLEET_MID mid-zone)"
   echo "4. Loop Validation: $LOOP_STATUS (hot=$LOOP_HOT, cold=$LOOP_COLD, exit_criteria=$LOOP_EC)"
   echo "5. Script Syntax:   $SYNTAX_STATUS ($SYNTAX_FAILS failures)"
   echo "6. Dispatch Dry-Run: $DISPATCH_STATUS (rec=$DISPATCH_REC)"
