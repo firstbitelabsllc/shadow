@@ -14,3 +14,10 @@ tmp*.md
 
 # Claude Code local state
 .claude/
+
+# Secrets / environment — never commit
+.env
+.env.*
+*.key
+*.pem
+secrets/

@@ -37,20 +37,26 @@ Every harness follows these eight blocks, in this order. Rearranging or omitting
 
 ---
 
-## Every Automation is a Doer
+## Writer, Radar, and Coordinator Roles
 
-There is no scanner/writer split. Every automation finds work AND does work. An automation that only observes and logs findings is a parked car with the engine running.
+Fleet automations use one of three roles (see `vidux-fleet` and `guides/fleet-ops.md`):
 
-**Gate pattern (universal):**
-1. Trunk health check (dirty = commit sibling work, diverged >5 = exit)
+- **Writer** — ships code, executes plan tasks, merges. The default.
+- **Radar** — read-only monitoring, evidence gathering, no code changes. Reports findings to INBOX.md for the writer to promote.
+- **Coordinator** — fleet-level health: detects idle/stuck/colliding automations, adjusts focus.
+
+**Gate pattern (writers):**
+1. Trunk health check (dirty = escalate, diverged >5 = exit)
 2. Read plan for [pending] tasks in this lane's scope
 3. If tasks exist: execute them
-4. If no tasks: scan owned surfaces for issues → fix what you find → add unfixable items as [pending] tasks
+4. If no tasks: scan owned surfaces for issues, fix what you find, add unfixable items as [pending] tasks
 5. If all clean: exit with proof of what was scanned
 
 Gate must complete in under 60 seconds. The full cycle (scan + fix) has no time limit — keep working until the queue is empty.
 
-**The old scanner pattern is dead.** Never create an automation whose role says "scanner only" or "no code changes" or "log to INBOX.md." Every automation ships code or it's waste.
+**Gate pattern (radars):** Use the SCAN gate (see `guides/fleet-ops.md`). Radars check git history and codebase state, not plan state. A radar on a writer's quick check gate is permanently dead.
+
+**Key principle (SKILL.md):** "Every agent finds work AND does work." Even radars are doers — they produce evidence, not empty reports. A radar that scans and finds nothing ships a checkpoint proving what was scanned.
 
 ---
 

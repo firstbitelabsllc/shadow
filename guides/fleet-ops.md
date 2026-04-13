@@ -10,7 +10,7 @@ Operations manual for running a fleet of vidux automations. Loaded by `/codex` a
 
 Every automation MUST read sibling state during its READ step. Not optional. Not "when convenient." Structural. Before acting:
 
-1. **Sibling memory scan** -- Read the last note from every sibling automation's memory file (`~/.codex/automations/*/memory.md`). Know what shipped in the last hour and what surfaces are claimed.
+1. **Sibling memory scan** -- Read the last note from every sibling automation's memory file (e.g., `~/.codex/automations/*/memory.md` for Codex, `~/.claude-automations/*/memory.md` for Claude). Know what shipped in the last hour and what surfaces are claimed.
 
 2. **Hot-files check** -- Read `.agent-ledger/hot-files.md` in the target repo. If another lane is actively touching files you are about to touch, yield or coordinate. Two lanes editing the same file in the same cycle produces merge conflicts that waste the next cycle to resolve.
 
@@ -62,7 +62,7 @@ The lead writer absorbs branches. The release-train or equivalent lead writer mu
 **a. Scan for unmerged sibling branches:**
 ```bash
 git fetch origin
-git branch -r --list "origin/codex/*" | while read b; do
+git branch -r --list "origin/claude/*" --list "origin/codex/*" | while read b; do
   commits=$(git rev-list --count origin/main..$b)
   [ "$commits" -gt 0 ] && echo "$b ($commits unmerged)"
 done
@@ -109,11 +109,11 @@ Cron agents are stateless but worktrees are not. When a session dies mid-task in
    ```
    If the count drops, abort the merge and escalate. Worktree branches should minimize PLAN.md edits -- confine changes to their own task status updates.
 
-6. **Branch absorber role.** In a multi-automation fleet, sibling automations push code to `codex/*` branches but never merge them to main. Without an explicit absorber, branches accumulate overnight until a human manually cleans up. The lead writer (e.g., release-train) owns this role. See "Branch Absorption" section above for the full protocol.
+6. **Branch absorber role.** In a multi-automation fleet, sibling automations push code to `claude/*` or `codex/*` branches but never merge them to main. Without an explicit absorber, branches accumulate overnight until a human manually cleans up. The lead writer (e.g., release-train) owns this role. See "Branch Absorption" section above for the full protocol.
 
 ### Worktree merge-back rule (for prompts)
 
-Every automation that uses `execution_environment = "worktree"` MUST merge its commits back to the default branch before exiting. Without this, Codex creates a fresh worktree each cycle. The agent works, commits, checkpoints, exits. The commits stay in the worktree branch. After 48 hours you have 90+ orphan worktrees with real commits that never reached main.
+Every automation that uses `execution_environment = "worktree"` MUST merge its commits back to the default branch before exiting. Without this, the runtime creates a fresh worktree each cycle. The agent works, commits, checkpoints, exits. The commits stay in the worktree branch. After 48 hours you have 90+ orphan worktrees with real commits that never reached main.
 
 **The rule (add to block 7 -- Execution in the prompt):**
 ```
@@ -187,7 +187,8 @@ Use when the automation loads `$vidux` and has access to `vidux-loop.sh`. Standa
 Quick check gate (run FIRST, before any other work):
 1. Run: bash scripts/vidux-loop.sh <plan-path>
 2. Read the JSON output. If ANY of these are true, checkpoint and exit immediately:
-   - action is "blocked" or "auto_blocked" or "stuck" or "all_blocked"
+   - action is "blocked" or "auto_blocked" or "stuck" or "escalate"
+   - type is "all_blocked" (all remaining tasks are blocked — escalate to human)
    - action is "complete" AND type is "done" AND queue_starved is false
    - type is "empty" (no tasks in plan)
    - auto_pause_recommended is true
@@ -266,7 +267,7 @@ Budget: steps 1-3 must complete in under 60 seconds.
 
 ## Fleet Health Orchestrator Pattern
 
-When a Codex orchestrator manages multiple automations, it must operate at fleet level, not prompt level. An orchestrator that tightens one radar prompt while 6/11 automations are idle is mid-zone work.
+When an orchestrator manages multiple automations, it must operate at fleet level, not prompt level. An orchestrator that tightens one radar prompt while 6/11 automations are idle is mid-zone work.
 
 ### When to use a coordinator
 
@@ -274,7 +275,7 @@ Any fleet with 5+ automations, or any fleet where 3+ automations share the same 
 
 ### The 5-step fleet scan
 
-1. **Read ALL automation memories in one pass** -- scan every `~/.codex/automations/*/memory.md` before taking any action. Never inspect one automation at a time.
+1. **Read ALL automation memories in one pass** -- scan every sibling memory file (e.g., `~/.codex/automations/*/memory.md` or `~/.claude-automations/*/memory.md`) before taking any action. Never inspect one automation at a time.
 
 2. **Classify each automation:**
    - SHIPPING -- actively producing commits
@@ -318,7 +319,7 @@ Every harness must say "if you checkpoint in under 5 minutes and pending work re
 
 Quick exits are healthy when nothing is pending; mid-zone exits are stuck agents masquerading as polite ones.
 
-Fleet data (2026-04-07): 32% of Codex sessions land in the 3-8 min mid-zone. Target: <15%.
+Fleet data (2026-04-07): 32% of automation sessions land in the 3-8 min mid-zone. Target: <15%.
 
 ### Deep-work mid-zone kill
 
