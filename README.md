@@ -146,7 +146,7 @@ Vidux is the core discipline. These companion skills extend it for specific work
 | `/vidux-fleet` | Create, manage, and audit automation fleets — schedules, roles, health checks | Yes |
 | `/vidux-manager` | Self-diagnostic agent — runs plan quality tests, validates fleet health | Yes |
 | `/vidux-dashboard` | Cross-project visibility — shows all plans as a tree with status and health | Yes |
-| `/vidux-codex` | Claude-as-director / Codex-as-executor delegation for large read surfaces | No (separate) |
+| `/vidux-codex` | Two delegation modes: **research** (read-only, compressed summary) and **implementation** (workspace-write, Codex writes code, Claude reviews diff) | No (separate) |
 | `/pilot` | Universal project lead — detects stack and stage, routes into vidux when needed | No (separate) |
 | `/ledger` | Append-only JSONL activity log for multi-agent coordination across tools | No (separate) |
 
@@ -154,19 +154,53 @@ The in-repo skills (`commands/`) work standalone. The external skills are option
 
 ## Companion: `/vidux-codex`
 
-Vidux pairs with `/vidux-codex`, a companion skill that adds Claude-as-director / Codex-as-executor delegation. Use it when a task's read surface exceeds ~3 KB. Codex grinds through files and returns a compressed summary; Claude applies taste.
+Vidux pairs with `/vidux-codex` for two delegation modes:
 
-Measured savings (Claude metered, Codex unlimited): **10x at 33 KB, 49x at 160 KB, 110x at 357 KB** — linear with source size.
+```mermaid
+flowchart TD
+    TASK["Task from PLAN.md"]
+    Q1{"Substantial code\n(>10 lines)?"}
+    Q2{"Read surface\n>3 KB?"}
+
+    MODE_B["<b>Mode B — Implementation</b><br/><code>--sandbox workspace-write</code><br/>Codex writes code<br/>Claude reviews git diff"]
+    MODE_A["<b>Mode A — Research</b><br/><code>--sandbox read-only</code><br/>Codex reads + compresses<br/>Claude gets 3-section summary"]
+    DIRECT["<b>Direct</b><br/>Claude handles it<br/>(taste, trivial edits)"]
+
+    TASK --> Q1
+    Q1 -->|yes| MODE_B
+    Q1 -->|no| Q2
+    Q2 -->|yes| MODE_A
+    Q2 -->|no| DIRECT
+
+    style MODE_B fill:#2d333b,stroke:#57ab5a,stroke-width:2px,color:#adbac7
+    style MODE_A fill:#2d333b,stroke:#539bf5,stroke-width:2px,color:#adbac7
+    style DIRECT fill:#2d333b,stroke:#c69026,stroke-width:2px,color:#adbac7
+    style Q1 fill:#2d333b,stroke:#986ee2,stroke-width:2px,color:#adbac7
+    style Q2 fill:#2d333b,stroke:#986ee2,stroke-width:2px,color:#adbac7
+    style TASK fill:#2d333b,stroke:#e5534b,stroke-width:2px,color:#adbac7
+```
+
+| Role | Claude (metered) | Codex (unlimited) |
+|---|---|---|
+| Read plans | Small reads only | Delegate if > 3 KB |
+| Decide approach | Yes (taste) | Never |
+| Write code | Only < 10 lines | All substantial code |
+| Review diffs | Yes | Never |
+| Build/test | Yes (local toolchain) | Can't (no Xcode/env) |
+| Commit/push | Yes | Never |
+
+**Research savings** (Mode A): 10x at 33 KB, 49x at 160 KB, 110x at 357 KB — linear with source size.
+**Implementation savings** (Mode B): ~3-5x further per cycle — Claude drops from ~10K tokens (writing code) to ~2-3K (reviewing a diff).
 
 ## Fleet Intelligence
 
-Self-healing mechanisms for automation fleets:
+Patterns for autonomous multi-lane fleets:
 
-- **Circuit breaker** — blocks deep work after N consecutive idle cycles
-- **Idle-churn detection** — flags automations where >50% of runs produce nothing
-- **Quick check gate** — exits in <60s when nothing to do
-- **Mid-zone kill** — 3+ minutes with no file write = checkpoint and exit
-- **Observer template** — shared harness for read-only audit automations
+- **Draft-PR-first** — all automation pushes go through `gh pr create --draft`, never direct-to-main. Human promotes. ([guide](guides/draft-pr-flow.md))
+- **Observer pairs** — every writer lane has a read-only observer that catches wrong flags, stale refs, and strategic drift. 100% signal measured across 38 audits.
+- **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit. Brake, not kill.
+- **Idle detection** — 2+ consecutive IDLE checkpoints = lane self-terminates rather than burning cycles on nothing.
+- **Delegation modes** — research (read-only) vs implementation (workspace-write) per `/vidux-codex`. Lanes choose the mode per-task.
 - **Cross-platform** — macOS/Linux portability via `scripts/lib/compat.sh`
 
 ## Documentation
