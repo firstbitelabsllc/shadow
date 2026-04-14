@@ -225,7 +225,7 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 
 ## Sibling Project
 
-**[claudux](https://github.com/leojkwan/claudux)** — documentation generator powered by Claude AI. If vidux is "plan before code," claudux is "docs before code." Same philosophy, different surface.
+**[claudux](https://github.com/leojkwan/claudux)** — documentation generator with multi-backend AI support (Claude + Codex). If vidux is "plan before code," claudux is "docs before code." Same philosophy, different surface. Both skills let you pick between Claude (metered, taste) and Codex (unlimited, grunt work) for the heavy lifting.
 
 ## Contributing
 
