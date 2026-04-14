@@ -98,9 +98,9 @@ Vidux solves that by making documentation the control plane. State lives in mark
 |---|---|---|---|
 | **State** | `PLAN.md` in git — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
 | **Multi-agent** | Any agent reads the same files and picks up | Single agent per session | Single agent |
-| **Verification** | Built-in: evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
-| **Fleet ops** | Circuit breakers, observers, idle detection | N/A | N/A |
-| **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Claude only | OpenAI / Anthropic |
+| **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
+| **Fleet ops** | Observer pairs, draft-PR flow, idle detection | N/A | N/A |
+| **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
 
