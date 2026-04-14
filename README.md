@@ -159,8 +159,8 @@ Vidux pairs with `/vidux-codex` for two delegation modes:
 ```mermaid
 flowchart TD
     TASK["Task from PLAN.md"]
-    Q1{"Substantial code\n(>10 lines)?"}
-    Q2{"Read surface\n>3 KB?"}
+    Q1{"Substantial code<br/>(>10 lines)?"}
+    Q2{"Read surface<br/>>3 KB?"}
 
     MODE_B["<b>Mode B — Implementation</b><br/><code>--sandbox workspace-write</code><br/>Codex writes code<br/>Claude reviews git diff"]
     MODE_A["<b>Mode A — Research</b><br/><code>--sandbox read-only</code><br/>Codex reads + compresses<br/>Claude gets 3-section summary"]
