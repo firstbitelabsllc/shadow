@@ -203,6 +203,16 @@ Patterns for autonomous multi-lane fleets:
 - **Delegation modes** — research (read-only) vs implementation (workspace-write) per `/vidux-codex`. Lanes choose the mode per-task.
 - **Cross-platform** — macOS/Linux portability via `scripts/lib/compat.sh`
 
+## Lessons from Production (Apr 2026 fleet run)
+
+Three findings from running 35+ Claude lanes and Codex agents across 5 repos for 48 hours:
+
+**1. Stuck crons need exit conditions.** A verification cron confirmed PR #9 was live, then re-verified it 300+ times over 2 hours. Fix: after success, mark done and stop. The 3x stuck rule catches *failing* loops; *succeeding* loops that don't exit are a different bug.
+
+**2. Ledger noise drowns signal.** The vidux-loop cron produced 395K empty `vidux_loop_start` entries in 2 days — 99.7% of all ledger volume. Fix: log once when idle, not per-PID per-fire. The ledger is only useful if real events are findable.
+
+**3. Workspace-write flips the cost model.** When Codex writes code (`--sandbox workspace-write`) and Claude only reviews the diff, per-cycle Claude cost drops from ~10K tokens to ~2-3K. The expensive part (code generation) shifts to the unlimited Codex budget. This is now Mode B in `/vidux-codex`.
+
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) — three-layer overview with diagrams
