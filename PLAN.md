@@ -111,6 +111,26 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [completed] 6.3.5 `maily` — KEEP. Leo: "yes i use maily"
 - [completed] 6.3.6 Merge `media-studio` + `fcp` → `media` — done 2026-04-12 (2 lane prompt refs updated). Leo confirmed.
 
+### Phase 7: First-Class Automation Recipes + Claude Routines [in_progress]
+
+**Goal:** Upgrade vidux's automation layer from CronCreate/Codex automations to Claude Routines. Codify opinionated, ready-to-deploy recipes for common patterns. Make automation a first-class part of vidux, not an afterthought. Include Greptile-powered PR review and code-reviewer pipelines.
+
+**Why now:** Claude Routines shipped 2026-04-14 (research preview). Cloud-native, persistent, three trigger types (scheduled, API, GitHub events). Supersedes session-scoped CronCreate and the old `claude.ai/code/scheduled` triggers. This is the upgrade path.
+
+**Evidence:**
+- [Source: claude.com/blog/introducing-routines-in-claude-code] Routines: scheduled (cron), API (POST /fire), GitHub events (webhooks). Pro=5/day, Max=15/day.
+- [Source: 2026-04-14 fleet run] CronCreate lanes die when session closes. Routines survive across sessions.
+- [Source: Leo 2026-04-14] "i want our system with greptile and code reviewers codified, though opinionated in how we work"
+- [Source: PLAN.md Phase 5] Draft-PR flow is the safety layer. Recipes build on top of it.
+- [Source: guides/fleet-ops.md] Existing fleet patterns (gates, observers, coordinators) need Routines-native rewrites.
+
+#### 7.1 — Recipes guide [in_progress]
+- [in_progress] 7.1.1 Write `guides/recipes.md` — 8 opinionated recipes with full prompt templates, trigger configs, and when-to-use guidance. Recipes: Fleet Watcher, PR Reviewer (Greptile + code-reviewer), Draft-PR Lifecycle, Observer Pair, Deploy Watcher, Trunk Health, Skill Refiner, Self-Improvement Loop.
+- [pending] 7.1.2 Write `guides/routines.md` — Claude Routines primer: three trigger types, migration from CronCreate, daily limits, cadence planning.
+- [pending] 7.1.3 Update `commands/vidux-fleet.md` — replace Codex `automation.toml` references with Routines as primary primitive. Keep recipes catalog but rewrite templates for Routines.
+- [pending] 7.1.4 Update README.md Fleet Intelligence section — mention Routines + link to recipes guide.
+- [pending] 7.1.5 Update SKILL.md — add Routines as first-class automation primitive alongside CronCreate (CronCreate still works for session-scoped work).
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -121,6 +141,8 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [DIRECTION] [2026-04-11] All automation pushes go through draft PRs — NEVER direct-to-main. Draft PRs are the durable, worktree-loss-proof manifest of in-flight work (recoverable via `gh pr list`). Phase 5 implements the cloud-agnostic core. Builds on the 2026-04-09 remote-trigger direction. Closes the Phase 2.4 loop (130 stranded resplit-ios branches with no PR metadata).
 - [DIRECTION] [2026-04-11] vidux core is open-source and cloud-agnostic. Phase 5 contains ONLY draft-PR mechanics — no Greptile, no Sentry, no Nia, no Seer. Paid-service integrations live in `/vidux-codex` scope as composable skills, not in this plan. "Keep side effects like greptile and followups agnostic, that is more a /vidux-codex kinda thing." — Leo.
 - [DIRECTION] [2026-04-12] Design skill naming convention: `brand-*` (identity), `craft-*` (platform patterns), `figma-*` (workflow). Renames: strongyes-design→brand-strongyes, picasso→craft-ios, preview-svg-design→craft-svg, figma-implement-design→figma-implement. New: brand-leojkwan. Do not revert these names.
+- [DIRECTION] [2026-04-14] Automation recipes may reference specific tools (Greptile, code-reviewer, ledger) as opinionated defaults. This EXPANDS the 2026-04-11 "keep side effects agnostic" direction: the core SKILL.md stays tool-agnostic, but `guides/recipes.md` is explicitly opinionated about "how we work." Recipes are Leo's workflow codified, not generic docs. — Leo: "i want our system with greptile and code reviewers codified, though opinionated in how we work."
+- [DIRECTION] [2026-04-14] Claude Routines are the primary automation primitive going forward. CronCreate still works for session-scoped experiments. Codex `automation.toml` is legacy. New lanes use Routines (scheduled/API/GitHub event triggers, cloud-native, persistent). — Evidence: claude.com/blog/introducing-routines-in-claude-code, shipped 2026-04-14.
 - [DIRECTION] [2026-04-12] Skill consolidation: 54→~42 skills. Vendor research (Anthropic + OpenAI) confirms: "earn your complexity," "eval-driven pruning." Unused skills are noise in the routing table. Tier 1 deletes bulk-import cruft; Tier 2 merges overlapping pairs; Tier 3 needs Leo's call. vidux-skill-refiner cron (20 min) handles ongoing quality.
 
 ## Open Questions
