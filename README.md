@@ -127,7 +127,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 | `LOOP.md` | Stateless cycle mechanics |
 | `ENFORCEMENT.md` | Claude Code hook configuration |
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
-| `commands/` | `/vidux`, `/vidux-plan`, `/vidux-fleet`, `/vidux-dashboard`, `/vidux-manager` |
+| `commands/` | `/vidux`, `/vidux-plan`, `/vidux-fleet`, `/vidux-claude`, `/vidux-dashboard`, `/vidux-manager` |
 | `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
@@ -146,6 +146,7 @@ Vidux is the core discipline. These companion skills extend it for specific work
 | `/vidux-fleet` | Create, manage, and audit automation fleets — schedules, roles, health checks | Yes |
 | `/vidux-manager` | Self-diagnostic agent — runs plan quality tests, validates fleet health | Yes |
 | `/vidux-dashboard` | Cross-project visibility — shows all plans as a tree with status and health | Yes |
+| `/vidux-claude` | Automation lane management — CronCreate crons AND Claude Routines (cloud-native, persistent). Create, diagnose, migrate lanes. | Yes |
 | `/vidux-codex` | Two delegation modes: **research** (read-only, compressed summary) and **implementation** (workspace-write, Codex writes code, Claude reviews diff) | No (separate) |
 | `/pilot` | Universal project lead — detects stack and stage, routes into vidux when needed | No (separate) |
 | `/ledger` | Append-only JSONL activity log for multi-agent coordination across tools | No (separate) |
