@@ -316,40 +316,22 @@ If the Fix Spec is missing, the cycle is investigation only -- no code.
 
 ---
 
-## The Observer Pair (highest-ROI pattern)
+## Automation is platform-specific (see companion skills)
 
-Every vidux writer lane should have a separate **read-only observer lane** that audits its files on a schedule. Claude self-audit operates inside its own worldview and cannot catch "I used the wrong flag" or "I rewrote PROGRESS.md retroactively" — those look fine from the inside. An independent agent reading the same files fresh catches what the writer can't see.
+Vidux is a **discipline**, not an automation system. The cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT), the PLAN.md structure, the investigation template, the Decision Log, the five principles — all work whether the agent is a human, a one-shot AI session, or a cron-scheduled worker. Nothing in this skill prescribes a runtime.
 
-### Pattern
+The automation layer — how work actually fires on a schedule, how workers persist across restarts, how garbage collection handles session state, how observers audit writers, how heavy reads get delegated to a second model — is **platform-specific** and lives in the companion skills:
 
-```
-Writer lane (Claude, 15-60 min cadence)
-  reads PLAN.md, does one task, edits files, appends PROGRESS.md
+- **`/vidux-claude`** — Claude Code automation. `CronCreate` lanes, `~/.claude-automations/<name>/{prompt.md,memory.md}` convention, 24/7 fleet operating model (lanes persist on disk, sessions cycle), session GC via `session-prune.py`, the "how many lanes per assignment?" decision tree, and the 6-lane hard cap. This is the opinionated runtime for Leo's fleet.
+- **`/vidux-codex`** — Codex automation. `codex exec` Mode A (research, compressed summary) and Mode B (implementation, diff review), Framing B cost math (Claude metered / Codex unlimited), observer lane setup (read-only Codex audits offset from the writer), and the delegation decision tree.
 
-Observer lane (Codex, offset cadence, read-only)
-  reads writer's PLAN.md + PROGRESS.md + memory.md + logs
-  emits 3-section audit → writer's evidence/codex-audit-<timestamp>.md
-  never touches code, plan, or state
-  verdict: SHIPPING | IDLE | WARNING | BLOCKED | CRASHED
-```
+**Two patterns worth naming** even though their mechanics live in the platform skills:
 
-The writer reads the latest audit at the top of each cycle. If verdict=WARNING, the writer addresses the recommendation before any other task.
+1. **The observer pair.** Every long-running writer benefits from a read-only auditor that reads the writer's PLAN.md, Progress log, and memory fresh each cycle. The writer can't self-audit — it shares the worldview that produced the error. An independent reader catches wrong-flag invocations, non-chronological Progress entries, queue FSM violations (e.g., a task flipping to `[completed]` without passing through `[in_progress]`), and strategic drift after the queue closes. **Verdicts:** `SHIPPING | IDLE | WARNING | BLOCKED | CRASHED`. **How to create one:** platform-specific — see `/vidux-claude` or `/vidux-codex`.
 
-### What observers catch that writers can't
+2. **Delegation for heavy reads or code writes.** If a worker's READ step pulls more than ~3 KB of source each cycle, or if a task needs substantial code writing with a clear spec, hand the grunt work to a second model and consume only the summary or diff. The decider stays the primary model; the executor does the grinding. **Mechanics:** platform-specific — see `/vidux-codex` for the Mode A / Mode B contract.
 
-Measured in the Frankenstein experiment (2026-04-11, 38 audits, 100% signal-to-noise):
-
-- **Wrong flag in invocation** — writer reads its own log, sees "reasoning=xhigh" in header, assumes it was set correctly. Observer reads the same header independently and notices the CLI flag was silently ignored.
-- **Non-chronological PROGRESS.md** — writer appends to wrong location, observer spots the timestamps are out of order.
-- **Stale authority refs in prompt.md** — writer updated one rule but not the cross-reference. Observer flags the drift.
-- **Queue FSM violations** — task jumped directly to `[completed]` without passing through `[in_progress]`. Writer's worldview treats this as fine; observer enforces the FSM contract.
-- **Strategic drift** — writer keeps doing "polish" work after the queue closes. Observer enforces hard stop.
-
-**Setup:** create the observer as a separate Codex automation (use `/codex`) offset from the writer's schedule. Observer prompt is always "read these files, emit 3-section audit, do not write code, verdict in {SHIPPING,IDLE,WARNING,BLOCKED,CRASHED}." See `/vidux-codex` for the full delegation mechanics behind observer-style audits.
-
-### Delegation: when the writer needs help
-
-When the writer's READ step pulls in more than ~3 KB of source every cycle, delegate the read to `codex exec` via `/vidux-codex`. This keeps Claude's main budget tight while the observer catches anything the delegated summary misses. Writer + observer + `/vidux-codex` together is the standard production pattern for long-running lanes.
+Both patterns are **optional** for a vidux worker. A human following the five principles alone is doing vidux correctly. Adding observers and delegation is the production upgrade for long-running autonomous work — the platform skills tell you exactly how.
 
 ---
 
