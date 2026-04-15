@@ -281,7 +281,7 @@ Stateless agents have no memory of WHY a previous agent made a choice. Without a
 
 ## Every agent is a worker
 
-There is no scanner/writer split. Every agent finds work AND does work. An agent that only observes and reports is a parked car with the engine running.
+There is no scanner/writer split for the **writer role**. Every writer finds work AND does work. A writer that only observes and reports is a parked car with the engine running. (The Observer Pair pattern below is the one intentional exception: a separate read-only auditor paired WITH a writer — not a standalone observer running alone.)
 
 When the queue is empty, agents don't exit -- they look for work:
 
