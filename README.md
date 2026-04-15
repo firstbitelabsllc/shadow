@@ -131,7 +131,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 | `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
-| `guides/` | draft-pr-flow, evidence-format, fleet-ops, harness, investigation |
+| `guides/` | draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes, routines |
 | `tests/` | 144 contract tests (scripts, commands, doctrine, SKILL.md structure) |
 | `examples/` | Worked examples (bug fix lifecycle) |
 
@@ -194,14 +194,17 @@ flowchart TD
 
 ## Fleet Intelligence
 
-Patterns for autonomous multi-lane fleets:
+Patterns for autonomous multi-lane fleets, now powered by **Claude Routines** (cloud-native, persistent, three trigger types):
 
 - **Draft-PR-first** — all automation pushes go through `gh pr create --draft`, never direct-to-main. Human promotes. ([guide](guides/draft-pr-flow.md))
-- **Observer pairs** — every writer lane has a read-only observer that catches wrong flags, stale refs, and strategic drift. 100% signal measured across 38 audits.
+- **PR review pipeline** — Greptile AI review + architecture agent on every draft PR. Automated quality gate before human review. ([recipe](guides/recipes.md#recipe-2-pr-reviewer))
+- **Observer pairs** — every writer lane has a read-only observer that catches wrong flags, stale refs, and strategic drift. 100% signal measured across 38 audits. ([recipe](guides/recipes.md#recipe-4-observer-pair))
+- **Fleet watcher** — scheduled health check across all lanes. Scorecard: SHIPPING / IDLE / BLOCKED / CRASHED. Escalates stuck lanes automatically. ([recipe](guides/recipes.md#recipe-1-fleet-watcher))
 - **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit. Brake, not kill.
 - **Idle detection** — 2+ consecutive IDLE checkpoints = lane self-terminates rather than burning cycles on nothing.
+- **Deploy watcher** — verifies deployment after merge, with hard exit condition (never re-verify 300+ times). ([recipe](guides/recipes.md#recipe-5-deploy-watcher))
 - **Delegation modes** — research (read-only) vs implementation (workspace-write) per `/vidux-codex`. Lanes choose the mode per-task.
-- **Cross-platform** — macOS/Linux portability via `scripts/lib/compat.sh`
+- **8 ready-to-deploy recipes** — fleet watcher, PR reviewer, lifecycle manager, observer pair, deploy watcher, trunk health, skill refiner, self-improvement loop. ([full catalog](guides/recipes.md))
 
 ## Lessons from Production (Apr 2026 fleet run)
 
@@ -221,6 +224,7 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 - [Fleet Operations](guides/fleet-ops.md) — automation fleet management
 - [Investigation Lifecycle](guides/investigation.md) — compound task L2 format
 - [Draft PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
+- [Automation Recipes](guides/recipes.md) — 8 ready-to-deploy fleet patterns with prompt templates
 - [Examples](examples/) — worked examples (start with [bug fix lifecycle](examples/bug-fix-lifecycle/))
 
 ## Sibling Project
