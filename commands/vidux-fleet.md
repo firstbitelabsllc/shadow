@@ -5,7 +5,9 @@ description: "Create, manage, and audit automation fleets — lean prompts, stag
 
 # /vidux-loop
 
-Fleet builder for recurring automation loops. Creates Codex automations, Claude remote triggers, or standalone cron configs that run Vidux at scale.
+Fleet builder for recurring automation loops. Creates Claude Routines (primary, cloud-native, persistent), CronCreate lanes (session-scoped), or legacy Codex `automation.toml` configs that run Vidux at scale.
+
+> **Primitive priority (2026-04-14 Decision Log):** New lanes should use Claude Routines via `/schedule`. CronCreate is fine for session-scoped experiments. Codex `automation.toml` is legacy — keep working but do not create new ones. See `guides/recipes.md` L491-502 "Hybrid Strategy: Routines + CronCreate" for when-to-use-which.
 
 ## Subcommands
 
@@ -31,9 +33,10 @@ Generate an automation config and lean prompt for a project.
 
 ### Steps
 
-1. **Discover existing fleet.** Scan for automation configs:
-   - Codex: `~/.codex/automations/*/automation.toml` and any `automations/*/automation.toml` in nearby repos
-   - Claude: remote triggers via `claude triggers list` if available
+1. **Discover existing fleet.** Scan for automation configs in priority order:
+   - Claude Routines: `/schedule list` (primary — cloud-native, persistent)
+   - Claude lanes: `~/.claude-automations/*/{prompt.md,memory.md}` (CronCreate / session-scoped)
+   - Codex (legacy): `~/.codex/automations/*/automation.toml` and `automations/*/automation.toml` in nearby repos
    - Local: any `automations/` directory in the current repo
 
 2. **Build the slot map.** Parse all `rrule` or `BYMINUTE` fields. Map each automation to its minute-of-hour slots.
@@ -103,9 +106,31 @@ Coordination rules:
 - Can adjust automation prompts to redirect focus. Cannot modify project code directly.
 ```
 
-6. **Generate the automation config.** Based on the detected environment:
+6. **Generate the automation config.** Pick in priority order:
 
-#### Codex automation.toml
+#### Claude Routine (primary — use this for new lanes)
+
+Routines are cloud-native, persist across laptop restarts, support scheduled + GitHub event + API triggers, and count against your per-account daily cap. See `guides/recipes.md` L11-70 for the full primer.
+
+```
+/schedule <project>-<role>
+```
+
+Interactive flow asks for name, prompt body, cadence (cron or preset), repo list, connectors, branch permissions. Output: a durable routine_id you can pass to `/schedule update` and `/schedule run`.
+
+For non-interactive creation, scripts can POST to the routines API with a prompt body and trigger config (see `guides/recipes.md` L44-55 for the curl example). Identity: commits and PRs from the routine carry YOUR GitHub user.
+
+#### CronCreate lane (session-scoped experiments)
+
+For short-lived experiments that don't need to survive laptop close, use the CronCreate tool from within a Claude session:
+```
+CronCreate(cron="*/30 * * * *", prompt="<generated prompt>", durable=false)
+```
+Writes to `~/.claude-automations/<lane>/{prompt.md,memory.md}` if you're using a named lane convention. Session-only crons die with the session. See `guides/recipes.md` L491-502 "Hybrid Strategy" for when to pick CronCreate over Routines.
+
+#### Codex automation.toml (legacy — do not create new ones)
+
+Existing Codex automations keep working but the Routines path is preferred for new lanes. Kept here for audit and migration reference:
 
 ```toml
 version = 2
@@ -124,21 +149,11 @@ execution_environment = "<local or cloud>"
 [metadata]
 project = "<project>"
 role = "<writer|radar|coordinator>"
-created_by = "vidux-loop"
+created_by = "vidux-fleet"
 created_at = "<ISO timestamp>"
 ```
 
-#### Claude remote trigger
-
-If on Claude Code and `claude triggers` is available:
-```bash
-claude triggers create \
-  --name "<project>-<role>" \
-  --schedule "*/30 * * * *" \
-  --prompt "<generated prompt>"
-```
-
-If neither is available, output the prompt and schedule for manual setup.
+If none of the above are available (no Claude Code, no Codex), output the prompt and schedule for manual setup.
 
 7. **Update the fleet registry.** If a `fleet.json` exists in the project's vidux directory, append the new automation. If not, create one.
 
@@ -390,8 +405,9 @@ Analyze a project's PLAN.md and prescribe the optimal fleet topology. READ-ONLY.
    - If neither exists, fail with: "No PLAN.md found for `<project>`. Run /vidux-plan first."
 
 2. **🔍 GATHER — Inventory existing automations for the project.**
-   - Codex: `~/.codex/automations/<project>*/automation.toml`
-   - Other: `~/.codex/automations/*<project>*/automation.toml`
+   - Claude Routines: `/schedule list` (filter by name prefix `<project>`)
+   - Claude lanes: `~/.claude-automations/<project>*/` (CronCreate / session-scoped)
+   - Codex (legacy): `~/.codex/automations/<project>*/automation.toml` and `~/.codex/automations/*<project>*/automation.toml`
    - Local: any `automations/` directory in the project repo
    - Record: count, roles (writer/radar/coordinator), schedules, last memory entry
 
@@ -471,7 +487,8 @@ Generate a lean harness file for a specific role on a project. WRITES one new au
 - `<role>` — one of: `writer`, `radar`, `coordinator`, `specialist`
 - `<project>` — project name
 - Optional: `--focus <area>` — narrow the radar/specialist scope (e.g., `ux`, `revenue`, `release`)
-- Optional: `--out <path>` — override the output path (default: `~/.codex/automations/<project>-<role>/automation.toml`)
+- Optional: `--target <routine|claude-lane|codex-legacy>` — pick the automation primitive. Default: `routine` (creates a Claude Routine via `/schedule`). `claude-lane` writes to `~/.claude-automations/<project>-<role>/prompt.md`. `codex-legacy` writes to `~/.codex/automations/<project>-<role>/automation.toml` (do not use for new lanes).
+- Optional: `--out <path>` — override the output path. Only meaningful for `--target claude-lane` or `--target codex-legacy`; routines live in the cloud.
 
 ### Steps
 
@@ -583,9 +600,16 @@ Design DNA:
    - Does NOT contain "smallest slice" or "land one task" language
    - Schedule slot does not collide with > 2 existing automations
 
-5. **⚡ EXECUTE — Write the automation.toml file.**
+5. **⚡ EXECUTE — Create the automation.** Route by `--target`:
+
+   **`--target routine` (default):** Invoke `/schedule <project>-<role>` interactively (or POST to the routines API non-interactively) with the generated harness as the prompt body, the staggered cron as the schedule, and the project repos as the scope. See `guides/recipes.md` L11-70 for the full primer.
+
+   **`--target claude-lane`:** Write the harness to `~/.claude-automations/<project>-<role>/prompt.md`. Create an empty `memory.md` if it doesn't exist. The lane runs when you invoke it via CronCreate from a Claude session (session-scoped).
+
+   **`--target codex-legacy` (discouraged):** Write an automation.toml to `~/.codex/automations/<project>-<role>/automation.toml` using the legacy template below. Only use this if migrating an existing Codex lane.
 
    ```toml
+   # Legacy Codex automation.toml — do not create new ones
    version = 2
 
    [schedule]
@@ -603,17 +627,16 @@ Design DNA:
    project = "<project>"
    role = "<role>"
    recipe = "<recipe-name>"
-   created_by = "vidux-recipes"
+   created_by = "vidux-fleet"
    created_at = "<ISO timestamp>"
    ```
-
-   Default output path: `~/.codex/automations/<project>-<role>/automation.toml`
 
 6. **📌 CHECKPOINT — Report what was created.**
 
    ```
    Created: <project>-<role>
-   Path:    ~/.codex/automations/<project>-<role>/automation.toml
+   Target:  routine | claude-lane | codex-legacy
+   Path:    <routine-id> | ~/.claude-automations/<name>/prompt.md | ~/.codex/automations/<name>/automation.toml
    Slot:    :<slot>, :<slot+30>
    Lines:   12/15
    Doctrine: ✓ keep-working ✓ proof-gate ✓ bounded-recursion ✓ no-restating
@@ -633,12 +656,14 @@ Score existing automations for a project against Doctrine 8 + the new automation
 ### Steps
 
 1. **🔍 GATHER — Discover automations.**
-   - Codex: `~/.codex/automations/<project>*/automation.toml`
-   - Local: `automations/<project>*/automation.toml` in nearby repos
-   - For each: extract the prompt body (between `prompt = """` and `"""`)
+   - Claude Routines: `/schedule list` (primary); extract the prompt body from the routine definition
+   - Claude lanes: `~/.claude-automations/<project>*/prompt.md` (CronCreate / session-scoped)
+   - Codex (legacy): `~/.codex/automations/<project>*/automation.toml` and `automations/<project>*/automation.toml` in nearby repos — extract the prompt body (between `prompt = """` and `"""`)
 
 2. **🔍 GATHER — Read recent memory.**
-   - For each automation, read last 5 entries in `memory.md` (Codex) or equivalent
+   - Claude lanes: last 5 entries in `~/.claude-automations/<lane>/memory.md`
+   - Codex: last 5 entries in the Codex automation's `memory.md`
+   - Routines: check the routine's recent run history via `/schedule` or the web UI
    - Extract run durations to compute bimodal distribution
 
 3. **📐 PLAN — Score each prompt against the rubric.**
