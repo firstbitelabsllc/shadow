@@ -314,8 +314,6 @@ If the Fix Spec is missing, the cycle is investigation only -- no code.
 
 ---
 
----
-
 ## Automation is platform-specific (see companion skills)
 
 Vidux is a **discipline**, not an automation system. The cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT), the PLAN.md structure, the investigation template, the Decision Log, the five principles — all work whether the agent is a human, a one-shot AI session, or a cron-scheduled worker. Nothing in this skill prescribes a runtime.
