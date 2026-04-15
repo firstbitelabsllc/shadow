@@ -10,17 +10,64 @@ All recipes follow the draft-PR-first discipline: automation pushes go through `
 
 ## How Routines Work
 
-Claude Routines run on Anthropic's cloud — they survive when your laptop closes.
+Claude Routines run on Anthropic-managed cloud infrastructure — they survive when your laptop closes. Each routine is a saved configuration: a prompt, one or more repositories, a cloud environment, MCP connectors, and triggers.
 
-| Trigger type | Fires when | Example |
+> Routines are in research preview. Behavior, limits, and the API surface may change.
+
+| Trigger type | Fires when | Create via |
 |---|---|---|
-| **Scheduled** | Cron expression matches (min 1h interval) | Fleet health check every 2h |
-| **GitHub event** | Webhook fires (PR, push, issues, workflow) | PR reviewer on draft PR creation |
-| **API** | `POST /fire` with bearer token | Sentry alert triggers investigation |
+| **Scheduled** | Cron expression matches (min 1h interval, presets: hourly/daily/weekdays/weekly) | CLI (`/schedule`) or web |
+| **GitHub event** | Webhook fires (PR, push, issues, workflow runs, releases, discussions, check runs, merge queue, etc.) | Web UI only |
+| **API** | `POST /fire` with bearer token + optional `text` payload | Web UI only |
 
-Daily limits: Pro=5, Max=15, Team/Enterprise=25. Plan your fleet within the budget.
+A single routine can combine multiple triggers. For example, a PR review routine can run nightly (scheduled), trigger from a deploy script (API), and react to every new PR (GitHub).
 
-Create at `claude.ai/code/routines` or via `/schedule` in Claude Code.
+### Key details (from [official docs](https://code.claude.com/docs/en/routines))
+
+- **Branch permissions:** By default, routines can only push to `claude/`-prefixed branches. Enable "Allow unrestricted branch pushes" per repo if needed.
+- **Daily run cap:** Per-account daily limit — check yours at [claude.ai/settings/usage](https://claude.ai/settings/usage). Organizations with extra usage enabled can keep running on metered overage.
+- **Environments:** Each routine runs in a cloud environment with configurable network access, environment variables, and setup scripts. Configure at [claude.ai](https://claude.ai) before creating the routine.
+- **Connectors:** All your connected MCP connectors (Slack, Linear, Google Drive, etc.) are included by default. Remove any the routine doesn't need.
+- **Runs are full sessions:** No permission prompts during runs. The routine can run shell commands, use skills committed to the repo, and call any included connectors.
+- **Identity:** Commits and PRs carry YOUR GitHub user. Slack/Linear actions use YOUR linked accounts.
+
+### CLI commands
+
+```
+/schedule                      # Create a new scheduled routine (interactive)
+/schedule daily PR review      # Create with description
+/schedule list                 # List all routines
+/schedule update               # Update an existing routine
+/schedule run                  # Trigger a routine immediately
+```
+
+### API trigger example
+
+```bash
+curl -X POST https://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEF.../fire \
+  -H "Authorization: Bearer sk-ant-oat01-xxxxx" \
+  -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Sentry alert SEN-4521 fired in prod. Stack trace attached."}'
+```
+
+Returns: `{ "claude_code_session_id": "...", "claude_code_session_url": "..." }`
+
+### GitHub trigger — supported events
+
+| Event | Triggers when |
+|---|---|
+| Pull request | PR opened, closed, assigned, labeled, synchronized |
+| Push | Commits pushed to a branch |
+| Issues | Issue opened, edited, closed, labeled |
+| Release | Release created, published, edited |
+| Workflow run | GitHub Actions workflow starts or completes |
+| Check run/suite | Check run created or completed |
+| Discussion | Discussion created, edited, answered |
+| Merge queue | PR enters or leaves merge queue |
+
+PR filters: author, title, body, base branch, head branch, labels, is_draft, is_merged, from_fork. All conditions must match.
 
 ---
 
@@ -72,7 +119,7 @@ Any fleet with 3+ active lanes. Without a watcher, stuck lanes burn cycles silen
 
 **What:** Automated code review pipeline triggered when an automation lane creates a draft PR. Runs Greptile AI review + architecture review agent, posts structured feedback.
 
-**Trigger:** GitHub event — `pull_request` opened/synchronize, filter: `isDraft: true`
+**Trigger:** GitHub event — `pull_request.opened` + `pull_request.synchronize`. Filter: head branch contains `claude/` (automation lanes only). Configure via web UI at claude.ai/code/routines.
 **Role:** Reviewer (read-only, never pushes code)
 
 ### Prompt Template
@@ -424,20 +471,22 @@ A typical production fleet combines 3-5 recipes:
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Daily Budget Planning (Max plan, 15 routines/day)
+### Daily Budget Planning
 
-| Recipe | Trigger | Fires/day | Budget cost |
+All routine runs count against your account's daily cap (check at [claude.ai/settings/usage](https://claude.ai/settings/usage)). GitHub events beyond your hourly cap are dropped until the window resets. Plan accordingly:
+
+| Recipe | Trigger | Est. fires/day | Notes |
 |---|---|---|---|
-| Fleet Watcher | Scheduled 2h | 12 | 12 |
-| PR Reviewer | GitHub event | ~5 (est) | 0 (events don't count) |
-| PR Lifecycle | Scheduled 1h | 24 | 0 (if using CronCreate fallback) |
-| Observer Pair (x2) | Scheduled 2h | 12 each | 0 (Codex delegation) |
-| Deploy Watcher | GitHub event | ~3 (est) | 0 (events don't count) |
-| Trunk Health | Scheduled 4h | 6 | 6 |
-| Skill Refiner | Scheduled 6h | 4 | 4 |
-| Self-Improvement | Scheduled 24h | 1 | 1 |
+| Fleet Watcher | Scheduled 2h | 12 | Core fleet visibility |
+| PR Reviewer | GitHub event | ~5 | Per draft PR from automation |
+| PR Lifecycle | Scheduled 1h | 24 | Consider CronCreate fallback to save budget |
+| Observer Pair (x2) | Scheduled 2h | 12 each | Delegate reads to Codex to save tokens |
+| Deploy Watcher | GitHub event | ~3 | Exits after verification (max 3 checks) |
+| Trunk Health | Scheduled 4h | 6 | Light — mostly git status checks |
+| Skill Refiner | Scheduled 6h | 4 | One skill per cycle |
+| Self-Improvement | Scheduled 24h | 1 | Meta — vidux improving vidux |
 
-**Note:** GitHub event triggers and API triggers may not count against daily limits (verify in Routines docs). Scheduled triggers do. Plan accordingly.
+**Budget strategy:** Start with Fleet Watcher + PR Reviewer (highest ROI). Add recipes as you verify the daily cap supports them. Use CronCreate for session-scoped work that doesn't need to survive laptop close.
 
 ### Hybrid Strategy: Routines + CronCreate
 
