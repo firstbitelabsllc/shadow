@@ -34,8 +34,8 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 - [pending] Task 6: Write `docs/reference/plan-fields.md` — Quick reference for all PLAN.md fields, status FSM, Decision Log entry types.
 - [pending] Task 7: Write `docs/reference/prompt-template.md` — The 8-block prompt structure (Mission/Skills/Read/Gate/Assess/Act/Authority/Checkpoint) with field descriptions.
 
-### Phase 4: Blog Post
-- [pending] Task 8: Use /blog-builder to produce a blog post for StrongYes: "Vidux: How We Ship Code with AI Agents" — covers the discipline, the two platforms (Claude Code + Codex), the fleet model, and lessons learned. Target audience: senior engineers exploring AI-assisted development.
+### Phase 4: README Cleanup
+- [pending] Task 8: Clean README.md — trim the /vidux-codex companion section (too detailed for a README), tighten Fleet Intelligence bullets, update "What Ships Here" table. Point to docs/fleet/ for platform details.
 
 ## Decision Log
 - [DIRECTION] 2026-04-16 Core vidux stays platform-agnostic. Observer Pair and Delegation patterns move to platform-specific skills only. Core describes the discipline; platforms describe the runtime.

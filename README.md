@@ -112,11 +112,9 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 **Compound tasks + L2 investigations** — messy surfaces get a compound task that links to an `investigations/<slug>.md` sub-plan with seven sections. The L2 investigation is the work until the Fix Spec is filled.
 
-**Observer pairs** — every writer lane should have a read-only observer lane that audits its files on an offset schedule. Observers catch what the writer can't — wrong flags, stale refs, strategic drift. 100% signal-to-noise measured across 38 audits.
+**Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries, not rewrites.
 
-**Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries. Retroactive rewrites destroy the history future agents need.
-
-**3x stuck rule** — if the same task appears in 3+ consecutive progress entries while still in-progress, the lane exits. This is a brake, not a kill — the cron stays scheduled until operator input arrives.
+**3x stuck rule** — same task in 3+ consecutive progress entries while in-progress = auto-exit. Brake, not kill.
 
 ## What Ships Here
 
@@ -153,59 +151,29 @@ Vidux is the core discipline. These companion skills extend it for specific work
 
 The in-repo skills (`commands/`) work standalone. The external skills are optional and compose with the core cycle without changing it.
 
-## Companion: `/vidux-codex`
+## Platform Automation
 
-Vidux pairs with `/vidux-codex` for two delegation modes:
+Vidux is platform-agnostic — the cycle works for humans, one-shot sessions, and cron-scheduled fleets. The automation layer is runtime-specific:
 
-```mermaid
-flowchart TD
-    TASK["Task from PLAN.md"]
-    Q1{"Substantial code<br/>(>10 lines)?"}
-    Q2{"Read surface<br/>>3 KB?"}
-
-    MODE_B["<b>Mode B — Implementation</b><br/><code>--sandbox workspace-write</code><br/>Codex writes code<br/>Claude reviews git diff"]
-    MODE_A["<b>Mode A — Research</b><br/><code>--sandbox read-only</code><br/>Codex reads + compresses<br/>Claude gets 3-section summary"]
-    DIRECT["<b>Direct</b><br/>Claude handles it<br/>(taste, trivial edits)"]
-
-    TASK --> Q1
-    Q1 -->|yes| MODE_B
-    Q1 -->|no| Q2
-    Q2 -->|yes| MODE_A
-    Q2 -->|no| DIRECT
-
-    style MODE_B fill:#2d333b,stroke:#57ab5a,stroke-width:2px,color:#adbac7
-    style MODE_A fill:#2d333b,stroke:#539bf5,stroke-width:2px,color:#adbac7
-    style DIRECT fill:#2d333b,stroke:#c69026,stroke-width:2px,color:#adbac7
-    style Q1 fill:#2d333b,stroke:#986ee2,stroke-width:2px,color:#adbac7
-    style Q2 fill:#2d333b,stroke:#986ee2,stroke-width:2px,color:#adbac7
-    style TASK fill:#2d333b,stroke:#e5534b,stroke-width:2px,color:#adbac7
-```
-
-| Role | Claude (metered) | Codex (unlimited) |
+| | Claude Code (`/vidux-claude`) | Codex (`/vidux-codex`) |
 |---|---|---|
-| Read plans | Small reads only | Delegate if > 3 KB |
-| Decide approach | Yes (taste) | Never |
-| Write code | Only < 10 lines | All substantial code |
-| Review diffs | Yes | Never |
-| Build/test | Yes (local toolchain) | Can't (no Xcode/env) |
-| Commit/push | Yes | Never |
+| **Scheduling** | `CronCreate` (in-session, 7-day auto-expire) | TOML + rrule (Mac desktop app, persistent) |
+| **Persistence** | `~/.claude-automations/<name>/memory.md` | `~/.codex/automations/<id>/memory.md` |
+| **Restart** | Re-schedule cron on new session | Full-quit + reopen Mac app |
+| **CLI automations** | Yes | No — Mac app only |
+| **Models** | Claude (Opus/Sonnet/Haiku) | GPT-5.x |
+| **Delegation** | N/A (Claude is the writer) | Mode A (research) / Mode B (implementation) |
 
-**Research savings** (Mode A): 10x at 33 KB, 49x at 160 KB, 110x at 357 KB — linear with source size.
-**Implementation savings** (Mode B): ~3-5x further per cycle — Claude drops from ~10K tokens (writing code) to ~2-3K (reviewing a diff).
+See [docs/fleet/](docs/fleet/) for full lifecycle docs and setup guides.
 
-## Fleet Intelligence
+## Fleet Patterns
 
-Patterns for autonomous multi-lane fleets. See the [full recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
+Patterns for autonomous multi-lane fleets. See the [recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
 
-- **Draft-PR-first** — all automation pushes go through `gh pr create --draft`, never direct-to-main. Human promotes. ([guide](guides/draft-pr-flow.md))
-- **PR review pipeline** — Greptile AI review + architecture agent on every draft PR. Automated quality gate before human review. ([recipe](guides/recipes.md#recipe-2-pr-reviewer))
-- **Observer pairs** — every writer lane has a read-only observer that catches wrong flags, stale refs, and strategic drift. 100% signal measured across 38 audits. ([recipe](guides/recipes.md#recipe-4-observer-pair))
-- **Fleet watcher** — scheduled health check across all lanes. Scorecard: SHIPPING / IDLE / BLOCKED / CRASHED. Escalates stuck lanes automatically. ([recipe](guides/recipes.md#recipe-1-fleet-watcher))
-- **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit. Brake, not kill.
-- **Idle detection** — 2+ consecutive IDLE checkpoints = lane self-terminates rather than burning cycles on nothing.
-- **Deploy watcher** — verifies deployment after merge, with hard exit condition (never re-verify 300+ times). ([recipe](guides/recipes.md#recipe-5-deploy-watcher))
-- **Delegation modes** — research (read-only) vs implementation (workspace-write) per `/vidux-codex`. Lanes choose the mode per-task.
-- **8 ready-to-deploy recipes** — fleet watcher, PR reviewer, lifecycle manager, observer pair, deploy watcher, trunk health, skill refiner, self-improvement loop. ([full catalog](guides/recipes.md))
+- **Draft-PR-first** — automation pushes go through `gh pr create --draft`, never direct-to-main ([guide](guides/draft-pr-flow.md))
+- **Observer pairs** — read-only auditor catches wrong flags, stale refs, strategic drift ([recipe](guides/recipes.md#recipe-4-observer-pair))
+- **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit
+- **Fleet watcher** — scheduled health check, scorecard: SHIPPING / IDLE / BLOCKED / CRASHED ([recipe](guides/recipes.md#recipe-1-fleet-watcher))
 
 ## Lessons from Production (Apr 2026 fleet run)
 
