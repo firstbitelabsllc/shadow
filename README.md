@@ -131,7 +131,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 | `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
-| `guides/` | draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes (includes Routines primer L11-70 and Hybrid Strategy L491-502) |
+| `guides/` | draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes |
 | `tests/` | 144 contract tests (scripts, commands, doctrine, SKILL.md structure) |
 | `examples/` | Worked examples (bug fix lifecycle) |
 
@@ -146,7 +146,7 @@ Vidux is the core discipline. These companion skills extend it for specific work
 | `/vidux-fleet` | Create, manage, and audit automation fleets — schedules, roles, health checks | Yes |
 | `/vidux-manager` | Self-diagnostic agent — runs plan quality tests, validates fleet health | Yes |
 | `/vidux-dashboard` | Cross-project visibility — shows all plans as a tree with status and health | Yes |
-| `/vidux-claude` | Automation lane management — CronCreate crons AND Claude Routines (cloud-native, persistent). Create, diagnose, migrate lanes. | Yes |
+| `/vidux-claude` | Automation lane management — CronCreate crons, session GC, fleet ops. Create, diagnose, migrate lanes. | Yes |
 | `/vidux-codex` | Two delegation modes: **research** (read-only, compressed summary) and **implementation** (workspace-write, Codex writes code, Claude reviews diff) | No (separate) |
 | `/pilot` | Universal project lead — detects stack and stage, routes into vidux when needed | No (separate) |
 | `/ledger` | Append-only JSONL activity log for multi-agent coordination across tools | No (separate) |
@@ -195,7 +195,7 @@ flowchart TD
 
 ## Fleet Intelligence
 
-Patterns for autonomous multi-lane fleets, now powered by **Claude Routines** (cloud-native, persistent, three trigger types — scheduled, GitHub event, API). New lanes go through `/schedule`; CronCreate still works for session-scoped experiments; Codex `automation.toml` is legacy. See the [Routines primer](guides/recipes.md#how-routines-work) and [Hybrid Strategy: Routines + CronCreate](guides/recipes.md#hybrid-strategy-routines--croncreate) for when-to-use-which.
+Patterns for autonomous multi-lane fleets. See the [full recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
 
 - **Draft-PR-first** — all automation pushes go through `gh pr create --draft`, never direct-to-main. Human promotes. ([guide](guides/draft-pr-flow.md))
 - **PR review pipeline** — Greptile AI review + architecture agent on every draft PR. Automated quality gate before human review. ([recipe](guides/recipes.md#recipe-2-pr-reviewer))
