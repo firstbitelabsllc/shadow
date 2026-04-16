@@ -31,8 +31,6 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 
 ### Phase 4: Fleet infrastructure
 
-- [completed] 4.3 Apply fleet prompts to DB + restart [Done: 2026-04-09]
-- [completed] 4.4 Fleet scan: 1 shipping (resplit-web-ux), 1 watching (codex-watch), 12 idle. [Done: 2026-04-09]
 
 ### Phase 5: Draft-PR architecture [in_progress]
 
@@ -52,9 +50,6 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 Every wave boundary is reversible. Leo gates each transition.
 
 #### Wave 0 — Plan + audit [completed]
-- [completed] 5.0.1 Wave-mapped plan with provisional Q answers and Core/Delegation split. [Done: 2026-04-11]
-- [completed] 5.0.2 Audit current push behavior across fleet. Real count: **37 total (35 Claude lanes + 2 Codex observers), ~20 push-capable, 0 currently create PRs.** The "14 automations" from Phases 2-4 is outdated — the fleet migrated to Claude and expanded. Output: `investigations/draft-pr-flow.md`. [Done: 2026-04-11]
-- [completed] 5.0.3 Leo confirmed all provisionals (Q2-Q7): lane-owned PRs, human-click promotion, never auto-merge, vidux fleet only, Leo's personal pushes unchanged, stranded branches left dead. [Done: 2026-04-11]
 - [completed] 5.0.4 Wave 1 pilot: **`strongyes-coach-p0`**. Original pick `vidux-core-test` is invalid — it operates on a non-git experiment dir with explicit "NEVER git push" in its Authority block. Corrected to `strongyes-coach-p0`: currently pushes directly to origin/main (the exact behavior to replace), StrongYes is smaller than Resplit (lower blast radius), lane is P0-active so it exercises real production cycles. [Corrected: 2026-04-11, see Surprise]
 
 #### Wave 1 — Reference implementation [completed]
@@ -176,4 +171,4 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [2026-04-15] Phase 7.1.2 closed as redundant. Decision Log [DELETION] added. Verification grep on recipes.md confirmed all four scope items (triggers, migration, daily limits, cadence) already present. Single source of truth preserved. Next: 7.1.3 (commands/vidux-fleet.md — replace Codex automation.toml references with Routines).
 - [2026-04-15] Phase 7.1.3 shipped: commands/vidux-fleet.md now leads with Claude Routines (primary) via `/schedule`, CronCreate lanes second, Codex automation.toml relabeled legacy. Added `--target routine|claude-lane|codex-legacy` flag to `write` subcommand (routine is default). Discover/inventory/audit scan paths prioritize routines → claude-lanes → codex-legacy. Cross-refs to recipes.md L11-70 and L491-502 verified. Next: 7.1.4 (README.md Fleet Intelligence section).
 - [2026-04-15] Phase 7.1.4 shipped: README.md Fleet Intelligence section now explicitly names the three trigger types + primitive priority (Routines primary → CronCreate → Codex legacy) + direct anchor links to recipes.md #how-routines-work and #hybrid-strategy-routines--croncreate. Also removed stale `guides/routines` directory reference (left over from 7.1.2 closure). Next: 7.1.5 (SKILL.md — add Routines as first-class primitive alongside CronCreate).
-<!-- 17 tasks archived to ARCHIVE.md -->
+<!-- 5 tasks archived to ARCHIVE.md -->

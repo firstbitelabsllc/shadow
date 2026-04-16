@@ -171,3 +171,10 @@ Tasks completed and archived from PLAN.md to keep context lean.
 - [completed] 3.4 Revert hallucinated copy from remote trigger (5ef4498c). Added COPY SAFETY constraint. [Done: 2026-04-09]
 - [completed] 4.1 Rewrite codex-watch prompt (simplified fleet scan)
 - [completed] 4.2 Rewrite strongyes-content-scanner prompt
+
+## Archived 2026-04-15
+- [completed] 4.3 Apply fleet prompts to DB + restart [Done: 2026-04-09]
+- [completed] 4.4 Fleet scan: 1 shipping (resplit-web-ux), 1 watching (codex-watch), 12 idle. [Done: 2026-04-09]
+- [completed] 5.0.1 Wave-mapped plan with provisional Q answers and Core/Delegation split. [Done: 2026-04-11]
+- [completed] 5.0.2 Audit current push behavior across fleet. Real count: **37 total (35 Claude lanes + 2 Codex observers), ~20 push-capable, 0 currently create PRs.** The "14 automations" from Phases 2-4 is outdated — the fleet migrated to Claude and expanded. Output: `investigations/draft-pr-flow.md`. [Done: 2026-04-11]
+- [completed] 5.0.3 Leo confirmed all provisionals (Q2-Q7): lane-owned PRs, human-click promotion, never auto-merge, vidux fleet only, Leo's personal pushes unchanged, stranded branches left dead. [Done: 2026-04-11]
