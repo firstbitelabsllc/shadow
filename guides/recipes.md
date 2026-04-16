@@ -2,72 +2,21 @@
 
 Opinionated, ready-to-deploy automation patterns for vidux fleets. Each recipe includes: when to use it, the trigger type, a complete prompt template, and the review pipeline it plugs into.
 
-These recipes assume **Claude Routines** as the automation primitive (cloud-native, persistent, three trigger types). CronCreate still works for session-scoped experiments but Routines are the production path.
-
-All recipes follow the draft-PR-first discipline: automation pushes go through `gh pr create --draft`, never direct-to-main. Human promotes.
+All recipes follow the draft-PR-first discipline: automation pushes go through `gh pr create --draft`, never direct-to-main. A human promotes.
 
 ---
 
-## How Routines Work
+## Trigger Types (platform-agnostic)
 
-Claude Routines run on Anthropic-managed cloud infrastructure — they survive when your laptop closes. Each routine is a saved configuration: a prompt, one or more repositories, a cloud environment, MCP connectors, and triggers.
+These recipes describe trigger *patterns*, not specific platforms. Map them to whatever automation primitive your agent platform offers:
 
-> Routines are in research preview. Behavior, limits, and the API surface may change.
-
-| Trigger type | Fires when | Create via |
+| Trigger pattern | Fires when | Example platforms |
 |---|---|---|
-| **Scheduled** | Cron expression matches (min 1h interval, presets: hourly/daily/weekdays/weekly) | CLI (`/schedule`) or web |
-| **GitHub event** | Webhook fires (PR, push, issues, workflow runs, releases, discussions, check runs, merge queue, etc.) | Web UI only |
-| **API** | `POST /fire` with bearer token + optional `text` payload | Web UI only |
+| **Scheduled** | Cron expression or interval matches | CronCreate (session-scoped), cloud scheduled jobs, CI cron |
+| **Event-driven** | External webhook fires (PR, push, issues, deploy, etc.) | GitHub Actions, cloud webhooks, repo hooks |
+| **On-demand** | Triggered by a manual action or another automation | CLI invocation, API POST, another lane's output |
 
-A single routine can combine multiple triggers. For example, a PR review routine can run nightly (scheduled), trigger from a deploy script (API), and react to every new PR (GitHub).
-
-### Key details (from [official docs](https://code.claude.com/docs/en/routines))
-
-- **Branch permissions:** By default, routines can only push to `claude/`-prefixed branches. Enable "Allow unrestricted branch pushes" per repo if needed.
-- **Daily run cap:** Per-account daily limit — check yours at [claude.ai/settings/usage](https://claude.ai/settings/usage). Organizations with extra usage enabled can keep running on metered overage.
-- **Environments:** Each routine runs in a cloud environment with configurable network access, environment variables, and setup scripts. Configure at [claude.ai](https://claude.ai) before creating the routine.
-- **Connectors:** All your connected MCP connectors (Slack, Linear, Google Drive, etc.) are included by default. Remove any the routine doesn't need.
-- **Runs are full sessions:** No permission prompts during runs. The routine can run shell commands, use skills committed to the repo, and call any included connectors.
-- **Identity:** Commits and PRs carry YOUR GitHub user. Slack/Linear actions use YOUR linked accounts.
-
-### CLI commands
-
-```
-/schedule                      # Create a new scheduled routine (interactive)
-/schedule daily PR review      # Create with description
-/schedule list                 # List all routines
-/schedule update               # Update an existing routine
-/schedule run                  # Trigger a routine immediately
-```
-
-### API trigger example
-
-```bash
-curl -X POST https://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEF.../fire \
-  -H "Authorization: Bearer sk-ant-oat01-xxxxx" \
-  -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
-  -H "anthropic-version: 2023-06-01" \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Sentry alert SEN-4521 fired in prod. Stack trace attached."}'
-```
-
-Returns: `{ "claude_code_session_id": "...", "claude_code_session_url": "..." }`
-
-### GitHub trigger — supported events
-
-| Event | Triggers when |
-|---|---|
-| Pull request | PR opened, closed, assigned, labeled, synchronized |
-| Push | Commits pushed to a branch |
-| Issues | Issue opened, edited, closed, labeled |
-| Release | Release created, published, edited |
-| Workflow run | GitHub Actions workflow starts or completes |
-| Check run/suite | Check run created or completed |
-| Discussion | Discussion created, edited, answered |
-| Merge queue | PR enters or leaves merge queue |
-
-PR filters: author, title, body, base branch, head branch, labels, is_draft, is_merged, from_fork. All conditions must match.
+A single lane can combine triggers (e.g., scheduled nightly + fires on every new PR). The mechanics of how your platform wires triggers belong in `/vidux-auto` (the platform-specific companion), not in these recipes.
 
 ---
 
@@ -117,9 +66,9 @@ Any fleet with 3+ active lanes. Without a watcher, stuck lanes burn cycles silen
 
 ## Recipe 2: PR Reviewer
 
-**What:** Automated code review pipeline triggered when an automation lane creates a draft PR. Runs Greptile AI review + architecture review agent, posts structured feedback.
+**What:** Automated code review pipeline triggered when an automation lane creates a draft PR. Combines review-bot output, an architecture review agent, and mechanical checks into a single structured verdict.
 
-**Trigger:** GitHub event — `pull_request.opened` + `pull_request.synchronize`. Filter: head branch contains `claude/` (automation lanes only). Configure via web UI at claude.ai/code/routines.
+**Trigger:** Event-driven — PR opened or synchronized. Filter to automation branches only (convention: `claude/`, `codex/`, or `auto/` prefix).
 **Role:** Reviewer (read-only, never pushes code)
 
 ### Prompt Template
@@ -128,7 +77,7 @@ Any fleet with 3+ active lanes. Without a watcher, stuck lanes burn cycles silen
 Use vidux as PR reviewer.
 
 Mission: Review draft PRs from automation lanes. Post structured feedback.
-Never approve, never merge — Leo promotes.
+Never approve, never merge — a human promotes.
 
 WHEN TRIGGERED (draft PR opened or updated):
 1. Read the PR diff: gh pr diff <number>
@@ -136,12 +85,12 @@ WHEN TRIGGERED (draft PR opened or updated):
 
 REVIEW PIPELINE (run all three, combine results):
 
-Step 1 — Greptile review:
-  Use mcp__greptile__trigger_code_review on the PR.
+Step 1 — Code review bot output:
+  If an AI code-review bot is wired to the repo, read its comments.
   Extract: issues found, severity, suggested fixes.
 
 Step 2 — Architecture review:
-  Spawn superpowers:code-reviewer agent with the diff.
+  Spawn a code-review agent with the diff.
   Check: scope creep, missing tests, style drift, security.
 
 Step 3 — Mechanical checks:
@@ -152,10 +101,10 @@ Step 3 — Mechanical checks:
 
 POST REVIEW as PR comment:
   ## Automated Review
-  **Greptile:** [pass/issues] — <summary>
+  **Bot review:** [pass/issues] — <summary>
   **Architecture:** [pass/issues] — <summary>
   **Mechanical:** [pass/issues] — <summary>
-  **Verdict:** READY_FOR_LEO | NEEDS_WORK | BLOCKED
+  **Verdict:** READY_FOR_HUMAN | NEEDS_WORK | BLOCKED
 
 If NEEDS_WORK: add inline review comments on specific lines.
 If BLOCKED: label the PR and flag in the fleet watcher's next cycle.
@@ -164,17 +113,11 @@ Never approve. Never merge. Never mark ready-for-review.
 
 ### When to Use
 
-Every fleet that creates draft PRs. This is the quality gate between "automation wrote code" and "Leo reviews." Without it, Leo reviews raw diffs with no context. With it, Leo gets a pre-screened summary and only reviews what matters.
+Every fleet that creates draft PRs. This is the quality gate between "automation wrote code" and "human reviews." Without it, humans review raw diffs with no context. With it, reviewers get a pre-screened summary and only inspect what matters.
 
-### Greptile Setup
+### Review Bot Setup (optional)
 
-Requires the Greptile MCP server connected. Greptile indexes the repo and provides AI-powered code review that understands the full codebase context — not just the diff.
-
-```
-mcp__greptile__trigger_code_review — triggers review on a PR
-mcp__greptile__list_code_reviews — check review status
-mcp__greptile__search_greptile_comments — find past review patterns
-```
+If an AI code-review bot or static-analysis service is wired to the repo, this recipe reads its comments in the Bot review step. Otherwise, the Architecture + Mechanical checks still provide value. Specific review-service wiring lives in `/vidux-auto` where platform specifics belong.
 
 ---
 
@@ -193,20 +136,20 @@ Use vidux to track draft-PR lifecycle across all repos.
 Mission: No draft PR goes stale. Every reviewed PR gets promoted or closed.
 
 READ:
-1. For each repo Leo owns: gh pr list --state open --json number,title,isDraft,createdAt,headRefName,statusCheckRollup
-2. Filter to draft PRs from automation lanes (branch prefix: claude/, codex/)
-3. Read PR comments for review verdicts (READY_FOR_LEO / NEEDS_WORK / BLOCKED)
+1. For each repo in scope: gh pr list --state open --json number,title,isDraft,createdAt,headRefName,statusCheckRollup
+2. Filter to draft PRs from automation lanes (branch prefix convention: claude/, codex/, auto/)
+3. Read PR comments for review verdicts (READY_FOR_HUMAN / NEEDS_WORK / BLOCKED)
 
 CLASSIFY each draft PR:
 - FRESH: created < 24h ago, no review yet → waiting for PR Reviewer
 - REVIEWED: has review verdict → action depends on verdict
 - STALE: created > 48h ago with no activity → flag for cleanup
 - FAILING: CI checks failing → flag for investigation
-- READY: review passed + CI green → notify Leo
+- READY: review passed + CI green → notify human promoter
 
 ACTION:
-- READY PRs: post a summary to Leo (maily or Slack if available)
-  "3 draft PRs ready for promotion: #283 (strongyes), #44 (ai), #12 (resplit)"
+- READY PRs: post a summary to the promoter's preferred notification channel (email, Slack, or plain digest)
+  "3 draft PRs ready for promotion: <project-a>#283, <project-b>#44, <project-c>#12"
 - STALE PRs: add comment "This PR has been open 48h+ with no activity. Close or update."
 - FAILING PRs: check if the failure is flaky (re-run) or real (flag for the owning lane)
 
@@ -217,7 +160,7 @@ Never merge. Never approve. Never close (unless explicitly stale > 7 days with n
 
 ### When to Use
 
-Any fleet using draft-PR-first discipline. Without a lifecycle manager, draft PRs accumulate silently. Leo doesn't see them. The fleet keeps creating new PRs while old ones rot.
+Any fleet using draft-PR-first discipline. Without a lifecycle manager, draft PRs accumulate silently. The human promoter doesn't see them. The fleet keeps creating new PRs while old ones rot.
 
 ---
 
@@ -268,7 +211,7 @@ NEVER edit code. NEVER edit the plan. NEVER touch the writer's files except the 
 
 Every writer lane that runs unattended for 4+ hours. The Frankenstein experiment (2026-04-11) proved 100% signal-to-noise across 38 audits. Observers catch: wrong flags, non-chronological progress, stale refs, FSM violations, strategic drift.
 
-### Codex Delegation
+### Secondary-Model Delegation
 
 For large plan stores (>3 KB), delegate the READ step to a secondary model via `/vidux-auto` Mode A. Observer reads the compressed summary instead of the raw files. Keeps the primary model's budget tight.
 
@@ -353,7 +296,7 @@ ACTION:
 OUTPUT: Repo health dashboard — one line per repo with status + recommended action.
 
 Never force-push. Never delete branches without confirmation. Never reset --hard.
-Recommend actions; let the fleet watcher or Leo execute.
+Recommend actions; let the fleet watcher or a human execute.
 ```
 
 ---
@@ -393,7 +336,7 @@ FIX (if issues found):
 6. gh pr create --draft --title "skill(<name>): <improvement>" --body "<audit findings>"
 
 ONE skill per cycle. Rotate through the full list over 24-48 hours.
-Never delete a skill without Leo's explicit approval.
+Never delete a skill without the human operator's explicit approval.
 Never bulk-edit — one skill, one PR, one review cycle.
 ```
 
@@ -422,7 +365,7 @@ READ:
 ASSESS:
 - Is there a [pending] task with evidence? → execute it
 - Is the README inconsistent with current SKILL.md? → fix it
-- Are any guides stale (referencing Codex automations, old patterns)? → update them
+- Are any guides stale (referencing deprecated automation primitives or superseded patterns)? → update them
 - Are tests failing? → fix them first
 
 ACT:
@@ -440,7 +383,7 @@ CHECKPOINT:
 - If all [pending] tasks are done → go IDLE (don't invent work)
 - After 2 consecutive IDLE cycles → routine should reduce frequency or pause
 
-Delegate to codex (Mode B) for any change >10 lines.
+Delegate to a secondary model via `/vidux-auto` Mode B for any change >10 lines.
 ```
 
 ---
@@ -451,7 +394,7 @@ A typical production fleet combines 3-5 recipes:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Leo's Fleet                          │
+│                 Production Fleet                        │
 │                                                         │
 │  Scheduled (every 1-6h):                                │
 │    Fleet Watcher ──→ scorecard + escalation             │
@@ -459,8 +402,8 @@ A typical production fleet combines 3-5 recipes:
 │    Trunk Health ──→ repo hygiene + worktree GC          │
 │    Skill Refiner ──→ description quality + stale refs   │
 │                                                         │
-│  GitHub Events:                                         │
-│    PR Reviewer ──→ Greptile + code-reviewer on drafts   │
+│  Event-driven:                                          │
+│    PR Reviewer ──→ review bot + code-review agent       │
 │    Deploy Watcher ──→ verify after merge (with EXIT)    │
 │                                                         │
 │  Per Writer Lane:                                       │
@@ -471,33 +414,33 @@ A typical production fleet combines 3-5 recipes:
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Daily Budget Planning
+### Cadence Planning
 
-All routine runs count against your account's daily cap (check at [claude.ai/settings/usage](https://claude.ai/settings/usage)). GitHub events beyond your hourly cap are dropped until the window resets. Plan accordingly:
+Every automation platform has caps — daily run limits, webhook-per-hour limits, token budgets, or session lifetime. Plan cadences with headroom:
 
 | Recipe | Trigger | Est. fires/day | Notes |
 |---|---|---|---|
 | Fleet Watcher | Scheduled 2h | 12 | Core fleet visibility |
-| PR Reviewer | GitHub event | ~5 | Per draft PR from automation |
-| PR Lifecycle | Scheduled 1h | 24 | Consider CronCreate fallback to save budget |
-| Observer Pair (x2) | Scheduled 2h | 12 each | Delegate reads to Codex to save tokens |
-| Deploy Watcher | GitHub event | ~3 | Exits after verification (max 3 checks) |
+| PR Reviewer | Event-driven | ~5 | Per draft PR from automation |
+| PR Lifecycle | Scheduled 1h | 24 | Drop to scheduled 2h if cap-constrained |
+| Observer Pair (x2) | Scheduled 2h | 12 each | Delegate reads to a secondary model to save tokens |
+| Deploy Watcher | Event-driven | ~3 | Exits after verification (max 3 checks) |
 | Trunk Health | Scheduled 4h | 6 | Light — mostly git status checks |
 | Skill Refiner | Scheduled 6h | 4 | One skill per cycle |
 | Self-Improvement | Scheduled 24h | 1 | Meta — vidux improving vidux |
 
-**Budget strategy:** Start with Fleet Watcher + PR Reviewer (highest ROI). Add recipes as you verify the daily cap supports them. Use CronCreate for session-scoped work that doesn't need to survive laptop close.
+**Cadence strategy:** Start with Fleet Watcher + PR Reviewer (highest ROI). Add recipes as you verify the platform's caps support them.
 
-### Hybrid Strategy: Routines + CronCreate
+### Hybrid Strategy: Persistent + Session-scoped
 
-Not everything needs a cloud Routine. Use CronCreate for:
-- Session-scoped experiments ("run this for the next 2 hours")
-- Rapid iteration on a new recipe before promoting to Routine
-- Anything that needs access to local-only resources (Xcode, simulators)
+Not everything needs a persistent cloud lane. Use session-scoped automation (e.g., CronCreate) for:
+- Short experiments ("run this for the next 2 hours")
+- Rapid iteration on a new recipe before promoting it to a persistent lane
+- Anything that needs access to local-only resources (Xcode, simulators, local builds)
 
-Use Routines for:
+Use persistent cloud lanes (or a persistent local runner) for:
 - Anything that must survive laptop close
-- GitHub event triggers (CronCreate can't do webhooks)
+- Event-driven triggers (session-scoped cron can't do webhooks)
 - Fleet watchers and lifecycle managers (must be always-on)
 
 ---
@@ -572,9 +515,9 @@ Cycle fails with external_blocker or context_overflow
 
 **2. Stuck verification loop.** Deploy watchers that re-verify 300+ times. Every recipe with a verification step MUST have an EXIT CONDITION with a max retry count.
 
-**3. Ledger noise.** Routines that log every heartbeat. Log once when idle, not per-fire. (Lesson from 395K empty `vidux_loop_start` entries.)
+**3. Ledger noise.** Lanes that log every heartbeat. Log once when idle, not per-fire. (Lesson from 395K empty `vidux_loop_start` entries.)
 
-**4. Fabricated evidence.** Routines that invent memory files or audit results to justify actions. COPY SAFETY applies to all automation output.
+**4. Fabricated evidence.** Lanes that invent memory files or audit results to justify actions. COPY SAFETY applies to all automation output.
 
 **5. Direct-to-main pushes.** All automation code changes go through draft PRs. The only exception is trivial doc fixes in the vidux repo itself (and even those get a commit message prefix).
 
