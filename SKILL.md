@@ -51,10 +51,12 @@ Every work session follows this loop:
 
 ```
 READ       -> PLAN.md, INBOX.md, git log, git diff (uncommitted work?)
-ASSESS     -> Does the next task have evidence? Yes = code. No = refine plan.
+ASSESS     -> Resume [in_progress] first, else first eligible [pending].
+             No evidence? Refine plan, no code. Empty plan? Research first.
 ACT        -> Execute tasks until queue empty, blocker, or context budget
 VERIFY     -> Build, test, gate
-CHECKPOINT -> Structured commit: what changed, what's next, blockers
+CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
+             Reconcile planned vs actual; update plan if they diverge.
 ```
 
 **Crash recovery:** If `git diff` shows uncommitted work from a dead session, commit it first: `vidux: recover uncommitted work from crashed session`.
@@ -69,26 +71,6 @@ CHECKPOINT -> Structured commit: what changed, what's next, blockers
 
 If the lane prompt says "NEVER push" with no tier distinction, treat it as tier 2+3 blocked but tier 1 (draft PRs) still allowed. An agent that parks for 8 hours on a draft-PR push is wasting time on a safe operation.
 
-### When to plan vs when to code
-
-```
-IF plan has [in_progress] task:
-  -> Resume it (a prior session died mid-task)
-  -> Verify, then set to [completed] or [blocked]
-
-ELIF plan has [pending] tasks with evidence:
-  -> Set first [pending] to [in_progress], execute, verify, checkpoint
-
-ELIF plan has [pending] tasks without evidence:
-  -> Gather evidence, update plan with citations, checkpoint (no code)
-
-ELIF plan is empty or missing:
-  -> Research, synthesize into initial PLAN.md, checkpoint (no code)
-
-ELIF all tasks are [completed]:
-  -> Verify final state. Mark mission complete.
-```
-
 ### Queue order
 
 Tasks are processed top-to-bottom with these rules:
@@ -99,25 +81,13 @@ Tasks are processed top-to-bottom with these rules:
 4. **[P] tasks may run in parallel** -- up to 4 concurrent agents, one point guard
 5. **No reordering mid-cycle** -- to change priority, update the plan with a Decision Log entry
 
-### Checkpoint format
-
-Every cycle ends with a checkpoint commit and a Progress entry:
-
-```
-vidux: [what you did]
-```
-
-Progress entry: `- [DATE] What happened. Next: what's next. Blocker: if any.`
-
-Reconcile planned vs actual: compare what the plan SAID with what the git diff SHOWS. If they diverge, update the plan and add a Surprise entry. The plan always reflects truth.
-
 ---
 
 ## PLAN.md Template
 
 **Every project has exactly ONE PLAN.md.** Course corrections — even dramatic pivots — update the existing plan's Decision Log. They do NOT spawn a sibling plan store. If you catch yourself justifying a new plan with phrases like "clean slate," "emotional separation," or "this rewrite deserves its own home," stop: that's fabricated reasoning. The correct move is to open the existing PLAN.md, add a `[DIRECTION]` entry to the Decision Log, mark now-obsolete tasks `[blocked]` with a pointer to the new direction, and append the new direction as fresh `[pending]` tasks in the same queue. New plan stores are for new PROJECTS (different codebase, different product, different problem surface), not for new OPINIONS about how the same project should look. "Rewrite resplit-web from scratch" and "polish resplit-web" are the same project — one plan. "Build a new iOS app for Resplit 2.0" and "ship resplit-web" are different projects — different plans.
 
-Planning itself can happen in Claude's main thread (planning is taste, not delegation — per `/vidux-codex`). What matters is WHERE the output lands: the existing PLAN.md for the project, always.
+Planning itself can happen in the agent's main thread. What matters is WHERE the output lands: the existing PLAN.md for the project, always.
 
 Required sections:
 
@@ -273,24 +243,11 @@ When something breaks or changes:
 2. **Then update the code** -- derived from the new plan state
 3. **Every failure produces a process fix** -- not just a code fix
 
-### The Decision Log prevents loops
-
-Stateless agents have no memory of WHY a previous agent made a choice. Without a Decision Log, an agent that finds "missing" code will re-add it, undoing a deliberate deletion. The Decision Log is the lock file: agents read it before acting and never contradict an entry.
-
 ---
 
 ## Every agent is a worker
 
-There is no scanner/writer split for the **writer role**. Every writer finds work AND does work. A writer that only observes and reports is a parked car with the engine running. (The Observer Pair pattern below is the one intentional exception: a separate read-only auditor paired WITH a writer — not a standalone observer running alone.)
-
-When the queue is empty, agents don't exit -- they look for work:
-
-1. Check INBOX.md for unprocessed findings
-2. Scan the codebase for issues in their owned paths
-3. Check git log for recent changes that may need follow-up
-4. Recheck blocked tasks for resolved blockers
-
-If any scan finds work: add it to the plan as a `[pending]` task, then execute it. If all scans come up clean: checkpoint and exit. An agent that exits without looking is not done -- it's lazy.
+Every writer finds work AND does work. When the queue is empty, agents look for work — check INBOX.md, scan owned paths, check git log, recheck blocked tasks. If any scan finds work: add it as `[pending]`, then execute. If all clean: checkpoint and exit.
 
 ---
 
@@ -320,16 +277,10 @@ Vidux is a **discipline**, not an automation system. The cycle (READ → ASSESS 
 
 The automation layer — how work actually fires on a schedule, how workers persist across restarts, how garbage collection handles session state, how observers audit writers, how heavy reads get delegated to a second model — is **platform-specific** and lives in the companion skills:
 
-- **`/vidux-claude`** — Claude Code automation. `CronCreate` lanes, `~/.claude-automations/<name>/{prompt.md,memory.md}` convention, 24/7 fleet operating model (lanes persist on disk, sessions cycle), session GC via `session-prune.py`, the "how many lanes per assignment?" decision tree, and the 6-lane hard cap. This is the opinionated runtime for Leo's fleet.
-- **`/vidux-codex`** — Codex automation. `codex exec` Mode A (research, compressed summary) and Mode B (implementation, diff review), Framing B cost math (Claude metered / Codex unlimited), observer lane setup (read-only Codex audits offset from the writer), and the delegation decision tree.
+- **`/vidux-claude`** — Claude Code lanes (CronCreate, session cycling, session-gc). The opinionated runtime for 24/7 fleet operation.
+- **`/vidux-codex`** — Codex automations (TOML + rrule + Mac app), `codex exec` delegation (Mode A research / Mode B implementation).
 
-**Two patterns worth naming** even though their mechanics live in the platform skills:
-
-1. **The observer pair.** Every long-running writer benefits from a read-only auditor that reads the writer's PLAN.md, Progress log, and memory fresh each cycle. The writer can't self-audit — it shares the worldview that produced the error. An independent reader catches wrong-flag invocations, non-chronological Progress entries, queue FSM violations (e.g., a task flipping to `[completed]` without passing through `[in_progress]`), and strategic drift after the queue closes. **Verdicts:** `SHIPPING | IDLE | WARNING | BLOCKED | CRASHED`. **How to create one:** platform-specific — see `/vidux-claude` or `/vidux-codex`.
-
-2. **Delegation for heavy reads or code writes.** If a worker's READ step pulls more than ~3 KB of source each cycle, or if a task needs substantial code writing with a clear spec, hand the grunt work to a second model and consume only the summary or diff. The decider stays the primary model; the executor does the grinding. **Mechanics:** platform-specific — see `/vidux-codex` for the Mode A / Mode B contract.
-
-Both patterns are **optional** for a vidux worker. A human following the five principles alone is doing vidux correctly. Adding observers and delegation is the production upgrade for long-running autonomous work — the platform skills tell you exactly how.
+Both platform skills introduce optional production patterns (observer pairs, delegation, cost optimization) that build on top of core vidux. A human following the five principles alone is doing vidux correctly.
 
 ---
 
