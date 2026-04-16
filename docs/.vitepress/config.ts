@@ -1,0 +1,89 @@
+import { defineConfig } from 'vitepress'
+
+export default defineConfig({
+  title: 'Vidux',
+  description: 'Plan first, code second. A lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.',
+  base: process.env.DOCS_BASE || '/',
+
+  head: [
+    ['link', { rel: 'icon', href: '/favicon.ico' }],
+  ],
+
+  themeConfig: {
+    siteTitle: 'Vidux',
+
+    nav: [
+      { text: 'Guide', link: '/guide/' },
+      { text: 'Concepts', link: '/concepts/' },
+      { text: 'Fleet', link: '/fleet/' },
+      { text: 'Reference', link: '/reference/' },
+      { text: 'Examples', link: '/examples/' },
+    ],
+
+    sidebar: {
+      '/': [
+        {
+          text: 'Getting Started',
+          items: [
+            { text: 'What is Vidux?', link: '/guide/' },
+            { text: 'Installation', link: '/guide/installation' },
+            { text: 'Quick Start', link: '/guide/quickstart' },
+          ],
+        },
+        {
+          text: 'Core Concepts',
+          items: [
+            { text: 'Overview', link: '/concepts/' },
+            { text: 'Five Principles', link: '/concepts/principles' },
+            { text: 'The Cycle', link: '/concepts/cycle' },
+            { text: 'PLAN.md Structure', link: '/concepts/plan-structure' },
+            { text: 'The Store', link: '/concepts/store' },
+          ],
+        },
+        {
+          text: 'Fleet Intelligence',
+          items: [
+            { text: 'Overview', link: '/fleet/' },
+            { text: 'Automation Recipes', link: '/fleet/recipes' },
+            { text: 'Harness Authoring', link: '/fleet/harness' },
+            { text: 'Fleet Operations', link: '/fleet/operations' },
+          ],
+        },
+        {
+          text: 'Reference',
+          items: [
+            { text: 'Overview', link: '/reference/' },
+            { text: 'Commands', link: '/reference/commands' },
+            { text: 'Scripts', link: '/reference/scripts' },
+            { text: 'Hooks', link: '/reference/hooks' },
+            { text: 'Configuration', link: '/reference/config' },
+          ],
+        },
+        {
+          text: 'Examples',
+          items: [
+            { text: 'Overview', link: '/examples/' },
+          ],
+        },
+      ],
+    },
+
+    socialLinks: [
+      { icon: 'github', link: 'https://github.com/leojkwan/vidux' },
+    ],
+
+    footer: {
+      message: 'Released under the MIT License.',
+      copyright: 'Copyright © 2024-present Leo Kwan',
+    },
+
+    editLink: {
+      pattern: 'https://github.com/leojkwan/vidux/edit/main/docs/:path',
+      text: 'Edit this page on GitHub',
+    },
+
+    search: {
+      provider: 'local',
+    },
+  },
+})

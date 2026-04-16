@@ -66,8 +66,7 @@ Copy the rules above into your agent's config file. Adapt the format to your pla
 | Claude Code | `CLAUDE.md` or `.claude/CLAUDE.md` | Markdown rules |
 | Cursor | `.cursorrules` | Plain text rules |
 | Codex | Agent instructions or `AGENTS.md` | Markdown rules |
-| Windsurf | `.windsurfrules` | Plain text rules |
-| Other | Project-level config | Varies |
+| Other | Project-level agent config | Varies |
 
 These rules complement the vidux cycle — they don't replace it. The cycle gives you the workflow (READ, ASSESS, ACT, VERIFY, CHECKPOINT). These rules make the tools inside that workflow more reliable.
 

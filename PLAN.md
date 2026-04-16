@@ -290,7 +290,7 @@ Platform-agnostic agent hygiene rules for OSS adopters. Named "agent config" not
 
 Cross-reference Principle 5 ("Prove it mechanically") for verification-before-completion — already covered in core, no duplication needed. Reference from vidux-auto's "Recommended Agent Config Rules" section.
 
-#### 9.4 — Insights triage process (manual-first) [pending]
+#### 9.4 — Insights triage process (manual-first) [completed]
 
 1. Add to vidux-auto: "After every 10 sessions, run `/insights` and review `~/.claude/usage-data/facets/`. Classify each friction finding as T1-T4. Apply T1/T2 immediately. Plan T3. Escalate T4."
 2. This is a PROCESS, not a script. Build a script only when manual triage proves painful (>15 findings per review).
@@ -299,7 +299,7 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
    jq -r '[.session_id[:8], .outcome, (.friction_counts | keys | join(","))] | @tsv' ~/.claude/usage-data/facets/*.json
    ```
 
-#### 9.5 — Add T3 recipes to guides/recipes.md [pending]
+#### 9.5 — Add T3 recipes to guides/recipes.md [completed]
 
 3 new recipes from /insights (trimmed from 6 — the others are horizon ideas, not battle-tested):
 1. `edit-then-verify` — post-edit validation pattern (re-read + diff check)

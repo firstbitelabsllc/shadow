@@ -502,9 +502,73 @@ Use Routines for:
 
 ---
 
+## Recipe 9: Edit-Then-Verify
+
+**When to use:** Any automation lane that edits state files (memory.md, PLAN.md, JSONL) where concurrent writers exist.
+
+**Pattern:** After every file edit, immediately re-read the file to verify the change applied. If the re-read shows unexpected content, log the mismatch to memory and retry with fresh content.
+
+```
+Write to memory → re-read memory → compare expected vs actual
+  match → continue
+  mismatch → log to memory, re-read full file, retry edit (max 3 attempts)
+  3 failures → mark lane degraded, checkpoint, exit
+```
+
+**Exit condition:** 3 consecutive edit-verify failures on the same file = lane exits with DEGRADED status. Do not retry indefinitely.
+
+**Why:** Edit whitespace mismatches are the #1 friction type in fleet operations (observed in 2/10 sessions). The re-read step catches stale content before it corrupts state.
+
+---
+
+## Recipe 10: Cron Retry with Backoff
+
+**When to use:** Any cron lane that encounters transient failures (auth expiry, rate limits, external service timeouts, context overflow).
+
+**Pattern:** When a cycle exits due to an external blocker or context overflow, back off and retry once. If the retry also fails, mark the task `[blocked]` and exit.
+
+```
+Cycle fails with external_blocker or context_overflow
+  → checkpoint failure reason to memory.md
+  → wait 5 minutes (ScheduleWakeup if same-session, next CronCreate fire if lane-based)
+  → retry once with fresh context
+  → second failure → mark task [blocked], add Decision Log entry, exit
+```
+
+**Exit condition:** Max 1 retry per failure. Two consecutive failures = blocked. Never retry in a tight loop.
+
+**Why:** Transient failures (auth, rate limits) often resolve within minutes. One retry catches those. Persistent failures (wrong config, missing permissions) need human intervention — retrying wastes cycles.
+
+---
+
+## Recipe 11: Multi-PR Dependency Shipping
+
+**When to use:** When a coordinator lane manages 3+ open draft PRs with merge-order dependencies (e.g., shared types must merge before consumers, migration must merge before the code that reads new schema).
+
+**Pattern:** Build a dependency DAG from changed files, then ship in topological order.
+
+```
+1. List open draft PRs: gh pr list --state open --draft --author @me
+2. For each PR, get changed files: gh pr diff <N> --name-only
+3. Build dependency edges:
+   - PR A touches shared types → PR B imports those types → B depends on A
+   - PR A adds a migration → PR B reads new columns → B depends on A
+4. Topological sort: ship roots first (no dependencies)
+5. For each root PR:
+   - Verify CI green (or run local checks for repos without CI)
+   - If all review comments addressed → post READY_FOR_MERGE comment
+6. After root merges → rebase dependents, re-verify, repeat
+```
+
+**Exit condition:** All PRs either merged or marked `[blocked]` with reason. Never hold a PR queue open indefinitely — if a root PR is blocked for 2+ cycles, escalate.
+
+**Why:** Manual dependency tracking across 5+ PRs causes ordering mistakes (merge consumer before provider → broken build). The DAG makes it mechanical.
+
+---
+
 ## Anti-Patterns
 
-**1. Auto-merge.** No recipe auto-merges. Ever. Leo promotes. (PLAN.md Q4)
+**1. Auto-merge.** No recipe auto-merges. Ever. A human promotes. (PLAN.md Q4)
 
 **2. Stuck verification loop.** Deploy watchers that re-verify 300+ times. Every recipe with a verification step MUST have an EXIT CONDITION with a max retry count.
 

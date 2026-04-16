@@ -22,7 +22,7 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 ## Tasks
 
 ### Phase 1: Simplify Core Vidux
-- [pending] Task 1: Trim core SKILL.md — merge "When to plan vs code" into The Cycle, remove Observer Pair + Delegation from core (move to platform skills), consolidate Checkpoint format into PLAN.md Template, tighten "Every agent is a worker". Target: 346 → ~290 lines.
+- [completed] Task 1: Trim core SKILL.md — 346→296 lines. Folded decision tree into ASSESS, checkpoint format into CHECKPOINT, removed Observer Pair + Delegation from core, tightened "Every agent is a worker". [Shipped: 1ba8f8f]
 
 ### Phase 2: Platform Docs (docs/fleet/)
 - [pending] Task 2: Write `docs/fleet/platforms.md` — Claude Code vs Codex CLI/App comparison table. Cover: scheduling (CronCreate vs TOML+rrule), persistence (memory.md vs memory.md), sandbox modes, model differences, automation lifecycle, restart requirements.
