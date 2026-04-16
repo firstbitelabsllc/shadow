@@ -126,6 +126,114 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [completed] 7.1.4 Update README.md Fleet Intelligence section — mention Routines + link to recipes guide. [Done: 2026-04-15 — added Routines primitive priority (scheduled/GitHub/API) + direct anchor links to recipes.md #how-routines-work and #hybrid-strategy-routines--croncreate. Also cleaned stale `routines` reference in guides/ table (was pointing at the now-closed 7.1.2 file).]
 - [blocked] 7.1.5 ~~Update SKILL.md — add Routines as first-class automation primitive.~~ **Direction reversed 2026-04-15:** Routines are cloud-based, vidux core stays local-first and platform-agnostic. SKILL.md already mentions CronCreate and companion skills — no Routines addition needed. Instead: strip Routines references from README.md and guide files added during Phase 7.
 
+### Phase 8: Consolidate companion skills into `/vidux-auto` + PR Nurse pattern [pending]
+
+**Goal:** Merge `/vidux-claude` (619 lines) + `/vidux-codex` (626 lines) + `/vidux-fleet` (753 lines) into a single `/vidux-auto` companion skill (~800-1000 lines after dedup + scrub). Strip all personal references (Leo's fleet, strongyes/resplit lane names, account rotation details). Add the PR Nurse pattern to close the feedback gap. Ship as two clean OSS artifacts: `vidux` (core discipline) + `vidux-auto` (automation layer).
+
+**Why now:** Three companion skills with 1,998 combined lines have significant overlap (CronCreate referenced 35x across all three, observer pairs 32x, memory.md 44x, checkpoints 39x). Personal references total ~62 across the three files. Nobody installs `/vidux-claude` without wanting `/vidux-fleet`. The PR feedback gap (PR #338: P1 unaddressed, merged anyway) proves the current split loses critical patterns between skills.
+
+**Evidence:**
+- [Source: grep audit 2026-04-15] vidux-claude has ~50 personal refs (Leo's fleet, account rotation, specific lane names like `leojkwan-coordinator`, `strongyes-coordinator`). vidux-codex has ~4 (mostly generic). vidux-fleet has ~8 (`Leo` name refs).
+- [Source: overlap detection 2026-04-15] CronCreate: claude=16, codex=9, fleet=10 mentions. Observer: claude=9, codex=23. Memory.md: claude=28, codex=9, fleet=7. Checkpoint: claude=14, codex=10, fleet=15. Heavy cross-referencing = content wants to be together.
+- [Source: PR #338 strongyes-web] Greptile posted 1 P1 (glossary terms missing, 5 popovers silently degrade) + 2 P2s (pattern prop casing). Zero fix commits. Merged by Leo. The PR triage rule EXISTS in vidux-claude L445 ("mandatory first action of every cron cycle") but the blog-builder lane doesn't include it. The qa-iterator recipe EXISTS in vidux-codex L560 but was killed as a ScheduleWakeup bloat amplifier.
+- [Source: contract tests 2026-04-15] 142/144 pass. 2 pre-existing failures in ledger bimodal (not related). Core planning/cycle/investigation tests: 23/23 pass.
+- [Source: session bloat diagnosis 2026-04-15] The three companion skills contribute ~7% of session JSONL size (skill listings loaded per-turn). Fewer skills = less per-turn overhead.
+
+**Constraints:**
+- ALWAYS: vidux core SKILL.md stays platform-agnostic (no CronCreate specifics, no Claude Code assumptions)
+- ALWAYS: vidux-auto is a single file that works as a Claude Code skill AND as a reference doc for Cursor/Codex users
+- ALWAYS: strip ALL personal references (Leo, strongyes, resplit, leojkwan, snowcubes, Snap, Nicole, Pickles, account rotation, specific lane names). Use `<project>`, `<coordinator>`, `<writer>` generics.
+- NEVER: lose operational patterns during the merge. Every non-personal pattern from the three sources must survive in vidux-auto.
+- NEVER: duplicate content that's already in vidux core SKILL.md (observer pair description, delegation concept, investigation template)
+
+#### 8.0 — Content audit + migration map [pending]
+
+1. Read all three source files line by line. For each section, classify:
+   - **CORE** = already in vidux SKILL.md (skip)
+   - **AUTO** = goes into vidux-auto (migrate)
+   - **PERSONAL** = Leo-specific (strip or genericize)
+   - **DEAD** = obsolete or contradicted by later Decision Log entries (drop)
+   - **OVERLAP** = covered by 2+ sources (merge, keep the best version)
+2. Output: a migration map in `evidence/2026-04-15-auto-migration-map.md` with line ranges and classifications.
+3. Identify the section structure for vidux-auto (proposed TOC).
+
+#### 8.1 — Create `/vidux-auto` skeleton [pending] [Depends: 8.0]
+
+1. Create `commands/vidux-auto.md` (or `SKILL-auto.md` — decide in 8.0) with frontmatter and section headers.
+2. Proposed structure (refine during 8.0):
+   - **Session management** — GC, session cycling, JSONL growth, when to `/resume`
+   - **Lane management** — how many, coordinator pattern, 6-lane cap, decision tree
+   - **Delegation** — Mode A (research) / Mode B (implementation), nia pairing, when to delegate
+   - **Fleet operations** — prescriptions, audit rubric, slot map, prompt templates
+   - **PR lifecycle** — create draft → review gate → nurse feedback → merge signal (NEW)
+   - **Observer pairs** — setup mechanics, cadence offset, verdict format
+   - **Concurrent-cycle hazards** — lint-staged, branch-switch, CI review window
+   - **Worktree discipline** — isolation, cleanup, branch-hijack gotcha
+   - **Prompt file structure** — 8-block template, ≤15 lines, doctrine avoidance
+
+#### 8.2 — Migrate + scrub: session management [pending] [Depends: 8.1]
+
+Migrate from vidux-claude L54-76 (hot/cold storage), L486-565 (session GC), L565-578 (lean dispatch).
+Strip: Leo's fleet sizes, specific session IDs, account rotation details.
+Genericize: `<your-project>`, `<coordinator>`, estimated sizes as ranges not absolutes.
+
+#### 8.3 — Migrate + scrub: lane management [pending] [Depends: 8.1]
+
+Migrate from vidux-claude L117-220 (decision tree, coordinator pattern, 6-lane cap, anti-patterns, polish-brake).
+Strip: Leo's active fleet example (L187-196), qa-iterator lane name, strongyes/resplit references.
+Genericize: example fleet as `<project-a>` / `<project-b>` with role labels.
+
+#### 8.4 — Migrate + scrub: delegation modes [pending] [Depends: 8.1]
+
+Migrate from vidux-codex L39-97 (Mode A/B), L136-187 (decision tree), L207-330 (invocation flags, compression contract, implementation prompt).
+Strip: Framing B personal cost context (L130 "Leo's actual constraint"), experiment paths.
+Keep: the tier table (L182-184), the decision tree, the diff-review checklist (L331-341).
+
+#### 8.5 — Migrate + scrub: fleet operations [pending] [Depends: 8.1]
+
+Migrate from vidux-fleet L22-145 (create), L149-177 (fleet/list), L180-200 (validate), L380-461 (prescribe), L465-621 (write), L625-715 (audit).
+Strip: Leo sprint reference (L369, L436), `acme-` examples are already generic (keep).
+Simplify: the 6 recipes can be trimmed to reference `guides/recipes.md` instead of inlining full prescriptions.
+
+#### 8.6 — Add PR Nurse pattern (Recipe 9) [pending] [Depends: 8.1]
+
+New content — closes the feedback gap proven by PR #338.
+1. Add Recipe 9 to `guides/recipes.md`: PR Nurse.
+2. Add a "PR lifecycle" section to vidux-auto that makes PR triage mandatory at cycle start (absorbing vidux-claude L445 "Open PR triage" into the unified skill).
+3. PR Nurse responsibilities:
+   - READ: `gh pr list --state open --author @me` → filter to automation-created PRs
+   - For each: `gh api repos/.../pulls/N/comments` → find unaddressed P1/P2
+   - ACT: fix ONE issue per cycle, push to the PR branch, reply to comment thread
+   - VERIFY: CI green (remote) or local build pass (repos without CI)
+   - For repos without remote CI: run local checks (build, lint, type-check), post results as PR comment
+   - SIGNAL: when all comments resolved + CI green → post "READY_FOR_MERGE" comment
+4. Bake PR triage into the writer prompt template (not a separate lane — the writer nurses its own PRs).
+5. Update `guides/draft-pr-flow.md` with a "Step 0: Self-review before push" checklist.
+
+#### 8.7 — Update vidux core references [pending] [Depends: 8.2, 8.3, 8.4, 8.5, 8.6]
+
+1. Update SKILL.md "Automation is platform-specific" section: replace `/vidux-claude` + `/vidux-codex` references with `/vidux-auto`.
+2. Update README.md ecosystem table: one `/vidux-auto` row instead of three.
+3. Update README.md Fleet Intelligence section: point to vidux-auto for mechanics.
+4. Update any `guides/` cross-references that point to old skill names.
+
+#### 8.8 — Deprecation markers [pending] [Depends: 8.7]
+
+1. Add `deprecated: true` frontmatter + pointer to vidux-auto at the top of:
+   - `~/Development/ai/skills/vidux-claude/SKILL.md`
+   - `~/Development/ai/skills/vidux-codex/SKILL.md`
+   - `~/Development/vidux/commands/vidux-fleet.md`
+2. Do NOT delete the old files — they stay as migration breadcrumbs for 90 days (GC per PLAN.md rules).
+3. Update skill symlinks to point to vidux-auto.
+
+#### 8.9 — Verify + gate [pending] [Depends: 8.7, 8.8]
+
+1. Run `python3 -m pytest tests/` — all 142 non-flaky tests must pass.
+2. Verify every cross-reference in vidux-auto resolves (file paths, line numbers, guide anchors).
+3. Verify no personal references survive: `grep -i "leo\|strongyes\|resplit\|leojkwan\|snowcube\|snap\b\|nicole\|pickles" commands/vidux-auto.md` returns 0 hits.
+4. Verify vidux-auto is ≤ 1,000 lines (the merge should SHRINK from 1,998 by removing overlap and personal content).
+5. Spot-check: pick 3 operational patterns from the old skills, verify they exist in vidux-auto.
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -138,6 +246,7 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [DIRECTION] [2026-04-12] Design skill naming convention: `brand-*` (identity), `craft-*` (platform patterns), `figma-*` (workflow). Renames: strongyes-design→brand-strongyes, picasso→craft-ios, preview-svg-design→craft-svg, figma-implement-design→figma-implement. New: brand-leojkwan. Do not revert these names.
 - [DIRECTION] [2026-04-14] Automation recipes may reference specific tools (Greptile, code-reviewer, ledger) as opinionated defaults. This EXPANDS the 2026-04-11 "keep side effects agnostic" direction: the core SKILL.md stays tool-agnostic, but `guides/recipes.md` is explicitly opinionated about "how we work." Recipes are Leo's workflow codified, not generic docs. — Leo: "i want our system with greptile and code reviewers codified, though opinionated in how we work."
 - [DIRECTION] [2026-04-14] ~~Claude Routines are the primary automation primitive.~~ **SUPERSEDED 2026-04-15:** Routines are cloud-based — vidux core must stay platform-agnostic and local-first. Routines references belong in `/vidux-claude` (platform-specific companion), not in the core SKILL.md or README. CronCreate stays as the local automation primitive. Leo: "delete Routines we dont need it anymore its cloudbase."
+- [DIRECTION] [2026-04-15] Merge `/vidux-claude` + `/vidux-codex` + `/vidux-fleet` → single `/vidux-auto` companion. Three skills with 1,998 lines and heavy topic overlap (CronCreate 35x, observer 32x, memory.md 44x across the three). Strip all personal references (~62 total). PR Nurse pattern added to close the PR #338 feedback gap. Two OSS artifacts: `vidux` (core) + `vidux-auto` (automation). Leo: "should we finally look into creating a mega plugin for /vidux to combine all this."
 - [DIRECTION] [2026-04-12] Skill consolidation: 54→~42 skills. Vendor research (Anthropic + OpenAI) confirms: "earn your complexity," "eval-driven pruning." Unused skills are noise in the routing table. Tier 1 deletes bulk-import cruft; Tier 2 merges overlapping pairs; Tier 3 needs Leo's call. vidux-skill-refiner cron (20 min) handles ongoing quality.
 - [DELETION] [2026-04-15] Phase 7.1.2 (`guides/routines.md`) closed without writing the file. All four scope items — three trigger types, migration from CronCreate, daily limits, cadence planning — are already in `guides/recipes.md` (L5, L11-70 for triggers + key details; L491-502 "Hybrid Strategy: Routines + CronCreate" for migration; L474-489 "Daily Budget Planning" for limits and cadence). Do NOT re-create `guides/routines.md` — a standalone primer would duplicate 90%+ of recipes.md and invite drift (exactly the pattern vidux-improve cycles 1-7 were fixing). If a reader needs routines context, they read recipes.md. One source of truth.
 
@@ -149,6 +258,9 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - Q5: Scope — vidux fleet only; other repos adopt via their own plans. **Confirmed 2026-04-11.**
 - Q6: Leo's personal pushes stay as-is (Phase 5 is automation-only). **Confirmed 2026-04-11.**
 - Q7: 130 stranded resplit-ios branches left dead. **Confirmed 2026-04-11.**
+- Q8: Should vidux-auto live in the vidux repo (`commands/vidux-auto.md`) or as a standalone skill in `~/Development/ai/skills/vidux-auto/SKILL.md`? -> Action: decide during 8.0. Tradeoffs: in-repo means one `git clone` gets everything; standalone means the ai skills repo can version independently.
+- Q9: Should `guides/recipes.md` (517 lines, opinionated with tool names) stay in the core repo or move to vidux-auto? -> Action: decide during 8.0. It references Greptile, code-reviewer, ledger by name — those are opinionated, not platform-agnostic.
+- Q10: For repos without remote CI (resplit-ios), what local checks should the PR Nurse run? -> Action: research during 8.6. Candidates: `xcodebuild build`, `swiftlint`, `tuist generate`.
 
 ## Surprises
 - [2026-04-11] `vidux-core-test` cannot be the Wave 1 pilot — it operates on a non-git experiment directory (`~/Development/vidux-core-test/`) with explicit "NEVER do: `git push` anywhere" in its Authority block. The audit falsely classified it as "push-capable" because the prohibition text matched the grep pattern. Corrected pilot to `strongyes-coach-p0` which pushes directly to origin/main (the exact behavior to replace).
@@ -171,4 +283,6 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [2026-04-15] Phase 7.1.2 closed as redundant. Decision Log [DELETION] added. Verification grep on recipes.md confirmed all four scope items (triggers, migration, daily limits, cadence) already present. Single source of truth preserved. Next: 7.1.3 (commands/vidux-fleet.md — replace Codex automation.toml references with Routines).
 - [2026-04-15] Phase 7.1.3 shipped: commands/vidux-fleet.md now leads with Claude Routines (primary) via `/schedule`, CronCreate lanes second, Codex automation.toml relabeled legacy. Added `--target routine|claude-lane|codex-legacy` flag to `write` subcommand (routine is default). Discover/inventory/audit scan paths prioritize routines → claude-lanes → codex-legacy. Cross-refs to recipes.md L11-70 and L491-502 verified. Next: 7.1.4 (README.md Fleet Intelligence section).
 - [2026-04-15] Phase 7.1.4 shipped: README.md Fleet Intelligence section now explicitly names the three trigger types + primitive priority (Routines primary → CronCreate → Codex legacy) + direct anchor links to recipes.md #how-routines-work and #hybrid-strategy-routines--croncreate. Also removed stale `guides/routines` directory reference (left over from 7.1.2 closure). Next: 7.1.5 (SKILL.md — add Routines as first-class primitive alongside CronCreate).
+- [2026-04-15] Course correction: stripped Routines from core (cloud-based, not platform-agnostic). 7.1.5 blocked. Commit 3ac3193.
+- [2026-04-15] Phase 8 planned: merge vidux-claude (619L) + vidux-codex (626L) + vidux-fleet (753L) → single vidux-auto companion (~800-1000L after dedup + scrub). 10 tasks across 3 sub-phases (audit → migrate → verify). PR Nurse pattern (Recipe 9) added to close the feedback gap (PR #338 evidence: P1 from Greptile unaddressed, merged anyway). 3 new Open Questions (Q8-Q10). Decision Log [DIRECTION] entry added. Next: 8.0 content audit.
 <!-- 5 tasks archived to ARCHIVE.md -->
