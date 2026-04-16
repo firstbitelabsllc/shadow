@@ -26,7 +26,7 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 
 ### Phase 2: Platform Docs (docs/fleet/)
 - [completed] Task 2: Write `docs/fleet/platforms.md` [Shipped: 25aaf17] — Claude Code vs Codex CLI/App comparison table. Cover: scheduling (CronCreate vs TOML+rrule), persistence (memory.md vs memory.md), sandbox modes, model differences, automation lifecycle, restart requirements.
-- [pending] Task 3: Write `docs/fleet/claude-lifecycle.md` — Full lifecycle of a Claude Code lane: CronCreate → fire → READ → ASSESS → ACT → VERIFY → CHECKPOINT → memory.md append. Session cycling, 24/7 model, session-gc dependency.
+- [completed] Task 3: Write `docs/fleet/claude-lifecycle.md` [Shipped: 2135724] — Full lifecycle of a Claude Code lane: CronCreate → fire → READ → ASSESS → ACT → VERIFY → CHECKPOINT → memory.md append. Session cycling, 24/7 model, session-gc dependency.
 - [pending] Task 4: Write `docs/fleet/codex-lifecycle.md` — Full lifecycle of a Codex automation: TOML creation → DB insert → app restart → rrule fire → exec → workspace-write/read-only → memory.md. TOML verify script. Bug catalog (#14-#22).
 - [pending] Task 5: Write `docs/fleet/codex-setup.md` — Step-by-step guide to creating a Codex automation on Mac. TOML template, DB insert SQL, verify script, quit+reopen flow. Include the "CLI can't run automations" caveat prominently.
 
