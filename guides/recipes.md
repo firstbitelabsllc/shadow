@@ -270,7 +270,7 @@ Every writer lane that runs unattended for 4+ hours. The Frankenstein experiment
 
 ### Codex Delegation
 
-For large plan stores (>3 KB), delegate the READ step to `codex exec --sandbox read-only` via `/vidux-codex` Mode A. Observer reads the compressed summary instead of the raw files. Keeps Claude's budget tight.
+For large plan stores (>3 KB), delegate the READ step to a secondary model via `/vidux-auto` Mode A. Observer reads the compressed summary instead of the raw files. Keeps the primary model's budget tight.
 
 ---
 

@@ -125,7 +125,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 | `LOOP.md` | Stateless cycle mechanics |
 | `ENFORCEMENT.md` | Claude Code hook configuration |
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
-| `commands/` | `/vidux`, `/vidux-plan`, `/vidux-fleet`, `/vidux-claude`, `/vidux-dashboard`, `/vidux-manager` |
+| `commands/` | `/vidux`, `/vidux-plan`, `/vidux-auto`, `/vidux-dashboard`, `/vidux-manager` |
 | `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
@@ -141,11 +141,9 @@ Vidux is the core discipline. These companion skills extend it for specific work
 |---|---|---|
 | `/vidux` | The full plan-first cycle — read, assess, act, verify, checkpoint | Yes |
 | `/vidux-plan` | Plan-only mode — creates or refines a PLAN.md without writing code | Yes |
-| `/vidux-fleet` | Create, manage, and audit automation fleets — schedules, roles, health checks | Yes |
+| `/vidux-auto` | Automation companion — session management, lane ops, delegation modes (Mode A/B), fleet ops, PR lifecycle, observer pairs | Yes |
 | `/vidux-manager` | Self-diagnostic agent — runs plan quality tests, validates fleet health | Yes |
 | `/vidux-dashboard` | Cross-project visibility — shows all plans as a tree with status and health | Yes |
-| `/vidux-claude` | Automation lane management — CronCreate crons, session GC, fleet ops. Create, diagnose, migrate lanes. | Yes |
-| `/vidux-codex` | Two delegation modes: **research** (read-only, compressed summary) and **implementation** (workspace-write, Codex writes code, Claude reviews diff) | No (separate) |
 | `/pilot` | Universal project lead — detects stack and stage, routes into vidux when needed | No (separate) |
 | `/ledger` | Append-only JSONL activity log for multi-agent coordination across tools | No (separate) |
 
@@ -153,22 +151,20 @@ The in-repo skills (`commands/`) work standalone. The external skills are option
 
 ## Platform Automation
 
-Vidux is platform-agnostic — the cycle works for humans, one-shot sessions, and cron-scheduled fleets. The automation layer is runtime-specific:
+Vidux is platform-agnostic — the cycle works for humans, one-shot sessions, and cron-scheduled fleets. The automation layer is covered by `/vidux-auto` (`commands/vidux-auto.md`), which includes:
 
-| | Claude Code (`/vidux-claude`) | Codex (`/vidux-codex`) |
-|---|---|---|
-| **Scheduling** | `CronCreate` (in-session, 7-day auto-expire) | TOML + rrule (Mac desktop app, persistent) |
-| **Persistence** | `~/.claude-automations/<name>/memory.md` | `~/.codex/automations/<id>/memory.md` |
-| **Restart** | Re-schedule cron on new session | Full-quit + reopen Mac app |
-| **CLI automations** | Yes | No — Mac app only |
-| **Models** | Claude (Opus/Sonnet/Haiku) | GPT-5.x |
-| **Delegation** | N/A (Claude is the writer) | Mode A (research) / Mode B (implementation) |
+- **Session management** — CronCreate lanes, session-gc, JSONL growth control
+- **Lane operations** — coordinator pattern, decision tree, 6-lane hard cap
+- **Delegation modes** — Mode A (research, compressed summary) and Mode B (implementation, diff review)
+- **Fleet ops** — discover, prescribe, validate, audit across automation fleets
+- **PR lifecycle** — PR Nurse pattern, triage at cycle start, self-review before push
+- **Observer pairs** — read-only audit lanes that catch implementation fidelity errors
 
-See [docs/fleet/](docs/fleet/) for full lifecycle docs and setup guides.
+See [guides/fleet-ops.md](guides/fleet-ops.md) and [guides/recipes.md](guides/recipes.md) for full lifecycle docs and setup guides.
 
 ## Fleet Patterns
 
-Patterns for autonomous multi-lane fleets. See the [recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
+Patterns for autonomous multi-lane fleets. See `/vidux-auto` for mechanics and the [recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
 
 - **Draft-PR-first** — automation pushes go through `gh pr create --draft`, never direct-to-main ([guide](guides/draft-pr-flow.md))
 - **Observer pairs** — read-only auditor catches wrong flags, stale refs, strategic drift ([recipe](guides/recipes.md#recipe-4-observer-pair))

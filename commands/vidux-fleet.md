@@ -3,6 +3,8 @@ name: vidux-fleet
 description: "Create, manage, and audit automation fleets — lean prompts, staggered schedules, writer/radar/coordinator roles, bimodal quality enforcement, fleet prescriptions, and doctrine auditing. Merged from vidux-loop + vidux-recipes."
 ---
 
+> **DEPRECATED (2026-04-16):** This skill has been merged into `/vidux-auto`. See `commands/vidux-auto.md` in the vidux repo. This file is kept as a migration breadcrumb for 90 days.
+
 # /vidux-loop
 
 Fleet builder for recurring automation loops. Creates Claude Routines (primary, cloud-native, persistent), CronCreate lanes (session-scoped), or legacy Codex `automation.toml` configs that run Vidux at scale.

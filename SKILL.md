@@ -275,12 +275,11 @@ If the Fix Spec is missing, the cycle is investigation only -- no code.
 
 Vidux is a **discipline**, not an automation system. The cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT), the PLAN.md structure, the investigation template, the Decision Log, the five principles — all work whether the agent is a human, a one-shot AI session, or a cron-scheduled worker. Nothing in this skill prescribes a runtime.
 
-The automation layer — how work actually fires on a schedule, how workers persist across restarts, how garbage collection handles session state, how observers audit writers, how heavy reads get delegated to a second model — is **platform-specific** and lives in the companion skills:
+The automation layer — how work actually fires on a schedule, how workers persist across restarts, how garbage collection handles session state, how observers audit writers, how heavy reads get delegated to a second model — is **platform-specific** and lives in the companion skill:
 
-- **`/vidux-claude`** — Claude Code lanes (CronCreate, session cycling, session-gc). The opinionated runtime for 24/7 fleet operation.
-- **`/vidux-codex`** — Codex automations (TOML + rrule + Mac app), `codex exec` delegation (Mode A research / Mode B implementation).
+- **`/vidux-auto`** — Session management, lane operations, delegation modes (Mode A research / Mode B implementation), fleet ops, PR lifecycle, observer pairs, and platform-specific mechanics for running vidux workers on a schedule. See `commands/vidux-auto.md`.
 
-Both platform skills introduce optional production patterns (observer pairs, delegation, cost optimization) that build on top of core vidux. A human following the five principles alone is doing vidux correctly.
+`/vidux-auto` introduces optional production patterns (observer pairs, delegation, cost optimization) that build on top of core vidux. A human following the five principles alone is doing vidux correctly.
 
 ---
 
