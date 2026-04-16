@@ -39,7 +39,7 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 
 ## How It Works
 
-Every change moves through five steps. No step is skippable.
+Every change flows through a four-stage loop. Documentation is the control plane — not chat, not memory.
 
 ```mermaid
 flowchart LR
@@ -59,7 +59,7 @@ flowchart LR
     style CODE fill:#2d333b,stroke:#986ee2,stroke-width:2px,color:#adbac7
 ```
 
-Every cycle follows five steps — the unidirectional loop that prevents state drift:
+Inside each agent run, five steps execute in order. No step is skippable:
 
 ```mermaid
 flowchart LR
@@ -133,7 +133,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes |
 | `tests/` | 144 contract tests (scripts, commands, doctrine, SKILL.md structure) |
-| `examples/` | Worked examples (bug fix lifecycle) |
+| `examples/` | Worked examples (bug fix lifecycle, fleet reference) |
 
 ## Ecosystem
 
@@ -236,4 +236,4 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 
 This repo is public because the core ideas are meant to be reused and pressure-tested. Feedback is welcome through [GitHub Issues](https://github.com/leojkwan/vidux/issues). The public repo ships the portable Layer 1 core, not private Layer 2 project wiring.
 
-See [SECURITY.md](SECURITY.md) for the vulnerability reporting policy.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for the vulnerability reporting policy.
