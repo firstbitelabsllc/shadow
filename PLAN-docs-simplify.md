@@ -25,7 +25,7 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 - [completed] Task 1: Trim core SKILL.md — 346→296 lines. Folded decision tree into ASSESS, checkpoint format into CHECKPOINT, removed Observer Pair + Delegation from core, tightened "Every agent is a worker". [Shipped: 1ba8f8f]
 
 ### Phase 2: Platform Docs (docs/fleet/)
-- [pending] Task 2: Write `docs/fleet/platforms.md` — Claude Code vs Codex CLI/App comparison table. Cover: scheduling (CronCreate vs TOML+rrule), persistence (memory.md vs memory.md), sandbox modes, model differences, automation lifecycle, restart requirements.
+- [completed] Task 2: Write `docs/fleet/platforms.md` [Shipped: 25aaf17] — Claude Code vs Codex CLI/App comparison table. Cover: scheduling (CronCreate vs TOML+rrule), persistence (memory.md vs memory.md), sandbox modes, model differences, automation lifecycle, restart requirements.
 - [pending] Task 3: Write `docs/fleet/claude-lifecycle.md` — Full lifecycle of a Claude Code lane: CronCreate → fire → READ → ASSESS → ACT → VERIFY → CHECKPOINT → memory.md append. Session cycling, 24/7 model, session-gc dependency.
 - [pending] Task 4: Write `docs/fleet/codex-lifecycle.md` — Full lifecycle of a Codex automation: TOML creation → DB insert → app restart → rrule fire → exec → workspace-write/read-only → memory.md. TOML verify script. Bug catalog (#14-#22).
 - [pending] Task 5: Write `docs/fleet/codex-setup.md` — Step-by-step guide to creating a Codex automation on Mac. TOML template, DB insert SQL, verify script, quit+reopen flow. Include the "CLI can't run automations" caveat prominently.
@@ -35,7 +35,7 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 - [pending] Task 7: Write `docs/reference/prompt-template.md` — The 8-block prompt structure (Mission/Skills/Read/Gate/Assess/Act/Authority/Checkpoint) with field descriptions.
 
 ### Phase 4: README Cleanup
-- [pending] Task 8: Clean README.md — trim the /vidux-codex companion section (too detailed for a README), tighten Fleet Intelligence bullets, update "What Ships Here" table. Point to docs/fleet/ for platform details.
+- [completed] Task 8: Clean README.md [Shipped: 22edaae] — trim the /vidux-codex companion section (too detailed for a README), tighten Fleet Intelligence bullets, update "What Ships Here" table. Point to docs/fleet/ for platform details.
 
 ## Decision Log
 - [DIRECTION] 2026-04-16 Core vidux stays platform-agnostic. Observer Pair and Delegation patterns move to platform-specific skills only. Core describes the discipline; platforms describe the runtime.
