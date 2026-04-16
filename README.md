@@ -131,7 +131,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 | `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
-| `guides/` | draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes, routines |
+| `guides/` | draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes (includes Routines primer L11-70 and Hybrid Strategy L491-502) |
 | `tests/` | 144 contract tests (scripts, commands, doctrine, SKILL.md structure) |
 | `examples/` | Worked examples (bug fix lifecycle) |
 
@@ -195,7 +195,7 @@ flowchart TD
 
 ## Fleet Intelligence
 
-Patterns for autonomous multi-lane fleets, now powered by **Claude Routines** (cloud-native, persistent, three trigger types):
+Patterns for autonomous multi-lane fleets, now powered by **Claude Routines** (cloud-native, persistent, three trigger types — scheduled, GitHub event, API). New lanes go through `/schedule`; CronCreate still works for session-scoped experiments; Codex `automation.toml` is legacy. See the [Routines primer](guides/recipes.md#how-routines-work) and [Hybrid Strategy: Routines + CronCreate](guides/recipes.md#hybrid-strategy-routines--croncreate) for when-to-use-which.
 
 - **Draft-PR-first** — all automation pushes go through `gh pr create --draft`, never direct-to-main. Human promotes. ([guide](guides/draft-pr-flow.md))
 - **PR review pipeline** — Greptile AI review + architecture agent on every draft PR. Automated quality gate before human review. ([recipe](guides/recipes.md#recipe-2-pr-reviewer))
