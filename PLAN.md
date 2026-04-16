@@ -253,7 +253,7 @@ New content — closes the feedback gap proven by PR #338.
 
 **Parallelism note:** 9.0, 9.1, 9.2 can run NOW — they do NOT depend on Phase 8 (vidux-auto merge).
 
-#### 9.0 — T1-T4 Change Classification framework [pending]
+#### 9.0 — T1-T4 Change Classification framework [completed]
 
 1. Add a "Change Classification" section to vidux-auto that defines the four tiers:
    - **T1: Prompt** — lane prompt wording. Most insights land here.
@@ -263,15 +263,11 @@ New content — closes the feedback gap proven by PR #338.
 2. Rule: work from T1 up. If it can be fixed in a prompt, don't touch CLAUDE.md. If it can be fixed in CLAUDE.md, don't add a recipe.
 3. Add to vidux-auto skeleton (Phase 8.1 parallel).
 
-#### 9.1 — Codex static-config for 3 active automations [pending]
+#### 9.1 — Codex static-config convention [completed]
 
-1. Create `~/.codex-automations/` directory convention mirroring `~/.claude-automations/`.
-2. Migrate ONLY the 3 highest-churn Codex automations (identify by most recent `updated_at` in TOML). The remaining 10 are legacy — not worth the migration busywork.
-3. For each: extract inline `prompt` → `~/.codex-automations/<name>/prompt.md`. Replace TOML prompt with thin shim.
-4. Document the convention in vidux-auto.
-5. Gotcha: TOML edits need app restart. The indirection means you do this ONCE.
+Convention documented in `guides/agent-config-rules.md`. No migration needed — existing 13 Codex automations can be deleted and recreated fresh using the `~/.codex-automations/<name>/prompt.md` pattern when needed. The convention: TOML `prompt` field is a thin shim → external prompt.md file. Edit prompt.md freely without restarting the app. Leo: "we can delete them all and start fresh."
 
-#### 9.2 — Build codex-gc.sh [pending]
+#### 9.2 — Build codex-gc.sh [completed]
 
 1. Bash script at `scripts/codex-gc.sh` with `--dry-run` and `--json` flags. Target: ~50 lines.
 2. GC targets (ROI order):
@@ -283,7 +279,7 @@ New content — closes the feedback gap proven by PR #338.
 4. Add `_check_codex_disk_pressure` to vidux-doctor: warn when `~/.codex/` exceeds 2 GB.
 5. Run from existing fleet-watcher or session-gc lane — NO dedicated lane.
 
-#### 9.3 — Write guides/agent-config-rules.md [pending]
+#### 9.3 — Write guides/agent-config-rules.md [completed]
 
 Platform-agnostic agent hygiene rules for OSS adopters. Named "agent config" not "CLAUDE.md" because vidux works with Claude, Cursor, Codex, and others.
 
