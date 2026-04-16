@@ -139,9 +139,85 @@ The vidux GC rule — archive completed tasks when PLAN.md exceeds 200 lines —
 
 ## 3. Lane Management
 
-Decision tree for how many lanes a project needs. The coordinator pattern (why one coordinator beats N specialists). Observer introduction (details in Section 9). The 6-lane hard cap with measured evidence. Anti-patterns (named specialists, scope bleed). Polish-brake trigger (Principle 4 in practice). Ghost lane detection.
+**Rule: minimum lanes needed, max 6 per session.** Every lane must earn its keep.
 
-<!-- SOURCE: vidux-claude L117-220 (decision tree, coordinator, observers, cap, anti-patterns, polish-brake) -->
+### Decision tree
+
+```
+Is this a 24/7 ongoing fleet concern (long-running product shipping)?
+├─ YES → 1 COORDINATOR per active repo
+│        + 1 OBSERVER per coordinator (optional — add when drift is measured)
+│        + 1 SESSION-GC for the whole session (MANDATORY for 24/7)
+│        Total: 3–7 lanes for 1–3 active repos. Hard cap at 6 per session.
+│
+└─ NO  → Is this a burst fix (< 1 day, specific stuck PR / failing CI)?
+         ├─ YES → 1 BURST lane with auto-expire (see `qa-iterator` pattern)
+         │        + session-gc if not already running
+         │        Total: 1–2 lanes.
+         │
+         └─ NO  → Is this research only (audit, evidence gathering, no code)?
+                  ├─ YES → 1 RADAR lane (read-only, no worktree)
+                  │        Total: 1 lane.
+                  │
+                  └─ NO  → 1 WRITER lane for the specific shipping task
+                           + optionally 1 observer if drift is expected
+                           Total: 1–2 lanes.
+```
+
+### The coordinator pattern (default for 24/7 work)
+
+A **coordinator** is one lane that owns ALL concerns for one repo: ship code, fix CI, archive completed tasks in PLAN.md, watch INBOX.md, update Progress log. It is the opposite of the specialist model (separate shipper / product / creative-engine / a11y-sweep / seo-radar lanes for the same repo).
+
+**Why one coordinator beats N specialists:**
+
+- **No PLAN.md stampede.** Multiple writers touching the same PLAN.md cause merge races and Progress-log corruption. One coordinator per repo is a natural serialization.
+- **End-to-end ownership.** The coordinator that shipped the code is the same one that fixes the test when it fails. No handoff bugs, no "that's not my lane" gaps.
+- **Simpler mental model.** When something breaks, the operator opens ONE memory.md to diagnose, not 5.
+- **JSONL savings.** 1 coordinator firing 3x/hour adds ~600KB/hour of JSONL. 5 specialists firing 3x/hour each add ~3MB/hour. Over 10 hours the difference is 24MB vs 6MB.
+- **Works with multi-account rotation.** On account switch, the coordinator's state is on disk (memory.md). The new session picks up. Specialist sprawl multiplies this handoff risk.
+
+### The observer (the one exception to "fewer lanes")
+
+Observers are the only kind of lane to add preemptively. They are read-only lanes that audit the writer's work each cycle. Full setup details in Section 8 (Observer Pairs).
+
+**Why observers are cheap:** read-only (zero write contention), catches drift the writer cannot self-audit (wrong flags, FSM violations, retroactive edits, stale cross-references).
+
+**When to add one:** after running a writer for a full day, read its memory.md. If there is drift (3+ cycles stuck on the same task, non-chronological entries, "completed" without an "in_progress" predecessor, stale authority refs), add an observer. If not, skip. 1 observer per writer max — never stack.
+
+### Why the hard cap at 6
+
+Measured, not theoretical:
+
+- **Git worktree contention.** With 7+ concurrent lanes on the same repo, `lint-staged` stash collisions and branch-switch data loss become common (verified in overnight ops).
+- **JSONL growth.** Each fire adds ~200KB. 6 lanes x 3 fires x 200KB x 8 hours = 29MB. 15 lanes at the same rate = 72MB. Same session length, **60% less bloat.**
+- **Mental model.** When something goes sideways, the operator needs to scan N memory.md files. 6 files is tractable. 15 is not.
+- **Account rotation.** On account switch, every running cron dies. 6 lanes = 6 crons to re-schedule. Fewer lanes = faster session rotation.
+
+If your assignment needs more than 6 lanes, the assignment is too big for one session. Split across accounts or across time — do not stack.
+
+### Anti-patterns (never do these)
+
+- **Specialist splitting.** Do not create separate `<project>-shipper`, `<project>-product`, `<project>-creative-engine`, `<project>-a11y-sweep`, `<project>-seo-radar` lanes for the same repo. Collapse into one coordinator.
+- **Lane-per-PR.** Do not spawn a lane for each in-flight PR. The coordinator picks the next PR to work on.
+- **"Helper" lanes.** A `fleet-coordinator` that only watches other lanes is a parked car. Collapse its responsibilities into the lanes themselves.
+- **Preemptive observers.** Do not create observers "just in case." Measure drift, then add one.
+- **Resurrection lanes.** Do not create a lane to restart another lane. Sessions cycle; lanes resume from disk. The restart is implicit.
+
+### Ghost lane detection
+
+If a lane checkpoints "nothing to do" 3 times in a row, kill it or collapse it into a coordinator.
+
+### Polish-brake trigger (Principle 4 in practice)
+
+**If your last 3 checkpoint entries all shipped fixes from the same surface pattern** (e.g. 3 review-comment triage fixes in a row, 3 lint polish commits in a row, 3 docstring touchups), **pause polish and force a surface switch.** One of:
+
+1. Promote the oldest actionable `INBOX.md` finding to a `[pending]` plan task, then execute it.
+2. Advance the first unblocked `[pending]` task in PLAN.md that is NOT on the same surface.
+3. If neither exists, checkpoint "queue clean, surface N exhausted" and exit — do not invent work.
+
+**Why:** polish is fractal — every green PR has another P3 comment, every tightened test has one more edge case. Without the brake, a lane will iterate forever on the same surface while the rest of the mission rots.
+
+**Measurement:** each checkpoint entry should name the surface (repo, PR number, test file, plan task). The rule fires when `grep -c <surface>` on the last 3 entries returns 3.
 
 ---
 
@@ -253,13 +329,33 @@ Husky + lint-staged use `git stash` during pre-commit. On some setups, the stash
 
 ## 10. Prompt File Structure
 
-The 8-block structure for automation prompt files, the <=15 line harness rule, and doctrine avoidance (never restate core vidux principles in prompts — reference the skill instead).
+### Why prompt file on disk (not inline in the cron)
 
-Blocks: Identity, Authority, Cycle, Gate, Act, Push Policy, Checkpoint, Constraints.
+- **Disk-persisted authority.** Crashes, restarts, and Mac sleeps do NOT wipe `prompt.md`. Session-only cron state does. If the cron dies and gets re-scheduled, the new cron can be a thin wrapper pointing at the same on-disk prompt — zero rework.
+- **Diffable lane evolution.** Edits land, the next cycle picks them up, and memory.md captures the before/after behavior.
+- **Cross-lane coordination.** Lanes read each other's `memory.md` to avoid racing. A lane reads a sibling lane's memory before touching a shared file, because the sibling may have an `[in_progress]` task there.
 
-Lean templates for each fleet role (writer, radar, coordinator, specialist).
+### The 8-block structure
 
-<!-- SOURCE: vidux-claude L230-247 (8-block spec), vidux-fleet L50-107 (writer/radar/coordinator templates) -->
+```
+1. Mission        — one paragraph, end goal, why this lane exists
+2. Skills         — skill tokens relevant to this lane (/vidux, etc.)
+3. Read           — files to read every cycle IN ORDER (PLAN.md, cross-lane, memory)
+4. Gate           — trunk divergence, stuck detection, resume rules
+5. Assess         — unified queue rule (in_progress -> resume, else first eligible pending)
+6. Act            — worktree discipline, verification commands, merge rules
+                    + optional delegation blocks (Mode A read / Mode B write)
+7. Authority      — paths this lane owns vs. paths it must not touch
+8. Checkpoint     — memory.md append format, reconcile plan vs. diff
+```
+
+Every lane prompt ends with a **STRATEGIC DIRECTION** block that captures *why* the lane exists and what biases the agent should lean into (e.g., "hardening > new features," "research only, never delete").
+
+### The <=15 line harness rule
+
+The cron wrapper (the text passed to `CronCreate`) should be <=15 lines. It says "read prompt.md, execute one cycle." All real instructions live in `prompt.md` on disk, not in the cron payload. Never restate core vidux principles in prompts — reference the skill instead.
+
+> Cross-reference: `guides/fleet-ops.md` for lean prompt templates per fleet role (writer, radar, coordinator, specialist).
 
 ---
 
@@ -280,23 +376,90 @@ Six composition patterns for combining delegation with other tools:
 
 ## 12. Creating / Updating / Deleting Lanes
 
-Step-by-step workflow for lane lifecycle management.
+### Creating a lane
 
-- **Create:** Discovery scan, slot map check, schedule with stagger, prompt file, memory seed.
-- **Cadence table:** Code-writing (30 min), research (60 min), idle-scan (120 min), orchestrator (15 min, RETIRED — use 30 min minimum).
-- **Stagger rule:** Fires 8 min apart to avoid worktree contention.
-- **Update:** Edit prompt.md on disk, lane picks up changes next cycle.
-- **Delete:** Remove the automation config; lane stops at next scheduled fire.
+1. **Pick the plan.** Every lane exists to drive one PLAN.md. If there is no plan, write one first (use `/vidux`) before creating the lane.
 
-<!-- SOURCE: vidux-claude L282-334 (create/update/delete workflow, cadence table, stagger rule) -->
+2. **Draft the prompt file** at `~/.claude-automations/<lane-name>/prompt.md` using the 8-block structure (Section 10). Cite the PLAN.md path and list the files the agent must read every cycle.
+
+3. **Seed the memory file** at `~/.claude-automations/<lane-name>/memory.md`:
+   ```
+   - [YYYY-MM-DDTHH:MM:SSZ] [RESET] Lane created. First cycle will read prompt.md
+     and execute initial vidux pass against <plan path>.
+   ```
+
+4. **Schedule the cron** via `CronCreate` (see Section 15 for deferred tool loading). The prompt argument is the thin wrapper: "Read prompt.md first, then execute one vidux cycle." Set cadence per the table below.
+
+5. **First fire.** Watch the first cycle — it should produce either a code commit, an evidence file, or an idle-scan memory note. If it does nothing, the prompt is wrong.
+
+### Cadence table
+
+| Lane type | Active cadence | Overnight cadence | Reason |
+|---|---|---|---|
+| Code-writing (fix/build/ship) | 20-30 min | 30-45 min | CI takes 3-5 min; 15 min causes concurrent-fire hazards |
+| Research-only (audit/evidence) | 30 min | 60 min | Each cycle produces a deliverable |
+| Idle-scan/watchdog | 30-60 min | 60 min | Paranoia is cheap, noise is expensive |
+| Cross-fleet orchestrator | 60 min | 60 min | Reads everyone else's memory, does not need to be fast |
+
+**15-min cadence is RETIRED for code-writing lanes** (verified in overnight ops). A PR needs: commit + push + CI (3-5 min) + review bot (2-5 min) + merge. 15-min fires mean the next cycle lands before the current PR is green, causing duplicate work or branch-switch data loss.
+
+**Stagger fires >=8 min apart** when multiple lanes share the same repo. Example: `:03/:33`, `:12/:42`, `:21/:51` — no two fires within 8 min of each other.
+
+### Updating a lane
+
+1. Edit `~/.claude-automations/<lane-name>/prompt.md`. The next cron fire reads the edit, so the change is live within the cron cadence.
+2. If you change the cadence, use `CronCreate` to replace the schedule.
+3. If you change strategic direction mid-cycle, add a banner at the top of `memory.md`:
+   ```
+   > **LANE PRIORITY RESET YYYY-MM-DD:** <what changed>. See prompt.md for full guidance.
+   ```
+
+### Deleting a lane
+
+1. Remove the cron via `CronDelete`.
+2. Archive `~/.claude-automations/<lane-name>/` to `~/.claude-automations/_archive/<lane-name>-YYYY-MM-DD/`. Do NOT hard-delete — the memory.md is load-bearing history.
+3. If the plan is complete, update PLAN.md Progress with a "lane closed" entry.
 
 ---
 
 ## 13. Memory Files
 
-Append-only checkpoint log per lane. Entry format, reset markers, last-10 visibility rule (agents read the most recent 10 entries, not the full history). Dual-token accounting format for delegation checkpoints.
+**Location:** `~/.claude-automations/<lane-name>/memory.md`
 
-<!-- SOURCE: vidux-claude L336-362 (entry format, reset markers, visibility rules), vidux-codex L432-439 (dual-token checkpoint format) -->
+Agents have no built-in cross-session memory. The lane's memory.md IS the memory — every cycle reads the last 3 entries before acting, and appends a new entry after checkpointing.
+
+### Entry format
+
+```
+- [YYYY-MM-DDTHH:MM:SSZ] <task>: <shipped or status>. Tests: pass/fail. Runtime: Xm.
+
+  Optional sub-lines with:
+  - Specific numbers (error counts, response times, LOC counts)
+  - What was NOT done and why
+  - Cross-lane notes
+  - Next-cycle action items
+```
+
+### Delegation checkpoint format (dual-token accounting)
+
+When a cycle delegates work to another agent, log both token pools:
+
+```
+[YYYY-MM-DD HH:MM] <cycle-id> T<n>: <what happened>. Delegated: <calls>/<approx-delegated-tokens>.
+Directing agent budget impact: <approx-directing-tokens>. Next: <next task>. Blocker: <if any>.
+```
+
+### Reset markers
+
+```
+- [YYYY-MM-DDTHH:MM:SSZ] [RESET] <reason>. <what got reset>.
+- [YYYY-MM-DDTHH:MM:SSZ] [QC] 3x same, no movement. Human needed.
+- [YYYY-MM-DDTHH:MM:SSZ] [QC] prompt missing, human needed to rehydrate.
+```
+
+### Visibility rule
+
+**Keep last ~10 entries visible.** Older entries are still valuable as history but the gate logic only looks at the last 3 for stuck detection.
 
 ---
 
