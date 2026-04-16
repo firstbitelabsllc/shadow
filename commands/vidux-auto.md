@@ -223,14 +223,160 @@ If a lane checkpoints "nothing to do" 3 times in a row, kill it or collapse it i
 
 ## 4. Delegation (Mode A + Mode B)
 
-Two delegation modes for distributing work across agents with different cost/capability profiles.
+Two delegation modes for distributing work between a **primary model** (metered, taste/review/commit) and a **secondary model** (unlimited or cheaper, grunt work). The primary directs; the secondary executes. The knob is whether the secondary produces a summary (research) or a diff (implementation).
 
-- **Mode A (Research):** Read-only sandbox, 3-section compressed summary, large token savings.
-- **Mode B (Implementation):** Workspace-write sandbox, delegated agent writes code, directing agent reviews diff and ships.
+### Mode A: Research — secondary reads, compresses to summary
 
-Includes: decision tree (when to delegate), tier math table, invocation flags, temp-file workaround for backticks, the compression contract (Mode A), the 5-block implementation prompt shape (Mode B), and the diff-review checklist.
+```
+Primary: reads PLAN.md, picks next task
+Primary: "This task needs 30 file reads. Hand it off."
+Primary: writes a tight research prompt with the compression contract
+   |
+   v
+Secondary (read-only sandbox, separate token account):
+   grinds through files, reasons, compresses to 3 sections
+   returns: Summary + Evidence + Recommendation
+   |
+   v
+Primary: reads the ~300-token summary
+Primary: applies taste — accept, reject, or re-prompt
+Primary: ships the edit, updates plan, checkpoints
+```
 
-<!-- SOURCE: vidux-codex L39-97 (Mode A/B diagrams, cost shift table), L136-186 (decision tree, T15 tier math), L207-341 (invocation flags, compression contract, implementation prompt, diff-review checklist) -->
+Use for: audits, investigations, cross-file grep synthesis, pattern hunting, evidence gathering.
+
+### Mode B: Implementation — secondary writes, primary reviews diff
+
+```
+Primary: reads PLAN.md, picks next task
+Primary: "This is a 50-line fix with a clear spec. Hand it off."
+Primary: writes a 5-block implementation prompt (see below)
+   |
+   v
+Secondary (workspace-write sandbox, edits files in working tree):
+   reads task files, writes code, saves edits
+   |
+   v
+Primary: runs `git diff` in the working tree (~500 tokens)
+Primary: applies taste — accept-and-commit, re-prompt, or `git checkout .` + redo
+Primary: runs lint/test/build, commits, pushes (if authorized)
+```
+
+Use for: bug fixes, feature implementation, refactors, tests, docs — anywhere a tight spec produces 10-500 lines of code.
+
+### Cost shift table
+
+| Role | Primary (metered) | Secondary (unlimited/cheaper) |
+|---|---|---|
+| Read plans | Small reads only | Delegate if > 3 KB |
+| Decide approach | Yes (taste) | Never |
+| Write code | Only < 10 lines | All substantial code |
+| Review diffs | Yes | Never |
+| Build/test | Yes (local toolchain) | Can't (local env, simulators) |
+| Commit/push | Yes | Never |
+
+### When to delegate (decision tree)
+
+```
+Is the task substantial code writing (> 10 lines, clear spec)?
+  YES -> Mode B (workspace-write). Secondary edits files, primary reviews diff.
+
+  NO -> Is the task reading code / grinding a hard problem / research?
+    NO (pure planning, taste call, < 10 lines of obvious writing)
+      -> Primary handles it directly. Don't delegate taste or trivial work.
+
+    YES -> Mode A (read-only). Secondary reads + compresses to 3-section summary.
+    |-- Is the target an external library / package?
+    |   |-- "Where should I look?" -> quick research tool (URL discovery, safe)
+    |   |-- "Package source / exact types" -> package search tool (real source)
+    |   |-- "Exact API / config syntax" -> secondary model (can do live web search)
+    |   +-- NEVER deep research mode for implementation — hallucinates schemas
+    |
+    |-- Is the task reading the local codebase or plan files?
+    |   |-- < 3 KB source (one small file)?
+    |   |   -> Primary reads directly. Below break-even.
+    |   |-- 3-50 KB source (plan + immediate evidence)?
+    |   |   -> Delegate if re-read every cycle. 10-50x primary savings.
+    |   |-- 50-200 KB source (plan + evidence + some logs)?
+    |   |   -> ALWAYS delegate. 30-100x primary savings.
+    |   +-- 200 KB+ source (full project directory)?
+    |       -> Mandatory delegate. Direct read wastes ~100K primary tokens/cycle.
+    |
+    +-- Long analysis / computation?
+        -> Delegate. Secondary holds the working set, primary gets the answer.
+```
+
+### Tier math (flat-fee delegation model, measured)
+
+| Tier | Source size | Direct-read primary tokens | Delegated primary tokens | Savings ratio |
+|---|---:|---:|---:|---:|
+| TINY | 33 KB | 8,262 | 814 | **10.1x** |
+| MEDIUM | 160 KB | 40,208 | 814 | **49.4x** |
+| HEAVY | 357 KB | 89,339 | 814 | **109.7x** |
+
+Delegation cost is ~constant at ~814 primary tokens (~314 compressed summary + ~500 orchestration) because the secondary's baseline cost is on a separate account. Savings grow linearly with source size.
+
+### The compression contract (mandatory on every Mode A prompt)
+
+```
+Output ONLY these sections, nothing else, no preamble, no code blocks, no closing:
+
+1. Summary: 3 sentences MAX describing <the thing>.
+2. Evidence: 3 file:line references MAX, one per line.
+3. Recommendation: 1 sentence MAX on the next action.
+
+Do not explain your reasoning. Do not echo the task. Do not write code.
+If you find yourself writing more than those three sections, stop.
+```
+
+The contract is honored reliably across reasoning levels (medium/high/xhigh all return exactly 3 sections with <0.2% token variance).
+
+### The implementation prompt shape (mandatory on every Mode B prompt)
+
+Every Mode B prompt includes ALL FIVE blocks:
+
+```
+1. Task: one-sentence description of the change.
+2. Files: exact paths the secondary may edit. NO other files.
+3. Spec: what the code must do, in 3-10 bullets. Include error handling,
+   edge cases, and test expectations when relevant.
+4. Acceptance criteria: how the primary will judge the diff on review.
+5. Out of scope: what the secondary must NOT change (prevents refactor creep).
+```
+
+The "Out of scope" block is load-bearing. Without it, the secondary will often refactor adjacent code it decides "looks wrong" — the primary's diff review then either accepts unasked-for scope (tech debt) or rejects the whole diff (wasted cycle).
+
+### Diff-review checklist (primary's job after Mode B returns)
+
+Run `git diff` and verify in this order — stop at the first fail:
+
+1. **Scope.** Does the diff touch only files listed in the prompt? If not -> `git checkout .` + re-prompt with stricter "Files" list.
+2. **Spec fit.** Does each change map to a Spec bullet? Unexplained edits -> reject.
+3. **Out-of-scope drift.** Renamed functions, import reordering, style-only tweaks, "cleanup" refactors -> reject unless explicitly asked.
+4. **Obvious correctness.** Does the logic make sense? Spot-check against the Spec's edge cases.
+5. **Taste.** Readable? Matches surrounding style? If not -> re-prompt, don't hand-fix (that burns the primary tokens you saved).
+6. **Lint + test + build.** Run local toolchain. If red: small fix = primary fixes; structural = re-prompt secondary.
+7. **Commit.** ONE commit per delegated task. Primary writes the message.
+
+### Invocation mechanics
+
+**Mode A (read-only):** Invoke secondary with read-only sandbox, a research prompt containing the compression contract, and stdin closed (to prevent input hang). Pipe stdout+stderr to a log file.
+
+**Mode B (workspace-write):** Same pattern but with workspace-write sandbox. After the secondary returns, run `git diff` and apply the diff-review checklist above. Accept, reject (`git checkout .`), or partial-accept (`git add -p`).
+
+**Prompts with backticks or shell metacharacters:** Write the prompt to a temp file and pass via stdin to avoid quoting issues in the shell.
+
+### Execution rules
+
+1. **One cycle per invocation.** Do not chain multiple delegated tasks.
+2. **Compression contract is mandatory in Mode A.** Mode B uses the 5-block spec shape instead.
+3. **Primary keeps taste.** Never let the secondary make final architectural or design decisions.
+4. **Verify before acting.** Mode A: discard off-topic summaries and re-prompt. Mode B: if `git diff` shows over-scope or spec mismatch, `git checkout .` and re-prompt.
+5. **Log every delegation.** One line per call in PROGRESS.md: task id, mode (A/B), log filename, approximate secondary tokens, primary tokens consumed, exit code.
+6. **Main-context budget.** If the cycle exceeds 20 tool calls before acting, stop and checkpoint.
+7. **Sandbox matches mode.** Mode A -> read-only always. Mode B -> workspace-write. Never give workspace-write for research (enables edits you didn't ask for). Never give read-only for implementation (it'll just describe what it would do).
+8. **Primary owns the commit boundary.** Even in Mode B, the secondary never runs `git commit`, `git push`, or mutates `.git/`.
+9. **No Mode B for schema/migration/destructive work.** Database migrations, dependency bumps, CI config, auth flows stay in the primary's direct-write path.
 
 ---
 
@@ -294,13 +440,28 @@ After pushing a draft PR, review bots take 2-5 min to post. If the next cycle fi
 
 ## 8. Observer Pairs
 
-Observers are read-only lanes that watch a project for regressions, drift, or missed signals that the primary writer lane is too focused to catch.
+Observers are read-only lanes that audit the writer lane's work each cycle. They catch implementation fidelity errors the writer cannot self-audit.
 
-- What observers catch (evidence from delegation studies).
-- Setup recipe: cadence offset from writer, authority discipline, verdict format.
-- When to add one (heuristic): add when a project has >1 active PR or ships >3x/week.
+### What observers catch
 
-<!-- SOURCE: vidux-codex L396-430 (primary: T8b/T14 evidence, setup recipe, authority), vidux-claude L158-167 (when-to-add heuristic) -->
+- **Wrong flags / config keys.** A self-audit may report "three reasoning levels give 35-token spread, reasoning is irrelevant" while using the wrong config key — all three runs were secretly at the same level. The observer catches the mismatch from log headers.
+- **Hallucinated schemas.** Deep research mode returns plausible-looking JSON with keys that don't exist in the real API. An observer running the same question through a different tool catches the divergence.
+- **General pattern:** observers catch IMPLEMENTATION FIDELITY errors (wrong flags, stale references, self-reporting failures). They do NOT catch FRAMING errors — if the question is wrong, the observer verifies a correct answer to the wrong question. Framing errors still need human input.
+
+### Setup recipe
+
+- **Cadence offset.** Set the observer's schedule ~15 min after the writer's slot so audits land between writer fires. Writer at `:07` -> observer at `:22` is canonical. More than 15 min drift and the observer runs on stale writer state; less than 15 and it might race the writer mid-cycle.
+- **Prompt structure.** 8 blocks: Mission / Skills / Read / Gate / Assess / Act / Authority / Checkpoint. The Act section MUST write a NEW audit file at `<plan-dir>/evidence/audit-YYYYMMDD-HHMM.md` with five sub-sections: Activity / Mechanism / Integrity / Verdict / Recommendation. Never overwrite existing audit files.
+- **Verdict format.** One of: `SHIPPING | IDLE | BLOCKED | WARNING | CRASHED`.
+- **Authority discipline.** The observer's ONLY write targets are `<plan-dir>/evidence/audit-*.md` and its own `memory.md`. Everything else (PLAN.md, PROGRESS.md, writer's memory.md, writer's prompt.md) is read-only. An observer that edits writer state is not an observer — it's a second writer with a confused role.
+
+### When to add one (heuristic)
+
+Add an observer after running a writer for a full day. Read its memory.md. If there is drift (3+ cycles stuck on same task, non-chronological entries, "completed" without an "in_progress" predecessor, stale authority refs), add an observer. If not, skip it. **1 observer per writer max — never stack.** The observer counts against the 6-lane cap.
+
+### Why use the secondary model for observers
+
+Observers are read-only and fire every cycle. Under cost-asymmetric setups (primary metered, secondary unlimited), secondary-model observers cost near zero. The independent-eyes value is higher because a different model catches bugs the primary's self-audit misses.
 
 ---
 
@@ -361,16 +522,94 @@ The cron wrapper (the text passed to `CronCreate`) should be <=15 lines. It says
 
 ## 11. Composition Recipes
 
-Six composition patterns for combining delegation with other tools:
+Six composition patterns for combining delegation with fleet operations.
 
-1. **vidux->delegated-agent:** Standard delegation from directing agent to executing agent.
-2. **delegated-agent + prompt amplifier:** Amplify vague tasks before delegation.
-3. **delegated-agent + research agent:** Package source lookup before implementation.
-4. **Agent parallelism:** Fan-out independent subtasks to parallel agents.
-5. **Agent wrapper for long crons:** Wrap session-scoped crons in an Agent call for crash recovery.
-6. **Review-feedback triage (qa-iterator):** Automated PR review comment triage and fix loop.
+### Recipe 1: vidux -> delegated secondary
 
-<!-- SOURCE: vidux-codex L476-598 (Recipes 1-6, Agent wrapper pattern, qa-iterator) -->
+Standard delegation from a directing agent to an executing agent within a vidux cycle.
+
+```
+Primary: [reads PLAN.md, picks task]
+Primary: "Next task needs 30 file reads — delegating"
+Primary: [writes tight prompt, invokes secondary, consumes summary]
+Primary: [back in vidux cycle, ships the edit]
+```
+
+Use when the plan is standard vidux but a single task exceeds the delegation threshold (Section 4).
+
+### Recipe 2: delegation + prompt amplifier
+
+```
+Primary: [reads PLAN.md, task is "audit auth middleware for leaks"]
+Primary: prompt is vague — invokes prompt amplifier to tighten it
+Primary: [amplifier returns focused spec: "grep for req.session, trace handlers..."]
+Primary: [sends amplified prompt to secondary]
+```
+
+Use when the research question is vague enough that the secondary might wander.
+
+### Recipe 3: delegation + research agent
+
+```
+Primary: [task needs external library API signature]
+Primary: "External library — use research agent, not secondary"
+Primary: [research agent returns actual package source in ~2K tokens]
+Primary: [applies to the edit, secondary is NEVER called]
+```
+
+Research agents beat secondary models ~16x for package source lookups. This is already the documented decision tree in Section 4.
+
+### Recipe 4: Agent parallelism
+
+```
+Primary: [task is a broad codebase survey]
+Primary: option A — secondary with compression contract
+Primary: option B — subagent in primary's context (faster feedback, still isolated)
+Primary: choose based on budget pressure:
+         budget tight -> secondary (offloads to separate account)
+         budget ok    -> subagent (faster, but costs primary tokens)
+```
+
+### Recipe 5: Agent wrapper for long autonomous crons
+
+```
+Parent cron: [4+ hour autonomous lane running many cycles]
+  spawns subagent(prompt="run ONE delegation cycle against PLAN.md")
+    |
+  Subagent: separate subthread, own context
+    reads skill, runs secondary delegation (free tokens)
+    returns 5-line summary to parent
+    |
+  Parent: sees ONLY the 5-line summary (~500 tokens)
+    checkpoints, waits for next cron fire
+```
+
+**Use for autonomous lanes running 4+ hours.** The skill-only pattern accumulates parent context ~2-5K per cycle; over 12+ hours, the parent hits context limits. The wrapper keeps parent context at ~10K indefinitely.
+
+Rule of thumb:
+- Interactive session, < 2 hours -> skill-only (cheaper)
+- Autonomous cron, 4+ hours -> agent wrapper (parent context stays bounded)
+- Autonomous cron, 24+ hours -> agent wrapper is mandatory
+
+### Recipe 6: Review-feedback triage (qa-iterator)
+
+A burst lane that fires every ~17 min, scans open PRs for reviewer P1/P2 comments, and lands minimal fixes. Measured: 4 review-comment PRs shipped in 5 cycles, all green CI, each fix under 20 LOC.
+
+**Why this earns a lane:** PR reviewers (bots + humans) drop P1/P2 comments faster than coordinators address them. A 17-min cadence matches the bot re-review window.
+
+**Setup:**
+
+```
+~/.claude-automations/qa-iterator/prompt.md   # 8-block lane prompt
+~/.claude-automations/qa-iterator/memory.md   # append-only checkpoint log
+CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
+```
+
+**Hard rules:**
+- SKIP any comment that requires a design decision the human would want to make.
+- SKIP merges — reviewer approval is a human gate, not a bot gate.
+- After COUNT expires (~3 hours), the cron auto-expires. Don't re-schedule without re-checking whether the fleet still has review debt.
+- If the PR diff is > 3 KB, delegate reading to the secondary model (Mode A) to keep the primary's context budget for judgment.
 
 ---
 
@@ -496,10 +735,32 @@ Always call `ToolSearch` with `select:<tool_name>` before invoking deferred tool
 
 When to pair delegation with external research or amplification tools.
 
-- **Research agent pairing:** Package source lookup is significantly cheaper than inline research (measured: 16.5x token savings). Warning: deep research mode causes context overflow on delegation cycles — use quick mode only.
-- **Prompt amplifier pairing:** Expand vague tasks into focused specifications before delegating. Most useful when the directing agent receives a one-liner task.
+### Research agent pairing
 
-<!-- SOURCE: vidux-codex L343-374 (research pairing, deep-mode warning T14, amplifier pairing) -->
+For external libraries, packages, or public documentation, a dedicated research tool beats the secondary model ~16.5x on token cost for package source lookups. Decision tree:
+
+- **Package source / exact types** -> use a package search tool (reads real source)
+- **"Where should I look?" / discovery** -> use quick research mode (citation lists, URL discovery)
+- **Exact API / config syntax** -> use the secondary model (can do live web searches during reasoning)
+
+### Deep research mode warning
+
+**NEVER use deep research mode for implementation-critical questions.** Deep mode hallucinates config schemas and API signatures. It returns plausible-looking JSON with keys that don't exist in the real API. Citations are real URLs, but synthesized example code is pattern-matched from generic blog articles — not copied from cited docs. Classic RAG hallucination: retrieve correctly, synthesize incorrectly.
+
+**Safe use of research tools:**
+- Package search tools -> accurate, reads real package source
+- Quick research mode -> good for citation lists and discovery
+- Deep research mode -> DISCOVERY ONLY, do NOT paste its synthesized examples into code
+
+### Prompt amplifier pairing
+
+Before delegating a vague task, run it through a prompt amplifier to tighten the spec. A well-amplified prompt produces better compression AND lower secondary reasoning cost. Use when:
+
+- The initial research question is vague ("how does auth work here?")
+- The expected output format needs explicit structure
+- The task has hidden constraints to surface before delegating
+
+Don't amplify a tight, concrete prompt — the overhead isn't worth it.
 
 ---
 
