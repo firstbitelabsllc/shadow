@@ -15,17 +15,125 @@ Replaces the former `/vidux-claude`, `/vidux-codex`, and `/vidux-fleet` companio
 
 ## 1. The 24/7 Fleet Operating Model
 
-How lanes persist on disk while sessions cycle. The invariant: lanes survive session restarts because state lives in files, not memory. Hot/cold storage table, session-gc as mandatory infrastructure, and why cloud-based scheduling primitives are rejected (per-account binding, minimum cadence too long, no local file access, no cross-session memory reads).
+The fleet runs indefinitely on one invariant: **lanes persist on disk, sessions cycle through them.**
 
-<!-- SOURCE: vidux-claude L28-75 (fleet model, lane/session diagram, hot/cold table, 5 practice points) -->
+```
+Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
+──────────────────────────────────   ──────────────────────────
+~/.claude-automations/                ~/.claude/projects/*/*.jsonl
+├── <lane>/prompt.md                  - Session A: 12h → 50MB → cycle
+├── <lane>/memory.md                  - Session B: fresh, picks up lanes
+└── ...                               - Session C: ...
+```
+
+**In practice:**
+
+1. **A lane = `prompt.md` + `memory.md` on disk.** These files are NEVER deleted while the assignment is active. When a session dies, the files stay. A new session re-schedules the cron pointing at the same files. The lane resumes from memory.md. Work is never lost to a session restart.
+2. **A session = one Claude Code process + its JSONL.** Sessions are disposable. They die for many reasons: account rotation, laptop sleep, compaction pressure, manual restart. Their JSONLs accumulate on disk until GC'd.
+3. **session-gc is the mandatory janitor.** Without it, the 24/7 model breaks. It runs hourly and deletes old session JSONLs (>3 days), subagent JSONLs (>1 day), and reports the current session's growth rate. See Section 2.
+4. **Lane count stays low.** More than 6 lanes per session causes worktree contention and JSONL bloat.
+5. **Cross-session handoff is implicit.** When a session dies at ~50 MB, the next session starts fresh, re-schedules crons, and each lane reads its own memory.md to resume. **No state lives in the session.** All durable state is on disk: PLAN.md, memory.md, `.agent-ledger/activity.jsonl`, evidence/. The session is a transient execution environment, not a database.
+
+### Hot vs cold storage
+
+| Layer | What lives here | Lifetime | GC |
+|---|---|---|---|
+| **Cold (durable)** | PLAN.md (queue + decision log), evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Until assignment done | Manual archive per vidux rules (completed tasks rotate to `evidence/` when PLAN.md > 200 lines) |
+| **Hot (disposable)** | `~/.claude/projects/*/*.jsonl` (conversation log) | One session | Automatic via `session-prune.py --gc-old` hourly |
+
+**Every cold-storage entry has a stable home and a reason to exist.** Every hot-storage byte is evictable once the session it belongs to is inactive. If you find yourself reading old JSONLs to recover state, the cold-storage contract is broken — fix the checkpoint discipline, don't revive the JSONL.
+
+### Why not cloud scheduling?
+
+Cloud-based scheduling primitives (Routines, remote triggers) are persistent and survive laptop sleep. **Rejected for local-first fleets** because:
+
+- **Per-account binding.** Each routine is bound to one account. Multi-account rotation for quota management breaks routines.
+- **Minimum cadence too long.** Some lanes need 20-30 min cycles (code-writing lanes with tight CI loops). Cloud primitives often enforce 1-hour minimums.
+- **No local file access.** Cloud schedules cannot read local automation directories, git worktrees, simulators, or `.env.local`.
+- **No memory.md cross-reads.** Cross-lane coordination via sibling memory files does not work from a cloud sandbox.
+
+**CronCreate + session-gc is the opinionated 24/7 primitive**: local-first, multi-account-compatible, sub-hour cadence, and (with session-gc running) JSONL growth is bounded to ~30-50 MB per active session.
+
+If your constraints differ (single account, no local tooling, hourly cadence is fine), cloud scheduling may work. This skill covers only the local-first path.
 
 ---
 
 ## 2. Session Management
 
-JSONL growth anatomy, the three GC levels (session prune, archive sweep, full reset), the session-gc lane spec, cycle signal detection, and the current-session-is-never-pruned rule. Measured data: growth rates and compression results.
+Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 1 GB in days, and makes `/resume` unusable. **session-gc is mandatory for 24/7 operation.**
 
-<!-- SOURCE: vidux-claude L486-563 (session GC, 3 levels, lane spec), L54-61 (hot/cold storage table) -->
+### What grows (per 24h with a 5-lane fleet)
+
+| Entry type | Share | Prunable? | Notes |
+|---|---|---|---|
+| `hook_success` + `async_hook_response` | ~32% | YES — noise | Hook ack metadata |
+| `assistant` + `user` messages | ~49% | NO | Real conversation — needed by `/resume` |
+| `queue-operation` | ~3% | YES — noise | Enqueue/dequeue tracking |
+| `task_reminder` | ~1% | YES — noise | Unused-tool nags |
+| `file-history-snapshot` | ~2% | YES — noise | File state snapshots |
+| `skill_listing`, `invoked_skills`, `deferred_tools_delta`, `mcp_instructions_delta` | ~5% | Keep-last-N | Keep recent 1-3, prune older |
+| `subagent JSONLs` | -- | YES — delete entirely | Session forks spawned by `Agent()`. Results already in parent. Throwaway after 1h. |
+
+### The three GC levels (all in `scripts/session-prune.py`)
+
+**Level 1 — Per-session noise pruning (`--prune <file>`).**
+Strips noise categories from a JSONL file. Repairs the `parentUuid` chain so `/resume` still works. Creates a `.bak` backup first. Applied to INACTIVE sessions only — never the live one.
+
+**Level 2 — Old-session GC (`--gc-old [days]`).**
+DELETES main session JSONLs older than N days across all projects. These sessions will never be `/resume`d — their durable state has already moved to PLAN.md, ledger, and memory.md by design. Default: 3 days.
+
+**Level 3 — Subagent GC.**
+Same `--gc-old` invocation also deletes ALL subagent JSONL files older than 1 day. Standalone variant: `--gc-subagents [hours]`.
+
+```bash
+# Commands (run manually or via the session-gc lane)
+python3 scripts/session-prune.py --dry-run     <file>     # read-only analysis
+python3 scripts/session-prune.py --prune       <file>     # strip noise + repair chain + backup
+python3 scripts/session-prune.py --gc-old-dry  3          # preview what would be deleted
+python3 scripts/session-prune.py --gc-old      3          # DELETE main >3d + subagents >1d
+python3 scripts/session-prune.py --gc-subagents 1         # DELETE subagents >1 hour
+```
+
+**Measured results:** A typical GC pass reclaims 30-50% of disk. Per-session noise pruning saves ~30% on fleet-heavy sessions.
+
+### The current session is NEVER pruned while live
+
+The session-gc lane is a subagent inside the parent session. Modifying the parent's JSONL while the parent is live is risky — Claude Code may be mid-read during compaction or `/resume`. **Treat the parent's JSONL as immutable while the parent is running.**
+
+Instead, session-gc **measures the current session's growth rate** and emits a cycle-time signal when the JSONL crosses a threshold:
+
+```
+- [CYCLE SIGNAL] Current session at 42MB, growing ~5MB/hr. Recommend /resume to a
+  fresh session. Lanes will pick up from disk automatically; no work lost.
+```
+
+The human reads the signal and decides when to restart. On restart:
+1. New session starts (fresh JSONL)
+2. New session re-schedules the crons (CronCreate calls)
+3. Each lane's next fire reads its own `memory.md` and picks up where it left off
+4. The old session's JSONL becomes eligible for `--gc-old` on the next cycle
+
+### The session-gc lane (mandatory for 24/7)
+
+**Location:** `~/.claude-automations/session-gc/prompt.md`
+**Cadence:** hourly (offset from the :00/:30 pileup)
+**Authority:** `~/.claude/projects/` only. MUST NOT touch memory.md, PLAN.md, ledger, or any git repo.
+
+Each fire does EXACTLY this, in order:
+
+1. `python3 scripts/session-prune.py --gc-old 3` — delete stale sessions + subagents
+2. Measure current session size and growth since last cycle
+3. If current session > 40-80 MB (tunable threshold) → emit `[CYCLE SIGNAL]` in `memory.md`
+4. Append checkpoint:
+   ```
+   - [YYYY-MM-DDTHH:MM:SSZ] Freed <X>MB (<N> files). Current: <M>MB (+<D>MB/hr). <SIGNAL or OK>.
+   ```
+
+That is the entire session-gc lane. Under 50 lines of prompt. One script, one cadence, one checkpoint format. Do not extend it — GC is GC, not a coordinator.
+
+### Plan-GC is NOT a separate lane
+
+The vidux GC rule — archive completed tasks when PLAN.md exceeds 200 lines — is the **coordinator's** job. Each coordinator reads its own PLAN.md at the top of every cycle and, if the threshold is hit, rolls completed tasks to `evidence/YYYY-MM-DD-completed-tasks-archive.md` before picking up new work. **One lane owns a repo's entire lifecycle: ship, fix, GC.**
 
 ---
 
@@ -83,15 +191,28 @@ Mandatory PR triage at the start of every automation cycle. The PR Nurse pattern
 
 ## 7. Concurrent-Cycle Hazards
 
-Three verified hazards when multiple automation cycles overlap:
+When multiple lanes share a repo and fire on overlapping schedules, these failure modes are real (all verified in production):
 
-1. **lint-staged stash collision** — two cycles run `lint-staged` simultaneously, stash operations corrupt each other.
-2. **Branch-switch data loss** — one cycle switches branch while another has uncommitted work.
-3. **CI review bot window** — pushing before the previous cycle's CI review completes creates comment races.
+### 1. lint-staged stash collision
+`lint-staged` runs `git stash` internally to isolate staged changes. If another lane fires during this stash window, the stash pop on return will conflict. **Result: reverted files, merge conflicts, data loss.**
 
-Plus the 4-line prevention checklist.
+**Rule: NEVER use `git stash` + branch switch in the same cycle.** If the working tree is dirty when a cycle starts, log `[QC] concurrent-cycle detected, deferring` and exit immediately.
 
-<!-- SOURCE: vidux-claude L456-483 (3 hazards, prevention checklist — all verified bugs) -->
+### 2. Branch-switch data loss
+Lane A commits on `branch-a`, switches back to `main`. Lane B fires, reads main, starts editing. Lane A's merge into main has not happened yet. Lane B's `git checkout main` wipes Lane A's uncommitted writes.
+
+**Rule: Always `git status` before any branch operation.** If you see uncommitted changes you did not create, STOP and exit.
+
+### 3. CI review bot window
+After pushing a draft PR, review bots take 2-5 min to post. If the next cycle fires before reviews arrive, it cannot merge (CI review gate). The lane wastes a full cycle re-checking.
+
+**Rule: After pushing a PR, the same lane should NOT attempt merge until the NEXT cycle.** One cycle = push + wait. Next cycle = check reviews + merge if green.
+
+### Prevention checklist (include in every cron wrapper prompt)
+1. `git status` before any branch operation
+2. If dirty tree not from this lane → `[QC] concurrent-cycle` → exit
+3. No `git stash` + branch switch combo
+4. After PR push, defer merge to next cycle
 
 ---
 
@@ -109,9 +230,24 @@ Observers are read-only lanes that watch a project for regressions, drift, or mi
 
 ## 9. Worktree Discipline
 
-Per-cycle fresh worktree, symlink dependencies, commit-then-merge flow. The lint-staged branch-hijack gotcha (verified bug: lint-staged rewrites `.git/HEAD` to the worktree's branch). Investigation-only skip rule: read-only cycles may skip worktree creation.
+Every code-writing lane uses git worktrees for isolation:
 
-<!-- SOURCE: vidux-claude L420-442 (worktree isolation, symlinks, lint-staged gotcha, skip rule) -->
+```
+~/Development/<project>/                              <- main working copy
+~/Development/<project>-worktrees/<lane>-<ts>/        <- per-cycle worktree
+```
+
+**Rules:**
+- Fresh worktree per cycle for code changes
+- Symlink `node_modules`, `.env.local`, `.env.test` from main into the worktree (CRITICAL — without this, test commands fail on env-var checks and look like code regressions)
+- Commit inside the worktree, fast-forward merge into main, delete worktree
+- Never push without explicit human authorization (cron cycles commit locally, human pushes)
+
+**Investigation-only cycles** (plan updates, evidence files, no code changes) MAY skip the worktree and commit directly in main — worktree discipline isolates code changes that could break builds, not doc updates.
+
+### lint-staged branch-hijack gotcha (verified)
+
+Husky + lint-staged use `git stash` during pre-commit. On some setups, the stash pop occasionally checks out a different stashed branch, silently hijacking HEAD. Your commit lands on the wrong branch. **After EVERY commit:** run `git branch --show-current` to verify. If hijacked: capture SHA, checkout intended branch, cherry-pick.
 
 ---
 
@@ -166,31 +302,30 @@ Append-only checkpoint log per lane. Entry format, reset markers, last-10 visibi
 
 ## 14. Lean Fleet Dispatch Rules
 
-Seven prioritized rules for dispatching work across a fleet:
+Rules in priority order:
 
-1. Hard cap on concurrent lanes.
-2. Max 3-4 parallel agents per wave.
-3. Fire-and-forget — don't wait for agent completion.
-4. Trust memory.md — don't re-explain context.
-5. Don't bloat parent context with child status checks.
-6. Absorb duplicate fires — if a lane is already running, skip.
-7. Prefer coordinator over multiple specialists.
-
-<!-- SOURCE: vidux-claude L565-577 (7 dispatch rules) -->
+0. **Hard cap: 6 lanes per session.** More than 6 causes worktree contention, JSONL bloat, PLAN.md stampede, and session-restart friction.
+1. **Max 3-4 parallel agents per wave.** More than 4 simultaneous agents on the same repo causes git worktree contention and branch-switch collisions.
+2. **Fire-and-forget.** Dispatch background agents and move on. Do not block the parent waiting for results.
+3. **Trust memory.md.** Do not inject stale briefing state into the agent prompt — the agent reads `prompt.md` and `memory.md` itself for live state.
+4. **Don't bloat parent context.** Agent results are stored as attachments in the parent JSONL. Many agents with large output adds up fast. Keep agent prompts tight (<500 bytes) and let each agent read its own context from disk.
+5. **Absorb duplicate fires.** If a cron fires while the previous cycle's agent is still running, skip it.
+6. **Batch cron waves.** When multiple crons fire at the same minute, dispatch them in a single multi-tool-call message, not sequentially.
+7. **Prefer coordinator over specialist.** When tempted to add a specialist lane for a concern on an already-covered repo, add the concern to the coordinator's prompt instead. The specialist will fight the coordinator on PLAN.md; the coordinator grows instead.
 
 ---
 
 ## 15. Deferred Tool Loading
 
-Platform-specific tools that must be loaded via ToolSearch before use:
+The cron-management tools (`CronCreate`, `CronDelete`, `CronList`) are **deferred tools** in Claude Code — they are NOT loaded by default. Before invoking them, fetch their schemas:
 
-- **CronCreate / CronDelete / CronList** — lane lifecycle management.
-- **TaskCreate** — task/issue creation from within a cycle.
-- **WebFetch** — URL fetching for research cycles.
+```
+ToolSearch(query: "select:CronCreate,CronDelete,CronList", max_results: 3)
+```
 
-Always call `ToolSearch` with `select:<tool_name>` before invoking these tools.
+This returns the JSONSchema definitions inline and makes the tools callable. A call to `CronCreate` without first running `ToolSearch` will fail with `InputValidationError`. Same pattern applies to `TaskCreate`, `WebFetch`, and any `mcp__*` tools not surfaced at session start.
 
-<!-- SOURCE: vidux-claude L16-26 (deferred tool prerequisites) -->
+Always call `ToolSearch` with `select:<tool_name>` before invoking deferred tools.
 
 ---
 
