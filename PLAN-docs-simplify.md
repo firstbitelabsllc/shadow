@@ -32,7 +32,7 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 
 ### Phase 3: Reference Docs
 - [completed] Task 6: Write `docs/reference/plan-fields.md` [Shipped: 056ad7f] — Section order table, status FSM, task annotations reference, Decision Log entry types (DELETION/DIRECTION/SCOPE/PIVOT/CONSTRAINT/REVERSAL), Surprise + Progress + Evidence + Constraints + Open Questions + compound-task formats.
-- [pending] Task 7: Write `docs/reference/prompt-template.md` — The 8-block prompt structure (Mission/Skills/Read/Gate/Assess/Act/Authority/Checkpoint) with field descriptions.
+- [completed] Task 7: Write `docs/reference/prompt-template.md` — 8-block prompt structure (Mission/Skills/Read/Gate/Assess/Act/Authority/Checkpoint) with field descriptions, rules per block, full example prompt, failure-mode table.
 
 ### Phase 4: README Cleanup
 - [completed] Task 8: Clean README.md [Shipped: 22edaae] — trim the /vidux-codex companion section (too detailed for a README), tighten Fleet Intelligence bullets, update "What Ships Here" table. Point to docs/fleet/ for platform details.
