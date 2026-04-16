@@ -146,7 +146,7 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - NEVER: lose operational patterns during the merge. Every non-personal pattern from the three sources must survive in vidux-auto.
 - NEVER: duplicate content that's already in vidux core SKILL.md (observer pair description, delegation concept, investigation template)
 
-#### 8.0 — Content audit + migration map [pending]
+#### 8.0 — Content audit + migration map [completed]
 
 1. Read all three source files line by line. For each section, classify:
    - **CORE** = already in vidux SKILL.md (skip)
@@ -154,8 +154,9 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
    - **PERSONAL** = Leo-specific (strip or genericize)
    - **DEAD** = obsolete or contradicted by later Decision Log entries (drop)
    - **OVERLAP** = covered by 2+ sources (merge, keep the best version)
-2. Output: a migration map in `evidence/2026-04-15-auto-migration-map.md` with line ranges and classifications.
+2. Output: a migration map in `evidence/2026-04-16-auto-migration-map.md` with line ranges and classifications.
 3. Identify the section structure for vidux-auto (proposed TOC).
+[Done: 2026-04-16. Migration map at evidence/2026-04-16-auto-migration-map.md. 72 personal refs identified (vs 62 estimated). ~280 DEAD lines (14%). 11 overlap resolutions documented. 20-section TOC proposed. Estimated vidux-auto: ~1,180 lines pre-compression, target 900-1000 after aggressive editing in 8.2-8.5.]
 
 #### 8.1 — Create `/vidux-auto` skeleton [pending] [Depends: 8.0]
 
@@ -366,4 +367,5 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 - [2026-04-16] Investigated session JSONL growth (current session 64 MB / 47K lines). Root cause: Vercel plugin's universal `PreToolUse` hooks on Read|Edit|Write|Bash fire 14.5K times per session and each writes an empty-response `async_hook_response` attachment (~744 B each = 10.8 MB wasted). Combined with `hook_success` spam (8 MB), Vercel plugin accounts for 30% of session bytes on a non-Vercel session. Evidence: /Users/leokwan/Development/leojkwan/evidence/2026-04-16-session-jsonl-growth.md. Memory updated: reference_session_bloat_anatomy.md. Recommended fix: toggle `vercel@claude-plugins-official: false` when not doing Vercel work, cycle session at 40 MB.
 - [2026-04-16] Phase 9 planned: Fleet Intelligence & Stability. Three-agent swarm investigated Codex config (13 automations, dual TOML+SQLite storage, static-file indirection feasible), Codex GC (4 GB at ~/.codex/, top target: logs_2.sqlite 474 MB + archived_sessions 2.7 GB), and /insights classification (10 sessions, 5 friction types, zero T4 changes needed). T1-T4 change framework added to Decision Log. 4 T2 rules applied to ~/.claude/CLAUDE.md immediately (Edit hygiene, verify-before-complete, simple-creative-direct, Tailwind gate). 7 tasks planned (9.0-9.6).
 - [2026-04-16] Phase 9 v2 after review. Two review agents scrutinized v1. Changes: (1) CUT insights aggregator script + 2h cron — replaced with manual triage process ("after every 10 sessions, review facets/"), build script only when painful. (2) CUT dedicated codex-gc lane — fold into existing fleet-watcher. (3) SIMPLIFY Codex config migration to 3 highest-churn automations only (rest are legacy). (4) ADDED `guides/agent-config-rules.md` — 3 platform-agnostic rules for OSS (re-read before edit, re-read after fail, proportional response). Cross-refs Principle 5 for verification. (5) TRIMMED recipes from 6 to 3 (kept battle-tested, dropped horizon ideas). Tasks: 7→6 (9.0-9.5). Next: Leo review, then execute 9.0+9.2 in parallel with Phase 8.
+- [2026-04-16] Phase 8.0 completed: content audit + migration map. Read all 1,998 lines across vidux-claude (619L), vidux-codex (626L), vidux-fleet (753L). Classified every section as CORE/AUTO/PERSONAL/DEAD/OVERLAP. Results: 72 personal refs found (vs 62 estimated — delta from deeper path/lane-name scrub), ~280 DEAD lines (14% of source, mostly Routines refs + deprecated Codex fleet + old activation/related-skills sections), 11 overlap resolutions documented (observer pairs: codex primary; delegation: codex primary; 24/7 model: claude primary; prompt structure: keep both spec+templates). Proposed 20-section TOC for vidux-auto. Estimated size: ~1,180L pre-compression → 900-1000L target with aggressive editing in 8.2-8.5. Evidence: `evidence/2026-04-16-auto-migration-map.md`. Next: 8.1 (create vidux-auto skeleton).
 <!-- 5 tasks archived to ARCHIVE.md -->
