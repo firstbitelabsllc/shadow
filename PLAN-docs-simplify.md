@@ -31,7 +31,7 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 - [completed] Task 5: Write `docs/fleet/codex-setup.md` — Step-by-step Mac app setup: 5-step flow (TOML → DB insert → lane files → verify → full-quit+reopen), verification checklist, update/pause/delete recipes. "CLI can't run automations" caveat as opening callout.
 
 ### Phase 3: Reference Docs
-- [completed] Task 6: Write `docs/reference/plan-fields.md` — Section order table, status FSM, task annotations reference, Decision Log entry types (DELETION/DIRECTION/SCOPE/PIVOT/CONSTRAINT/REVERSAL), Surprise + Progress + Evidence + Constraints + Open Questions + compound-task formats. [Shipped: pending]
+- [completed] Task 6: Write `docs/reference/plan-fields.md` [Shipped: 056ad7f] — Section order table, status FSM, task annotations reference, Decision Log entry types (DELETION/DIRECTION/SCOPE/PIVOT/CONSTRAINT/REVERSAL), Surprise + Progress + Evidence + Constraints + Open Questions + compound-task formats.
 - [pending] Task 7: Write `docs/reference/prompt-template.md` — The 8-block prompt structure (Mission/Skills/Read/Gate/Assess/Act/Authority/Checkpoint) with field descriptions.
 
 ### Phase 4: README Cleanup
