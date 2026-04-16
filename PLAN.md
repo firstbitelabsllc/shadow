@@ -234,6 +234,88 @@ New content — closes the feedback gap proven by PR #338.
 4. Verify vidux-auto is ≤ 1,000 lines (the merge should SHRINK from 1,998 by removing overlap and personal content).
 5. Spot-check: pick 3 operational patterns from the old skills, verify they exist in vidux-auto.
 
+### Phase 9: Fleet Intelligence & Stability
+
+**Goal:** Make the automation fleet self-diagnosing, self-healing, and stable. Three pillars: (1) `/insights`-driven adaptation via a tiered change framework that protects vidux core from churn, (2) static-config pattern for Codex automations so prompts can be edited without restarting apps, (3) Codex fleet GC to match Claude's session-prune hygiene.
+
+**Why now:** /insights report (2026-04-16) confirmed zero T4 (core discipline) changes needed — friction is all implementation-level. But without a framework, every insight becomes a vidux core edit, destabilizing the skill. The T1-T4 classification prevents this. Meanwhile Codex state is 4 GB with no GC, and 13 Codex automations embed 3 KB+ prompts in TOML files that require app restart to update.
+
+**Evidence:**
+- [Source: /insights facets 2026-04-16] 10 sessions, 5 friction types. `wrong_approach` hit 3/10 sessions (dominant). `buggy_code` 2/10 (Edit whitespace). `test_coverage_gap` 1/10. Zero core-discipline failures.
+- [Source: codex-config investigation 2026-04-16] 13 automations at `~/Development/ai/automations/<name>/automation.toml`. Scheduler DB at `~/.codex/sqlite/codex-dev.db` (1,656 historical runs). TOML `prompt` field is inline string — no native `prompt_file` directive. Indirection feasible via model-interpreted shim.
+- [Source: codex-gc investigation 2026-04-16] `~/.codex/` = 4.0 GB. `archived_sessions/` 2.7 GB (2,342 files). `sessions/` 818 MB. `logs_2.sqlite` 474 MB (185k rows). `state_5.sqlite` 39 MB (2,957 threads, 2,327 archived). Top ROI: `DELETE FROM logs WHERE ts < 7d` + VACUUM.
+- [Source: CLAUDE.md T2 application 2026-04-16] 4 rules applied to `~/.claude/CLAUDE.md`: Edit hygiene (re-read before edit), verification-before-completion, simple-creative-direct, Tailwind visual gate (per-repo).
+
+#### 9.0 — T1-T4 Change Classification framework [pending]
+
+1. Add a "Change Classification" section to vidux-auto that defines the four tiers and the rule: work from T1 up.
+2. The framework:
+   - **T1: Prompt** — lane prompt wording (`~/.claude-automations/<lane>/prompt.md` or `~/.codex-automations/<lane>/prompt.md`). Auto-applied by insights aggregator.
+   - **T2: CLAUDE.md** — global agent behavior rules. Proposed by insights aggregator, applied by human or fleet coordinator.
+   - **T3: Companion** — new automation recipes in guides/recipes.md or vidux-auto. Planned in PLAN.md first.
+   - **T4: Core** — vidux SKILL.md principles or contracts. Gate: only when the DISCIPLINE is wrong, not an implementation detail. Requires Decision Log entry.
+3. Add the framework to vidux-auto skeleton (Phase 8.1 prerequisite or parallel).
+
+#### 9.1 — Codex static-config pattern [pending]
+
+1. Create `~/.codex-automations/` directory convention mirroring `~/.claude-automations/`.
+2. For each of the 13 existing Codex automations, extract the inline `prompt` from `automation.toml` into `~/.codex-automations/<name>/prompt.md`.
+3. Replace each TOML `prompt` with a thin shim: `"Read the file at ~/.codex-automations/<name>/prompt.md and execute those instructions exactly. Use ~/.codex-automations/<name>/memory.md for your running memory."`
+4. Move memory files from `~/Development/ai/automations/<name>/memory.md` to `~/.codex-automations/<name>/memory.md` (or symlink).
+5. Document the convention in vidux-auto under "Codex Lane Management".
+6. Gotcha: TOML edits need app restart or orchestrator resync to reach the SQLite scheduler. The indirection means you only do this ONCE per automation — after that, edit prompt.md freely.
+
+#### 9.2 — Build codex-gc.sh [pending]
+
+1. Script at `scripts/codex-gc.sh` with `--dry-run` and `--json` flags.
+2. GC targets (ROI order):
+   - `logs_2.sqlite`: DELETE rows older than 7 days, VACUUM (estimated 400+ MB recovery)
+   - `archived_sessions/`: delete rollout JSONLs older than 14 days, keep newest 50 (estimated 2+ GB recovery)
+   - `sessions/`: delete dirs older than 30 days, never touch current month
+   - `state_5.sqlite`: delete threads where `archived=1` and last activity > 30 days, VACUUM
+   - Electron app: clear Crashpad/sentry/DIPS-wal (low priority, ~10 MB)
+3. Safety guards:
+   - Skip if Codex exec processes are running (`ps aux | grep codex`)
+   - Never delete `auth.json`, `config.toml`, `installation_id`
+   - Acquire `~/.codex/log/codex-ledger-sync.lock` before touching archived_sessions
+4. Emit JSONL entry to `.agent-ledger/activity.jsonl` with bytes recovered.
+
+#### 9.3 — Wire codex-gc as daily Claude lane [pending] [Depends: 9.2]
+
+1. Create `~/.claude-automations/codex-gc/prompt.md` — daily lane that runs `codex-gc.sh`.
+2. CronCreate schedule: once daily at 4 AM (Codex accumulation is slower than Claude session churn).
+3. Add `_check_codex_disk_pressure` to vidux-doctor: warn when `~/.codex/` exceeds 2 GB.
+4. Extend `import_codex_archived_sessions.py` in ledger skill to delete after successful import.
+
+#### 9.4 — Build insights aggregator [pending]
+
+1. Script at `scripts/vidux-insights.sh` (or Python) that:
+   - Reads `~/.claude/usage-data/facets/*.json` + `session-meta/*.json`
+   - Groups friction by type across sessions
+   - Classifies each finding into T1/T2/T3/T4 (heuristic: `wrong_approach` → T1 if in one lane else T2; `buggy_code` → T2; `test_coverage_gap` → T2; new pattern → T3)
+   - Writes `~/.claude-automations/fleet-insights/latest.md` with ADAPT/WATCH/SKIP advisories
+2. T1 findings auto-propose lane prompt additions (model writes to the lane's prompt.md).
+3. T2 findings write to an `INBOX.md`-like staging file for human review.
+4. T3 findings create `[pending]` tasks in PLAN.md.
+5. T4 findings (should be ~0) escalate to Leo with evidence.
+
+#### 9.5 — Wire insights aggregator as 2-hour CronCreate lane [pending] [Depends: 9.4]
+
+1. Create `~/.claude-automations/insights-aggregator/prompt.md`.
+2. CronCreate schedule: every 2 hours during active hours (8 AM - 10 PM).
+3. Each lane's READ phase checks `fleet-insights/latest.md` and adjusts behavior per active ADAPT advisories.
+4. Add one line to the vidux-auto prompt template: "During READ, check ~/.claude-automations/fleet-insights/latest.md. Adjust approach if an ADAPT recommendation matches your current task."
+
+#### 9.6 — Add T3 recipes to guides/recipes.md [pending]
+
+6 new recipes from /insights report (after generic tool-name scrub per Q9 Decision):
+1. `edit-then-verify` — post-edit validation hook pattern
+2. `cron-cycle-standard` — skill wrapping READ-ASSESS-ACT-VERIFY-CHECKPOINT with standard exit codes
+3. `headless-cron` — config for zero-prompt bootstrap cron lanes
+4. `cron-retry-heal` — retry wrapper for `external_blocker` / `context_overflow` exits
+5. `visual-regression-fleet` — visual-QA radar lane with screenshot diffing
+6. `multi-pr-dag` — coordinator recipe for dependency-ordered PR shipping
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -251,6 +333,9 @@ New content — closes the feedback gap proven by PR #338.
 - [DELETION] [2026-04-15] Phase 7.1.2 (`guides/routines.md`) closed without writing the file. All four scope items — three trigger types, migration from CronCreate, daily limits, cadence planning — are already in `guides/recipes.md` (L5, L11-70 for triggers + key details; L491-502 "Hybrid Strategy: Routines + CronCreate" for migration; L474-489 "Daily Budget Planning" for limits and cadence). Do NOT re-create `guides/routines.md` — a standalone primer would duplicate 90%+ of recipes.md and invite drift (exactly the pattern vidux-improve cycles 1-7 were fixing). If a reader needs routines context, they read recipes.md. One source of truth.
 - [DIRECTION] [2026-04-16] Recipes stay platform-agnostic in naming. `guides/recipes.md` may describe opinionated workflows but MUST NOT name specific tools (Greptile, Sentry, code-reviewer agent, Nia, Seer). Use generic phrasing: "If there are automation PR reviews (from review bots, code-review agents, or static-analysis comments), address them before merging." Specific tool wiring belongs in `/vidux-auto` (which is Leo's opinionated stack). This refines the 2026-04-14 "recipes may reference tools" direction — opinionated WORKFLOW yes, specific TOOL NAMES no. Leo: "try to not name tools explicitly like greptile but you say IF there are automation PR review please address before merging them in for example."
 - [DIRECTION] [2026-04-16] PR Nurse local-CI check for resplit-ios = `tuist build` + all unit tests locally. The Nurse must not mark a draft PR ready-for-review until local unit tests pass. Resolves Q10. Leo: "local check for resplit ios tuist build unit tests locally all the unit tests would be ideal."
+- [DIRECTION] [2026-04-16] T1-T4 Change Classification protects vidux core from churn. Most /insights findings are T1 (prompt) or T2 (CLAUDE.md). Recipes are T3 (companion). Core discipline (T4) only changes when the discipline itself is wrong. /insights report confirmed zero T4 changes across 10 sessions — the five principles are sound. Leo: "we need to have a framework for that... otherwise vidux is gonna keep changing."
+- [DIRECTION] [2026-04-16] Codex automations adopt the same static-config pattern as Claude lanes: TOML `prompt` field becomes a thin shim → `~/.codex-automations/<name>/prompt.md`. Edit prompt.md freely without restarting the app. One-time TOML migration, then automations "never move." Leo: "automations point to a static file that we can easily change frequently without having to close codex app."
+- [DIRECTION] [2026-04-16] vidux-auto should include a "Recommended CLAUDE.md Rules" section with battle-tested agent hygiene rules (re-read before edit, verify before completing, simple-creative-direct). These are the /insights-derived rules that any vidux user benefits from. Ship as open-source guidance alongside the skill. Leo: "mention CLAUDE.md best practices if you're gonna do this for open source, don't leave any tips behind."
 
 ## Open Questions
 - Q1: Should contract tests track guide files (guides/*.md) or only SKILL.md? -> Action: decide after v3 guides land
@@ -289,4 +374,5 @@ New content — closes the feedback gap proven by PR #338.
 - [2026-04-15] Phase 8 planned: merge vidux-claude (619L) + vidux-codex (626L) + vidux-fleet (753L) → single vidux-auto companion (~800-1000L after dedup + scrub). 10 tasks across 3 sub-phases (audit → migrate → verify). PR Nurse pattern (Recipe 9) added to close the feedback gap (PR #338 evidence: P1 from Greptile unaddressed, merged anyway). 3 new Open Questions (Q8-Q10). Decision Log [DIRECTION] entry added. Next: 8.0 content audit.
 - [2026-04-16] Q9 + Q10 resolved. Q9: strip tool names from recipes.md (generic "automation PR reviews" phrasing). Q10: resplit-ios PR Nurse local CI = `tuist build` + all unit tests. Two new [DIRECTION] entries added so Phase 8 executors see the contract. Q8 (vidux-auto location) still open.
 - [2026-04-16] Investigated session JSONL growth (current session 64 MB / 47K lines). Root cause: Vercel plugin's universal `PreToolUse` hooks on Read|Edit|Write|Bash fire 14.5K times per session and each writes an empty-response `async_hook_response` attachment (~744 B each = 10.8 MB wasted). Combined with `hook_success` spam (8 MB), Vercel plugin accounts for 30% of session bytes on a non-Vercel session. Evidence: /Users/leokwan/Development/leojkwan/evidence/2026-04-16-session-jsonl-growth.md. Memory updated: reference_session_bloat_anatomy.md. Recommended fix: toggle `vercel@claude-plugins-official: false` when not doing Vercel work, cycle session at 40 MB.
+- [2026-04-16] Phase 9 planned: Fleet Intelligence & Stability. Three-agent swarm investigated Codex config (13 automations, dual TOML+SQLite storage, static-file indirection feasible), Codex GC (4 GB at ~/.codex/, top target: logs_2.sqlite 474 MB + archived_sessions 2.7 GB), and /insights classification (10 sessions, 5 friction types, zero T4 changes needed). T1-T4 change framework added to Decision Log. 4 T2 rules applied to ~/.claude/CLAUDE.md immediately (Edit hygiene, verify-before-complete, simple-creative-direct, Tailwind gate). 7 tasks planned (9.0-9.6). Next: review and scrutinize Phase 9 plan, then execute.
 <!-- 5 tasks archived to ARCHIVE.md -->
