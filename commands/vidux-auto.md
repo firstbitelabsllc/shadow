@@ -382,32 +382,134 @@ Run `git diff` and verify in this order — stop at the first fail:
 
 ## 5. Fleet Operations
 
-Creating, managing, and auditing automation fleets at scale.
+Creating, managing, and auditing automation fleets at scale. Four operations: **discover** the current fleet, **prescribe** the right topology, **write** lean harnesses, and **audit** existing prompts against doctrine.
 
-- **Slot map:** Visual schedule of all active lanes with cadence and stagger offsets.
-- **Prompt templates:** Writer, radar, coordinator, specialist (<=15 lines each).
-- **Bimodal quality model:** Quick/deep/stuck-in-middle classification.
-- **Validation rubric:** 9 checks (schedule collisions, prompt bloat, doctrine restating, stale automations, bimodal quality, orphan radars, missing coordinator, etc.).
-- **Audit scoring:** 9-check rubric, scoring math, report format.
-- **Recipe selection heuristics:** Quick-reference table pointing to `guides/recipes.md` for full templates.
+> Full recipe templates: `guides/recipes.md` (11 recipes). Fleet patterns and gate mechanics: `guides/fleet-ops.md`.
 
-> Cross-reference: `guides/recipes.md` for the 11 opinionated automation recipes. `guides/fleet-ops.md` for fleet patterns and gate mechanics.
+### 5.1 Discover + Slot Map
 
-<!-- SOURCE: vidux-fleet L22-247 (create/fleet/validate, slot map, prompt templates, bimodal quality, hard rules), L392-740 (prescribe/write/audit, recipe selection heuristics, scoring rubric) -->
+Before creating or modifying lanes, scan for existing automations:
+
+1. **Scan** `~/.claude-automations/*/{prompt.md,memory.md}` for active CronCreate lanes.
+2. **Build the slot map.** Parse cadence fields, map each automation to its minute-of-hour slots.
+3. **Find the lowest-density slot.** Pick a 5-minute slot (`:00`, `:05`, ... `:55`) with the fewest automations. Writers get priority for isolated slots (heavier). Radars can share.
+
+```
+Fleet: <project> (5 automations)
+  :00  <project>-writer     (writer, every 30m)
+  :05  <project>-ux-radar   (radar, every 30m)
+  :10  <project>-flow-radar (radar, every 30m)
+  :15  <project>-api-writer (writer, every 30m)
+  :20  <project>-coordinator (coordinator, every 2h)
+
+Load: max 2 concurrent at :30
+Gaps: :25, :35, :40, :45, :50, :55 — available
+```
+
+### 5.2 Prompt Templates (<=15 lines each)
+
+Four role-specific templates. Each follows the 8-block structure (Section 10) compressed to <=15 lines.
+
+| Role | Key directives | Gate type |
+|---|---|---|
+| **Writer** | "Keep working through the queue until a real boundary." UI proof gate. Bounded recursion. Self-extend. | Quick check |
+| **Radar** | SCAN gate (exit if unchanged 3x). Evidence with screenshots/repro. Surface bundles (3 tickets = 1 investigation). | SCAN |
+| **Coordinator** | Read sibling memory.md. Score bimodal. Flag handoff gaps. Adjust prompts, never code. Every 2h. | Quick check |
+| **Specialist** | Single-repo writer. Cross-repo handoff via PLAN.md. Same keep-working + proof-gate directives. | Quick check |
+
+> Full prompt templates with fill-in-the-blank fields: `guides/fleet-ops.md`.
+
+### 5.3 Bimodal Quality Model
+
+Good automations are bimodal:
+
+- **Quick check (< 2 min):** Nothing actionable, checkpoint and exit. Healthy.
+- **Deep run (15+ min):** Full e2e cycle — ideate, plan, code, test, QA, commit. Real work.
+- **Stuck in the middle (3-8 min):** Started but did not finish. Fix: make tasks concrete with clear gates, prompt says "keep working through the queue."
+
+The coordinator enforces bimodal quality by checking run durations and flagging stuck-in-middle patterns.
+
+### 5.4 Validation Rubric (9 checks)
+
+| # | Check | Pass criteria | Severity |
+|---|---|---|---|
+| 1 | Line count | <= 15 lines (hard) / <= 20 (critical) | high / blocker |
+| 2 | Correct gate | Writers: Quick check. Radars: SCAN gate | high |
+| 3 | "Keep working" | Writers contain "keep working" or "until a real boundary" | high |
+| 4 | UI proof gate | Writers + UX radars mention screenshot/visual proof | medium |
+| 5 | Self-extend | Mentions "add tasks" / "file related" / "extend the plan" | medium |
+| 6 | Bounded recursion | Contains "good enough" / "stop polishing" / "next mission gap" | medium |
+| 7 | No doctrine restating | Does NOT restate FSM, checkpoint protocol, loop mechanics | high |
+| 8 | No "smallest slice" | Does NOT contain "smallest slice" / "land one task" | high |
+| 9 | Bimodal health | Last 5 runs >= 80% in quick or deep buckets | medium |
+
+**Scoring:** Each pass = +1, out of 9. Score <= 5 = needs rewrite. Score 0 on a high-severity check = critical.
+
+### 5.5 Prescription (fleet topology selection)
+
+Parse PLAN.md to extract surface signals, then match to a recipe:
+
+| Project state | Recipe | Agents |
+|---|---|---|
+| 1 plan + 1 active surface | Solo Writer | 1 |
+| 2-3 surfaces or recurring UX work | Writer + Radar | 2 |
+| 4+ surfaces or handoff problems | Writer + 2 Radars + Coordinator | 4 |
+| Multi-repo project | Multi-Repo Fleet | N writers + 1 coordinator |
+| Quiet/maintenance | Maintenance Mode | 0 (manual only) |
+| Active dev sprint, no cron | Deep Work Mode | 1 persistent |
+
+Compare existing fleet to the prescription: match (no changes), over-provisioned (suggest removals), or under-provisioned (suggest additions).
+
+> Full recipe details, prompt templates, and worked examples: `guides/recipes.md`.
+
+### 5.6 Hard Rules
+
+1. Generated prompts MUST be under 15 lines. The core `/vidux` skill handles the rest.
+2. Never restate vidux doctrine, loop mechanics, or checkpoint protocol in generated prompts.
+3. Never generate prompts that say "land the smallest verified slice" or "stop after one task."
+4. Writer prompts MUST say "keep working through the queue until a real boundary."
+5. Schedules MUST avoid thundering herd — max 3 automations per minute offset.
+6. Every fleet with 3+ automations MUST have a coordinator.
+7. Coordinator runs every 2 hours, not every 30 minutes.
+8. Recipes are deterministic — no new recipes invented at runtime. New recipes ship via PR.
+9. `prescribe` and `audit` are READ-ONLY. They never modify files.
 
 ---
 
 ## 6. PR Lifecycle
 
-Mandatory PR triage at the start of every automation cycle. The PR Nurse pattern closes the feedback gap where review comments go unaddressed.
+Mandatory PR triage at the start of every automation cycle. The PR Nurse pattern closes the feedback gap where review comments go unaddressed for cycles while the writer ships new code.
 
-- **Triage:** `gh pr list --state open --author @me` to find automation-created PRs with unaddressed review comments.
-- **Nurse responsibilities:** Scan, fix one P1/P2 per cycle, push to PR branch, reply to comment thread, verify CI (remote or local checks for repos without CI), signal READY_FOR_MERGE when all comments resolved.
-- **Self-review before push:** Checklist baked into the writer prompt template.
+> Cross-reference: `guides/draft-pr-flow.md` for the 5-step draft-PR flow, branch naming, PR body template, and recovery via `gh pr list`. Recipe 9 (PR Nurse) in `guides/recipes.md` for the full prompt template.
 
-> Cross-reference: `guides/draft-pr-flow.md` for the 5-step draft-PR flow, branch naming, PR body template, and recovery via `gh pr list`.
+### 6.1 Triage (every cycle start)
 
-<!-- SOURCE: vidux-claude L444-448 (mandatory PR triage), NEW (PR Nurse pattern — closes PR #338 gap) -->
+Before picking up new plan tasks, scan for open PRs that need attention:
+
+```
+gh pr list --state open --author @me --json number,title,reviewDecision,isDraft
+```
+
+Filter to automation-created PRs with unaddressed review comments. If any P1/P2 comments exist, the PR nurse pass takes priority over new work.
+
+### 6.2 PR Nurse Responsibilities
+
+The writer lane nurses its own PRs — this is NOT a separate lane. Each cycle:
+
+1. **Scan:** `gh api repos/{owner}/{repo}/pulls/{N}/comments` for unresolved threads.
+2. **Prioritize:** P1 (blocking) and P2 (significant) comments first. Skip P3 (style/nit).
+3. **Fix one:** Address ONE P1/P2 per cycle. Push the fix to the PR branch. Reply to the comment thread with what changed.
+4. **Verify:** CI green (remote check) or local build pass (for repos without remote CI — run build, lint, type-check and post results as PR comment).
+5. **Signal:** When ALL comments resolved + CI green, post `READY_FOR_MERGE` comment. Human promotes.
+
+### 6.3 Self-Review Before Push
+
+Every writer prompt includes a pre-push checklist (baked into the Act block, not a separate lane):
+
+- Diff matches exactly one plan task (no scope creep)
+- No unrelated formatting / import reordering changes
+- Tests pass locally
+- PR body carries: lane id, plan task id, resume point
 
 ---
 
