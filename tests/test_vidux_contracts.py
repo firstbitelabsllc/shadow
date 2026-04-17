@@ -366,20 +366,20 @@ class ViduxContractTests(unittest.TestCase):
 
     COMMANDS_DIR = ROOT / "commands"
 
+    # Post-2026-04-17 (commit 8c1f593): single entry point `/vidux` covers both
+    # discipline (Part 1) and automation (Part 2). `vidux-auto.md` stays as a
+    # deprecation breadcrumb for the 90-day window (removal target 2026-07-17),
+    # at which point this list collapses to just `vidux.md`.
+    CORE_COMMANDS = ["vidux.md", "vidux-auto.md"]
+
     def test_commands_exist(self):
         """All vidux commands must exist."""
-        for name in [
-            "vidux.md", "vidux-plan.md", "vidux-fleet.md",
-            "vidux-dashboard.md", "vidux-manager.md",
-        ]:
+        for name in self.CORE_COMMANDS:
             self.assertTrue((self.COMMANDS_DIR / name).exists(), f"Command missing: {name}")
 
     def test_commands_have_frontmatter(self):
         """Each command file must have YAML frontmatter with name and description."""
-        for name in [
-            "vidux.md", "vidux-plan.md", "vidux-fleet.md",
-            "vidux-dashboard.md", "vidux-manager.md",
-        ]:
+        for name in self.CORE_COMMANDS:
             text = _read(self.COMMANDS_DIR / name)
             self.assertTrue(text.startswith("---"), f"{name} missing frontmatter")
             end = text.index("---", 3)
@@ -1895,48 +1895,15 @@ class ViduxContractTests(unittest.TestCase):
 
     # -----------------------------------------------------------------------
     # Phase 10-12 commands: frontmatter + required sections
+    #
+    # REMOVED 2026-04-17 (commit 8c1f593, Phase 10 of PLAN.md):
+    #   - test_dashboard_command_*  (vidux-dashboard.md deleted)
+    #   - test_manager_command_*    (vidux-manager.md deleted)
+    #   - test_fleet_command_*      (vidux-fleet.md deleted)
+    # Former /vidux-dashboard, /vidux-fleet, /vidux-manager commands merged
+    # into /vidux Part 2 + references/automation.md. See PLAN.md Phase 10
+    # Decision Log [DELETION] 2026-04-17.
     # -----------------------------------------------------------------------
-
-    def test_dashboard_command_has_steps_section(self):
-        """vidux-dashboard.md must have a Steps section."""
-        text = _read(self.COMMANDS_DIR / "vidux-dashboard.md")
-        self.assertIn("## Steps", text)
-
-    def test_dashboard_command_has_flags_section(self):
-        """vidux-dashboard.md must have a Flags section."""
-        text = _read(self.COMMANDS_DIR / "vidux-dashboard.md")
-        self.assertIn("## Flags", text)
-
-    def test_manager_command_has_subcommands_section(self):
-        """vidux-manager.md must have a Subcommands section."""
-        text = _read(self.COMMANDS_DIR / "vidux-manager.md")
-        self.assertIn("## Subcommands", text)
-
-    def test_manager_command_has_stage_system(self):
-        """vidux-manager.md must define the stage system."""
-        text = _read(self.COMMANDS_DIR / "vidux-manager.md")
-        self.assertIn("## Stage System", text)
-        for stage in ["GATHER", "PLAN", "EXECUTE", "VERIFY", "CHECKPOINT", "COMPLETE"]:
-            self.assertIn(stage, text, f"vidux-manager.md missing stage: {stage}")
-
-    def test_fleet_command_has_subcommands_section(self):
-        """vidux-fleet.md must have a Subcommands section (successor to vidux-recipes)."""
-        text = _read(self.COMMANDS_DIR / "vidux-fleet.md")
-        self.assertIn("## Subcommands", text)
-
-    def test_fleet_command_has_stage_system(self):
-        """vidux-fleet.md must define the stage system (successor to vidux-recipes)."""
-        text = _read(self.COMMANDS_DIR / "vidux-fleet.md")
-        self.assertIn("## Stage System", text)
-
-    def test_fleet_command_mentions_automation_doctrine(self):
-        """vidux-fleet.md must reference automation doctrine concepts (successor to vidux-recipes)."""
-        text = _read(self.COMMANDS_DIR / "vidux-fleet.md")
-        self.assertTrue(
-            "no mid-zone" in text.lower() or "no mid zone" in text.lower()
-            or "mid-zone" in text.lower(),
-            "vidux-fleet.md missing mid-zone doctrine reference",
-        )
 
     # -----------------------------------------------------------------------
     # Cross-doc: SKILL.md must reference Phase 10-12 concepts
@@ -2052,13 +2019,9 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("stale_blocked_days", config["pruning"])
         self.assertIn("max_concurrent_worktrees", config["pruning"])
 
-    def test_manager_has_self_extension_metric(self):
-        """vidux-manager.md diagnose must reference self-extension quality metric."""
-        text = _read(ROOT / "commands" / "vidux-manager.md")
-        self.assertTrue(
-            "self-extension" in text.lower() or "recursive overload" in text.lower(),
-            "Manager diagnose missing self-extension quality metric",
-        )
+    # test_manager_has_self_extension_metric REMOVED 2026-04-17 (Phase 10).
+    # vidux-manager.md was deleted; self-extension/recursive-overload concept
+    # preserved in /vidux Part 2 as "self-extend with a brake" (Principle 4).
 
 
     # --- Phase 13.6-13.10: Coverage gap tests -------------------------------- #
