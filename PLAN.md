@@ -50,7 +50,6 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 Every wave boundary is reversible. Leo gates each transition.
 
 #### Wave 0 — Plan + audit [completed]
-- [completed] 5.0.4 Wave 1 pilot: **`strongyes-coach-p0`**. Original pick `vidux-core-test` is invalid — it operates on a non-git experiment dir with explicit "NEVER git push" in its Authority block. Corrected to `strongyes-coach-p0`: currently pushes directly to origin/main (the exact behavior to replace), StrongYes is smaller than Resplit (lower blast radius), lane is P0-active so it exercises real production cycles. [Corrected: 2026-04-11, see Surprise]
 
 #### Wave 1 — Reference implementation [completed]
 - [completed] 5.1.1 Modified `~/.claude/automations/strongyes-coach-p0/prompt.md`: ACT section changed from "merge to main" to "push branch + draft PR". PUSH POLICY replaced: 5-step flow (push branch → `gh pr create --draft` → never direct-to-main → sync main each cycle → fallback on `gh` failure). PR body template carries lane id, plan task, resume point. [Done: 2026-04-11]
@@ -310,6 +309,62 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 2. `cron-retry-heal` — retry wrapper for `external_blocker` / `context_overflow` exits
 3. `multi-pr-dag` — coordinator pattern for dependency-ordered PR shipping
 
+### Phase 10: Further consolidation — `/vidux-auto` merged into `/vidux` Part 2 [completed]
+
+**Goal:** Collapse the `/vidux` + `/vidux-auto` two-skill split (shipped by Phase 8) into a single `/vidux` entry point with progressive disclosure. Users shouldn't pick between discipline (`/vidux`) and automation (`/vidux-auto`) at invocation time — the skill should route internally.
+
+**Why now:** Leo 2026-04-17: *"to me it just feels like claude and codex vidux merge into vidux auto but i personally don't think users should care, it should just be baked in where if user wants an automation the skill knows how to write the best automation and know how of creating the skill for codex and claude local."* Phase 8 produced a clean `/vidux-auto` artifact, but invocation-time friction proved the split was still architecture-leaking. Single entry + `references/automation.md` progressive disclosure is the final shape.
+
+**Evidence:**
+- [Source: Leo 2026-04-17] "users shouldn't have to pick between /vidux (discipline) and /vidux-auto (automation) at invocation time"
+- [Source: leojkwan memory 2026-04-17] `feedback_single_entry_skills.md` — preference codified: one /foo skill per concept, not /foo + /foo-auto + /foo-claude siblings
+- [Source: commit 8c1f593 2026-04-17] net -2,193 lines across 19 files (5 deleted commands + vidux-auto breadcrumb + SKILL.md Part 2 expansion + references/automation.md NEW + 13 cross-ref updates)
+
+**Constraints:**
+- ALWAYS: keep Phase 8's artifacts usable during a 90-day breadcrumb window (existing lane prompts load `/vidux-auto` — must not crash)
+- ALWAYS: preserve every operational pattern from Phase 8's vidux-auto in /vidux Part 2 or references/automation.md (no regression)
+- NEVER: delete the old `/vidux-auto` commands/skill files outright — they stay as deprecation breadcrumbs (same 90-day retention rule applied by Phase 8.8 to vidux-claude/vidux-codex/vidux-fleet)
+
+#### 10.1 — Expand SKILL.md to Part 1 + Part 2 [completed]
+
+1. Keep Part 1: Discipline unchanged (five principles, cycle, PLAN.md template, quarter projects, investigations, course correction).
+2. Add Part 2: Automation inline — 24/7 fleet model summary, lane management (max 6, coordinator pattern, polish-brake), Mode A/B delegation with compression contract + 5-block spec, lane bootstrap recipe (decision tree + role picker + file templates + registration steps).
+3. Cross-ref `references/automation.md` for deep doctrine, loaded on demand not eagerly.
+[Done: 2026-04-17 commit 8c1f593. SKILL.md went from 365L (Part 1 only) → 498L (Part 1 + Part 2). Part 2 is 133 lines — lean operational summary, not encyclopedia.]
+
+#### 10.2 — Create references/automation.md [completed] [Depends: 10.1]
+
+1. Absorb Phase 8's `commands/vidux-auto.md` body (913L) into `references/automation.md` (55 KB / ~990L after generics preserved).
+2. Update header to note: "This reference contains the full doctrine merged from the former /vidux-claude, /vidux-codex, and /vidux-fleet companion skills." Section 19 activation line changed from "activate /vidux-auto alongside /vidux" to "Read this reference (loaded on demand from within a /vidux session)".
+3. Progressive disclosure: SKILL.md Part 2 has the operational summary + decision trees; references/automation.md has session-gc internals, Codex shim registration recipe, PR lifecycle nursing, cross-fleet coordination.
+[Done: 2026-04-17 commit 8c1f593. File lives at `references/automation.md`, 19 sections preserved from Phase 8 structure.]
+
+#### 10.3 — Deprecate `/vidux-auto` + prune orphaned commands [completed] [Depends: 10.1]
+
+1. Replace `commands/vidux-auto.md` body with a deprecation breadcrumb: frontmatter flipped to "DEPRECATED (2026-04-17)", body redirects to `/vidux` Part 2 + references/automation.md, 90-day removal target 2026-07-17.
+2. Delete `commands/vidux-claude.md`, `commands/vidux-codex.md`, `commands/vidux-fleet.md`, `commands/vidux-dashboard.md`, `commands/vidux-manager.md`, `commands/vidux-plan.md` — zero active external references after Phase 8's migration.
+3. Sibling ai-skills repo: `~/Development/ai/skills/vidux-auto/SKILL.md` synced to breadcrumb (ai commit 44c09a1).
+[Done: 2026-04-17 commit 8c1f593 + ai 44c09a1. 5 command files deleted, vidux-auto replaced with 37-line breadcrumb.]
+
+#### 10.4 — Sync docs + guides cross-refs [completed] [Depends: 10.3]
+
+1. `README.md`: ecosystem table (2 rows → 1 `/vidux`), commands-path row, Platform Automation section rewritten to reference Part 2 + references/automation.md, Fleet Patterns section updated, "Lessons from Production" Mode B line updated.
+2. `ARCHITECTURE.md`: file-tree updated (commands single entry, references/ added).
+3. `docs/guide/installation.md`: Ecosystem table collapsed (5 rows → 1), deprecation note inline, references/automation.md pointer.
+4. `docs/guide/quickstart.md`: "Plan-only" example changed from `/vidux-plan "..."` to `/vidux --plan "..."` + told-instruction variant.
+5. `docs/reference/prompt-template.md`: Skills line `/vidux /brand-leojkwan /frontend-design` (no `/vidux-claude`), Delegation example references `/vidux` Part 2.
+6. `docs/fleet/platforms.md`: table header dropped deprecated slash-command labels from "Claude Code" / "Codex" column headers.
+7. `docs/fleet/codex-lifecycle.md` + `docs/fleet/codex-setup.md`: "See Also" links point to `/vidux` Part 2 + references/automation.md instead of `/vidux-codex` path.
+8. `guides/harness.md`, `guides/recipes.md` (4 places), `guides/draft-pr-flow.md`: all `/vidux-auto` / `/vidux-codex` refs updated to `/vidux` Part 2 or references/automation.md.
+[Done: 2026-04-17 commit 8c1f593. Net -2,193 lines across 19 files.]
+
+#### 10.5 — Verify cross-ref integrity [completed] [Depends: 10.4]
+
+1. `grep -rn "/vidux-(auto|claude|codex|fleet|dashboard|manager|plan)\b"` on repo: every remaining hit is either intentional (deprecation breadcrumb listing superseded names for search discoverability) or historical (PLAN.md, ARCHIVE.md, evidence/, commands/vidux-auto.md breadcrumb).
+2. Pushed to origin/main cleanly (gh `git push origin main`: f552f7d..8c1f593).
+3. Sibling ai-skills repo: `~/Development/ai/skills/vidux/` is a symlink into this repo, so OSS update is automatically "installed" on Leo's machine. `skills/vidux-auto/SKILL.md` synced separately (ai commit 44c09a1).
+[Done: 2026-04-17. Verified in the same session the merge shipped.]
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -330,6 +385,8 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 - [DIRECTION] [2026-04-16] T1-T4 Change Classification protects vidux core from churn. Most /insights findings are T1 (prompt) or T2 (CLAUDE.md). Recipes are T3 (companion). Core discipline (T4) only changes when the discipline itself is wrong. /insights report confirmed zero T4 changes across 10 sessions — the five principles are sound. Leo: "we need to have a framework for that... otherwise vidux is gonna keep changing."
 - [DIRECTION] [2026-04-16] Codex automations adopt the same static-config pattern as Claude lanes: TOML `prompt` field becomes a thin shim → `~/.codex-automations/<name>/prompt.md`. Edit prompt.md freely without restarting the app. One-time TOML migration, then automations "never move." Leo: "automations point to a static file that we can easily change frequently without having to close codex app."
 - [DIRECTION] [2026-04-16] vidux-auto should include a "Recommended CLAUDE.md Rules" section with battle-tested agent hygiene rules (re-read before edit, verify before completing, simple-creative-direct). These are the /insights-derived rules that any vidux user benefits from. Ship as open-source guidance alongside the skill. Leo: "mention CLAUDE.md best practices if you're gonna do this for open source, don't leave any tips behind."
+- [DIRECTION] [2026-04-17] Single entry point: `/vidux` alone covers both discipline (Part 1) and automation (Part 2). Users should never pick `/vidux` vs `/vidux-auto` vs `/vidux-codex` vs `/vidux-claude` vs `/vidux-fleet` at invocation time — that's architecture-leaking. Deep automation doctrine lives in `references/automation.md`, loaded on demand from within a /vidux session. The Phase 8 two-skill split was a transitional shape; Phase 10 is the final shape. Leo: "users shouldn't have to pick... it should just be baked in where if user wants an automation the skill knows how to write the best automation and know how of creating the skill for codex and claude local." Companion rule: when future work adds a capability, default to "Part N of /vidux" over "new /vidux-foo sibling skill." Split only when the invocation audience is genuinely different (not just the topic).
+- [DELETION] [2026-04-17] 5 companion command files deleted from `commands/` — `vidux-claude.md`, `vidux-codex.md`, `vidux-fleet.md`, `vidux-dashboard.md`, `vidux-manager.md`, `vidux-plan.md`. Do NOT recreate them. Their operational patterns survive in `/vidux` Part 2 and `references/automation.md`. `commands/vidux-auto.md` stays as a 37-line deprecation breadcrumb (90-day window, removal target 2026-07-17) so existing lane prompts that still say `Load: /vidux, /vidux-auto` don't crash during migration. After 2026-07-17, delete `commands/vidux-auto.md` too.
 
 ## Open Questions
 - Q1: Should contract tests track guide files (guides/*.md) or only SKILL.md? -> Action: decide after v3 guides land
@@ -377,4 +434,5 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 - [2026-04-16] Phase 8.4 completed: migrated + scrubbed delegation modes from vidux-codex into vidux-auto. Filled Section 4 (Delegation Mode A + Mode B: flow diagrams genericized from "Claude/Codex" to "primary/secondary model", cost shift table, full decision tree with tier-based thresholds, tier math table preserving 10.1x/49.4x/109.7x savings ratios, compression contract verbatim, 5-block implementation prompt shape, 7-step diff-review checklist, invocation mechanics without tool-specific flags, 9 execution rules). Filled Section 8 (Observer Pairs: what observers catch with evidence patterns from delegation studies, setup recipe with cadence offset/authority discipline/verdict format, when-to-add heuristic, why-secondary-model rationale). Filled Section 11 (Composition Recipes: 6 recipes expanded from bullet list to full patterns — vidux->delegated, delegation+amplifier, delegation+research-agent, Agent parallelism, Agent wrapper for long crons with rule-of-thumb table, qa-iterator with setup/hard-rules). Filled Section 16 (External Tool Pairing: research agent pairing with 16.5x savings, deep-mode hallucination warning, prompt amplifier pairing with when-to-use criteria). File grew 550->811 lines. `grep -i personal-refs` returns 0 hits. `grep -i codex` returns 1 hit (intro mentioning former skill names — appropriate context). Remaining skeleton sections: 5, 6 for Phase 8.5.
 - [2026-04-16] Phase 8.5 + 8.6 completed: migrated fleet operations and PR lifecycle into vidux-auto. Filled Section 5 (Fleet Operations: 6 subsections — Discover+Slot Map with generic `<project>` example, Prompt Templates as compact 4-role table referencing guides/fleet-ops.md for full templates, Bimodal Quality Model, 9-check Validation Rubric table with severity levels, Prescription heuristics table with 6 recipe mappings referencing guides/recipes.md, 9 Hard Rules). Filled Section 6 (PR Lifecycle: 3 subsections — Triage at cycle start with `gh pr list` command, PR Nurse 5-step responsibilities integrated into writer lane not separate lane, Self-review before push checklist). All personal refs scrubbed (L369 "the operator is heads-down" genericized from original, L436 "operator says deep work" genericized). File grew 811->913 lines. `grep -i personal-refs` returns 0 hits. All skeleton SOURCE comments replaced with migrated content. Phase 8 content migration complete (8.2-8.6 done). Remaining: 8.7 (core ref updates), 8.8 (deprecation markers), 8.9 (verify+gate).
 - [2026-04-16] Phase 8.7-8.9 completed — Phase 8 (vidux-auto merge) is DONE. 8.7: updated core references — SKILL.md companion skills section (2 skills → 1 /vidux-auto), README.md ecosystem table (3 rows → 1), README.md Platform Automation section rewritten, 3 guides/ cross-refs fixed (harness.md, draft-pr-flow.md, recipes.md). 8.8: deprecation markers added to vidux-claude SKILL.md, vidux-codex SKILL.md, and vidux-fleet command (blockquote format, 90-day retention). 8.9: gate passed — 141/144 tests pass (3 pre-existing), 0 personal refs in vidux-auto, 913 lines (under 1,000), all guide cross-refs resolve, all 3 spot-checked operational patterns present (observer pairs, delegation, coordinator). Phase 8 summary: 1,998 lines across 3 skills → 913 lines in 1 vidux-auto companion. 72 personal refs removed. PR Nurse pattern added. Two clean OSS artifacts: vidux (core) + vidux-auto (automation).
-<!-- 5 tasks archived to ARCHIVE.md -->
+- [2026-04-17] Phase 10 (all 5 subtasks) shipped in commit `8c1f593` + sibling ai commit `44c09a1`. Collapsed `/vidux` + `/vidux-auto` two-skill split into single `/vidux` entry with progressive disclosure. SKILL.md 365L → 498L (Part 1 Discipline unchanged + Part 2 Automation inline). `references/automation.md` NEW (~990L, absorbed Phase 8 vidux-auto body). `commands/vidux-auto.md` replaced with 37-line deprecation breadcrumb (removal target 2026-07-17). 5 orphaned command files deleted (`vidux-claude`, `vidux-codex`, `vidux-fleet`, `vidux-dashboard`, `vidux-manager`, `vidux-plan`). 13 docs/guides cross-refs updated. Net -2,193 lines across 19 files. All remaining grep hits for deprecated names are intentional (breadcrumb + historical PLAN/ARCHIVE/evidence). Plan gate: git status clean, origin/main pushed, `~/Development/ai/skills/vidux/` symlink means OSS change is already live on this machine. **Plan state this cycle:** all Phase 5-10 tasks either `[completed]` or blocked on the known resplit `gh pr create` overlap (Wave 3/4 still parked). No mergeable PRs on vidux repo. Next: if resplit gh overlap gets resolved externally, Wave 3 unblocks; otherwise this plan is mostly cold — candidate for an archive pass when Phase 5 closes.
+<!-- 1 tasks archived to ARCHIVE.md -->
