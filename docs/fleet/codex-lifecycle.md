@@ -98,7 +98,7 @@ Codex agents run inside one of three sandboxes, set per-task or per-session in `
 | `workspace-write` | Yes | Working tree only | Mode B implementation — code edits |
 | `danger-full-access` | Yes | Anywhere | Trusted automations only (default for Leo's fleet) |
 
-Mode A keeps Claude's token budget small; Mode B lets Codex write the code while Claude reviews the diff. See [`/vidux-codex`](../../../ai/skills/vidux-codex/SKILL.md) for the full delegation contract.
+Mode A keeps Claude's token budget small; Mode B lets Codex write the code while Claude reviews the diff. See [`/vidux` Part 2](../../commands/vidux.md) and [`references/automation.md`](../../references/automation.md) for the full delegation contract.
 
 ### Post-push defer
 
@@ -144,4 +144,4 @@ Run `codex-toml-verify.sh` between writing TOMLs and reopening the app to catch 
 - [Platform Comparison](platforms.md) — Claude Code vs Codex overview
 - [Claude Code Lifecycle](claude-lifecycle.md) — the Claude equivalent of this page
 - [Codex Setup Guide](codex-setup.md) — step-by-step Mac app setup (Task 5)
-- [`/vidux-codex`](../../../ai/skills/vidux-codex/SKILL.md) — Mode A / Mode B delegation contract
+- [`/vidux` Part 2](../../commands/vidux.md) + [`references/automation.md`](../../references/automation.md) — Mode A / Mode B delegation contract

@@ -39,7 +39,7 @@ Every harness follows these eight blocks, in this order. Rearranging or omitting
 
 ## Writer, Radar, and Coordinator Roles
 
-Fleet automations use one of three roles (see `/vidux-auto` and `guides/fleet-ops.md`):
+Fleet automations use one of three roles (see `/vidux` Part 2, `references/automation.md`, and `guides/fleet-ops.md`):
 
 - **Writer** — ships code, executes plan tasks, merges. The default.
 - **Radar** — read-only monitoring, evidence gathering, no code changes. Reports findings to INBOX.md for the writer to promote.

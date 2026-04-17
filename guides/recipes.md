@@ -16,7 +16,7 @@ These recipes describe trigger *patterns*, not specific platforms. Map them to w
 | **Event-driven** | External webhook fires (PR, push, issues, deploy, etc.) | GitHub Actions, cloud webhooks, repo hooks |
 | **On-demand** | Triggered by a manual action or another automation | CLI invocation, API POST, another lane's output |
 
-A single lane can combine triggers (e.g., scheduled nightly + fires on every new PR). The mechanics of how your platform wires triggers belong in `/vidux-auto` (the platform-specific companion), not in these recipes.
+A single lane can combine triggers (e.g., scheduled nightly + fires on every new PR). The mechanics of how your platform wires triggers belong in `/vidux` Part 2 and `references/automation.md` (the platform-specific layer), not in these recipes.
 
 ---
 
@@ -117,7 +117,7 @@ Every fleet that creates draft PRs. This is the quality gate between "automation
 
 ### Review Bot Setup (optional)
 
-If an AI code-review bot or static-analysis service is wired to the repo, this recipe reads its comments in the Bot review step. Otherwise, the Architecture + Mechanical checks still provide value. Specific review-service wiring lives in `/vidux-auto` where platform specifics belong.
+If an AI code-review bot or static-analysis service is wired to the repo, this recipe reads its comments in the Bot review step. Otherwise, the Architecture + Mechanical checks still provide value. Specific review-service wiring lives in `/vidux` Part 2 and `references/automation.md` where platform specifics belong.
 
 ---
 
@@ -213,7 +213,7 @@ Every writer lane that runs unattended for 4+ hours. The Frankenstein experiment
 
 ### Secondary-Model Delegation
 
-For large plan stores (>3 KB), delegate the READ step to a secondary model via `/vidux-auto` Mode A. Observer reads the compressed summary instead of the raw files. Keeps the primary model's budget tight.
+For large plan stores (>3 KB), delegate the READ step to a secondary model via `/vidux` Part 2 Mode A. Observer reads the compressed summary instead of the raw files. Keeps the primary model's budget tight.
 
 ---
 
@@ -383,7 +383,7 @@ CHECKPOINT:
 - If all [pending] tasks are done → go IDLE (don't invent work)
 - After 2 consecutive IDLE cycles → routine should reduce frequency or pause
 
-Delegate to a secondary model via `/vidux-auto` Mode B for any change >10 lines.
+Delegate to a secondary model via `/vidux` Part 2 Mode B for any change >10 lines.
 ```
 
 ---

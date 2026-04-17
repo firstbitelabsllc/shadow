@@ -46,8 +46,7 @@ A list of skill tokens (like `/vidux`, `/brand-leojkwan`) that the lane should i
 ## 2. Skills
 
 Activate these skills every cycle, in order:
-- `/vidux` — the discipline (cycle, FSM, checkpoint format)
-- `/vidux-claude` — this lane's runtime contract
+- `/vidux` — discipline + automation (cycle, FSM, checkpoint format, Part 2 lane mechanics)
 - `/brand-leojkwan` — design decisions must match Leo's brand
 - `/frontend-design` — Tailwind v4, dark mode, craft-svg
 ```
@@ -155,7 +154,7 @@ How to actually do the work. This block holds the heavy rules — worktree disci
 
 ### Delegation (optional — Mode A / Mode B)
 - If reading > 3 KB of source, delegate to `codex exec --sandbox read-only`
-  (Mode A, 3-section compression). See /vidux-codex.
+  (Mode A, 3-section compression). See /vidux Part 2.
 - For bug fixes with a clear spec (>10 lines), delegate to
   `codex exec --sandbox workspace-write` (Mode B). Review the diff, ship.
 ```
@@ -245,7 +244,7 @@ Ship and maintain leojkwan.com. Every cycle moves PLAN.md forward, fixes CI,
 merges eligible PRs, or rotates a filler audit. Retires at Phase 9 launch.
 
 ## 2. Skills
-- /vidux /vidux-claude /brand-leojkwan /frontend-design
+- /vidux /brand-leojkwan /frontend-design
 
 ## 3. Read
 1. memory.md (last 3)

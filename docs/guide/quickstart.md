@@ -142,8 +142,9 @@ If nothing is found, it checkpoints and exits with proof of what was scanned.
 
 **Plan-only (no code this cycle):**
 ```
-/vidux-plan "investigate performance issues in the dashboard"
+/vidux --plan "investigate performance issues in the dashboard"
 ```
+(Or simply tell `/vidux` "plan only, no code this cycle" — the agent honors the instruction.)
 
 ## Next Steps
 

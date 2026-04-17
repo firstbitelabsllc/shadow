@@ -57,14 +57,12 @@ If installed correctly, the agent reads the skill, gathers evidence about your p
 
 ## Ecosystem Skills
 
-Vidux is the core discipline. Optional companion skills extend it:
+Vidux is a **single entry point** — `/vidux` — that covers both planning and automation. As of 2026-04-17, previously separate companion commands (`/vidux-plan`, `/vidux-auto`, `/vidux-claude`, `/vidux-codex`, `/vidux-fleet`, `/vidux-dashboard`, `/vidux-manager`) were merged into `/vidux` or pruned as orphaned.
 
 | Skill | What it does |
 |---|---|
-| `/vidux-plan` | Plan-only mode — creates or refines PLAN.md without writing code |
-| `/vidux-fleet` | Create, manage, and audit automation fleets |
-| `/vidux-manager` | Self-diagnostic agent — runs plan quality tests, validates fleet health |
-| `/vidux-dashboard` | Cross-project visibility — all plans as a tree with status and health |
-| `/vidux-claude` | Automation lane management — CronCreate crons, session GC, fleet ops |
+| `/vidux` | Full plan-first cycle (Part 1) + automation patterns (Part 2) — one entry point covers planning, lane bootstrap, delegation, session GC |
 
-All ecosystem skills ship in this repo under `commands/`. See [Commands Reference](/reference/commands).
+For deep automation details (session-gc internals, Codex shim registration, PR lifecycle nursing, cross-fleet coordination), `/vidux` reads `references/automation.md` on demand.
+
+See [Commands Reference](/reference/commands).

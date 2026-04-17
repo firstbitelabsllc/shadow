@@ -271,15 +271,217 @@ If the Fix Spec is missing, the cycle is investigation only -- no code.
 
 ---
 
-## Automation is platform-specific (see companion skills)
+## Part 1 → Part 2 transition
 
-Vidux is a **discipline**, not an automation system. The cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT), the PLAN.md structure, the investigation template, the Decision Log, the five principles — all work whether the agent is a human, a one-shot AI session, or a cron-scheduled worker. Nothing in this skill prescribes a runtime.
+Everything above is **Part 1: Discipline** — the five principles, the cycle, the PLAN.md template, investigations, course correction. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. A human following Part 1 alone is doing vidux correctly.
 
-The automation layer — how work actually fires on a schedule, how workers persist across restarts, how garbage collection handles session state, how observers audit writers, how heavy reads get delegated to a second model — is **platform-specific** and lives in the companion skill:
+**Part 2: Automation** (below) covers the *how* when vidux work runs on a schedule — sessions cycling, lanes persisting, delegation, session-gc, observer pairs. If your task is a one-off plan, stop reading here.
 
-- **`/vidux-auto`** — Session management, lane operations, delegation modes (Mode A research / Mode B implementation), fleet ops, PR lifecycle, observer pairs, and platform-specific mechanics for running vidux workers on a schedule. See `commands/vidux-auto.md`.
+---
 
-`/vidux-auto` introduces optional production patterns (observer pairs, delegation, cost optimization) that build on top of core vidux. A human following the five principles alone is doing vidux correctly.
+# Part 2: Automation
+
+Automation is optional. It's how you run vidux workers on a schedule so work progresses even when you're not at the keyboard. Everything in Part 2 is additive — it never overrides Part 1.
+
+## When to automate (and when not to)
+
+Automate when **all** of these are true:
+- Work spans multiple sessions and would lose context across handoff
+- The cycle is repeatable (each fire does the same kind of work on whatever's pending)
+- State can live on disk (PLAN.md, memory.md, ledger) between fires
+- You accept losing conversation scrollback in exchange for 24/7 progress
+
+Do NOT automate when:
+- The work needs live human judgment every step
+- The cycle can't be described in a self-contained prompt
+- The state would have to live in session memory
+- It's a one-off fix — just do it directly
+
+## The 24/7 Fleet Operating Model (summary)
+
+One invariant: **lanes persist on disk, sessions cycle through them.**
+
+```
+Lanes (persistent)                    Sessions (disposable)
+~/.claude-automations/<lane>/         ~/.claude/projects/*/*.jsonl
+├── prompt.md   (mission)             - cycle when bloated
+└── memory.md   (durable state)       - state never lives here
+```
+
+A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of what session fires them. When a session dies, the files stay; the next session re-schedules the cron and the lane resumes from memory.md tail.
+
+**Hot vs cold storage:**
+
+| Layer | Lives here | GC |
+|---|---|---|
+| **Cold** (durable) | PLAN.md, evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Manual archive when PLAN.md > 200 lines |
+| **Hot** (disposable) | `~/.claude/projects/*/*.jsonl` | Automatic via `session-prune.py --gc-old` hourly |
+
+**session-gc is mandatory for 24/7.** A lane at `~/.claude-automations/session-gc/prompt.md` fires hourly, runs `python3 scripts/session-prune.py --gc-old 3`, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. Without it, JSONLs grow unbounded and `/resume` stops working.
+
+**Session bloat controls:**
+- Cycle session at 40 MB (fresh session starts under 1 MB)
+- `"skillListingBudgetFraction": 0.005` in settings.json (halves skill-listing payload)
+- Disable unused plugins (Vercel plugin on a non-Vercel project = ~30% of JSONL)
+- `CronCreate` over `ScheduleWakeup` for ≥10 fires (CronCreate = fresh session per fire)
+
+## Lane management — minimum needed, max 6 per session
+
+Every lane must earn its keep. More than 6 lanes per session causes worktree contention and JSONL bloat (measured).
+
+**Coordinator pattern (default for 24/7):** ONE coordinator lane per active repo that owns ALL concerns (ship code, fix CI, archive PLAN.md, watch INBOX). Beats the specialist model (separate shipper/product/a11y/seo lanes) for these reasons:
+- No PLAN.md stampede (one writer per plan)
+- End-to-end ownership (same lane that shipped fixes the test)
+- 60% less JSONL growth (1 coordinator × 3 fires vs 5 specialists × 3 fires)
+- Simpler mental model when something breaks
+
+**Observer (one exception to "fewer lanes"):** A read-only lane that audits the coordinator each cycle. Catches drift the coordinator can't self-audit. Add one per repo if drift is measured — skip if not. Never preemptive.
+
+**Polish-brake:** If your last 3 checkpoints all ship from the same surface, force a surface switch. Polish is fractal — every green PR has another P3 comment. The brake prevents infinite iteration on a done surface.
+
+## Delegation (the primary context cutter)
+
+Two modes distribute work between a **primary model** (metered, decides/reviews) and a **secondary model** (unlimited/cheaper, grunt work).
+
+**Mode A: Research.** Primary writes a prompt, secondary reads 30–150 KB, returns a 3-section summary (~300 tokens). Primary reads only the summary. Measured: **10–110x token savings** vs direct reads.
+
+```
+Primary: "30 files, needs auditing. Hand it off."
+Secondary: reads, reasons, compresses to Summary + Evidence + Recommendation.
+Primary: reads ~300 tokens, applies taste, ships.
+```
+
+**Mode B: Implementation.** Primary writes a 5-block spec, secondary edits files in the working tree. Primary reviews `git diff` (~500 tokens) instead of writing 50 lines itself. Measured: **~5x further savings** on code-writing cycles.
+
+```
+Primary: "50-line fix. Here's Task + Files + Spec + Acceptance + Out-of-scope."
+Secondary: writes code.
+Primary: git diff → accept | re-prompt | git checkout . + retry.
+```
+
+**Decision tree:**
+- Substantial code writing (>10 lines, clear spec) → Mode B
+- Reading code, grinding a hard problem, research → Mode A
+- Pure planning, taste call, <10 lines of obvious writing → primary does it directly
+
+**The Mode A compression contract** (paste verbatim in every Mode A prompt):
+```
+Output ONLY these sections, nothing else:
+1. Summary: 3 sentences MAX.
+2. Evidence: 3 file:line references MAX, one per line.
+3. Recommendation: 1 sentence MAX.
+Do not explain. Do not echo the task. Do not write code.
+```
+
+**The Mode B prompt shape** (five blocks, all mandatory):
+```
+1. Task: one-sentence description.
+2. Files: exact paths the secondary may edit.
+3. Spec: what the code must do, 3–10 bullets.
+4. Acceptance criteria: how the primary will judge the diff.
+5. Out of scope: what the secondary must NOT change.
+```
+
+The "Out of scope" block is load-bearing. Without it, the secondary refactors adjacent code it decides "looks wrong" and the primary either accepts scope creep or rejects the whole diff.
+
+## Lane Bootstrap Recipe
+
+When the user asks to create an automation ("I want a lane that…", "automate this", "run this every hour"), follow this recipe.
+
+### 1. Decide the runtime
+
+| Signal | Choose |
+|---|---|
+| Tight cycle (15–30 min), fast feedback, reads memory.md | **Claude-local** (CronCreate) |
+| Weekly / long-cycle, heavy reads, big compute budget | **Codex-local** (automations table + shim) |
+| Unsure / first lane | **Claude-local** — simpler to debug |
+
+Default: Claude-local unless the cycle needs Codex's unlimited compute budget.
+
+### 2. Pick the role
+
+- **Coordinator** — owns a whole repo (ship + fix + GC). 1 per active repo. Max 1.
+- **Observer** — read-only auditor for a coordinator. Add only when drift is measured.
+- **Burst** — single short-lived task with auto-expire. Delete when done.
+- **Radar** — read-only scan, no writes, no worktree. For research-only missions.
+
+### 3. Create the files
+
+For **Claude-local** lanes:
+
+```
+~/.claude-automations/<lane-id>/
+├── prompt.md        # Mission, authority, role, hard rules, checkpoint format
+└── memory.md        # Empty on creation; lane appends 2-3 sentences per cycle
+```
+
+For **Codex-local** lanes (the Dynamic Prompt Shim pattern):
+
+```
+~/.codex-automations/<lane-id>/
+├── prompt.md        # Real mission (editable — hot reload on next fire)
+└── memory.md        # Same shape as Claude side
+~/Development/ai/automations/<lane-id>/
+└── automation.toml  # Canonical TOML (synced across machines)
+~/.codex/automations/<lane-id>/     # Real dir (NOT symlink)
+└── automation.toml  # Symlink to the canonical TOML above
+```
+
+The `automation.toml` contains a **static shim prompt** that routes Codex to the real `prompt.md`. Codex registers the shim in its SQLite DB at startup. Edits to the dynamic `prompt.md` take effect on the next fire — no restart needed.
+
+### 4. Write the prompt
+
+Every prompt.md has these sections (in order):
+
+```
+MISSION      — 1 paragraph. What this lane does, for which repo/project.
+SKILLS       — "Load: /vidux, <lane-specific-skills>"
+GATE         — Under-45s check at fire start. When to exit early vs proceed.
+AUTHORITY    — Which files/systems this lane may touch. Paths explicit.
+ROLE         — Writer | Observer | Radar | Burst. Sets tier permissions.
+HARD RULES   — Never use --no-verify. Never force push. Never edit legal code.
+              Never touch files outside AUTHORITY.
+CHECKPOINT   — Format for the memory.md entry on exit.
+```
+
+The MISSION section matters most: it's what differentiates this lane from all others. Be specific about the *output* (a merged PR, a checkpointed decision, an appended evidence line) not just the *input* (check this, scan that).
+
+### 5. Register + schedule
+
+**Claude-local:**
+```
+CronCreate({
+  name: "<lane-id>",
+  cron: "0 */1 * * *",    # hourly, or your cadence
+  prompt: "Read ~/.claude-automations/<lane-id>/prompt.md and execute the cycle it describes."
+})
+```
+Test-fire once. If the first-fire output looks right, leave it.
+
+**Codex-local:**
+Use the SQLite INSERT recipe — see `references/automation.md` → "Creating Codex Desktop Automations". Needs a Codex restart once after first install; subsequent prompt.md edits hot-reload.
+
+### 6. Verify + checkpoint
+
+- Confirm the lane's `memory.md` gets its first entry on the next fire
+- Confirm the `[CYCLE] ...` log format matches the CHECKPOINT spec in prompt.md
+- Add the lane to INBOX or coordinator memo so future sessions know it exists
+
+### When in doubt
+
+Read `references/automation.md` for the full doctrine — session-gc internals, observer setup, PR lifecycle nursing, cross-fleet coordination, and Codex shim gotchas.
+
+---
+
+## When to use Part 2
+
+Part 2 applies when any of these are true:
+- Creating, managing, or auditing a lane
+- Debugging fleet behavior (a lane isn't firing, checkpoints look wrong)
+- Designing cross-fleet coordination (Claude + Codex on the same PLAN.md)
+- Setting up session-gc or observer lanes
+
+For everything else — planning, investigating, shipping a one-off fix — Part 1 alone is the full tool. Don't let automation mechanics leak into ordinary plan work.
 
 ---
 
@@ -289,6 +491,7 @@ Vidux activates when:
 - User says `/vidux` or describes work spanning multiple sessions
 - An existing PLAN.md governs the work
 - Pilot routes into it after detecting expedition-scale work
+- User asks to create or manage a lane/automation/cron (Part 2 foregrounded)
 
 Vidux does NOT activate for:
 - Single-file changes with obvious cause

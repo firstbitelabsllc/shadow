@@ -27,7 +27,8 @@ vidux/
 ├── DOCTRINE.md           # Extended doctrine (12 principles + gate patterns)
 ├── LOOP.md               # Stateless cycle mechanics
 ├── ENFORCEMENT.md        # Claude Code hook configuration
-├── commands/             # Slash commands: /vidux, /vidux-plan, /vidux-fleet, etc.
+├── commands/             # Slash commands: /vidux (single entry — discipline + automation)
+├── references/           # Deep docs loaded on demand (automation.md)
 ├── scripts/
 │   ├── lib/              # Shared shell functions (compat.sh, etc.)
 │   ├── vidux-loop.sh     # Cron driver — fires the cycle

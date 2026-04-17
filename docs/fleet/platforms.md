@@ -4,7 +4,7 @@ Vidux is the discipline. Claude Code and Codex are two runtimes that execute vid
 
 ## At a Glance
 
-| Feature | Claude Code (`/vidux-claude`) | Codex (`/vidux-codex`) |
+| Feature | Claude Code | Codex |
 |---|---|---|
 | **Models** | Claude Opus / Sonnet / Haiku | GPT-5.x (gpt-5.4 default) |
 | **Scheduling** | `CronCreate` — in-session, 5-field cron | TOML + rrule — persistent, survives app restart |

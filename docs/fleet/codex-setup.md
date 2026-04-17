@@ -222,4 +222,4 @@ osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 - [Codex Lifecycle](codex-lifecycle.md) — what happens each fire
 - [Platform Comparison](platforms.md) — when to pick Codex vs Claude Code
 - [Prompt Template](../reference/prompt-template.md) — the 8-block prompt structure
-- [`/vidux-codex`](../../../ai/skills/vidux-codex/SKILL.md) — Mode A / Mode B delegation
+- [`/vidux` Part 2](../../commands/vidux.md) + [`references/automation.md`](../../references/automation.md) — Mode A / Mode B delegation

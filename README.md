@@ -125,7 +125,8 @@ A few hard rules that prevent the most common stateless-agent failures:
 | `LOOP.md` | Stateless cycle mechanics |
 | `ENFORCEMENT.md` | Claude Code hook configuration |
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
-| `commands/` | `/vidux`, `/vidux-plan`, `/vidux-auto`, `/vidux-dashboard`, `/vidux-manager` |
+| `commands/` | `/vidux` (single entry point — discipline + automation) |
+| `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
 | `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
@@ -135,27 +136,24 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 ## Ecosystem
 
-Vidux is the core discipline. These companion skills extend it for specific workflows:
+Vidux is the core discipline. It has **one entry point** — `/vidux` — that covers both planning and automation. Previously separate companion skills (`/vidux-plan`, `/vidux-auto`, `/vidux-claude`, `/vidux-codex`, `/vidux-fleet`, `/vidux-dashboard`, `/vidux-manager`) were merged or deprecated on 2026-04-17 to eliminate the "which command do I use?" friction.
 
 | Skill | What it does | Ships in this repo? |
 |---|---|---|
-| `/vidux` | The full plan-first cycle — read, assess, act, verify, checkpoint | Yes |
-| `/vidux-plan` | Plan-only mode — creates or refines a PLAN.md without writing code | Yes |
-| `/vidux-auto` | Automation companion — session management, lane ops, delegation modes (Mode A/B), fleet ops, PR lifecycle, observer pairs | Yes |
-| `/vidux-manager` | Self-diagnostic agent — runs plan quality tests, validates fleet health | Yes |
-| `/vidux-dashboard` | Cross-project visibility — shows all plans as a tree with status and health | Yes |
-| `/pilot` | Universal project lead — detects stack and stage, routes into vidux when needed | No (separate) |
+| `/vidux` | Full plan-first cycle (Part 1) + automation patterns (Part 2) — read, assess, act, verify, checkpoint; plus lane bootstrap, delegation modes, session-gc | Yes |
+| `/pilot` | Universal project lead — detects stack and stage, routes into `/vidux` when needed | No (separate) |
 | `/ledger` | Append-only JSONL activity log for multi-agent coordination across tools | No (separate) |
 
-The in-repo skills (`commands/`) work standalone. The external skills are optional and compose with the core cycle without changing it.
+For deep automation details (session-gc internals, Codex shim registration, PR lifecycle nursing, cross-fleet coordination), `/vidux` reads [`references/automation.md`](references/automation.md) on demand — it is not loaded upfront.
 
 ## Platform Automation
 
-Vidux is platform-agnostic — the cycle works for humans, one-shot sessions, and cron-scheduled fleets. The automation layer is covered by `/vidux-auto` (`commands/vidux-auto.md`), which includes:
+Vidux is platform-agnostic — the cycle works for humans, one-shot sessions, and cron-scheduled fleets. The automation layer is **Part 2** of the single `/vidux` skill (`commands/vidux.md`), with the deep doctrine in [`references/automation.md`](references/automation.md):
 
 - **Session management** — CronCreate lanes, session-gc, JSONL growth control
 - **Lane operations** — coordinator pattern, decision tree, 6-lane hard cap
 - **Delegation modes** — Mode A (research, compressed summary) and Mode B (implementation, diff review)
+- **Lane bootstrap recipe** — decision tree (Claude-local vs Codex-local), role picker (coordinator/observer/burst/radar), file templates, registration steps
 - **Fleet ops** — discover, prescribe, validate, audit across automation fleets
 - **PR lifecycle** — PR Nurse pattern, triage at cycle start, self-review before push
 - **Observer pairs** — read-only audit lanes that catch implementation fidelity errors
@@ -164,7 +162,7 @@ See [guides/fleet-ops.md](guides/fleet-ops.md) and [guides/recipes.md](guides/re
 
 ## Fleet Patterns
 
-Patterns for autonomous multi-lane fleets. See `/vidux-auto` for mechanics and the [recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
+Patterns for autonomous multi-lane fleets. See `/vidux` Part 2 and [`references/automation.md`](references/automation.md) for mechanics, plus the [recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
 
 - **Draft-PR-first** — automation pushes go through `gh pr create --draft`, never direct-to-main ([guide](guides/draft-pr-flow.md))
 - **Observer pairs** — read-only auditor catches wrong flags, stale refs, strategic drift ([recipe](guides/recipes.md#recipe-4-observer-pair))
@@ -179,7 +177,7 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 
 **2. Ledger noise drowns signal.** The vidux-loop cron produced 395K empty `vidux_loop_start` entries in 2 days — 99.7% of all ledger volume. Fix: log once when idle, not per-PID per-fire. The ledger is only useful if real events are findable.
 
-**3. Workspace-write flips the cost model.** When Codex writes code (`--sandbox workspace-write`) and Claude only reviews the diff, per-cycle Claude cost drops from ~10K tokens to ~2-3K. The expensive part (code generation) shifts to the unlimited Codex budget. This is now Mode B in `/vidux-codex`.
+**3. Workspace-write flips the cost model.** When Codex writes code (`--sandbox workspace-write`) and Claude only reviews the diff, per-cycle Claude cost drops from ~10K tokens to ~2-3K. The expensive part (code generation) shifts to the unlimited Codex budget. This is now Mode B in `/vidux` Part 2.
 
 ## Documentation
 

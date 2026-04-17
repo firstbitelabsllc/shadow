@@ -81,7 +81,7 @@ If `gh pr create` fails (auth issue, network, no `gh` CLI):
 
 - Who reviews the PR (human — always, per Q3 confirmed 2026-04-11)
 - Auto-merge policy (never — per Q4 confirmed 2026-04-11)
-- Paid-service integrations (Greptile review, Sentry context) — those live in `/vidux-auto` scope as composable add-ons
+- Paid-service integrations (Greptile review, Sentry context) — those live in `/vidux` Part 2 scope as composable add-ons
 - Leo's personal pushes (unchanged — Phase 5 is automation-only per Q6)
 
 ## Adopting this in a lane prompt
