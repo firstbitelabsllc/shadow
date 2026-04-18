@@ -62,7 +62,7 @@ Run this readiness checklist. Each item scores 1 point. Minimum 7/10 to start co
 - [ ] Evidence section has >= 3 cited sources with `[Source:]` markers
 - [ ] Constraints section has at least one ALWAYS and one NEVER
 - [ ] At least one Task exists with evidence cited
-- [ ] Open Questions section has no items that are cited (as Q-refs) in the NEXT task's description
+- [ ] No unanswered question is cited as a blocker in the NEXT task's description
 
 **Quality (each adds 1 point to the score):**
 - [ ] Evidence includes at least one EXTERNAL source (MCP query, web search, not just codebase)
@@ -87,21 +87,14 @@ If the plan is NOT ready, your job is to REFINE THE PLAN, not write code.
 
 Priority order:
 1. **[in_progress] tasks** — resume; a prior session died mid-task
-2. **Task-linked open questions** — research questions whose Q-ref (e.g. `Q1`, `Q3`) appears in the NEXT pending task's description (per-task gating, not global — a growing Q-list with no task citations does not block execution)
-3. **[blocked] tasks whose blocker is now resolved** — set back to [pending]
-4. **[pending] tasks without evidence** — gather evidence for them
-5. **First [pending] task with evidence** — set to [in_progress] and execute it
-6. **All tasks [completed]** — verify final state, update progress, mark mission complete
+2. **Task-linked blockers** — if the NEXT pending task cites an unanswered question as a blocker, research it first (per-task gating — a free-floating question list does not block execution)
+3. **[pending] tasks without evidence** — gather evidence for them
+4. **First [pending] task with evidence** — set to [in_progress] and execute it
+5. **All tasks [completed]** — verify final state, update progress, mark mission complete
 
 ### Q3: Can I parallelize?
 
-If two or more tasks are marked `[P]` (parallelizable) and have no dependencies:
-- Spawn up to 3 background agents (one per task)
-- Each agent gets: the task description, relevant PLAN.md sections, file scope
-- Set `AGENT_LANE=<task-name>` and `AGENT_SKILLS=vidux` in each spawn
-- Point guard (you) waits and synthesizes results
-
-If tasks are serial: do one. Just one. Not two.
+If the next task benefits from parallel research fan-out, dispatch agents; otherwise do one task at a time.
 
 ## Step 3: Act (bulk of the cycle)
 
@@ -131,16 +124,15 @@ Each returns a structured finding:
 You synthesize all findings into PLAN.md Evidence section.
 ```
 
-**For answering open questions:**
-- Pick the first open question cited in the next pending task (per-task gating)
+**For answering task-linked blockers:**
+- Pick the first unanswered question cited as a blocker on the next pending task
 - Research it (web search, MCP query, codebase read)
 - Write the answer in the Evidence section
-- Remove it from Open Questions (or convert to a constraint/decision)
+- Clear the blocker annotation (or convert to a constraint/decision)
 
 **For adding tasks:**
 - Based on evidence, decompose work into checkbox tasks
 - Each task must cite its evidence source
-- Mark parallelizable tasks with `[P]`
 - Add dependency markers `[Depends: Task N]`
 
 ### If EXECUTING CODE (compound task with `[Investigation: ...]`):
@@ -176,9 +168,9 @@ Follow the Vidux unidirectional flow:
 
 ## Step 4: Checkpoint (30 seconds)
 
-Every cycle MUST produce a checkpoint commit, even if no code changed.
+**A cycle produces a commit only when code changed.** Investigation-only cycles keep their notes on disk — no commit, no PR. The next cycle reads `investigations/<slug>.md` and picks up where this one stopped. If only PLAN.md changed (row flips, Progress entries) bundle it into the next code commit, don't ship it standalone.
 
-**Commit message format:**
+**Commit message format (when code changed):**
 ```
 vidux: [what you did]
 
@@ -221,11 +213,11 @@ Borrowed from PAUL (Execute/Qualify loop). Every task ends in one of:
 | Status | Meaning | Next Action |
 |--------|---------|-------------|
 | **DONE** | Task complete, verified | Set to `[completed]` in PLAN.md |
-| **DONE_WITH_CONCERNS** | Works but has caveats | Set to `[completed]` + add concern to Surprises |
-| **NEEDS_CONTEXT** | Can't proceed without more info | Keep as `[pending]`, add to Open Questions, skip to next task |
+| **DONE_WITH_CONCERNS** | Works but has caveats | Set to `[completed]` + add concern to Progress entry |
+| **NEEDS_CONTEXT** | Can't proceed without more info | Keep as `[pending]`, note as `[Blocker: need evidence for X]` on the task, skip to next task |
 | **BLOCKED** | External dependency (human, CI, feature flag) | Set to `[blocked]` with `[Blocker: ...]` tag, skip |
 
-**Script support (v2):** Pass `--status <done|done_with_concerns|blocked>` to `vidux-checkpoint.sh`. The script handles both v1 (`[ ]`/`[x]`) and v2 FSM states. `NEEDS_CONTEXT` is handled by the agent: keep the task `[pending]`, add to Open Questions, move on — no checkpoint flag needed.
+**Script support (v2):** Pass `--status <done|done_with_concerns|blocked>` to `vidux-checkpoint.sh`. The script handles both v1 (`[ ]`/`[x]`) and v2 FSM states. `NEEDS_CONTEXT` is handled by the agent: keep the task `[pending]`, note the missing evidence as a `[Blocker: ...]` on the task, move on — no checkpoint flag needed.
 
 ## Per-Cycle Scorecard
 
@@ -269,7 +261,7 @@ When present, all fields appear on the same Progress line between summary and "N
 |---------|-----------|--------|
 | `outcome=busy` x 2 | Task harder than planned | Break into sub-tasks |
 | `outcome=busy` x 3 | Stuck loop | Run failure protocol (five-whys) |
-| `blocker_age >= 3` | Blocker not resolving | Escalate to human |
+| `blocker_age >= 3` | Blocker not resolving | Force surface switch; mark `[blocked]` with Decision Log entry |
 | `evidence=0` x 3+ | Executing without evidence | Gather evidence before next cycle |
 | `proof=none` x 4+ | Cycles not advancing proof | Re-assess plan readiness |
 | `control_plane=red` | Production degraded | Stop feature work; fix infra first |
@@ -281,12 +273,7 @@ When uncertain, prefer `outcome=busy` over `useful`. Calibration beats optimism.
 
 ## Stuck-Loop Detection
 
-Borrowed from GSD. If the same task has been attempted in 3+ consecutive cycles without progress:
-
-1. Check: is the task too large? Break it into sub-tasks.
-2. Check: is evidence missing? Gather it first.
-3. Check: is it actually blocked? Mark as BLOCKED and move on.
-4. If none of the above: run the failure protocol (five-whys on agent behavior).
+If the same task has been attempted in 3+ consecutive cycles without progress, force a surface switch. Mark the stuck task `[blocked]` with a one-line Decision Log entry describing what was tried, and move to the next unblocked task. No human hand-off required — the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced.
 
 **Tooling support (v2):** `vidux-loop.sh` detects stuck loops via the `## Progress` section of PLAN.md — not git commit messages. If the task description (first 40 chars) appears in 3+ Progress entries and the task is still not `[completed]`, the loop sets `stuck: true` and `action: "stuck"`. This survives commit message variation and LLM compaction; the Progress section records the exact task text verbatim via checkpoint.
 
@@ -299,7 +286,7 @@ Borrowed from PAUL. At the end of each cycle, reconcile:
 
 If they diverge:
 - Update the plan to reflect reality (not the other way around)
-- Add a Surprise entry explaining the divergence
+- Note the divergence in the next Progress entry
 - Decide if downstream tasks need updating
 
 ## Example Cycle

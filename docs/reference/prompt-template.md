@@ -184,16 +184,15 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 - `scripts/**` (cross-lane tooling, not coord-owned)
 - Other lanes' `memory.md` files — read-only
 
-### Push tier authorization
-- Tier 1 (draft PRs): always safe, no approval needed
-- Tier 2 (direct-to-main): forbidden for this lane
-- Tier 3 (force-push, branch delete, git reset --hard): never, ever
+### Push authorization
+- Draft PRs: always safe, no approval needed.
+- Direct-to-main or destructive operations (force-push, branch delete, `git reset --hard`): forbidden for this lane.
 ```
 
 **Rules:**
 - List the "never touch" paths explicitly — a lane that silently edits out-of-scope files is worse than a lane that does nothing.
 - Cite the **reason** for forbidden paths (historical prose, secrets, cross-lane). Future agents read the reason to judge edge cases.
-- The push-tier section is mandatory for any code-writing lane. See SKILL.md for the full contract.
+- The push-authorization section is mandatory for any code-writing lane. See SKILL.md for the full contract.
 
 ## Block 8: Checkpoint
 

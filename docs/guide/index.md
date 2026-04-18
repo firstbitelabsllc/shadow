@@ -50,7 +50,7 @@ If the code is wrong, the plan is wrong — fix the plan first. The store persis
 | **State** | `PLAN.md` in git — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
 | **Multi-agent** | Any agent reads the same files and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
-| **Fleet ops** | Observer pairs, draft-PR flow, idle detection | N/A | N/A |
+| **Fleet ops** | Draft-PR flow, session-gc, idle detection | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
@@ -63,11 +63,11 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 **Compound tasks + L2 investigations** — messy surfaces get a compound task that links to an `investigations/<slug>.md` sub-plan. The L2 investigation is the work until the Fix Spec is filled.
 
-**Observer pairs** — every writer lane should have a read-only observer lane that audits its files on an offset schedule. 100% signal-to-noise measured across 38 audits.
+**Progress is code change** — a PR that only touches `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local. See [CHANGELOG 2.9.0](../../CHANGELOG.md#290--2026-04-17).
 
 **Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries; retroactive rewrites destroy the history future agents need.
 
-**3x stuck rule** — if the same task appears in 3+ consecutive progress entries while still in-progress, the lane exits.
+**3x stuck rule** — if the same task appears in 3+ consecutive progress entries while still in-progress, force a surface switch; the next cycle finds new evidence or the task stays blocked.
 
 ## Next Steps
 

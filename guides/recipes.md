@@ -20,7 +20,9 @@ A single lane can combine triggers (e.g., scheduled nightly + fires on every new
 
 ---
 
-## Recipe 1: Fleet Watcher
+## Recipe 1: Fleet Watcher — DEPRECATED (2026-04-17)
+
+> ⚠️ **Deprecated.** Fleet Watcher is an orchestration smell — a scheduled lane that reads other lanes' state to report back drift the writer couldn't self-detect. In practice it adds JSONL, memory.md writes, and cross-lane reads without catching bugs the writer couldn't already see in its own logs. Fleet health belongs in the coordinator's own cycle (it already scans its own queue each fire), or in a one-shot manual audit — not a standing scheduled lane. Keep this recipe for reference only. Do not build new Fleet Watcher lanes.
 
 **What:** Scheduled health check across all automation lanes. Reads memories, classifies fleet state, escalates stuck lanes, detects trunk health issues.
 
@@ -164,7 +166,9 @@ Any fleet using draft-PR-first discipline. Without a lifecycle manager, draft PR
 
 ---
 
-## Recipe 4: Observer Pair
+## Recipe 4: Observer Pair — DEPRECATED (2026-04-17)
+
+> ⚠️ **Deprecated.** Observer Pair is the same orchestration smell as Fleet Watcher applied per-writer. Extra memory.md files, cadence-offset cycles, and cross-lane reads for bugs the writer couldn't see — in practice observers catch far less drift than expected and most of what they do catch is better fixed by editing the writer's prompt. See `references/automation.md` Section 3 / Section 8. Do not build new Observer Pair lanes.
 
 **What:** Read-only audit of a writer lane's plan, progress, and memory files. Catches what the writer can't see from inside its own worldview.
 
@@ -397,7 +401,6 @@ A typical production fleet combines 3-5 recipes:
 │                 Production Fleet                        │
 │                                                         │
 │  Scheduled (every 1-6h):                                │
-│    Fleet Watcher ──→ scorecard + escalation             │
 │    PR Lifecycle ──→ stale detection + ready notification │
 │    Trunk Health ──→ repo hygiene + worktree GC          │
 │    Skill Refiner ──→ description quality + stale refs   │
@@ -405,9 +408,6 @@ A typical production fleet combines 3-5 recipes:
 │  Event-driven:                                          │
 │    PR Reviewer ──→ review bot + code-review agent       │
 │    Deploy Watcher ──→ verify after merge (with EXIT)    │
-│                                                         │
-│  Per Writer Lane:                                       │
-│    Observer Pair ──→ independent audit of writer files   │
 │                                                         │
 │  Meta:                                                  │
 │    Self-Improvement ──→ vidux improving vidux (24h)     │
@@ -420,16 +420,14 @@ Every automation platform has caps — daily run limits, webhook-per-hour limits
 
 | Recipe | Trigger | Est. fires/day | Notes |
 |---|---|---|---|
-| Fleet Watcher | Scheduled 2h | 12 | Core fleet visibility |
 | PR Reviewer | Event-driven | ~5 | Per draft PR from automation |
 | PR Lifecycle | Scheduled 1h | 24 | Drop to scheduled 2h if cap-constrained |
-| Observer Pair (x2) | Scheduled 2h | 12 each | Delegate reads to a secondary model to save tokens |
 | Deploy Watcher | Event-driven | ~3 | Exits after verification (max 3 checks) |
 | Trunk Health | Scheduled 4h | 6 | Light — mostly git status checks |
 | Skill Refiner | Scheduled 6h | 4 | One skill per cycle |
 | Self-Improvement | Scheduled 24h | 1 | Meta — vidux improving vidux |
 
-**Cadence strategy:** Start with Fleet Watcher + PR Reviewer (highest ROI). Add recipes as you verify the platform's caps support them.
+**Cadence strategy:** Start with PR Reviewer + PR Lifecycle (highest ROI). Add recipes as you verify the platform's caps support them.
 
 ### Hybrid Strategy: Persistent + Session-scoped
 

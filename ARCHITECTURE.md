@@ -70,7 +70,7 @@ flowchart LR
 
 **Read:** Load PLAN.md, check for in-progress tasks (crash recovery), scan git log/diff.
 
-**Assess:** Does the next task have evidence? If yes, execute. If no, gather evidence first (no code this cycle).
+**Assess:** Does the next task have evidence? If yes, execute. If no, gather it locally — no commit or PR until the fix ships.
 
 **Act:** Execute one task or refine the plan. Agents keep working through the queue until they hit a real boundary — context limit, external blocker, or empty queue.
 

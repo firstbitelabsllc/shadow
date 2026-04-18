@@ -99,7 +99,7 @@ Vidux solves that by making documentation the control plane. State lives in mark
 | **State** | `PLAN.md` in git — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
 | **Multi-agent** | Any agent reads the same files and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
-| **Fleet ops** | Observer pairs, draft-PR flow, idle detection | N/A | N/A |
+| **Fleet ops** | Draft-PR flow, session-gc, idle detection | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
@@ -120,7 +120,8 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 | Path | What |
 |------|------|
-| `SKILL.md` | Full contract: architecture, doctrine, loop, PLAN.md template, compound tasks, observer pairs |
+| `SKILL.md` | Full contract: architecture, doctrine, loop, PLAN.md template, compound tasks |
+| `CHANGELOG.md` | Release notes — latest doctrine changes and migration notes |
 | `DOCTRINE.md` | The short doctrine (~5 min read) |
 | `LOOP.md` | Stateless cycle mechanics |
 | `ENFORCEMENT.md` | Claude Code hook configuration |
@@ -153,10 +154,9 @@ Vidux is platform-agnostic — the cycle works for humans, one-shot sessions, an
 - **Session management** — CronCreate lanes, session-gc, JSONL growth control
 - **Lane operations** — coordinator pattern, decision tree, 6-lane hard cap
 - **Delegation modes** — Mode A (research, compressed summary) and Mode B (implementation, diff review)
-- **Lane bootstrap recipe** — decision tree (Claude-local vs Codex-local), role picker (coordinator/observer/burst/radar), file templates, registration steps
+- **Lane bootstrap recipe** — decision tree (Claude-local vs Codex-local), role picker (coordinator/burst/radar), file templates, registration steps
 - **Fleet ops** — discover, prescribe, validate, audit across automation fleets
 - **PR lifecycle** — PR Nurse pattern, triage at cycle start, self-review before push
-- **Observer pairs** — read-only audit lanes that catch implementation fidelity errors
 
 See [guides/fleet-ops.md](guides/fleet-ops.md) and [guides/recipes.md](guides/recipes.md) for full lifecycle docs and setup guides.
 
@@ -165,9 +165,9 @@ See [guides/fleet-ops.md](guides/fleet-ops.md) and [guides/recipes.md](guides/re
 Patterns for autonomous multi-lane fleets. See `/vidux` Part 2 and [`references/automation.md`](references/automation.md) for mechanics, plus the [recipe catalog](guides/recipes.md) for 8 ready-to-deploy patterns with prompt templates.
 
 - **Draft-PR-first** — automation pushes go through `gh pr create --draft`, never direct-to-main ([guide](guides/draft-pr-flow.md))
-- **Observer pairs** — read-only auditor catches wrong flags, stale refs, strategic drift ([recipe](guides/recipes.md#recipe-4-observer-pair))
+- **Progress is code change** — PRs that only touch `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` are bookkeeping, not progress. Bundle plan updates into the code PR, or keep notes local ([CHANGELOG](CHANGELOG.md#290--2026-04-17))
+- **`observed` evidence type** — user-observed app behavior is first-class plan evidence alongside grep hits and PR comments
 - **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit
-- **Fleet watcher** — scheduled health check, scorecard: SHIPPING / IDLE / BLOCKED / CRASHED ([recipe](guides/recipes.md#recipe-1-fleet-watcher))
 
 ## Lessons from Production (Apr 2026 fleet run)
 

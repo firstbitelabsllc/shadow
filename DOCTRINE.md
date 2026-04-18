@@ -94,6 +94,8 @@ Don't wait for the user to enumerate work. Think N steps ahead, add tasks you sp
 
 Agents are good at functional code (Stripe wiring, schema migrations, build configs). They are bad at taste -- anticipating what the user wants without being told, noticing the related polish on the same surface, thinking two or three steps past the current task. Vidux automations are the *amp* for product taste, not just a build runner.
 
+If evidence changes mid-cycle, the queue re-sorts. You don't need permission to reorder.
+
 *Why this matters: Readers AND writers can self-extend the plan as they discover things. Definition of done for UI work is a simulator screenshot or visual proof, never just "the build passes."*
 
 ## 12. Bounded recursion -- know when good enough is good enough

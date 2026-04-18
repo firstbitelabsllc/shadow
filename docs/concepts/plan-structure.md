@@ -32,21 +32,16 @@ Intentional choices that future agents must not undo.
 - [DELETION] [date] Removed X. Reason: Y. Do not re-add.
 - [DIRECTION] [date] Chose X over Y. Reason: Z.
 
-## Open Questions
-- Q1: [question] -> Action: [what to research]
-
-## Surprises
-Unexpected findings during execution. Timestamped.
-- [Date] Found: X. Impact: Y. Plan update: Z.
-
 ## Progress
-Living log updated each cycle.
+Living log updated each cycle. Unexpected findings, concerns, and reorder
+notes all live here — no separate Surprises or Open Questions section. If a
+finding needs a task, promote it to a task.
 - [Date] What happened. Next: what's next. Blocker: if any.
 ```
 
 ## Required Sections
 
-All eight sections are required. Missing sections produce known failure modes:
+All six sections are required. Missing sections produce known failure modes:
 
 | Section | What happens without it |
 |---|---|
@@ -55,8 +50,6 @@ All eight sections are required. Missing sections produce known failure modes:
 | Constraints | Agents violate hard requirements they weren't told about |
 | Tasks | No queue — agents improvise unpredictably |
 | Decision Log | Agents re-add deleted code or undo deliberate pivots |
-| Open Questions | Unknowns stay invisible until they cause failures |
-| Surprises | Unexpected findings get lost; future agents repeat the discovery |
 | Progress | No history — agents can't tell what actually happened |
 
 ## Task Status FSM
@@ -64,7 +57,7 @@ All eight sections are required. Missing sections produce known failure modes:
 ```
 pending → in_progress → completed
               ↓
-           blocked → pending
+           blocked    (terminal)
 ```
 
 Status rules:
@@ -72,7 +65,7 @@ Status rules:
 - Only one task per lane should be `[in_progress]` at a time
 - `[completed]` is permanent — never revert to `[pending]`
 - `[blocked]` requires a Blocker note and Decision Log entry
-- `[blocked]` → `[pending]` only after a human resolves the blocker
+- `[blocked]` is terminal — replace with a new task rather than reviving
 
 **Inside `## Tasks`, every line starting with `- ` MUST be a task with a status tag.** Use numbered lists (`1. 2. 3.`) or headers for non-task content like rollout strategies or phase preambles.
 
@@ -151,20 +144,16 @@ For complex bugs or surfaces with 2+ tickets:
 
 **No Fix Spec = no code.** The investigation IS the work until Fix Spec is filled.
 
-**Nesting depth:** Max two levels (L1 plan, L2 investigation). L3 is allowed only when an investigation reveals a nested bug that itself needs investigation — this is rare.
+**Nesting depth:** Max two levels (L1 plan, L2 investigation). If a surface needs deeper decomposition, split it into separate L1 plans.
 
 ## Garbage Collection
 
-PLAN.md needs periodic cleanup:
-
-- **Archive** completed tasks when PLAN.md exceeds 200 lines or 30+ completed tasks
-- **Rotate** Decision Log entries older than 180 days to `evidence/`
-- **Clean** INBOX.md entries that have been promoted or skipped
+Archive when the plan feels heavy — the agent decides, no fixed threshold. Promoted or skipped INBOX entries are removed inline.
 
 Add a GC task to the plan when it gets large:
 
 ```markdown
-- [pending] Task GC: Archive completed tasks and prune PLAN.md [Evidence: wc -l PLAN.md = 247 lines]
+- [pending] Task GC: Archive completed tasks and prune PLAN.md
 ```
 
 ## INBOX.md

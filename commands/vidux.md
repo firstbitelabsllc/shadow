@@ -31,7 +31,7 @@ Prefix every output block with the current stage:
 - Use the arguments passed to `/vidux` as the project description.
 - Search code, docs, prior plans, and team conventions.
 - Synthesize findings into a new `PLAN.md` using the standard structure:
-  - Purpose, Evidence, Constraints, Decisions, Decision Log, Tasks, Open Questions, Surprises, Progress.
+  - Purpose, Evidence, Constraints, Decisions, Decision Log, Tasks, Progress.
 - Every plan entry MUST cite at least one evidence source.
 - If a bug surface already looks messy, create a compound task immediately:
   - `[Investigation: investigations/<slug>.md]`
@@ -43,7 +43,7 @@ Run the **stateless cycle**. Read fresh every time. Never carry context forward.
 
 ### 1. 🔍 GATHER
 
-- Parse tasks, Decision Log, Open Questions, and recent Progress.
+- Parse tasks, Decision Log, and recent Progress.
 - If any task is `[in_progress]`, that has first priority.
 - If any Decision Log entry contradicts the next action, do not take that action.
 
@@ -61,11 +61,9 @@ ELIF the next [pending] task cites unresolved Q-refs:
 ELIF the next [pending] task lacks evidence:
   -> 🔍 GATHER evidence and update the plan.
 
-ELIF a [blocked] task is now unblocked:
-  -> Return it to [pending] and execute it.
-
 ELIF an actionable [pending] task exists:
   -> Set it to [in_progress], execute it, verify it, then mark [completed] or [blocked].
+     [blocked] is terminal — replace with a new [pending] task + Decision Log entry, never revive.
 
 ELSE:
   -> Verify the final state and mark the mission complete.
@@ -73,7 +71,9 @@ ELSE:
 
 Simple readiness check: does the next task have a description and cited evidence? Yes = code. No = refine the plan.
 
-**Hot/cold awareness:** Check context budget: if PLAN.md exceeds 200 lines or has 30+ completed tasks, suggest archiving with `vidux-checkpoint.sh --archive`.
+**If evidence changes mid-cycle, the queue re-sorts. No permission needed.** Note the reorder in the next Progress entry.
+
+**Hot/cold awareness:** If the plan feels heavy, archive completed tasks — the agent decides, no fixed threshold.
 
 ### 3. ⚡ EXECUTE
 
@@ -100,7 +100,7 @@ Before code, make sure the investigation contains:
 6. Regression Tests
 7. Gate
 
-If the Fix Spec is missing, this task is investigation only — fill it in, then move to the next task.
+If the Fix Spec is missing, keep notes local and move on — do not commit or open a PR for an investigation-only cycle.
 
 ### 4. ✅ VERIFY
 

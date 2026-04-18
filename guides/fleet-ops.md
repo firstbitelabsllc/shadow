@@ -99,7 +99,7 @@ Cron agents are stateless but worktrees are not. When a session dies mid-task in
    - [WORKTREE] [date] Merged/abandoned <branch>. Reason: <why>.
    ```
 
-4. **Stale detection.** If a worktree entry persists across 3 cron cycles with no progress (same status, no new commits on the branch), mark the associated task `[blocked]` with `[Blocker: stale worktree -- no progress in 3 cycles]` and log it in Surprises.
+4. **Stale detection.** If a worktree entry persists across 3 cron cycles with no progress (same status, no new commits on the branch), mark the associated task `[blocked]` with `[Blocker: stale worktree -- no progress in 3 cycles]` and note it in the next Progress entry.
 
 5. **Plan file merge safety.** Any merge that touches PLAN.md must verify that the task count did not decrease unless tasks were explicitly marked `[completed]` and archived. PLAN.md is append-mostly by design -- new tasks are added, completed tasks are archived, but tasks are never silently removed. Before completing a merge that modifies PLAN.md, compare task counts:
    ```bash
@@ -343,7 +343,7 @@ Safety mechanisms can become traps. Circuit breaker opens after N idle cycles an
 2. The script automatically flips the task from `[in_progress]` to `[blocked]` in PLAN.md.
 3. A `[STUCK]` entry is appended to the Decision Log with the date and last progress note.
 4. The JSON output includes `auto_blocked: true` so the harness knows enforcement fired.
-5. Only a human can move the task back to `[pending]` -- this prevents infinite cron loops.
+5. The harness forces a surface switch on the next cycle — no human gate. The blocked task is terminal; if new evidence surfaces (observed signal, PR comment, queue re-sort), a replacement task is added with a Decision Log entry rather than reviving the blocked one.
 
 If PLAN.md format is unexpected (missing sections, unusual markup), the enforcement degrades gracefully: stuck detection still reports `stuck: true` in JSON, but the auto-block write is skipped. No data is lost.
 
@@ -386,7 +386,7 @@ Scanner findings awaiting writer promotion.
 
 ### Why not write directly to PLAN.md?
 
-Scanners are read-only observers (Doctrine: role boundary). Letting scanners mutate the task queue breaks the separation between observation and execution. The inbox is a buffer that preserves that boundary while closing the feedback loop.
+Scanners are read-only scouts (Doctrine: role boundary). Letting scanners mutate the task queue breaks the separation between scanning and execution. The inbox is a buffer that preserves that boundary while closing the feedback loop. (This is the radar pattern — distinct from the deprecated observer pattern, which audited a writer's own state. Scanners feed the queue; observers reported on drift.)
 
 ---
 

@@ -28,5 +28,5 @@ features:
 
   - icon: 🚢
     title: Fleet Intelligence
-    details: Coordinate multiple agents with writer, radar, and coordinator roles. Observer pairs, draft-PR flows, and health checks for 24/7 autonomous operation.
+    details: Coordinate multiple agents with writer, radar, and coordinator roles. Draft-PR flows and health checks for 24/7 autonomous operation.
 ---

@@ -14,16 +14,14 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 | 4 | `## Constraints` | ✔ | ALWAYS / NEVER rules |
 | 5 | `## Tasks` | ✔ | Ordered task queue with status tags |
 | 6 | `## Decision Log` | ✔ | Intentional choices future agents must not undo |
-| 7 | `## Open Questions` | *optional* | Questions + research actions |
-| 8 | `## Surprises` | *optional* | Unexpected findings, timestamped |
-| 9 | `## Progress` | ✔ | Living per-cycle log |
+| 7 | `## Progress` | ✔ | Living per-cycle log (unexpected findings + reorder notes live here) |
 
 ## Task Status FSM
 
 ```
   pending ─────▶ in_progress ─────▶ completed
-     ▲                │
-     └── blocked ◀────┘
+                      │
+                      └── blocked (terminal)
 ```
 
 | Status | Meaning | Who sets it |
@@ -31,12 +29,12 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 | `[pending]` | Queued with evidence, not yet started | Writer during plan authoring |
 | `[in_progress]` | Actively being worked (one cycle or across cycles) | Any agent picking up the task |
 | `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
-| `[blocked]` | Can't proceed — needs a human unblock | Any agent that hits the block |
+| `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
 
 **Rules:**
 
 - A task is `[in_progress]` for at most one cycle at a time. If the session dies mid-task, the next agent resumes it.
-- A task appears in 3+ Progress entries while still `[in_progress]` → mark `[blocked]` with a Decision Log entry. Only a human unblocks it.
+- A task appears in 3+ Progress entries while still `[in_progress]` → force a surface switch; the next cycle finds new evidence or the task stays blocked.
 - `[completed]` is earned by verification evidence (a command, screenshot, or build output), not by assertion. Claiming complete without evidence is a lie (SKILL.md Principle 5).
 - Status flows UP from sub-plans: an L1 task stays `[in_progress]` while its L2 investigation has any `(pending)` section.
 
@@ -52,7 +50,6 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 | `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs Leo's PostHog prod key]` |
 | `[Fix: file:line]` | Where the fix landed, on `[completed]` tasks | `[Fix: src/auth.ts:42]` |
 | `[Shipped: <sha>]` | Commit sha the fix landed in | `[Shipped: a1b2c3d]` |
-| `[P]` | Parallelizable — multiple agents may claim concurrently | `- [P] [pending] Task 9: ...` |
 
 ## Decision Log Entry Types
 
@@ -68,16 +65,6 @@ The Decision Log is the **lock file** that stops stateless agents from undoing d
 | `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] 2026-04-16 Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
 
 **Why the tags matter:** a future agent scanning the Decision Log greps by tag to answer "what's forbidden?" (`[DELETION]`), "what are the architectural choices?" (`[DIRECTION]`), or "what changed recently?" (`[PIVOT]` / `[REVERSAL]`).
-
-## Surprise Entry Format
-
-Unexpected findings from execution. Timestamped, short, actionable.
-
-```
-- [YYYY-MM-DD] Found: X. Impact: Y. Plan update: Z.
-```
-
-Each entry has all three fields — a finding without impact is a journal note, not a surprise; an impact without a plan update leaves the plan out of sync with reality.
 
 ## Progress Entry Format
 
@@ -127,17 +114,6 @@ Two subsections — things that must be true, things that are forbidden.
 
 **Rule of thumb:** constraints survive the project. If a rule only applies to one task, put it on the task line, not in Constraints.
 
-## Open Questions
-
-Format: one line per question, with an action.
-
-```markdown
-## Open Questions
-- Q1: Does R2 support signed URLs with custom domains? → Action: grep R2 docs, or test in a scratch script
-```
-
-Each question has an **action** — someone or something to resolve it. An open question without an action is stalled work masquerading as a plan.
-
 ## Compound Task Sub-Plan Structure
 
 When a task has `[Investigation: investigations/<slug>.md]`, the sub-plan follows this structure:
@@ -167,7 +143,7 @@ When a task has `[Investigation: investigations/<slug>.md]`, the sub-plan follow
 <build passes, tests pass, visual check (for UI)>
 ```
 
-Sections fill in as the investigation progresses. **No `## Fix Spec` → no code** — the cycle is investigation-only until the spec lands. See [SKILL.md § Investigation Template](../../SKILL.md#investigation-template) for the full contract.
+Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in a single code PR. See [SKILL.md § Investigation Template](../../SKILL.md#investigation-template) for the full contract.
 
 ## See Also
 

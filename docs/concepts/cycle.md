@@ -36,10 +36,10 @@ ELIF plan has [pending] tasks WITH evidence:
   → Set first [pending] to [in_progress], execute, verify, checkpoint
 
 ELIF plan has [pending] tasks WITHOUT evidence:
-  → Gather evidence, update plan with citations, checkpoint (no code)
+  → Gather evidence locally, update plan in place — no commit until code ships
 
 ELIF plan is empty or missing:
-  → Research, synthesize into initial PLAN.md, checkpoint (no code)
+  → Research locally, draft initial PLAN.md — no commit until code ships
 
 ELIF all tasks are [completed]:
   → Verify final state. Mark mission complete.
@@ -61,9 +61,7 @@ Execute tasks until the queue is empty, a blocker is hit, or the context budget 
 **Queue order:**
 1. `[in_progress]` always resumes first — a prior session died mid-task
 2. Dependencies resolve before dependents — `[Depends: Task N]` blocks until N is `[completed]`
-3. `[pending]` tasks run top-to-bottom — first eligible task wins
-4. `[P]` tasks may run in parallel — up to 4 concurrent agents, one point guard
-5. No reordering mid-cycle — to change priority, update the plan with a Decision Log entry
+3. Pick the highest-impact unblocked task. Re-sort when new observed evidence arrives. Note the reorder in the next Progress entry.
 
 **Mid-zone kill:** If 3+ minutes pass with no file write, exit. This catches agents stuck in plan-reading loops.
 
@@ -115,36 +113,20 @@ vidux: recover uncommitted work from crashed session
 - [DATE] What happened. Next: what's next. Blocker: if any.
 ```
 
-**Reconcile planned vs actual:** Compare what the plan SAID with what the git diff SHOWS. If they diverge, update the plan and add a Surprise entry. The plan always reflects truth.
-
-**Surprises format:**
-```markdown
-## Surprises
-- [2026-04-15] Found: auth/login.ts has a second rate limiter we didn't know about.
-  Impact: our new rate limiter will double-count requests.
-  Plan update: Task 1 updated to configure both limiters in sync.
-```
+**Reconcile planned vs actual:** Compare what the plan SAID with what the git diff SHOWS. If they diverge, update the plan and note the divergence in the Progress entry. The plan always reflects truth.
 
 ## Stuck Detection
 
-If the same task appears in 3+ Progress entries while still `[in_progress]`, it is stuck. Mark it `[blocked]` with a Decision Log entry. Only a human can unblock it.
+If the same task appears in 3+ Progress entries while still `[in_progress]`, force a surface switch. Move to the next unblocked task and mark the stuck one `[blocked]` with a Decision Log entry noting what was tried. The next cycle either finds new evidence or the task stays blocked.
 
 ```markdown
 ## Decision Log
-- [BLOCKED] [2026-04-15] Task 3 stuck 3 cycles. Root cause unknown. Requires human review.
+- [BLOCKED] [2026-04-15] Task 3 stuck 3 cycles. Tried: X, Y. Moving on.
 ```
 
-## Push Authorization Tiers
+## Push Authorization
 
-Not all pushes carry the same risk:
-
-| Tier | What | Authorization needed |
-|---|---|---|
-| 1. Draft PRs | Push to feature branch + `gh pr create --draft` | Always safe — no ask needed |
-| 2. Direct-to-main | Push directly to main branch | Explicit authorization per lane or session |
-| 3. Destructive | Force push, branch delete, `git reset --hard` | Per-action authorization |
-
-If the lane prompt says "NEVER push" with no tier distinction, treat it as tier 2+3 blocked but tier 1 (draft PRs) still allowed.
+Draft PRs are always safe to push — no ask needed. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization.
 
 ## Escalation Statuses
 

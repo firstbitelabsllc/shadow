@@ -24,7 +24,7 @@ vidux-project/
 
 One per project. The single source of truth for what needs to happen, what has been decided, and what actually happened.
 
-Eight required sections — missing any produces known failure modes:
+Six required sections — missing any produces known failure modes:
 
 | Section | What happens without it |
 |---|---|
@@ -33,9 +33,9 @@ Eight required sections — missing any produces known failure modes:
 | Constraints | Agents violate hard requirements |
 | Tasks | No queue — agents improvise unpredictably |
 | Decision Log | Agents re-add deleted code or undo deliberate pivots |
-| Open Questions | Unknowns stay invisible until they cause failures |
-| Surprises | Unexpected findings get lost |
 | Progress | No history — agents can't tell what actually happened |
+
+Unknowns and unexpected findings don't need their own sections. Promote a question to a `[pending]` research task (or note `[Blocker: need X]` on the task); note a surprise in the Progress entry.
 
 See [PLAN.md Structure](/concepts/plan-structure) for the full template.
 

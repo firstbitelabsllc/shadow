@@ -100,7 +100,7 @@ The default fleet for one repo is:
 | `<repo>-coordinator` | Ship + fix CI + merge PRs + archive PLAN.md | ~30 min |
 | `session-gc` | Delete old JSONLs, measure growth | 30-60 min |
 
-Add observers or burst lanes only when drift is measured. See [platforms.md](platforms.md) for the full decision tree.
+Add burst lanes only when drift is measured. See [platforms.md](platforms.md) for the full decision tree.
 
 ## Auto-Expire
 

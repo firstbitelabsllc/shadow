@@ -1,6 +1,6 @@
 # Automation Reference (vidux)
 
-Detailed automation doctrine for vidux — session management, lane operations, delegation modes, fleet ops, PR lifecycle, observer pairs, and platform-specific mechanics for running vidux workers on a schedule. Read this reference from `/vidux` when a task involves creating lanes, managing fleet state, or coordinating cross-session handoff.
+Detailed automation doctrine for vidux — session management, lane operations, delegation modes, fleet ops, PR lifecycle, and platform-specific mechanics for running vidux workers on a schedule. Read this reference from `/vidux` when a task involves creating lanes, managing fleet state, or coordinating cross-session handoff.
 
 This reference contains the full doctrine merged from the former `/vidux-claude`, `/vidux-codex`, and `/vidux-fleet` companion skills. The core `/vidux` skill (SKILL.md) contains a condensed automation overview; this reference contains the full details.
 
@@ -31,7 +31,7 @@ Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
 
 | Layer | What lives here | Lifetime | GC |
 |---|---|---|---|
-| **Cold (durable)** | PLAN.md (queue + decision log), evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Until assignment done | Manual archive per vidux rules (completed tasks rotate to `evidence/` when PLAN.md > 200 lines) |
+| **Cold (durable)** | PLAN.md (queue + decision log), evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Until assignment done | Agent archives completed tasks when the plan feels heavy — no fixed threshold |
 | **Hot (disposable)** | `~/.claude/projects/*/*.jsonl` (conversation log) | One session | Automatic via `session-prune.py --gc-old` hourly |
 
 **Every cold-storage entry has a stable home and a reason to exist.** Every hot-storage byte is evictable once the session it belongs to is inactive. If you find yourself reading old JSONLs to recover state, the cold-storage contract is broken — fix the checkpoint discipline, don't revive the JSONL.
@@ -126,7 +126,7 @@ That is the entire session-gc lane. Under 50 lines of prompt. One script, one ca
 
 ### Plan-GC is NOT a separate lane
 
-The vidux GC rule — archive completed tasks when PLAN.md exceeds 200 lines — is the **coordinator's** job. Each coordinator reads its own PLAN.md at the top of every cycle and, if the threshold is hit, rolls completed tasks to `evidence/YYYY-MM-DD-completed-tasks-archive.md` before picking up new work. **One lane owns a repo's entire lifecycle: ship, fix, GC.**
+The vidux GC rule — archive completed tasks when the plan feels heavy (agent decides, no fixed threshold) — is the **coordinator's** job. Each coordinator reads its own PLAN.md at the top of every cycle and, if the plan is heavy, rolls completed tasks to `evidence/YYYY-MM-DD-completed-tasks-archive.md` before picking up new work. **One lane owns a repo's entire lifecycle: ship, fix, GC.**
 
 ---
 
@@ -139,9 +139,8 @@ The vidux GC rule — archive completed tasks when PLAN.md exceeds 200 lines —
 ```
 Is this a 24/7 ongoing fleet concern (long-running product shipping)?
 ├─ YES → 1 COORDINATOR per active repo
-│        + 1 OBSERVER per coordinator (optional — add when drift is measured)
 │        + 1 SESSION-GC for the whole session (MANDATORY for 24/7)
-│        Total: 3–7 lanes for 1–3 active repos. Hard cap at 6 per session.
+│        Total: 2–4 lanes for 1–3 active repos. Hard cap at 6 per session.
 │
 └─ NO  → Is this a burst fix (< 1 day, specific stuck PR / failing CI)?
          ├─ YES → 1 BURST lane with auto-expire (see `qa-iterator` pattern)
@@ -152,9 +151,8 @@ Is this a 24/7 ongoing fleet concern (long-running product shipping)?
                   ├─ YES → 1 RADAR lane (read-only, no worktree)
                   │        Total: 1 lane.
                   │
-                  └─ NO  → 1 WRITER lane for the specific shipping task
-                           + optionally 1 observer if drift is expected
-                           Total: 1–2 lanes.
+                  └─ NO  → 1 WRITER lane for the specific shipping task.
+                           Total: 1 lane.
 ```
 
 ### The coordinator pattern (default for 24/7 work)
@@ -169,13 +167,9 @@ A **coordinator** is one lane that owns ALL concerns for one repo: ship code, fi
 - **JSONL savings.** 1 coordinator firing 3x/hour adds ~600KB/hour of JSONL. 5 specialists firing 3x/hour each add ~3MB/hour. Over 10 hours the difference is 24MB vs 6MB.
 - **Works with multi-account rotation.** On account switch, the coordinator's state is on disk (memory.md). The new session picks up. Specialist sprawl multiplies this handoff risk.
 
-### The observer (the one exception to "fewer lanes")
+### Observer lanes are deprecated (2026-04-17)
 
-Observers are the only kind of lane to add preemptively. They are read-only lanes that audit the writer's work each cycle. Full setup details in Section 8 (Observer Pairs).
-
-**Why observers are cheap:** read-only (zero write contention), catches drift the writer cannot self-audit (wrong flags, FSM violations, retroactive edits, stale cross-references).
-
-**When to add one:** after running a writer for a full day, read its memory.md. If there is drift (3+ cycles stuck on the same task, non-chronological entries, "completed" without an "in_progress" predecessor, stale authority refs), add an observer. If not, skip. 1 observer per writer max — never stack.
+Observers were previously framed as the one exception to "fewer lanes" — read-only lanes that audit the writer each cycle. In practice they are an orchestration smell: extra memory.md files, cross-lane reads, and cycle offsets that rarely catch bugs the writer couldn't already see in its own logs. Drift belongs upstream. If a writer keeps getting stuck or producing wrong flags, fix the writer's prompt or the doctrine that's producing the drift. Do not pay for a second read-only lane to report it back to you. Need independent eyes? Run a one-shot audit by hand. Do not schedule it.
 
 ### Why the hard cap at 6
 
@@ -193,7 +187,6 @@ If your assignment needs more than 6 lanes, the assignment is too big for one se
 - **Specialist splitting.** Do not create separate `<project>-shipper`, `<project>-product`, `<project>-creative-engine`, `<project>-a11y-sweep`, `<project>-seo-radar` lanes for the same repo. Collapse into one coordinator.
 - **Lane-per-PR.** Do not spawn a lane for each in-flight PR. The coordinator picks the next PR to work on.
 - **"Helper" lanes.** A `fleet-coordinator` that only watches other lanes is a parked car. Collapse its responsibilities into the lanes themselves.
-- **Preemptive observers.** Do not create observers "just in case." Measure drift, then add one.
 - **Resurrection lanes.** Do not create a lane to restart another lane. Sessions cycle; lanes resume from disk. The restart is implicit.
 
 ### Ghost lane detection
@@ -577,30 +570,11 @@ After pushing a draft PR, review bots take 2-5 min to post. If the next cycle fi
 
 ---
 
-## 8. Observer Pairs
+## 8. Observer Pairs — DEPRECATED (2026-04-17)
 
-Observers are read-only lanes that audit the writer lane's work each cycle. They catch implementation fidelity errors the writer cannot self-audit.
+Observer lanes are deprecated. They are an orchestration smell: read-only lanes that add memory.md files, cross-lane reads, and cycle offsets without catching bugs the writer couldn't already see. Drift belongs upstream — fix the writer's prompt or the doctrine that produces drift. If you need independent eyes, run a one-shot audit by hand, not a scheduled lane.
 
-### What observers catch
-
-- **Wrong flags / config keys.** A self-audit may report "three reasoning levels give 35-token spread, reasoning is irrelevant" while using the wrong config key — all three runs were secretly at the same level. The observer catches the mismatch from log headers.
-- **Hallucinated schemas.** Deep research mode returns plausible-looking JSON with keys that don't exist in the real API. An observer running the same question through a different tool catches the divergence.
-- **General pattern:** observers catch IMPLEMENTATION FIDELITY errors (wrong flags, stale references, self-reporting failures). They do NOT catch FRAMING errors — if the question is wrong, the observer verifies a correct answer to the wrong question. Framing errors still need human input.
-
-### Setup recipe
-
-- **Cadence offset.** Set the observer's schedule ~15 min after the writer's slot so audits land between writer fires. Writer at `:07` -> observer at `:22` is canonical. More than 15 min drift and the observer runs on stale writer state; less than 15 and it might race the writer mid-cycle.
-- **Prompt structure.** 8 blocks: Mission / Skills / Read / Gate / Assess / Act / Authority / Checkpoint. The Act section MUST write a NEW audit file at `<plan-dir>/evidence/audit-YYYYMMDD-HHMM.md` with five sub-sections: Activity / Mechanism / Integrity / Verdict / Recommendation. Never overwrite existing audit files.
-- **Verdict format.** One of: `SHIPPING | IDLE | BLOCKED | WARNING | CRASHED`.
-- **Authority discipline.** The observer's ONLY write targets are `<plan-dir>/evidence/audit-*.md` and its own `memory.md`. Everything else (PLAN.md, PROGRESS.md, writer's memory.md, writer's prompt.md) is read-only. An observer that edits writer state is not an observer — it's a second writer with a confused role.
-
-### When to add one (heuristic)
-
-Add an observer after running a writer for a full day. Read its memory.md. If there is drift (3+ cycles stuck on same task, non-chronological entries, "completed" without an "in_progress" predecessor, stale authority refs), add an observer. If not, skip it. **1 observer per writer max — never stack.** The observer counts against the 6-lane cap.
-
-### Why use the secondary model for observers
-
-Observers are read-only and fire every cycle. Under cost-asymmetric setups (primary metered, secondary unlimited), secondary-model observers cost near zero. The independent-eyes value is higher because a different model catches bugs the primary's self-audit misses.
+See Section 3 "Observer lanes are deprecated" for the full rationale. This section is kept only so historical references resolve.
 
 ---
 
@@ -620,7 +594,6 @@ When a project runs BOTH a Claude writer lane (in `~/.claude-automations/`) and 
 
 3. **Agent ledger** (cross-session cross-fleet visibility). Both fleets write to `~/.agent-ledger/activity.jsonl` via Stop hooks. `ledger-inject.sh` pre-seeds the last 3 repo-scoped entries on SessionStart — fresh Claude sessions know what Codex did recently, and vice versa.
 
-4. **Observer lane** (fleet health). Read-only lane scans peer memory + DB status every ~30 min, writes alerts.md. Never edits peer state. See Section 8.
 
 ### Peer-drift: when a specialist gets replaced by a coordinator
 
@@ -666,8 +639,7 @@ Every code-writing lane uses git worktrees for isolation:
 **Rules:**
 - Fresh worktree per cycle for code changes
 - Symlink `node_modules`, `.env.local`, `.env.test` from main into the worktree (CRITICAL — without this, test commands fail on env-var checks and look like code regressions)
-- Commit inside the worktree, fast-forward merge into main, delete worktree
-- Never push without explicit human authorization (cron cycles commit locally, human pushes)
+- Commit inside the worktree, push the branch, open a draft PR (draft PRs are always safe — no authorization needed). Direct-to-main or destructive operations require explicit authorization.
 
 **Investigation-only cycles** (plan updates, evidence files, no code changes) MAY skip the worktree and commit directly in main — worktree discipline isolates code changes that could break builds, not doc updates.
 
@@ -982,7 +954,6 @@ Read this reference (loaded on demand from within a `/vidux` session) when:
 - Delegating work between agents (Mode A/B).
 - Running fleet scans, audits, or prescriptions.
 - Creating or reviewing draft PRs from automation.
-- Pairing a writer lane with an observer.
 
 Do NOT activate for core plan-first work (use `/vidux` alone) or for one-off tasks that don't involve automation infrastructure.
 

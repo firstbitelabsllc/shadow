@@ -114,7 +114,7 @@ What is actually broken and why. Not symptoms -- the specific code path.
 - [ ] visual check or runtime smoke (for UI)
 ```
 
-**If the Fix Spec is missing, the cycle is investigation only -- no code.**
+**If the Fix Spec is missing, keep notes local and move on — no commit or PR until the fix ships alongside the investigation in a single code PR.**
 
 ---
 

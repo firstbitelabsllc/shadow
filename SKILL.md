@@ -27,13 +27,15 @@ After any interruption, re-read PLAN.md and evidence/ from disk. Never trust sum
 
 Bug tickets are not line items. Before coding, map root cause, related surfaces, and impact. A fix without investigation is a guess.
 
-When 2+ tickets touch the same surface, bundle them into one investigation. The investigation produces a root cause analysis, an impact map, and a fix spec. If the fix spec is missing, the cycle is investigation only -- no code.
+When 2+ tickets touch the same surface, bundle them into one investigation. The investigation produces a root cause analysis, an impact map, and a fix spec. Investigation notes live locally in the working tree until the fix ships — they are not a separate deliverable. No investigation PR, no evidence PR, no plan-flip PR. The unit of progress is code change.
 
 ### 4. Self-extend with a brake
 
 Agents add tasks they discover. When you fix a bug, log the related bugs you saw. When you add a feature, log the edge cases you spotted.
 
 But a shipped surface that works is done -- stop polishing and move to the next gap. If overall mission has gaps elsewhere, polish on a done surface is procrastination. Only re-extend plans when investigation reveals new surfaces, not when you find one more thing to tweak on a surface you already finished.
+
+**If evidence changes mid-cycle, the queue re-sorts.** Observed user behavior, a failing deploy, a new PR comment — any of these can reorder what's next. You don't need permission to reorder. Note the reorder in the next Progress entry so future agents see the why.
 
 ### 5. Prove it mechanically
 
@@ -43,6 +45,8 @@ When an audit or grep produces a count or classification, **spot-check at least 
 
 After a failure, produce two artifacts: a code fix (the immediate repair) and a process fix (a hook, a test, a constraint, a plan update). The process fix is the valuable output -- it makes the system smarter for next time.
 
+**Progress is code change.** A PR that only touches `PLAN.md`, `investigations/`, `evidence/`, or `INBOX.md` without a source-code change is not progress — it's bookkeeping. Bundle plan updates into the code PR that ships the fix, or keep the notes local until a fix is ready. Standalone "flip row to [completed]", "reconcile Phase N", "audit already-delivered", or "investigation closeout" PRs are prohibited. If a cycle produces no code, it produces no PR and no commit — the notes stay on disk for the next cycle to pick up.
+
 ---
 
 ## The Cycle
@@ -51,9 +55,11 @@ Every work session follows this loop:
 
 ```
 READ       -> PLAN.md, INBOX.md, git log, git diff (uncommitted work?)
-ASSESS     -> Resume [in_progress] first, else first eligible [pending].
-             No evidence? Refine plan, no code. Empty plan? Research first.
-ACT        -> Execute tasks until queue empty, blocker, or context budget
+ASSESS     -> Resume [in_progress] first, else pick highest-impact unblocked task.
+             No evidence? Gather it locally before coding. Empty plan? Research first.
+ACT        -> Execute tasks until queue empty, blocker, or context budget.
+             Empty queue? Scan INBOX, owned paths, git log, blocked tasks. Anything
+             found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit.
 VERIFY     -> Build, test, gate
 CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
              Reconcile planned vs actual; update plan if they diverge.
@@ -61,25 +67,17 @@ CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
 
 **Crash recovery:** If `git diff` shows uncommitted work from a dead session, commit it first: `vidux: recover uncommitted work from crashed session`.
 
-**Stuck detection:** If the same task appears in 3+ Progress entries while still `[in_progress]`, it is stuck. Mark it `[blocked]` with a Decision Log entry. Only a human can unblock it.
+**Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Force a surface switch — move to the next unblocked task and mark the stuck one `[blocked]` with a one-line Decision Log entry explaining what was tried. No human hand-off required; the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced. Polish is fractal — the brake is what prevents forever-loops, not a human approval gate.
 
-**Push authorization:** Not all pushes carry the same risk. Agents should act on the safest tier without asking and escalate for riskier tiers:
-
-1. **Draft PRs** — always safe. Push to a feature branch + `gh pr create --draft` without asking. The PR is the review gate; the push itself is low-risk because nothing reaches main without human merge.
-2. **Direct-to-main** — explicit authorization required per lane or per session. A blanket "you can push" from the human covers this tier.
-3. **Destructive** (force push, branch delete, `git reset --hard`) — per-action authorization. Never batch these under a blanket approval.
-
-If the lane prompt says "NEVER push" with no tier distinction, treat it as tier 2+3 blocked but tier 1 (draft PRs) still allowed. An agent that parks for 8 hours on a draft-PR push is wasting time on a safe operation.
+**Push authorization:** Draft PRs are always safe to push — push the branch and `gh pr create --draft` without asking. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization. A lane prompt that says "NEVER push" without qualification still allows draft PRs; parking on a safe draft-PR push wastes cycles.
 
 ### Queue order
 
-Tasks are processed top-to-bottom with these rules:
+Tasks are processed with these rules:
 
 1. **[in_progress] always resumes first** -- a prior session died mid-task
 2. **Dependencies resolve before dependents** -- `[Depends: Task N]` blocks until N is `[completed]`
-3. **[pending] tasks run top-to-bottom** -- the first eligible task wins
-4. **[P] tasks may run in parallel** -- up to 4 concurrent agents, one point guard
-5. **No reordering mid-cycle** -- to change priority, update the plan with a Decision Log entry
+3. **Pick the highest-impact unblocked task** -- strict FIFO is the default, but re-sort when new `[Source: observed]` evidence or a Decision Log entry changes priority. Note the reorder in the next Progress entry; you don't need permission to reorder.
 
 ---
 
@@ -102,6 +100,7 @@ What we know, cited with sources.
 - [Source: codebase grep] file:line pattern
 - [Source: GitHub PR #1234] "feedback or constraint"
 - [Source: design doc] "architectural decision"
+- [Source: observed] "flicker on launch in TestFlight build 990" (user-observed behavior is first-class evidence)
 
 ## Constraints
 - ALWAYS: [things that must be true]
@@ -119,22 +118,19 @@ status tag. Use numbered lists (1. 2. 3.) or headers for non-task
 content like rollout strategies or phase preambles.
 
 Status FSM: pending -> in_progress -> completed
-                 \-> blocked -> pending
+                              \-> blocked    (terminal — a blocked task is
+                                              replaced by a new task with a
+                                              Decision Log entry, not revived)
 
 ## Decision Log
 Intentional choices that future agents must not undo.
 - [DELETION] [date] Removed X. Reason: Y. Do not re-add.
 - [DIRECTION] [date] Chose X over Y. Reason: Z.
 
-## Open Questions
-- Q1: [question] -> Action: [what to research]
-
-## Surprises
-Unexpected findings during execution. Timestamped.
-- [Date] Found: X. Impact: Y. Plan update: Z.
-
 ## Progress
-Living log updated each cycle.
+Living log updated each cycle. Unexpected findings, concerns noted during
+execution, and reorder notes all live here — no separate Surprises or Open
+Questions section. If a finding needs a task, promote it to a task.
 - [Date] What happened. Next: what's next. Blocker: if any.
 ```
 
@@ -162,7 +158,7 @@ Not every task is atomic. Some need investigation before code. A compound task l
 
 The `[Investigation: ...]` marker tells the agent: read the sub-plan before coding. If the investigation has no fix spec yet, the cycle is investigation only. Sub-plans follow the same structure (evidence, root cause, fix spec, tests).
 
-**Nesting depth:** Max two levels (L1 plan, L2 investigation). L3 is allowed only when an investigation reveals a nested bug that itself needs investigation -- this is rare. If you need L3, the surface is probably too complex and should be broken into separate L1 plans.
+**Nesting depth:** Max two levels (L1 plan, L2 investigation). If a surface needs deeper decomposition, split it into separate L1 plans instead.
 
 **Status propagation:** When an L2 investigation's Fix Spec is coded, tested, and gated, the parent task in L1 PLAN.md moves to `[completed]`. An L2 with no Fix Spec yet means the parent stays `[in_progress]` -- the investigation IS the work.
 
@@ -175,7 +171,7 @@ Parent task in L1 `PLAN.md`:
   [Evidence: Sentry def-123, 47 occurrences; grep "checkout" → 4 hits across 3 files]
 ```
 
-**Stage 1 — investigation stub, no Fix Spec yet.**
+**Stage 1 — investigation in progress, no PR opens yet.**
 
 `investigations/payment-flow.md`:
 
@@ -195,7 +191,7 @@ Parent task in L1 `PLAN.md`:
 ## Gate          (pending)
 ```
 
-L1 Task 3 STAYS `[in_progress]`. This cycle is investigation-only — no code. The agent's job is to push one `(pending)` section forward (Root Cause → Impact Map → Fix Spec → Tests → Gate) and checkpoint. Any cycle that tries to ship code while Fix Spec is still `(pending)` is a mechanism violation — catch it at VERIFY.
+L1 Task 3 STAYS `[in_progress]`. The agent works locally — reads code, pushes one `(pending)` section forward (Root Cause → Impact Map → Fix Spec → Tests → Gate). **No PR opens.** No commit lands. The investigation file sits on disk for the next cycle. The fix and the investigation doc ship together in Stage 2 as one PR.
 
 **Stage 2 — Fix Spec + Tests + Gate land. Code ships. L1 flips.**
 
@@ -210,7 +206,7 @@ The investigation file is NOT deleted on completion. It stays as the historical 
 
 **Four rules this example illustrates:**
 
-1. **No Fix Spec = no code.** The investigation IS the work until the Fix Spec section is filled. Cycles that find `(pending)` in Fix Spec may only push sections forward, not ship code.
+1. **No Fix Spec = no PR.** The investigation file lives on disk until the Fix Spec is filled AND the code ships. Cycles that find `(pending)` in Fix Spec push notes forward locally — no commit, no PR, no ceremony.
 2. **Status flows UP.** L1 completion is driven by L2 state — never mark L1 `[completed]` while L2 has any `(pending)` section.
 3. **Sub-plans are durable.** Keep `investigations/<slug>.md` after the parent task completes. Archive it via the GC rules (older than 180 days, not "task done"), not immediately.
 4. **Decision Log stays in L1.** L2 has Root Cause + Impact Map, but directional choices ("we chose idempotency over a distributed lock") belong in the parent PLAN.md Decision Log so they survive even after the investigation file is archived. L2 is the *why this bug happened*; L1 Decision Log is *why we fixed it this way*.
@@ -226,10 +222,7 @@ The investigation file is NOT deleted on completion. It stays as the historical 
 
 ### Garbage collection
 
-- **Archive** completed tasks when PLAN.md exceeds 200 lines or 30+ completed tasks
-- **Prune** worktrees older than 24h with no unmerged commits
-- **Rotate** Decision Log entries older than 180 days to `evidence/`
-- **Clean** INBOX.md entries promoted or skipped
+Archive completed tasks to `ARCHIVE.md` when the plan feels heavy — the agent decides, no fixed threshold. Promoted or skipped INBOX entries are removed inline.
 
 ---
 
@@ -242,12 +235,6 @@ When something breaks or changes:
 1. **Update the plan FIRST** -- what changed, why, what's the new direction
 2. **Then update the code** -- derived from the new plan state
 3. **Every failure produces a process fix** -- not just a code fix
-
----
-
-## Every agent is a worker
-
-Every writer finds work AND does work. When the queue is empty, agents look for work — check INBOX.md, scan owned paths, check git log, recheck blocked tasks. If any scan finds work: add it as `[pending]`, then execute. If all clean: checkpoint and exit.
 
 ---
 
@@ -267,7 +254,7 @@ For complex bugs or surfaces with 2+ tickets, create `investigations/<slug>.md`:
 ## Gate                 — build passes, tests pass, visual check (for UI)
 ```
 
-If the Fix Spec is missing, the cycle is investigation only -- no code.
+If the Fix Spec is missing, notes stay local. The investigation ships with the fix, not ahead of it.
 
 ---
 
@@ -275,7 +262,7 @@ If the Fix Spec is missing, the cycle is investigation only -- no code.
 
 Everything above is **Part 1: Discipline** — the five principles, the cycle, the PLAN.md template, investigations, course correction. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. A human following Part 1 alone is doing vidux correctly.
 
-**Part 2: Automation** (below) covers the *how* when vidux work runs on a schedule — sessions cycling, lanes persisting, delegation, session-gc, observer pairs. If your task is a one-off plan, stop reading here.
+**Part 2: Automation** (below) covers the *how* when vidux work runs on a schedule — sessions cycling, lanes persisting, delegation, session-gc. If your task is a one-off plan, stop reading here.
 
 ---
 
@@ -314,7 +301,7 @@ A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of wh
 
 | Layer | Lives here | GC |
 |---|---|---|
-| **Cold** (durable) | PLAN.md, evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Manual archive when PLAN.md > 200 lines |
+| **Cold** (durable) | PLAN.md, evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Agent-decided archive when the plan feels heavy |
 | **Hot** (disposable) | `~/.claude/projects/*/*.jsonl` | Automatic via `session-prune.py --gc-old` hourly |
 
 **session-gc is mandatory for 24/7.** A lane at `~/.claude-automations/session-gc/prompt.md` fires hourly, runs `python3 scripts/session-prune.py --gc-old 3`, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. Without it, JSONLs grow unbounded and `/resume` stops working.
@@ -334,8 +321,6 @@ Every lane must earn its keep. More than 6 lanes per session causes worktree con
 - End-to-end ownership (same lane that shipped fixes the test)
 - 60% less JSONL growth (1 coordinator × 3 fires vs 5 specialists × 3 fires)
 - Simpler mental model when something breaks
-
-**Observer (one exception to "fewer lanes"):** A read-only lane that audits the coordinator each cycle. Catches drift the coordinator can't self-audit. Add one per repo if drift is measured — skip if not. Never preemptive.
 
 **Polish-brake:** If your last 3 checkpoints all ship from the same surface, force a surface switch. Polish is fractal — every green PR has another P3 comment. The brake prevents infinite iteration on a done surface.
 
@@ -401,7 +386,6 @@ Default: Claude-local unless the cycle needs Codex's unlimited compute budget.
 ### 2. Pick the role
 
 - **Coordinator** — owns a whole repo (ship + fix + GC). 1 per active repo. Max 1.
-- **Observer** — read-only auditor for a coordinator. Add only when drift is measured.
 - **Burst** — single short-lived task with auto-expire. Delete when done.
 - **Radar** — read-only scan, no writes, no worktree. For research-only missions.
 
@@ -438,7 +422,7 @@ MISSION      — 1 paragraph. What this lane does, for which repo/project.
 SKILLS       — "Load: /vidux, <lane-specific-skills>"
 GATE         — Under-45s check at fire start. When to exit early vs proceed.
 AUTHORITY    — Which files/systems this lane may touch. Paths explicit.
-ROLE         — Writer | Observer | Radar | Burst. Sets tier permissions.
+ROLE         — Writer | Radar | Burst. Sets tier permissions.
 HARD RULES   — Never use --no-verify. Never force push. Never edit legal code.
               Never touch files outside AUTHORITY.
 CHECKPOINT   — Format for the memory.md entry on exit.
@@ -469,7 +453,7 @@ Use the SQLite INSERT recipe — see `references/automation.md` → "Creating Co
 
 ### When in doubt
 
-Read `references/automation.md` for the full doctrine — session-gc internals, observer setup, PR lifecycle nursing, cross-fleet coordination, and Codex shim gotchas.
+Read `references/automation.md` for the full doctrine — session-gc internals, PR lifecycle nursing, cross-fleet coordination, and Codex shim gotchas.
 
 ---
 
@@ -479,7 +463,7 @@ Part 2 applies when any of these are true:
 - Creating, managing, or auditing a lane
 - Debugging fleet behavior (a lane isn't firing, checkpoints look wrong)
 - Designing cross-fleet coordination (Claude + Codex on the same PLAN.md)
-- Setting up session-gc or observer lanes
+- Setting up session-gc
 
 For everything else — planning, investigating, shipping a one-off fix — Part 1 alone is the full tool. Don't let automation mechanics leak into ordinary plan work.
 

@@ -36,6 +36,7 @@ One sentence: why this snapshot was created and what question it answers.
 - [Source: <tool/file/url>, <date>] <what was queried or read>
 - [Source: codebase grep] <file:line pattern found>
 - [Source: MCP query] <tool + query used>
+- [Source: observed] <user-observed behavior, e.g. "flicker on first render", "Remove button silently no-ops">
 
 ## Findings
 

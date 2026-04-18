@@ -115,11 +115,16 @@ class ViduxContractTests(unittest.TestCase):
 
     REQUIRED_PLAN_SECTIONS = [
         "Purpose", "Evidence", "Constraints", "Decisions",
-        "Tasks", "Open Questions", "Surprises", "Progress",
+        "Tasks", "Progress",
     ]
 
     def test_plan_has_required_sections(self):
-        """PLAN.md must have all 8 required sections."""
+        """PLAN.md must have all required sections.
+
+        Open Questions and Surprises were removed from the required list in
+        2.9.0 — Progress entries and Decision Log cover those findings. Plans
+        may still include them as optional sections.
+        """
         text = _read(PLAN)
         for section in self.REQUIRED_PLAN_SECTIONS:
             self.assertTrue(
