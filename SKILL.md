@@ -107,9 +107,9 @@ What we know, cited with sources.
 - NEVER: [things that are forbidden]
 
 ## Tasks
-Ordered, with status tags and evidence citations.
-- [pending] Task 1: description [Evidence: ...]
-- [in_progress] Task 2: description [Evidence: ...]
+Ordered, with status tags, evidence citations, and — for pending + in_progress — a mandatory `[ETA: Xh]` tag.
+- [pending] Task 1: description [Evidence: ...] [ETA: 0.5h]
+- [in_progress] Task 2: description [Evidence: ...] [ETA: 2h]
 - [completed] Task 3: description [Evidence: ...]
 - [blocked] Task 4: description [Blocker: ...]
 
@@ -121,6 +121,16 @@ Status FSM: pending -> in_progress -> completed
                               \-> blocked    (terminal — a blocked task is
                                               replaced by a new task with a
                                               Decision Log entry, not revived)
+
+**`[ETA: Xh]` — mandatory AI-hour estimate on pending + in_progress tasks.**
+An AI-hour is how much focused AI-agent work a task takes end-to-end, not
+wall-clock time. Calibration: 0.25h trivial / 0.5h simple fix / 1h small
+feature / 2h moderate / 4h e2e bug / 8h+ multi-phase (promote to compound).
+ETAs are elastic — when scope moves, log the revision in `## Decision Log`
+and update the tag. `/vidux-status` sums pending + in_progress ETAs to show
+remaining AI-hours per plan. Completed + blocked tasks don't need an ETA
+(they're terminal for this calibration). Adding a new `[pending]` task
+without `[ETA: Xh]` is a plan defect — fill it in before checkpoint.
 
 ## Decision Log
 Intentional choices that future agents must not undo.
@@ -148,68 +158,66 @@ Vidux is designed for projects that span days to months. A quarter project has:
 
 The plan LIVES -- it gets updated every cycle, not written once and followed blindly.
 
-### Compound tasks and sub-plans
+### When a task needs an investigation (the only nesting vidux allows)
 
-Not every task is atomic. Some need investigation before code. A compound task links to an investigation file:
+Some tasks are atomic — one PR, clear diff. Others are messy: unclear root cause, 3+ files in play, you need to think before you touch code. For those, the parent plan task delegates its deep work to a child investigation file:
 
 ```markdown
-- [pending] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
-```
-
-The `[Investigation: ...]` marker tells the agent: read the sub-plan before coding. If the investigation has no fix spec yet, the cycle is investigation only. Sub-plans follow the same structure (evidence, root cause, fix spec, tests).
-
-**Nesting depth:** Max two levels (L1 plan, L2 investigation). If a surface needs deeper decomposition, split it into separate L1 plans instead.
-
-**Status propagation:** When an L2 investigation's Fix Spec is coded, tested, and gated, the parent task in L1 PLAN.md moves to `[completed]`. An L2 with no Fix Spec yet means the parent stays `[in_progress]` -- the investigation IS the work.
-
-#### Worked example: L1 compound task + L2 investigation lifecycle
-
-Parent task in L1 `PLAN.md`:
-
-```
 - [in_progress] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
-  [Evidence: Sentry def-123, 47 occurrences; grep "checkout" → 4 hits across 3 files]
 ```
 
-**Stage 1 — investigation in progress, no PR opens yet.**
+That's the entire nesting model. One parent plan, one child investigation per compound task. No deeper nesting. If you need a third level, split into two separate parent plans instead.
 
-`investigations/payment-flow.md`:
+**How it works:**
 
+1. **You write the investigation file first.** `investigations/payment-flow.md` has seven sections, filled bottom-up:
+
+   ```
+   ## Reporter Says    — exact quote from feedback
+   ## Evidence         — files, related tickets, repro steps
+   ## Root Cause       (pending)
+   ## Impact Map       (pending)
+   ## Fix Spec         (pending)
+   ## Tests            (pending)
+   ## Gate             (pending)
+   ```
+
+2. **The parent task stays `[in_progress]`** while the investigation is active. Each cycle fills one `(pending)` section. No PR opens during investigation — the sections live on disk.
+
+3. **The fix ships with the investigation, as one commit.** When Fix Spec + Tests + Gate are all done, the code lands and the parent task flips `[completed]`:
+
+   ```
+   - [completed] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
+     [Fix: src/checkout/submit.ts:42, src/checkout/retry.ts:18] [Shipped: <commit sha>]
+   ```
+
+4. **The investigation file stays forever.** It's the historical record of *why* the fix looks the way it does. Future agents who touch the same surface read it before acting. Archived by age (180+ days), never by "task done."
+
+**Four rules the example illustrates:**
+
+1. **No Fix Spec = no PR.** Investigation file lives on disk until the Fix Spec is filled AND the code ships.
+2. **Parent status follows child status.** Parent task can't flip `[completed]` while the investigation has any `(pending)` section.
+3. **Decision Log stays in the parent PLAN.md.** The investigation captures *why this bug happened*; the parent Decision Log captures *why we fixed it this way*.
+4. **When in doubt, don't nest.** A plain task with clear evidence doesn't need an investigation. Reserve nesting for surfaces that genuinely have a root-cause question.
+
+### vidux.config.json (where plans live)
+
+One optional config file at the repo root controls plan discovery:
+
+```json
+{
+  "plan_store": {
+    "mode": "local",
+    "path": "~/Development/vidux/projects"
+  }
+}
 ```
-## Reporter Says
-"Checkout double-charges on fast retry." — Sentry def-123, PR #4567 comment.
 
-## Evidence
-- src/checkout/submit.ts:42 — no idempotency key
-- src/checkout/retry.ts:18 — no in-flight guard
-- Sentry def-123 — 47 occurrences / 7 days
+- `mode: "inline"` — plans live in the current repo as `PLAN.md`. Default when no config is present.
+- `mode: "local"` — plans live at the configured `path` (one subdir per project). Useful when you want plans tracked in a separate git repo synced across machines.
+- `mode: "external"` — same as local but path may point outside `~/Development`.
 
-## Root Cause    (pending)
-## Impact Map    (pending)
-## Fix Spec      (pending)
-## Tests         (pending)
-## Gate          (pending)
-```
-
-L1 Task 3 STAYS `[in_progress]`. The agent works locally — reads code, pushes one `(pending)` section forward (Root Cause → Impact Map → Fix Spec → Tests → Gate). **No PR opens.** No commit lands. The investigation file sits on disk for the next cycle. The fix and the investigation doc ship together in Stage 2 as one PR.
-
-**Stage 2 — Fix Spec + Tests + Gate land. Code ships. L1 flips.**
-
-Once the Gate section confirms build + tests + visual pass, the parent task in L1 flips:
-
-```
-- [completed] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
-  [Fix: src/checkout/submit.ts:42, src/checkout/retry.ts:18] [Shipped: <commit sha>]
-```
-
-The investigation file is NOT deleted on completion. It stays as the historical record of *why* the fix looks the way it does. Future agents who touch the same surface read it before acting.
-
-**Four rules this example illustrates:**
-
-1. **No Fix Spec = no PR.** The investigation file lives on disk until the Fix Spec is filled AND the code ships. Cycles that find `(pending)` in Fix Spec push notes forward locally — no commit, no PR, no ceremony.
-2. **Status flows UP.** L1 completion is driven by L2 state — never mark L1 `[completed]` while L2 has any `(pending)` section.
-3. **Sub-plans are durable.** Keep `investigations/<slug>.md` after the parent task completes. Archive it via the GC rules (older than 180 days, not "task done"), not immediately.
-4. **Decision Log stays in L1.** L2 has Root Cause + Impact Map, but directional choices ("we chose idempotency over a distributed lock") belong in the parent PLAN.md Decision Log so they survive even after the investigation file is archived. L2 is the *why this bug happened*; L1 Decision Log is *why we fixed it this way*.
+Agents read `vidux.config.json` at session start and resolve the authority PLAN.md from the config before anything else.
 
 ### Inbox
 
@@ -258,214 +266,16 @@ If the Fix Spec is missing, notes stay local. The investigation ships with the f
 
 ---
 
-## Part 1 → Part 2 transition
+## Beyond Core — Automation and Recipes
 
-Everything above is **Part 1: Discipline** — the five principles, the cycle, the PLAN.md template, investigations, course correction. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. A human following Part 1 alone is doing vidux correctly.
+Everything above is **core vidux** — the five principles, the cycle, the PLAN.md template, investigations, course correction. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. A human following core alone is doing vidux correctly.
 
-**Part 2: Automation** (below) covers the *how* when vidux work runs on a schedule — sessions cycling, lanes persisting, delegation, session-gc. If your task is a one-off plan, stop reading here.
+If your work needs more, two companion surfaces carry the rest:
 
----
+- **[`guides/automation.md`](guides/automation.md)** — the 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load this when you run lanes on a schedule.
+- **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and patterns. CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements, and more. Load a specific recipe on demand.
 
-# Part 2: Automation
-
-Automation is optional. It's how you run vidux workers on a schedule so work progresses even when you're not at the keyboard. Everything in Part 2 is additive — it never overrides Part 1.
-
-## When to automate (and when not to)
-
-Automate when **all** of these are true:
-- Work spans multiple sessions and would lose context across handoff
-- The cycle is repeatable (each fire does the same kind of work on whatever's pending)
-- State can live on disk (PLAN.md, memory.md, ledger) between fires
-- You accept losing conversation scrollback in exchange for 24/7 progress
-
-Do NOT automate when:
-- The work needs live human judgment every step
-- The cycle can't be described in a self-contained prompt
-- The state would have to live in session memory
-- It's a one-off fix — just do it directly
-
-## The 24/7 Fleet Operating Model (summary)
-
-One invariant: **lanes persist on disk, sessions cycle through them.**
-
-```
-Lanes (persistent)                    Sessions (disposable)
-~/.claude-automations/<lane>/         ~/.claude/projects/*/*.jsonl
-├── prompt.md   (mission)             - cycle when bloated
-└── memory.md   (durable state)       - state never lives here
-```
-
-A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of what session fires them. When a session dies, the files stay; the next session re-schedules the cron and the lane resumes from memory.md tail.
-
-**Hot vs cold storage:**
-
-| Layer | Lives here | GC |
-|---|---|---|
-| **Cold** (durable) | PLAN.md, evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Agent-decided archive when the plan feels heavy |
-| **Hot** (disposable) | `~/.claude/projects/*/*.jsonl` | Automatic via `session-prune.py --gc-old` hourly |
-
-**session-gc is mandatory for 24/7.** A lane at `~/.claude-automations/session-gc/prompt.md` fires hourly, runs `python3 scripts/session-prune.py --gc-old 3`, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. Without it, JSONLs grow unbounded and `/resume` stops working.
-
-**Session bloat controls:**
-- Cycle session at 40 MB (fresh session starts under 1 MB)
-- `"skillListingBudgetFraction": 0.005` in settings.json (halves skill-listing payload)
-- Disable unused plugins (Vercel plugin on a non-Vercel project = ~30% of JSONL)
-- `CronCreate` over `ScheduleWakeup` for ≥10 fires (CronCreate = fresh session per fire)
-
-## Lane management — minimum needed, max 6 per session
-
-Every lane must earn its keep. More than 6 lanes per session causes worktree contention and JSONL bloat (measured).
-
-**Coordinator pattern (default for 24/7):** ONE coordinator lane per active repo that owns ALL concerns (ship code, fix CI, archive PLAN.md, watch INBOX). Beats the specialist model (separate shipper/product/a11y/seo lanes) for these reasons:
-- No PLAN.md stampede (one writer per plan)
-- End-to-end ownership (same lane that shipped fixes the test)
-- 60% less JSONL growth (1 coordinator × 3 fires vs 5 specialists × 3 fires)
-- Simpler mental model when something breaks
-
-**Polish-brake:** If your last 3 checkpoints all ship from the same surface, force a surface switch. Polish is fractal — every green PR has another P3 comment. The brake prevents infinite iteration on a done surface.
-
-## Delegation (the primary context cutter)
-
-Two modes distribute work between a **primary model** (metered, decides/reviews) and a **secondary model** (unlimited/cheaper, grunt work).
-
-**Mode A: Research.** Primary writes a prompt, secondary reads 30–150 KB, returns a 3-section summary (~300 tokens). Primary reads only the summary. Measured: **10–110x token savings** vs direct reads.
-
-```
-Primary: "30 files, needs auditing. Hand it off."
-Secondary: reads, reasons, compresses to Summary + Evidence + Recommendation.
-Primary: reads ~300 tokens, applies taste, ships.
-```
-
-**Mode B: Implementation.** Primary writes a 5-block spec, secondary edits files in the working tree. Primary reviews `git diff` (~500 tokens) instead of writing 50 lines itself. Measured: **~5x further savings** on code-writing cycles.
-
-```
-Primary: "50-line fix. Here's Task + Files + Spec + Acceptance + Out-of-scope."
-Secondary: writes code.
-Primary: git diff → accept | re-prompt | git checkout . + retry.
-```
-
-**Decision tree:**
-- Substantial code writing (>10 lines, clear spec) → Mode B
-- Reading code, grinding a hard problem, research → Mode A
-- Pure planning, taste call, <10 lines of obvious writing → primary does it directly
-
-**The Mode A compression contract** (paste verbatim in every Mode A prompt):
-```
-Output ONLY these sections, nothing else:
-1. Summary: 3 sentences MAX.
-2. Evidence: 3 file:line references MAX, one per line.
-3. Recommendation: 1 sentence MAX.
-Do not explain. Do not echo the task. Do not write code.
-```
-
-**The Mode B prompt shape** (five blocks, all mandatory):
-```
-1. Task: one-sentence description.
-2. Files: exact paths the secondary may edit.
-3. Spec: what the code must do, 3–10 bullets.
-4. Acceptance criteria: how the primary will judge the diff.
-5. Out of scope: what the secondary must NOT change.
-```
-
-The "Out of scope" block is load-bearing. Without it, the secondary refactors adjacent code it decides "looks wrong" and the primary either accepts scope creep or rejects the whole diff.
-
-## Lane Bootstrap Recipe
-
-When the user asks to create an automation ("I want a lane that…", "automate this", "run this every hour"), follow this recipe.
-
-### 1. Decide the runtime
-
-| Signal | Choose |
-|---|---|
-| Tight cycle (15–30 min), fast feedback, reads memory.md | **Claude-local** (CronCreate) |
-| Weekly / long-cycle, heavy reads, big compute budget | **Codex-local** (automations table + shim) |
-| Unsure / first lane | **Claude-local** — simpler to debug |
-
-Default: Claude-local unless the cycle needs Codex's unlimited compute budget.
-
-### 2. Pick the role
-
-- **Coordinator** — owns a whole repo (ship + fix + GC). 1 per active repo. Max 1.
-- **Burst** — single short-lived task with auto-expire. Delete when done.
-- **Radar** — read-only scan, no writes, no worktree. For research-only missions.
-
-### 3. Create the files
-
-For **Claude-local** lanes:
-
-```
-~/.claude-automations/<lane-id>/
-├── prompt.md        # Mission, authority, role, hard rules, checkpoint format
-└── memory.md        # Empty on creation; lane appends 2-3 sentences per cycle
-```
-
-For **Codex-local** lanes (the Dynamic Prompt Shim pattern):
-
-```
-~/.codex-automations/<lane-id>/
-├── prompt.md        # Real mission (editable — hot reload on next fire)
-└── memory.md        # Same shape as Claude side
-~/Development/ai/automations/<lane-id>/
-└── automation.toml  # Canonical TOML (synced across machines)
-~/.codex/automations/<lane-id>/     # Real dir (NOT symlink)
-└── automation.toml  # Symlink to the canonical TOML above
-```
-
-The `automation.toml` contains a **static shim prompt** that routes Codex to the real `prompt.md`. Codex registers the shim in its SQLite DB at startup. Edits to the dynamic `prompt.md` take effect on the next fire — no restart needed.
-
-### 4. Write the prompt
-
-Every prompt.md has these sections (in order):
-
-```
-MISSION      — 1 paragraph. What this lane does, for which repo/project.
-SKILLS       — "Load: /vidux, <lane-specific-skills>"
-GATE         — Under-45s check at fire start. When to exit early vs proceed.
-AUTHORITY    — Which files/systems this lane may touch. Paths explicit.
-ROLE         — Writer | Radar | Burst. Sets tier permissions.
-HARD RULES   — Never use --no-verify. Never force push. Never edit legal code.
-              Never touch files outside AUTHORITY.
-CHECKPOINT   — Format for the memory.md entry on exit.
-```
-
-The MISSION section matters most: it's what differentiates this lane from all others. Be specific about the *output* (a merged PR, a checkpointed decision, an appended evidence line) not just the *input* (check this, scan that).
-
-### 5. Register + schedule
-
-**Claude-local:**
-```
-CronCreate({
-  name: "<lane-id>",
-  cron: "0 */1 * * *",    # hourly, or your cadence
-  prompt: "Read ~/.claude-automations/<lane-id>/prompt.md and execute the cycle it describes."
-})
-```
-Test-fire once. If the first-fire output looks right, leave it.
-
-**Codex-local:**
-Use the SQLite INSERT recipe — see `references/automation.md` → "Creating Codex Desktop Automations". Needs a Codex restart once after first install; subsequent prompt.md edits hot-reload.
-
-### 6. Verify + checkpoint
-
-- Confirm the lane's `memory.md` gets its first entry on the next fire
-- Confirm the `[CYCLE] ...` log format matches the CHECKPOINT spec in prompt.md
-- Add the lane to INBOX or coordinator memo so future sessions know it exists
-
-### When in doubt
-
-Read `references/automation.md` for the full doctrine — session-gc internals, PR lifecycle nursing, cross-fleet coordination, and Codex shim gotchas.
-
----
-
-## When to use Part 2
-
-Part 2 applies when any of these are true:
-- Creating, managing, or auditing a lane
-- Debugging fleet behavior (a lane isn't firing, checkpoints look wrong)
-- Designing cross-fleet coordination (Claude + Codex on the same PLAN.md)
-- Setting up session-gc
-
-For everything else — planning, investigating, shipping a one-off fix — Part 1 alone is the full tool. Don't let automation mechanics leak into ordinary plan work.
+Neither surface overrides core vidux. Core is opinionated machinery; automation and recipes are opt-in layers.
 
 ---
 
@@ -475,7 +285,7 @@ Vidux activates when:
 - User says `/vidux` or describes work spanning multiple sessions
 - An existing PLAN.md governs the work
 - Pilot routes into it after detecting expedition-scale work
-- User asks to create or manage a lane/automation/cron (Part 2 foregrounded)
+- User asks to create or manage a lane/automation/cron (load `guides/automation.md` alongside)
 
 Vidux does NOT activate for:
 - Single-file changes with obvious cause

@@ -83,7 +83,7 @@ Each rrule fire launches a fresh Codex agent in the configured `cwds`. The agent
 1. READ     prompt.md → memory.md (last 3 entries) → PLAN.md → INBOX.md
 2. GATE     Dirty tree not mine? → [QC] exit. 3x stuck? → [blocked]. Main CI red? → fix.
 3. ASSESS   Priority: CI red → PR fix → PR merge → resume in_progress → next pending → filler audit
-4. ACT      Worktree per code change. Mode A (read-only) / Mode B (workspace-write) per task.
+4. ACT      Worktree per code change. Research dispatch (read-only) / implementation dispatch (workspace-write) per task.
 5. VERIFY   Build passes. Tests pass. Visual check for UI.
 6. CHECKPOINT  Append one line to memory.md. Update PLAN.md status. Commit if code changed.
 ```
@@ -94,11 +94,11 @@ Codex agents run inside one of three sandboxes, set per-task or per-session in `
 
 | Mode | Reads | Writes | Use |
 |---|---|---|---|
-| `read-only` | Yes | No | Mode A research — compressed summaries |
-| `workspace-write` | Yes | Working tree only | Mode B implementation — code edits |
+| `read-only` | Yes | No | Research dispatch — compressed summaries |
+| `workspace-write` | Yes | Working tree only | Implementation dispatch — code edits |
 | `danger-full-access` | Yes | Anywhere | Trusted automations only (default for Leo's fleet) |
 
-Mode A keeps Claude's token budget small; Mode B lets Codex write the code while Claude reviews the diff. See [`/vidux` Part 2](../../commands/vidux.md) and [`references/automation.md`](../../references/automation.md) for the full delegation contract.
+Research dispatch keeps Claude's token budget small; implementation dispatch lets Codex write the code while Claude reviews the diff. See [`/vidux` Part 2](../../commands/vidux.md) and [`references/automation.md`](../../references/automation.md) for the full delegation contract.
 
 ### Post-push defer
 
@@ -136,7 +136,7 @@ Run `codex-toml-verify.sh` between writing TOMLs and reopening the app to catch 
 | Automation invisible in UI | TOML missing or DB-only | Write both TOML + DB row, full-quit + reopen |
 | Silent failure on fire | Missing `created_at` / `updated_at` | Fill both; run verify script |
 | Prompt truncated | Raw newline in TOML | Replace `\n` with `\\n` escape; re-verify |
-| Lane can't write files | Sandbox = `read-only` | Switch to `workspace-write` for Mode B tasks |
+| Lane can't write files | Sandbox = `read-only` | Switch to `workspace-write` for implementation dispatch tasks |
 | Can't run from CLI | Expected — CLI doesn't support automations | Use Mac desktop app |
 
 ## See Also
@@ -144,4 +144,4 @@ Run `codex-toml-verify.sh` between writing TOMLs and reopening the app to catch 
 - [Platform Comparison](platforms.md) — Claude Code vs Codex overview
 - [Claude Code Lifecycle](claude-lifecycle.md) — the Claude equivalent of this page
 - [Codex Setup Guide](codex-setup.md) — step-by-step Mac app setup (Task 5)
-- [`/vidux` Part 2](../../commands/vidux.md) + [`references/automation.md`](../../references/automation.md) — Mode A / Mode B delegation contract
+- [`/vidux` Part 2](../../commands/vidux.md) + [`references/automation.md`](../../references/automation.md) — research / implementation dispatch delegation contract

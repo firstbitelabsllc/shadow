@@ -6,6 +6,145 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.16.0] — 2026-04-18
+
+Audit cleanup — catches the stale "Mode A / Mode B" terminology that 2.15.0 missed in tier-3 docs (`references/` + `docs/fleet/`). 26 occurrences renamed to the `research dispatch / implementation dispatch` terminology that 2.15.0 already shipped in `guides/automation.md` and `SKILL.md`. Also fixes a stale deprecation breadcrumb and archives a completed in-flight plan.
+
+### Changed
+
+- **`Mode A / Mode B` → `research dispatch / implementation dispatch`** across 4 files: `references/automation.md` (17 occurrences), `docs/fleet/codex-lifecycle.md` (6), `docs/fleet/codex-setup.md` (1), `commands/vidux-auto.md` (2). This was the remainder left over from 2.15.0's core rename — `guides/automation.md` and `SKILL.md` were already clean, but `references/` still carried the old jargon and the `docs/fleet/` files cross-referenced it. Verified: `grep -c 'Mode A\|Mode B'` returns 0 across all 4 files post-rename.
+- **`commands/vidux-auto.md` breadcrumb accuracy fix**. The deprecation breadcrumb claimed `/vidux` has "Part 1 + Part 2 inline" — stale. Per the 2.10.0 structural split, Part 2 moved OUT of SKILL.md to `guides/automation.md`. Breadcrumb now accurately describes the current structure: single entry `/vidux`, Part 1 in SKILL.md, Part 2 in `guides/automation.md`, deep doctrine in `references/automation.md`.
+
+### Moved
+
+- **`PLAN-docs-simplify.md` → `projects/docs-simplify/PLAN.md`**. All 8 tasks `[completed]` since 2026-04-16; plan was cluttering repo root. Preserved via `git mv` (history intact) rather than deleted — the Decision Log entries (platform-agnostic core, TOML-first Codex workflow) still have reference value for future doc-simplification work.
+
+---
+
+## [2.15.0] — 2026-04-18
+
+Doctrine cleanup: plain-English rename of L1/L2 plan nesting, cross-tool delegation removed (not deprecated — removed), vidux.config.json surfaced in core, "markers" jargon dropped. Leo: *"what are markers? … let's kill delegation cross tool concept entirely, 0 deprecation warnings i am sole user."*
+
+### Changed
+
+- **L1/L2 plan-nesting terminology retired.** SKILL.md now calls it "parent plan + child investigation" in plain English. The concept is unchanged (one parent PLAN.md, one child `investigations/<slug>.md`, no deeper nesting) — the jargon was obscuring it. README.md's one-line nesting rule now reads: "One parent plan, one child investigation per compound task — no deeper nesting."
+- **Cross-tool delegation removed, not deprecated.** All references to Mode A / Mode B / cross-tool / primary-Claude-+-secondary-Codex scrubbed from SKILL.md, README.md, guides/automation.md. The subagent-dispatch doctrine (which was already same-tool by 2.10.0) is renamed to plain "research dispatch" + "implementation dispatch." No deprecation notices — vidux is a single-user project; backwards-compat shims aren't earning their keep.
+- **`[FREEFORM]` / `[METER]` "markers" jargon dropped.** `commands/vidux.md` CHECKPOINT section now calls them "the freeform line" and "the meter bar" — what they literally are. Rule unchanged from 2.13.0 (cycle checkpoints + mission-status replies, not casual chat).
+
+### Added
+
+- **`vidux.config.json` surfaced in core doctrine.** SKILL.md now has a brief "vidux.config.json (where plans live)" section explaining the three plan-store modes (`inline` / `local` / `external`). README.md's new "Status & Config" section shows the same for OSS readers. Previously this only lived in `commands/vidux.md`'s startup flow — SKILL.md readers never encountered it.
+- **README.md "Status & Config" section** — documents `scripts/vidux-status.py` usage and `vidux.config.json` minimal schema.
+
+---
+
+## [2.14.0] — 2026-04-18
+
+Concrete script for `/vidux-status`. The slash command is now backed by a real Python script — deterministic, <5s end-to-end, can be called from cron / bash / other agents / CI.
+
+### Added
+
+- **`scripts/vidux-status.py`** (~230 lines, stdlib-only) — read-only scan of every `PLAN.md` under `~/Development/` (or `--root <path>`). Renders the two-bucket board (`🎯 Tied to this chat` + `📋 Other tracked plans`). Sorts by `%` desc then mtime desc. Filters empty + shipped plans by default (`--all` includes them). Flags: `--json` for machine output, `--focus <repo...>` to override cwd-based classification. Tight worktree + nested-vidux-skill-copy filter (skips `*-worktrees/`, `.claude/worktrees/`, `**/ai/skills/vidux/`).
+
+### Usage
+
+```bash
+python3 scripts/vidux-status.py
+python3 scripts/vidux-status.py --all
+python3 scripts/vidux-status.py --focus vidux resplit-web strongyes-web
+python3 scripts/vidux-status.py --json | jq '.tied[].percent'
+```
+
+---
+
+## [2.13.0] — 2026-04-18
+
+Durable question queue + tightened marker doctrine. The `[DEFER]` tag in vidux-ship-coordinator was a passive name for an active state — replaced with `[ASK-LEO]` pointing at a new `ASK-LEO.md` queue file where questions accumulate instead of re-summarizing in memory.md every cycle. Also tightened 2.12.0's "every response ends with meter+freeform" rule — the markers are for mission-status moments (cycle ends, progress reports), not casual chat. Leo: *"why are u [METER] [FREEForm] everything?"*
+
+### Added
+
+- **`ASK-LEO.md`** at vidux repo root — durable queue of open questions from automation lanes. Each row: title + opened-ts + status + context + Answer line (inline-editable). Lanes log one-line `[ASK-LEO Q<N>]` pointers in their memory.md; the durable state lives in ASK-LEO.md. Seeds with Q1 (Greptile-bypass on vidux repo) + Q2 (PR #27 scope-split).
+- **`[ASK-LEO]` + `[ACTED]` tags** in vidux-ship-coordinator prompt §8, replacing `[DEFER]`. Distinct from `[BLOCKED]` (hard technical blocker): `[ASK-LEO]` = armed + ready, waits on one Leo answer.
+
+### Changed
+
+- **Marker rule tightened** in `commands/vidux.md` CHECKPOINT section. Full `[FREEFORM]` + `[METER]` pair applies to cycle checkpoints and mission-status replies. Casual chat, naming/design Q&A, and quick questions skip both. Meter-only is acceptable when you want progress signal without prose.
+- **No-noise rule** in vidux-ship prompt §8 now explicitly covers `[ASK-LEO]`: if the prior entry was `[ASK-LEO Q<N>]` and nothing changed, skip the entry entirely. Re-summarizing the question in memory on every cycle is the anti-pattern this release fixes.
+
+---
+
+## [2.12.0] — 2026-04-18
+
+ETAs go mandatory; every cycle ends with a meter. `[ETA: Xh]` tags are now required on `[pending]` and `[in_progress]` tasks — the loose "fill in over time" posture from 2.11 is gone. Every cycle (and every response to the user) now ends with a `[FREEFORM]` line + `[METER]` 20-cell 0–100% bar. Leo: *"vidux plans must have an ETA when planning and every response or automation end needs to express where its at freeform and the 0-100 meter bar, idgaf."*
+
+### Changed
+
+- **`[ETA: Xh]` tag is MANDATORY** on `[pending]` + `[in_progress]` tasks. Dropping a new task into a plan without an ETA is a plan defect — fill it in before checkpoint. Completed + blocked don't need one. 2.11.0's "missing = ∅ AI-hrs not a failure" language softened to "acceptable only on historical tasks pre-2.12.0; new tasks require ETA."
+- **Cycle-end format is `[FREEFORM]` + `[METER]`.** Added to `commands/vidux.md` CHECKPOINT section. FREEFORM = 1–3 plain-English sentences on where the work actually sits. METER = 20-cell bar, cell = 5%, mission-wide (not per-task). Coarse on purpose.
+
+### Why
+
+Planning without ETAs lets estimates stay vague forever. Making them mandatory captures the moment of honest guessing; the per-project calibration data (was the `[ETA: 2h]` guess on task N actually 4h?) accumulates naturally and gets tuned later. The FREEFORM + METER cycle-end discipline is for humans reading fleet output — the meter gives Leo a glance-level read without parsing checkpoint prose.
+
+---
+
+## [2.11.0] — 2026-04-18
+
+Cross-repo plan visibility. New `/vidux-status` command renders a two-bucket status board of every PLAN.md on the machine, with progress bars and AI-hour ETAs. PLAN.md Tasks template grows an optional `[ETA: Xh]` tag documenting the new convention.
+
+### Added
+
+- **`/vidux-status` command** (`commands/vidux-status.md`) — read-only scan of every PLAN.md under `~/Development/`, classified into 🎯 Tied to this chat (cwd / session / ledger matches) and 📋 Other tracked plans. Each row renders a 10-cell progress bar + remaining AI-hours + last-Progress timestamp. Never writes, never commits.
+- **`[ETA: Xh]` tag convention** on Task lines. Optional. Calibration table in SKILL.md: 0.25h trivial → 8h+ multi-phase (promote to compound). Missing tags render as `∅ AI-hrs` and back-fill over time — not a failure. ETAs are elastic; scope revisions go in `## Decision Log`.
+
+### Changed
+
+- **SKILL.md `## Tasks` template** now shows `[ETA: 0.5h]` and `[ETA: 2h]` on the example rows, with a new paragraph documenting the AI-hour convention.
+
+---
+
+## [2.10.0] — 2026-04-18
+
+Structural refactor. The doctrine machinery shrinks; the recipes layer takes on everything tool-specific, tactical, or customizable. Cross-tool delegation (Claude ↔ Codex) is deprecated — vidux runs single-tool or not at all. Core SKILL.md becomes Part 1 only.
+
+### Added
+
+- **`guides/automation.md`** — the 24/7 fleet operating model, session-gc, lane management, delegation, lane bootstrap. Previously lived as Part 2 of SKILL.md. Now an opt-in guide; load it when you need automation, not to read vidux.
+- **`guides/recipes/` directory** with 12 new recipes covering tacit knowledge, delegation patterns, and workflow friction categories from production /insights data:
+  - `claude-md-rules.md` — battle-tested CLAUDE.md rules
+  - `lane-prompt-patterns.md` — 8-block prompt structure
+  - `subagent-delegation.md` — same-tool Mode A / Mode B via `Agent()`
+  - `codex-runtime.md` — running vidux natively on Codex Desktop
+  - `user-value-triage.md` / `evidence-discipline.md` / `env-var-forensics.md` / `webfetch-fallback.md` / `proactive-surfacing.md` / `lightweight-first.md` / `visual-proof-required.md` — /insights-derived friction recipes
+  - `README.md` — recipe index
+
+### Changed
+
+- **SKILL.md shrinks to Part 1 only** (~280 lines, discipline + cycle + PLAN.md + investigations). Part 2 moved to `guides/automation.md`. The Activation section now includes a "Recipes" pointer.
+- **Cross-tool delegation deprecated.** Mode A / Mode B were Claude-primary + Codex-secondary cross-tool handoffs. That pattern created context-loss at the egress boundary, prompt-shim fragility, and state-sync surprises. Modern delegation = same-tool subagent dispatch via `Agent()`. The cross-tool era had measured wins (10–110× Mode A / ~5× Mode B) but the reliability cost exceeded the context savings at fleet scale.
+- **`/vidux-codex` skill (in `~/Development/ai`) deprecated.** Users who want vidux on Codex: see `guides/recipes/codex-runtime.md`. Users who want cross-tool delegation: pattern is retired.
+
+### Migration
+
+| Old shape | New shape |
+|---|---|
+| `SKILL.md` Part 2 | `guides/automation.md` |
+| Mode A / Mode B (Claude→Codex) | `guides/recipes/subagent-delegation.md` (same-tool via `Agent()`) |
+| Codex shim registration (inline in SKILL.md / vidux-codex skill) | `guides/recipes/codex-runtime.md` |
+| `/vidux-codex` skill | Deprecated — see `codex-runtime.md` recipe |
+
+### Versioning note
+
+This is a minor bump (2.9.0 → 2.10.0) because:
+
+- The five principles, the cycle, and the required PLAN.md sections are unchanged
+- Existing SKILL.md readers get redirected, not broken
+- Lane prompts that reference Mode A / Mode B still work (the pattern name is preserved; only the cross-tool variant is deprecated)
+
+Contract tests pass with the same baseline (133 pass / 3 pre-existing failures).
+
+---
+
 ## [2.9.0] — 2026-04-17
 
 Doctrine patch with two aims: (1) kill the fleet-scale failure mode where agents picked cheap meta-tasks over real bug fixes, and (2) shift the discipline toward **autonomous adaptive work** — fewer human-gated checkpoints, fewer required sections, fewer ceremonies the agent has to observe. The result is a smaller doctrine that trusts the agent more.

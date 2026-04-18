@@ -207,11 +207,11 @@ If a lane checkpoints "nothing to do" 3 times in a row, kill it or collapse it i
 
 ---
 
-## 4. Delegation (Mode A + Mode B)
+## 4. Delegation (Research + Implementation Dispatch)
 
 Two delegation modes for distributing work between a **primary model** (metered, taste/review/commit) and a **secondary model** (unlimited or cheaper, grunt work). The primary directs; the secondary executes. The knob is whether the secondary produces a summary (research) or a diff (implementation).
 
-### Mode A: Research — secondary reads, compresses to summary
+### Research dispatch — secondary reads, compresses to summary
 
 ```
 Primary: reads PLAN.md, picks next task
@@ -231,7 +231,7 @@ Primary: ships the edit, updates plan, checkpoints
 
 Use for: audits, investigations, cross-file grep synthesis, pattern hunting, evidence gathering.
 
-### Mode B: Implementation — secondary writes, primary reviews diff
+### Implementation dispatch — secondary writes, primary reviews diff
 
 ```
 Primary: reads PLAN.md, picks next task
@@ -265,13 +265,13 @@ Use for: bug fixes, feature implementation, refactors, tests, docs — anywhere 
 
 ```
 Is the task substantial code writing (> 10 lines, clear spec)?
-  YES -> Mode B (workspace-write). Secondary edits files, primary reviews diff.
+  YES -> implementation dispatch (workspace-write). Secondary edits files, primary reviews diff.
 
   NO -> Is the task reading code / grinding a hard problem / research?
     NO (pure planning, taste call, < 10 lines of obvious writing)
       -> Primary handles it directly. Don't delegate taste or trivial work.
 
-    YES -> Mode A (read-only). Secondary reads + compresses to 3-section summary.
+    YES -> research dispatch (read-only). Secondary reads + compresses to 3-section summary.
     |-- Is the target an external library / package?
     |   |-- "Where should I look?" -> quick research tool (URL discovery, safe)
     |   |-- "Package source / exact types" -> package search tool (real source)
@@ -302,7 +302,7 @@ Is the task substantial code writing (> 10 lines, clear spec)?
 
 Delegation cost is ~constant at ~814 primary tokens (~314 compressed summary + ~500 orchestration) because the secondary's baseline cost is on a separate account. Savings grow linearly with source size.
 
-### The compression contract (mandatory on every Mode A prompt)
+### The compression contract (mandatory on every research dispatch prompt)
 
 ```
 Output ONLY these sections, nothing else, no preamble, no code blocks, no closing:
@@ -317,9 +317,9 @@ If you find yourself writing more than those three sections, stop.
 
 The contract is honored reliably across reasoning levels (medium/high/xhigh all return exactly 3 sections with <0.2% token variance).
 
-### The implementation prompt shape (mandatory on every Mode B prompt)
+### The implementation prompt shape (mandatory on every implementation dispatch prompt)
 
-Every Mode B prompt includes ALL FIVE blocks:
+Every implementation dispatch prompt includes ALL FIVE blocks:
 
 ```
 1. Task: one-sentence description of the change.
@@ -332,7 +332,7 @@ Every Mode B prompt includes ALL FIVE blocks:
 
 The "Out of scope" block is load-bearing. Without it, the secondary will often refactor adjacent code it decides "looks wrong" — the primary's diff review then either accepts unasked-for scope (tech debt) or rejects the whole diff (wasted cycle).
 
-### Diff-review checklist (primary's job after Mode B returns)
+### Diff-review checklist (primary's job after implementation dispatch returns)
 
 Run `git diff` and verify in this order — stop at the first fail:
 
@@ -346,23 +346,23 @@ Run `git diff` and verify in this order — stop at the first fail:
 
 ### Invocation mechanics
 
-**Mode A (read-only):** Invoke secondary with read-only sandbox, a research prompt containing the compression contract, and stdin closed (to prevent input hang). Pipe stdout+stderr to a log file.
+**Research dispatch (read-only):** Invoke secondary with read-only sandbox, a research prompt containing the compression contract, and stdin closed (to prevent input hang). Pipe stdout+stderr to a log file.
 
-**Mode B (workspace-write):** Same pattern but with workspace-write sandbox. After the secondary returns, run `git diff` and apply the diff-review checklist above. Accept, reject (`git checkout .`), or partial-accept (`git add -p`).
+**Implementation dispatch (workspace-write):** Same pattern but with workspace-write sandbox. After the secondary returns, run `git diff` and apply the diff-review checklist above. Accept, reject (`git checkout .`), or partial-accept (`git add -p`).
 
 **Prompts with backticks or shell metacharacters:** Write the prompt to a temp file and pass via stdin to avoid quoting issues in the shell.
 
 ### Execution rules
 
 1. **One cycle per invocation.** Do not chain multiple delegated tasks.
-2. **Compression contract is mandatory in Mode A.** Mode B uses the 5-block spec shape instead.
+2. **Compression contract is mandatory in research dispatch.** Implementation dispatch uses the 5-block spec shape instead.
 3. **Primary keeps taste.** Never let the secondary make final architectural or design decisions.
-4. **Verify before acting.** Mode A: discard off-topic summaries and re-prompt. Mode B: if `git diff` shows over-scope or spec mismatch, `git checkout .` and re-prompt.
-5. **Log every delegation.** One line per call in PROGRESS.md: task id, mode (A/B), log filename, approximate secondary tokens, primary tokens consumed, exit code.
+4. **Verify before acting.** Research dispatch: discard off-topic summaries and re-prompt. Implementation dispatch: if `git diff` shows over-scope or spec mismatch, `git checkout .` and re-prompt.
+5. **Log every delegation.** One line per call in PROGRESS.md: task id, mode (research/implementation), log filename, approximate secondary tokens, primary tokens consumed, exit code.
 6. **Main-context budget.** If the cycle exceeds 20 tool calls before acting, stop and checkpoint.
-7. **Sandbox matches mode.** Mode A -> read-only always. Mode B -> workspace-write. Never give workspace-write for research (enables edits you didn't ask for). Never give read-only for implementation (it'll just describe what it would do).
-8. **Primary owns the commit boundary.** Even in Mode B, the secondary never runs `git commit`, `git push`, or mutates `.git/`.
-9. **No Mode B for schema/migration/destructive work.** Database migrations, dependency bumps, CI config, auth flows stay in the primary's direct-write path.
+7. **Sandbox matches mode.** Research dispatch -> read-only always. Implementation dispatch -> workspace-write. Never give workspace-write for research (enables edits you didn't ask for). Never give read-only for implementation (it'll just describe what it would do).
+8. **Primary owns the commit boundary.** Even in implementation dispatch, the secondary never runs `git commit`, `git push`, or mutates `.git/`.
+9. **No implementation dispatch for schema/migration/destructive work.** Database migrations, dependency bumps, CI config, auth flows stay in the primary's direct-write path.
 
 ---
 
@@ -666,7 +666,7 @@ Husky + lint-staged use `git stash` during pre-commit. On some setups, the stash
 4. Gate           — trunk divergence, stuck detection, resume rules
 5. Assess         — unified queue rule (in_progress -> resume, else first eligible pending)
 6. Act            — worktree discipline, verification commands, merge rules
-                    + optional delegation blocks (Mode A read / Mode B write)
+                    + optional delegation blocks (research read / implementation write)
 7. Authority      — paths this lane owns vs. paths it must not touch
 8. Checkpoint     — memory.md append format, reconcile plan vs. diff
 ```
@@ -770,7 +770,7 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 - SKIP any comment that requires a design decision the human would want to make.
 - SKIP merges — reviewer approval is a human gate, not a bot gate.
 - After COUNT expires (~3 hours), the cron auto-expires. Don't re-schedule without re-checking whether the fleet still has review debt.
-- If the PR diff is > 3 KB, delegate reading to the secondary model (Mode A) to keep the primary's context budget for judgment.
+- If the PR diff is > 3 KB, delegate reading to the secondary model (research dispatch) to keep the primary's context budget for judgment.
 
 ---
 
@@ -951,7 +951,7 @@ Read this reference (loaded on demand from within a `/vidux` session) when:
 
 - Setting up or modifying automation lanes (CronCreate, scheduled agents).
 - Diagnosing fleet health, session bloat, or lane contention.
-- Delegating work between agents (Mode A/B).
+- Delegating work between agents (research / implementation dispatch).
 - Running fleet scans, audits, or prescriptions.
 - Creating or reviewing draft PRs from automation.
 

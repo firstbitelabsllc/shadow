@@ -27,6 +27,6 @@ features:
     details: Claude Code, Cursor, Codex. Any agent that can read markdown can pick up where the last one stopped. No SDK, no API, no vendor lock-in.
 
   - icon: 🚢
-    title: Fleet Intelligence
-    details: Coordinate multiple agents with writer, radar, and coordinator roles. Draft-PR flows and health checks for 24/7 autonomous operation.
+    title: Fleet Intelligence (opt-in)
+    details: Coordinate multiple agents with writer, radar, and coordinator roles. Draft-PR flows and health checks for 24/7 autonomous operation — loaded from guides/automation.md and guides/recipes/ when needed, not core doctrine.
 ---
