@@ -61,6 +61,6 @@ Without this recipe (from /insights):
 ## See Also
 
 - `guides/recipes/evidence-discipline.md` — the general version of this rule
-- `playwright` skill — the preferred web screenshot path
-- `craft-ios` skill — iOS simulator capture patterns
-- `figma-implement` skill — Figma-to-production visual comparison
+- A browser-automation tool (Playwright, Puppeteer, Browserbase, etc.) — web screenshot capture
+- An iOS simulator capture tool — iOS visual proofs
+- A Figma-to-code design tool — pixel comparison against the spec

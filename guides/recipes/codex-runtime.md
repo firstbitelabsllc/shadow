@@ -65,16 +65,16 @@ Codex caches `automation.toml` at app startup. Editing the TOML normally require
 
 ```
 ~/.codex/automations/<lane-id>/automation.toml  — static shim (changes never)
-~/.claude-automations/<lane-id>/prompt.md       — the real prompt (hot-editable)
-~/.claude-automations/<lane-id>/memory.md       — lane memory
+<lane-dir>/<lane-id>/prompt.md       — the real prompt (hot-editable)
+<lane-dir>/<lane-id>/memory.md       — lane memory
 ```
 
-Lane state (prompt.md + memory.md) typically lives under `~/.claude-automations/` even for Codex-run lanes. This is not a Claude-specific path — it's the shared lane-state convention. Reuse the same directory across runtimes.
+Lane state (prompt.md + memory.md) lives under a shared `<lane-dir>/` — pick one convention per fleet (e.g. `~/.vidux/lanes/`, `~/.claude-automations/`, `~/.codex-automations/`, or a project-scoped directory) and reuse it across runtimes. Mixing conventions is fine; keeping prompt + memory paired inside the same `<lane-dir>/<lane-id>/` is what matters.
 
 **The static shim prompt** (goes in `automation.toml`):
 
 ```
-prompt = "Read ~/.claude-automations/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nAppend one line to memory.md at the end."
+prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nAppend one line to memory.md at the end."
 ```
 
 The shim points Codex at the real prompt on disk. Edits to `prompt.md` take effect on the **next fire** — no Codex restart needed. This is the primary win: you can iterate on lane behavior without restarting the app every time.
@@ -102,12 +102,12 @@ INSERT INTO automations (
   id, name, prompt, status, rrule, cwds,
   model, reasoning_effort, created_at, updated_at
 ) VALUES (
-  'leojkwan-coordinator',
-  'leojkwan coordinator',
-  'Read ~/.claude-automations/leojkwan-coordinator/prompt.md FIRST...\n...',
+  'my-coordinator',
+  'my coordinator',
+  'Read <lane-dir>/my-coordinator/prompt.md FIRST...\n...',
   'ACTIVE',
   'FREQ=MINUTELY;INTERVAL=30',
-  '["/Users/leokwan/Development/leojkwan"]',
+  '["/path/to/repo"]',
   'gpt-5.4',
   'medium',
   <unix-epoch-seconds>,
@@ -165,7 +165,7 @@ After the INSERTs, **full-quit and reopen Codex** before the first fire.
 
 Claude Code has `/resume` for fresh sessions picking up lanes from disk. Codex's equivalent is a full-quit + reopen — the app restarts, re-reads the DB, and resumes scheduling. Lanes pick up from `memory.md` on the next fire.
 
-Codex state GC is managed externally, not by Codex itself. Worktree cleanup for Codex-spawned worktrees is our responsibility — Codex auto-delete is OFF, and the retention policy for `~/Development/<repo>-worktrees/codex-*` is 3h minimum (see `feedback_codex_worktree_gc` in agent memory). Without external GC, worktrees accumulate at ~84/day at 10 GB.
+Codex state GC is managed externally, not by Codex itself. Worktree cleanup for Codex-spawned worktrees is the operator's responsibility — Codex auto-delete is OFF, and a sensible retention policy for `~/Development/<repo>-worktrees/codex-*` is 3h minimum. Without external GC, worktrees accumulate at ~84/day at 10 GB under a heavy-cadence fleet.
 
 There is no Codex equivalent of `session-prune.py --gc-old` — Codex's conversation logs live elsewhere (Electron's IndexedDB) and are not JSONL-shaped. If you notice Codex slowing down, the fix is a full app restart, not a log-pruning script.
 

@@ -30,21 +30,21 @@ Full reference: `docs/reference/prompt-template.md`. Size target: 2000-3000 char
 ### 1. Mission
 One paragraph. Present-tense and concrete. Name the PLAN.md the lane drives. **Name the retirement condition.** A lane without an exit is a zombie.
 
-> Ship and maintain leojkwan.com. Every cycle moves PLAN.md forward, fixes CI, merges eligible PRs, or rotates a filler audit. Retires when Phase 9 launch ships.
+> Ship and maintain example.com. Every cycle moves PLAN.md forward, fixes CI, merges eligible PRs, or rotates a filler audit. Retires when Phase 9 launch ships.
 
 ### 2. Skills
 Skill tokens to load each cycle. `/vidux` first — it loads cycle + FSM + checkpoint format before anything else.
 
-> `/vidux` `/brand-leojkwan` `/frontend-design`
+> `/vidux` `/brand-<project>` `/frontend-design`
 
 ### 3. Read
 Literal shell commands and absolute file paths. Start with own `memory.md` (self-awareness), end with cross-lane reads (concurrent-cycle detection).
 
 > 1. `memory.md` (last 3 entries)
-> 2. `~/Development/leojkwan/vidux/PLAN.md`
+> 2. `~/Development/<project>/vidux/PLAN.md`
 > 3. `git fetch && git status --short && git log --oneline -10`
 > 4. `gh pr list --json number,title,mergeable,statusCheckRollup`
-> 5. (cross-lane) `~/.claude-automations/session-gc/memory.md` last 1 entry
+> 5. (cross-lane) `<lane-dir>/session-gc/memory.md` last 1 entry
 
 ### 4. Gate
 Binary pre-flight aborts. Trigger → exit cheaply with `[QC] <reason>`. Don't "maybe work around it." Keep the list short; too many gates and cycles never fire.
@@ -65,7 +65,7 @@ Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must
 Explicit owned paths + explicit forbidden paths with reasons. The authority block is the lane's immune system. **Mandatory push-tier line** for any code-writing lane.
 
 > Owns: `app/**`, `next.config.ts`, `vidux/PLAN.md`, `vidux/INBOX.md`.
-> Never: `content/posts/**/*.mdx` body (Leo's historical prose), `.env*`, other lanes' `memory.md`.
+> Never: `content/posts/**/*.mdx` body (the user's historical prose), `.env*`, other lanes' `memory.md`.
 > Push tier: 1 only (draft PRs). No direct-to-main, no destructive ops.
 
 ### 8. Checkpoint

@@ -74,7 +74,7 @@ Without this recipe:
 - Agent guesses "maybe it's in `.zshrc`" without checking, user confirms it isn't, another 10 min lost
 - Variable is actually set by a wrapper script in `PATH` that shadows the real binary — never discovered
 - launchctl value overrides shell value in GUI-launched apps but the agent only checks shell
-- Leo spends an evening hunting for where `CLAUDE_CODE_EFFORT_LEVEL=high` was set (the triggering /insights finding)
+- A user spends an evening hunting for where `CLAUDE_CODE_EFFORT_LEVEL=high` was set (the original /insights finding that motivated this recipe)
 
 ## Example — copy-pasteable hunt prompt
 

@@ -39,11 +39,11 @@ Do this **at the start of the cycle**, not after finishing other work.
 
 Without this recipe:
 
-- Queue "feels empty" so agent asks Leo what to do — Leo has to context-switch into planning
+- Queue "feels empty" so agent asks the user what to do — the user has to context-switch into planning
 - `[DIRECTION]` entries from days ago rot in the Decision Log with no follow-up
 - `[blocked]` tasks stay blocked because no one re-checks the blockers
 - Agent declares `[IDLE]` when there's actually 3 promotable findings in INBOX.md
-- Leo (2026-04-18): "Queue feels empty; stale intents from days ago sit unaddressed; agent asks for feedback instead of scanning for work."
+- Observed pattern: "Queue feels empty; stale intents from days ago sit unaddressed; agent asks for feedback instead of scanning for work."
 
 ## Example
 

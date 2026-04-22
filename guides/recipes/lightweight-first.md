@@ -54,4 +54,4 @@ Without this recipe (from /insights):
 ## See Also
 
 - `guides/recipes/user-value-triage.md` — lightweight replies are themselves user-value delivery
-- Global memory `feedback_journal_aesthetic` — Leo's brand is imperfect and personal, heavy process contradicts it
+- Lightweight process matches creative voice — heavy structure contradicts imperfect, personal work

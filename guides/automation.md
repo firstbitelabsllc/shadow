@@ -30,7 +30,7 @@ One invariant: **lanes persist on disk, sessions cycle through them.**
 
 ```
 Lanes (persistent)                    Sessions (disposable)
-~/.claude-automations/<lane>/         ~/.claude/projects/*/*.jsonl
+<lane-dir>/<lane>/         ~/.claude/projects/*/*.jsonl
 ├── prompt.md   (mission)             - cycle when bloated
 └── memory.md   (durable state)       - state never lives here
 ```
@@ -46,7 +46,7 @@ A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of wh
 
 ### session-gc is mandatory for 24/7
 
-A lane at `~/.claude-automations/session-gc/prompt.md` fires hourly, runs `python3 scripts/session-prune.py --gc-old 3`, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. Without it, JSONLs grow unbounded and `/resume` stops working.
+A lane at `<lane-dir>/session-gc/prompt.md` fires hourly, runs `python3 scripts/session-prune.py --gc-old 3`, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. Without it, JSONLs grow unbounded and `/resume` stops working.
 
 ### Session bloat controls
 
@@ -151,7 +151,7 @@ For Codex-native lanes (weekly cadence, heavy reads, unlimited compute budget), 
 ### 3. Create the files
 
 ```
-~/.claude-automations/<lane-id>/
+<lane-dir>/<lane-id>/
 ├── prompt.md        # Mission, authority, role, hard rules, checkpoint format
 └── memory.md        # Empty on creation; lane appends 2-3 sentences per cycle
 ```
@@ -179,7 +179,7 @@ The MISSION section matters most: it's what differentiates this lane from all ot
 CronCreate({
   name: "<lane-id>",
   cron: "0 */1 * * *",    # hourly, or your cadence
-  prompt: "Read ~/.claude-automations/<lane-id>/prompt.md and execute the cycle it describes."
+  prompt: "Read <lane-dir>/<lane-id>/prompt.md and execute the cycle it describes."
 })
 ```
 

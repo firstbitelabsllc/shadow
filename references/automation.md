@@ -13,7 +13,7 @@ The fleet runs indefinitely on one invariant: **lanes persist on disk, sessions 
 ```
 Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
 ──────────────────────────────────   ──────────────────────────
-~/.claude-automations/                ~/.claude/projects/*/*.jsonl
+<lane-dir>/                ~/.claude/projects/*/*.jsonl
 ├── <lane>/prompt.md                  - Session A: 12h → 50MB → cycle
 ├── <lane>/memory.md                  - Session B: fresh, picks up lanes
 └── ...                               - Session C: ...
@@ -38,7 +38,7 @@ Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
 
 ### Why not cloud scheduling?
 
-Cloud-based scheduling primitives (Routines, remote triggers) are persistent and survive laptop sleep. **Rejected for local-first fleets** because:
+Cloud-based scheduling primitives are persistent and survive laptop sleep. **Rejected for local-first fleets** because:
 
 - **Per-account binding.** Each routine is bound to one account. Multi-account rotation for quota management breaks routines.
 - **Minimum cadence too long.** Some lanes need 20-30 min cycles (code-writing lanes with tight CI loops). Cloud primitives often enforce 1-hour minimums.
@@ -108,7 +108,7 @@ The human reads the signal and decides when to restart. On restart:
 
 ### The session-gc lane (mandatory for 24/7)
 
-**Location:** `~/.claude-automations/session-gc/prompt.md`
+**Location:** `<lane-dir>/session-gc/prompt.md`
 **Cadence:** hourly (offset from the :00/:30 pileup)
 **Authority:** `~/.claude/projects/` only. MUST NOT touch memory.md, PLAN.md, ledger, or any git repo.
 
@@ -376,7 +376,7 @@ Creating, managing, and auditing automation fleets at scale. Four operations: **
 
 Before creating or modifying lanes, scan for existing automations:
 
-1. **Scan** `~/.claude-automations/*/{prompt.md,memory.md}` for active CronCreate lanes.
+1. **Scan** `<lane-dir>/*/{prompt.md,memory.md}` for active CronCreate lanes.
 2. **Build the slot map.** Parse cadence fields, map each automation to its minute-of-hour slots.
 3. **Find the lowest-density slot.** Pick a 5-minute slot (`:00`, `:05`, ... `:55`) with the fewest automations. Writers get priority for isolated slots (heavier). Radars can share.
 
@@ -499,7 +499,7 @@ Every writer prompt includes a pre-push checklist (baked into the Act block, not
 
 ---
 
-## 6.5 Model Capabilities and Effort Levels (updated for Opus 4.7, 2026-04-16)
+## 6.5 Model Capabilities and Effort Levels
 
 ### Effort levels
 
@@ -517,7 +517,7 @@ Opus 4.7 uses a new tokenizer: **same text = 1.0-1.35x more tokens**. Practical 
 - 1M context window = ~555k words (was ~750k on 4.6)
 - Sessions hit compaction 20-30% sooner
 - Each PLAN.md read costs more tokens
-- **Framing B payoff increases**: delegating heavy reads to Codex (unlimited) saves even more Claude tokens than before
+- Same-runtime subagent dispatch (Mode A / Mode B) conserves context more than before — the tokenizer upgrade widens the delegation payoff
 
 Adjust session-gc thresholds if you see compaction thrashing after upgrading.
 
@@ -580,15 +580,15 @@ See Section 3 "Observer lanes are deprecated" for the full rationale. This secti
 
 ## 8.5 Cross-Fleet Coordination (Claude + Codex on the same project)
 
-When a project runs BOTH a Claude writer lane (in `~/.claude-automations/`) and a Codex peer writer (in `~/.codex-automations/`) against the same PLAN.md, coordination stacks 4 mechanisms by authority:
+When a project runs BOTH a Claude writer lane (in `<lane-dir>/`) and a Codex peer writer (in `<codex-lane-dir>/`) against the same PLAN.md, coordination stacks 4 mechanisms by authority:
 
 ### The stack
 
 1. **PLAN.md state machine** (primary lock). Every writer atomically flips `[pending]` → `[in_progress] (<fleet>/<lane>)` before touching code. Loser on a race re-reads, sees `[in_progress]`, picks another task. Only the marking writer may mark `[completed]`.
 
 2. **Cross-fleet memory tail** (peer-active hint). Each writer reads the peer fleet's `memory.md` last entry during GATE:
-   - Codex reads `~/.claude-automations/<claude-peer>/memory.md`
-   - Claude reads `~/.codex-automations/<codex-peer>/memory.md` (optional, increasingly common)
+   - Codex reads `<lane-dir>/<claude-peer>/memory.md`
+   - Claude reads `<codex-lane-dir>/<codex-peer>/memory.md` (optional, increasingly common)
 
    If peer entry <10 min old AND `[in_progress]` → exit "peer active". Hint, not lock.
 
@@ -599,19 +599,19 @@ When a project runs BOTH a Claude writer lane (in `~/.claude-automations/`) and 
 
 Signal: specialist memory.md stale >24 hrs while coordinator has recent activity AND coordinator prompt says "Replaces prior specialist split".
 
-Fix: hot-edit `~/.codex-automations/<lane>/prompt.md` to point at the coordinator. Takes effect on next cron fire, no Codex restart needed:
+Fix: hot-edit `<codex-lane-dir>/<lane>/prompt.md` to point at the coordinator. Takes effect on next cron fire, no Codex restart needed:
 
 ```
-Peer Claude lane memory: ~/.claude-automations/<repo>-coordinator/memory.md
+Peer Claude lane memory: <lane-dir>/<repo>-coordinator/memory.md
 ```
 
-Verified 2026-04-16: `leojkwan-shipper` dormant → `codex-leojkwan` updated to `leojkwan-coordinator`. `strongyes-backend-trust` dormant 38+ hrs → `codex-strongyes-backend` updated to `strongyes-coordinator`.
+Worked example: a `<project>-shipper` specialist goes dormant for 24+ hrs while a `<project>-coordinator` lane ships new commits. Fix: edit the specialist's `prompt.md` to point at the coordinator's `memory.md`, or retire the specialist entirely if the coordinator now covers its scope.
 
 ### Symmetric rule: NEVER `--no-verify` across BOTH fleets
 
 Pre-commit hooks (prettier, lint, typecheck, SwiftLint) are the review trail. If a hook fails: document the exact failure in memory.md, write `[BLOCKED-CI-HOOK]`, exit. A human fixes the hook, not the automation. Violates CLAUDE.md discipline on both fleets.
 
-All 5 Codex peer prompts + their Claude counterparts carry this rule as of 2026-04-16. Historical violations on strongyes-web PRs #346/#350 (Codex blog lane used `--no-verify` twice to bypass a `prettier --write` hook failure) were rule breaches. The fix is to diagnose the hook, not bypass it.
+Both fleets carry this rule. Historical violations (one fleet bypassing `prettier --write` hook failures with `--no-verify` to ship faster) are rule breaches — diagnose the hook, never bypass it.
 
 ### When to add a Codex peer
 
@@ -761,8 +761,8 @@ A burst lane that fires every ~17 min, scans open PRs for reviewer P1/P2 comment
 **Setup:**
 
 ```
-~/.claude-automations/qa-iterator/prompt.md   # 8-block lane prompt
-~/.claude-automations/qa-iterator/memory.md   # append-only checkpoint log
+<lane-dir>/qa-iterator/prompt.md   # 8-block lane prompt
+<lane-dir>/qa-iterator/memory.md   # append-only checkpoint log
 CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 ```
 
@@ -780,9 +780,9 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 
 1. **Pick the plan.** Every lane exists to drive one PLAN.md. If there is no plan, write one first (use `/vidux`) before creating the lane.
 
-2. **Draft the prompt file** at `~/.claude-automations/<lane-name>/prompt.md` using the 8-block structure (Section 10). Cite the PLAN.md path and list the files the agent must read every cycle.
+2. **Draft the prompt file** at `<lane-dir>/<lane-name>/prompt.md` using the 8-block structure (Section 10). Cite the PLAN.md path and list the files the agent must read every cycle.
 
-3. **Seed the memory file** at `~/.claude-automations/<lane-name>/memory.md`:
+3. **Seed the memory file** at `<lane-dir>/<lane-name>/memory.md`:
    ```
    - [YYYY-MM-DDTHH:MM:SSZ] [RESET] Lane created. First cycle will read prompt.md
      and execute initial vidux pass against <plan path>.
@@ -807,7 +807,7 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 
 ### Updating a lane
 
-1. Edit `~/.claude-automations/<lane-name>/prompt.md`. The next cron fire reads the edit, so the change is live within the cron cadence.
+1. Edit `<lane-dir>/<lane-name>/prompt.md`. The next cron fire reads the edit, so the change is live within the cron cadence.
 2. If you change the cadence, use `CronCreate` to replace the schedule.
 3. If you change strategic direction mid-cycle, add a banner at the top of `memory.md`:
    ```
@@ -817,14 +817,14 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 ### Deleting a lane
 
 1. Remove the cron via `CronDelete`.
-2. Archive `~/.claude-automations/<lane-name>/` to `~/.claude-automations/_archive/<lane-name>-YYYY-MM-DD/`. Do NOT hard-delete — the memory.md is load-bearing history.
+2. Archive `<lane-dir>/<lane-name>/` to `<lane-dir>/_archive/<lane-name>-YYYY-MM-DD/`. Do NOT hard-delete — the memory.md is load-bearing history.
 3. If the plan is complete, update PLAN.md Progress with a "lane closed" entry.
 
 ---
 
 ## 13. Memory Files
 
-**Location:** `~/.claude-automations/<lane-name>/memory.md`
+**Location:** `<lane-dir>/<lane-name>/memory.md`
 
 Agents have no built-in cross-session memory. The lane's memory.md IS the memory — every cycle reads the last 3 entries before acting, and appends a new entry after checkpointing.
 
