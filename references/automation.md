@@ -386,7 +386,7 @@ Fleet: <project> (5 automations)
   :05  <project>-ux-radar   (radar, every 30m)
   :10  <project>-flow-radar (radar, every 30m)
   :15  <project>-api-writer (writer, every 30m)
-  :20  <project>-coordinator (coordinator, every 2h)
+  :20  <project>-coordinator (coordinator, every 1h)
 
 Load: max 2 concurrent at :30
 Gaps: :25, :35, :40, :45, :50, :55 — available
@@ -456,7 +456,7 @@ Compare existing fleet to the prescription: match (no changes), over-provisioned
 4. Writer prompts MUST say "keep working through the queue until a real boundary."
 5. Schedules MUST avoid thundering herd — max 3 automations per minute offset.
 6. Every fleet with 3+ automations MUST have a coordinator.
-7. Coordinator runs every 2 hours, not every 30 minutes.
+7. Coordinator runs every hour.
 8. Recipes are deterministic — no new recipes invented at runtime. New recipes ship via PR.
 9. `prescribe` and `audit` are READ-ONLY. They never modify files.
 
@@ -570,15 +570,7 @@ After pushing a draft PR, review bots take 2-5 min to post. If the next cycle fi
 
 ---
 
-## 8. Observer Pairs — DEPRECATED (2026-04-17)
-
-Observer lanes are deprecated. They are an orchestration smell: read-only lanes that add memory.md files, cross-lane reads, and cycle offsets without catching bugs the writer couldn't already see. Drift belongs upstream — fix the writer's prompt or the doctrine that produces drift. If you need independent eyes, run a one-shot audit by hand, not a scheduled lane.
-
-See Section 3 "Observer lanes are deprecated" for the full rationale. This section is kept only so historical references resolve.
-
----
-
-## 8.5 Cross-Fleet Coordination (Claude + Codex on the same project)
+## 8. Cross-Fleet Coordination (Claude + Codex on the same project)
 
 When a project runs BOTH a Claude writer lane (in `<lane-dir>/`) and a Codex peer writer (in `<codex-lane-dir>/`) against the same PLAN.md, coordination stacks 4 mechanisms by authority:
 
@@ -925,27 +917,7 @@ Don't amplify a tight, concrete prompt — the overhead isn't worth it.
 
 ---
 
-## 17. Recommended Agent Config Rules
-
-Three battle-tested rules for agent configuration files (CLAUDE.md, .cursorrules, AGENTS.md, etc.), plus the T1-T4 change classification framework that protects core discipline from churn.
-
-> Cross-reference: `guides/agent-config-rules.md` for the full guide — 3 rules (re-read before edit, re-read after fail, proportional response) + T1-T4 framework (Prompt -> Agent Config -> Companion -> Core).
-
-<!-- SOURCE: guides/agent-config-rules.md (cross-reference, not inlined) -->
-
----
-
-## 18. Insights Triage Process
-
-After every 10 sessions, review friction findings and classify each as T1-T4. Apply T1 (prompt) and T2 (agent config) immediately. Plan T3 (companion recipe) in PLAN.md. Escalate T4 (core discipline) with a Decision Log entry.
-
-This is a manual process. Build automation only when manual triage proves painful (>15 findings per review).
-
-<!-- SOURCE: Phase 9.4 insights triage process (manual-first) -->
-
----
-
-## 19. Activation
+## 17. Activation
 
 Read this reference (loaded on demand from within a `/vidux` session) when:
 

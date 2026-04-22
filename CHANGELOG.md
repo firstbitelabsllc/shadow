@@ -6,6 +6,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.17.0] — 2026-04-22
+
+Core docs cleanup: dead-weight kill + personal-reference scrub. Keeps the `/vidux` ↔ `/vidux-leo` boundary clean so OSS readers see only discipline, not one fleet's taste. Driven by a 3-agent doc-review pass + `codex review --uncommitted` as the finalize gate.
+
+### Changed
+
+- **Coordinator cadence harmonized to every hour.** `references/automation.md` §5.6 rule 7 was "every 2 hours, not every 30 minutes"; the cadence table at §11 already said 60 min. Fixed the rule, plus the L389 slot-map example (`every 2h` → `every 1h`). The fleet-coordinator cadence guidance is now internally consistent.
+- **Personal refs scrubbed from core** across 7 recipes + `references/automation.md` + `guides/automation.md`. `~/.claude-automations/` → `<lane-dir>/` (19 refs), `~/.codex-automations/` → `<codex-lane-dir>/` (4 refs), Leo lane names (`leojkwan-shipper`, `strongyes-backend-trust`, `leojkwan-coordinator`, `codex-*`) → generic `<project>-*` templates, direct Leo attributions dropped, skill-name refs genericized to tool descriptions, gym-schedule example generalized to "member-only dashboards".
+- **Stale breadcrumbs scrubbed.** "Routines" mention at `references/automation.md:41` removed per 2026-04-15 strip; dated `(updated for Opus 4.7, 2026-04-16)` stripped from §6.5 heading; Framing B / Codex-unlimited bullet removed per 2026-04-18 cross-tool-delegation deprecation; historical `--no-verify` violations example (`strongyes-web PRs #346/#350`) genericized.
+
+### Removed
+
+- **`references/automation.md` Section 8 (Observer Pairs tombstone).** 7-line stub kept "so cross-references resolve" per the 2026-04-17 direction. SUPERSEDED — the deprecation itself is already documented in Section 3. Section 8.5 (Cross-Fleet Coordination) promoted up to Section 8.
+- **Section 17 (Recommended Agent Config Rules) + Section 18 (Insights Triage Process).** Both were 3-sentence pointer stubs to other docs. Cross-references survive in-line where actually needed. Section 19 (Activation) → Section 17.
+
+### Flagged for later
+
+- `guides/recipes.md:29` Fleet Watcher recipe still documents a "every 2 hours" cadence. This is a DEPRECATED recipe (see the ⚠️ blockquote at L23-25) — historical record, not a current rule. Left unchanged so the deprecation breadcrumb stays honest.
+
+### Verified
+
+- Team doc-review: 3 parallel code-reviewers flagged 20+ personal refs in core docs. Post-scrub `grep` returns zero hits except one intentional `e.g.` listing in `guides/recipes/codex-runtime.md:72`.
+- `codex review --uncommitted` (codex-cli 0.119.0) flagged P2 cadence inconsistency at L389 and P3 observer-stub removal impact. Both addressed before commit.
+- Contract tests: 133/136 pass. 3 failures verified pre-existing via `git stash` on clean HEAD (`test_ledger_bimodal_distribution_*` + `test_plan_tasks_have_valid_status`).
+
+### Related ai-repo changes (committed separately, `ai` repo `54b4124`)
+
+- `/vidux-leo` §2 gained two subsections: Value-mix brake (cite `guides/recipes/user-value-triage.md`) and Branch-drift pre-commit check. Driven by 2026-04-15..22 Claude Code usage-report friction: mid-session pushback on audit/docs PRs outpacing user-visible fixes, and repeated branch drift between active lanes.
+- `/pilot` SKILL.md gained Step 0 "Request Triage (fast-exit)" — ≤50-word copy/wording/naming requests answer inline with 2-3 options, skipping brainstorming + TaskCreate chains. Observed failure: hero-copy request fired heavy planning before being abandoned mid-session.
+
+---
+
 ## [2.16.0] — 2026-04-18
 
 Audit cleanup — catches the stale "Mode A / Mode B" terminology that 2.15.0 missed in tier-3 docs (`references/` + `docs/fleet/`). 26 occurrences renamed to the `research dispatch / implementation dispatch` terminology that 2.15.0 already shipped in `guides/automation.md` and `SKILL.md`. Also fixes a stale deprecation breadcrumb and archives a completed in-flight plan.
