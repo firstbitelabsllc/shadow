@@ -230,7 +230,25 @@ Agents read `vidux.config.json` at session start and resolve the authority PLAN.
 
 ### Garbage collection
 
-Archive completed tasks to `ARCHIVE.md` when the plan feels heavy — the agent decides, no fixed threshold. Promoted or skipped INBOX entries are removed inline.
+Plan GC is **mechanical, not vibes-based**. "Feels heavy" doesn't fire; thresholds do. Run from the plan dir (or pass it as an arg):
+
+```bash
+python3 ~/Development/vidux/scripts/vidux-plan-gc.py [--dry-run] [--json] [plan-dir]
+```
+
+Three operations, one script:
+
+| Target | Rule | Where archived |
+|---|---|---|
+| `[completed]` tasks in `## Tasks` | Soft cap 30 → archive oldest to 20. Hard cap 50 → archive + exit 2 (coordinator gate). | `ARCHIVE.md` (append-only, timestamped). |
+| `investigations/*.md` | mtime ≥ 180 days | `investigations/archive/` (moved, not deleted). |
+| `INBOX.md` | Soft cap 20 → drop oldest | `evidence/YYYY-MM-DD-inbox-archive.md`. |
+
+**What stays forever:** `[pending]`, `[in_progress]`, `[blocked]` tasks; the Decision Log; the Progress log (up to the lane's own discretion). Archived investigations remain on disk; the archive subdir is the record.
+
+**When to run:** coordinator lanes include `vidux-plan-gc.py` in their READ step each cycle. `--dry-run` + `--json` gives a pre-check; the live run is idempotent (no-op under caps).
+
+**Exit 2** (hard cap exceeded) is the gate signal: coordinators should hold ACT and loudly note the bloat in the next checkpoint — the plan structurally needs attention beyond archival (too many tasks completed without being split into phases, or Phase rollover is overdue).
 
 ---
 
@@ -275,6 +293,8 @@ If your work needs more, two companion surfaces carry the rest:
 - **[`guides/automation.md`](guides/automation.md)** — the 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load this when you run lanes on a schedule.
 - **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and patterns. CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements, and more. Load a specific recipe on demand.
 
+**Codex automation default:** when creating a new automation from Codex, assume `Run in: Chat`. Do not default to `Worktree` or `Local` unless the user explicitly asks for repo-bound execution or the task cannot be done from chat.
+
 Neither surface overrides core vidux. Core is opinionated machinery; automation and recipes are opt-in layers.
 
 ---
@@ -286,6 +306,8 @@ Vidux activates when:
 - An existing PLAN.md governs the work
 - Pilot routes into it after detecting expedition-scale work
 - User asks to create or manage a lane/automation/cron (load `guides/automation.md` alongside)
+
+If the automation is being created from Codex, default it to Chat execution unless the user explicitly asks for Worktree or Local.
 
 Vidux does NOT activate for:
 - Single-file changes with obvious cause

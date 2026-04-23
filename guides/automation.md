@@ -4,6 +4,8 @@ This guide is for users who run vidux lanes on a schedule or with long-running s
 
 Automation is additive. It never overrides the discipline in SKILL.md; it only describes *how* to run vidux workers on a schedule so work progresses even when you're not at the keyboard.
 
+For Codex-created automations, the default run mode is **Chat**. Treat `Worktree` and `Local` as explicit opt-ins only when the user asks for repo-bound execution or the task is impossible to do from chat.
+
 ---
 
 ## When to automate (and when not to)
@@ -140,7 +142,9 @@ When the user asks to create an automation ("I want a lane that…", "automate t
 
 Default: **Claude-local (CronCreate)**. Simpler to debug, fast feedback, reads memory.md on every fire.
 
-For Codex-native lanes (weekly cadence, heavy reads, unlimited compute budget), see `guides/recipes/codex-runtime.md`. The rest of this guide assumes Claude lanes via `CronCreate`.
+For Codex-created automations, default to **Chat** execution so the lane runs in-conversation rather than in `Worktree` or `Local`. Only choose `Worktree` or `Local` if the user explicitly asks for that execution style or the automation truly needs direct project-folder runtime.
+
+For Codex-native repo-bound lanes (the exception path), see `guides/recipes/codex-runtime.md`. The rest of this guide assumes Claude lanes via `CronCreate` unless a Codex Chat automation is explicitly being set up.
 
 ### 2. Pick the role
 

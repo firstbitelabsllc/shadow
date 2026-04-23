@@ -2,6 +2,8 @@
 
 How to run vidux natively on Codex Desktop, where Codex is the primary (and only) tool. Codex is no longer a delegation target — it's a standalone runtime option with its own scheduling and subagent primitives.
 
+This recipe is the exception path. In normal vidux automation flow, Codex defaults to **Chat** execution. Use this document only when you explicitly want a Codex automation to run repo-bound in `Local` or `Worktree`.
+
 ---
 
 ## When to use
