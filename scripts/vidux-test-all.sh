@@ -48,9 +48,9 @@ TEST_SUMMARY="$(_json_escape "$(echo "$TEST_OUTPUT" | tail -5)")"
 SECTIONS="${SECTIONS}{\"name\":\"contract_tests\",\"status\":\"$TEST_STATUS\",\"total\":$TEST_PASS,\"failures\":$TEST_FAIL,\"errors\":$TEST_ERR,\"summary\":\"$TEST_SUMMARY\"},"
 
 # --- 2. Doctor checks ------------------------------------------------------- #
-DOCTOR_ARGS="--json --repo $REPO"
-[[ "$FIX_MODE" = true ]] && DOCTOR_ARGS="$DOCTOR_ARGS --fix"
-DOCTOR_OUTPUT="$(bash "$SCRIPT_DIR/vidux-doctor.sh" $DOCTOR_ARGS 2>&1 || true)"
+DOCTOR_ARGS=(--json --repo "$REPO")
+[[ "$FIX_MODE" = true ]] && DOCTOR_ARGS+=(--fix)
+DOCTOR_OUTPUT="$(bash "$SCRIPT_DIR/vidux-doctor.sh" "${DOCTOR_ARGS[@]}" 2>&1 || true)"
 DOCTOR_PASS="$(echo "$DOCTOR_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('pass',0))" 2>/dev/null || echo "0")"
 DOCTOR_TOTAL="$(echo "$DOCTOR_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || echo "0")"
 DOCTOR_STATUS="pass"
@@ -152,4 +152,7 @@ else
   echo "Overall: $OVERALL ($FAILURES sections with issues)"
 fi
 
-exit $([[ "$OVERALL" = "pass" ]] && echo 0 || echo 1)
+if [[ "$OVERALL" = "pass" ]]; then
+  exit 0
+fi
+exit 1

@@ -31,7 +31,7 @@ queue_sync() {
 
   # Parse task lines: - [status] description
   # Extract: status, task ID (if present), description, evidence flag, depends
-  > "$queue_file"  # truncate
+  : > "$queue_file"  # truncate
   local line_num=0
   while IFS= read -r line; do
     line_num=$((line_num + 1))

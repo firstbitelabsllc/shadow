@@ -11,9 +11,6 @@ set -euo pipefail
 # --- defaults --------------------------------------------------------------- #
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-# shellcheck source=lib/resolve-plan-store.sh
-source "$SCRIPT_DIR/lib/resolve-plan-store.sh" 2>/dev/null || true
-PLAN_STORE="$(VIDUX_ROOT="$REPO" resolve_plan_store 2>/dev/null || echo "$REPO/projects")"
 JSON_MODE=false; FIX_MODE=false; STALE_DAYS=3; MAX_WT=5; MAX_BROWSER_PROCS=7
 MAX_BROWSER_SESSION_MINUTES=15
 MAX_CODEX_ACTIVE_THREADS=400
@@ -663,7 +660,8 @@ _check_dual_active_automations() {
       details="${details:+$details; }$name1 + $name2 -> $plan"
     done <<< "$conflicts"
     _warn "Conflicting active automations: $details"
-    _add_check "{\"id\":\"dual_active_automations\",\"category\":\"automations\",\"status\":\"warn\",\"details\":\"$(echo "$details" | sed 's/"/\\"/g')\"}"
+    local escaped_details="${details//\"/\\\"}"
+    _add_check "{\"id\":\"dual_active_automations\",\"category\":\"automations\",\"status\":\"warn\",\"details\":\"$escaped_details\"}"
   else
     _ok "No conflicting active automations"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -950,7 +948,7 @@ _check_stale_in_progress() {
 
   # Calculate threshold date (macOS vs GNU date)
   local threshold_date
-  threshold_date="$(date -v-${STALE_DAYS}d +%Y-%m-%d 2>/dev/null || date -d "${STALE_DAYS} days ago" +%Y-%m-%d 2>/dev/null || echo 2000-01-01)"
+  threshold_date="$(date -v-"${STALE_DAYS}"d +%Y-%m-%d 2>/dev/null || date -d "${STALE_DAYS} days ago" +%Y-%m-%d 2>/dev/null || echo 2000-01-01)"
 
   if [[ -d "$PROJECTS_DIR" ]]; then
     for plan in "$PROJECTS_DIR"/*/PLAN.md; do
@@ -1014,7 +1012,7 @@ _check_missing_active_worktrees() {
       [[ "$st" != "ACTIVE" ]] && continue
       plan_ref="$(grep -oE '(projects/[^/]+/PLAN\.md|\.vidux/projects/[^/]+/PLAN\.md|[^[:space:]]*/PLAN\.md)' "$toml" 2>/dev/null | head -1 || true)"
       [[ -z "$plan_ref" ]] && continue
-      # Resolve plan path: absolute paths stay, relative paths resolve from PLAN_STORE or REPO
+      # Resolve plan path: absolute paths stay, relative paths resolve from REPO
       if [[ "$plan_ref" == /* ]]; then
         plan_path="$plan_ref"
       elif [[ "$plan_ref" == *".vidux/projects/"* ]]; then
@@ -1176,14 +1174,13 @@ _check_cadence_runtime() {
       fi
       # Check memory files for runtime clues
       local runtime_min=0
-      for mem in "$HOME/.codex/automations/$aid/memory.md"; do
-        [[ -f "$mem" ]] || continue
+      local mem="$HOME/.codex/automations/$aid/memory.md"
+      if [[ -f "$mem" ]]; then
         # Extract runtime from patterns like "Runtime: ~40m" or "Run time: ~63m"
         local found_rt
         found_rt="$(grep -oiE '(run ?time|runtime):? ~?([0-9]+)m' "$mem" 2>/dev/null | grep -oE '[0-9]+' | tail -1 || true)"
         [[ -n "$found_rt" && "$found_rt" -gt "$runtime_min" ]] && runtime_min="$found_rt"
-        break
-      done
+      fi
       # Flag if fires-per-hour > 1 and runtime > cadence interval
       local cadence_min=$((60 / bymin_count))
       if [[ "$bymin_count" -gt 1 && "$runtime_min" -gt "$cadence_min" ]]; then

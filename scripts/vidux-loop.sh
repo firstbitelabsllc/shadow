@@ -24,7 +24,7 @@ fi
 # --- ledger integration (optional) ----------------------------------------- #
 _LEDGER_LIB="$SCRIPT_DIR/lib/ledger-emit.sh"
 if [ -f "$_LEDGER_LIB" ]; then
-  # shellcheck source=lib/ledger-emit.sh
+  # shellcheck source=./scripts/lib/ledger-emit.sh
   source "$_LEDGER_LIB" 2>/dev/null || true
 fi
 
@@ -81,7 +81,7 @@ fi
 # Count unchecked `- [ ]` lines inside the ## Exit Criteria section.
 # If the section exists, exit_criteria_met is true only when all are checked.
 # Also compute the line range so task search can exclude exit criteria lines.
-EXIT_CRITERIA_MET=true; EXIT_CRITERIA_PENDING=0; EXIT_CRITERIA_TOTAL=0
+EXIT_CRITERIA_MET=true; EXIT_CRITERIA_PENDING=0
 EC_LINE_START=0; EC_LINE_END=0
 if grep -q '^## Exit Criteria' "$PLAN" 2>/dev/null; then
   EC_LINE_START="$(grep -n '^## Exit Criteria' "$PLAN" | head -1 | cut -d: -f1 || true)"
@@ -89,7 +89,6 @@ if grep -q '^## Exit Criteria' "$PLAN" 2>/dev/null; then
   EC_LINE_END="$(awk -v start="$EC_LINE_START" 'NR>start && /^## /{print NR; exit}' "$PLAN")"
   [ -z "$EC_LINE_END" ] && EC_LINE_END="$(( $(wc -l < "$PLAN" | tr -d ' ') + 1 ))"
   EC_BLOCK="$(awk '/^## Exit Criteria/{found=1; next} found && /^## /{found=0} found{print}' "$PLAN")"
-  EXIT_CRITERIA_TOTAL="$(printf '%s\n' "$EC_BLOCK" | grep -cE '^\- \[[ x]\] ' || true)"
   EXIT_CRITERIA_PENDING="$(printf '%s\n' "$EC_BLOCK" | grep -cE '^\- \[ \] ' || true)"
   if [ "$EXIT_CRITERIA_PENDING" -gt 0 ]; then
     EXIT_CRITERIA_MET=false
@@ -498,16 +497,16 @@ $PROGRESS" "$PLAN"
 fi
 
 # --- ledger conflict check ------------------------------------------------- #
-LEDGER_CONFLICTS=""; LEDGER_CONFLICT_COUNT=0
+LEDGER_CONFLICT_COUNT=0
 if type ledger_conflict_check &>/dev/null 2>&1; then
   # Source query lib (emit already sourced config)
   _QUERY_LIB="$SCRIPT_DIR/lib/ledger-query.sh"
+  # shellcheck source=./scripts/lib/ledger-query.sh disable=SC1090
   [ -f "$_QUERY_LIB" ] && source "$_QUERY_LIB" 2>/dev/null || true
   if type ledger_conflict_check &>/dev/null 2>&1; then
     _REPO_NAME="$(basename "$(git -C "$PLAN_DIR" rev-parse --show-toplevel 2>/dev/null || echo "$PLAN_DIR")")"
     _CONFLICT_JSON=$(ledger_conflict_check "$_REPO_NAME" "[\"$PLAN\"]" 2 2>/dev/null || echo '[]')
     LEDGER_CONFLICT_COUNT=$(printf '%s' "$_CONFLICT_JSON" | jq 'length' 2>/dev/null || echo 0)
-    [ "$LEDGER_CONFLICT_COUNT" -gt 0 ] && LEDGER_CONFLICTS="$_CONFLICT_JSON"
   fi
 fi
 

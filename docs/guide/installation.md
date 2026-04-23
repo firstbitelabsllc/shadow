@@ -57,7 +57,7 @@ If installed correctly, the agent reads the skill, gathers evidence about your p
 
 ## Ecosystem Skills
 
-Vidux is a **single entry point** — `/vidux` — that covers both planning and automation. As of 2026-04-17, previously separate companion commands (`/vidux-plan`, `/vidux-auto`, `/vidux-claude`, `/vidux-codex`, `/vidux-fleet`, `/vidux-dashboard`, `/vidux-manager`) were merged into `/vidux` or pruned as orphaned.
+Vidux is a **single entry point** — `/vidux` — that covers both planning and automation. As of 2026-04-17, previously separate planning, automation, platform-specific, and fleet companion commands were merged into `/vidux` or pruned as orphaned.
 
 | Skill | What it does |
 |---|---|

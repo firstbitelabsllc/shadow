@@ -80,7 +80,7 @@ When you discover a friction pattern (from session analysis, `/insights`, or man
 |---|---|---|
 | **T1: Prompt** | Lane/automation prompt wording | The specific automation's prompt file |
 | **T2: Agent config** | Global agent behavior rules | CLAUDE.md / .cursorrules / AGENTS.md |
-| **T3: Companion** | New automation pattern or recipe | Companion skill (e.g., vidux-auto) or guides/ |
+| **T3: Companion** | New automation pattern or recipe | `guides/automation.md`, `references/automation.md`, or related guides/ |
 | **T4: Core** | Fundamental principles or contracts | vidux SKILL.md |
 
 **The rule: work from T1 up.** If the fix can live in a prompt, don't touch the agent config. If it can live in the agent config, don't add a recipe. If it can live in a recipe, don't change the core discipline.

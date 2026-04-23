@@ -25,7 +25,7 @@
 _VIDUX_LEDGER_CONFIG_LOADED=1
 
 # --- Locate vidux root ---------------------------------------------------- #
-_LEDGER_CFG_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
+_LEDGER_CFG_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _VIDUX_ROOT="${_LEDGER_CFG_SCRIPT_DIR}/../.."
 _VIDUX_CONFIG="${_VIDUX_ROOT}/vidux.config.json"
 

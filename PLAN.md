@@ -141,11 +141,11 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [Source: session bloat diagnosis 2026-04-15] The three companion skills contribute ~7% of session JSONL size (skill listings loaded per-turn). Fewer skills = less per-turn overhead.
 
 **Constraints:**
-- ALWAYS: vidux core SKILL.md stays platform-agnostic (no CronCreate specifics, no Claude Code assumptions)
-- ALWAYS: vidux-auto is a single file that works as a Claude Code skill AND as a reference doc for Cursor/Codex users
-- ALWAYS: strip ALL personal references (Leo, strongyes, resplit, leojkwan, snowcubes, Snap, Nicole, Pickles, account rotation, specific lane names). Use `<project>`, `<coordinator>`, `<writer>` generics.
-- NEVER: lose operational patterns during the merge. Every non-personal pattern from the three sources must survive in vidux-auto.
-- NEVER: duplicate content that's already in vidux core SKILL.md (observer pair description, delegation concept, investigation template)
+  - ALWAYS: vidux core SKILL.md stays platform-agnostic (no CronCreate specifics, no Claude Code assumptions)
+  - ALWAYS: vidux-auto is a single file that works as a Claude Code skill AND as a reference doc for Cursor/Codex users
+  - ALWAYS: strip ALL personal references (Leo, strongyes, resplit, leojkwan, snowcubes, Snap, Nicole, Pickles, account rotation, specific lane names). Use `<project>`, `<coordinator>`, `<writer>` generics.
+  - NEVER: lose operational patterns during the merge. Every non-personal pattern from the three sources must survive in vidux-auto.
+  - NEVER: duplicate content that's already in vidux core SKILL.md (observer pair description, delegation concept, investigation template)
 
 #### 8.0 — Content audit + migration map [completed]
 
@@ -253,8 +253,8 @@ New content — closes the feedback gap proven by PR #338.
 - [Source: plan review 2026-04-16] Two review agents scrutinized Phase 9 v1. Verdict: insights aggregator script + 2h cron are overkill (manual triage of 5-10 findings takes 2 min). Dedicated GC lane is overkill (fold into existing fleet-watcher). Codex config migration should be 3 highest-churn only (rest dying). Missing: agent config rules guide for OSS.
 
 **Constraints:**
-- ALWAYS: keep it simple. A CLAUDE.md rule beats a custom hook. Manual triage beats a script until it proves painful.
-- NEVER: build automation to solve a problem that occurs less than weekly.
+  - ALWAYS: keep it simple. A CLAUDE.md rule beats a custom hook. Manual triage beats a script until it proves painful.
+  - NEVER: build automation to solve a problem that occurs less than weekly.
 
 **Parallelism note:** 9.0, 9.1, 9.2 can run NOW — they do NOT depend on Phase 8 (vidux-auto merge).
 
@@ -323,9 +323,9 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 - [Source: commit 8c1f593 2026-04-17] net -2,193 lines across 19 files (5 deleted commands + vidux-auto breadcrumb + SKILL.md Part 2 expansion + references/automation.md NEW + 13 cross-ref updates)
 
 **Constraints:**
-- ALWAYS: keep Phase 8's artifacts usable during a 90-day breadcrumb window (existing lane prompts load `/vidux-auto` — must not crash)
-- ALWAYS: preserve every operational pattern from Phase 8's vidux-auto in /vidux Part 2 or references/automation.md (no regression)
-- NEVER: delete the old `/vidux-auto` commands/skill files outright — they stay as deprecation breadcrumbs (same 90-day retention rule applied by Phase 8.8 to vidux-claude/vidux-codex/vidux-fleet)
+  - ALWAYS: preserve every operational pattern from Phase 8's vidux-auto in /vidux Part 2 or references/automation.md (no regression)
+  - 2026-04-17 through 2026-04-22: keep Phase 8's artifacts usable while live lane prompts still load `/vidux-auto`
+  - 2026-04-22 Leo direct: once active prompts + contract tests stop referencing `/vidux-auto`, delete the deprecated command/skill files and leave only historical mentions in PLAN.md / CHANGELOG.md / evidence
 
 #### 10.1 — Expand SKILL.md to Part 1 + Part 2 [completed]
 
@@ -343,10 +343,10 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 
 #### 10.3 — Deprecate `/vidux-auto` + prune orphaned commands [completed] [Depends: 10.1]
 
-1. Replace `commands/vidux-auto.md` body with a deprecation breadcrumb: frontmatter flipped to "DEPRECATED (2026-04-17)", body redirects to `/vidux` Part 2 + references/automation.md, 90-day removal target 2026-07-17.
+1. Replace `commands/vidux-auto.md` body with a deprecation breadcrumb: frontmatter flipped to "DEPRECATED (2026-04-17)", body redirects to `/vidux` Part 2 + references/automation.md, 90-day removal target 2026-07-17. [Superseded: 2026-04-22 early delete after active-reference migration.]
 2. Delete `commands/vidux-claude.md`, `commands/vidux-codex.md`, `commands/vidux-fleet.md`, `commands/vidux-dashboard.md`, `commands/vidux-manager.md`, `commands/vidux-plan.md` — zero active external references after Phase 8's migration.
 3. Sibling ai-skills repo: `~/Development/ai/skills/vidux-auto/SKILL.md` synced to breadcrumb (ai commit 44c09a1).
-[Done: 2026-04-17 commit 8c1f593 + ai 44c09a1. 5 command files deleted, vidux-auto replaced with 37-line breadcrumb.]
+[Done: 2026-04-17 commit 8c1f593 + ai 44c09a1. 5 command files deleted, vidux-auto replaced with 37-line breadcrumb. Follow-up 2026-04-22: Leo explicitly requested early removal; active prompts/tests migrated, then `commands/vidux-auto.md` + `ai/skills/vidux-auto/SKILL.md` were deleted.]
 
 #### 10.4 — Sync docs + guides cross-refs [completed] [Depends: 10.3]
 
@@ -367,6 +367,12 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 3. Sibling ai-skills repo: `~/Development/ai/skills/vidux/` is a symlink into this repo, so OSS update is automatically "installed" on Leo's machine. `skills/vidux-auto/SKILL.md` synced separately (ai commit 44c09a1).
 [Done: 2026-04-17. Verified in the same session the merge shipped.]
 
+#### 10.6 — Purge residual `/vidux-auto` mentions [completed] [Depends: 10.5]
+
+Remove any remaining `/vidux-auto` references from non-historical docs, prompts, and tooling.
+Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`, and archived memories.
+[Done: 2026-04-23. Deleted `commands/vidux-auto.md`. Scrubbed the remaining active docs/guides references. Updated `scripts/lib/ledger-query.sh` to anchor bimodal windows to the newest ledger entry so the contract tests stay deterministic. Gate: `python3 -m pytest -q` => 136/136 pass.]
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -378,6 +384,7 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 - [DIRECTION] [2026-04-11] vidux core is open-source and cloud-agnostic. Phase 5 contains ONLY draft-PR mechanics — no Greptile, no Sentry, no Nia, no Seer. Paid-service integrations live in `/vidux-codex` scope as composable skills, not in this plan. "Keep side effects like greptile and followups agnostic, that is more a /vidux-codex kinda thing." — Leo.
 - [DIRECTION] [2026-04-12] Design skill naming convention: `brand-*` (identity), `craft-*` (platform patterns), `figma-*` (workflow). Renames: strongyes-design→brand-strongyes, picasso→craft-ios, preview-svg-design→craft-svg, figma-implement-design→figma-implement. New: brand-leojkwan. Do not revert these names.
 - [DIRECTION] [2026-04-14] Automation recipes may reference specific tools (Greptile, code-reviewer, ledger) as opinionated defaults. This EXPANDS the 2026-04-11 "keep side effects agnostic" direction: the core SKILL.md stays tool-agnostic, but `guides/recipes.md` is explicitly opinionated about "how we work." Recipes are Leo's workflow codified, not generic docs. — Leo: "i want our system with greptile and code reviewers codified, though opinionated in how we work."
+- [DIRECTION] [2026-04-22] Explicit Leo override: the `/vidux-auto` breadcrumb window ends early once active prompts/tests are migrated. Delete the deprecated command/skill files; keep only historical mentions in PLAN.md, CHANGELOG.md, evidence, and archived memories.
 - [DIRECTION] [2026-04-14] ~~Claude Routines are the primary automation primitive.~~ **SUPERSEDED 2026-04-15:** Routines are cloud-based — vidux core must stay platform-agnostic and local-first. Routines references belong in `/vidux-claude` (platform-specific companion), not in the core SKILL.md or README. CronCreate stays as the local automation primitive. Leo: "delete Routines we dont need it anymore its cloudbase."
 - [DIRECTION] [2026-04-15] Merge `/vidux-claude` + `/vidux-codex` + `/vidux-fleet` → single `/vidux-auto` companion. Three skills with 1,998 lines and heavy topic overlap (CronCreate 35x, observer 32x, memory.md 44x across the three). Strip all personal references (~62 total). PR Nurse pattern added to close the PR #338 feedback gap. Two OSS artifacts: `vidux` (core) + `vidux-auto` (automation). Leo: "should we finally look into creating a mega plugin for /vidux to combine all this."
 - [DIRECTION] [2026-04-12] Skill consolidation: 54→~42 skills. Vendor research (Anthropic + OpenAI) confirms: "earn your complexity," "eval-driven pruning." Unused skills are noise in the routing table. Tier 1 deletes bulk-import cruft; Tier 2 merges overlapping pairs; Tier 3 needs Leo's call. vidux-skill-refiner cron (20 min) handles ongoing quality.
@@ -445,5 +452,7 @@ Cross-reference Principle 5 ("Prove it mechanically") for verification-before-co
 - [2026-04-18T19:55Z] **Plan reconciliation sweep.** Audited all 10 phases + 3 sibling projects (`projects/*/PLAN.md`) + ASK-LEO.md + open PRs. Findings: Phase 6 [in_progress]→[completed] (all 17 sub-items done 2026-04-12), Phase 7 [in_progress]→[completed] (all 5 sub-items done 2026-04-15/16), Phase 8 [pending]→[blocked: superseded by Phase 10]. **Real remaining vidux-core work = Phase 5 Wave 3+4 only** (4 pending tasks blocked on resplit `gh pr create` overlap from Phase 2.4 stranded branches). Active sub-project: `projects/vidux-leo-split/PLAN.md` (10 MVP tasks, ~2.3h AI) which ships PR #26 + #27 via a new personal-overlay skill `/vidux-leo` (resolves ASK-LEO Q1 + Q2). Archive-ready: `projects/docs-simplify/PLAN.md` (all 8 tasks [completed]). Out-of-scope: `projects/claudux-evolution/` (3 pending, different tool). Next: execute `projects/vidux-leo-split/` Phase 1 on approval — Leo 19:45Z *"we have a preference on blah blah greptile"* = explicit direction to extract Leo-specific review-gate policy into overlay.
 - [2026-04-17] Phase 10 (all 5 subtasks) shipped in commit `8c1f593` + sibling ai commit `44c09a1`. Collapsed `/vidux` + `/vidux-auto` two-skill split into single `/vidux` entry with progressive disclosure. SKILL.md 365L → 498L (Part 1 Discipline unchanged + Part 2 Automation inline). `references/automation.md` NEW (~990L, absorbed Phase 8 vidux-auto body). `commands/vidux-auto.md` replaced with 37-line deprecation breadcrumb (removal target 2026-07-17). 5 orphaned command files deleted (`vidux-claude`, `vidux-codex`, `vidux-fleet`, `vidux-dashboard`, `vidux-manager`, `vidux-plan`). 13 docs/guides cross-refs updated. Net -2,193 lines across 19 files. All remaining grep hits for deprecated names are intentional (breadcrumb + historical PLAN/ARCHIVE/evidence). Plan gate: git status clean, origin/main pushed, `~/Development/ai/skills/vidux/` symlink means OSS change is already live on this machine. **Plan state this cycle:** all Phase 5-10 tasks either `[completed]` or blocked on the known resplit `gh pr create` overlap (Wave 3/4 still parked). No mergeable PRs on vidux repo. Next: if resplit gh overlap gets resolved externally, Wave 3 unblocks; otherwise this plan is mostly cold — candidate for an archive pass when Phase 5 closes.
 - [2026-04-22] **2.17.0 — dead-weight kill + personal-ref scrub.** Team doc-review (3 parallel code-reviewers) + `codex review --uncommitted` found 20+ personal refs leaking into core docs and 3 internal contradictions. Shipped: coordinator cadence harmonized to every hour (§5.6 rule 7 + L389 example), `~/.claude-automations/` → `<lane-dir>/` across 23 refs, Leo lane names in §8.5 peer-drift example → `<project>-*` templates, Routines mention scrubbed from L41, Framing B / Codex-unlimited bullet removed, observer tombstone at §8 deleted (superseding the 2026-04-17 "keep as cross-reference stub" direction — cross-refs in CHANGELOG.md updated for the new 2.17.0 entry), §17/§18 stub sections deleted. VERSION bumped 2.16.0 → 2.17.0. CHANGELOG entry documents all changes + flags the deprecated Fleet Watcher recipe's "every 2 hours" as historical-record-left-alone. 133/136 contract tests pass; 3 failures verified pre-existing. Companion `/vidux-leo` + `/pilot` edits in ai repo `54b4124`.
+- [2026-04-23T01:40Z] Removed the deprecated `/vidux-auto` command breadcrumb (`commands/vidux-auto.md`) after scrubbing remaining active references in guides/docs and updating contracts to only require `/vidux`. Ledger bimodal tests now use relative timestamps so they stay time-window stable. Gate: 136/136 contract tests pass.
+- [2026-04-23T01:50Z] PR nurse pass for the `/vidux-auto` purge branch. Added Phase 10.6 to record the final cleanup, anchored `ledger_bimodal_distribution` to the newest ledger event so offline fixtures stay deterministic, and cleared the repo-wide ShellCheck blockers in the CI-scanned scripts (source directives, quoting, dead locals, no-op truncation). Gate: `shellcheck` passes on the scanned scripts and `python3 -m pytest -q` passes (136/136). Next: push the branch and let PR checks rerun.
 - [2026-04-17] **Doctrine patch: kill metadata-only PRs + deprecate observer lanes.** Triggered by Leo's diagnosis of resplit-ios fleet-drift pattern — 15+ consecutive plan-flip / audit / investigation PRs while user-visible bugs sat untouched for a week. Branch `claude/vidux-kill-metadata-prs`. Edits span 9 files, net −19 lines: SKILL.md Principle 3 rewritten, Principle 5 adds "Progress is code change" rule, Evidence section adds `observed` as a first-class source type, Worked Example Stage 1 rewritten ("no PR opens yet"), Status FSM language softened, 4 echoes of "investigation only — no code" replaced. LOOP.md `Every cycle MUST produce a checkpoint commit, even if no code changed` inverted. references/automation.md Section 8 collapsed to a deprecation notice, Section 3 observer subsection rewritten, decision tree simplified (total lanes 3-7 → 2-4 for 24/7). guides/recipes.md Recipe 1 Fleet Watcher + Recipe 4 Observer Pair marked DEPRECATED. docs/concepts/cycle.md + principles.md + plan-fields.md + ARCHITECTURE.md mirror updates. Three Decision Log entries added above. PR opens next.
 <!-- 1 tasks archived to ARCHIVE.md -->

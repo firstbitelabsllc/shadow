@@ -79,9 +79,6 @@ CODEX_AUTOMATIONS_DIR="${CODEX_AUTOMATIONS_DIR:-$HOME/.codex/automations}"
 codex_sync_tomls() {
   [[ ! -f "$CODEX_DB" ]] && { echo "Error: Codex DB not found at $CODEX_DB" >&2; return 1; }
 
-  local count=0
-  local errors=0
-
   # Python does the heavy lifting: reads DB, escapes prompts, writes TOMLs.
   # This avoids ALL shell escaping issues and re.sub pitfalls.
   python3 - "$CODEX_DB" "$CODEX_AUTOMATIONS_DIR" <<'PYEOF'
