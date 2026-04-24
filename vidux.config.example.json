@@ -1,0 +1,35 @@
+{
+  "_description": "Example vidux.config.json with a live gh_projects inbox source. Copy the `inbox_sources` block into your real vidux.config.json to enable external-kanban sync. Empty array = vanilla vidux with no external sync.",
+  "version": "1.0",
+  "plan_store": {
+    "mode": "local",
+    "path": "~/Development/vidux/projects"
+  },
+  "external_plan_roots": [],
+  "inbox_sources": [
+    {
+      "adapter": "gh_projects",
+      "enabled": true,
+      "config": {
+        "owner": "leojkwan",
+        "project_number": 3,
+        "token_file": "~/.config/vidux/gh-project.token",
+        "status_field_name": "Status",
+        "column_mapping": {
+          "pending":     "Backlog",
+          "in_progress": "Dev",
+          "in_review":   "QA/Testing/Review",
+          "completed":   "Prod/Shipped"
+        },
+        "blocked_field_name": "Blocked",
+        "blocked_linked_label_fallback": "blocked",
+        "field_mapping": {
+          "Evidence":      { "project_field": "Evidence",      "type": "TEXT"   },
+          "Investigation": { "project_field": "Investigation", "type": "TEXT"   },
+          "ETA":           { "project_field": "ETA",           "type": "NUMBER" },
+          "Source":        { "project_field": "Source",        "type": "TEXT"   }
+        }
+      }
+    }
+  ]
+}

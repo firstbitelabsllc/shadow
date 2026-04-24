@@ -22,6 +22,7 @@
     "_comment": "Guidelines for agents reading this config. Not enforced by scripts."
   },
   "external_plan_roots": [],
+  "inbox_sources": [],
   "dashboard": {
     "refresh_mode": "on-demand",
     "_comment": "on-demand (default), polling (5s), or tail. Start simple per Q7."

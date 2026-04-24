@@ -19,6 +19,10 @@ from adapters.base import (
 
 # Import side effects register each adapter into the registry.
 from adapters import gh_projects  # noqa: F401
+from adapters import linear  # noqa: F401
+from adapters import asana  # noqa: F401
+from adapters import jira  # noqa: F401
+from adapters import trello  # noqa: F401
 
 __all__ = [
     "AdapterBase",
