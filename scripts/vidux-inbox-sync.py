@@ -310,9 +310,19 @@ def flip_plan_statuses(plan_path: Path, flips: dict[str, VidxStatus],
     lines = text.splitlines(keepends=True)
     changed = 0
 
+    # Mirror parse_plan's terminator whitelist — non-canonical `## ` dividers
+    # (e.g. "## HUGE ESTIMATION") sit inside the Tasks block in long-running
+    # plans and must NOT end the flip scan.
+    _TERMINATOR_HEADERS = (
+        "## Decision Log",
+        "## Progress",
+        "## Open Questions",
+        "## ARCHIVE",
+        "## Archive",
+    )
     task_start = None
     for i, line in enumerate(lines):
-        if re.match(r"^## Tasks\s*$", line):
+        if re.match(r"^## Tasks\s*$", line.rstrip("\n")):
             task_start = i + 1
             break
     if task_start is None:
@@ -320,7 +330,8 @@ def flip_plan_statuses(plan_path: Path, flips: dict[str, VidxStatus],
 
     for i in range(task_start, len(lines)):
         line = lines[i]
-        if line.startswith("## "):
+        stripped = line.rstrip("\n").rstrip()
+        if any(stripped == h or stripped.startswith(h + " ") for h in _TERMINATOR_HEADERS):
             break
         m = _TASK_LINE.match(line.rstrip("\n"))
         if not m:
