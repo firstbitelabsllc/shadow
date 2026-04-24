@@ -117,10 +117,19 @@ Inside ## Tasks, every line starting with `- ` MUST be a task with a
 status tag. Use numbered lists (1. 2. 3.) or headers for non-task
 content like rollout strategies or phase preambles.
 
-Status FSM: pending -> in_progress -> completed
-                              \-> blocked    (terminal — a blocked task is
-                                              replaced by a new task with a
-                                              Decision Log entry, not revived)
+Status FSM: pending -> in_progress -> [in_review] -> completed
+                              │                │
+                              └───> blocked <───┘  (orthogonal tag on any active
+                                                    state — an item can be
+                                                    [in_progress] + blocked
+                                                    simultaneously; set via a
+                                                    separate Blocked field /
+                                                    label, not by column move)
+
+`in_review` is optional — use it when a task has a PR awaiting merge + CI +
+review-bot acks. Skip it for docs, config, or plan-only work that never goes
+through review. Existing 4-state plans (pending / in_progress / completed /
+blocked) remain valid; agents may adopt in_review per-task.
 
 **`[ETA: Xh]` — mandatory AI-hour estimate on pending + in_progress tasks.**
 An AI-hour is how much focused AI-agent work a task takes end-to-end, not
@@ -218,6 +227,55 @@ One optional config file at the repo root controls plan discovery:
 - `mode: "external"` — same as local but path may point outside `~/Development`.
 
 Agents read `vidux.config.json` at session start and resolve the authority PLAN.md from the config before anything else.
+
+### External boards (adapter plugins)
+
+vidux supports external kanban boards (GitHub Projects, Linear, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the source of truth; the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
+
+Opt-in. Empty `inbox_sources: []` (the default) keeps vanilla vidux unchanged. Populate the array to enable one or more adapters:
+
+```json
+{
+  "plan_store": { "mode": "local", "path": "~/Development/vidux/projects" },
+  "inbox_sources": [
+    {
+      "adapter": "gh_projects",
+      "enabled": true,
+      "config": {
+        "owner": "<you>",
+        "project_number": 3,
+        "token_file": "~/.config/vidux/gh-project.token",
+        "status_field_name": "Status",
+        "column_mapping": { "pending": "Backlog", "in_progress": "Dev", "in_review": "QA/Testing/Review", "completed": "Prod/Shipped" },
+        "blocked_field_name": "Blocked",
+        "blocked_linked_label_fallback": "blocked",
+        "field_mapping": {
+          "Evidence":      { "project_field": "Evidence",      "type": "TEXT"   },
+          "Investigation": { "project_field": "Investigation", "type": "TEXT"   },
+          "ETA":           { "project_field": "ETA",           "type": "NUMBER" },
+          "Source":        { "project_field": "Source",        "type": "TEXT"   }
+        }
+      }
+    }
+  ]
+}
+```
+
+See `vidux.config.example.json` at the repo root for a live block you can copy.
+
+**Adapter contract.** Each adapter subclasses `AdapterBase` at `~/Development/vidux/adapters/base.py` and implements six methods: `fetch_inbox` (external items → `list[ExternalItem]`), `push_task` (`PlanTask` → opaque `external_id`), `pull_status` / `push_status` (column ↔ vidux FSM), `pull_fields` / `push_fields` (custom fields like Evidence / ETA / Source). Adapters self-register via the `@register` decorator at import time; `get_adapter(name)` resolves the class.
+
+**Sync script.** `scripts/vidux-inbox-sync.py` walks every PLAN.md under `plan_store.path`, diffs tasks against each enabled adapter's external state, and:
+
+- **PULL** — novel external items append to `INBOX.md` as `- [live-feedback] <title> [Source: <adapter>:<id>]` entries (idempotent — marker-based dedupe). External items whose status lands in `completed` auto-flip the corresponding PLAN.md task to `[completed]`.
+- **PUSH** — unmapped `[pending]` / `[in_progress]` tasks create via `push_task`; mapped tasks receive `push_status` (column move) + `push_fields({'_blocked': ...})` for the orthogonal blocked flag.
+- Flags: `--dry-run` skips writes; `--direction={push,pull,both}` gates the halves; `--json` emits a machine-readable summary; exit codes `0/2/3` for success / config-error / adapter-error.
+
+Per-plan sidecar `.external-state.json` stores the `task_id ↔ external_id` map per adapter. Lives inside the plan directory; gitignore the plan tree to keep it private.
+
+**Blocked is orthogonal.** Status column represents pipeline state; the `Blocked` field is a separate flag. An item can be `[in_progress]` AND blocked simultaneously without losing pipeline position. Adapters MUST reject `push_status(BLOCKED)` — callers write `Blocked=Yes` via `push_fields({'_blocked': True})`.
+
+**Writing a new adapter.** See `~/Development/vidux/adapters/README.md` for the 6-step authors guide + 5-step round-trip rubric (push seed, pull status change, custom-field round-trip, blocked orthogonality check, idempotency). Current fleet: `gh_projects` live; `linear` / `asana` / `jira` / `trello` shipped as stubs (`NotImplementedError`) with per-platform auth + API docstrings — subclass-ready when a real integration is needed.
 
 ### Inbox
 
