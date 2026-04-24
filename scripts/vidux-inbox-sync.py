@@ -151,14 +151,27 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
     """Extract tasks from the `## Tasks` section of a PLAN.md."""
     text = plan_path.read_text(encoding="utf-8")
     lines = text.splitlines()
+    # Terminate the Tasks section only on canonical vidux sibling headers.
+    # Non-canonical `## ` dividers (e.g., "## HUGE ESTIMATION" as a prose
+    # break) are treated as part of the Tasks block — they commonly precede
+    # additional task rows in long-running plans.
+    _TERMINATOR_HEADERS = (
+        "## Decision Log",
+        "## Progress",
+        "## Open Questions",
+        "## ARCHIVE",
+        "## Archive",
+    )
     task_start = task_end = None
     for i, line in enumerate(lines):
         if re.match(r"^## Tasks\s*$", line):
             task_start = i + 1
             continue
-        if task_start is not None and re.match(r"^## ", line):
-            task_end = i
-            break
+        if task_start is not None:
+            stripped = line.rstrip()
+            if any(stripped == h or stripped.startswith(h + " ") for h in _TERMINATOR_HEADERS):
+                task_end = i
+                break
     if task_start is None:
         return []
     if task_end is None:
