@@ -84,6 +84,9 @@ class GhProjectsAdapter(AdapterBase):
         # calls for the same board within one CLI run. Prevents 40+ identical
         # item-list calls from blowing through the GitHub API rate limit.
         self._inbox_cache: list[ExternalItem] | None = None
+        # Cache the exception too — if the first fetch fails (typically rate
+        # limit), don't retry 39 more times, just re-raise the cached error.
+        self._inbox_error: GhProjectsError | None = None
 
     # -- Token + subprocess plumbing -----------------------------------------
 
@@ -272,20 +275,29 @@ class GhProjectsAdapter(AdapterBase):
         """
         if self._inbox_cache is not None:
             return self._inbox_cache
-        stdout = self._run(
-            [
-                "gh",
-                "project",
-                "item-list",
-                str(self.project_number),
-                "--owner",
-                self.owner,
-                "--format",
-                "json",
-                "--limit",
-                str(self.ITEM_LIST_LIMIT),
-            ]
-        )
+        # If a prior fetch_inbox hit rate limit mid-run, cache the exception
+        # and re-raise on subsequent calls so we don't pile 40 more identical
+        # failures on top of an already-exhausted API budget.
+        if self._inbox_error is not None:
+            raise self._inbox_error
+        try:
+            stdout = self._run(
+                [
+                    "gh",
+                    "project",
+                    "item-list",
+                    str(self.project_number),
+                    "--owner",
+                    self.owner,
+                    "--format",
+                    "json",
+                    "--limit",
+                    str(self.ITEM_LIST_LIMIT),
+                ]
+            )
+        except GhProjectsError as exc:
+            self._inbox_error = exc
+            raise
         payload = json.loads(stdout)
         items = payload.get("items", [])
         out: list[ExternalItem] = []
