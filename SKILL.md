@@ -244,6 +244,8 @@ When agents pick up work in a fleet repo, they should:
 3. If the board has items the PLAN.md doesn't, run `python3 ~/Development/vidux/scripts/vidux-inbox-sync.py --direction=pull` to promote them to `INBOX.md`
 4. Push newly-added PLAN.md tasks with `--direction=push` during checkpoint so Leo sees what shipped on the board too
 
+**Always-on fleet sync cron** (`~/bin/vidux-fleet-sync`, LaunchAgent `com.leokwan.vidux-fleet-sync`, cadence :00 :15 :30 :45). Runs `--direction=both` against every repo in `FLEET_REPOS` (currently `strongyes-web`, `resplit-web`). Pure python, no Claude CLI, ~2s per fire. Per-run cost: 2 metadata loads + 2 `gh project item-list` calls (the adapter caches the board read for the instance's lifetime — critical since the sync iterates 40+ plan_dirs against the same adapter per run). State at `~/.agent-ledger/vidux-fleet-sync.{state,log}`. Inspect via `vidux-fleet-sync --status`. Uninstall via `--uninstall`.
+
 Opt-in. Empty `inbox_sources: []` (the default) keeps vanilla vidux unchanged. Populate the array to enable one or more adapters:
 
 ```json
