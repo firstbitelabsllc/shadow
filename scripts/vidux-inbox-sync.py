@@ -127,10 +127,15 @@ def resolve_plan_dirs(config: dict[str, Any], explicit: str | None) -> list[Path
 
 # --- PLAN.md parsing ---------------------------------------------------------
 
-# Match lines like: "- [pending] T7: description [Evidence: ...] [ETA: 2h]"
+# Match task lines. Supports:
+#   "- [pending] T7: description ..."              (vidux-kanban-ext style)
+#   "- [pending] **GP-M6**: description ..."       (strongyes game-plan style — bolded ID)
+#   "- [pending] I5: description ..."              (single-letter prefix)
+# ID must start with an uppercase letter and may contain alphanumerics, `-`, `_`, `.`
+# Optional `**...**` bold wrapping is tolerated and stripped by post-match cleanup.
 _TASK_LINE = re.compile(
     r"^- \[(?P<status>pending|in_progress|in_review|completed|blocked)\] "
-    r"(?P<id>T\d+[A-Za-z0-9_.-]*)"          # T7 or T7a or T7.1
+    r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.-]*)(?:\*\*)?"
     r"\s*:\s*"
     r"(?P<body>.*)$"
 )
