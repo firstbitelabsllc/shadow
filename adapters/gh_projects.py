@@ -125,18 +125,21 @@ class GhProjectsAdapter(AdapterBase):
         return proc.stdout
 
     def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
-        """POST a GraphQL query via `gh api graphql` and return the `data` payload."""
-        args = ["gh", "api", "graphql", "-f", f"query={query}"]
-        for key, value in variables.items():
-            if isinstance(value, (int, float)):
-                args.extend(["-F", f"{key}={value}"])
-            else:
-                args.extend(["-f", f"{key}={value}"])
-        stdout = self._run(args)
-        payload = json.loads(stdout)
-        if "errors" in payload and payload["errors"]:
-            raise GhProjectsError(f"graphql errors: {payload['errors']}")
-        return payload.get("data", {})
+        """POST a GraphQL query via `gh api graphql` and return the `data` payload.
+
+        Payload serialized as JSON on stdin so Float variables survive round-trip.
+        `gh api graphql -F key=val` auto-types ints and bools but coerces floats
+        to strings, which GraphQL rejects when the schema declares `Float!`.
+        """
+        payload = json.dumps({"query": query, "variables": variables})
+        stdout = self._run(
+            ["gh", "api", "graphql", "--input", "-"],
+            stdin=payload,
+        )
+        resp = json.loads(stdout)
+        if "errors" in resp and resp["errors"]:
+            raise GhProjectsError(f"graphql errors: {resp['errors']}")
+        return resp.get("data", {})
 
     # -- Metadata discovery ---------------------------------------------------
 
