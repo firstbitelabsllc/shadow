@@ -17,6 +17,9 @@ from adapters.base import (
     registered_adapters,
 )
 
+# Import side effects register each adapter into the registry.
+from adapters import gh_projects  # noqa: F401
+
 __all__ = [
     "AdapterBase",
     "ExternalItem",
