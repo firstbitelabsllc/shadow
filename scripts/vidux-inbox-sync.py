@@ -136,6 +136,7 @@ def resolve_plan_dirs(config: dict[str, Any], explicit: str | None) -> list[Path
 _TASK_LINE = re.compile(
     r"^- \[(?P<status>pending|in_progress|in_review|completed|blocked)\] "
     r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.-]*)(?:\*\*)?"
+    r"(?P<extras>(?:\s*(?:\(NEW[^)]*\)|\[Depends:[^\]]*\]))*)"
     r"\s*:\s*"
     r"(?P<body>.*)$"
 )
@@ -360,6 +361,7 @@ def sync_plan_with_adapter(
     adapter: AdapterBase,
     direction: str,
     dry_run: bool,
+    push_statuses: set[VidxStatus] | None = None,
 ) -> dict[str, Any]:
     """Reconcile one plan-dir against one adapter. Return a summary dict."""
     plan_path = plan_dir / PLAN_FILENAME
@@ -414,11 +416,15 @@ def sync_plan_with_adapter(
         summary["flipped_ids"] = sorted(flips.keys())
 
     if direction in ("push", "both"):
-        # Push any PLAN.md task with an active status (pending / in_progress /
-        # in_review / blocked) that has no external_id recorded.
+        # Push any PLAN.md task whose status is in push_statuses and has no
+        # external_id recorded. Default excludes BLOCKED (historical summaries
+        # stay in PLAN.md) — pass --push-statuses to override.
+        effective_push = push_statuses or {
+            VidxStatus.PENDING, VidxStatus.IN_PROGRESS, VidxStatus.IN_REVIEW
+        }
         pushable = [
             t for t in tasks
-            if t.status != VidxStatus.COMPLETED
+            if t.status in effective_push
             and t.id not in mapping
         ]
         for task in pushable:
@@ -474,7 +480,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true",
                         help="Emit machine-readable summary")
+    parser.add_argument(
+        "--push-statuses",
+        default="pending,in_progress,in_review",
+        help=("Comma-separated vidux statuses eligible for push as new items. "
+              "Default excludes 'blocked' (historical summaries stay in PLAN.md). "
+              "Valid values: pending,in_progress,in_review,blocked,completed."),
+    )
     args = parser.parse_args(argv)
+
+    try:
+        push_statuses = {
+            VidxStatus(s.strip())
+            for s in args.push_statuses.split(",")
+            if s.strip()
+        }
+    except ValueError as exc:
+        print(f"error: --push-statuses: {exc}", file=sys.stderr)
+        return 2
 
     try:
         config_path = find_config(args.config)
@@ -513,7 +536,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         for plan_dir in plan_dirs:
             summary = sync_plan_with_adapter(
-                plan_dir, adapter, args.direction, args.dry_run
+                plan_dir, adapter, args.direction, args.dry_run,
+                push_statuses=push_statuses,
             )
             results.append(summary)
             if summary["errors"]:
