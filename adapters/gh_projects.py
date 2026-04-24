@@ -100,29 +100,55 @@ class GhProjectsAdapter(AdapterBase):
         env.pop("GITHUB_TOKEN", None)
         return env
 
-    def _run(self, args: list[str], *, stdin: str | None = None) -> str:
+    # GitHub's http2 transport occasionally raises transient stream errors
+    # mid-POST ("cannot retry err [stream error: ...]"). Retry these with
+    # modest exponential backoff; everything else fails fast.
+    _TRANSIENT_PATTERNS = (
+        "stream error",
+        "http2: Transport",
+        "timeout",
+        "temporarily unavailable",
+        "502 Bad Gateway",
+        "503 Service Unavailable",
+        "connection reset",
+    )
+
+    def _run(self, args: list[str], *, stdin: str | None = None,
+             max_attempts: int = 4) -> str:
         """Run a `gh` command and return stdout.
 
         Raises GhProjectsError with stderr on nonzero exit. Token is
-        injected via env; never appears in argv.
+        injected via env; never appears in argv. Retries on transient
+        GitHub GraphQL flakiness (http2 stream errors, 502/503) with
+        exponential backoff (0.5s, 1s, 2s).
         """
-        try:
-            proc = subprocess.run(
-                args,
-                input=stdin,
-                env=self._env(),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except FileNotFoundError as exc:
-            raise GhProjectsError(f"gh CLI not found: {exc}") from exc
-        if proc.returncode != 0:
-            raise GhProjectsError(
-                f"gh command failed ({proc.returncode}): "
-                f"{' '.join(args[:3])}... stderr={proc.stderr.strip()}"
-            )
-        return proc.stdout
+        import time
+        last_err: str | None = None
+        for attempt in range(max_attempts):
+            try:
+                proc = subprocess.run(
+                    args,
+                    input=stdin,
+                    env=self._env(),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except FileNotFoundError as exc:
+                raise GhProjectsError(f"gh CLI not found: {exc}") from exc
+            if proc.returncode == 0:
+                return proc.stdout
+            stderr = proc.stderr.strip()
+            last_err = stderr
+            if attempt + 1 < max_attempts and any(
+                pat in stderr for pat in self._TRANSIENT_PATTERNS
+            ):
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            break
+        raise GhProjectsError(
+            f"gh command failed: {' '.join(args[:3])}... stderr={last_err}"
+        )
 
     def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         """POST a GraphQL query via `gh api graphql` and return the `data` payload.
@@ -328,13 +354,22 @@ class GhProjectsAdapter(AdapterBase):
     }
     """
 
+    # GitHub draft-issue title cap.
+    _MAX_TITLE_LEN = 256
+
     def push_task(self, task: PlanTask) -> str:
         """Create a draft-issue project item from a PlanTask. Return external_id."""
         project_id = self._project_id_cached()
         body = self._render_body(task)
+        # Titles > 256 chars are rejected by GH. Truncate in the title and let
+        # the body carry the full content (body is unbounded in practice).
+        title = task.title
+        if len(title) > self._MAX_TITLE_LEN:
+            title = title[: self._MAX_TITLE_LEN - 1].rstrip() + "…"
+            body = f"{body}\n\nfull title: {task.title}"
         data = self._graphql(
             self._CREATE_DRAFT_ISSUE_MUTATION,
-            {"projectId": project_id, "title": task.title, "body": body},
+            {"projectId": project_id, "title": title, "body": body},
         )
         item = data["addProjectV2DraftIssue"]["projectItem"]
         external_id = item["id"]
@@ -375,6 +410,16 @@ class GhProjectsAdapter(AdapterBase):
         itemId: $itemId,
         fieldId: $fieldId,
         value: { singleSelectOptionId: $optionId }
+      }) { projectV2Item { id } }
+    }
+    """
+
+    _CLEAR_FIELD_MUTATION = """
+    mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!) {
+      clearProjectV2ItemFieldValue(input:{
+        projectId: $projectId,
+        itemId: $itemId,
+        fieldId: $fieldId
       }) { projectV2Item { id } }
     }
     """
@@ -475,20 +520,65 @@ class GhProjectsAdapter(AdapterBase):
     def _write_blocked(
         self, external_id: str, blocked: bool, project_id: str
     ) -> None:
+        """Mark an item blocked or clear the flag.
+
+        Supports two common Blocked field shapes:
+          * Two-option ("Yes" / "No") — set the matching option.
+          * Single-option ("blocked" / "Blocked") — set when blocked=True,
+            CLEAR the field (no value) when blocked=False. Clearing a single-
+            select field is the natural "not blocked" signal.
+        """
         field = self._field(self.blocked_field_name)
         options = field.get("options") or {}
-        target_option = "Yes" if blocked else "No"
-        if target_option not in options:
-            raise GhProjectsError(
-                f"Blocked field missing option '{target_option}'. "
-                f"Known: {sorted(options.keys())}"
+        field_id = field["id"]
+
+        if blocked:
+            # Prefer explicit "Yes"; otherwise use the first option that
+            # looks like a "blocked" marker.
+            if "Yes" in options:
+                option_id = options["Yes"]
+            else:
+                match = next(
+                    (oid for name, oid in options.items()
+                     if name.lower() in ("blocked", "true", "yes")),
+                    None,
+                )
+                if match is None:
+                    raise GhProjectsError(
+                        f"Blocked field missing a blocked-marker option. "
+                        f"Known: {sorted(options.keys())}"
+                    )
+                option_id = match
+            self._graphql(
+                self._UPDATE_SELECT_MUTATION,
+                {
+                    "projectId": project_id,
+                    "itemId": external_id,
+                    "fieldId": field_id,
+                    "optionId": option_id,
+                },
             )
+            return
+
+        # blocked=False: prefer an explicit "No" option when present,
+        # otherwise clear the field.
+        if "No" in options:
+            self._graphql(
+                self._UPDATE_SELECT_MUTATION,
+                {
+                    "projectId": project_id,
+                    "itemId": external_id,
+                    "fieldId": field_id,
+                    "optionId": options["No"],
+                },
+            )
+            return
+        # Clear the single-select field (unset = "not blocked").
         self._graphql(
-            self._UPDATE_SELECT_MUTATION,
+            self._CLEAR_FIELD_MUTATION,
             {
                 "projectId": project_id,
                 "itemId": external_id,
-                "fieldId": field["id"],
-                "optionId": options[target_option],
+                "fieldId": field_id,
             },
         )

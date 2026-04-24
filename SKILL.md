@@ -232,6 +232,18 @@ Agents read `vidux.config.json` at session start and resolve the authority PLAN.
 
 vidux supports external kanban boards (GitHub Projects, Linear, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the source of truth; the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
 
+**Leo fleet primacy (2026-04-24).** Across Leo's repos (`strongyes-web`, `resplit-web`, `leojkwan`, plus local plan_store at `~/Development/vidux/projects/`), GitHub Projects is the **primary work-planning surface** — not PLAN.md alone. Leo drops new asks directly onto a GH Project card; agents sync cards back into PLAN.md via the `pull` half, then execute against PLAN.md. The GH Project board is the "front door" for non-code collaborators (Leo, Nicole) to feed work into the fleet without touching markdown.
+
+Fleet wiring:
+- `leojkwan/projects/3` (**"vidux-ext"** / `PVT_kwHOAJyhO84BVg10`) — wired to `strongyes-web/vidux/*` via `strongyes-web/vidux.config.json` → `inbox_sources[0]`
+- `leojkwan/projects/4` (**"resplit-web vidux backlog"** / `PVT_kwHOAJyhO84BVmKZ`) — wired to `resplit-web/vidux/*` via `resplit-web/vidux.config.json`
+
+When agents pick up work in a fleet repo, they should:
+1. Fetch the wired GH Project's `Dev` column via `gh project item-list` to see what's actively in-flight
+2. Read PLAN.md for the source-of-truth status (the board is a read-mostly mirror; PLAN.md is canonical)
+3. If the board has items the PLAN.md doesn't, run `python3 ~/Development/vidux/scripts/vidux-inbox-sync.py --direction=pull` to promote them to `INBOX.md`
+4. Push newly-added PLAN.md tasks with `--direction=push` during checkpoint so Leo sees what shipped on the board too
+
 Opt-in. Empty `inbox_sources: []` (the default) keeps vanilla vidux unchanged. Populate the array to enable one or more adapters:
 
 ```json

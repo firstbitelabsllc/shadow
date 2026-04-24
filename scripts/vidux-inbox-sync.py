@@ -93,7 +93,11 @@ def find_config(explicit: str | None) -> Path:
 
 
 def load_config(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    # Stash the config file's parent dir so resolve_plan_dirs can resolve
+    # relative plan_store.path against the repo root.
+    cfg["_config_dir"] = str(path.resolve().parent)
+    return cfg
 
 
 # --- Plan dir discovery ------------------------------------------------------
@@ -116,12 +120,23 @@ def resolve_plan_dirs(config: dict[str, Any], explicit: str | None) -> list[Path
     if not root_raw:
         raise ValueError("plan_store.path missing in vidux.config.json")
     root = Path(os.path.expanduser(root_raw))
+    if not root.is_absolute():
+        # Relative paths resolve against the config file's parent (repo root).
+        config_dir = config.get("_config_dir")
+        if config_dir:
+            root = (Path(config_dir) / root).resolve()
     if not root.exists():
         return []
+    # Recursive walk: any directory containing a PLAN.md is a plan dir, even
+    # when nested under an outer plan dir (e.g. creative-engine/squad-integration).
+    # Skip common noise dirs + dot dirs.
+    skip_dirs = {"node_modules", ".next", "dist", "build", ".git", "evidence",
+                 "investigations", "explorations", "spec"}
     out: list[Path] = []
-    for child in sorted(root.iterdir()):
-        if child.is_dir() and (child / PLAN_FILENAME).exists():
-            out.append(child)
+    for plan_path in sorted(root.rglob(PLAN_FILENAME)):
+        if any(part in skip_dirs or part.startswith(".") for part in plan_path.parent.relative_to(root).parts):
+            continue
+        out.append(plan_path.parent)
     return out
 
 
@@ -135,7 +150,7 @@ def resolve_plan_dirs(config: dict[str, Any], explicit: str | None) -> list[Path
 # Optional `**...**` bold wrapping is tolerated and stripped by post-match cleanup.
 _TASK_LINE = re.compile(
     r"^- \[(?P<status>pending|in_progress|in_review|completed|blocked)\] "
-    r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.-]*)(?:\*\*)?"
+    r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.+\-]*)(?:\*\*)?"
     r"(?P<extras>(?:\s*(?:\(NEW[^)]*\)|\[Depends:[^\]]*\]))*)"
     r"\s*:\s*"
     r"(?P<body>.*)$"
