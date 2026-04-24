@@ -80,6 +80,10 @@ class GhProjectsAdapter(AdapterBase):
         # Lazy-loaded metadata cache.
         self._project_id: str | None = None
         self._fields_by_name: dict[str, dict[str, Any]] | None = None
+        # Per-instance fetch_inbox cache — shared across all sync_plan_with_adapter
+        # calls for the same board within one CLI run. Prevents 40+ identical
+        # item-list calls from blowing through the GitHub API rate limit.
+        self._inbox_cache: list[ExternalItem] | None = None
 
     # -- Token + subprocess plumbing -----------------------------------------
 
@@ -259,7 +263,15 @@ class GhProjectsAdapter(AdapterBase):
     # -- Read path -----------------------------------------------------------
 
     def fetch_inbox(self) -> list[ExternalItem]:
-        """Return every item on the project as normalized ExternalItem list."""
+        """Return every item on the project as normalized ExternalItem list.
+
+        Cached for the adapter instance's lifetime — the fleet sync script
+        iterates 40+ plan_dirs against the same adapter per run, and without
+        caching we'd burn 40+ API calls for an identical board snapshot
+        (which caused 'API rate limit exceeded' on strongyes-web fan-out).
+        """
+        if self._inbox_cache is not None:
+            return self._inbox_cache
         stdout = self._run(
             [
                 "gh",
@@ -279,6 +291,7 @@ class GhProjectsAdapter(AdapterBase):
         out: list[ExternalItem] = []
         for raw in items:
             out.append(self._item_to_external(raw))
+        self._inbox_cache = out
         return out
 
     def _item_to_external(self, raw: dict[str, Any]) -> ExternalItem:

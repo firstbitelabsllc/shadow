@@ -388,8 +388,18 @@ def sync_plan_with_adapter(
     direction: str,
     dry_run: bool,
     push_statuses: set[VidxStatus] | None = None,
+    do_pull: bool = True,
+    fleet_known_ext_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Reconcile one plan-dir against one adapter. Return a summary dict."""
+    """Reconcile one plan-dir against one adapter. Return a summary dict.
+
+    When multiple plan_dirs share a single adapter, only the FIRST plan in the
+    iteration should receive the pull half's inbox append (otherwise 22 plans
+    × 70 board items = 1,540 duplicate INBOX entries per run). Callers pass
+    `do_pull=False` on subsequent plans; `fleet_known_ext_ids` carries the
+    union of ext_ids mapped in every plan's `.external-state.json` so genuinely
+    novel items are still detected correctly.
+    """
     plan_path = plan_dir / PLAN_FILENAME
     state = load_state(plan_dir)
     mapping = adapter_state(state, adapter.name)
@@ -419,12 +429,20 @@ def sync_plan_with_adapter(
             return summary
         summary["external_items"] = len(external_items)
 
-        # Reverse-index known external_ids so we can split novel vs known.
-        known_ext_ids = {ext_id for ext_id in mapping.values()}
+        # Novel = external items not mapped to ANY plan in the fleet (so the
+        # same item doesn't get appended to 22 different INBOX.md files).
+        # Fall back to per-plan mapping when fleet set wasn't supplied.
+        known_ext_ids = set(mapping.values())
+        if fleet_known_ext_ids is not None:
+            known_ext_ids |= fleet_known_ext_ids
         novel = [item for item in external_items if item.external_id not in known_ext_ids]
-        summary["inbox_appended"] = append_inbox(
-            plan_dir, novel, adapter.name, dry_run
-        )
+        # Only the first plan in the fleet-iteration actually writes novel
+        # items to its INBOX.md. Everyone else skips the append but still
+        # performs the flip reconcile below (that's per-plan data).
+        if do_pull:
+            summary["inbox_appended"] = append_inbox(
+                plan_dir, novel, adapter.name, dry_run
+            )
 
         # Flip PLAN.md tasks that have moved to completed on the external board.
         ext_by_id = {item.external_id: item for item in external_items}
@@ -560,10 +578,20 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if adapter is None:
             continue
+        # Build fleet-wide set of ext_ids already mapped under this adapter
+        # across ALL plan_dirs — prevents the same external item being tagged
+        # "novel" by every plan in the fleet and appended 22× to INBOX.md.
+        fleet_known: set[str] = set()
         for plan_dir in plan_dirs:
+            state = load_state(plan_dir)
+            mapping = adapter_state(state, adapter.name)
+            fleet_known.update(mapping.values())
+        for idx, plan_dir in enumerate(plan_dirs):
             summary = sync_plan_with_adapter(
                 plan_dir, adapter, args.direction, args.dry_run,
                 push_statuses=push_statuses,
+                do_pull=(idx == 0),
+                fleet_known_ext_ids=fleet_known,
             )
             results.append(summary)
             if summary["errors"]:
