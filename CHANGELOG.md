@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.18.0] — 2026-04-25
+
+ETA tags go back to optional. 2.12.0's "mandatory on every pending + in_progress task" rule is reversed: completion (X/Y tasks done) is the headline metric for a `/vidux` plan; `[ETA: Xh]` is supplementary and useful only when the tasks in a plan are similar-sized so the sum means something. Leo: *"tasks are way fucking harder than each other, ETA is fiction."*
+
+### Changed
+
+- **`[ETA: Xh]` tag is now OPTIONAL** on `[pending]` + `[in_progress]` tasks (`SKILL.md` `## Tasks` template + the `[ETA: Xh]` paragraph below it; shipped in `cd8beff`). The "plan defect — fill it in before checkpoint" rule from 2.12.0 is gone. New guidance: tag when tasks are similar-sized and the sum gives a meaningful "AI-hours remaining" read; skip when tasks vary in difficulty and the sum becomes fiction. `/vidux-status` continues to sum whatever ETAs are present, but the sum is informational, not a contract.
+
+### Why
+
+The 2.12.0 mandate assumed task uniformity that doesn't hold in practice. When a plan mixes a 15-minute test fix with a 6-hour migration, summing `[ETA: Xh]` tags produces a number that looks like progress but is actually noise. Forcing an estimate on every task cost honesty (agents either guessed wildly or copied a default) without giving Leo a useful glance-level read. Headline completion (X/Y tasks done) carries the actual signal; ETAs return to where they belong — a per-task tool when calibration is meaningful. The vidux-browser viewer now renders completion bars, so the SKILL.md framing also matches what Leo sees in the UI.
+
+### Unchanged
+
+- 2.12.0's `[FREEFORM]` + `[METER]` cycle-end format stays. The 20-cell meter is the right glance-level read; it doesn't sum ETAs under the hood, so the doctrine reversal doesn't touch it.
+- 2.12.0's CHANGELOG entry stays as-is — accurate history of what shipped at that version.
+
+---
+
 ## [2.17.0] — 2026-04-22
 
 Core docs cleanup: dead-weight kill + personal-reference scrub. Keeps the `/vidux` ↔ `/vidux-leo` boundary clean so OSS readers see only discipline, not one fleet's taste. Driven by a 3-agent doc-review pass + `codex review --uncommitted` as the finalize gate.
