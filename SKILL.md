@@ -54,7 +54,8 @@ After a failure, produce two artifacts: a code fix (the immediate repair) and a 
 Every work session follows this loop:
 
 ```
-READ       -> PLAN.md, INBOX.md, git log, git diff (uncommitted work?)
+READ       -> git fetch --prune (kill stale tracking refs first),
+              PLAN.md, INBOX.md, git log, git diff (uncommitted work?)
 ASSESS     -> Resume [in_progress] first, else pick highest-impact unblocked task.
              No evidence? Gather it locally before coding. Empty plan? Research first.
 ACT        -> Execute tasks until queue empty, blocker, or context budget.
