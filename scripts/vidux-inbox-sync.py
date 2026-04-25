@@ -382,9 +382,14 @@ def auto_promote_novel_items(
     {task_id: external_id} the caller should merge into the target plan_dir's
     state file via adapter_state(...) + save_state(...).
 
-    Skips items already mapped anywhere in the fleet (per fleet_known_ext_ids).
-    Idempotent — same item across two cycles produces no change because the
-    caller updates the state file after the first cycle.
+    Idempotency is double-checked:
+      1. `fleet_known_ext_ids` (state-file-derived) — primary signal
+      2. `[Source: <adapter>:<id>]` markers scanned in PLAN.md text — bulletproof
+         fallback when the state file got blown away (e.g. during a rebase
+         that stashed it as untracked then dropped the stash).
+
+    Same item across two cycles produces no change because either the
+    state file or the in-text marker prevents re-promotion.
     """
     if not items:
         return 0, {}
@@ -392,10 +397,19 @@ def auto_promote_novel_items(
     text = plan_path.read_text(encoding="utf-8") if plan_path.exists() else ""
     seq = _next_bd_seq(text)
 
+    # Scan PLAN.md text for ext_ids already present as `[Source: <adapter>:<id>]`
+    # markers. This is the bulletproof safety net against state-file loss.
+    in_text_ext_ids: set[str] = set()
+    for m in re.finditer(
+        rf"\[Source:\s*{re.escape(adapter_name)}:([A-Za-z0-9_\-]+)\]", text
+    ):
+        in_text_ext_ids.add(m.group(1))
+    skip_set = fleet_known_ext_ids | in_text_ext_ids
+
     new_lines: list[str] = []
     new_mappings: dict[str, str] = {}
     for item in items:
-        if item.external_id in fleet_known_ext_ids:
+        if item.external_id in skip_set:
             continue
         # Build a sanitized, single-line title so it survives PLAN.md parsing.
         title = re.sub(r"\s+", " ", item.title).strip()
