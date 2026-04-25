@@ -793,6 +793,12 @@ def main(argv: list[str] | None = None) -> int:
         help=("Repo directory to source PR list from (defaults to the parent "
               "of the resolved config). Only used with --include-prs."),
     )
+    parser.add_argument(
+        "--only-adapter",
+        help=("Run sync only for sources whose adapter name matches. "
+              "Lets per-adapter crons run at independent cadences (e.g. "
+              "Linear at 10-min, GH Projects at 30-min)."),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -813,11 +819,18 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(config_path)
 
     sources = config.get("inbox_sources", []) or []
+    if args.only_adapter:
+        sources = [s for s in sources if s.get("adapter") == args.only_adapter]
     if not sources:
+        reason = (
+            f"no inbox_sources for adapter={args.only_adapter}"
+            if args.only_adapter
+            else "no inbox_sources"
+        )
         if args.json:
-            print(json.dumps({"status": "noop", "reason": "no inbox_sources"}))
+            print(json.dumps({"status": "noop", "reason": reason}))
         else:
-            print("inbox_sources is empty; nothing to sync.")
+            print(f"{reason}; nothing to sync.")
         return 0
 
     try:
