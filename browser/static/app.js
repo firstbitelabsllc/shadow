@@ -250,6 +250,7 @@ async function selectArtifact(a) {
 async function renderArtifactPane() {
   const a = state.active;
   if (!a || a.kind !== "artifact") return;
+  els.pane.scrollTop = 0;
   els.pane.innerHTML = `
     <div class="pane-header">
       <div class="breadcrumb">artifact · ${escapeText(a.slug)}.html</div>
@@ -307,6 +308,7 @@ async function renderPane() {
       }).join("")}
     </div>` : "";
 
+  els.pane.scrollTop = 0;
   const headerHTML = `
     <div class="pane-header">
       <div class="breadcrumb">${escapeText(plan.rel)}</div>
