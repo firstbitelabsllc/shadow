@@ -151,8 +151,8 @@ def resolve_plan_dirs(config: dict[str, Any], explicit: str | None) -> list[Path
 # Optional `**...**` bold wrapping is tolerated and stripped by post-match cleanup.
 _TASK_LINE = re.compile(
     r"^- \[(?P<status>pending|in_progress|in_review|completed|blocked)\] "
-    r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.+\-]*)(?:\*\*)?"
-    r"(?P<extras>(?:\s*(?:\(NEW[^)]*\)|\[Depends:[^\]]*\]))*)"
+    r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.+\-]*(?:\s+\d+(?:\.\d+)?)?)(?:\*\*)?"
+    r"(?P<extras>(?:\s*(?:\(NEW[^)]*\)|\([^)]*Team[^)]*\)|\[Depends:[^\]]*\]))*)"
     r"\s*:\s*"
     r"(?P<body>.*)$"
 )
