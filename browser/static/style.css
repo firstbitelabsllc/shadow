@@ -27,10 +27,18 @@ body {
 
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 20px;
+  padding: 12px clamp(16px, 2vw, 32px);
   border-bottom: 1px solid var(--rule);
   background: var(--paper-2);
   position: sticky; top: 0; z-index: 10;
+  gap: 12px;
+}
+.sidebar-toggle {
+  display: none;
+  background: var(--paper); border: 1px solid var(--rule);
+  color: var(--ink); padding: 4px 10px; cursor: pointer;
+  font-family: var(--sans); font-size: 14px;
+  border-radius: 3px;
 }
 .topbar h1 {
   margin: 0;
@@ -223,7 +231,7 @@ body {
 
 .pane {
   overflow-y: auto;
-  padding: 32px 48px 80px;
+  padding: 24px clamp(20px, 3vw, 40px) 80px;
   background: var(--paper);
 }
 .pane-empty { padding-top: 80px; text-align: center; }
@@ -276,7 +284,8 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .pane-tabs button:hover { color: var(--ink); }
 
 .markdown {
-  max-width: 760px;
+  /* End-to-end — no max-width gutter. Long-form prose still readable
+     because pane padding gives breathing room on huge screens. */
   font-family: var(--sans);
   color: var(--ink);
 }
@@ -332,4 +341,66 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   border-radius: 4px;
   font-family: var(--mono);
   font-size: 12px;
+}
+
+/* ---- Responsive: tablet & phone ----
+ * Sidebar collapses to a slide-in drawer at narrow widths.
+ * Touch targets bumped, scrollable list region capped to viewport. */
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .sidebar-toggle { display: inline-block; }
+  .sidebar {
+    position: fixed;
+    top: 53px;
+    left: 0;
+    bottom: 0;
+    width: min(85vw, 360px);
+    z-index: 9;
+    border-right: 1px solid var(--rule);
+    box-shadow: 2px 0 12px rgba(28, 26, 22, 0.08);
+    transform: translateX(-100%);
+    transition: transform 0.18s ease-out;
+  }
+  .sidebar.is-open { transform: translateX(0); }
+  .pane { padding: 18px clamp(16px, 4vw, 28px) 60px; }
+  .pane-header h2 { font-size: 20px; }
+  .plan-row { padding: 10px 14px; }
+  .markdown table { display: block; overflow-x: auto; }
+  .markdown pre { font-size: 11.5px; }
+}
+
+@media (max-width: 540px) {
+  .topbar h1 { font-size: 16px; }
+  .topbar-meta { font-size: 11px; gap: 8px; }
+  .pane-header h2 { font-size: 18px; }
+  .pane-header .meta { font-size: 10.5px; gap: 10px; }
+}
+
+/* ---- Dark mode (auto via OS preference) ----
+ * Inverts paper-and-ink: warm dark surface + warm light ink.
+ * Toggleable later if Leo wants a manual switch. */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1d1a14;
+    --paper-2: #28241c;
+    --ink: #f1ebd9;
+    --ink-2: #b6ad94;
+    --rule: #3d372b;
+    --select: #3a3324;
+    --hot: #d97a4a;
+    --stale: #c8a558;
+    --cold: #9c8d6f;
+    --accent: #6db580;
+  }
+  .markdown pre,
+  .markdown code,
+  .contact-card { background: var(--paper-2); }
+  .markdown blockquote { color: var(--ink-2); }
+  .error { background: #3a221a; color: #f3c1a8; border-color: var(--hot); }
+  .topbar-meta button:hover,
+  .sidebar-toggle:hover { background: var(--select); }
 }

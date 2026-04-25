@@ -265,5 +265,33 @@ els.filter.addEventListener("input", e => {
 });
 els.refresh.addEventListener("click", loadAll);
 
+// Mobile sidebar drawer toggle (visible only at narrow widths via CSS).
+const sidebarEl = document.getElementById("sidebar");
+const sidebarToggleBtn = document.getElementById("sidebar-toggle");
+if (sidebarToggleBtn && sidebarEl) {
+  sidebarToggleBtn.addEventListener("click", () => sidebarEl.classList.toggle("is-open"));
+  // Tap-in-pane closes the drawer on mobile.
+  els.pane.addEventListener("click", () => {
+    if (sidebarEl.classList.contains("is-open")) sidebarEl.classList.remove("is-open");
+  });
+}
+
+// Keyboard shortcuts: `/` focuses filter, Esc clears or closes drawer.
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement !== els.filter) {
+    e.preventDefault();
+    els.filter.focus();
+    els.filter.select();
+  } else if (e.key === "Escape") {
+    if (sidebarEl && sidebarEl.classList.contains("is-open")) {
+      sidebarEl.classList.remove("is-open");
+    } else if (document.activeElement === els.filter && state.filter) {
+      els.filter.value = "";
+      state.filter = "";
+      renderSidebar();
+    }
+  }
+});
+
 // Initial load.
 loadAll();
