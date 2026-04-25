@@ -11,10 +11,33 @@ Adapters shipped today:
 | adapter       | status  | file                 |
 |---------------|---------|----------------------|
 | `gh_projects` | live    | `gh_projects.py`     |
-| `linear`      | stub    | `linear.py`          |
+| `linear`      | live    | `linear.py`          |
 | `asana`       | stub    | `asana.py`           |
 | `jira`        | stub    | `jira.py`            |
 | `trello`      | stub    | `trello.py`          |
+
+## What Linear gives you that GH Projects doesn't
+
+GH Projects V2 is "issues + a kanban with custom fields." Linear is a full
+productivity suite. The adapter (above) handles Issues — the rest of Linear's
+surface area can layer on without breaking the 6-method contract:
+
+| Linear concept   | Maps to                                            | Status            |
+|------------------|----------------------------------------------------|-------------------|
+| **Issue**        | vidux task in PLAN.md                              | shipped (this adapter) |
+| **Sub-issue**    | bullet under a task — set `parentId` on issueCreate | configurable via `parent_id` field |
+| **Project**      | one vidux sub-plan (e.g. `infrastructure/PLAN.md`) | configurable via `project_id` in adapter config |
+| **Initiative**   | top-level cross-cutting goal (workspace-wide)      | M:M via `InitiativeToProject` join — extension API |
+| **Cycle**        | sprint window (orthogonal to projects)             | optional — set `cycleId` in `push_fields` |
+| **Project milestone** | phase marker inside one project (Phase 0 → 1) | set `projectMilestoneId` |
+| **Comment**      | discussion thread on an issue                      | `commentCreate` mutation — not in core contract |
+| **Label**        | tag (workspace OR team scoped)                     | `default_label_ids` in adapter config + auto-managed `blocked` label |
+| **Webhook**      | push notification for issue/comment changes        | future extension — would replace polling fetch_inbox |
+
+The 6-method contract stays unchanged. New capabilities ride on top via
+adapter-specific config (e.g. `project_id`, `cycle_id`) or out-of-band
+extension methods (e.g. `add_comment`, `register_webhook`) that core vidux
+never calls.
 
 ## Contract
 
