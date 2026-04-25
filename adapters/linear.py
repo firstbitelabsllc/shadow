@@ -12,10 +12,13 @@ Key design decisions (informed by Linear schema research 2026-04-25):
   tokens DO use `Bearer` but personal API keys do not.
 - **States are team-scoped UUIDs.** vidux statuses → Linear state IDs requires
   a per-team lookup. Cached on the instance after first load.
-- **Custom fields don't exist in Linear's API the way GH Projects V2 has them.**
-  Evidence/Investigation/Source/ETA round-trip via markdown delimiters embedded
-  in the issue `description`: `<!-- vidux:Evidence -->...<!-- /vidux:Evidence -->`.
-  The `_render_body` / `_parse_body` pair owns this codec.
+- **Description is human-readable markdown ONLY (2026-04-25).** The previous
+  HTML-comment codec (`<!-- vidux:Evidence -->...<!-- /vidux:Evidence -->`)
+  leaked into Linear's rendered description as visible text, breaking
+  readability. Round-trip metadata (Evidence, Investigation, Source, ETA,
+  VidxId, VidxPlan) now lives in the per-plan `.external-state.json` sidecar
+  under `adapters.linear.task_metadata` keyed by VidxId. The adapter renders
+  description from PlanTask fields directly via `_render_body(task)`.
 - **Blocked is orthogonal.** Stored as a label (`blocked`) on the issue, NOT a
   state. `push_status(BLOCKED)` raises (matches gh_projects.py contract);
   callers set blocked via `push_fields({"_blocked": True})` instead.
@@ -30,7 +33,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 import urllib.error
 import urllib.request
@@ -71,18 +73,6 @@ class LinearAdapter(AdapterBase):
     DEFAULT_BLOCKED_LABEL = "blocked"
     PAGE_SIZE = 250  # Linear's max per `first:`
     HTTP_TIMEOUT = 30.0
-
-    # Custom-field codec — markdown delimiters inside issue.description that
-    # round-trip vidux tags (Evidence, Investigation, Source, ETA). Same shape
-    # as the linear.py stub specified in 2026-04-25.
-    _DELIM_OPEN = "<!-- vidux:{tag} -->"
-    _DELIM_CLOSE = "<!-- /vidux:{tag} -->"
-    _DELIM_RE = re.compile(
-        r"<!--\s*vidux:(?P<tag>[A-Za-z_][A-Za-z0-9_]*)\s*-->"
-        r"(?P<body>.*?)"
-        r"<!--\s*/vidux:(?P=tag)\s*-->",
-        re.DOTALL,
-    )
 
     # Transient-error patterns worth retrying.
     _TRANSIENT_PATTERNS = (
@@ -206,41 +196,80 @@ class LinearAdapter(AdapterBase):
 
         raise LinearError(f"exhausted retries: {last_err}")
 
-    # -- Body codec (markdown-delimiter custom fields) ------------------------
+    # -- Body renderer (clean human-facing markdown) --------------------------
 
     @classmethod
-    def _render_body(
-        cls,
-        prose: str | None,
-        fields: dict[str, str | None],
-    ) -> str:
-        """Render PlanTask description + tagged fields as markdown.
+    def _render_body(cls, task: PlanTask) -> str:
+        """Render a PlanTask as clean human-readable markdown.
 
-        Fields with None / empty values are dropped — re-pushing later wipes
-        them naturally because the parse side only resurrects what's present.
+        Format (sections omitted when their source field is empty):
+
+            ## Purpose
+            <one-line title summary>
+
+            ## Evidence
+            - <file path 1>
+            - <file path 2>
+            - ...
+
+            ## Investigation
+            <task.investigation>
+
+            ## Source
+            <task.source>
+
+            ## ETA
+            <eta>h
+
+        NO HTML-comment codec — Linear renders `<!-- ... -->` as visible text,
+        which broke description readability. Round-trip metadata (Evidence,
+        Investigation, etc.) is mirrored into the per-plan `.external-state.json`
+        sidecar under `adapters.linear.task_metadata`; the sync script owns
+        sidecar writes.
         """
-        parts: list[str] = []
-        if prose:
-            parts.append(prose.strip())
-        for tag, value in fields.items():
-            if value is None or value == "":
-                continue
-            open_d = cls._DELIM_OPEN.format(tag=tag)
-            close_d = cls._DELIM_CLOSE.format(tag=tag)
-            parts.append(f"{open_d}\n{value.strip()}\n{close_d}")
-        return "\n\n".join(parts)
+        sections: list[str] = []
 
-    @classmethod
-    def _parse_body(cls, body: str | None) -> tuple[str, dict[str, str]]:
-        """Inverse of _render_body. Returns (prose, fields)."""
-        if not body:
-            return "", {}
-        fields: dict[str, str] = {}
-        for match in cls._DELIM_RE.finditer(body):
-            tag = match.group("tag")
-            fields[tag] = match.group("body").strip()
-        prose = cls._DELIM_RE.sub("", body).strip()
-        return prose, fields
+        # Purpose — short prose summary. We use the task title as the source
+        # of truth since PlanTask doesn't carry a separate body field today.
+        # If the title is the only thing we have, we still emit a Purpose
+        # section so the doc has predictable shape.
+        sections.append(f"## Purpose\n{task.title.strip()}")
+
+        # Evidence — bullet list, one item per line. Evidence in PlanTask is
+        # a single free-form string (often semicolon-separated paths). Split
+        # on ';' or newlines and bullet each token; otherwise emit raw.
+        if task.evidence:
+            evidence_items = cls._split_evidence(task.evidence)
+            if evidence_items:
+                bullets = "\n".join(f"- {item}" for item in evidence_items)
+                sections.append(f"## Evidence\n{bullets}")
+
+        if task.investigation:
+            sections.append(f"## Investigation\n{task.investigation.strip()}")
+
+        if task.source:
+            sections.append(f"## Source\n{task.source.strip()}")
+
+        if task.eta_hours is not None:
+            # Render as "Xh" — accepts either int or float ETAs.
+            eta = task.eta_hours
+            eta_str = f"{int(eta)}h" if float(eta).is_integer() else f"{eta}h"
+            sections.append(f"## ETA\n{eta_str}")
+
+        return "\n\n".join(sections)
+
+    @staticmethod
+    def _split_evidence(raw: str) -> list[str]:
+        """Split an evidence string on `;` and newlines, trimming each part."""
+        if not raw:
+            return []
+        # Normalize newlines + semicolons to a common separator.
+        parts: list[str] = []
+        for chunk in raw.replace("\n", ";").split(";"):
+            chunk = chunk.strip().strip("`").strip()
+            if chunk:
+                parts.append(chunk)
+        return parts
 
     # -- Status mapping -------------------------------------------------------
 
@@ -381,15 +410,17 @@ class LinearAdapter(AdapterBase):
         state_id = state.get("id")
         labels = ((node.get("labels") or {}).get("nodes")) or []
         label_names = {l["name"] for l in labels}
-        prose, fields = self._parse_body(node.get("description"))
         is_blocked = self.blocked_label in label_names
+        # Description is treated as opaque human markdown — vidux metadata
+        # round-trips via the per-plan .external-state.json sidecar, not the
+        # description body. We surface the raw description as `_description`
+        # for debugging / diff use only.
         return ExternalItem(
             external_id=node["id"],
             title=node.get("title") or node.get("identifier", ""),
             status=self._status_from_state_id(state_id),
             fields={
-                **fields,
-                "_prose": prose,
+                "_description": node.get("description") or "",
                 "_identifier": node.get("identifier", ""),
             },
             blocked=is_blocked,
@@ -428,17 +459,14 @@ class LinearAdapter(AdapterBase):
     """
 
     def push_task(self, task: PlanTask) -> str:
-        """Create a Linear issue from a PlanTask. Returns Linear issue UUID."""
-        description = self._render_body(
-            None,  # Title carries the prose; description is field-only.
-            {
-                "Evidence": task.evidence,
-                "Investigation": task.investigation,
-                "Source": task.source,
-                "ETA": str(task.eta_hours) if task.eta_hours is not None else None,
-                "VidxId": task.id,
-            },
-        )
+        """Create a Linear issue from a PlanTask. Returns Linear issue UUID.
+
+        Description is clean human-readable markdown (Purpose / Evidence /
+        Investigation / Source / ETA sections, with empty sections elided).
+        VidxId / VidxPlan + the typed metadata round-trip via the per-plan
+        `.external-state.json` sidecar — see `adapters/README.md`.
+        """
+        description = self._render_body(task)
 
         input_obj: dict[str, Any] = {
             "teamId": self.team_id,
@@ -487,55 +515,60 @@ class LinearAdapter(AdapterBase):
         self._inbox_cache = None
 
     def pull_fields(self, external_id: str) -> dict[str, Any]:
+        """Return adapter-level field state for an issue.
+
+        Since the markdown-delimiter codec was removed (2026-04-25), this is
+        effectively just `_blocked` + `_identifier`. Rich vidux metadata
+        (Evidence, Investigation, Source, ETA) lives in the per-plan
+        `.external-state.json` sidecar — the sync script reads it directly,
+        not via the adapter.
+        """
         data = self._graphql(self._ISSUE_FETCH_QUERY, {"id": external_id})
         issue = data.get("issue")
         if not issue:
             raise LinearError(f"issue {external_id} not found")
-        _, fields = self._parse_body(issue.get("description"))
-        # Surface blocked status as a peer field so callers don't need to
-        # remember to call pull_status.
         labels = ((issue.get("labels") or {}).get("nodes")) or []
-        fields["_blocked"] = any(l["name"] == self.blocked_label for l in labels)
-        return fields
+        return {
+            "_blocked": any(l["name"] == self.blocked_label for l in labels),
+            "_identifier": issue.get("identifier", ""),
+        }
 
     def push_fields(self, external_id: str, fields: dict[str, Any]) -> None:
-        """Write tagged fields by re-rendering description.
+        """Write adapter-level field state for an issue.
 
-        Pulls current description, parses it, merges in the new tagged values,
-        re-renders, and pushes via issueUpdate. The `_blocked` pseudo-field
-        toggles the blocked label via addedLabelIds/removedLabelIds.
+        Today only `_blocked` is a real, push-able field — it toggles the
+        `blocked` label via addedLabelIds / removedLabelIds. Rich vidux
+        metadata (Evidence, etc.) is written to the sidecar by the sync
+        script, not via this method. Other keys are silently ignored so
+        callers passing legacy field dicts still work.
         """
-        # Fetch current issue state for merge.
+        blocked_change = fields.get("_blocked")
+
+        # Nothing to push if the only thing the caller asked for is non-blocked
+        # metadata — sidecar handles that, the adapter doesn't.
+        if blocked_change is None:
+            return
+
+        # Load current label state for the blocked diff.
         data = self._graphql(self._ISSUE_FETCH_QUERY, {"id": external_id})
         issue = data.get("issue")
         if not issue:
             raise LinearError(f"issue {external_id} not found")
-        prose, current = self._parse_body(issue.get("description"))
 
-        # Pop the orthogonal blocked flag — it's a label, not a field.
-        blocked_change = fields.pop("_blocked", None)
+        update_input: dict[str, Any] = {}
+        blocked_id = self._get_or_create_blocked_label_id()
+        current_labels = ((issue.get("labels") or {}).get("nodes")) or []
+        currently_blocked = any(
+            l["id"] == blocked_id or l["name"] == self.blocked_label
+            for l in current_labels
+        )
+        if blocked_change and not currently_blocked:
+            update_input["addedLabelIds"] = [blocked_id]
+        elif not blocked_change and currently_blocked:
+            update_input["removedLabelIds"] = [blocked_id]
 
-        # Merge in new field values (None / "" deletes that tag).
-        for tag, value in fields.items():
-            if value is None or value == "":
-                current.pop(tag, None)
-            else:
-                current[tag] = str(value)
-        new_description = self._render_body(prose if prose else None, current)
-
-        update_input: dict[str, Any] = {"description": new_description}
-
-        if blocked_change is not None:
-            blocked_id = self._get_or_create_blocked_label_id()
-            current_labels = ((issue.get("labels") or {}).get("nodes")) or []
-            currently_blocked = any(
-                l["id"] == blocked_id or l["name"] == self.blocked_label
-                for l in current_labels
-            )
-            if blocked_change and not currently_blocked:
-                update_input["addedLabelIds"] = [blocked_id]
-            elif not blocked_change and currently_blocked:
-                update_input["removedLabelIds"] = [blocked_id]
+        if not update_input:
+            return  # No-op — already in the desired blocked state.
 
         data = self._graphql(
             self._ISSUE_UPDATE_MUTATION,

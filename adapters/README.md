@@ -16,6 +16,26 @@ Adapters shipped today:
 | `jira`        | stub    | `jira.py`            |
 | `trello`      | stub    | `trello.py`          |
 
+## Linear adapter — description is human-only (2026-04-25 migration)
+
+Earlier versions of `linear.py` round-tripped `Evidence` / `Investigation` /
+`Source` / `ETA` / `VidxId` / `VidxPlan` inside the issue `description` using
+HTML-comment delimiters: `<!-- vidux:Evidence -->...<!-- /vidux:Evidence -->`.
+Linear renders HTML comments as visible text in its description UI, so the
+markers were leaking into the rendered view and breaking human readability.
+
+The adapter now writes **clean human-facing markdown only** — Purpose /
+Evidence / Investigation / Source / ETA sections (sections with no source data
+are omitted). Round-trip metadata moves into the per-plan
+`.external-state.json` sidecar under
+`adapters.linear.task_metadata`, keyed by VidxId. The sync script reads / writes
+the sidecar; the adapter never inspects descriptions for codec markers.
+
+Migration: `scripts/strip-linear-codec-markers.py` rewrote all 92 in-flight
+EVE-team issues + populated their plan sidecars from the extracted block data.
+Idempotent. The codec is fully deprecated; `_parse_body` and the `_DELIM_*`
+constants are gone from `adapters/linear.py`.
+
 ## What Linear gives you that GH Projects doesn't
 
 GH Projects V2 is "issues + a kanban with custom fields." Linear is a full
