@@ -84,9 +84,13 @@ class GhProjectsAdapter(AdapterBase):
         # calls for the same board within one CLI run. Prevents 40+ identical
         # item-list calls from blowing through the GitHub API rate limit.
         self._inbox_cache: list[ExternalItem] | None = None
+        # Raw items list — fetched once, used by fetch_inbox AND PR url map.
+        self._raw_items_cache: list[dict[str, Any]] | None = None
         # Cache the exception too — if the first fetch fails (typically rate
         # limit), don't retry 39 more times, just re-raise the cached error.
         self._inbox_error: GhProjectsError | None = None
+        # Cache PR content URL → project_item_id for idempotency on add_pr.
+        self._pr_url_map: dict[str, str] | None = None
 
     # -- Token + subprocess plumbing -----------------------------------------
 
@@ -275,36 +279,45 @@ class GhProjectsAdapter(AdapterBase):
         """
         if self._inbox_cache is not None:
             return self._inbox_cache
-        # If a prior fetch_inbox hit rate limit mid-run, cache the exception
-        # and re-raise on subsequent calls so we don't pile 40 more identical
-        # failures on top of an already-exhausted API budget.
+        if self._inbox_error is not None:
+            raise self._inbox_error
+        self._fetch_raw_items()
+        return self._inbox_cache  # type: ignore[return-value]
+
+    def _fetch_raw_items(self) -> list[dict[str, Any]]:
+        """Single shared fetch — populates `_inbox_cache` (parsed) and
+        `_pr_url_map` (idempotency lookup) in one API call. Cached.
+
+        Without this, fetch_inbox and _pr_url_to_item_id_cache each issued
+        their own item-list call, doubling API cost and burning through the
+        secondary rate limit on fleet-wide sweeps.
+        """
+        if self._raw_items_cache is not None:
+            return self._raw_items_cache
         if self._inbox_error is not None:
             raise self._inbox_error
         try:
-            stdout = self._run(
-                [
-                    "gh",
-                    "project",
-                    "item-list",
-                    str(self.project_number),
-                    "--owner",
-                    self.owner,
-                    "--format",
-                    "json",
-                    "--limit",
-                    str(self.ITEM_LIST_LIMIT),
-                ]
-            )
+            stdout = self._run([
+                "gh", "project", "item-list", str(self.project_number),
+                "--owner", self.owner,
+                "--format", "json",
+                "--limit", str(self.ITEM_LIST_LIMIT),
+            ])
         except GhProjectsError as exc:
             self._inbox_error = exc
             raise
-        payload = json.loads(stdout)
-        items = payload.get("items", [])
-        out: list[ExternalItem] = []
+        items = json.loads(stdout).get("items", [])
+        self._raw_items_cache = items
+        self._inbox_cache = [self._item_to_external(raw) for raw in items]
+        url_map: dict[str, str] = {}
         for raw in items:
-            out.append(self._item_to_external(raw))
-        self._inbox_cache = out
-        return out
+            content = raw.get("content") or {}
+            url = content.get("url")
+            item_id = raw.get("id")
+            if url and item_id:
+                url_map[url] = item_id
+        self._pr_url_map = url_map
+        return items
 
     def _item_to_external(self, raw: dict[str, Any]) -> ExternalItem:
         """Translate a single `gh project item-list` item to ExternalItem."""
@@ -427,6 +440,42 @@ class GhProjectsAdapter(AdapterBase):
         if task.source:
             lines.append(f"Source: `{task.source}`")
         return "\n".join(lines)
+
+    _ADD_ITEM_BY_ID_MUTATION = """
+    mutation($projectId:ID!, $contentId:ID!) {
+      addProjectV2ItemById(input:{projectId:$projectId, contentId:$contentId}) {
+        item { id }
+      }
+    }
+    """
+
+    def add_pr_to_project(self, pr_node_id: str,
+                          status: VidxStatus = VidxStatus.IN_PROGRESS
+                          ) -> str:
+        """Link an existing PR (or Issue) to this project. Returns external_id.
+
+        Idempotent at the GitHub layer — re-adding the same content node returns
+        the same project-item id. Caller is responsible for skipping when already
+        mapped to avoid the API call.
+        """
+        project_id = self._project_id_cached()
+        data = self._graphql(
+            self._ADD_ITEM_BY_ID_MUTATION,
+            {"projectId": project_id, "contentId": pr_node_id},
+        )
+        item_id = data["addProjectV2ItemById"]["item"]["id"]
+        # Default open PRs to the in_progress column.
+        if status != VidxStatus.PENDING:
+            self.push_status(item_id, status)
+        return item_id
+
+    def _pr_url_to_item_id_cache(self) -> dict[str, str]:
+        """Return a {pr_content_url: project_item_id} map. Shares the same
+        single API call as fetch_inbox — see _fetch_raw_items.
+        """
+        if self._pr_url_map is None:
+            self._fetch_raw_items()
+        return self._pr_url_map or {}
 
     _UPDATE_SELECT_MUTATION = """
     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {

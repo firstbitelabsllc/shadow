@@ -40,6 +40,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -507,6 +508,120 @@ def sync_plan_with_adapter(
     return summary
 
 
+def sync_prs_to_project(adapter: AdapterBase,
+                        repo_dir: Path,
+                        dry_run: bool) -> dict[str, Any]:
+    """Add open + recently-closed PRs from a repo onto the bound GH Project.
+
+    Idempotent: walks all open and recently-merged PRs, looks each up in the
+    adapter's PR-url cache, and only calls add_pr_to_project for PRs not yet
+    represented as a project item. Status is set to:
+        OPEN draft         → IN_PROGRESS  (Dev column)
+        OPEN ready         → IN_REVIEW    (QA/Testing/Review column)
+        MERGED             → COMPLETED    (Prod/Shipped column)
+        CLOSED (not merged)→ skipped (no card; closed-without-merge is noise)
+
+    Only supports gh_projects adapters today; other adapters raise here. The
+    sync is best-effort — a single PR's failure doesn't abort the sweep.
+    """
+    summary: dict[str, Any] = {
+        "repo": str(repo_dir),
+        "open_prs": 0,
+        "merged_prs": 0,
+        "added": 0,
+        "moved": 0,
+        "errors": [],
+    }
+    if adapter.name != "gh_projects":
+        return summary  # only gh_projects supports PR linking
+
+    # Discover the repo's owner/name via `gh repo view`.
+    try:
+        proc = subprocess.run(
+            ["gh", "repo", "view", "--json", "nameWithOwner"],
+            cwd=str(repo_dir), capture_output=True, text=True, check=False,
+        )
+        if proc.returncode != 0:
+            summary["errors"].append(f"gh repo view: {proc.stderr.strip()}")
+            return summary
+        repo_full = json.loads(proc.stdout)["nameWithOwner"]
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"gh repo view: {exc}")
+        return summary
+
+    # List open + recently-merged PRs (last 50 of each — covers anything from
+    # the last few days at typical fleet velocity).
+    pr_states = [("open", "open"), ("merged", "merged")]
+    pr_index: dict[str, dict[str, Any]] = {}
+    for state_name, state_arg in pr_states:
+        try:
+            proc = subprocess.run(
+                ["gh", "pr", "list", "--repo", repo_full, "--state", state_arg,
+                 "--limit", "50",
+                 "--json", "number,url,title,id,isDraft,state,mergedAt"],
+                capture_output=True, text=True, check=False,
+            )
+            if proc.returncode != 0:
+                summary["errors"].append(
+                    f"gh pr list {state_arg}: {proc.stderr.strip()[:160]}"
+                )
+                continue
+            for pr in json.loads(proc.stdout):
+                pr_index[pr["url"]] = pr
+                if state_name == "open":
+                    summary["open_prs"] += 1
+                else:
+                    summary["merged_prs"] += 1
+        except Exception as exc:  # noqa: BLE001
+            summary["errors"].append(f"gh pr list {state_arg}: {exc}")
+
+    if not pr_index:
+        return summary
+
+    # Idempotency map: PR URL → project_item_id (already on board).
+    try:
+        url_to_item = adapter._pr_url_to_item_id_cache()  # type: ignore[attr-defined]
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"fetch project items: {exc}")
+        return summary
+
+    for url, pr in pr_index.items():
+        # Compute target status from PR state.
+        if pr["state"] == "MERGED":
+            target_status = VidxStatus.COMPLETED
+        elif pr.get("isDraft"):
+            target_status = VidxStatus.IN_PROGRESS
+        else:
+            target_status = VidxStatus.IN_REVIEW
+
+        item_id = url_to_item.get(url)
+        try:
+            if item_id is None:
+                # Only auto-ADD open PRs to the board. Merged PRs that were
+                # never tracked stay off — backfilling 50 historical merges
+                # would flood the Backlog with already-shipped work.
+                if pr["state"] == "MERGED":
+                    continue
+                if dry_run:
+                    summary["added"] += 1
+                    continue
+                item_id = adapter.add_pr_to_project(pr["id"], target_status)
+                url_to_item[url] = item_id
+                summary["added"] += 1
+            else:
+                # Already on board — reconcile status if it drifted.
+                if dry_run:
+                    summary["moved"] += 1
+                    continue
+                adapter.push_status(item_id, target_status)
+                summary["moved"] += 1
+        except Exception as exc:  # noqa: BLE001
+            summary["errors"].append(
+                f"pr#{pr['number']} ({target_status.value}): {str(exc)[:160]}"
+            )
+    return summary
+
+
 # --- CLI ---------------------------------------------------------------------
 
 
@@ -530,6 +645,19 @@ def main(argv: list[str] | None = None) -> int:
         help=("Comma-separated vidux statuses eligible for push as new items. "
               "Default excludes 'blocked' (historical summaries stay in PLAN.md). "
               "Valid values: pending,in_progress,in_review,blocked,completed."),
+    )
+    parser.add_argument(
+        "--include-prs",
+        action="store_true",
+        help=("Also sweep open + recently-merged PRs from the repo containing "
+              "the config and add them as items on the bound GH Project. "
+              "Status follows PR state: open-draft→Dev, open-ready→QA-Review, "
+              "merged→Prod-Shipped. Idempotent — skips PRs already on board."),
+    )
+    parser.add_argument(
+        "--repo-dir",
+        help=("Repo directory to source PR list from (defaults to the parent "
+              "of the resolved config). Only used with --include-prs."),
     )
     args = parser.parse_args(argv)
 
@@ -595,6 +723,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             results.append(summary)
             if summary["errors"]:
+                exit_code = 3
+
+        # PR sweep — only when --include-prs is set. One sweep per source.
+        if args.include_prs:
+            repo_dir = Path(
+                args.repo_dir or config.get("_config_dir", str(Path.cwd()))
+            ).expanduser().resolve()
+            pr_summary = sync_prs_to_project(adapter, repo_dir, args.dry_run)
+            pr_summary["adapter"] = adapter.name
+            results.append({"_kind": "pr_sweep", **pr_summary})
+            if pr_summary["errors"]:
                 exit_code = 3
 
     if args.json:
