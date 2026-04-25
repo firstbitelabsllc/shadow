@@ -313,7 +313,10 @@ def append_inbox(plan_dir: Path, items: list[ExternalItem], adapter_name: str,
 # --- PLAN.md auto-promotion (board card → [pending] task) -------------------
 
 
-_BD_TASK_ID = re.compile(r"^- \[(?:pending|in_progress|in_review|completed|blocked)\] (?:\*\*)?(BD-\d+)(?:\*\*)?")
+_BD_TASK_ID = re.compile(
+    r"^- \[(?:pending|in_progress|in_review|completed|blocked)\] (?:\*\*)?(BD-\d+)(?:\*\*)?",
+    re.MULTILINE,
+)
 
 
 def _next_bd_seq(plan_text: str) -> int:
