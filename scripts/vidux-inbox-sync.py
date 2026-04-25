@@ -310,6 +310,123 @@ def append_inbox(plan_dir: Path, items: list[ExternalItem], adapter_name: str,
     return len(new_lines)
 
 
+# --- PLAN.md auto-promotion (board card → [pending] task) -------------------
+
+
+_BD_TASK_ID = re.compile(r"^- \[(?:pending|in_progress|in_review|completed|blocked)\] (?:\*\*)?(BD-\d+)(?:\*\*)?")
+
+
+def _next_bd_seq(plan_text: str) -> int:
+    """Highest existing BD-N in the plan + 1. Used to mint stable, unique
+    task IDs for board-dropped cards. BD = Board-Dropped (per-plan namespace)."""
+    seen = [
+        int(m.group(1).split("-", 1)[1])
+        for m in _BD_TASK_ID.finditer(plan_text)
+    ]
+    return (max(seen) + 1) if seen else 1
+
+
+def _split_plan_for_task_insert(text: str) -> tuple[str, str, str]:
+    """Split PLAN.md into (head, tasks_block, tail) so we can append new task
+    lines just before the next sibling header (Decision Log / Progress / etc).
+
+    head      — everything up to and including the line "## Tasks"
+    tasks     — the body of the Tasks section (may end with blank lines)
+    tail      — the next sibling header onward
+
+    If no `## Tasks` section exists, the tasks block is empty and we splice
+    one in at the end of the document.
+    """
+    lines = text.splitlines(keepends=True)
+    _TERMINATOR_HEADERS = (
+        "## Decision Log",
+        "## Progress",
+        "## Open Questions",
+        "## ARCHIVE",
+        "## Archive",
+    )
+    task_start = task_end = None
+    for i, line in enumerate(lines):
+        if re.match(r"^## Tasks\s*$", line):
+            task_start = i + 1
+            continue
+        if task_start is not None:
+            stripped = line.rstrip()
+            if any(stripped == h or stripped.startswith(h + " ")
+                   for h in _TERMINATOR_HEADERS):
+                task_end = i
+                break
+    if task_start is None:
+        # No ## Tasks section — append one at the end.
+        head = text if text.endswith("\n") else text + "\n"
+        head += "\n## Tasks\n\n"
+        return head, "", ""
+    if task_end is None:
+        task_end = len(lines)
+    head = "".join(lines[:task_start])
+    tasks = "".join(lines[task_start:task_end])
+    tail = "".join(lines[task_end:])
+    return head, tasks, tail
+
+
+def auto_promote_novel_items(
+    target_plan_dir: Path,
+    items: list[ExternalItem],
+    adapter_name: str,
+    fleet_known_ext_ids: set[str],
+    dry_run: bool,
+) -> tuple[int, dict[str, str]]:
+    """Promote novel external items directly to a target plan's `## Tasks`.
+
+    Returns (count_appended, new_mappings). `new_mappings` is a dict of
+    {task_id: external_id} the caller should merge into the target plan_dir's
+    state file via adapter_state(...) + save_state(...).
+
+    Skips items already mapped anywhere in the fleet (per fleet_known_ext_ids).
+    Idempotent — same item across two cycles produces no change because the
+    caller updates the state file after the first cycle.
+    """
+    if not items:
+        return 0, {}
+    plan_path = target_plan_dir / PLAN_FILENAME
+    text = plan_path.read_text(encoding="utf-8") if plan_path.exists() else ""
+    seq = _next_bd_seq(text)
+
+    new_lines: list[str] = []
+    new_mappings: dict[str, str] = {}
+    for item in items:
+        if item.external_id in fleet_known_ext_ids:
+            continue
+        # Build a sanitized, single-line title so it survives PLAN.md parsing.
+        title = re.sub(r"\s+", " ", item.title).strip()
+        if len(title) > 240:
+            title = title[:239].rstrip() + "…"
+        task_id = f"BD-{seq}"
+        seq += 1
+        marker = f"[Source: {adapter_name}:{item.external_id}]"
+        new_lines.append(f"- [pending] {task_id}: {title} {marker}")
+        new_mappings[task_id] = item.external_id
+
+    if not new_lines:
+        return 0, {}
+
+    if not dry_run:
+        head, tasks, tail = _split_plan_for_task_insert(text)
+        # Ensure the tasks block ends with exactly one blank line before tail.
+        tasks_body = tasks.rstrip("\n")
+        if tasks_body:
+            tasks_body += "\n"
+        else:
+            tasks_body = ""
+        addition = "\n".join(new_lines) + "\n"
+        if tasks_body:
+            new_text = head + tasks_body + addition + ("\n" if tail else "") + tail
+        else:
+            new_text = head + addition + ("\n" if tail else "") + tail
+        plan_path.write_text(new_text, encoding="utf-8")
+    return len(new_lines), new_mappings
+
+
 # --- PLAN.md status flip -----------------------------------------------------
 
 
@@ -714,16 +831,75 @@ def main(argv: list[str] | None = None) -> int:
             state = load_state(plan_dir)
             mapping = adapter_state(state, adapter.name)
             fleet_known.update(mapping.values())
+
+        # Resolve auto_promote_target if set in adapter source config.
+        # When set, novel cards skip the INBOX.md path and land directly in
+        # the named plan_dir's PLAN.md as `[pending] BD-<n>: ...` tasks.
+        promote_target_dir: Path | None = None
+        promote_raw = (source.get("config") or {}).get("auto_promote_target")
+        if promote_raw:
+            base = Path(config["_config_dir"])
+            cand = Path(promote_raw).expanduser()
+            promote_target_dir = (cand if cand.is_absolute() else (base / cand)).resolve()
+            if not (promote_target_dir / PLAN_FILENAME).exists():
+                # Treat misconfiguration as an error; don't silently fall
+                # back to INBOX since user explicitly opted in.
+                msg = (f"auto_promote_target {promote_target_dir} has no "
+                       f"PLAN.md — falling back to INBOX")
+                results.append({
+                    "_kind": "warning",
+                    "adapter": adapter.name,
+                    "message": msg,
+                })
+                promote_target_dir = None
+
+        # When auto-promote is on, suppress the per-plan INBOX append
+        # entirely (do_pull=False everywhere). The promotion sweep below
+        # handles routing to a single PLAN.md instead.
+        suppress_inbox = promote_target_dir is not None
         for idx, plan_dir in enumerate(plan_dirs):
             summary = sync_plan_with_adapter(
                 plan_dir, adapter, args.direction, args.dry_run,
                 push_statuses=push_statuses,
-                do_pull=(idx == 0),
+                do_pull=(False if suppress_inbox else (idx == 0)),
                 fleet_known_ext_ids=fleet_known,
             )
             results.append(summary)
             if summary["errors"]:
                 exit_code = 3
+
+        # Auto-promotion sweep — runs once per source after the plan loop.
+        if promote_target_dir is not None and args.direction in ("pull", "both"):
+            try:
+                ext_items = adapter.fetch_inbox()  # cached
+            except Exception as exc:  # noqa: BLE001
+                results.append({
+                    "_kind": "auto_promote",
+                    "adapter": adapter.name,
+                    "target": str(promote_target_dir),
+                    "promoted": 0,
+                    "errors": [f"fetch_inbox: {str(exc)[:200]}"],
+                })
+                exit_code = 3
+            else:
+                count, new_mappings = auto_promote_novel_items(
+                    promote_target_dir, ext_items, adapter.name,
+                    fleet_known, args.dry_run,
+                )
+                # Persist the new task_id ↔ external_id mapping in the target's
+                # state file so subsequent cycles don't re-promote.
+                if new_mappings and not args.dry_run:
+                    target_state = load_state(promote_target_dir)
+                    target_mapping = adapter_state(target_state, adapter.name)
+                    target_mapping.update(new_mappings)
+                    save_state(promote_target_dir, target_state)
+                results.append({
+                    "_kind": "auto_promote",
+                    "adapter": adapter.name,
+                    "target": str(promote_target_dir),
+                    "promoted": count,
+                    "errors": [],
+                })
 
         # PR sweep — only when --include-prs is set. One sweep per source.
         if args.include_prs:

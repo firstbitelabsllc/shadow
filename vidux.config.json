@@ -56,7 +56,8 @@
             "project_field": "Source",
             "type": "TEXT"
           }
-        }
+        },
+        "auto_promote_target": "projects/vidux-kanban-ext"
       }
     }
   ],
