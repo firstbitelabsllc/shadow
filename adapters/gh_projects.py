@@ -124,6 +124,15 @@ class GhProjectsAdapter(AdapterBase):
         "connection reset",
     )
 
+    # Patterns that signal the rate-limit ceiling — never retry these. The
+    # only valid response is to abort the run and let the next cron tick try
+    # after reset. Retrying burns 4× the budget for nothing.
+    _RATE_LIMIT_PATTERNS = (
+        "API rate limit exceeded",
+        "API rate limit already exceeded",
+        "secondary rate limit",
+    )
+
     def _run(self, args: list[str], *, stdin: str | None = None,
              max_attempts: int = 4) -> str:
         """Run a `gh` command and return stdout.
@@ -131,7 +140,9 @@ class GhProjectsAdapter(AdapterBase):
         Raises GhProjectsError with stderr on nonzero exit. Token is
         injected via env; never appears in argv. Retries on transient
         GitHub GraphQL flakiness (http2 stream errors, 502/503) with
-        exponential backoff (0.5s, 1s, 2s).
+        exponential backoff (0.5s, 1s, 2s). Rate-limit responses are
+        NOT retried — the only valid response is to abort and try again
+        after reset.
         """
         import time
         last_err: str | None = None
@@ -151,6 +162,14 @@ class GhProjectsAdapter(AdapterBase):
                 return proc.stdout
             stderr = proc.stderr.strip()
             last_err = stderr
+            # Rate-limit short-circuit — don't retry, raise immediately so
+            # the caller can abort the entire run instead of pile-driving
+            # the same exhausted budget.
+            if any(pat in stderr for pat in self._RATE_LIMIT_PATTERNS):
+                raise GhProjectsError(
+                    f"rate limit exceeded: {' '.join(args[:3])}... "
+                    f"stderr={stderr[:200]}"
+                )
             if attempt + 1 < max_attempts and any(
                 pat in stderr for pat in self._TRANSIENT_PATTERNS
             ):
