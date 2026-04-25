@@ -24,6 +24,92 @@ function fmtAge(days) {
   return `${(days / 365).toFixed(1)}y`;
 }
 
+// Completion bar — per /vidux, completion (X/Y) is the headline. Bar segments
+// are proportional to status counts. 100% gets a "shipped" gold treatment.
+const PROGRESS_ORDER = ["completed", "in_progress", "in_review", "blocked", "pending"];
+const PROGRESS_LABELS = {
+  completed: "done",
+  in_progress: "in flight",
+  in_review: "in review",
+  blocked: "blocked",
+  pending: "pending",
+};
+
+function pct(done, total) {
+  if (!total) return 0;
+  return Math.round((done / total) * 100);
+}
+
+function renderProgressBar(stats, klass = "") {
+  const total = stats?.total || 0;
+  if (!total) return `<div class="progress-bar is-empty ${klass}"></div>`;
+  const c = stats.counts || {};
+  const isShipped = (c.completed || 0) === total;
+  const cls = `progress-bar ${isShipped ? "is-shipped" : ""} ${klass}`.trim();
+  const segs = PROGRESS_ORDER.map(k => {
+    const n = c[k] || 0;
+    if (!n) return "";
+    return `<div class="segment segment-${k}" style="flex-grow: ${n}" title="${n} ${PROGRESS_LABELS[k]}"></div>`;
+  }).join("");
+  return `<div class="${cls}">${segs}</div>`;
+}
+
+function renderProgressLabel(stats, invCount = 0) {
+  const total = stats?.total || 0;
+  const done = stats?.counts?.completed || 0;
+  const invHTML = invCount ? `<span class="inv-count">⨠ ${invCount} inv</span>` : "";
+  if (!total) {
+    return `<div class="progress-label is-empty">no tasks yet${invHTML ? "" : ""}${invHTML}</div>`;
+  }
+  const isShipped = done === total;
+  const head = isShipped
+    ? `<span class="shipped-mark">shipped ✓</span>`
+    : `<span class="pct">${pct(done, total)}%</span>`;
+  return `<div class="progress-label">${head}<span>${done}/${total} done</span>${invHTML}</div>`;
+}
+
+function renderPaneProgress(stats) {
+  const total = stats?.total || 0;
+  if (!total) {
+    return `<div class="pane-progress no-tasks">no tasks defined yet — add a <code>## Tasks</code> section to drive the bar</div>`;
+  }
+  const c = stats.counts || {};
+  const done = c.completed || 0;
+  const isShipped = done === total;
+  const summary = PROGRESS_ORDER.map(k => {
+    const n = c[k] || 0;
+    const cls = `stat-${k}${n ? "" : " stat-zero"}`;
+    return `<span class="${cls}">${n} ${PROGRESS_LABELS[k]}</span>`;
+  }).join("");
+  const pctText = isShipped
+    ? `<span class="pct-large is-shipped">shipped ✓</span>`
+    : `<span class="pct-large">${pct(done, total)}%</span>`;
+  return `
+    <div class="pane-progress ${isShipped ? "is-shipped" : ""}">
+      <div class="progress-headline">
+        <div>
+          <div class="label">Completion</div>
+          <div class="ratio">${done} of ${total} tasks</div>
+        </div>
+        ${pctText}
+      </div>
+      ${renderProgressBar(stats)}
+      <div class="progress-summary">${summary}</div>
+    </div>`;
+}
+
+function fleetCompletionStat(plans) {
+  let done = 0, total = 0;
+  for (const p of plans) {
+    const t = p.task_stats;
+    if (!t) continue;
+    done += t.counts?.completed || 0;
+    total += t.total || 0;
+  }
+  if (!total) return "";
+  return ` · ${done}/${total} tasks (${pct(done, total)}%)`;
+}
+
 function renderSidebar() {
   const filter = state.filter.toLowerCase();
 
@@ -47,7 +133,7 @@ function renderSidebar() {
   }
 
   els.count.textContent =
-    `${state.plans.length} plans · ${groups.size} repos · ${state.artifacts.length} artifacts`;
+    `${state.plans.length} plans · ${groups.size} repos · ${state.artifacts.length} artifacts${fleetCompletionStat(state.plans)}`;
 
   if (filteredPlans.length === 0 && filteredArtifacts.length === 0) {
     els.list.innerHTML = `<p class="muted" style="padding:12px">no matches</p>`;
@@ -85,6 +171,8 @@ function renderSidebar() {
     const inner = rows.map(plan => {
       const active = state.active && state.active.kind === "plan" && state.active.path === plan.path ? "is-active" : "";
       const slug = plan.slug === "_root_" ? "(root)" : plan.slug;
+      const stats = plan.task_stats || { counts: {}, total: 0 };
+      const invCount = (plan.investigations || []).length;
       return `
         <div class="plan-row ${active}" data-kind="plan" data-path="${escapeAttr(plan.path)}">
           <div class="plan-row-head">
@@ -96,6 +184,10 @@ function renderSidebar() {
             <span>${fmtAge(plan.age_days)}</span>
             <span>${(plan.size / 1024).toFixed(1)}KB</span>
             ${plan.siblings.length ? `<span>+${plan.siblings.length}</span>` : ""}
+          </div>
+          <div class="progress-row">
+            ${renderProgressBar(stats)}
+            ${renderProgressLabel(stats, invCount)}
           </div>
         </div>`;
     }).join("");
@@ -191,9 +283,29 @@ async function renderPane() {
   if (!state.active) return;
   const plan = state.active;
   const tabs = ["PLAN.md", ...plan.siblings];
-  const tabPath = state.activeTab === "PLAN.md"
-    ? plan.path
-    : plan.path.replace(/\/PLAN\.md$/, `/${state.activeTab}`);
+  const investigations = plan.investigations || [];
+  const isInvActive = state.activeTab.startsWith("INV:");
+  const activeInvPath = isInvActive ? state.activeTab.slice(4) : null;
+
+  let tabPath;
+  if (isInvActive) {
+    tabPath = activeInvPath;
+  } else if (state.activeTab === "PLAN.md") {
+    tabPath = plan.path;
+  } else {
+    tabPath = plan.path.replace(/\/PLAN\.md$/, `/${state.activeTab}`);
+  }
+
+  const stats = plan.task_stats || { counts: {}, total: 0 };
+  const invStripHTML = investigations.length ? `
+    <div class="pane-investigations-strip">
+      <span class="label">Investigations (${investigations.length}):</span>
+      ${investigations.map(p => {
+        const name = p.split("/").pop().replace(/\.md$/, "");
+        const isActive = activeInvPath === p ? "is-active" : "";
+        return `<button data-inv="${escapeAttr(p)}" class="${isActive}">${escapeText(name)}</button>`;
+      }).join("")}
+    </div>` : "";
 
   const headerHTML = `
     <div class="pane-header">
@@ -206,11 +318,13 @@ async function renderPane() {
         <span class="muted">${escapeText(plan.path)}</span>
       </div>
     </div>
+    ${renderPaneProgress(stats)}
     <div class="pane-tabs">
       ${tabs.map(t => `
         <button data-tab="${escapeAttr(t)}" class="${t === state.activeTab ? "is-active" : ""}">${escapeText(t)}</button>
       `).join("")}
     </div>
+    ${invStripHTML}
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
   els.pane.innerHTML = headerHTML;
@@ -218,6 +332,12 @@ async function renderPane() {
   els.pane.querySelectorAll(".pane-tabs button").forEach(b => {
     b.addEventListener("click", () => {
       state.activeTab = b.getAttribute("data-tab");
+      renderPane();
+    });
+  });
+  els.pane.querySelectorAll(".pane-investigations-strip button").forEach(b => {
+    b.addEventListener("click", () => {
+      state.activeTab = `INV:${b.getAttribute("data-inv")}`;
       renderPane();
     });
   });

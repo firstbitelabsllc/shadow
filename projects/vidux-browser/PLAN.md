@@ -107,39 +107,42 @@ Phase 1: MVP
 - [completed] T1f Bonus: sibling tabs (PLAN / PROGRESS / INBOX / ASK-LEO) shipped with MVP — was Phase 2 scope, but trivial once `plan_meta` was already surfacing siblings.
 
 Phase 2: v1 — plan-viewer enrichment
-- [pending] T2a Discovery upgrades — handle missing files gracefully, surface broken markdown
+- [pending] T2a Discovery upgrades — handle missing files gracefully, surface broken markdown [ETA: 0.5h]
 - [completed] T2b PROGRESS / INBOX / ASK-LEO tabs in pane (shipped early as T1f)
-- [pending] T2c Session panel — read latest JSONL per repo from `~/.claude/projects/`, parse summary
-- [pending] T2d Auto-poll every 5s
+- [pending] T2c Session panel — read latest JSONL per repo from `~/.claude/projects/`, parse summary [ETA: 1.5h]
+- [pending] T2d Auto-poll every 5s [ETA: 0.25h]
 - [completed] T2e Status pill heuristic — "hot" ≤7d, "stale" 7-30d, "cold" >30d (shipped with MVP)
 - [completed] T2f Filter across plans (shipped with MVP — searchbox over repo/slug/purpose)
-- [pending] T2g Investigations sub-page — when a task carries `[Investigation: investigations/<slug>.md]`, render the investigation file as a linked sub-view with its 6 canonical sections
-- [pending] T2h Evidence directory viewer — `evidence/YYYY-MM-DD-<slug>.md` rendered as a chronological timeline tab per plan
-- [pending] T2i Decision Log promoted to first-class — Doctrine: agents MUST NOT contradict logged directions; surface this prominently, not buried inside PLAN.md
-- [pending] T2j Tasks rendered as structured FSM, not opaque markdown — parse `[pending]/[in_progress]/[completed]/[blocked]` + `[P]/[Depends:]/[Investigation:]` markers into queue UI with status counts in sidebar
-- [pending] T2k Cross-plan dashboard — "all in_progress across the fleet", "all blocked", "all open ASK-LEO", "all INBOX entries"
+- [in_progress] T2g Investigations sub-page — when a task carries `[Investigation: investigations/<slug>.md]`, render the investigation file as a linked sub-view with its 6 canonical sections [Depends: T2Q T2R]
+- [pending] T2h Evidence directory viewer — `evidence/YYYY-MM-DD-<slug>.md` rendered as a chronological timeline tab per plan [ETA: 0.75h]
+- [pending] T2i Decision Log promoted to first-class — Doctrine: agents MUST NOT contradict logged directions; surface this prominently, not buried inside PLAN.md [ETA: 0.5h]
+- [in_progress] T2j Tasks rendered as structured FSM, not opaque markdown — parse `[pending]/[in_progress]/[completed]/[blocked]` markers into a completion bar in sidebar + pane [Depends: T2L T2M T2N T2O T2P]
+- [pending] T2k Cross-plan dashboard — "all in_progress across the fleet", "all blocked", "all open ASK-LEO", "all INBOX entries" [ETA: 1.5h]
+
+Phase 2 — completion bar elevation (added 2026-04-25 per Leo "make a pretty bar … completion and a moving target key to vidux plans")
+- [pending] T2L Parse task FSM in `## Tasks` section per plan — counts by `[pending]/[in_progress]/[in_review]/[completed]/[blocked]` plus `[ETA: Xh]` total (parsed but secondary). Expose `task_stats` on `/api/plans`. [ETA: 0.5h]
+- [pending] T2M Pretty stacked progress bar in sidebar — rounded, status-colored segments (green=completed / amber=in_progress / blue=in_review / red=blocked / gray=pending), `X/Y done · N%` label. Replace the dingy meta strip. [ETA: 0.75h] [Depends: T2L]
+- [pending] T2N Completion treatment — 100% plans get a "shipped" accent (gold rule + checkmark glyph); 0-task plans show muted "no tasks yet" hint. Make completion a visually celebrated state, per Leo "concept of completion key to vidux plans". [ETA: 0.5h] [Depends: T2M]
+- [pending] T2O Pane progress block — bigger version of the bar above the markdown, with full legend ("3 done · 2 in flight · 4 pending · 1 blocked"). Counts visible at-a-glance without scanning the markdown. [ETA: 0.5h] [Depends: T2L]
+- [pending] T2P Fleet completion stat — top meta-count adds "X/Y tasks done across fleet (N%)" so Leo sees the global progress, not just per-plan. [ETA: 0.25h] [Depends: T2L]
+- [pending] T2Q Investigations + evidence parser — auto-discover `investigations/*.md` + `evidence/*.md` siblings, plus pull explicit `[Investigation: <relpath>]` refs from task lines. Extend `safe_resolve` whitelist to `.md` inside `investigations/` and `evidence/` dirs under DEV_ROOT. [ETA: 0.5h]
+- [pending] T2R Investigations rendered as child tabs — second tab strip below the PLAN/PROGRESS/INBOX strip, only shown when investigations exist. Each child tab opens the investigation .md in the pane like a sibling file. Answers Leo's "do plans have subplans?" question by making the canonical /vidux nesting visible. [ETA: 0.5h] [Depends: T2Q]
 
 Phase 3: Ad-hoc artifact surface (Leo's "anytime anywhere" ask 2026-04-25)
-- [in_progress] T3a `~/Development/vidux/browser/artifacts/` directory — convention dir, drop `.html` files here from any session
-- [in_progress] T3b `/api/artifacts` endpoint — scans the artifacts dir, returns list with `{slug, path, mtime, size, title}` (title pulled from `<title>` or first `<h1>`)
-- [in_progress] T3c Top-level "Artifacts" section in sidebar — distinct from "Plans", grouped chronologically (newest first), no repo grouping (artifacts are decoupled from any single plan)
-- [in_progress] T3d Render `.html` artifacts via direct innerHTML in pane (trust boundary: localhost, Leo's own filesystem, no XSS surface)
-- [in_progress] T3e Components CSS shim — `.contact-card`, `.card-grid`, `.lead-row`, `.person-chip` extending the paper-ink palette so dropped artifacts inherit the look
-- [in_progress] T3f Dogfood: drop a real `cube-vendors.html` artifact from this very session — render the 7 Tier A vendors as cards, prove the "anytime anywhere" loop works
-- [in_progress] T3g `/api/artifact` POST endpoint — agents POST `{slug, html}` from any session; server writes to `artifacts/<slug>.html`; browser auto-surfaces. (Even simpler shape than file-write because no shell access required.)
+- [completed] T3a `~/Development/vidux/browser/artifacts/` directory shipped 2026-04-25
+- [completed] T3b `/api/artifacts` endpoint shipped (title parsed from `<title>` or first `<h1>`, B1 fallback to `path.stem` on whitespace titles)
+- [completed] T3c Top-level "Artifacts" section in sidebar shipped (chronological, decoupled from plans)
+- [completed] T3d `.html` artifacts render via direct innerHTML in pane (localhost trust boundary)
+- [completed] T3e Components CSS shim shipped (`.contact-card`, `.card-grid`, `.lead-row`, `.person-chip`)
+- [completed] T3f Dogfood: 3 artifacts shipped (`cube-tier-a-vendors.html`, `cafe-expansion-2026-research.html`, `fleet-attribution-audit.html`)
+- [completed] T3g `/api/artifact` POST endpoint shipped (gated behind whitelist + `ARTIFACT_MAX_BYTES` cap per B3 review)
 
-Phase 4: Polish (formerly Phase 3)
+Phase 4: Polish
 - [pending] T4a Memory viewer
 - [pending] T4b Ledger entries
 - [pending] T4c launchd plist
 - [pending] T4d Decision Log diff highlighter
 - [pending] T4e Components inside markdown — `:::person` shorthand syntax that renders as a card without hand-writing HTML
-
-Phase 3: Polish
-- [pending] T3a Memory viewer
-- [pending] T3b Ledger entries
-- [pending] T3c launchd plist
-- [pending] T3d Decision Log diff highlighter
 
 ## UI sketch (MVP)
 

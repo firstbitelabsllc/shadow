@@ -10,6 +10,12 @@
   --cold: #7d7466;
   --accent: #2e5d3d;
   --select: #e9e0c8;
+  --task-pending: #d2cab2;
+  --task-in-progress: #c89548;
+  --task-in-review: #5b8d9e;
+  --task-completed: #4f8a5a;
+  --task-blocked: #b14a2b;
+  --task-shipped: #c8a94d;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --serif: "Iowan Old Style", "Charter", Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
@@ -133,6 +139,66 @@ body {
   color: var(--ink-2);
   display: flex; gap: 10px;
   font-family: var(--mono);
+  flex-wrap: wrap;
+}
+
+/* ---- Completion bar ----
+ * Per /vidux: completion (X/Y tasks) is the headline. The bar is a stacked
+ * segment, each segment proportional to the count of tasks in that status.
+ * Compact (5px) in sidebar, larger (10px) in pane header.
+ * 100% complete gets a gold accent + checkmark — celebrate finishing. */
+
+.progress-row {
+  margin-top: 6px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.progress-bar {
+  display: flex;
+  width: 100%;
+  height: 5px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.progress-bar .segment { height: 100%; transition: flex-grow 0.18s ease-out; }
+.progress-bar .segment-completed   { background: var(--task-completed); }
+.progress-bar .segment-in_progress { background: var(--task-in-progress); }
+.progress-bar .segment-in_review   { background: var(--task-in-review); }
+.progress-bar .segment-blocked     { background: var(--task-blocked); }
+.progress-bar .segment-pending     { background: var(--task-pending); }
+.progress-bar.is-shipped {
+  background: linear-gradient(90deg, var(--task-shipped) 0%, #d8b558 100%);
+  border-color: var(--task-shipped);
+}
+.progress-bar.is-shipped .segment-completed { background: transparent; }
+.progress-bar.is-empty {
+  background: var(--paper);
+  border-style: dashed;
+}
+
+.progress-label {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.progress-label .pct {
+  font-weight: 600;
+  color: var(--ink);
+}
+.progress-label .shipped-mark {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--task-shipped);
+  font-weight: 600;
+}
+.progress-label.is-empty { font-style: italic; }
+.progress-label .inv-count {
+  margin-left: auto;
+  color: var(--ink-2);
+  letter-spacing: 0.04em;
 }
 
 .pill {
@@ -263,6 +329,111 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   display: flex; gap: 16px; flex-wrap: wrap;
 }
 .pane-header .meta .pill { vertical-align: middle; margin-right: 4px; }
+
+/* ---- Pane progress block (the "moving target" headline) ----
+ * Sits above the markdown body. Bar + counts legend + completion %.
+ * Designed to make completion a visually celebrated, key-of-vidux concept. */
+
+.pane-progress {
+  margin: 16px 0 8px;
+  padding: 14px 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+.pane-progress.is-shipped {
+  border-color: var(--task-shipped);
+  background: linear-gradient(180deg, var(--paper-2) 0%, color-mix(in srgb, var(--task-shipped) 8%, var(--paper-2)) 100%);
+}
+.pane-progress .progress-bar { height: 10px; }
+.pane-progress .progress-summary {
+  margin-top: 10px;
+  display: flex; gap: 16px; flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.pane-progress .progress-summary .stat-completed   { color: var(--task-completed); }
+.pane-progress .progress-summary .stat-in_progress { color: var(--task-in-progress); }
+.pane-progress .progress-summary .stat-in_review   { color: var(--task-in-review); }
+.pane-progress .progress-summary .stat-blocked     { color: var(--task-blocked); }
+.pane-progress .progress-summary .stat-pending     { color: var(--ink-2); }
+.pane-progress .progress-summary .stat-zero        { opacity: 0.45; }
+.pane-progress .progress-headline {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+.pane-progress .progress-headline .label {
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  font-family: var(--mono);
+}
+.pane-progress .progress-headline .pct-large {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.pane-progress .progress-headline .pct-large.is-shipped {
+  color: var(--task-shipped);
+}
+.pane-progress .progress-headline .ratio {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.pane-progress.no-tasks {
+  text-align: center;
+  color: var(--ink-2);
+  font-style: italic;
+  border-style: dashed;
+}
+
+/* ---- Investigations strip ----
+ * Secondary tab strip below PLAN/PROGRESS/INBOX. Only renders when the
+ * plan has investigation files. Answers "do plans have subplans?" — yes,
+ * canonical /vidux nesting via [Investigation: investigations/<slug>.md]. */
+
+.pane-investigations-strip {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 0 0;
+  margin-top: -16px;
+  margin-bottom: 16px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.pane-investigations-strip .label {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  margin-right: 4px;
+}
+.pane-investigations-strip button {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.pane-investigations-strip button:hover { background: var(--select); }
+.pane-investigations-strip button.is-active {
+  background: var(--accent);
+  color: var(--paper);
+  border-color: var(--accent);
+}
 
 .pane-tabs {
   display: flex; gap: 4px;
@@ -395,6 +566,12 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
     --stale: #c8a558;
     --cold: #9c8d6f;
     --accent: #6db580;
+    --task-pending: #4a432f;
+    --task-in-progress: #d99c52;
+    --task-in-review: #6fa6b8;
+    --task-completed: #6db580;
+    --task-blocked: #d97a4a;
+    --task-shipped: #d8b558;
   }
   .markdown pre,
   .markdown code,

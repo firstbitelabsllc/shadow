@@ -55,6 +55,15 @@ ARTIFACT_TITLE_RE = re.compile(
     r"<title>([^<]+)</title>|<h1[^>]*>([^<]+)</h1>", re.I
 )
 
+# /vidux task-FSM markers. Used by task_stats() to compute completion-bar.
+# Per Leo 2026-04-25: completion (X/Y tasks) is the headline; ETA is parsed
+# but does not drive the UI (tasks vary in difficulty, ETA is fiction).
+TASKS_SECTION_RE = re.compile(r"^##\s+Tasks\s*\n(.*?)(?=^##\s|\Z)", re.M | re.S)
+TASK_LINE_RE = re.compile(r"^-\s+\[(pending|in_progress|in_review|completed|blocked)\]", re.M)
+ETA_RE = re.compile(r"\[ETA:\s*([\d.]+)h\]")
+INVESTIGATION_RE = re.compile(r"\[Investigation:\s*([^\]]+?)\]")
+TASK_STATUSES = ("pending", "in_progress", "in_review", "completed", "blocked")
+
 
 def discover_plans() -> list[dict]:
     """Walk DEV_ROOT and return one entry per PLAN.md found."""
@@ -93,6 +102,12 @@ def plan_meta(path: Path) -> dict:
         status = "cold"
     siblings = [f for f in SIBLING_FILES if (parent_dir / f).is_file()]
     purpose = extract_purpose(path)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    stats = task_stats(text)
+    investigations = discover_investigations(parent_dir, text)
     return {
         "repo": repo,
         "slug": slug,
@@ -104,7 +119,82 @@ def plan_meta(path: Path) -> dict:
         "status": status,
         "siblings": siblings,
         "purpose": purpose,
+        "task_stats": stats,
+        "investigations": investigations,
     }
+
+
+def task_stats(text: str) -> dict:
+    """Parse the `## Tasks` section into status counts + ETA total.
+
+    Returns counts for every known status, total tasks, ETA hours summed
+    over pending+in_progress+in_review (ETAs on terminal states are ignored
+    per /vidux), and how many of those eligible tasks actually have an ETA
+    tag (eta_tagged) vs. how many should (eta_eligible).
+    """
+    counts = {s: 0 for s in TASK_STATUSES}
+    eta_total = 0.0
+    eta_tagged = 0
+    eta_eligible = 0
+    m = TASKS_SECTION_RE.search(text)
+    if not m:
+        return {
+            "counts": counts,
+            "total": 0,
+            "eta_total": 0.0,
+            "eta_tagged": 0,
+            "eta_eligible": 0,
+        }
+    body = m.group(1)
+    for line in body.splitlines():
+        lm = TASK_LINE_RE.match(line)
+        if not lm:
+            continue
+        status = lm.group(1)
+        counts[status] += 1
+        if status in ("pending", "in_progress", "in_review"):
+            eta_eligible += 1
+            em = ETA_RE.search(line)
+            if em:
+                eta_tagged += 1
+                try:
+                    eta_total += float(em.group(1))
+                except ValueError:
+                    pass
+    return {
+        "counts": counts,
+        "total": sum(counts.values()),
+        "eta_total": round(eta_total, 2),
+        "eta_tagged": eta_tagged,
+        "eta_eligible": eta_eligible,
+    }
+
+
+def discover_investigations(plan_dir: Path, plan_text: str) -> list[str]:
+    """Auto-discover .md files under plan_dir/investigations/ + explicit refs.
+
+    Canonical /vidux nesting: a parent task can carry [Investigation: <relpath>]
+    pointing at a sub-plan. We surface BOTH the auto-discovered files AND any
+    explicit refs from task lines (deduped by resolved path), to handle plans
+    that drop investigations without linking them and plans that link without
+    a directory.
+    """
+    found: set[str] = set()
+    inv_dir = plan_dir / "investigations"
+    if inv_dir.is_dir():
+        for f in inv_dir.glob("*.md"):
+            if f.is_file():
+                found.add(str(f.resolve()))
+    for ref in INVESTIGATION_RE.findall(plan_text):
+        rel = ref.strip().strip("`'\"")
+        try:
+            candidate = (plan_dir / rel).resolve()
+            candidate.relative_to(plan_dir.resolve())
+        except (OSError, ValueError):
+            continue
+        if candidate.is_file() and candidate.suffix == ".md":
+            found.add(str(candidate))
+    return sorted(found)
 
 
 def extract_purpose(path: Path) -> str:
@@ -123,11 +213,12 @@ def extract_purpose(path: Path) -> str:
 
 
 def safe_resolve(raw: str) -> Path | None:
-    """Allow only PLAN.md + known sibling files under DEV_ROOT.
+    """Allow PLAN.md + canonical siblings + .md files in investigations/ or evidence/.
 
     The whitelist is the read-only contract. node_modules paths are rejected
-    even when the filename matches, since a stale fixture there shouldn't
-    surface in the viewer.
+    even when the filename matches. The `investigations/` + `evidence/` rules
+    are the canonical /vidux nesting per DOCTRINE.md + guides/investigation.md
+    + guides/evidence-format.md — surfacing them is part of the viewer's job.
     """
     try:
         p = Path(raw).resolve()
@@ -139,11 +230,13 @@ def safe_resolve(raw: str) -> Path | None:
         return None
     if "node_modules" in p.parts:
         return None
-    if p.name not in ALLOWED_PLAN_FILES:
-        return None
     if not p.is_file():
         return None
-    return p
+    if p.name in ALLOWED_PLAN_FILES:
+        return p
+    if p.suffix == ".md" and ("investigations" in p.parts or "evidence" in p.parts):
+        return p
+    return None
 
 
 def safe_resolve_any(raw: str) -> Path | None:
