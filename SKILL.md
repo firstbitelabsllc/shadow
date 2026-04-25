@@ -108,9 +108,11 @@ What we know, cited with sources.
 - NEVER: [things that are forbidden]
 
 ## Tasks
-Ordered, with status tags, evidence citations, and — for pending + in_progress — a mandatory `[ETA: Xh]` tag.
+Ordered, with status tags and evidence citations. Completion (X/Y tasks done)
+is the headline. `[ETA: Xh]` is optional — useful when tasks are similar-sized,
+skip when they vary in difficulty.
 - [pending] Task 1: description [Evidence: ...] [ETA: 0.5h]
-- [in_progress] Task 2: description [Evidence: ...] [ETA: 2h]
+- [in_progress] Task 2: description [Evidence: ...]
 - [completed] Task 3: description [Evidence: ...]
 - [blocked] Task 4: description [Blocker: ...]
 
@@ -132,15 +134,18 @@ review-bot acks. Skip it for docs, config, or plan-only work that never goes
 through review. Existing 4-state plans (pending / in_progress / completed /
 blocked) remain valid; agents may adopt in_review per-task.
 
-**`[ETA: Xh]` — mandatory AI-hour estimate on pending + in_progress tasks.**
-An AI-hour is how much focused AI-agent work a task takes end-to-end, not
-wall-clock time. Calibration: 0.25h trivial / 0.5h simple fix / 1h small
-feature / 2h moderate / 4h e2e bug / 8h+ multi-phase (promote to compound).
-ETAs are elastic — when scope moves, log the revision in `## Decision Log`
-and update the tag. `/vidux-status` sums pending + in_progress ETAs to show
-remaining AI-hours per plan. Completed + blocked tasks don't need an ETA
-(they're terminal for this calibration). Adding a new `[pending]` task
-without `[ETA: Xh]` is a plan defect — fill it in before checkpoint.
+**`[ETA: Xh]` — optional AI-hour estimate.** Completion (X/Y tasks done) is
+the headline; ETA is supplementary. Use it when tasks in a plan are
+similar-sized and the sum gives a meaningful "AI-hours remaining" read; skip
+it when tasks vary in difficulty and the sum becomes fiction. An AI-hour is
+how much focused AI-agent work a task takes end-to-end, not wall-clock time.
+Calibration when you do tag (still useful for the tasks that get one):
+0.25h trivial / 0.5h simple fix / 1h small feature / 2h moderate / 4h e2e
+bug / 8h+ multi-phase (promote to compound). ETAs are elastic — when scope
+moves, log the revision in `## Decision Log` and update the tag.
+`/vidux-status` sums whatever ETAs are present on pending + in_progress
+tasks; the sum is informational, not a contract. Completed + blocked tasks
+don't need an ETA (they're terminal for this calibration).
 
 ## Decision Log
 Intentional choices that future agents must not undo.
