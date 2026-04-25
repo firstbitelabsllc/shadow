@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_note": "Attribution disabled to prevent 'claude' from appearing as a contributor on the GitHub repo. Per /auto §G — Leo's work account had the trailer leak through and require a history rewrite (2026-04-25). Do not change without checking /auto first.",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
+}

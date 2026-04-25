@@ -16,7 +16,8 @@ projects/*
 tmp*.md
 
 # Claude Code local state
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Secrets / environment — never commit
 .env
