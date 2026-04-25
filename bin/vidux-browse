@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# vidux-browse — start the local plan browser and open it.
+#
+# Usage:
+#   vidux-browse           # start server, open browser
+#   vidux-browse --no-open # start server, don't open
+#   vidux-browse --foreground / -f  # don't background; stream logs
+set -euo pipefail
+
+ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"
+PORT="${VIDUX_BROWSER_PORT:-7191}"
+URL="http://127.0.0.1:${PORT}"
+LOG="${TMPDIR:-/tmp}/vidux-browser.log"
+PIDFILE="${TMPDIR:-/tmp}/vidux-browser.pid"
+
+OPEN_BROWSER=1
+FOREGROUND=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-open) OPEN_BROWSER=0 ;;
+    -f|--foreground) FOREGROUND=1 ;;
+    -h|--help)
+      echo "usage: vidux-browse [--no-open] [--foreground]"
+      echo "  default: starts server in background, opens ${URL}"
+      exit 0
+      ;;
+  esac
+done
+
+# If a stale pid is listening on PORT, reuse it.
+if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "vidux browser already on ${URL}"
+  if [[ "${OPEN_BROWSER}" == 1 ]]; then open "${URL}"; fi
+  exit 0
+fi
+
+if [[ "${FOREGROUND}" == 1 ]]; then
+  exec python3 "${ROOT}/browser/server.py"
+fi
+
+# Background mode.
+nohup python3 "${ROOT}/browser/server.py" >"${LOG}" 2>&1 &
+echo $! > "${PIDFILE}"
+
+# Wait up to 3s for the server to bind.
+for i in 1 2 3 4 5 6; do
+  if curl -sf "${URL}/api/health" >/dev/null 2>&1; then
+    echo "vidux browser → ${URL}  (pid $(cat "${PIDFILE}"), log ${LOG})"
+    if [[ "${OPEN_BROWSER}" == 1 ]]; then open "${URL}"; fi
+    exit 0
+  fi
+  sleep 0.5
+done
+
+echo "server did not respond on ${URL} within 3s — check ${LOG}" >&2
+exit 1

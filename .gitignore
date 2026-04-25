@@ -6,8 +6,11 @@ __pycache__/
 QUEUE.jsonl
 
 # Private project plans — never commit to public repo
-# Plans are external-mode (vidux.config.json) and stay local
-projects/
+# Plans are external-mode (vidux.config.json) and stay local.
+# Use `projects/*` (not `projects/`) so subdirectory exceptions can re-include.
+projects/*
+# Exception: vidux-browser is internal-to-vidux tooling, ships with the code.
+!projects/vidux-browser/
 
 # Temp files from checkpoint script
 tmp*.md
@@ -21,3 +24,7 @@ tmp*.md
 *.key
 *.pem
 secrets/
+
+# Browser runtime artifacts (user-generated HTML, not source)
+browser/artifacts/*
+!browser/artifacts/.gitkeep
