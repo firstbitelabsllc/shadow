@@ -939,15 +939,28 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for r in results:
             tag = "[dry-run] " if args.dry_run else ""
-            print(f"{tag}{r['adapter']} × {r['plan']}")
-            print(f"  tasks={r['tasks']} external_items={r['external_items']} "
-                  f"pushed={r['pushed']} inbox+={r['inbox_appended']} "
-                  f"flipped={r['plan_flipped']}")
-            if r["pushed_ids"]:
+            kind = r.get("_kind")
+            if kind == "pr_sweep":
+                print(f"{tag}{r['adapter']} × pr_sweep")
+                print(f"  added={r.get('added', 0)} skipped={r.get('skipped', 0)}")
+                for err in r.get("errors", []):
+                    print(f"  ! {err}")
+                continue
+            if kind == "auto_promote":
+                print(f"{tag}{r['adapter']} × auto_promote → {r.get('target','?')}")
+                print(f"  promoted={r.get('promoted', 0)}")
+                for err in r.get("errors", []):
+                    print(f"  ! {err}")
+                continue
+            print(f"{tag}{r['adapter']} × {r.get('plan', '?')}")
+            print(f"  tasks={r.get('tasks',0)} external_items={r.get('external_items',0)} "
+                  f"pushed={r.get('pushed',0)} inbox+={r.get('inbox_appended',0)} "
+                  f"flipped={r.get('plan_flipped',0)}")
+            if r.get("pushed_ids"):
                 print(f"  pushed: {', '.join(r['pushed_ids'])}")
-            if r["flipped_ids"]:
+            if r.get("flipped_ids"):
                 print(f"  flipped→completed: {', '.join(r['flipped_ids'])}")
-            for err in r["errors"]:
+            for err in r.get("errors", []):
                 print(f"  ! {err}")
 
     return exit_code
