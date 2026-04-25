@@ -41,6 +41,11 @@ PLAN_GLOBS = [
 # require them — a clean canonical-vidux repo without those files still works.
 SIBLING_FILES = ["PROGRESS.md", "INBOX.md", "ASK-LEO.md", "DOCTRINE.md", "README.md"]
 
+# safe_resolve() whitelist. Any other filename under DEV_ROOT is rejected —
+# without this gate, a malicious page could fetch /api/file?path=…/.env or
+# …/.ssh/config from a browser tab on Leo's machine.
+ALLOWED_PLAN_FILES = frozenset({"PLAN.md", *SIBLING_FILES})
+
 HOT_DAYS = 7
 STALE_DAYS = 30
 
@@ -118,7 +123,12 @@ def extract_purpose(path: Path) -> str:
 
 
 def safe_resolve(raw: str) -> Path | None:
-    """Only allow paths under DEV_ROOT — read-only contract is load-bearing."""
+    """Allow only PLAN.md + known sibling files under DEV_ROOT.
+
+    The whitelist is the read-only contract. node_modules paths are rejected
+    even when the filename matches, since a stale fixture there shouldn't
+    surface in the viewer.
+    """
     try:
         p = Path(raw).resolve()
     except (OSError, ValueError):
@@ -127,13 +137,17 @@ def safe_resolve(raw: str) -> Path | None:
         p.relative_to(DEV_ROOT)
     except ValueError:
         return None
+    if "node_modules" in p.parts:
+        return None
+    if p.name not in ALLOWED_PLAN_FILES:
+        return None
     if not p.is_file():
         return None
     return p
 
 
 def safe_resolve_any(raw: str) -> Path | None:
-    """safe_resolve() OR a path under ARTIFACTS_DIR. Read-only either way."""
+    """safe_resolve() OR an .html artifact under ARTIFACTS_DIR. Read-only either way."""
     p = safe_resolve(raw)
     if p:
         return p
@@ -144,6 +158,8 @@ def safe_resolve_any(raw: str) -> Path | None:
     try:
         candidate.relative_to(ARTIFACTS_DIR.resolve())
     except ValueError:
+        return None
+    if candidate.suffix.lower() != ".html":
         return None
     if not candidate.is_file():
         return None
@@ -163,7 +179,11 @@ def discover_artifacts() -> list[dict]:
         except OSError:
             head = ""
         m = ARTIFACT_TITLE_RE.search(head)
-        title = (m.group(1) or m.group(2)).strip() if m else path.stem
+        if m:
+            raw_title = (m.group(1) or m.group(2) or "").strip()
+            title = raw_title or path.stem
+        else:
+            title = path.stem
         st = path.stat()
         age_days = (time.time() - st.st_mtime) / 86400
         items.append({
@@ -184,9 +204,12 @@ def write_artifact(slug: str, html: str) -> tuple[bool, str]:
         return False, "slug must match [a-z0-9][a-z0-9-]{0,63}"
     if len(html.encode("utf-8")) > ARTIFACT_MAX_BYTES:
         return False, f"html exceeds {ARTIFACT_MAX_BYTES} bytes"
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = ARTIFACTS_DIR / f"{slug}.html"
-    path.write_text(html, encoding="utf-8")
+    try:
+        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+        path = ARTIFACTS_DIR / f"{slug}.html"
+        path.write_text(html, encoding="utf-8")
+    except OSError as e:
+        return False, f"write failed: {e}"
     return True, str(path)
 
 
@@ -204,11 +227,7 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_static("index.html", "text/html; charset=utf-8")
         elif route.startswith("/static/"):
             name = route[len("/static/"):]
-            if "/" in name or ".." in name:
-                self._send(404, "not found")
-                return
-            ctype = guess_content_type(name)
-            self._serve_static(name, ctype)
+            self._serve_static(name)
         elif route == "/api/health":
             self._json({"ok": True, "dev_root": str(DEV_ROOT), "port": PORT,
                         "artifacts_dir": str(ARTIFACTS_DIR)})
@@ -255,14 +274,22 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, "not found")
 
-    def _serve_static(self, name: str, ctype: str):
-        path = STATIC_DIR / name
-        if not path.is_file():
+    def _serve_static(self, name: str, ctype: str | None = None):
+        if not name:
+            self._send(404, "not found")
+            return
+        try:
+            candidate = (STATIC_DIR / name).resolve()
+            candidate.relative_to(STATIC_DIR.resolve())
+        except (OSError, ValueError):
+            self._send(404, "not found")
+            return
+        if not candidate.is_file():
             self._send(404, f"static asset missing: {name}")
             return
-        body = path.read_bytes()
+        body = candidate.read_bytes()
         self.send_response(200)
-        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Type", ctype or guess_content_type(candidate.name))
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()

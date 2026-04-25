@@ -196,3 +196,8 @@ Phase 3: Polish
 
 - [2026-04-25] PLAN.md drafted. 40+ PLAN.md files inventoried across fleet via 3-convention glob. Awaiting Phase 0 sign-off.
 - [2026-04-25] Phase 1 MVP shipped: server.py + static/{html,css,js} + bin/vidux-browse + SKILL.md section. 40 plans / 7 repos surfaced, hot/stale/cold pills, sibling tabs, filter, path-traversal guards. Visual proof captured. `vidux-browse` symlinked onto PATH. Next: Phase 2 sessions panel + auto-poll.
+- [2026-04-25] Post-merge code review surfaced four bugs (B1–B4); shipped as one bundled commit (`vidux/browser-security-gate`):
+  - B2 (security): `safe_resolve()` accepted any file under `DEV_ROOT`. Tightened to a `{PLAN.md, *SIBLING_FILES}` whitelist + `.html`-only under `ARTIFACTS_DIR`. Closes the localhost CSRF/exfil hole — a malicious tab on Leo's machine can no longer GET `…/.env` / `.ssh/config` / Shopify tokens via `/api/file?path=…`. Smoke-tested 7 paths (legit / random-py / outside-DEV / traversal / artifact / static-traversal / static-asset).
+  - B1: title regex captured whitespace → empty title; now falls back to `path.stem`.
+  - B3: `write_artifact()` didn't catch `OSError`; wrapped to return `(False, "write failed: …")`.
+  - B4: static-asset path-traversal used a stringy `"/" in name or ".."` check; now resolves against `STATIC_DIR.resolve()` and rejects on `relative_to` failure.
