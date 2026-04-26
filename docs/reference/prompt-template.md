@@ -299,7 +299,8 @@ Prompts fail in predictable ways. If you hit one of these, add the missing block
 
 ## See Also
 
-- [SKILL.md](../../SKILL.md) — the cycle and the five principles
+- [Five Principles](/concepts/principles) — the doctrine a prompt is enforcing
+- [The Cycle](/concepts/cycle) — the runtime flow the prompt is trying to drive
 - [PLAN.md field reference](plan-fields.md) — what the prompt's Read block is reading
 - [Claude Code Lifecycle](../fleet/claude-lifecycle.md) — how the prompt fires each cycle
 - [Codex Lifecycle](../fleet/codex-lifecycle.md) — same, for Codex lanes

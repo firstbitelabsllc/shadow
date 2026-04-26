@@ -98,7 +98,7 @@ Codex agents run inside one of three sandboxes, set per-task or per-session in `
 | `workspace-write` | Yes | Working tree only | Implementation dispatch — code edits |
 | `danger-full-access` | Yes | Anywhere | Trusted automations only (default for Leo's fleet) |
 
-Research dispatch keeps Claude's token budget small; implementation dispatch lets Codex write the code while Claude reviews the diff. See [`/vidux` Part 2](../../commands/vidux.md) and [`references/automation.md`](../../references/automation.md) for the full delegation contract.
+Research dispatch keeps Claude's token budget small; implementation dispatch lets Codex write the code while Claude reviews the diff. See [Fleet Operations](/fleet/operations) for the docs-site summary of that delegation and coordination model.
 
 ### Post-push defer
 
@@ -144,4 +144,5 @@ Run `codex-toml-verify.sh` between writing TOMLs and reopening the app to catch 
 - [Platform Comparison](platforms.md) — Claude Code vs Codex overview
 - [Claude Code Lifecycle](claude-lifecycle.md) — the Claude equivalent of this page
 - [Codex Setup Guide](codex-setup.md) — step-by-step Mac app setup (Task 5)
-- [`/vidux` Part 2](../../commands/vidux.md) + [`references/automation.md`](../../references/automation.md) — research / implementation dispatch delegation contract
+- [Fleet Operations](/fleet/operations) — research and implementation dispatch plus worktree discipline
+- [Recipe Catalog](/fleet/recipes) — reusable automation patterns layered on top

@@ -1,13 +1,62 @@
 import { defineConfig } from 'vitepress'
 
+const sidebar = [
+  {
+    text: 'Getting Started',
+    items: [
+      { text: 'What is Vidux?', link: '/guide/' },
+      { text: 'Installation', link: '/guide/installation' },
+      { text: 'Quick Start', link: '/guide/quickstart' },
+    ],
+  },
+  {
+    text: 'Core Concepts',
+    items: [
+      { text: 'Overview', link: '/concepts/' },
+      { text: 'Five Principles', link: '/concepts/principles' },
+      { text: 'The Cycle', link: '/concepts/cycle' },
+      { text: 'PLAN.md Structure', link: '/concepts/plan-structure' },
+      { text: 'The Store', link: '/concepts/store' },
+    ],
+  },
+  {
+    text: 'Fleet',
+    items: [
+      { text: 'Overview', link: '/fleet/' },
+      { text: 'Claude Lifecycle', link: '/fleet/claude-lifecycle' },
+      { text: 'Codex Lifecycle', link: '/fleet/codex-lifecycle' },
+      { text: 'Codex Setup', link: '/fleet/codex-setup' },
+      { text: 'Platform Comparison', link: '/fleet/platforms' },
+      { text: 'Harness Authoring', link: '/fleet/harness' },
+      { text: 'Fleet Operations', link: '/fleet/operations' },
+      { text: 'Recipe Catalog', link: '/fleet/recipes' },
+    ],
+  },
+  {
+    text: 'Reference',
+    items: [
+      { text: 'Overview', link: '/reference/' },
+      { text: 'PLAN.md Fields', link: '/reference/plan-fields' },
+      { text: 'Prompt Template', link: '/reference/prompt-template' },
+      { text: 'Commands', link: '/reference/commands' },
+      { text: 'Scripts', link: '/reference/scripts' },
+      { text: 'Hooks', link: '/reference/hooks' },
+      { text: 'Configuration', link: '/reference/config' },
+    ],
+  },
+  {
+    text: 'Examples',
+    items: [
+      { text: 'Overview', link: '/examples/' },
+    ],
+  },
+]
+
 export default defineConfig({
   title: 'Vidux',
   description: 'Plan first, code second. A lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.',
   base: process.env.DOCS_BASE || '/',
-
-  head: [
-    ['link', { rel: 'icon', href: '/favicon.ico' }],
-  ],
+  cleanUrls: true,
 
   themeConfig: {
     siteTitle: 'Vidux',
@@ -21,51 +70,17 @@ export default defineConfig({
     ],
 
     sidebar: {
-      '/': [
-        {
-          text: 'Getting Started',
-          items: [
-            { text: 'What is Vidux?', link: '/guide/' },
-            { text: 'Installation', link: '/guide/installation' },
-            { text: 'Quick Start', link: '/guide/quickstart' },
-          ],
-        },
-        {
-          text: 'Core Concepts',
-          items: [
-            { text: 'Overview', link: '/concepts/' },
-            { text: 'Five Principles', link: '/concepts/principles' },
-            { text: 'The Cycle', link: '/concepts/cycle' },
-            { text: 'PLAN.md Structure', link: '/concepts/plan-structure' },
-            { text: 'The Store', link: '/concepts/store' },
-          ],
-        },
-        {
-          text: 'Fleet Intelligence',
-          items: [
-            { text: 'Overview', link: '/fleet/' },
-            { text: 'Automation Recipes', link: '/fleet/recipes' },
-            { text: 'Harness Authoring', link: '/fleet/harness' },
-            { text: 'Fleet Operations', link: '/fleet/operations' },
-          ],
-        },
-        {
-          text: 'Reference',
-          items: [
-            { text: 'Overview', link: '/reference/' },
-            { text: 'Commands', link: '/reference/commands' },
-            { text: 'Scripts', link: '/reference/scripts' },
-            { text: 'Hooks', link: '/reference/hooks' },
-            { text: 'Configuration', link: '/reference/config' },
-          ],
-        },
-        {
-          text: 'Examples',
-          items: [
-            { text: 'Overview', link: '/examples/' },
-          ],
-        },
-      ],
+      '/': sidebar,
+      '/guide/': sidebar,
+      '/concepts/': sidebar,
+      '/fleet/': sidebar,
+      '/reference/': sidebar,
+      '/examples/': sidebar,
+    },
+
+    outline: {
+      level: [2, 3],
+      label: 'On this page',
     },
 
     socialLinks: [

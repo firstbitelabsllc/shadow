@@ -222,4 +222,5 @@ osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 - [Codex Lifecycle](codex-lifecycle.md) — what happens each fire
 - [Platform Comparison](platforms.md) — when to pick Codex vs Claude Code
 - [Prompt Template](../reference/prompt-template.md) — the 8-block prompt structure
-- [`/vidux` Part 2](../../commands/vidux.md) + [`references/automation.md`](../../references/automation.md) — research / implementation dispatch delegation
+- [Fleet Operations](/fleet/operations) — research and implementation dispatch plus worktree discipline
+- [Recipe Catalog](/fleet/recipes) — reusable automation patterns layered on top
