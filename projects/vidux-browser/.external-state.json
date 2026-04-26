@@ -1,0 +1,10 @@
+{
+  "adapters": {
+    "gh_projects": {
+      "task_to_external": {}
+    },
+    "linear": {
+      "task_to_external": {}
+    }
+  }
+}
