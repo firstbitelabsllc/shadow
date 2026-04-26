@@ -55,7 +55,7 @@ All six sections are required. Missing sections produce known failure modes:
 ## Task Status FSM
 
 ```
-pending → in_progress → completed
+pending → in_progress → in_review (optional) → completed
               ↓
            blocked    (terminal)
 ```
@@ -63,6 +63,7 @@ pending → in_progress → completed
 Status rules:
 - Every task starts `[pending]`
 - Only one task per lane should be `[in_progress]` at a time
+- `[in_review]` is optional for PR-backed work; docs-only and local-only plans can stay in the simpler four-state flow
 - `[completed]` is permanent — never revert to `[pending]`
 - `[blocked]` requires a Blocker note and Decision Log entry
 - `[blocked]` is terminal — replace with a new task rather than reviving
@@ -75,7 +76,7 @@ Status rules:
 - [pending] Task N: Short description [Evidence: source:line or PR #] [Depends: Task M]
 ```
 
-- **Status tag** — required, one of: `[pending]`, `[in_progress]`, `[completed]`, `[blocked]`
+- **Status tag** — required, one of: `[pending]`, `[in_progress]`, `[in_review]` (optional), `[completed]`, `[blocked]`
 - **Task number** — `Task N:` — required for cross-referencing
 - **Description** — short, action-oriented
 - **Evidence citation** — required for all pending tasks before coding begins
@@ -87,9 +88,9 @@ The Decision Log is the most important section for preventing agent loops. State
 
 ```markdown
 ## Decision Log
-- [DELETION] [2026-04-10] Removed Routines integration. Reason: Fleet ops are local-first; Routines require cloud setup that users don't have. Do not re-add.
-- [DIRECTION] [2026-04-08] Chose CronCreate over Routines for automation. Reason: CronCreate works in any Claude Code session without cloud config.
-- [BLOCKED] [2026-04-12] Task 3 stuck 3 cycles. Root cause: external API rate limit. Requires human to obtain API key.
+- [DELETION] [2026-04-17] Removed observer lanes. Reason: they added drift without catching bugs the writer could not already see. Do not re-add.
+- [DIRECTION] [2026-04-26] Open operational PRs ready-for-review by default. Reason: review bots and CI gates do not reliably run on drafts.
+- [BLOCKED] [2026-04-12] Task 3 blocked on a missing deploy credential. Replace it with a new task once the credential exists.
 ```
 
 Entry types:

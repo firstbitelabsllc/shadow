@@ -26,11 +26,11 @@ One paragraph. What this lane exists to accomplish, and what "done" looks like.
 ```markdown
 ## 1. Mission
 
-Ship and maintain the leojkwan.com blog. Every cycle either moves a
+Ship and maintain the project surface this lane owns. Every cycle either moves a
 [pending] PLAN.md task forward, fixes a CI failure, or merges an
 eligible PR. When the queue is empty, scout INBOX.md for promotions
-or rotate a filler audit. The lane retires when `leojkwan.com` has
-shipped its v2 launch (Phase 9 in PLAN.md).
+or rotate a filler audit. The lane retires when the owning PLAN.md
+hits its named ship milestone.
 ```
 
 **Rules:**
@@ -40,20 +40,18 @@ shipped its v2 launch (Phase 9 in PLAN.md).
 
 ## Block 2: Skills
 
-A list of skill tokens (like `/vidux`, `/brand-leojkwan`) that the lane should invoke before acting. Skills load the domain knowledge and discipline each cycle.
+A list of skill tokens (starting with `/vidux`) that the lane should invoke before acting. Skills load the domain knowledge and discipline each cycle.
 
 ```markdown
 ## 2. Skills
 
 Activate these skills every cycle, in order:
 - `/vidux` — discipline + automation (cycle, FSM, checkpoint format, Part 2 lane mechanics)
-- `/brand-leojkwan` — design decisions must match Leo's brand
-- `/frontend-design` — Tailwind v4, dark mode, craft-svg
 ```
 
 **Rules:**
 - Put `/vidux` first so the cycle and FSM load before anything else.
-- Add brand/domain skills appropriate to the repo.
+- Add repo-specific brand or domain skills only when the lane genuinely needs them.
 - Avoid loading skills the lane never uses — every token costs context.
 
 ## Block 3: Read
@@ -65,11 +63,11 @@ Explicit file-read order. Every cycle reads the same files in the same order, so
 
 Read in this order every cycle:
 1. `memory.md` — last 3 entries, so I know what the previous cycle did
-2. `~/Development/leojkwan/vidux/PLAN.md` — queue state, Decision Log
-3. `~/Development/leojkwan/vidux/INBOX.md` — scanner findings
+2. `{project-root}/PLAN.md` — queue state, Decision Log
+3. `{project-root}/INBOX.md` — scanner findings
 4. `git fetch && git status --short && git log --oneline -10` — repo state
 5. `gh pr list --json number,title,mergeable,statusCheckRollup` — open PRs
-6. (cross-lane) `~/.claude-automations/session-gc/memory.md` — last 1 entry
+6. (cross-lane) `{lane-dir}/session-gc/memory.md` — last 1 entry when session-gc exists
 ```
 
 **Rules:**
@@ -135,7 +133,7 @@ How to actually do the work. This block holds the heavy rules — worktree disci
 
 ### Code changes (worktree discipline)
 - Create a fresh worktree from origin/main for every code change
-- `git worktree add -b <branch> ../leojkwan-worktrees/<branch> origin/main`
+- `git worktree add -b {branch} ../{project}-worktrees/{branch} origin/main`
 - Never edit files on the main worktree directly
 
 ### Verification (mandatory before commit)
@@ -144,19 +142,19 @@ How to actually do the work. This block holds the heavy rules — worktree disci
 - UI change? Take a screenshot with Playwright or craft-svg
 
 ### Commit + push
-- `git add <specific files>` — never `-A`
-- Commit message: `<verb>(<scope>): <what>`
+- `git add {specific files}` — never `-A`
+- Commit message: `{verb}({scope}): {what}`
 - After commit, `git branch --show-current` must match intended branch
 
 ### Merge (only when gate allows)
-- `gh pr merge <n> --squash --auto` — only if CI green, push-age ≥1h,
+- `gh pr merge {n} --squash --auto` — only if CI green, push-age ≥1h,
   zero unresolved P0/P1 reviews
 
 ### Delegation (optional — Mode A / Mode B)
-- If reading > 3 KB of source, delegate to `codex exec --sandbox read-only`
-  (Mode A, 3-section compression). See /vidux Part 2.
-- For bug fixes with a clear spec (>10 lines), delegate to
-  `codex exec --sandbox workspace-write` (Mode B). Review the diff, ship.
+- If reading > 3 KB of source, use the runtime's native subagent primitive
+  for Mode A research compression. See `guides/recipes/subagent-delegation.md`.
+- For bug fixes with a clear spec (>10 lines), use Mode B implementation
+  delegation in the same runtime, then review the diff before shipping.
 ```
 
 **Rules:**
@@ -172,14 +170,12 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 ## 7. Authority
 
 ### Paths this lane owns (may edit freely)
-- `app/**/*.tsx` — page templates and components
-- `app/**/*.css` — styles
-- `next.config.ts` — config
-- `vidux/PLAN.md`, `vidux/INBOX.md`, `vidux/evidence/`
-- `~/.claude-automations/leojkwan-coordinator/memory.md`
+- `{repo-owned-source-paths}`
+- `{project-root}/PLAN.md`, `{project-root}/INBOX.md`, `{project-root}/evidence/`
+- `{lane-dir}/{lane-id}/memory.md`
 
 ### Paths this lane must NEVER touch
-- `content/posts/**/*.mdx` body text (Leo's historical writing — design/layout OK, prose NEVER)
+- `{human-authored-prose-paths}` body text when the repo treats that prose as immutable
 - `.env*` files (secrets)
 - `scripts/**` (cross-lane tooling, not coord-owned)
 - Other lanes' `memory.md` files — read-only
@@ -203,12 +199,12 @@ The `memory.md` append format. One line per cycle. Future agents scan the last 3
 ## 8. Checkpoint
 
 After the cycle, append ONE line to
-`~/.claude-automations/leojkwan-coordinator/memory.md`:
+`{lane-dir}/{lane-id}/memory.md`:
 
 ### Signal-only format
 
 ```
-- [YYYY-MM-DDThh:mm:ssZ claude coord] [TAG] <what happened>. <optional second sentence on next-cycle plan>.
+- [YYYY-MM-DDThh:mm:ssZ {runtime} {lane-role}] [TAG] {what happened}. {optional second sentence on next-cycle plan}.
 ```
 
 ### Valid tags
@@ -216,7 +212,7 @@ After the cycle, append ONE line to
 - `[MERGED]` — merged a PR
 - `[FIX]` — fixed a CI failure
 - `[PROMOTE]` — promoted an INBOX item to a task
-- `[DEFER]` — Leo is active / post-push defer / new PR watching
+- `[DEFER]` — post-push defer / active review wait / human currently driving the surface
 - `[IDLE]` — queue empty, no work surfaced
 - `[QC]` — aborted cycle (dirty tree, stuck, etc)
 - `[AUDIT-N]` — rotated filler audit N
@@ -230,26 +226,26 @@ the last entry already said, skip the entry entirely.
 **Rules:**
 - One line, not a paragraph. The diff tells the story; memory.md orients.
 - Always tag. Untagged entries are unsearchable by future agents.
-- Include the session SHA (`8249d801`) when the lane hosts cross-session state.
+- Include the session SHA (`{session-sha}`) when the lane hosts cross-session state.
 
 ## Full Example
 
 A real (abridged) prompt file showing all 8 blocks:
 
 ```markdown
-# leojkwan-coordinator — lane prompt
+# project-coordinator — lane prompt
 
 ## 1. Mission
-Ship and maintain leojkwan.com. Every cycle moves PLAN.md forward, fixes CI,
-merges eligible PRs, or rotates a filler audit. Retires at Phase 9 launch.
+Ship and maintain the owned project surface. Every cycle moves PLAN.md
+forward, fixes CI, merges eligible PRs, or rotates a filler audit.
 
 ## 2. Skills
-- /vidux /brand-leojkwan /frontend-design
+- /vidux
 
 ## 3. Read
 1. memory.md (last 3)
-2. ~/Development/leojkwan/vidux/PLAN.md
-3. ~/Development/leojkwan/vidux/INBOX.md
+2. {project-root}/PLAN.md
+3. {project-root}/INBOX.md
 4. `git fetch && git status --short && git log --oneline -10`
 5. `gh pr list`
 
@@ -266,18 +262,18 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 ## 6. Act
 - Fresh worktree per code change
 - Verify: lint + build + (UI) screenshot
-- Commit: `<verb>(<scope>): <what>`; never `git add -A`
+- Commit: `{verb}({scope}): {what}`; never `git add -A`
 - Merge: gh pr merge --squash --auto; only if CI green + push-age ≥1h
-- Delegate to codex for >3KB reads or >10-line spec'd code writes
+- Delegate via native Mode A / Mode B subagents when the task is large enough
 
 ## 7. Authority
-- Owns: app/**, next.config.ts, vidux/PLAN.md, INBOX.md, evidence/
-- Never: content/posts/**/*.mdx body, .env*, other lanes' memory.md
+- Owns: {repo-owned-source-paths}, {project-root}/PLAN.md, INBOX.md, evidence/
+- Never: {human-authored-prose-paths} body, .env*, other lanes' memory.md
 - Push tier: operational PRs only; ready-for-review by default, no direct-to-main/destructive ops
 
 ## 8. Checkpoint
 Append one line to memory.md:
-`- [YYYY-MM-DDThh:mm:ssZ claude coord] [TAG] <what>. <next-cycle hint>.`
+`- [YYYY-MM-DDThh:mm:ssZ {runtime} {lane-role}] [TAG] {what}. {next-cycle hint}.`
 Tags: SHIP / MERGED / FIX / PROMOTE / DEFER / IDLE / QC / AUDIT-N / MILESTONE.
 No "everything fine" entries.
 ```

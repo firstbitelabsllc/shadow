@@ -1,5 +1,3 @@
-import { defineConfig } from 'vitepress'
-
 const sidebar = [
   {
     text: 'Getting Started',
@@ -52,7 +50,7 @@ const sidebar = [
   },
 ]
 
-export default defineConfig({
+export default {
   title: 'Vidux',
   description: 'Plan first, code second. A lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.',
   base: process.env.DOCS_BASE || '/',
@@ -101,4 +99,4 @@ export default defineConfig({
       provider: 'local',
     },
   },
-})
+}

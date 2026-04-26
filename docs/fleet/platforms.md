@@ -11,21 +11,21 @@ Vidux is the discipline. Claude Code and Codex are two runtimes that execute vid
 | **Auto-expire** | 7 days (session-bound) | None (runs until stopped or app closed) |
 | **CLI automations** | Yes | **No** — Mac desktop app only |
 | **Config location** | In-session (no config file) | `~/.codex/config.toml` |
-| **Lane state** | `~/.claude-automations/<name>/` | `~/.codex/automations/<id>/` |
-| **Lane files** | `prompt.md` + `memory.md` | `automation.toml` + `memory.md` + DB row |
+| **Lane state** | Shared `{lane-dir}/{lane-id}/` for `prompt.md` + `memory.md` | Shared `{lane-dir}/{lane-id}/` for `prompt.md` + `memory.md` |
+| **Automation registration** | Session-scoped `CronCreate` job | `automation.toml` + DB row |
 | **Restart flow** | Re-schedule `CronCreate` on new session | Full-quit app → reopen (`osascript` + `open -a`) |
 | **Sandbox** | N/A (local execution, full access) | `read-only` / `workspace-write` / `danger-full-access` |
-| **Multi-agent** | `Agent` tool (subagents in-session) | `max_depth` / `max_threads` in config.toml |
+| **Multi-agent** | Native subagents in-session | Native subagents in-session |
 | **Session model** | Disposable sessions; lanes persist on disk | Desktop app process; automations in DB + TOML |
 | **Session GC** | Required (`session-prune.py`, mandatory lane) | Not needed (app manages its own state) |
 | **Max lanes** | 6 per session (worktree contention limit) | Limited by `max_threads` (default 6) |
-| **Delegation** | N/A (Claude is the writer) | Mode A (research) / Mode B (implementation) |
+| **Delegation** | Mode A / Mode B via native subagents | Mode A / Mode B via native subagents |
 
 ## Scheduling
 
 ### Claude Code
 
-Scheduling uses `CronCreate`, a deferred tool that must be fetched via `ToolSearch` before first use. Jobs are **session-scoped** — they die when the Claude Code process exits. Lanes survive across sessions because state lives on disk (`prompt.md` + `memory.md`), not in the cron.
+Scheduling uses `CronCreate`, a deferred tool that must be fetched via `ToolSearch` before first use. Jobs are **session-scoped** — they die when the Claude Code process exits. Lanes survive across sessions because state lives on disk under the shared lane directory (`prompt.md` + `memory.md`), not in the cron.
 
 ```
 CronCreate(cron: "8,38 * * * *", prompt: "Your cron prompt here...")
@@ -37,9 +37,9 @@ To restart a fleet after a session dies: re-schedule each `CronCreate` in the ne
 
 ### Codex
 
-Scheduling uses **TOML files + DB rows** read by the Mac desktop app. The Codex CLI (`codex` command) **cannot run automations** — it can only run `codex exec` for one-shot delegation. All recurring work requires the desktop app.
+Scheduling uses **TOML files + DB rows** read by the Mac desktop app. The Codex CLI (`codex` command) **cannot run automations** — it can only run one-shot commands. All recurring work requires the desktop app.
 
-Each automation lives at `~/.codex/automations/<id>/automation.toml` with a corresponding row in `~/.codex/sqlite/codex-dev.db`. Both must exist: the DB is the runtime source, the TOML is the UI source (Bug #16).
+Each automation lives at `~/.codex/automations/{id}/automation.toml` with a corresponding row in `~/.codex/sqlite/codex-dev.db`. The actual lane instructions and memory live under a shared `{lane-dir}/{lane-id}/`. All four pieces matter: the DB is the runtime source, the TOML is the UI source, and `prompt.md` + `memory.md` are the hot-editable lane state.
 
 To create or update an automation: write the TOML, insert/update the DB row, then **full-quit and reopen** the Codex app. `pkill app-server` alone is insufficient for new automations (Bug #15).
 
@@ -52,8 +52,8 @@ Both platforms use the same persistence philosophy: **lanes persist on disk, ses
 ### Claude Code
 
 ```
-~/.claude-automations/
-├── leojkwan-coordinator/
+{lane-dir}/
+├── project-coordinator/
 │   ├── prompt.md      ← source of truth (read every cycle)
 │   └── memory.md      ← append-only checkpoint log
 ├── session-gc/
@@ -67,16 +67,13 @@ Session JSONLs (`~/.claude/projects/*/*.jsonl`) are hot storage — disposable, 
 ### Codex
 
 ```
-~/.codex/automations/
-├── <uuid>/
-│   ├── automation.toml  ← schedule + prompt + config
-│   └── memory.md        ← append-only checkpoint log
-└── ...
-
-~/.codex/sqlite/codex-dev.db  ← runtime state (automations table)
+~/.codex/automations/{id}/automation.toml  ← schedule + static shim prompt
+~/.codex/sqlite/codex-dev.db               ← runtime state (automations table)
+{lane-dir}/{lane-id}/prompt.md             ← real instructions
+{lane-dir}/{lane-id}/memory.md             ← append-only checkpoint log
 ```
 
-The DB and TOML must stay in sync. DB-only inserts create runnable but UI-invisible automations. TOML-only files are visible but don't fire.
+The DB and TOML must stay in sync. DB-only inserts create runnable but UI-invisible automations. TOML-only files are visible but do not fire. The shared lane directory is what makes prompt edits and checkpoint history durable across restarts.
 
 ## When to Use Which
 
@@ -85,8 +82,8 @@ The DB and TOML must stay in sync. DB-only inserts create runnable but UI-invisi
 | 24/7 fleet across account rotation | Claude Code | Session cycling + memory.md handoff works across accounts |
 | Sub-hour cadence (< 60 min) | Claude Code | CronCreate supports any cron expression |
 | Persistent automation (weeks/months) | Codex | No 7-day auto-expire |
-| Heavy code generation | Codex (Mode B) | Unlimited tokens for code writing |
-| Research / file reading > 3 KB | Codex (Mode A) | Compressed summary saves Claude tokens |
+| Heavy code generation | Codex | Long-lived desktop automation + native worktree editing |
+| Research / file reading > 3 KB | Codex | Mode A summaries keep the parent context small in a native Codex lane |
 | Local toolchain (Xcode, simulators) | Claude Code | Full local access; Codex sandbox restricts |
 | Multi-account rotation | Claude Code | Codex is per-app-install |
 
@@ -100,7 +97,7 @@ The DB and TOML must stay in sync. DB-only inserts create runnable but UI-invisi
 | 18 | Missing `created_at` / `updated_at` | Automation fails silently |
 | 22 | Raw newlines in prompt field | TOML parse failure; escape as `\n` |
 
-Run `codex-toml-verify.sh` between writing TOMLs and reopening the app to catch these.
+Run `codex_verify_tomls` (from `scripts/lib/codex-db.sh`) as the lightweight local preflight before reopen, or use `codex_safe_restart` for the full shipped quit → sync → reopen path.
 
 ## See Also
 
