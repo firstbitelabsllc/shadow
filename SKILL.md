@@ -379,6 +379,30 @@ Neither surface overrides core vidux. Core is opinionated machinery; automation 
 
 ---
 
+## Replaces /superpowers (folded 2026-04-26)
+
+The Anthropic `superpowers` plugin used to provide 14 process-discipline subskills that auto-loaded on relevant triggers (brainstorming, TDD, debugging, code review, parallel agents, worktrees, etc.). All of those concepts are already covered by core vidux and its companion skills — having both was redundant ("if vidux is supposed to be my superpower"). The plugin is uninstalled. Use this routing table when you'd previously have reached for a `/superpowers:*` skill:
+
+| `/superpowers:*` was for | Use this instead |
+|---|---|
+| `brainstorming` (before any creative work) | Vidux Principle 1: plan first. Brainstorm in main thread, then write the PLAN.md before code. Quick brainstorms can stay in chat — only formalize when the work spans 30+ minutes. |
+| `writing-plans` | Vidux core — `## PLAN.md Template` section above |
+| `executing-plans` | Vidux Cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT) |
+| `subagent-driven-development` | `guides/automation.md` § subagent dispatch + `/auto` § auto-dispatch protocol |
+| `dispatching-parallel-agents` | `guides/automation.md` § parallel agents (surface-disjoint precondition) + `/auto` § fan-out rule |
+| `test-driven-development` | Vidux Principle 5: prove it mechanically. Write the assertion before the implementation when the surface needs regression protection (per `/auto` E-row "visual proof merge gate") |
+| `systematic-debugging` | Vidux Principle 3: investigate before fixing. Use the `## Investigation Template` for any bug touching 2+ tickets or unclear root cause |
+| `requesting-code-review` / `receiving-code-review` | `/vidux-leo` § review-bot ack discipline (Graphite / Greptile / Cursor / Seer yay-or-nay before merge) |
+| `verification-before-completion` | Vidux Principle 5: prove it mechanically. UI work definition-of-done = visual proof per `/auto` E-row |
+| `using-git-worktrees` | `/vidux-leo` § worktree isolation + `/bigapple` § per-lane DerivedData |
+| `finishing-a-development-branch` | `/vidux-leo` § merge-timing rubric (Tier A draft-PR auto-merge once review-bots ack) |
+| `writing-skills` | Use `/captain` — owns skill creation, registry, and symlink hygiene |
+| `using-superpowers` (meta loader) | Removed — vidux loads when you say `/vidux` or describe expedition-scale work; `/auto` loads when you're tempted to ask Leo something operational |
+
+**Rule of thumb:** if you'd reach for a `/superpowers:*` skill, you're already inside `/vidux`'s domain. Read the relevant principle / cycle step / guide instead of summoning a separate plugin.
+
+---
+
 ## Activation
 
 Vidux activates when:
