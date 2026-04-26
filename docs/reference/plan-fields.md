@@ -1,6 +1,6 @@
 # PLAN.md Field Reference
 
-Quick reference for every section and annotation a vidux `PLAN.md` uses. For the discipline and cycle, see [SKILL.md](../../SKILL.md). For the full template, see [SKILL.md § PLAN.md Template](../../SKILL.md#planmd-template).
+Quick reference for every section and annotation a vidux `PLAN.md` uses. For the discipline and cycle, see [Five Principles](/concepts/principles), [The Cycle](/concepts/cycle), and [PLAN.md Structure](/concepts/plan-structure).
 
 ## Section Order
 
@@ -143,10 +143,12 @@ When a task has `[Investigation: investigations/<slug>.md]`, the sub-plan follow
 <build passes, tests pass, visual check (for UI)>
 ```
 
-Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in a single code PR. See [SKILL.md § Investigation Template](../../SKILL.md#investigation-template) for the full contract.
+Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in a single code PR. See [PLAN.md Structure](/concepts/plan-structure) for the docs-site version of that contract.
 
 ## See Also
 
-- [SKILL.md](../../SKILL.md) — the five principles and the cycle
+- [Five Principles](/concepts/principles) — the doctrine behind the queue
+- [The Cycle](/concepts/cycle) — how a plan gets executed each run
+- [PLAN.md Structure](/concepts/plan-structure) — the template shape and section order
 - [Prompt Template](prompt-template.md) — the 8-block prompt shape for a vidux worker
 - [Fleet / Claude Lifecycle](../fleet/claude-lifecycle.md) — how a cycle actually fires

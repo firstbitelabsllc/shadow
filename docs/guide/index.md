@@ -63,7 +63,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 **Compound tasks + L2 investigations** — messy surfaces get a compound task that links to an `investigations/<slug>.md` sub-plan. The L2 investigation is the work until the Fix Spec is filled.
 
-**Progress is code change** — a PR that only touches `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local. See [CHANGELOG 2.9.0](../../CHANGELOG.md#290--2026-04-17).
+**Progress is code change** — a PR that only touches `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local. This rule was codified in the repo's 2026-04-17 doctrine update.
 
 **Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries; retroactive rewrites destroy the history future agents need.
 
