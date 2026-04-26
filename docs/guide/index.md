@@ -50,7 +50,7 @@ If the code is wrong, the plan is wrong — fix the plan first. The store persis
 | **State** | `PLAN.md` in git — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
 | **Multi-agent** | Any agent reads the same files and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
-| **Fleet ops** | Draft-PR flow, session-gc, idle detection | N/A | N/A |
+| **Fleet ops** | Ready-PR flow, session-gc, idle detection | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.

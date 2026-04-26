@@ -28,5 +28,5 @@ features:
 
   - icon: 🚢
     title: Fleet Intelligence (opt-in)
-    details: Coordinate multiple agents with writer, radar, and coordinator roles. Draft-PR flows and health checks for 24/7 autonomous operation — loaded from guides/automation.md and guides/recipes/ when needed, not core doctrine.
+    details: Coordinate multiple agents with writer, radar, and coordinator roles. Ready-PR flows and health checks for 24/7 autonomous operation — loaded from guides/automation.md and guides/recipes/ when needed, not core doctrine.
 ---

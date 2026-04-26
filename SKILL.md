@@ -70,7 +70,7 @@ CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
 
 **Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Force a surface switch — move to the next unblocked task and mark the stuck one `[blocked]` with a one-line Decision Log entry explaining what was tried. No human hand-off required; the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced. Polish is fractal — the brake is what prevents forever-loops, not a human approval gate.
 
-**Push authorization:** Draft PRs are always safe to push — push the branch and `gh pr create --draft` without asking. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization. A lane prompt that says "NEVER push" without qualification still allows draft PRs; parking on a safe draft-PR push wastes cycles.
+**Push authorization:** Operational PRs are always safe to push without asking. Open them ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization. A lane prompt that says "NEVER push" without qualification still allows a normal PR push; parking on a local branch wastes cycles.
 
 ### Queue order
 
@@ -395,7 +395,7 @@ The Anthropic `superpowers` plugin used to provide 14 process-discipline subskil
 | `requesting-code-review` / `receiving-code-review` | `/vidux-leo` § review-bot ack discipline (Graphite / Greptile / Cursor / Seer yay-or-nay before merge) |
 | `verification-before-completion` | Vidux Principle 5: prove it mechanically. UI work definition-of-done = visual proof per `/auto` E-row |
 | `using-git-worktrees` | `/vidux-leo` § worktree isolation + `/bigapple` § per-lane DerivedData |
-| `finishing-a-development-branch` | `/vidux-leo` § merge-timing rubric (Tier A draft-PR auto-merge once review-bots ack) |
+| `finishing-a-development-branch` | `/vidux-leo` § merge-timing rubric (ready-PR auto-merge once review-bots ack) |
 | `writing-skills` | Use `/captain` — owns skill creation, registry, and symlink hygiene |
 | `using-superpowers` (meta loader) | Removed — vidux loads when you say `/vidux` or describe expedition-scale work; `/auto` loads when you're tempted to ask Leo something operational |
 

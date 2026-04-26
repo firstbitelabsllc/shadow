@@ -76,7 +76,7 @@ sight in design PRs.
 ```markdown
 Push tiers:
 
-- Tier 1 (draft PRs, feature branches): safe, no approval needed.
+- Tier 1 (ready PRs, feature branches): safe, no approval needed. Use draft only for true WIP or a missing gate.
 - Tier 2 (direct-to-main, merge to trunk): session-scope authorization required.
 - Tier 3 (destructive: force-push, branch delete, git reset --hard, history
   rewrite): per-action authorization required, every time.

@@ -99,7 +99,7 @@ Vidux solves that by making documentation the control plane. State lives in mark
 | **State** | `PLAN.md` in git — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
 | **Multi-agent** | Any agent reads the same files and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
-| **Fleet ops** | Draft-PR flow, session-gc, idle detection | N/A | N/A |
+| **Fleet ops** | Ready-PR flow, session-gc, idle detection | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
@@ -191,7 +191,7 @@ See [guides/fleet-ops.md](guides/fleet-ops.md) and [guides/recipes.md](guides/re
 
 Patterns for autonomous multi-lane fleets. See [`guides/automation.md`](guides/automation.md) and [`references/automation.md`](references/automation.md) for mechanics, plus the [recipe catalog](guides/recipes/) for ready-to-deploy patterns with prompt templates.
 
-- **Draft-PR-first** — automation pushes go through `gh pr create --draft`, never direct-to-main ([guide](guides/draft-pr-flow.md))
+- **Ready-PR-first** — automation pushes open ready-for-review by default so review bots run; draft is reserved for true WIP or missing gates ([guide](guides/draft-pr-flow.md))
 - **Progress is code change** — PRs that only touch `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` are bookkeeping, not progress. Bundle plan updates into the code PR, or keep notes local ([CHANGELOG](CHANGELOG.md#290--2026-04-17))
 - **`observed` evidence type** — user-observed app behavior is first-class plan evidence alongside grep hits and PR comments
 - **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit
@@ -214,7 +214,7 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 - [Fleet Operations](guides/fleet-ops.md) — automation fleet management
 - [Investigation Lifecycle](guides/investigation.md) — the parent-plan + child-investigation pattern
 - [Investigation Lifecycle](guides/investigation.md) — parent-plan + child-investigation format
-- [Draft PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
+- [Ready PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
 - [Automation Recipes](guides/recipes.md) — 8 ready-to-deploy fleet patterns with prompt templates
 - [Examples](examples/) — worked examples (start with [bug fix lifecycle](examples/bug-fix-lifecycle/))
 

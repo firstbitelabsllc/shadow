@@ -32,19 +32,19 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 ### Phase 4: Fleet infrastructure
 
 
-### Phase 5: Draft-PR architecture [in_progress]
+### Phase 5: Ready-PR architecture [in_progress]
 
-**Goal:** All automation pushes go through draft PRs, never direct-to-main. Draft PRs are the **durable source-of-truth for in-flight work** — if a local worktree dies, `gh pr list` is the recovery manifest. Each PR carries: automation id, plan task id, last pushed diff, and the resume point. Closes the Phase 2.4 loop (130 stranded resplit-ios branches with no PR metadata). Formalizes the 2026-04-09 remote-trigger direction. Eliminates the COPY SAFETY-class incident (5ef4498c) by forcing human review.
+**Goal:** All automation pushes go through PRs, never direct-to-main. Operational PRs open ready-for-review by default so review bots, preview comments, and CI gates run immediately; draft is reserved for true WIP or a missing gate. PRs are the **durable source-of-truth for in-flight work** — if a local worktree dies, `gh pr list` is the recovery manifest. Each PR carries: automation id, plan task id, last pushed diff, and the resume point. Closes the Phase 2.4 loop (130 stranded resplit-ios branches with no PR metadata). Formalizes the 2026-04-09 remote-trigger direction. Eliminates the COPY SAFETY-class incident (5ef4498c) without blocking review automation behind draft status.
 
 **Scope (Leo 2026-04-11):** This is a huge change up — every automation today works local-worktree → branch-push → merge-back-to-main. Phase 5 rolls out incrementally in waves.
 
-**Side effects are agnostic (Leo 2026-04-11):** This plan covers ONLY the cloud-agnostic draft-PR mechanics. Paid-service integrations (Greptile review, Sentry context, Seer fixes, Nia indexing) live in `/vidux-codex` scope as composable skills bolted on after the core works. Core ships independently. Research: `investigations/paid-tooling-pr-integration.md`.
+**Side effects are agnostic (Leo 2026-04-11, refined 2026-04-26):** This plan covers ONLY the cloud-agnostic PR mechanics. Paid-service integrations and review-bot specifics live in `/vidux` Part 2 / repo overlays as composable add-ons after the core works. Core ships independently. Research: `investigations/paid-tooling-pr-integration.md`.
 
 **Rollout (wave-based, reversible at every step):**
 1. **Wave 0 — Plan + audit.** Lock the plan, audit current push behavior, Leo answers open Qs. No production changes.
-2. **Wave 1 — Reference implementation.** Convert ONE low-stakes automation to draft-PR-first. Prove it works for one full production cycle. Document lessons in `guides/draft-pr-flow.md`.
+2. **Wave 1 — Reference implementation.** Historical draft-first pilot proved branch + PR safety. Current doctrine is ready-PR-first; document lessons in `guides/draft-pr-flow.md`.
 3. **Wave 2 — Batch.** Apply the reference to 3-4 more lanes. Mix shipping + idle.
-4. **Wave 3 — Full fleet.** All push-capable automations on draft-PR flow.
+4. **Wave 3 — Full fleet.** All push-capable automations on ready-PR flow.
 5. **Wave 4 — Lock the gate.** Branch protection rejects direct-main pushes from automation actors. Never before Wave 3 completes.
 
 Every wave boundary is reversible. Leo gates each transition.
@@ -60,6 +60,7 @@ Every wave boundary is reversible. Leo gates each transition.
 - [completed] 5.2.1 Picked 3 lanes with active plans: `strongyes-backend-trust` (26p+25ip, high-vol), `strongyes-blog-pipeline` (8p, content), `resplit-revamp-executor` (12p+1ip, iOS shipping). [Done: 2026-04-12]
 - [completed] 5.2.2 Applied draft-PR pattern from `guides/draft-pr-flow.md` to all 3 lane prompts: ACT sections updated (no merge to main, push branch + draft PR), PUSH POLICY replaced with 5-step flow, fallback on `gh` failure. [Done: 2026-04-12]
 - [completed] 5.2.3 Observer-pair audit. strongyes lanes PASS (PR #283 open DRAFT, 10+ merged today by Leo). resplit-ios BLOCKED: `gh pr create` fails 4x with "shared commit overlaps with an existing PR" — lanes are following the draft-PR prompt but `gh` rejects when new branches share ancestry with old branches/PRs. [Done: 2026-04-14]
+- [completed] 5.2.4 Doctrine correction: ready-PR-first supersedes draft-first for operational PRs because review automation skips or delays drafts. Updated core docs/templates while preserving `guides/draft-pr-flow.md` path for link stability. [Done: 2026-04-26]
 
 #### Wave 3 — Full fleet
 - [pending] 5.3.1 Remaining ~10 automations. [Depends: Wave 2 complete ✓ — but resplit `gh pr create` overlap issue must be solved first for resplit lanes]
@@ -115,7 +116,7 @@ Bulk-import cruft from Codex skill installer. Zero project references in any lan
 - [Source: claude.com/blog/introducing-routines-in-claude-code] Routines: scheduled (cron), API (POST /fire), GitHub events (webhooks). Pro=5/day, Max=15/day.
 - [Source: 2026-04-14 fleet run] CronCreate lanes die when session closes. Routines survive across sessions.
 - [Source: Leo 2026-04-14] "i want our system with greptile and code reviewers codified, though opinionated in how we work"
-- [Source: PLAN.md Phase 5] Draft-PR flow is the safety layer. Recipes build on top of it.
+- [Source: PLAN.md Phase 5] PR flow is the safety layer. Recipes build on top of it.
 - [Source: guides/fleet-ops.md] Existing fleet patterns (gates, observers, coordinators) need Routines-native rewrites.
 
 #### 7.1 — Recipes guide [in_progress]
@@ -381,6 +382,7 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 - [DIRECTION] [2026-04-09] COPY SAFETY: Automations must never invent marketing copy. Use only text patterns that exist in the codebase. Product is "StrongYes Pro" with "unlimited AI coaching." No sprints, no founder notes, no day-one plans. Evidence: remote trigger hallucinated copy in commit 5ef4498c.
 - [DIRECTION] [2026-04-09] Remote triggers (claude.ai/code/scheduled) are dangerous — they push directly to main with zero review. Prefer Codex worktree model (pushes to branch first). Remote trigger for strongyes disabled.
 - [DIRECTION] [2026-04-11] All automation pushes go through draft PRs — NEVER direct-to-main. Draft PRs are the durable, worktree-loss-proof manifest of in-flight work (recoverable via `gh pr list`). Phase 5 implements the cloud-agnostic core. Builds on the 2026-04-09 remote-trigger direction. Closes the Phase 2.4 loop (130 stranded resplit-ios branches with no PR metadata).
+- [DIRECTION] [2026-04-26] **Ready-PR-first supersedes draft-first for operational PRs.** Keep the safety boundary at "PR, never direct-to-main," but open ready-for-review by default so configured review bots, preview comments, and CI gates run immediately. Draft is only for true WIP or a missing gate; as soon as the gate passes, run `gh pr ready <N>`. This refines the 2026-04-11 direction without reviving direct-main pushes.
 - [DIRECTION] [2026-04-11] vidux core is open-source and cloud-agnostic. Phase 5 contains ONLY draft-PR mechanics — no Greptile, no Sentry, no Nia, no Seer. Paid-service integrations live in `/vidux-codex` scope as composable skills, not in this plan. "Keep side effects like greptile and followups agnostic, that is more a /vidux-codex kinda thing." — Leo.
 - [DIRECTION] [2026-04-12] Design skill naming convention: `brand-*` (identity), `craft-*` (platform patterns), `figma-*` (workflow). Renames: strongyes-design→brand-strongyes, picasso→craft-ios, preview-svg-design→craft-svg, figma-implement-design→figma-implement. New: brand-leojkwan. Do not revert these names.
 - [DIRECTION] [2026-04-14] Automation recipes may reference specific tools (Greptile, code-reviewer, ledger) as opinionated defaults. This EXPANDS the 2026-04-11 "keep side effects agnostic" direction: the core SKILL.md stays tool-agnostic, but `guides/recipes.md` is explicitly opinionated about "how we work." Recipes are Leo's workflow codified, not generic docs. — Leo: "i want our system with greptile and code reviewers codified, though opinionated in how we work."
@@ -405,9 +407,9 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 
 ## Open Questions
 - Q1: Should contract tests track guide files (guides/*.md) or only SKILL.md? -> Action: decide after v3 guides land
-- Q2: Draft-PR ownership — lane-owned (`gh pr create --draft` per automation). **Confirmed 2026-04-11.**
-- Q3: Draft → Ready promotion — always human click. **Confirmed 2026-04-11.**
-- Q4: Auto-merge — NEVER from automation. **Confirmed 2026-04-11.**
+- Q2: PR ownership — lane-owned (`gh pr create` per automation, ready by default). **Refined 2026-04-26.**
+- Q3: Draft → Ready promotion — lane-owned once the missing gate passes. **Refined 2026-04-26.**
+- Q4: Auto-merge — allowed only when repo/overlay authority says so and checks/review findings are green/acked; never merge a draft. **Refined 2026-04-26.**
 - Q5: Scope — vidux fleet only; other repos adopt via their own plans. **Confirmed 2026-04-11.**
 - Q6: Leo's personal pushes stay as-is (Phase 5 is automation-only). **Confirmed 2026-04-11.**
 - Q7: 130 stranded resplit-ios branches left dead. **Confirmed 2026-04-11.**
@@ -455,4 +457,5 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 - [2026-04-23T01:40Z] Removed the deprecated `/vidux-auto` command breadcrumb (`commands/vidux-auto.md`) after scrubbing remaining active references in guides/docs and updating contracts to only require `/vidux`. Ledger bimodal tests now use relative timestamps so they stay time-window stable. Gate: 136/136 contract tests pass.
 - [2026-04-23T01:50Z] PR nurse pass for the `/vidux-auto` purge branch. Added Phase 10.6 to record the final cleanup, anchored `ledger_bimodal_distribution` to the newest ledger event so offline fixtures stay deterministic, and cleared the repo-wide ShellCheck blockers in the CI-scanned scripts (source directives, quoting, dead locals, no-op truncation). Gate: `shellcheck` passes on the scanned scripts and `python3 -m pytest -q` passes (136/136). Next: push the branch and let PR checks rerun.
 - [2026-04-17] **Doctrine patch: kill metadata-only PRs + deprecate observer lanes.** Triggered by Leo's diagnosis of resplit-ios fleet-drift pattern — 15+ consecutive plan-flip / audit / investigation PRs while user-visible bugs sat untouched for a week. Branch `claude/vidux-kill-metadata-prs`. Edits span 9 files, net −19 lines: SKILL.md Principle 3 rewritten, Principle 5 adds "Progress is code change" rule, Evidence section adds `observed` as a first-class source type, Worked Example Stage 1 rewritten ("no PR opens yet"), Status FSM language softened, 4 echoes of "investigation only — no code" replaced. LOOP.md `Every cycle MUST produce a checkpoint commit, even if no code changed` inverted. references/automation.md Section 8 collapsed to a deprecation notice, Section 3 observer subsection rewritten, decision tree simplified (total lanes 3-7 → 2-4 for 24/7). guides/recipes.md Recipe 1 Fleet Watcher + Recipe 4 Observer Pair marked DEPRECATED. docs/concepts/cycle.md + principles.md + plan-fields.md + ARCHITECTURE.md mirror updates. Three Decision Log entries added above. PR opens next.
+- [2026-04-26 16:16 EDT] Ready-PR doctrine correction. Core `SKILL.md`, docs/templates, recipes, and automation references now say operational PRs open ready-for-review by default; draft is only WIP/missing-gate. Preserved historical `guides/draft-pr-flow.md` path but rewrote it as Ready-PR Flow. Next: publish as 2.19.0 and let downstream `vidux-leo` continue enforcing auto-merge authority.
 <!-- 1 tasks archived to ARCHIVE.md -->
