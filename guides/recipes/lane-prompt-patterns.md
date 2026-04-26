@@ -66,7 +66,7 @@ Explicit owned paths + explicit forbidden paths with reasons. The authority bloc
 
 > Owns: `app/**`, `next.config.ts`, `vidux/PLAN.md`, `vidux/INBOX.md`.
 > Never: `content/posts/**/*.mdx` body (the user's historical prose), `.env*`, other lanes' `memory.md`.
-> Push tier: 1 only (draft PRs). No direct-to-main, no destructive ops.
+> Push tier: operational PRs only; open ready-for-review by default. No direct-to-main, no destructive ops.
 
 ### 8. Checkpoint
 One-line `memory.md` append, always tagged. Future agents scan the last 3 entries.

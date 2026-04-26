@@ -126,7 +126,7 @@ If the same task appears in 3+ Progress entries while still `[in_progress]`, for
 
 ## Push Authorization
 
-Draft PRs are always safe to push — no ask needed. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization.
+Operational PRs are always safe to push without asking. Open them ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization.
 
 ## Escalation Statuses
 

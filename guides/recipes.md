@@ -2,7 +2,7 @@
 
 Opinionated, ready-to-deploy automation patterns for vidux fleets. Each recipe includes: when to use it, the trigger type, a complete prompt template, and the review pipeline it plugs into.
 
-All recipes follow the draft-PR-first discipline: automation pushes go through `gh pr create --draft`, never direct-to-main. A human promotes.
+All recipes follow the ready-PR-first discipline: automation pushes open ready-for-review PRs by default, never direct-to-main. Drafts are reserved for true WIP or missing gates.
 
 ---
 
@@ -68,7 +68,7 @@ Any fleet with 3+ active lanes. Without a watcher, stuck lanes burn cycles silen
 
 ## Recipe 2: PR Reviewer
 
-**What:** Automated code review pipeline triggered when an automation lane creates a draft PR. Combines review-bot output, an architecture review agent, and mechanical checks into a single structured verdict.
+**What:** Automated code review pipeline triggered when an automation lane creates or updates a PR. Combines review-bot output, an architecture review agent, and mechanical checks into a single structured verdict.
 
 **Trigger:** Event-driven — PR opened or synchronized. Filter to automation branches only (convention: `claude/`, `codex/`, or `auto/` prefix).
 **Role:** Reviewer (read-only, never pushes code)
@@ -78,10 +78,10 @@ Any fleet with 3+ active lanes. Without a watcher, stuck lanes burn cycles silen
 ```
 Use vidux as PR reviewer.
 
-Mission: Review draft PRs from automation lanes. Post structured feedback.
-Never approve, never merge — a human promotes.
+Mission: Review PRs from automation lanes. Post structured feedback.
+Never approve, never merge unless this lane's authority explicitly allows it.
 
-WHEN TRIGGERED (draft PR opened or updated):
+WHEN TRIGGERED (PR opened or updated):
 1. Read the PR diff: gh pr diff <number>
 2. Read the linked plan task (PR body carries task ID)
 
@@ -115,7 +115,7 @@ Never approve. Never merge. Never mark ready-for-review.
 
 ### When to Use
 
-Every fleet that creates draft PRs. This is the quality gate between "automation wrote code" and "human reviews." Without it, humans review raw diffs with no context. With it, reviewers get a pre-screened summary and only inspect what matters.
+Every fleet that creates automation PRs. This is the quality gate between "automation wrote code" and "merge." Without it, humans review raw diffs with no context. With it, reviewers get a pre-screened summary and only inspect what matters.
 
 ### Review Bot Setup (optional)
 
@@ -123,46 +123,47 @@ If an AI code-review bot or static-analysis service is wired to the repo, this r
 
 ---
 
-## Recipe 3: Draft-PR Lifecycle Manager
+## Recipe 3: PR Lifecycle Manager
 
-**What:** Tracks all open draft PRs across repos. Detects stale drafts, monitors CI status, notifies when PRs are ready for promotion.
+**What:** Tracks all open automation PRs across repos. Detects stale drafts, monitors CI status, and surfaces PRs ready for merge.
 
 **Trigger:** Scheduled, every 1 hour
-**Role:** Tracker (read-only)
+**Role:** Coordinator or tracker (merge only if the lane authority explicitly allows it)
 
 ### Prompt Template
 
 ```
-Use vidux to track draft-PR lifecycle across all repos.
+Use vidux to track PR lifecycle across all repos.
 
-Mission: No draft PR goes stale. Every reviewed PR gets promoted or closed.
+Mission: No PR goes stale. Every reviewed PR gets merged, fixed, or closed.
 
 READ:
 1. For each repo in scope: gh pr list --state open --json number,title,isDraft,createdAt,headRefName,statusCheckRollup
-2. Filter to draft PRs from automation lanes (branch prefix convention: claude/, codex/, auto/)
+2. Filter to PRs from automation lanes (branch prefix convention: claude/, codex/, auto/)
 3. Read PR comments for review verdicts (READY_FOR_HUMAN / NEEDS_WORK / BLOCKED)
 
-CLASSIFY each draft PR:
-- FRESH: created < 24h ago, no review yet → waiting for PR Reviewer
+CLASSIFY each PR:
+- FRESH: created < 24h ago, no review yet -> waiting for PR Reviewer
 - REVIEWED: has review verdict → action depends on verdict
-- STALE: created > 48h ago with no activity → flag for cleanup
-- FAILING: CI checks failing → flag for investigation
-- READY: review passed + CI green → notify human promoter
+- DRAFT: still draft after local gates passed -> run or request `gh pr ready <N>`
+- STALE: created > 48h ago with no activity -> flag for cleanup
+- FAILING: CI checks failing -> flag for investigation
+- READY: review passed + CI green -> merge if lane authority allows, otherwise notify promoter
 
 ACTION:
-- READY PRs: post a summary to the promoter's preferred notification channel (email, Slack, or plain digest)
-  "3 draft PRs ready for promotion: <project-a>#283, <project-b>#44, <project-c>#12"
+- READY PRs: merge when authorized, otherwise post a summary to the promoter's preferred notification channel (email, Slack, or plain digest)
+  "3 PRs ready: <project-a>#283, <project-b>#44, <project-c>#12"
 - STALE PRs: add comment "This PR has been open 48h+ with no activity. Close or update."
 - FAILING PRs: check if the failure is flaky (re-run) or real (flag for the owning lane)
 
-OUTPUT: PR dashboard — one line per open draft with status + age + review verdict.
+OUTPUT: PR dashboard — one line per open PR with status + age + review verdict.
 
-Never merge. Never approve. Never close (unless explicitly stale > 7 days with no commits).
+Never merge a draft, failing PR, or PR with unaddressed required review findings. Never approve. Never close unless explicitly stale > 7 days with no commits.
 ```
 
 ### When to Use
 
-Any fleet using draft-PR-first discipline. Without a lifecycle manager, draft PRs accumulate silently. The human promoter doesn't see them. The fleet keeps creating new PRs while old ones rot.
+Any fleet using ready-PR-first discipline. Without a lifecycle manager, PRs accumulate silently. The fleet keeps creating new PRs while old ones rot.
 
 ---
 
@@ -310,7 +311,7 @@ Recommend actions; let the fleet watcher or a human execute.
 **What:** Periodic quality sweep of skill files. Checks description quality (drives activation rates), stale references, and cross-ref consistency.
 
 **Trigger:** Scheduled, every 6 hours
-**Role:** Quality auditor (writes to skill files via draft PR only)
+**Role:** Quality auditor (writes to skill files via PR only)
 
 ### Prompt Template
 
@@ -318,7 +319,7 @@ Recommend actions; let the fleet watcher or a human execute.
 Use vidux as skill refiner for ~/Development/ai/skills/.
 
 Mission: Every skill's description drives its activation rate. Polish descriptions,
-fix stale refs, ensure cross-refs are valid. Ship improvements as draft PRs.
+fix stale refs, ensure cross-refs are valid. Ship improvements as ready PRs after local gates pass.
 
 READ:
 1. List all skills: ls ~/Development/ai/skills/*/SKILL.md
@@ -337,7 +338,7 @@ FIX (if issues found):
 3. git checkout -b claude/skill-refine-<name>
 4. git add -A && git commit -m "update: <skill> — <what changed>"
 5. git push -u origin claude/skill-refine-<name>
-6. gh pr create --draft --title "skill(<name>): <improvement>" --body "<audit findings>"
+6. gh pr create --title "skill(<name>): <improvement>" --body "<audit findings>"
 
 ONE skill per cycle. Rotate through the full list over 24-48 hours.
 Never delete a skill without the human operator's explicit approval.
@@ -374,7 +375,7 @@ ASSESS:
 
 ACT:
 - Trivial doc fixes → commit directly to main
-- Substantial changes → branch + draft PR
+- Substantial changes → branch + ready PR
 - Always commit as: vidux: self-improvement — <what changed>
 
 VERIFY:
@@ -420,7 +421,7 @@ Every automation platform has caps — daily run limits, webhook-per-hour limits
 
 | Recipe | Trigger | Est. fires/day | Notes |
 |---|---|---|---|
-| PR Reviewer | Event-driven | ~5 | Per draft PR from automation |
+| PR Reviewer | Event-driven | ~5 | Per PR from automation |
 | PR Lifecycle | Scheduled 1h | 24 | Drop to scheduled 2h if cap-constrained |
 | Deploy Watcher | Event-driven | ~3 | Exits after verification (max 3 checks) |
 | Trunk Health | Scheduled 4h | 6 | Light — mostly git status checks |
@@ -484,12 +485,12 @@ Cycle fails with external_blocker or context_overflow
 
 ## Recipe 11: Multi-PR Dependency Shipping
 
-**When to use:** When a coordinator lane manages 3+ open draft PRs with merge-order dependencies (e.g., shared types must merge before consumers, migration must merge before the code that reads new schema).
+**When to use:** When a coordinator lane manages 3+ open PRs with merge-order dependencies (e.g., shared types must merge before consumers, migration must merge before the code that reads new schema).
 
 **Pattern:** Build a dependency DAG from changed files, then ship in topological order.
 
 ```
-1. List open draft PRs: gh pr list --state open --draft --author @me
+1. List open PRs: gh pr list --state open --author @me
 2. For each PR, get changed files: gh pr diff <N> --name-only
 3. Build dependency edges:
    - PR A touches shared types → PR B imports those types → B depends on A
@@ -509,7 +510,7 @@ Cycle fails with external_blocker or context_overflow
 
 ## Anti-Patterns
 
-**1. Auto-merge.** No recipe auto-merges. Ever. A human promotes. (PLAN.md Q4)
+**1. Unsafe auto-merge.** Never merge a draft, failing PR, or PR with unaddressed required review findings. Personal overlays may authorize auto-merge after checks are green and findings are acked/resolved.
 
 **2. Stuck verification loop.** Deploy watchers that re-verify 300+ times. Every recipe with a verification step MUST have an EXIT CONDITION with a max retry count.
 
@@ -517,6 +518,6 @@ Cycle fails with external_blocker or context_overflow
 
 **4. Fabricated evidence.** Lanes that invent memory files or audit results to justify actions. COPY SAFETY applies to all automation output.
 
-**5. Direct-to-main pushes.** All automation code changes go through draft PRs. The only exception is trivial doc fixes in the vidux repo itself (and even those get a commit message prefix).
+**5. Direct-to-main pushes.** All automation code changes go through PRs. The only exception is explicitly authorized human/local policy. Never let automation fall back to pushing main.
 
 **6. Prompt bloat.** Recipe prompts should be under 30 lines. The vidux skill handles the cycle mechanics — prompts specify role, mission, and boundaries. Don't restate doctrine.

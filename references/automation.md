@@ -466,7 +466,7 @@ Compare existing fleet to the prescription: match (no changes), over-provisioned
 
 Mandatory PR triage at the start of every automation cycle. The PR Nurse pattern closes the feedback gap where review comments go unaddressed for cycles while the writer ships new code.
 
-> Cross-reference: `guides/draft-pr-flow.md` for the 5-step draft-PR flow, branch naming, PR body template, and recovery via `gh pr list`. Recipe 9 (PR Nurse) in `guides/recipes.md` for the full prompt template.
+> Cross-reference: `guides/draft-pr-flow.md` for the ready-PR flow, branch naming, PR body template, and recovery via `gh pr list`. Recipe 9 (PR Nurse) in `guides/recipes.md` for the full prompt template.
 
 ### 6.1 Triage (every cycle start)
 
@@ -558,9 +558,9 @@ Lane A commits on `branch-a`, switches back to `main`. Lane B fires, reads main,
 **Rule: Always `git status` before any branch operation.** If you see uncommitted changes you did not create, STOP and exit.
 
 ### 3. CI review bot window
-After pushing a draft PR, review bots take 2-5 min to post. If the next cycle fires before reviews arrive, it cannot merge (CI review gate). The lane wastes a full cycle re-checking.
+After pushing a PR, review bots can take 2-5 min to post. If the next cycle fires before reviews arrive, it cannot merge (CI review gate). The lane wastes a full cycle re-checking.
 
-**Rule: After pushing a PR, the same lane should NOT attempt merge until the NEXT cycle.** One cycle = push + wait. Next cycle = check reviews + merge if green.
+**Rule: After pushing a PR, the same lane should NOT attempt merge until the NEXT cycle unless the user explicitly authorized same-cycle shipping.** One cycle = push + wait. Next cycle = check reviews + merge if green.
 
 ### Prevention checklist (include in every cron wrapper prompt)
 1. `git status` before any branch operation
@@ -631,7 +631,7 @@ Every code-writing lane uses git worktrees for isolation:
 **Rules:**
 - Fresh worktree per cycle for code changes
 - Symlink `node_modules`, `.env.local`, `.env.test` from main into the worktree (CRITICAL — without this, test commands fail on env-var checks and look like code regressions)
-- Commit inside the worktree, push the branch, open a draft PR (draft PRs are always safe — no authorization needed). Direct-to-main or destructive operations require explicit authorization.
+- Commit inside the worktree, push the branch, open a ready-for-review PR by default (draft only for true WIP or missing gates). Direct-to-main or destructive operations require explicit authorization.
 
 **Investigation-only cycles** (plan updates, evidence files, no code changes) MAY skip the worktree and commit directly in main — worktree discipline isolates code changes that could break builds, not doc updates.
 
@@ -925,7 +925,7 @@ Read this reference (loaded on demand from within a `/vidux` session) when:
 - Diagnosing fleet health, session bloat, or lane contention.
 - Delegating work between agents (research / implementation dispatch).
 - Running fleet scans, audits, or prescriptions.
-- Creating or reviewing draft PRs from automation.
+- Creating or reviewing PRs from automation.
 
 Do NOT activate for core plan-first work (use `/vidux` alone) or for one-off tasks that don't involve automation infrastructure.
 

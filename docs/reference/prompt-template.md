@@ -185,7 +185,8 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 - Other lanes' `memory.md` files — read-only
 
 ### Push authorization
-- Draft PRs: always safe, no approval needed.
+- Operational PRs: push branch + open ready-for-review by default; no approval needed.
+- Draft PRs: only for true WIP or a missing gate; flip ready as soon as the gate passes.
 - Direct-to-main or destructive operations (force-push, branch delete, `git reset --hard`): forbidden for this lane.
 ```
 
@@ -272,7 +273,7 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 ## 7. Authority
 - Owns: app/**, next.config.ts, vidux/PLAN.md, INBOX.md, evidence/
 - Never: content/posts/**/*.mdx body, .env*, other lanes' memory.md
-- Push tier: 1 only (draft PRs); never 2/3
+- Push tier: operational PRs only; ready-for-review by default, no direct-to-main/destructive ops
 
 ## 8. Checkpoint
 Append one line to memory.md:

@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.19.0] — 2026-04-26
+
+Ready-PR-first replaces draft-first as the core automation push policy. Operational PRs open ready-for-review by default so configured review bots and preview checks can run immediately; draft is now reserved for true WIP or a missing gate.
+
+### Changed
+
+- **Core push authorization now says ready PRs by default.** `SKILL.md`, `docs/concepts/cycle.md`, prompt templates, recipes, and automation references all align on: push the branch, open a ready PR, use draft only when the PR is not ready for review, and never push directly to `main`.
+- **`guides/draft-pr-flow.md` kept its historical path but now documents Ready-PR Flow.** This preserves existing links while removing the stale `gh pr create --draft` default from live lane-prompt guidance.
+- **Lifecycle recipes now track all automation PRs, not only drafts.** PR manager and reviewer recipes classify drafts as an exception to flip ready once local/remote gates pass.
+
+### Why
+
+The old draft-first doctrine solved direct-to-main safety but now fights modern review automation: Graphite, Seer-style review, preview comments, and deployment gates often skip or delay drafts. Keeping operational PRs draft made agents look idle and hid the exact feedback they needed to nurse PRs. Ready-first keeps the safety boundary (PRs, not main) while letting the review pipeline run.
+
+---
+
 ## [2.18.0] — 2026-04-25
 
 ETA tags go back to optional. 2.12.0's "mandatory on every pending + in_progress task" rule is reversed: completion (X/Y tasks done) is the headline metric for a `/vidux` plan; `[ETA: Xh]` is supplementary and useful only when the tasks in a plan are similar-sized so the sum means something. Leo: *"tasks are way fucking harder than each other, ETA is fiction."*
