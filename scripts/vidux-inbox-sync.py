@@ -278,6 +278,31 @@ def adapter_state(state: dict[str, Any], adapter_name: str) -> dict[str, str]:
     return entry["task_to_external"]
 
 
+def source_external_id(task: PlanTask, adapter_name: str) -> str | None:
+    """Return the adapter external id encoded in a task's Source marker."""
+    if not task.source:
+        return None
+    prefix = f"{adapter_name}:"
+    source = task.source.strip()
+    if not source.startswith(prefix):
+        return None
+    external_id = source[len(prefix):].strip()
+    return external_id or None
+
+
+def source_marker_mappings(
+    tasks: list[PlanTask],
+    adapter_name: str,
+) -> dict[str, str]:
+    """Recover task-id → external_id mappings from `[Source: adapter:id]` tags."""
+    mappings: dict[str, str] = {}
+    for task in tasks:
+        external_id = source_external_id(task, adapter_name)
+        if external_id:
+            mappings[task.id] = external_id
+    return mappings
+
+
 # --- INBOX.md append ---------------------------------------------------------
 
 
@@ -524,6 +549,7 @@ def sync_plan_with_adapter(
     dry_run: bool,
     push_statuses: set[VidxStatus] | None = None,
     do_pull: bool = True,
+    do_push: bool = True,
     fleet_known_ext_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Reconcile one plan-dir against one adapter. Return a summary dict.
@@ -541,6 +567,12 @@ def sync_plan_with_adapter(
 
     tasks = parse_plan(plan_path)
     tasks_by_id = {t.id: t for t in tasks}
+    source_mappings = source_marker_mappings(tasks, adapter.name)
+    source_mapped = 0
+    for task_id, external_id in source_mappings.items():
+        if task_id not in mapping:
+            mapping[task_id] = external_id
+            source_mapped += 1
 
     summary: dict[str, Any] = {
         "plan": str(plan_dir),
@@ -552,6 +584,9 @@ def sync_plan_with_adapter(
         "inbox_appended": 0,
         "plan_flipped": 0,
         "flipped_ids": [],
+        "source_mapped": source_mapped,
+        "push_skipped_idempotent": 0,
+        "push_suppressed_auto_promote": 0,
         "errors": [],
     }
 
@@ -598,7 +633,15 @@ def sync_plan_with_adapter(
         summary["plan_flipped"] = flip_plan_statuses(plan_path, flips, dry_run)
         summary["flipped_ids"] = sorted(flips.keys())
 
-    if direction in ("push", "both"):
+    if direction in ("push", "both") and not do_push:
+        effective_push = push_statuses or {
+            VidxStatus.PENDING, VidxStatus.IN_PROGRESS, VidxStatus.IN_REVIEW
+        }
+        summary["push_suppressed_auto_promote"] = len([
+            t for t in tasks if t.status in effective_push
+        ])
+
+    if direction in ("push", "both") and do_push:
         # Push any PLAN.md task whose status is in push_statuses and has no
         # external_id recorded. Default excludes BLOCKED (historical summaries
         # stay in PLAN.md) — pass --push-statuses to override.
@@ -883,6 +926,14 @@ def main(argv: list[str] | None = None) -> int:
             state = load_state(plan_dir)
             mapping = adapter_state(state, adapter.name)
             fleet_known.update(mapping.values())
+            plan_path = plan_dir / PLAN_FILENAME
+            if plan_path.exists():
+                fleet_known.update(
+                    source_marker_mappings(
+                        parse_plan(plan_path),
+                        adapter.name,
+                    ).values()
+                )
 
         # Resolve auto_promote_target if set in adapter source config.
         # When set, novel cards skip the INBOX.md path and land directly in
@@ -914,6 +965,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_dir, adapter, args.direction, args.dry_run,
                 push_statuses=push_statuses,
                 do_pull=(False if suppress_inbox else (idx == 0)),
+                do_push=(False if suppress_inbox else True),
                 fleet_known_ext_ids=fleet_known,
             )
             results.append(summary)
@@ -995,6 +1047,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  pushed: {', '.join(r['pushed_ids'])}")
             if r.get("flipped_ids"):
                 print(f"  flipped→completed: {', '.join(r['flipped_ids'])}")
+            if r.get("source_mapped"):
+                print(f"  source-mapped={r['source_mapped']}")
+            if r.get("push_suppressed_auto_promote"):
+                print(
+                    "  push suppressed by auto_promote="
+                    f"{r['push_suppressed_auto_promote']}"
+                )
             for err in r.get("errors", []):
                 print(f"  ! {err}")
 
