@@ -65,7 +65,7 @@ class LinearAdapter(AdapterBase):
             "blocked_label",        # default "blocked"
             "auto_promote_target",  # if "vidux", new external items promote into PLAN.md
             "label_ids",            # default labels applied to every pushed issue
-            "project_id",           # if set, push_task creates issues under this Linear project
+            "project_id",           # if set, scopes fetch_inbox AND push_task to this Linear project
         ],
     }
 
@@ -343,7 +343,7 @@ class LinearAdapter(AdapterBase):
 
     # -- Read path ------------------------------------------------------------
 
-    _ISSUES_QUERY = """
+    _ISSUES_QUERY_TEAM = """
     query($teamId: ID!, $first: Int!, $after: String) {
       issues(
         filter: { team: { id: { eq: $teamId } } },
@@ -365,8 +365,39 @@ class LinearAdapter(AdapterBase):
     }
     """
 
+    _ISSUES_QUERY_PROJECT = """
+    query($teamId: ID!, $projectId: ID!, $first: Int!, $after: String) {
+      issues(
+        filter: {
+          team: { id: { eq: $teamId } },
+          project: { id: { eq: $projectId } }
+        },
+        first: $first,
+        after: $after,
+        orderBy: updatedAt
+      ) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          identifier
+          title
+          description
+          state { id name type }
+          labels(first: 20) { nodes { id name } }
+          updatedAt
+        }
+      }
+    }
+    """
+
     def fetch_inbox(self) -> list[ExternalItem]:
-        """Return every issue on the team as normalized ExternalItem list.
+        """Return issues on the team (or scoped to project_id when set).
+
+        When `project_id` is configured, fetch_inbox returns ONLY issues on that
+        project. This is the safe default for fleet wiring — without scoping, a
+        single inbox_sources entry would auto-promote every issue across the
+        team's projects into the bound PLAN.md, which is rarely what the user
+        wants (each lane usually maps to one project).
 
         Cached for the adapter instance's lifetime (fleet sync iterates many
         plan_dirs against the same adapter — no point re-fetching the same
@@ -377,14 +408,24 @@ class LinearAdapter(AdapterBase):
         if self._inbox_error is not None:
             raise self._inbox_error
 
+        if self.project_id:
+            query = self._ISSUES_QUERY_PROJECT
+            variables_base: dict[str, Any] = {
+                "teamId": self.team_id,
+                "projectId": self.project_id,
+            }
+        else:
+            query = self._ISSUES_QUERY_TEAM
+            variables_base = {"teamId": self.team_id}
+
         items: list[ExternalItem] = []
         cursor: str | None = None
         try:
             while True:
                 data = self._graphql(
-                    self._ISSUES_QUERY,
+                    query,
                     {
-                        "teamId": self.team_id,
+                        **variables_base,
                         "first": self.PAGE_SIZE,
                         "after": cursor,
                     },
