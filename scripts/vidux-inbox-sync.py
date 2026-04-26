@@ -555,15 +555,20 @@ def sync_plan_with_adapter(
         "errors": [],
     }
 
+    # fetch_inbox always — both halves benefit. The pull half needs it for
+    # novel-item detection + status flip; the push half needs it for
+    # idempotency (skip push_status / push_fields when remote already
+    # matches local). Adapter caches the result for the instance's lifetime.
     external_items: list[ExternalItem] = []
-    if direction in ("pull", "both"):
-        try:
-            external_items = adapter.fetch_inbox()
-        except Exception as exc:  # noqa: BLE001
-            summary["errors"].append(f"fetch_inbox: {exc}")
-            return summary
-        summary["external_items"] = len(external_items)
+    try:
+        external_items = adapter.fetch_inbox()
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"fetch_inbox: {exc}")
+        return summary
+    summary["external_items"] = len(external_items)
+    ext_by_id = {item.external_id: item for item in external_items}
 
+    if direction in ("pull", "both"):
         # Novel = external items not mapped to ANY plan in the fleet (so the
         # same item doesn't get appended to 22 different INBOX.md files).
         # Fall back to per-plan mapping when fleet set wasn't supplied.
@@ -580,7 +585,6 @@ def sync_plan_with_adapter(
             )
 
         # Flip PLAN.md tasks that have moved to completed on the external board.
-        ext_by_id = {item.external_id: item for item in external_items}
         flips: dict[str, VidxStatus] = {}
         for task_id, ext_id in mapping.items():
             item = ext_by_id.get(ext_id)
@@ -619,6 +623,12 @@ def sync_plan_with_adapter(
                 summary["errors"].append(f"push_task({task.id}): {exc}")
 
         # Reconcile status + blocked for tasks we already know about.
+        # Idempotency: skip the GraphQL mutation when remote already
+        # matches local. This was the rate-limit-flood root cause —
+        # the loop fired ~138 push_status calls per cycle on
+        # strongyes-web even when nothing changed, exhausting Linear's
+        # 3000/hr bucket in one hour. INBOX P1 2026-04-25.
+        skipped = 0
         for task in tasks:
             ext_id = mapping.get(task.id)
             if not ext_id:
@@ -628,13 +638,25 @@ def sync_plan_with_adapter(
                 continue
             if dry_run:
                 continue
+            remote = ext_by_id.get(ext_id)
+            local_blocked = task.blocked or task.status == VidxStatus.BLOCKED
             try:
+                # push_status: only when status diverges. BLOCKED is
+                # orthogonal — never pushed via push_status (adapters
+                # reject it); the blocked flag handles it below.
                 if task.status != VidxStatus.BLOCKED:
-                    adapter.push_status(ext_id, task.status)
-                adapter.push_fields(ext_id, {"_blocked": task.blocked or
-                                              task.status == VidxStatus.BLOCKED})
+                    if remote is None or remote.status != task.status:
+                        adapter.push_status(ext_id, task.status)
+                    else:
+                        skipped += 1
+                # push_fields(_blocked): only when the flag diverges.
+                if remote is None or remote.blocked != local_blocked:
+                    adapter.push_fields(ext_id, {"_blocked": local_blocked})
+                else:
+                    skipped += 1
             except Exception as exc:  # noqa: BLE001
                 summary["errors"].append(f"push_status({task.id}): {exc}")
+        summary["push_skipped_idempotent"] = skipped
 
     if not dry_run:
         save_state(plan_dir, state)
