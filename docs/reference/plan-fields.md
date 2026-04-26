@@ -19,7 +19,7 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 ## Task Status FSM
 
 ```
-  pending ─────▶ in_progress ─────▶ completed
+  pending ─────▶ in_progress ─────▶ in_review (optional) ─────▶ completed
                       │
                       └── blocked (terminal)
 ```
@@ -28,6 +28,7 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 |---|---|---|
 | `[pending]` | Queued with evidence, not yet started | Writer during plan authoring |
 | `[in_progress]` | Actively being worked (one cycle or across cycles) | Any agent picking up the task |
+| `[in_review]` | Optional PR-backed state while CI or review gates are still pending | The agent that opened or is nursing the PR |
 | `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
 | `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
 
@@ -47,7 +48,7 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 | `[Evidence: ...]` | Cited source backing this task | `[Evidence: src/auth.ts:42 — no idempotency key]` |
 | `[Depends: Task N]` | Blocks until task N is `[completed]` | `[Depends: Task 3]` |
 | `[Investigation: path]` | Compound task — read sub-plan before coding | `[Investigation: investigations/payment-flow.md]` |
-| `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs Leo's PostHog prod key]` |
+| `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs production analytics credentials]` |
 | `[Fix: file:line]` | Where the fix landed, on `[completed]` tasks | `[Fix: src/auth.ts:42]` |
 | `[Shipped: <sha>]` | Commit sha the fix landed in | `[Shipped: a1b2c3d]` |
 
@@ -93,6 +94,7 @@ Every item in the Evidence section cites a source. Standard tags:
 | `[Source: codebase grep]` | A grep hit in the repo, format `file:line pattern` |
 | `[Source: GitHub PR #N]` | A comment, review, or decision on a PR |
 | `[Source: GitHub issue #N]` | An issue report or discussion |
+| `[Source: observed]` | A directly observed runtime behavior or repro |
 | `[Source: Sentry <id>]` | A Sentry issue with occurrences + user impact |
 | `[Source: design doc]` | An architecture or product doc (inline quote preferred) |
 | `[Source: team chat]` | A Slack / Linear / email decision (screenshot or quote) |

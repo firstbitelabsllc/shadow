@@ -112,7 +112,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 **Compound tasks link to an investigation file** — messy surfaces get a compound task pointing at `investigations/<slug>.md` with seven sections (Reporter Says / Evidence / Root Cause / Impact Map / Fix Spec / Tests / Gate). The investigation IS the work until the Fix Spec is filled; then the fix and the investigation ship together as one commit. One parent plan, one child investigation per compound task — no deeper nesting.
 
-**Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries, not rewrites.
+**Append-only logs** — the `## Progress` section in `PLAN.md` and each lane's `memory.md` are append-only. Corrections go in new entries, not rewrites. Some overlays also keep a separate `PROGRESS.md`, but core vidux does not require it.
 
 **3x stuck rule** — same task in 3+ consecutive progress entries while in-progress = auto-exit. Brake, not kill.
 
@@ -213,14 +213,13 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 - [Evidence Format](guides/evidence-format.md) — how to structure evidence files
 - [Fleet Operations](guides/fleet-ops.md) — automation fleet management
 - [Investigation Lifecycle](guides/investigation.md) — the parent-plan + child-investigation pattern
-- [Investigation Lifecycle](guides/investigation.md) — parent-plan + child-investigation format
 - [Ready PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
 - [Automation Recipes](guides/recipes.md) — 8 ready-to-deploy fleet patterns with prompt templates
 - [Examples](examples/) — worked examples (start with [bug fix lifecycle](examples/bug-fix-lifecycle/))
 
 ## Sibling Project
 
-**[claudux](https://github.com/leojkwan/claudux)** — documentation generator with multi-backend AI support (Claude + Codex). If vidux is "plan before code," claudux is "docs before code." Same philosophy, different surface. Both skills let you pick between Claude (metered, taste) and Codex (unlimited, grunt work) for the heavy lifting.
+**[claudux](https://github.com/leojkwan/claudux)** — documentation generator with multi-backend AI support (Claude + Codex). If vidux is "plan before code," claudux is "docs before code." Same philosophy, different surface: claudux can target multiple generation backends, while vidux runs inside whichever runtime you launch.
 
 ## Contributing
 

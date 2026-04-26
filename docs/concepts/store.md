@@ -1,6 +1,6 @@
 # The Store
 
-The Store is the persistence layer. Every fact Vidux needs to survive an interrupted session lives in one of four locations — PLAN.md, `evidence/`, `investigations/`, or git history. No databases. No daemons. No in-memory state.
+The Store is the persistence layer. Every fact Vidux needs to survive an interrupted session lives in one of four durable locations — PLAN.md, `evidence/`, `investigations/`, or git history — with `INBOX.md` acting as the intake queue. No databases. No daemons. No in-memory state.
 
 ## Why Files?
 
@@ -8,7 +8,7 @@ AI agents are stateless. Authentication expires. Sessions crash. The only state 
 
 The Store is designed around one constraint: **any agent, resuming cold, must reach full context within 90 seconds of reading the Store.**
 
-## The Four Locations
+## The Four Durable Locations
 
 ```
 vidux-project/
@@ -19,6 +19,8 @@ vidux-project/
 └── investigations/
     └── slug.md                ← root cause analysis + fix specs
 ```
+
+`INBOX.md` appears in the tree because it is part of the on-disk workflow, but the durable state stores are still PLAN.md, `evidence/`, `investigations/`, and git history.
 
 ### PLAN.md
 

@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.pyc
+node_modules/
+docs/.vitepress/dist/
+.claudux/
 QUEUE.jsonl
 
 # Private project plans — never commit to public repo

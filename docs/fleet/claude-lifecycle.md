@@ -12,7 +12,7 @@ A Claude Code lane is a recurring vidux cycle scheduled via `CronCreate` inside 
 Every lane has two files on disk:
 
 ```
-~/.claude-automations/<lane-name>/
+{lane-dir}/{lane-name}/
 ├── prompt.md      ← source of truth (read every cycle)
 └── memory.md      ← append-only checkpoint log
 ```
@@ -26,7 +26,7 @@ The **memory** is the lane's durable state. One line per cycle. Any new session 
 ```
 CronCreate(
   cron: "8,38 * * * *",   // fires at :08 and :38 past each hour
-  prompt: "**Claude cron: <name> (every 30 min)**\n\nYour instructions live at ~/.claude-automations/<name>/prompt.md. Read that file FIRST..."
+  prompt: "**Claude cron: {name} (every 30 min)**\n\nYour instructions live at {lane-dir}/{name}/prompt.md. Read that file FIRST..."
 )
 ```
 
@@ -49,13 +49,13 @@ Each cron fire injects the prompt into the live session. The agent then executes
 
 ### Post-push defer
 
-After pushing a PR, the lane MUST NOT attempt merge in the same cycle. This gives CI bots + code review tools (Greptile, Seer, Vercel Agent) time to run. Merge eligibility: CI green + ≥1h since last fix-push + no unresolved P0/P1 reviews.
+After pushing a PR, the lane MUST NOT attempt merge in the same cycle. This gives CI and review automation time to run. Merge eligibility: CI green + ≥1h since last fix-push + no unresolved required findings.
 
 ## Session Cycling
 
 Sessions are disposable. They die for many reasons:
 
-- Account rotation (Leo uses 4 accounts for quota management)
+- Multi-account rotation when a fleet spreads load across sessions
 - Laptop sleep / lid close
 - Compaction pressure (JSONL too large)
 - Manual `/resume`
