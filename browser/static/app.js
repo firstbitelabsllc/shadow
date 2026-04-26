@@ -262,20 +262,39 @@ async function renderArtifactPane() {
         <span class="muted">${escapeText(a.path)}</span>
       </div>
     </div>
-    <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
+    <div class="artifact-shell" id="artifact-body"><p class="muted">loading…</p></div>
   `;
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(a.path)}`);
+    const artifactBody = document.getElementById("artifact-body");
     if (!res.ok) {
-      document.getElementById("md-body").innerHTML =
+      artifactBody.innerHTML =
         `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
       return;
     }
     const html = await res.text();
-    // Trust boundary: localhost, Leo's own filesystem, no network XSS surface.
-    document.getElementById("md-body").innerHTML = html;
+    const frame = document.createElement("iframe");
+    frame.className = "artifact-frame";
+    frame.title = a.title || a.slug;
+    frame.setAttribute("sandbox", "allow-same-origin allow-popups allow-forms");
+    frame.addEventListener("load", () => {
+      try {
+        const doc = frame.contentDocument;
+        if (!doc) return;
+        const height = Math.max(
+          doc.documentElement.scrollHeight,
+          doc.body?.scrollHeight || 0,
+          600
+        );
+        frame.style.height = `${height + 24}px`;
+      } catch {
+        frame.style.height = "80vh";
+      }
+    });
+    artifactBody.replaceChildren(frame);
+    frame.srcdoc = html;
   } catch (e) {
-    document.getElementById("md-body").innerHTML =
+    document.getElementById("artifact-body").innerHTML =
       `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
   }
 }
