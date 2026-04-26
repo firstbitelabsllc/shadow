@@ -59,6 +59,26 @@
         },
         "auto_promote_target": "projects/vidux-kanban-ext"
       }
+    },
+    {
+      "adapter": "linear",
+      "enabled": false,
+      "_disabled_comment": "DISABLED 2026-04-26: linear.py:fetch_inbox returns ALL 198 team issues, not project-scoped. Auto-promote to vidux-linear-primacy would import every FirstBite issue. Re-enable after fetch_inbox accepts project_id as a server-side filter — see vidux-linear-primacy plan Task 1b.",
+      "config": {
+        "token_file": "~/.config/vidux/linear.token",
+        "team_id": "2f745857-a4df-4f99-93a9-6ac89f9991a2",
+        "project_id": "b1473b94-8909-40f4-9cd6-5c6e395f7fb5",
+        "_team_comment": "FirstBite (key EVE)",
+        "_project_comment": "Automation Ops",
+        "state_mapping": {
+          "pending": "36f44543-1030-4b00-8317-6064b86cdd22",
+          "in_progress": "6486102b-1bdb-4ae3-9215-acd9e6418f07",
+          "in_review": "696f7d94-4862-4563-b5d2-d8d54f9438c4",
+          "completed": "8e639ee2-0e7f-4687-bfab-33c42a22b9a8"
+        },
+        "blocked_label": "blocked",
+        "auto_promote_target": "projects/vidux-linear-primacy"
+      }
     }
   ],
   "dashboard": {
