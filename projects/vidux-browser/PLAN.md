@@ -138,11 +138,11 @@ Phase 3: Ad-hoc artifact surface (Leo's "anytime anywhere" ask 2026-04-25)
 - [completed] T3g `/api/artifact` POST endpoint shipped (gated behind whitelist + `ARTIFACT_MAX_BYTES` cap per B3 review)
 
 Phase 4: Polish
-- [pending] T4a Memory viewer
-- [pending] T4b Ledger entries
-- [pending] T4c launchd plist
-- [pending] T4d Decision Log diff highlighter
-- [pending] T4e Components inside markdown — `:::person` shorthand syntax that renders as a card without hand-writing HTML
+- [pending] T4a Memory viewer [ETA: 1h]
+- [pending] T4b Ledger entries [ETA: 1h]
+- [pending] T4c launchd plist [ETA: 2h]
+- [pending] T4d Decision Log diff highlighter [ETA: 2h]
+- [pending] T4e Components inside markdown — `:::person` shorthand syntax that renders as a card without hand-writing HTML [ETA: 2h]
 
 ## UI sketch (MVP)
 
@@ -206,3 +206,4 @@ Phase 4: Polish
   - B4: static-asset path-traversal used a stringy `"/" in name or ".."` check; now resolves against `STATIC_DIR.resolve()` and rejects on `relative_to` failure.
 - [2026-04-25] **Completion bar shipped (PR #41 + companions).** Per Leo: *"make a pretty bar and have the concept of completion and a moving target key to vidux plans"* + *"divide tasks remaining over total tasks, some tasks are way fucking harder."* Headline metric is now completion (X/Y done), not ETA. Sidebar gets stacked status-colored progress bar + label, with gold "shipped ✓" treatment at 100% and dashed "no tasks yet" at 0. Pane gets a prominent progress block above the tab strip. Topbar adds fleet completion stat. Investigations strip renders child .md files when present (canonical /vidux subplan nesting now visible). Plus a `pane.scrollTop = 0` reset on every render — fixes the "jump back to padding" bug from prior-view scroll persistence. T2L–T2R + T2j + T2g flipped to [completed].
 - [2026-04-25] **Doctrine companion landed via parallel agents (PRs leojkwan/vidux #42 + #43, leojkwan/ai #47).** /vidux SKILL.md softened — `[ETA: Xh]` is now optional, not "mandatory plan defect". Headline doctrine codified: *"Completion (X/Y tasks done) is the headline; ETA is supplementary, useful when tasks are similar-sized, skip when they vary in difficulty."* CHANGELOG 2.18.0 reversal entry pairs with the SKILL.md change so the historical 2.12.0 "ETAs go mandatory" line stays accurate-as-of-its-date. `leojkwan/ai/.claude/settings.json` newly tracked for /auto §G compliance (was missing — fleet sweep gap).
+- [2026-04-26] **ETA backfill pass — fleet audit gap closed.** Added `[ETA: Xh]` to all 5 untagged Phase 4 polish tasks per fleet ETA-coverage audit (T4a memory 1h, T4b ledger 1h, T4c launchd 2h, T4d decision-diff 2h, T4e components-shorthand 2h). All 11 pending tasks now carry ETA tags so `vidux-browse` surfaces real AI-hours-remaining (~13h: 5h Phase 2 + 8h Phase 4). Calibration applied: small Python edits 0.5-1h, feature work 2h, cron lane 2h. The 6 already-tagged Phase 2 tasks were not touched.
