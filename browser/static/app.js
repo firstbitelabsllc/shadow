@@ -351,7 +351,7 @@ async function renderArtifactPane() {
       return;
     }
     const html = await res.text();
-    // Trust boundary: localhost, Leo's own filesystem, no network XSS surface.
+    // Artifacts are local files; write endpoints are loopback + same-origin only.
     document.getElementById("md-body").innerHTML = html;
   } catch (e) {
     document.getElementById("md-body").innerHTML =
