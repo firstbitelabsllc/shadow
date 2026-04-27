@@ -19,8 +19,8 @@ For Codex, this page describes the native automation path that registers a repo-
 | **Sandbox** | N/A (local execution, full access) | `read-only` / `workspace-write` / `danger-full-access` |
 | **Multi-agent** | Native subagents in-session | Native subagents in-session |
 | **Session model** | Disposable sessions; lanes persist on disk | Desktop app process; automations in DB + TOML |
-| **Session GC** | Required (`session-prune.py`, mandatory lane) | Not needed (app manages its own state) |
-| **Max lanes** | 6 per session (worktree contention limit) | Limited by `max_threads` (default 6) |
+| **Session GC** | Required (`session-gc` lane + operator-provided JSONL cleanup helper) | Not needed (app manages its own state) |
+| **Max lanes** | 6 per session (worktree contention limit) | No separate repo-defined Codex cap |
 | **Delegation** | Mode A / Mode B via native subagents | Mode A / Mode B via native subagents |
 
 For Codex, the table above applies to native scheduled automations. A Chat-mode Codex automation skips the TOML + DB registration path and only needs the shared lane files and prompt discipline.
@@ -68,7 +68,7 @@ Both platforms use the same persistence philosophy: **lanes persist on disk, ses
 └── ...
 ```
 
-Session JSONLs (`~/.claude/projects/*/*.jsonl`) are hot storage — disposable, GC'd by `session-prune.py`. Lane files are cold storage — durable, never auto-deleted.
+Session JSONLs (`~/.claude/projects/*/*.jsonl`) are hot storage — disposable, typically pruned by the session-gc lane's chosen cleanup helper. Lane files are cold storage — durable, never auto-deleted.
 
 ### Codex
 

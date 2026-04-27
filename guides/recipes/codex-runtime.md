@@ -171,7 +171,7 @@ Claude Code has `/resume` for fresh sessions picking up lanes from disk. Codex's
 
 Codex state GC is managed externally, not by Codex itself. Worktree cleanup for Codex-spawned worktrees is the operator's responsibility — Codex auto-delete is OFF, and a sensible retention policy for `~/Development/<repo>-worktrees/codex-*` is 3h minimum. Without external GC, worktrees accumulate at ~84/day at 10 GB under a heavy-cadence fleet.
 
-There is no Codex equivalent of `session-prune.py --gc-old` — Codex's conversation logs live elsewhere (Electron's IndexedDB) and are not JSONL-shaped. If you notice Codex slowing down, the fix is a full app restart, not a log-pruning script.
+There is no Codex equivalent of the Claude-side session-gc JSONL cleanup helper — Codex's conversation logs live elsewhere (Electron's IndexedDB) and are not JSONL-shaped. If you notice Codex slowing down, the fix is a full app restart, not a log-pruning script.
 
 ---
 

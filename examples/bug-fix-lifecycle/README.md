@@ -47,12 +47,12 @@ Fix the login button tap handler for mobile Safari. Users on iOS cannot log in.
 - [Source: user report] Confirmed on Safari 17.3, iPhone 15 Pro
 
 ## Tasks
-- [pending] 1. Add onTouchEnd handler to LoginButton [Evidence: LoginButton.tsx:42, SignupButton fix abc1234]
-- [pending] 2. Add mobile Safari test case [Evidence: no existing mobile touch tests]
-- [pending] 3. Verify fix on iOS simulator [Evidence: user report specifies Safari 17.3]
+- [pending] Task 1: Add onTouchEnd handler to LoginButton [Evidence: LoginButton.tsx:42, SignupButton fix abc1234]
+- [pending] Task 2: Add mobile Safari test case [Evidence: no existing mobile touch tests]
+- [pending] Task 3: Verify fix on iOS simulator [Evidence: user report specifies Safari 17.3]
 
 ## Decision Log
-- [2026-04-01] Root cause is missing touch handler, not a CSS issue. Evidence: SignupButton had the same bug and the onClick→onTouchEnd fix resolved it.
+- [DIRECTION] [2026-04-01] Root cause is missing touch handler, not a CSS issue. Evidence: SignupButton had the same bug and the onClick→onTouchEnd fix resolved it.
 ```
 
 ## Step 3: Execute One Task
@@ -68,9 +68,9 @@ The agent pops task 1, writes the fix:
 Updates the plan:
 
 ```markdown
-- [completed] 1. Add onTouchEnd handler to LoginButton [Done: 2026-04-01]
-- [pending] 2. Add mobile Safari test case
-- [pending] 3. Verify fix on iOS simulator
+- [completed] Task 1: Add onTouchEnd handler to LoginButton [Done: 2026-04-01]
+- [pending] Task 2: Add mobile Safari test case
+- [pending] Task 3: Verify fix on iOS simulator
 ```
 
 ## Step 4: Verify
@@ -79,9 +79,10 @@ The agent runs tests, checks the build, confirms no regressions.
 
 ## Step 5: Checkpoint
 
-The agent appends to `PROGRESS.md`:
+The agent appends to `## Progress` in `PLAN.md`:
 
 ```markdown
+## Progress
 - [2026-04-01T14:30:00Z] Task 1 completed. Added onTouchEnd to LoginButton.tsx. Tests pass. Build clean.
 ```
 
