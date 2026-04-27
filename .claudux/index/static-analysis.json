@@ -1,0 +1,2640 @@
+{
+  "version": 1,
+  "head_sha": "b64c323b35f145e0b9990c15014958baed32507a",
+  "manifest": null,
+  "package_scripts": {},
+  "cli_commands": [],
+  "exported_symbols": [
+    {
+      "file": "scripts/codex-gc-cron.sh",
+      "name": "stamp",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/codex-gc.sh",
+      "name": "bytes_of",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/codex-gc.sh",
+      "name": "emit",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/codex-gc.sh",
+      "name": "human",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_db_epoch_ms",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_db_is_app_running",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_db_path",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_db_query",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_db_stop_app",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_db_write",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_safe_restart",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_sync_tomls",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/codex-db.sh",
+      "name": "codex_verify_tomls",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/compat.sh",
+      "name": "dir_newest_mtime",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/compat.sh",
+      "name": "file_mtime_epoch",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/compat.sh",
+      "name": "parse_date_epoch",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/compat.sh",
+      "name": "parse_iso_epoch",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "_cfg_get",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "_discover_append_hook",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "_discover_ledger_file",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "ledger_available",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "ledger_count",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "ledger_jq",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "ledger_last",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-config.sh",
+      "name": "ledger_status",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "_vidux_detect_agent",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "_vidux_detect_repo",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "_vidux_eid",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "_vidux_ts",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "vidux_emit",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "vidux_emit_checkpoint",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "vidux_emit_fleet_health",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "vidux_emit_loop_end",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "vidux_emit_loop_start",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-emit.sh",
+      "name": "vidux_emit_plan_modified",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-query.sh",
+      "name": "ledger_automation_runs",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-query.sh",
+      "name": "ledger_bimodal_distribution",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-query.sh",
+      "name": "ledger_conflict_check",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-query.sh",
+      "name": "ledger_fleet_health",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-query.sh",
+      "name": "ledger_handoff_gaps",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/ledger-query.sh",
+      "name": "ledger_recent_activity",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/queue-jsonl.sh",
+      "name": "_queue_path",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/queue-jsonl.sh",
+      "name": "queue_count",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/queue-jsonl.sh",
+      "name": "queue_next",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/queue-jsonl.sh",
+      "name": "queue_sync",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/lib/resolve-plan-store.sh",
+      "name": "resolve_plan_store",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-checkpoint.sh",
+      "name": "_mark_task",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-checkpoint.sh",
+      "name": "collect_repo_changed_paths",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-checkpoint.sh",
+      "name": "process_fix_matches_type",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-checkpoint.sh",
+      "name": "sedi",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-checkpoint.sh",
+      "name": "usage",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_add_check",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_browser_snapshot_json",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_bimodal_runtime",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_browser_process_pressure",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_cadence_runtime",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_codex_thread_pressure",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_detached_same_head",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_dual_active_automations",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_missing_active_worktrees",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_orphan_automations",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_plan_merge_conflicts",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_reduce_harness_scope",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_stale_in_progress",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_stalled_active_automation_rows",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_system_memory_pressure",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_check_worktree_count",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_codex_thread_snapshot_json",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_fail",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_memory_pressure_snapshot_json",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_ok",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_reduce_harness_prompt_scan",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_resolve_automation_db",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_resolve_automations_dir",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_stalled_automation_rows_json",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-doctor.sh",
+      "name": "_warn",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-fleet-quality.sh",
+      "name": "classify_minutes",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-fleet-quality.sh",
+      "name": "extract_durations",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-loop.sh",
+      "name": "_cd_keywords",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-loop.sh",
+      "name": "_exclude_ec_lines",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-loop.sh",
+      "name": "die",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-loop.sh",
+      "name": "json",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-loop.sh",
+      "name": "json_escape",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-loop.sh",
+      "name": "sedi",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-plan-gc-cron.sh",
+      "name": "stamp",
+      "kind": "shell-function"
+    },
+    {
+      "file": "scripts/vidux-test-all.sh",
+      "name": "_json_escape",
+      "kind": "shell-function"
+    }
+  ],
+  "tests": [
+    {
+      "path": "tests/test_plan_gc.py",
+      "sha256": "83ae287fa1b536271aebead130d6d417f5647fbef56c2ecd5223252ed0cc3165"
+    },
+    {
+      "path": "tests/test_vidux_contracts.py",
+      "sha256": "41da49433156f3fadd6df18b36f60d824f680f7f21145865e67e21bdadf19eca"
+    }
+  ],
+  "dependency_edges": [],
+  "source_files": [
+    {
+      "path": ".claude-plugin/plugin.json",
+      "sha256": "c65686daa8f1a3440c12ff917cd431aa8bfbb5aa26c031b8d50427a75e09f7de"
+    },
+    {
+      "path": ".claude/settings.json",
+      "sha256": "f3452277664f595756c40fb1736ac9a039f6cfaa47785ee20aa7b50c70d88d60"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug-report.yml",
+      "sha256": "f08a4f391176f5e1f721b2e2da0ba7c8db16a7a69c14b019bdc432a91d38663f"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/config.yml",
+      "sha256": "9b48d0d00600ef97e009fad2fe62569ef61954263a3a7bf8b49f08dc3a7148a5"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/feature-request.yml",
+      "sha256": "07567da0f8906c543a3ce94857b7bfcd6e0486e1bd4fbe1bb459057597500e62"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/feedback.yml",
+      "sha256": "cf9d3560d0612a7cae3cc1e5847ced1d089b8de2149a684b52d7cf66601c17b2"
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "sha256": "5492feed59153a8a2d4365fecdc9dbdc5da3a7348acc9e6ede307783df922983"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "d920a398f5338595f521c80ab87988d46236e29ee31ac7b7dfad39e45c84ac0d"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "63fd7d674cb5256fb6e1dc3dfce3fa4d4cdd6d3bc82edadf88535018f7fb6ad3"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "sha256": "918842ef3268f458a4c089cd9dd849c9619739f0e4959252f10884777fc3d11a"
+    },
+    {
+      "path": "ARCHIVE.md",
+      "sha256": "8dfd7a601ed989b8c55234f735dfdfadebf6da6e176063e4e0f7779803f62f4d"
+    },
+    {
+      "path": "ASK-LEO.md",
+      "sha256": "cbb484bb58879204397c802a90fb30dc6fb6ced98be66810136499c27bfcc961"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "e09a1289b10161f34221661b05030454b995695d6050cbd4af3f779592259361"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "sha256": "f5be2240338ee33622645a0efd8dd38437d25bec97d39cfb62e641b96a7a5cbd"
+    },
+    {
+      "path": "DOCTRINE.md",
+      "sha256": "7ccf1dcf36e60fee180f0c4a243e134fd6cee20e8d6468d2cf04d2063ecefcf2"
+    },
+    {
+      "path": "ENFORCEMENT.md",
+      "sha256": "e98cb84a2d5ff9a9798f52ca08d2d4aaafe9fb33251b73a613b44f6f893eb9e3"
+    },
+    {
+      "path": "INGREDIENTS.md",
+      "sha256": "d6af088d19be77c2806beec54b78cd182d9cf22a1199c5dbe1c15fe31bce58ea"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "a290eaa52f4759fac839a5af6522c14f9c551b2c4e16a898748888bd01a2d11c"
+    },
+    {
+      "path": "LOOP.md",
+      "sha256": "517b97274e0432e702cbe6a18f1235c6c7d86ba118f85d6c6ccd2bdd6c03efaa"
+    },
+    {
+      "path": "PLAN.md",
+      "sha256": "f2cac661ff99dc24dc306290c701fcf82f99660f6b01164545cfc474c557c24e"
+    },
+    {
+      "path": "README.md",
+      "sha256": "dc594953141126b833087dbecf3e2de2e109096ce38321e7b127c7df93d1d0e0"
+    },
+    {
+      "path": "SECURITY.md",
+      "sha256": "9a2b4cbf44c3dd0799a80b07fe3dbbc92f350c563c8174e776e55ecc821ee8c8"
+    },
+    {
+      "path": "SETUP_NEW_MACHINE.md",
+      "sha256": "78bf733927c672c3d8ecd41872a5482c7df446ad3a164db53aa277b55911b6e7"
+    },
+    {
+      "path": "SKILL.md",
+      "sha256": "8ed1e39008c2131678c8690adf65abe6242496f156d006b29ef10fad9b993908"
+    },
+    {
+      "path": "VERSION",
+      "sha256": "54db66b85accc1a27c7d7e7c8ebd68d6e85f9030c019d77ebeac64e1cd39dbc3"
+    },
+    {
+      "path": "adapters/README.md",
+      "sha256": "51dd1373c74395e0ec958b98157dc79ca7aa2d7823c8c654d894d439de8ffb5d"
+    },
+    {
+      "path": "adapters/__init__.py",
+      "sha256": "53044bb42b1d272eee647818a5d82373b7d9079a94a6f288bc70dbc15cac352b"
+    },
+    {
+      "path": "adapters/asana.py",
+      "sha256": "a5fb04c5b28b459ed67760d47556861c20b8e411a0ee2cdd912be7f9661605f5"
+    },
+    {
+      "path": "adapters/base.py",
+      "sha256": "bb0c743e6f502576a42679b678a07d1cf7271ef8ebe73091534e0c662bf8a2b9"
+    },
+    {
+      "path": "adapters/gh_projects.py",
+      "sha256": "a2a94f4135430ddfd3f8ed91b2b66dc593276619f5cd716b0ee706542c67578b"
+    },
+    {
+      "path": "adapters/jira.py",
+      "sha256": "688221e1c2a2f9f3e3dce6c5ed4367afbf3870c939db6df8fae5b1f419afa562"
+    },
+    {
+      "path": "adapters/linear.py",
+      "sha256": "168ac04d52358f57754f43e790babd55817d0ff30cd9897ad16c03ada983c540"
+    },
+    {
+      "path": "adapters/trello.py",
+      "sha256": "809f1b8e0f0b281b570acd2e3e6a72fbbc342de921d09e73d7e245819c1cf743"
+    },
+    {
+      "path": "assets/vidux-banner.svg",
+      "sha256": "9c2be09e347950488b5f0de6966155501ec6efbb306fba92af45ff35a5f9bfce"
+    },
+    {
+      "path": "assets/vidux-terminal-demo.svg",
+      "sha256": "97bd920e767256329e3e70e6cb88f45bc99b1444677d1400deeeb2dfe586a80c"
+    },
+    {
+      "path": "bin/vidux-browse",
+      "sha256": "8288af0a35a9c9b9ef0e8097d00157c67ff76fa6a03d1670d27057a17ca28e20"
+    },
+    {
+      "path": "browser/artifacts/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "browser/server.py",
+      "sha256": "bd72ed4a99e717194ddf8db4b5b72f3746dbf59dc714b4a82caa90df8e5f19b9"
+    },
+    {
+      "path": "browser/static/app.js",
+      "sha256": "ef59103f640479aa7cc1442471db659ae8b1f2d400abdfefbcf6dc4ddc885028"
+    },
+    {
+      "path": "browser/static/index.html",
+      "sha256": "7550af30d4212995c7308966a0da5cf756c328d797e89bb3ce90eab794b80961"
+    },
+    {
+      "path": "browser/static/style.css",
+      "sha256": "4549914f54f9c39ea02942d2e513416c73f668ef0648e72f45f17b61c56ba304"
+    },
+    {
+      "path": "commands/vidux-status.md",
+      "sha256": "2ffcb3319088ebefd6973c34b2277d733b36dacaeee20a15fbe67e04e0946c9f"
+    },
+    {
+      "path": "commands/vidux.md",
+      "sha256": "f0854b135b727016ef82d7f6085c178cfad834245d1793071b0602e7c68c7ac6"
+    },
+    {
+      "path": "evidence/2026-04-16-auto-migration-map.md",
+      "sha256": "152a8b790c85b903d7118e39b977c3e17b8c4230b9e0569bcc9b87d0a36af053"
+    },
+    {
+      "path": "examples/bug-fix-lifecycle/README.md",
+      "sha256": "c47a2e22b3fdc9d3b739217c4ae4a7eddf9b210840a58786a6b0310669358bbf"
+    },
+    {
+      "path": "examples/fleet-reference/README.md",
+      "sha256": "65b7de8d51f385a28346f48746559db948e331ab7e8916e8f6088f218c220208"
+    },
+    {
+      "path": "examples/fleet-reference/coordinator.toml",
+      "sha256": "fcd93a562eedfe2c4976265cb92e8ff9184465d287dd6f62d8e1a4b99f10c316"
+    },
+    {
+      "path": "examples/fleet-reference/perf-radar.toml",
+      "sha256": "694f62f2bdaec333d50854b3595776d94bef3e6e1082c45bf9815dd328613ea2"
+    },
+    {
+      "path": "examples/fleet-reference/ux-radar.toml",
+      "sha256": "d48cad113a4badd819b9cb101dd1fba0d7a834c8a4103c5cdabf996e07393ea6"
+    },
+    {
+      "path": "examples/fleet-reference/writer.toml",
+      "sha256": "f467d839f1ab48cdac5b3599107d94ebfb3b5af46325cd1a729064a7eb29c7fa"
+    },
+    {
+      "path": "guides/agent-config-rules.md",
+      "sha256": "75f47f14307987ceefb4cc19b4e9a89463271dfb87d20140ad0d1c215eeadc10"
+    },
+    {
+      "path": "guides/automation.md",
+      "sha256": "03ddbfb4ebb1d380dd2e245429655e15ef2dac0463d5186c70253e58a19f4c85"
+    },
+    {
+      "path": "guides/draft-pr-flow.md",
+      "sha256": "3e81434a361567f5b2c85308c0ee29209e233bac32afd346c436e63129de0690"
+    },
+    {
+      "path": "guides/evidence-format.md",
+      "sha256": "b52cbc6bede4750f4a99100d931f8156fee598b02ba48d2294aa96e30b5d6491"
+    },
+    {
+      "path": "guides/fleet-ops.md",
+      "sha256": "844ca31940b62fddca5ffc1136df2bee951262cb3b50cb27f8a8246ad031e7eb"
+    },
+    {
+      "path": "guides/harness.md",
+      "sha256": "cff5ee764c1de2f4b08272fb9830fdc8286c282779cef16464ce329d0878fd4f"
+    },
+    {
+      "path": "guides/investigation.md",
+      "sha256": "d6e796c9fe0a63f92685164e1f4105e85af6ffd481d5a6feb3ba354f340f75eb"
+    },
+    {
+      "path": "guides/recipes.md",
+      "sha256": "608449cf0f2b83faa5b7de8dfe59bbd3b17b47c6c935606aa61a1e915c992990"
+    },
+    {
+      "path": "guides/recipes/README.md",
+      "sha256": "dd7a88119b85bd405d5adcfaba8498169eb3e38ecfc380cd4914eb62614a209a"
+    },
+    {
+      "path": "guides/recipes/claude-md-rules.md",
+      "sha256": "ed2927b56d0fb930f59585c61362f75dc98f3e0b241e8b937d6d32c7ef262dca"
+    },
+    {
+      "path": "guides/recipes/codex-runtime.md",
+      "sha256": "1082556ee7d6079c2a12183d7b4b8ea251bb69123ae23c7c64d22f25286a8019"
+    },
+    {
+      "path": "guides/recipes/env-var-forensics.md",
+      "sha256": "b93bfffac9e79dcffd479798a5cf85b4a22a3d5db641caa4c8c4d36d5ca2efab"
+    },
+    {
+      "path": "guides/recipes/evidence-discipline.md",
+      "sha256": "439a2c8b04beec654423dc57533f0590dc4b5fb231184254cd0da7c7a57be7e6"
+    },
+    {
+      "path": "guides/recipes/lane-prompt-patterns.md",
+      "sha256": "1b08acb55835c316ff7611a330c6646b83e1d1daefb2604d3e2310ca919406a2"
+    },
+    {
+      "path": "guides/recipes/lightweight-first.md",
+      "sha256": "4b8305228d050d1e78b3eb33a5819c2a83188c5e5e15acdae302fc44faaff331"
+    },
+    {
+      "path": "guides/recipes/proactive-surfacing.md",
+      "sha256": "ab360fc2719589e1b36cb152b1b9dc2f53ff0fba25778901c72398ce85bf6a42"
+    },
+    {
+      "path": "guides/recipes/subagent-delegation.md",
+      "sha256": "ffbd633ee71aac256406b3a47dc1fc3192f06f3fa13e1406ece12f4bef7de464"
+    },
+    {
+      "path": "guides/recipes/user-value-triage.md",
+      "sha256": "cac7d3341772f39dbc2517f51df1259e973ecd85163e5b32009b87230a6f5f16"
+    },
+    {
+      "path": "guides/recipes/visual-proof-required.md",
+      "sha256": "08f1daf5531cf5989b76f44dea4fdb53743d2d5c6d041dc64cffc45e0c5649db"
+    },
+    {
+      "path": "guides/recipes/webfetch-fallback.md",
+      "sha256": "71e7f0c612a660da3c48e7cb29783ecbe724ef72ceeae5d5fd72fc77256bb89a"
+    },
+    {
+      "path": "hooks/hooks.json",
+      "sha256": "07bc58b5ad1a7869c997422215822d420377156a318d06f753cdaf870106ff5c"
+    },
+    {
+      "path": "hooks/post-commit-checkpoint.sh",
+      "sha256": "b5ed4bc7f4329e6d2bee561e85018a3925f212de65be3f36551fe2c45cd19e67"
+    },
+    {
+      "path": "hooks/pre-commit-plan-check.sh",
+      "sha256": "347fa347315c0e83fc50a4d06272dfed69673dd3200c0c4ede28971bd8f6a303"
+    },
+    {
+      "path": "hooks/three-strike-gate.sh",
+      "sha256": "5f87f9446f90dcbc7ad1c2f65c16b899e9325babdffa580fd8eb6709536d0194"
+    },
+    {
+      "path": "investigations/2026-04-09-plan-clobber-postmortem.md",
+      "sha256": "336beab4bb44af1e78f9dc81e91f96268103b5a18120fc45c037033e9c259bb9"
+    },
+    {
+      "path": "investigations/draft-pr-flow.md",
+      "sha256": "cd07d4f50961e4e501a7092f4837a5982234a5b926ff7d7714ffde7beca0f122"
+    },
+    {
+      "path": "investigations/paid-tooling-pr-integration.md",
+      "sha256": "59b5295b2d476e987fc6a03513e82ccf7a2588a27a465134be0a4b97e4ceace0"
+    },
+    {
+      "path": "investigations/resplit-revamp.md",
+      "sha256": "c620247f3ef087dabdd69c35b62d5761e68513136dd2d4fc9fd8b2aee9c60610"
+    },
+    {
+      "path": "investigations/strongyes-revamp.md",
+      "sha256": "fd171e6056d48432a309e36a5fe624ba4fc9ee33c9b7bdeb1d529a41c9709fbf"
+    },
+    {
+      "path": "projects/docs-simplify/PLAN.md",
+      "sha256": "693da7faccf8c214c228e219e2aceca479a2e7acdd9c93db0d534e331c6cc07e"
+    },
+    {
+      "path": "projects/vidux-browser/PLAN.md",
+      "sha256": "22934dfbfa32da21a158508c4c518a8b95de599fc194f7f21eed60b9446473f1"
+    },
+    {
+      "path": "references/automation.md",
+      "sha256": "898f56b168612c3de517349d963d42c9f942341b6129817baa94e5b7eb293377"
+    },
+    {
+      "path": "scripts/codex-gc-cron.sh",
+      "sha256": "6e2bd0cf1b04bad0ab1a6a3f1bf201101f6cbb6c3b1bd2b1ca76a07e90ddd45c"
+    },
+    {
+      "path": "scripts/codex-gc.sh",
+      "sha256": "3e3778acf4b734c8a8fc4c992ead7e9eac860882c443b82b9e931f5ca8b3ed2a"
+    },
+    {
+      "path": "scripts/lib/codex-db.sh",
+      "sha256": "7ced9e819f4abbc4f42179b7d4d708886c47274e0e3e674c0c2199b8685a21dc"
+    },
+    {
+      "path": "scripts/lib/compat.sh",
+      "sha256": "d59ac1343255d53f56ef3ea6166807883c36fe0375547c3e59ac9a17a0938734"
+    },
+    {
+      "path": "scripts/lib/ledger-config.sh",
+      "sha256": "f87142de43d20a900fab31b6875dec021c08625358e8861dc21ae17303c11528"
+    },
+    {
+      "path": "scripts/lib/ledger-emit.sh",
+      "sha256": "a28fa5b35ccdf8893bee180726087f71134d2e8a49e76468992ecfc8aa5704d9"
+    },
+    {
+      "path": "scripts/lib/ledger-query.sh",
+      "sha256": "cc70a47fde09deba96e630bf9ae6c0f3bed4ca600d7e1dff3ccd2048b69c0a8c"
+    },
+    {
+      "path": "scripts/lib/queue-jsonl.sh",
+      "sha256": "539efafba004fe8088f3e908c90d692526cf643c0dcdae6eed73f06bd729bba7"
+    },
+    {
+      "path": "scripts/lib/resolve-plan-store.sh",
+      "sha256": "0eb7e61eb41fad51e371057d549f36c7c4ceb6cf7239f4ac9aa9f6bef7ad9318"
+    },
+    {
+      "path": "scripts/strip-linear-codec-markers.py",
+      "sha256": "9c124e7621cfe26727ecfecba3928a49ef358dfa313e53cc6863fd509f6677e1"
+    },
+    {
+      "path": "scripts/vidux-checkpoint.sh",
+      "sha256": "f415a5c7d71207028a29a6af4c3c146fcd3c7febd714f3744d3b24c9888c2ebc"
+    },
+    {
+      "path": "scripts/vidux-doctor.sh",
+      "sha256": "528be98b61e278b7e4678cff08755592380f57b041940e3db704fae22391faaf"
+    },
+    {
+      "path": "scripts/vidux-fleet-quality.sh",
+      "sha256": "17d3e350bed8099ed6259ca924a9d8ad3673787614a27cee31c1b552b0a712eb"
+    },
+    {
+      "path": "scripts/vidux-fleet-rebuild.sh",
+      "sha256": "65f03c132ed7abb27b35bd2b3b8556537b1ef9f00580e363b628db520c103cb1"
+    },
+    {
+      "path": "scripts/vidux-inbox-sync.py",
+      "sha256": "4e0e84735a33af982a1898ce6f304f1a80864a4a4a996befc7033520a7b987f1"
+    },
+    {
+      "path": "scripts/vidux-loop.sh",
+      "sha256": "1b1d748e5b411715b1cb822483b1a612f827640c5f72a306a81254b0509f5570"
+    },
+    {
+      "path": "scripts/vidux-plan-gc-cron.sh",
+      "sha256": "7c2e220d4cbbe90e32f3066bef5b55b606ede1e3256a91767175652472e981c3"
+    },
+    {
+      "path": "scripts/vidux-plan-gc.py",
+      "sha256": "06422d41a94f7c5314bafe3843e2b6749f65c3220b08019fcbc44d3b97842711"
+    },
+    {
+      "path": "scripts/vidux-status.py",
+      "sha256": "c585234963c134d6213442540999a5f1a5d1408dcaa20d6a175696c42326b2b4"
+    },
+    {
+      "path": "scripts/vidux-test-all.sh",
+      "sha256": "af81d11ae556dc8dad00e225ecd16c572307f8b55156d39e0cee22967fc6765b"
+    },
+    {
+      "path": "tests/test_plan_gc.py",
+      "sha256": "83ae287fa1b536271aebead130d6d417f5647fbef56c2ecd5223252ed0cc3165"
+    },
+    {
+      "path": "tests/test_vidux_contracts.py",
+      "sha256": "41da49433156f3fadd6df18b36f60d824f680f7f21145865e67e21bdadf19eca"
+    },
+    {
+      "path": "vidux.config.example.json",
+      "sha256": "ad4b76ee6898e618447a7908ce81485e537730329758f7eef606f21aa951991b"
+    },
+    {
+      "path": "vidux.config.json",
+      "sha256": "03a6dcbe0771f9eaf462a20a2e34248915f0369e2e200d19f06ea80463ef6707"
+    }
+  ],
+  "docs_files": [
+    {
+      "path": "docs/concepts/cycle.md",
+      "sha256": "e9232a1f03bfc92f52b370ea2c7a391ea94926a870181e89f7dc14dd1bbffe73",
+      "headings": [
+        {
+          "level": 1,
+          "text": "The Cycle"
+        },
+        {
+          "level": 2,
+          "text": "Step 1: READ"
+        },
+        {
+          "level": 2,
+          "text": "Step 2: ASSESS"
+        },
+        {
+          "level": 2,
+          "text": "Step 3: ACT"
+        },
+        {
+          "level": 2,
+          "text": "Step 4: VERIFY"
+        },
+        {
+          "level": 2,
+          "text": "Step 5: CHECKPOINT"
+        },
+        {
+          "level": 2,
+          "text": "Stuck Detection"
+        },
+        {
+          "level": 2,
+          "text": "Decision Log"
+        },
+        {
+          "level": 2,
+          "text": "Push Authorization"
+        },
+        {
+          "level": 2,
+          "text": "Escalation Statuses"
+        }
+      ]
+    },
+    {
+      "path": "docs/concepts/index.md",
+      "sha256": "5c77ab8df154ebc45f84270c41364b0a632fe7ae58ada4989138e4c6d0706993",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Core Concepts"
+        },
+        {
+          "level": 2,
+          "text": "The Three Layers"
+        },
+        {
+          "level": 2,
+          "text": "Why These Three Layers?"
+        },
+        {
+          "level": 2,
+          "text": "Key Concepts"
+        }
+      ]
+    },
+    {
+      "path": "docs/concepts/plan-structure.md",
+      "sha256": "095247e4439f675fc3b9a02b5e10b6041d084b1eb02be6289f68be45268253f7",
+      "headings": [
+        {
+          "level": 1,
+          "text": "PLAN.md Structure"
+        },
+        {
+          "level": 2,
+          "text": "Full Template"
+        },
+        {
+          "level": 1,
+          "text": "[Project Name]"
+        },
+        {
+          "level": 2,
+          "text": "Purpose"
+        },
+        {
+          "level": 2,
+          "text": "Evidence"
+        },
+        {
+          "level": 2,
+          "text": "Constraints"
+        },
+        {
+          "level": 2,
+          "text": "Tasks"
+        },
+        {
+          "level": 2,
+          "text": "Decision Log"
+        },
+        {
+          "level": 2,
+          "text": "Progress"
+        },
+        {
+          "level": 2,
+          "text": "Required Sections"
+        },
+        {
+          "level": 2,
+          "text": "Task Status FSM"
+        },
+        {
+          "level": 2,
+          "text": "Task Format"
+        },
+        {
+          "level": 2,
+          "text": "The Decision Log"
+        },
+        {
+          "level": 2,
+          "text": "Decision Log"
+        },
+        {
+          "level": 2,
+          "text": "Course Correction"
+        },
+        {
+          "level": 2,
+          "text": "Compound Tasks and Sub-Plans"
+        },
+        {
+          "level": 2,
+          "text": "Investigation Template"
+        },
+        {
+          "level": 1,
+          "text": "Investigation: [surface name]"
+        },
+        {
+          "level": 2,
+          "text": "Reporter Says        — exact quote from feedback"
+        },
+        {
+          "level": 2,
+          "text": "Evidence             — files, related tickets, recent commits, repro steps"
+        },
+        {
+          "level": 2,
+          "text": "Root Cause           — the specific code path, not symptoms"
+        },
+        {
+          "level": 2,
+          "text": "Impact Map           — other UI paths, other tickets, state flow"
+        },
+        {
+          "level": 2,
+          "text": "Fix Spec             — file:line changes with evidence for why"
+        },
+        {
+          "level": 2,
+          "text": "Tests                — assertions covering this ticket and related tickets"
+        },
+        {
+          "level": 2,
+          "text": "Gate                 — build passes, tests pass, visual check (for UI)"
+        },
+        {
+          "level": 2,
+          "text": "Garbage Collection"
+        },
+        {
+          "level": 2,
+          "text": "INBOX.md"
+        }
+      ]
+    },
+    {
+      "path": "docs/concepts/principles.md",
+      "sha256": "45c514a42412033bffaa0e4684a094ee9d31f21a1890db96e842a06f3328af36",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Five Principles"
+        },
+        {
+          "level": 2,
+          "text": "Principle 1: Plan First, Code Second"
+        },
+        {
+          "level": 1,
+          "text": "Bad (no evidence)"
+        },
+        {
+          "level": 1,
+          "text": "Good (evidence cited)"
+        },
+        {
+          "level": 2,
+          "text": "Principle 2: Design for Interruption"
+        },
+        {
+          "level": 2,
+          "text": "Principle 3: Investigate Before Fixing"
+        },
+        {
+          "level": 2,
+          "text": "Principle 4: Self-Extend with a Brake"
+        },
+        {
+          "level": 2,
+          "text": "Principle 5: Prove It Mechanically"
+        },
+        {
+          "level": 2,
+          "text": "The Quick Check / Deep Work Model"
+        }
+      ]
+    },
+    {
+      "path": "docs/concepts/store.md",
+      "sha256": "61977b2b9e9601a818aba1ca1c7a6d5fd9ff332c20692b9f86336d72b1d626e5",
+      "headings": [
+        {
+          "level": 1,
+          "text": "The Store"
+        },
+        {
+          "level": 2,
+          "text": "Why Files?"
+        },
+        {
+          "level": 2,
+          "text": "The Four Locations"
+        },
+        {
+          "level": 3,
+          "text": "PLAN.md"
+        },
+        {
+          "level": 3,
+          "text": "evidence/"
+        },
+        {
+          "level": 3,
+          "text": "investigations/"
+        },
+        {
+          "level": 1,
+          "text": "Investigation: [surface name]"
+        },
+        {
+          "level": 2,
+          "text": "Reporter Says        — exact quote from feedback"
+        },
+        {
+          "level": 2,
+          "text": "Evidence             — files, related tickets, recent commits, repro steps"
+        },
+        {
+          "level": 2,
+          "text": "Root Cause           — the specific code path, not symptoms"
+        },
+        {
+          "level": 2,
+          "text": "Impact Map           — other UI paths, other tickets, state flow"
+        },
+        {
+          "level": 2,
+          "text": "Fix Spec             — file:line changes with evidence for why"
+        },
+        {
+          "level": 2,
+          "text": "Tests                — assertions covering this ticket and related tickets"
+        },
+        {
+          "level": 2,
+          "text": "Gate                 — build passes, tests pass, visual check (for UI)"
+        },
+        {
+          "level": 3,
+          "text": "Git History"
+        },
+        {
+          "level": 2,
+          "text": "INBOX.md"
+        },
+        {
+          "level": 2,
+          "text": "The Invariant"
+        }
+      ]
+    },
+    {
+      "path": "docs/examples/index.md",
+      "sha256": "af6f44b3929f22e38e443c4fa49ae8cf19e30b9dbe2f0aac5339f07ebaec95c3",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Examples"
+        },
+        {
+          "level": 2,
+          "text": "Included examples"
+        },
+        {
+          "level": 3,
+          "text": "Bug fix lifecycle"
+        },
+        {
+          "level": 3,
+          "text": "Fleet reference"
+        },
+        {
+          "level": 2,
+          "text": "When to use these examples"
+        },
+        {
+          "level": 2,
+          "text": "Related docs"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/claude-lifecycle.md",
+      "sha256": "2afff226fe09db163025a62956b72fc281d97907e95c741ab14cd12ed2e0d861",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Claude Code Lane Lifecycle"
+        },
+        {
+          "level": 2,
+          "text": "Prerequisites"
+        },
+        {
+          "level": 2,
+          "text": "Lane Files"
+        },
+        {
+          "level": 2,
+          "text": "Creation"
+        },
+        {
+          "level": 2,
+          "text": "Cycle Execution"
+        },
+        {
+          "level": 3,
+          "text": "Post-push defer"
+        },
+        {
+          "level": 2,
+          "text": "Session Cycling"
+        },
+        {
+          "level": 2,
+          "text": "Session GC"
+        },
+        {
+          "level": 3,
+          "text": "CYCLE SIGNAL"
+        },
+        {
+          "level": 2,
+          "text": "Lane Count"
+        },
+        {
+          "level": 2,
+          "text": "Auto-Expire"
+        },
+        {
+          "level": 2,
+          "text": "Troubleshooting"
+        },
+        {
+          "level": 2,
+          "text": "See Also"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/codex-lifecycle.md",
+      "sha256": "80cd0834fac16b7a863079904d000104f958a950ac04b8da1e9d34024073d3ef",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Codex Automation Lifecycle"
+        },
+        {
+          "level": 2,
+          "text": "Prerequisites"
+        },
+        {
+          "level": 2,
+          "text": "Lane Files"
+        },
+        {
+          "level": 2,
+          "text": "Creation"
+        },
+        {
+          "level": 3,
+          "text": "1. Write the TOML"
+        },
+        {
+          "level": 3,
+          "text": "2. Insert the DB row"
+        },
+        {
+          "level": 3,
+          "text": "3. Verify"
+        },
+        {
+          "level": 3,
+          "text": "4. Full-quit and reopen the Codex app"
+        },
+        {
+          "level": 2,
+          "text": "Cycle Execution"
+        },
+        {
+          "level": 3,
+          "text": "Sandbox modes"
+        },
+        {
+          "level": 3,
+          "text": "Post-push defer"
+        },
+        {
+          "level": 2,
+          "text": "Persistence Model"
+        },
+        {
+          "level": 2,
+          "text": "Known Bugs"
+        },
+        {
+          "level": 2,
+          "text": "Troubleshooting"
+        },
+        {
+          "level": 2,
+          "text": "See Also"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/codex-setup.md",
+      "sha256": "5bc6580b464db07f4fd84648331a90d76096510469bf1f5b1f02f7faac0791fd",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Codex Setup Guide"
+        },
+        {
+          "level": 2,
+          "text": "Prerequisites"
+        },
+        {
+          "level": 2,
+          "text": "The Five-Step Setup Flow"
+        },
+        {
+          "level": 2,
+          "text": "Step 1 — Write `automation.toml`"
+        },
+        {
+          "level": 2,
+          "text": "Step 2 — Insert the DB row"
+        },
+        {
+          "level": 2,
+          "text": "Step 3 — Write lane state files"
+        },
+        {
+          "level": 1,
+          "text": "Most Leo lanes share ~/.claude-automations/<lane>/{prompt.md,memory.md}"
+        },
+        {
+          "level": 1,
+          "text": "across Claude and Codex. Reuse that directory if it exists."
+        },
+        {
+          "level": 1,
+          "text": "prompt.md — 8-block structure (Mission / Skills / Read / Gate / Assess / Act / Authority / Checkpoint)"
+        },
+        {
+          "level": 1,
+          "text": "memory.md — seed with the lane's creation entry"
+        },
+        {
+          "level": 1,
+          "text": "$LANE_ID — memory"
+        },
+        {
+          "level": 2,
+          "text": "Step 4 — Verify"
+        },
+        {
+          "level": 2,
+          "text": "Step 5 — Full-quit and reopen the Codex app"
+        },
+        {
+          "level": 2,
+          "text": "Verification Checklist"
+        },
+        {
+          "level": 2,
+          "text": "Updating an Existing Automation"
+        },
+        {
+          "level": 1,
+          "text": "1. Edit the TOML"
+        },
+        {
+          "level": 1,
+          "text": "2. Update the DB row (both sources must match)"
+        },
+        {
+          "level": 1,
+          "text": "3. Verify"
+        },
+        {
+          "level": 1,
+          "text": "4. Full-quit + reopen (the app caches the prompt at startup)"
+        },
+        {
+          "level": 2,
+          "text": "Stopping / Deleting an Automation"
+        },
+        {
+          "level": 1,
+          "text": "Lane state (prompt.md + memory.md) lives in ~/.claude-automations/ — keep"
+        },
+        {
+          "level": 1,
+          "text": "it as a record unless the lane is truly retired."
+        },
+        {
+          "level": 2,
+          "text": "See Also"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/harness.md",
+      "sha256": "c95ba216e759a3caed24d6e07e83959ee182766dd042e3069341fbfeed698ec7",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Harness Authoring"
+        },
+        {
+          "level": 2,
+          "text": "Core rule"
+        },
+        {
+          "level": 2,
+          "text": "The 8-block structure"
+        },
+        {
+          "level": 2,
+          "text": "Roles"
+        },
+        {
+          "level": 2,
+          "text": "Prompt size guidance"
+        },
+        {
+          "level": 2,
+          "text": "Common failure modes"
+        },
+        {
+          "level": 2,
+          "text": "Where to go next"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/index.md",
+      "sha256": "00d9030a961daeb572b97529a67a36c55334269c5dc35ed0c70fee800257eaf4",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Fleet Overview"
+        },
+        {
+          "level": 2,
+          "text": "What lives in this section"
+        },
+        {
+          "level": 2,
+          "text": "When to automate"
+        },
+        {
+          "level": 2,
+          "text": "When not to automate"
+        },
+        {
+          "level": 2,
+          "text": "Suggested reading order"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/operations.md",
+      "sha256": "ff80ca35f3113ada5c33322dde54d7bdb8eba6b575c1d4735c8181b0cf859f6b",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Fleet Operations"
+        },
+        {
+          "level": 2,
+          "text": "Operating model"
+        },
+        {
+          "level": 2,
+          "text": "Lane management"
+        },
+        {
+          "level": 2,
+          "text": "Dispatch model"
+        },
+        {
+          "level": 2,
+          "text": "Coordination checks"
+        },
+        {
+          "level": 2,
+          "text": "Writer and scanner gates"
+        },
+        {
+          "level": 2,
+          "text": "Worktree and branch discipline"
+        },
+        {
+          "level": 2,
+          "text": "Inbox and merge conflict protocol"
+        },
+        {
+          "level": 2,
+          "text": "Recommended companions"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/platforms.md",
+      "sha256": "73f715442b3361c3cbf48414274410e4f77e2465410ba4d218ee71346e83db92",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Platform Comparison: Claude Code vs Codex"
+        },
+        {
+          "level": 2,
+          "text": "At a Glance"
+        },
+        {
+          "level": 2,
+          "text": "Scheduling"
+        },
+        {
+          "level": 3,
+          "text": "Claude Code"
+        },
+        {
+          "level": 3,
+          "text": "Codex"
+        },
+        {
+          "level": 2,
+          "text": "Persistence Model"
+        },
+        {
+          "level": 3,
+          "text": "Claude Code"
+        },
+        {
+          "level": 3,
+          "text": "Codex"
+        },
+        {
+          "level": 2,
+          "text": "When to Use Which"
+        },
+        {
+          "level": 2,
+          "text": "Known Bugs (Codex, as of Apr 2026)"
+        },
+        {
+          "level": 2,
+          "text": "See Also"
+        }
+      ]
+    },
+    {
+      "path": "docs/fleet/recipes.md",
+      "sha256": "7138f0810c0d3382acaf88912e3ab63de76d7598643deda1dba3649a71c882cc",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Recipe Catalog"
+        },
+        {
+          "level": 2,
+          "text": "Core automation recipes"
+        },
+        {
+          "level": 2,
+          "text": "Supplemental guides in `guides/recipes/`"
+        },
+        {
+          "level": 2,
+          "text": "How to choose"
+        },
+        {
+          "level": 2,
+          "text": "Practical reading order"
+        }
+      ]
+    },
+    {
+      "path": "docs/guide/index.md",
+      "sha256": "cda1029ab4a11beca1d9be3d38e1679b9bfe8a6e91d032b95ad07ffbfe4fb312",
+      "headings": [
+        {
+          "level": 1,
+          "text": "What is Vidux?"
+        },
+        {
+          "level": 2,
+          "text": "The Core Problem"
+        },
+        {
+          "level": 2,
+          "text": "The Solution"
+        },
+        {
+          "level": 2,
+          "text": "How It Works"
+        },
+        {
+          "level": 2,
+          "text": "How Vidux Compares"
+        },
+        {
+          "level": 2,
+          "text": "Core Invariants"
+        },
+        {
+          "level": 2,
+          "text": "Next Steps"
+        }
+      ]
+    },
+    {
+      "path": "docs/guide/installation.md",
+      "sha256": "59261e552a2a18877749e5ad003c197adc2ea477b7c9a99afd484095b99e273d",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Installation"
+        },
+        {
+          "level": 2,
+          "text": "Prerequisites"
+        },
+        {
+          "level": 2,
+          "text": "Install the Skill"
+        },
+        {
+          "level": 2,
+          "text": "Optional: Git Hooks"
+        },
+        {
+          "level": 2,
+          "text": "Optional: Claude Code Enforcement Hooks"
+        },
+        {
+          "level": 2,
+          "text": "Verifying Installation"
+        },
+        {
+          "level": 2,
+          "text": "Ecosystem Skills"
+        }
+      ]
+    },
+    {
+      "path": "docs/guide/quickstart.md",
+      "sha256": "c5a215aae8fc8ab66e21566c09059cf28821f22a53030e5f6fe2e7d5b9b70555",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Quick Start"
+        },
+        {
+          "level": 2,
+          "text": "1. Install Vidux"
+        },
+        {
+          "level": 2,
+          "text": "2. Start a Session"
+        },
+        {
+          "level": 2,
+          "text": "3. Understand the Amplification Flow"
+        },
+        {
+          "level": 2,
+          "text": "4. The First Cycle: Evidence Gathering"
+        },
+        {
+          "level": 1,
+          "text": "My Project"
+        },
+        {
+          "level": 2,
+          "text": "Purpose"
+        },
+        {
+          "level": 2,
+          "text": "Evidence"
+        },
+        {
+          "level": 2,
+          "text": "Tasks"
+        },
+        {
+          "level": 2,
+          "text": "Decision Log"
+        },
+        {
+          "level": 2,
+          "text": "Progress"
+        },
+        {
+          "level": 2,
+          "text": "5. Subsequent Cycles: Code Execution"
+        },
+        {
+          "level": 2,
+          "text": "6. Crash Recovery"
+        },
+        {
+          "level": 2,
+          "text": "7. When All Tasks Complete"
+        },
+        {
+          "level": 2,
+          "text": "Common Patterns"
+        },
+        {
+          "level": 2,
+          "text": "Next Steps"
+        }
+      ]
+    },
+    {
+      "path": "docs/index.md",
+      "sha256": "f1231aefd4a56adf65655a5d372b993c22dfea1e6a4da45bcb316df7cacfa73a",
+      "headings": []
+    },
+    {
+      "path": "docs/reference/commands.md",
+      "sha256": "9c8cdd17a747640902f2ce6e8415a64cfed5f6f10b816467fc50ada84d0d009d",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Commands Reference"
+        },
+        {
+          "level": 2,
+          "text": "`/vidux`"
+        },
+        {
+          "level": 3,
+          "text": "Stages"
+        },
+        {
+          "level": 3,
+          "text": "Startup contract"
+        },
+        {
+          "level": 3,
+          "text": "Core cycle"
+        },
+        {
+          "level": 2,
+          "text": "`/vidux-status`"
+        },
+        {
+          "level": 3,
+          "text": "What it reports"
+        },
+        {
+          "level": 3,
+          "text": "Output model"
+        },
+        {
+          "level": 2,
+          "text": "Source files"
+        },
+        {
+          "level": 2,
+          "text": "Related references"
+        }
+      ]
+    },
+    {
+      "path": "docs/reference/config.md",
+      "sha256": "fb56219917e9a3ea7c4edfef45c636fae9479e202feca24832df2969fd7fa5f6",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Configuration"
+        },
+        {
+          "level": 2,
+          "text": "Primary file"
+        },
+        {
+          "level": 2,
+          "text": "`plan_store`"
+        },
+        {
+          "level": 2,
+          "text": "Example minimal config"
+        },
+        {
+          "level": 2,
+          "text": "Operational defaults"
+        },
+        {
+          "level": 2,
+          "text": "External inbox sync"
+        },
+        {
+          "level": 2,
+          "text": "Where config is used"
+        },
+        {
+          "level": 2,
+          "text": "Related references"
+        }
+      ]
+    },
+    {
+      "path": "docs/reference/hooks.md",
+      "sha256": "00061d92dbb70d25ad9e8e9d5f34e8017fe38a4e98adc214501cae8c1696aedb",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Hooks Reference"
+        },
+        {
+          "level": 2,
+          "text": "Available hooks"
+        },
+        {
+          "level": 2,
+          "text": "Installation"
+        },
+        {
+          "level": 2,
+          "text": "Behavior notes"
+        },
+        {
+          "level": 2,
+          "text": "When to use hooks"
+        },
+        {
+          "level": 2,
+          "text": "Related references"
+        }
+      ]
+    },
+    {
+      "path": "docs/reference/index.md",
+      "sha256": "5cf69b5e84bbeb703ad6b35a660029718e685649e94c81107c2e3cdd0057fc30",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Reference Overview"
+        },
+        {
+          "level": 2,
+          "text": "Plan and prompt references"
+        },
+        {
+          "level": 2,
+          "text": "Operational references"
+        },
+        {
+          "level": 2,
+          "text": "Suggested use"
+        }
+      ]
+    },
+    {
+      "path": "docs/reference/plan-fields.md",
+      "sha256": "4a80b92f2ee9c9c8b57141625eea050b786be87f2ae001a5afb02dd11476f655",
+      "headings": [
+        {
+          "level": 1,
+          "text": "PLAN.md Field Reference"
+        },
+        {
+          "level": 2,
+          "text": "Section Order"
+        },
+        {
+          "level": 2,
+          "text": "Task Status FSM"
+        },
+        {
+          "level": 2,
+          "text": "Task Annotations"
+        },
+        {
+          "level": 2,
+          "text": "Decision Log Entry Types"
+        },
+        {
+          "level": 2,
+          "text": "Progress Entry Format"
+        },
+        {
+          "level": 2,
+          "text": "Evidence Source Tags"
+        },
+        {
+          "level": 2,
+          "text": "Constraints Block Format"
+        },
+        {
+          "level": 2,
+          "text": "Constraints"
+        },
+        {
+          "level": 2,
+          "text": "Compound Task Sub-Plan Structure"
+        },
+        {
+          "level": 1,
+          "text": "Investigation: <surface name>"
+        },
+        {
+          "level": 2,
+          "text": "Reporter Says"
+        },
+        {
+          "level": 2,
+          "text": "Evidence"
+        },
+        {
+          "level": 2,
+          "text": "Root Cause"
+        },
+        {
+          "level": 2,
+          "text": "Impact Map"
+        },
+        {
+          "level": 2,
+          "text": "Fix Spec"
+        },
+        {
+          "level": 2,
+          "text": "Tests"
+        },
+        {
+          "level": 2,
+          "text": "Gate"
+        },
+        {
+          "level": 2,
+          "text": "See Also"
+        }
+      ]
+    },
+    {
+      "path": "docs/reference/prompt-template.md",
+      "sha256": "8f766187db03cc3e1d9e23a72142d82688e6f9033a2a6a4acca8f906fd98bfa1",
+      "headings": [
+        {
+          "level": 1,
+          "text": "The 8-Block Prompt Template"
+        },
+        {
+          "level": 2,
+          "text": "The 8 Blocks"
+        },
+        {
+          "level": 2,
+          "text": "Block 1: Mission"
+        },
+        {
+          "level": 2,
+          "text": "1. Mission"
+        },
+        {
+          "level": 2,
+          "text": "Block 2: Skills"
+        },
+        {
+          "level": 2,
+          "text": "2. Skills"
+        },
+        {
+          "level": 2,
+          "text": "Block 3: Read"
+        },
+        {
+          "level": 2,
+          "text": "3. Read"
+        },
+        {
+          "level": 2,
+          "text": "Block 4: Gate"
+        },
+        {
+          "level": 2,
+          "text": "4. Gate"
+        },
+        {
+          "level": 2,
+          "text": "Block 5: Assess"
+        },
+        {
+          "level": 2,
+          "text": "5. Assess"
+        },
+        {
+          "level": 2,
+          "text": "Block 6: Act"
+        },
+        {
+          "level": 2,
+          "text": "6. Act"
+        },
+        {
+          "level": 3,
+          "text": "Code changes (worktree discipline)"
+        },
+        {
+          "level": 3,
+          "text": "Verification (mandatory before commit)"
+        },
+        {
+          "level": 3,
+          "text": "Commit + push"
+        },
+        {
+          "level": 3,
+          "text": "Merge (only when gate allows)"
+        },
+        {
+          "level": 3,
+          "text": "Delegation (optional — Mode A / Mode B)"
+        },
+        {
+          "level": 2,
+          "text": "Block 7: Authority"
+        },
+        {
+          "level": 2,
+          "text": "7. Authority"
+        },
+        {
+          "level": 3,
+          "text": "Paths this lane owns (may edit freely)"
+        },
+        {
+          "level": 3,
+          "text": "Paths this lane must NEVER touch"
+        },
+        {
+          "level": 3,
+          "text": "Push authorization"
+        },
+        {
+          "level": 2,
+          "text": "Block 8: Checkpoint"
+        },
+        {
+          "level": 2,
+          "text": "8. Checkpoint"
+        },
+        {
+          "level": 3,
+          "text": "Signal-only format"
+        },
+        {
+          "level": 3,
+          "text": "Valid tags"
+        },
+        {
+          "level": 3,
+          "text": "No-noise rule"
+        },
+        {
+          "level": 2,
+          "text": "Full Example"
+        },
+        {
+          "level": 1,
+          "text": "leojkwan-coordinator — lane prompt"
+        },
+        {
+          "level": 2,
+          "text": "1. Mission"
+        },
+        {
+          "level": 2,
+          "text": "2. Skills"
+        },
+        {
+          "level": 2,
+          "text": "3. Read"
+        },
+        {
+          "level": 2,
+          "text": "4. Gate"
+        },
+        {
+          "level": 2,
+          "text": "5. Assess"
+        },
+        {
+          "level": 2,
+          "text": "6. Act"
+        },
+        {
+          "level": 2,
+          "text": "7. Authority"
+        },
+        {
+          "level": 2,
+          "text": "8. Checkpoint"
+        },
+        {
+          "level": 2,
+          "text": "Common Failure Modes"
+        },
+        {
+          "level": 2,
+          "text": "See Also"
+        }
+      ]
+    },
+    {
+      "path": "docs/reference/scripts.md",
+      "sha256": "bff26d7944d3c731a152148eae1e4b7035fb59ea6468fa79c159ced85479fc2a",
+      "headings": [
+        {
+          "level": 1,
+          "text": "Scripts Reference"
+        },
+        {
+          "level": 2,
+          "text": "Core cycle and plan scripts"
+        },
+        {
+          "level": 2,
+          "text": "Health and verification scripts"
+        },
+        {
+          "level": 2,
+          "text": "Codex maintenance scripts"
+        },
+        {
+          "level": 2,
+          "text": "Support libraries in `scripts/lib/`"
+        },
+        {
+          "level": 2,
+          "text": "One-off and migration helpers"
+        },
+        {
+          "level": 2,
+          "text": "How to navigate the directory"
+        }
+      ]
+    }
+  ],
+  "docs_links": [
+    {
+      "from": "docs/concepts/index.md",
+      "to": "docs/concepts/cycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/concepts/index.md",
+      "to": "docs/concepts/plan-structure.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/concepts/index.md",
+      "to": "docs/concepts/principles.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/concepts/index.md",
+      "to": "docs/concepts/store.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/concepts/store.md",
+      "to": "docs/concepts/plan-structure.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/examples/index.md",
+      "to": "docs/fleet/index.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/examples/index.md",
+      "to": "docs/guide/quickstart.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/claude-lifecycle.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/claude-lifecycle.md",
+      "to": "docs/fleet/platforms.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/claude-lifecycle.md",
+      "to": "docs/fleet/platforms.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/claude-lifecycle.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/claude-lifecycle.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-lifecycle.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-lifecycle.md",
+      "to": "docs/fleet/codex-setup.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-lifecycle.md",
+      "to": "docs/fleet/operations.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-lifecycle.md",
+      "to": "docs/fleet/operations.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-lifecycle.md",
+      "to": "docs/fleet/platforms.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-lifecycle.md",
+      "to": "docs/fleet/recipes.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/fleet/operations.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/fleet/platforms.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/fleet/recipes.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/codex-setup.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/harness.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/harness.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/harness.md",
+      "to": "docs/fleet/operations.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/harness.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/codex-setup.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/harness.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/harness.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/operations.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/operations.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/platforms.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/platforms.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/recipes.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/index.md",
+      "to": "docs/fleet/recipes.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/operations.md",
+      "to": "docs/fleet/harness.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/operations.md",
+      "to": "docs/fleet/recipes.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/operations.md",
+      "to": "docs/reference/config.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/platforms.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/platforms.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/platforms.md",
+      "to": "docs/fleet/codex-setup.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/recipes.md",
+      "to": "docs/fleet/harness.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/fleet/recipes.md",
+      "to": "docs/fleet/operations.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/index.md",
+      "to": "docs/concepts/principles.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/index.md",
+      "to": "docs/guide/installation.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/index.md",
+      "to": "docs/guide/quickstart.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/installation.md",
+      "to": "docs/reference/commands.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/installation.md",
+      "to": "docs/reference/hooks.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/quickstart.md",
+      "to": "docs/concepts/cycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/quickstart.md",
+      "to": "docs/concepts/plan-structure.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/guide/quickstart.md",
+      "to": "docs/concepts/principles.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/commands.md",
+      "to": "docs/reference/config.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/commands.md",
+      "to": "docs/reference/plan-fields.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/commands.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/config.md",
+      "to": "docs/reference/commands.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/config.md",
+      "to": "docs/reference/scripts.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/hooks.md",
+      "to": "docs/reference/plan-fields.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/hooks.md",
+      "to": "docs/reference/scripts.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/commands.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/commands.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/config.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/hooks.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/hooks.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/plan-fields.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/plan-fields.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/scripts.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/index.md",
+      "to": "docs/reference/scripts.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/concepts/cycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/concepts/cycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/concepts/plan-structure.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/concepts/plan-structure.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/concepts/plan-structure.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/concepts/principles.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/concepts/principles.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/plan-fields.md",
+      "to": "docs/reference/prompt-template.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/prompt-template.md",
+      "to": "docs/concepts/cycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/prompt-template.md",
+      "to": "docs/concepts/principles.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/prompt-template.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/prompt-template.md",
+      "to": "docs/fleet/claude-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/prompt-template.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/prompt-template.md",
+      "to": "docs/fleet/codex-lifecycle.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/prompt-template.md",
+      "to": "docs/reference/plan-fields.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/scripts.md",
+      "to": "docs/reference/config.md",
+      "kind": "markdown-link"
+    },
+    {
+      "from": "docs/reference/scripts.md",
+      "to": "docs/reference/hooks.md",
+      "kind": "markdown-link"
+    }
+  ],
+  "protected_blocks": [],
+  "source_ownership": []
+}
