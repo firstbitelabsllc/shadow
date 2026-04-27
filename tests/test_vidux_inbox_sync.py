@@ -81,11 +81,18 @@ class InboxSyncTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def external_item(self, external_id="lin_1", title="Fix duplicated card"):
+    def external_item(
+        self,
+        external_id="lin_1",
+        title="Fix duplicated card",
+        status=None,
+        blocked=False,
+    ):
         return sync.ExternalItem(
             external_id=external_id,
             title=title,
-            status=sync.VidxStatus.PENDING,
+            status=status or sync.VidxStatus.PENDING,
+            blocked=blocked,
         )
 
     def test_source_marker_rehydrates_mapping_before_push(self):
@@ -134,6 +141,75 @@ class InboxSyncTests(unittest.TestCase):
         state = sync.load_state(self.plan_dir)
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
+
+    def test_push_status_skipped_when_remote_matches_local(self):
+        self.write_plan(
+            "- [in_progress] Task 1: Active work [Source: linear:lin_1]"
+        )
+        adapter = FakeLinearAdapter(
+            [self.external_item(status=sync.VidxStatus.IN_PROGRESS)]
+        )
+
+        summary = sync.sync_plan_with_adapter(
+            self.plan_dir,
+            adapter,
+            direction="push",
+            dry_run=False,
+        )
+
+        self.assertEqual(adapter.status_pushes, [])
+        self.assertEqual(adapter.field_pushes, [])
+        self.assertEqual(summary["push_skipped_idempotent"], 2)
+        self.assertEqual(summary["errors"], [])
+
+    def test_push_status_fires_when_remote_status_diverges(self):
+        self.write_plan(
+            "- [in_progress] Task 1: Active work [Source: linear:lin_1]"
+        )
+        adapter = FakeLinearAdapter(
+            [self.external_item(status=sync.VidxStatus.PENDING)]
+        )
+
+        summary = sync.sync_plan_with_adapter(
+            self.plan_dir,
+            adapter,
+            direction="push",
+            dry_run=False,
+        )
+
+        self.assertEqual(
+            adapter.status_pushes, [("lin_1", sync.VidxStatus.IN_PROGRESS)]
+        )
+        self.assertEqual(adapter.field_pushes, [])
+        self.assertEqual(summary["push_skipped_idempotent"], 1)
+        self.assertEqual(summary["errors"], [])
+
+    def test_push_fields_fires_when_blocked_flag_diverges(self):
+        self.write_plan(
+            "- [blocked] Task 1: Stuck work [Source: linear:lin_1]"
+        )
+        adapter = FakeLinearAdapter(
+            [
+                self.external_item(
+                    status=sync.VidxStatus.PENDING,
+                    blocked=False,
+                )
+            ]
+        )
+
+        summary = sync.sync_plan_with_adapter(
+            self.plan_dir,
+            adapter,
+            direction="push",
+            dry_run=False,
+        )
+
+        self.assertEqual(adapter.status_pushes, [])
+        self.assertEqual(
+            adapter.field_pushes, [("lin_1", {"_blocked": True})]
+        )
+        self.assertEqual(summary["push_skipped_idempotent"], 0)
+        self.assertEqual(summary["errors"], [])
 
     def test_do_push_false_suppresses_auto_promote_plan_push(self):
         self.write_plan("- [pending] Task 1: Local-only task")
