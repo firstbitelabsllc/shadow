@@ -145,9 +145,10 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 
 | Path | What |
 |------|------|
-| `SKILL.md` | Part 1 only — discipline, cycle, PLAN.md template, compound tasks (~280 lines) |
-| `guides/automation.md` | Part 2 (opt-in) — 24/7 fleet model, session-gc, lane bootstrap, delegation |
-| `guides/recipes/` | 12 opt-in recipes — CLAUDE.md rules, lane prompts, subagent delegation, Codex runtime, friction patterns |
+| `SKILL.md` | Core discipline plus the condensed automation summary — five principles, the cycle, PLAN.md template, and the Part 2 decision trees |
+| `guides/automation.md` | Opt-in automation guide — 24/7 fleet model, session-gc, lane bootstrap, and delegation |
+| `guides/recipes.md` | Named automation recipe catalog — PR review, PR lifecycle, deploy watching, trunk health, self-improvement, and related lane patterns |
+| `guides/recipes/` | Focused opt-in guides — CLAUDE.md rules, lane prompts, subagent delegation, Codex runtime, and workflow-friction patterns |
 | `CHANGELOG.md` | Release notes — latest doctrine changes and migration notes |
 | `DOCTRINE.md` | The short doctrine (~5 min read) |
 | `LOOP.md` | Stateless cycle mechanics |
@@ -155,7 +156,7 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
 | `commands/` | `/vidux` (single entry point — Part 1 inline, Part 2 + recipes on demand) |
 | `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
-| `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-worktree-gc, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
+| `scripts/` | Cycle, status, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, `vidux-linear-reconcile.py`, and `vidux-test-all.sh` |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
@@ -214,7 +215,8 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 - [Fleet Operations](guides/fleet-ops.md) — automation fleet management
 - [Investigation Lifecycle](guides/investigation.md) — the parent-plan + child-investigation pattern
 - [Ready PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
-- [Automation Recipes](guides/recipes.md) — 8 ready-to-deploy fleet patterns with prompt templates
+- [Automation Recipes](guides/recipes.md) — the named automation recipe catalog for lane shapes and operating patterns
+- [Focused Recipes](guides/recipes/) — narrow guides such as Codex runtime, prompt patterns, and evidence discipline
 - [Examples](examples/) — worked examples (start with [bug fix lifecycle](examples/bug-fix-lifecycle/))
 
 ## Sibling Project
