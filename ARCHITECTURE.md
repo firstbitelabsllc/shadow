@@ -145,15 +145,15 @@ Vidux core is markdown + git. Extensions plug external systems (kanban boards, i
 
 **Composition over migration.** Adapters are additive. A repo's `vidux.config.json` can list multiple `inbox_sources` entries — `gh_projects` and `linear` coexist; cards minted on one stay on that surface and never bridge. Per-adapter quota buckets stay independent: GitHub PAT vs Linear personal-key never share a rate limit.
 
-**Sync split.** Independent crons handle independent buckets, separated via `--only-adapter`:
+**Sync split.** The repo ships one sync entry point, `scripts/vidux-inbox-sync.py`. Operators can scope scheduled runs per adapter with `--only-adapter` when they want independent cadences or credential buckets:
 
-| Cron | Cadence | Scope | Quota |
-|------|---------|-------|-------|
-| `vidux-fleet-sync`              | 30 min  | `--only-adapter=gh_projects` | GitHub PAT |
-| `vidux-linear-sync`             | 10 min  | `--only-adapter=linear`      | Linear personal-key |
-| `vidux-linear-primacy-nurse-local` | 15 min | `claude -p` against the in-flight Linear primacy plan | Claude Max |
+| Invocation shape | Scope | Credential bucket |
+|------|-------|-------|
+| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter gh_projects --direction=both` | GitHub Projects only | GitHub token file |
+| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter linear --direction=both` | Linear only | Linear token file |
+| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --direction=both` | All enabled adapters for that repo | All configured token files |
 
-Collapsing them into a single cron is forbidden — one bucket exhaustion would silently take down the other surface.
+The repo does not ship scheduler wrappers for these sync passes; a fleet can run one combined invocation or separate scheduler entries per adapter.
 
 **State sidecar.** Per-plan `<plan_dir>/.external-state.json` stores the `task_id ↔ external_id` map per adapter, plus adapter-specific metadata (Linear's task_metadata sidecar after the 2026-04-25 description-codec drop). Gitignored. **Never lose this file** — `git stash drop` after a rebase that captured it permanently breaks the dedup story; always `git stash pop`.
 
