@@ -41,6 +41,51 @@ Adapters are **additive**. A repo's `vidux.config.json` can list multiple `inbox
 
 This means migrating from one tracker to another is a no-op — you don't migrate, you just add the new adapter alongside the old one and let teams use whichever surface fits the work.
 
+## Codebase-owned projects
+
+For repo lanes, the safest external project is named after the codebase it
+feeds, such as `<repo-name>` or `<service-name>`. Product buckets such as
+"Launch Queue" or "Infrastructure" can still exist in a planning tool, but
+they are planning buckets, not repo intake queues.
+
+The Linear adapter supports an explicit guardrail:
+
+```json
+{
+  "adapter": "linear",
+  "enabled": true,
+  "config": {
+    "team_id": "linear-team-uuid",
+    "project_id": "linear-project-uuid",
+    "project_name": "repo-name",
+    "auto_promote_target": "vidux"
+  }
+}
+```
+
+When `project_name` is present, `fetch_inbox`, `push_task`, status sync, and
+field sync all validate the remote Linear project before doing work. A copied
+config that still points at "Launch Queue" fails closed instead of promoting
+product-board cards into the wrong repo plan.
+
+## Local policy overlays
+
+Core vidux stays open-source and organization-neutral. If your team needs
+local policy such as "which Linear projects map to which repos", "which review
+bot blocks merge", or "which cron cadence to use overnight", put that in a
+separate overlay skill or runbook rather than hardcoding it into core.
+
+A good overlay:
+
+- Loads after `/vidux` and says it overlays core instead of replacing it.
+- Stores organization-specific project ids, repo names, review tools, and
+  merge precedents outside the public adapter docs.
+- References the generic adapter contract here instead of duplicating it.
+- Treats contradictions with core as overlay bugs.
+
+That split keeps Vidux reusable while still letting a team make its own
+opinionated operating layer.
+
 ## Sync architecture
 
 The repo ships one sync entry point: `scripts/vidux-inbox-sync.py`. Operators can schedule separate invocations per adapter via `--only-adapter` when they want independent cadences or credentials:
@@ -74,11 +119,19 @@ When an adapter's config sets `auto_promote_target: <plan-dir>`, novel external 
 
 Missing `auto_promote_target` paths fail closed. Vidux refuses to fall back to `INBOX.md`, because that would route external work to the first plan in the store instead of the lane that owns the board/project.
 
+Auto-promote also has a batch safety cap: by default, more than 25 novel items
+in one run fails closed before mutating `PLAN.md`. Set
+`auto_promote_max_new` to a different integer, or to `null` to disable the cap
+for a deliberate bulk import.
+
 **Round-trip dedup is required for safety.** Without it, the push half mints duplicate cards every cycle (push uses `task.id` as the mapping key while auto-promote names cards `BD-N` — a namespace mismatch that causes infinite-mint). The sync script's push reconcile must scan task lines for an existing `[Source: <adapter>:<id>]` marker before pushing.
 
 ## Self-extending lanes
 
-Per [`/vidux-leo`](https://github.com/leojkwan/ai/blob/main/skills/vidux-leo/SKILL.md), lanes that opt in via `Self-extending: true` in their lane prompt **claim adjacent external cards** when their queue empties or when they spot a card whose project/labels/title intersect their scope.
+Some organizations let lanes opt in to adjacent work. A lane that declares
+`Self-extending: true` in its prompt can **claim adjacent external cards** when
+its queue empties or when it spots a card whose project/labels/title intersect
+its scope.
 
 Claim discipline:
 

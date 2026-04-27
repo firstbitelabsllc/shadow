@@ -68,6 +68,7 @@ STATE_FILENAME = ".external-state.json"
 INBOX_FILENAME = "INBOX.md"
 PLAN_FILENAME = "PLAN.md"
 INBOX_TAG = "live-feedback"
+DEFAULT_AUTO_PROMOTE_MAX_NEW = 25
 
 
 # --- Config loading ----------------------------------------------------------
@@ -147,14 +148,14 @@ def resolve_plan_dirs(config: dict[str, Any], explicit: str | None) -> list[Path
 
 # Match task lines. Supports:
 #   "- [pending] T7: description ..."              (vidux-kanban-ext style)
-#   "- [pending] **GP-M6**: description ..."       (strongyes game-plan style — bolded ID)
+#   "- [pending] **GP-M6**: description ..."       (bolded task id)
 #   "- [pending] I5: description ..."              (single-letter prefix)
 # ID must start with an uppercase letter and may contain alphanumerics, `-`, `_`, `.`
 # Optional `**...**` bold wrapping is tolerated and stripped by post-match cleanup.
 _TASK_LINE = re.compile(
     r"^- \[(?P<status>pending|in_progress|in_review|completed|blocked)\] "
     r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.+\-]*(?:\s+\d+(?:\.\d+)?)?)(?:\*\*)?"
-    r"(?P<extras>(?:\s*(?:\(NEW[^)]*\)|\([^)]*Team[^)]*\)|\[Depends:[^\]]*\]))*)"
+    r"(?P<extras>(?:\s*(?:\([^)]*\)|\[[^\]]+\]))*)"
     r"\s*:\s*"
     r"(?P<body>.*)$"
 )
@@ -204,13 +205,14 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
         status = VidxStatus(m.group("status"))
         raw_id = m.group("id")
         body = m.group("body").strip()
+        metadata_text = f"{m.group('extras') or ''} {body}"
 
         title = _strip_tags(body)
 
-        evidence = _first(_EVIDENCE_TAG, body)
-        investigation = _first(_INVESTIGATION_TAG, body)
-        source = _first(_SOURCE_TAG, body)
-        eta_hours = _parse_eta(body)
+        evidence = _first(_EVIDENCE_TAG, metadata_text)
+        investigation = _first(_INVESTIGATION_TAG, metadata_text)
+        source = _first(_SOURCE_TAG, metadata_text)
+        eta_hours = _parse_eta(metadata_text)
 
         tasks.append(
             PlanTask(
@@ -356,6 +358,91 @@ def _next_bd_seq(plan_text: str) -> int:
     return (max(seen) + 1) if seen else 1
 
 
+def _matchable_title(title: str) -> str:
+    """Normalize task/card titles for conservative duplicate recovery."""
+    stripped = _strip_tags(title)
+    lowered = stripped.lower()
+    lowered = lowered.replace("—", "-").replace("–", "-")
+    lowered = re.sub(r"\s+", " ", lowered)
+    return lowered.strip(" *`\"'")
+
+
+def recover_title_mappings(
+    plan_dirs: list[Path],
+    items: list[ExternalItem],
+    adapter_name: str,
+    dry_run: bool,
+) -> set[str]:
+    """Recover missing sidecar mappings for exact title matches.
+
+    Sidecars are intentionally gitignored. In a fresh worktree, an
+    auto-promote target can otherwise re-add existing Linear cards as new
+    `BD-*` rows because there is no `.external-state.json` memory yet.
+
+    This fallback only maps unique exact normalized titles. Ambiguous titles
+    remain novel so the operator can see them instead of silently binding the
+    wrong task.
+    """
+    if not items:
+        return set()
+
+    item_by_title: dict[str, ExternalItem] = {}
+    duplicate_item_titles: set[str] = set()
+    for item in items:
+        key = _matchable_title(item.title)
+        if not key:
+            continue
+        if key in item_by_title:
+            duplicate_item_titles.add(key)
+            continue
+        item_by_title[key] = item
+
+    task_by_title: dict[str, tuple[Path, str]] = {}
+    duplicate_task_titles: set[str] = set()
+    known_ext_ids: set[str] = set()
+    for plan_dir in plan_dirs:
+        plan_path = plan_dir / PLAN_FILENAME
+        if not plan_path.exists():
+            continue
+        state = load_state(plan_dir)
+        mapping = adapter_state(state, adapter_name)
+        known_ext_ids.update(mapping.values())
+        for task in parse_plan(plan_path):
+            ext_id = source_external_id(task, adapter_name)
+            if ext_id:
+                known_ext_ids.add(ext_id)
+            key = _matchable_title(task.title)
+            if not key:
+                continue
+            if key in task_by_title:
+                duplicate_task_titles.add(key)
+                continue
+            task_by_title[key] = (plan_dir, task.id)
+
+    recovered: set[str] = set()
+    for title_key, item in item_by_title.items():
+        if title_key in duplicate_item_titles or title_key in duplicate_task_titles:
+            continue
+        task_ref = task_by_title.get(title_key)
+        if not task_ref:
+            continue
+        if item.external_id in known_ext_ids:
+            recovered.add(item.external_id)
+            continue
+        plan_dir, task_id = task_ref
+        state = load_state(plan_dir)
+        mapping = adapter_state(state, adapter_name)
+        existing = mapping.get(task_id)
+        if existing and existing != item.external_id:
+            continue
+        recovered.add(item.external_id)
+        if not dry_run:
+            mapping[task_id] = item.external_id
+            save_state(plan_dir, state)
+            known_ext_ids.add(item.external_id)
+    return recovered
+
+
 def _split_plan_for_task_insert(text: str) -> tuple[str, str, str]:
     """Split PLAN.md into (head, tasks_block, tail) so we can append new task
     lines just before the next sibling header (Decision Log / Progress / etc).
@@ -405,6 +492,7 @@ def auto_promote_novel_items(
     adapter_name: str,
     fleet_known_ext_ids: set[str],
     dry_run: bool,
+    max_new: int | None = DEFAULT_AUTO_PROMOTE_MAX_NEW,
 ) -> tuple[int, dict[str, str]]:
     """Promote novel external items directly to a target plan's `## Tasks`.
 
@@ -454,6 +542,13 @@ def auto_promote_novel_items(
     if not new_lines:
         return 0, {}
 
+    if max_new is not None and len(new_lines) > max_new:
+        raise ValueError(
+            "auto_promote would append "
+            f"{len(new_lines)} tasks, above auto_promote_max_new={max_new}; "
+            "refusing to mutate PLAN.md"
+        )
+
     if not dry_run:
         head, tasks, tail = _split_plan_for_task_insert(text)
         # Ensure the tasks block ends with exactly one blank line before tail.
@@ -469,6 +564,23 @@ def auto_promote_novel_items(
             new_text = head + addition + ("\n" if tail else "") + tail
         plan_path.write_text(new_text, encoding="utf-8")
     return len(new_lines), new_mappings
+
+
+def auto_promote_max_new(source: dict[str, Any]) -> int | None:
+    """Return the configured auto-promote batch cap for one source."""
+    raw = (source.get("config") or {}).get(
+        "auto_promote_max_new",
+        DEFAULT_AUTO_PROMOTE_MAX_NEW,
+    )
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("auto_promote_max_new must be an integer or null") from exc
+    if value < 0:
+        raise ValueError("auto_promote_max_new must be >= 0 or null")
+    return value
 
 
 # --- PLAN.md status flip -----------------------------------------------------
@@ -671,8 +783,8 @@ def sync_plan_with_adapter(
         # Idempotency: skip the GraphQL mutation when remote already
         # matches local. This was the rate-limit-flood root cause —
         # the loop fired ~138 push_status calls per cycle on
-        # strongyes-web even when nothing changed, exhausting Linear's
-        # 3000/hr bucket in one hour. INBOX P1 2026-04-25.
+        # a busy repo even when nothing changed, exhausting Linear's
+        # hourly bucket in one hour. INBOX P1 2026-04-25.
         skipped = 0
         for task in tasks:
             ext_id = mapping.get(task.id)
@@ -941,8 +1053,22 @@ def main(argv: list[str] | None = None) -> int:
         # When set, novel cards skip the INBOX.md path and land directly in
         # the named plan_dir's PLAN.md as `[pending] BD-<n>: ...` tasks.
         promote_target_dir: Path | None = None
+        promote_max_new: int | None = DEFAULT_AUTO_PROMOTE_MAX_NEW
         promote_raw = (source.get("config") or {}).get("auto_promote_target")
         if promote_raw:
+            try:
+                promote_max_new = auto_promote_max_new(source)
+            except ValueError as exc:
+                results.append({
+                    "_kind": "auto_promote",
+                    "adapter": adapter.name,
+                    "target": str(promote_raw),
+                    "promoted": 0,
+                    "errors": [str(exc)],
+                })
+                if exit_code == 0:
+                    exit_code = 2
+                continue
             base = Path(config["_config_dir"])
             cand = Path(promote_raw).expanduser()
             promote_target_dir = (
@@ -966,6 +1092,22 @@ def main(argv: list[str] | None = None) -> int:
                     exit_code = 2
                 continue
 
+        title_recovered_ext_ids: set[str] = set()
+        if promote_target_dir is not None and args.direction in ("pull", "both"):
+            try:
+                ext_items_for_recovery = adapter.fetch_inbox()
+            except Exception:
+                # The plan loop below records the fetch error in the normal
+                # per-plan summaries. Avoid adding a duplicate synthetic error.
+                ext_items_for_recovery = []
+            title_recovered_ext_ids = recover_title_mappings(
+                plan_dirs,
+                ext_items_for_recovery,
+                adapter.name,
+                args.dry_run,
+            )
+            fleet_known.update(title_recovered_ext_ids)
+
         # When auto-promote is on, suppress the per-plan INBOX append
         # entirely (do_pull=False everywhere). The promotion sweep below
         # handles routing to a single PLAN.md instead.
@@ -984,36 +1126,47 @@ def main(argv: list[str] | None = None) -> int:
 
         # Auto-promotion sweep — runs once per source after the plan loop.
         if promote_target_dir is not None and args.direction in ("pull", "both"):
+            auto_errors: list[str] = []
+            auto_exit_code = 0
+            auto_promoted = 0
+            auto_mappings: dict[str, str] = {}
             try:
                 ext_items = adapter.fetch_inbox()  # cached
             except Exception as exc:  # noqa: BLE001
-                results.append({
-                    "_kind": "auto_promote",
-                    "adapter": adapter.name,
-                    "target": str(promote_target_dir),
-                    "promoted": 0,
-                    "errors": [f"fetch_inbox: {str(exc)[:200]}"],
-                })
-                exit_code = 3
+                auto_errors = [f"fetch_inbox: {str(exc)[:200]}"]
+                auto_exit_code = 3
             else:
-                count, new_mappings = auto_promote_novel_items(
-                    promote_target_dir, ext_items, adapter.name,
-                    fleet_known, args.dry_run,
-                )
+                try:
+                    count, new_mappings = auto_promote_novel_items(
+                        promote_target_dir, ext_items, adapter.name,
+                        fleet_known, args.dry_run,
+                        max_new=promote_max_new,
+                    )
+                except ValueError as exc:
+                    auto_errors = [str(exc)]
+                    auto_exit_code = 2
+                    auto_promoted = 0
+                    auto_mappings = {}
+                else:
+                    auto_promoted = count
+                    auto_mappings = new_mappings
                 # Persist the new task_id ↔ external_id mapping in the target's
                 # state file so subsequent cycles don't re-promote.
-                if new_mappings and not args.dry_run:
+                if auto_mappings and not args.dry_run:
                     target_state = load_state(promote_target_dir)
                     target_mapping = adapter_state(target_state, adapter.name)
-                    target_mapping.update(new_mappings)
+                    target_mapping.update(auto_mappings)
                     save_state(promote_target_dir, target_state)
-                results.append({
-                    "_kind": "auto_promote",
-                    "adapter": adapter.name,
-                    "target": str(promote_target_dir),
-                    "promoted": count,
-                    "errors": [],
-                })
+            if auto_exit_code and exit_code == 0:
+                exit_code = auto_exit_code
+            results.append({
+                "_kind": "auto_promote",
+                "adapter": adapter.name,
+                "target": str(promote_target_dir),
+                "promoted": auto_promoted,
+                "title_matched": len(title_recovered_ext_ids),
+                "errors": auto_errors,
+            })
 
         # PR sweep — only when --include-prs is set. One sweep per source.
         if args.include_prs:

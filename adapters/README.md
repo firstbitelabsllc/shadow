@@ -46,7 +46,7 @@ surface area can layer on without breaking the 6-method contract:
 |------------------|----------------------------------------------------|-------------------|
 | **Issue**        | vidux task in PLAN.md                              | shipped (this adapter) |
 | **Sub-issue**    | bullet under a task — set `parentId` on issueCreate | configurable via `parent_id` field |
-| **Project**      | one vidux sub-plan (e.g. `infrastructure/PLAN.md`) | configurable via `project_id` in adapter config |
+| **Project**      | one codebase-owned repo intake queue by default (e.g. `<repo-name>`) | configurable via `project_id`; add `project_name` to fail closed on wrong bindings |
 | **Initiative**   | top-level cross-cutting goal (workspace-wide)      | M:M via `InitiativeToProject` join — extension API |
 | **Cycle**        | sprint window (orthogonal to projects)             | optional — set `cycleId` in `push_fields` |
 | **Project milestone** | phase marker inside one project (Phase 0 → 1) | set `projectMilestoneId` |
@@ -78,6 +78,44 @@ to pipeline state. Callers write `Blocked=Yes` via
 `push_fields({'_blocked': True})` so the item's pipeline column stays
 whatever it was (`Dev` / `QA/Testing/Review` / etc.) and the blocked flag
 composes on top. See `gh_projects.py` for the reference implementation.
+
+## Linear codebase-project guardrail
+
+Linear `project_id` values are opaque UUIDs, so a repo config can look right
+while silently pointing at the wrong product bucket. To make repo intake
+auditable, set `project_name` beside `project_id` whenever a Linear project is
+meant to feed one codebase:
+
+```json
+{
+  "adapter": "linear",
+  "enabled": true,
+  "config": {
+    "token_file": "~/.config/vidux/linear.token",
+    "team_id": "team-uuid",
+    "project_id": "project-uuid",
+    "project_name": "repo-name",
+    "state_mapping": {
+      "pending": "state-backlog",
+      "in_progress": "state-started",
+      "in_review": "state-review",
+      "completed": "state-done"
+    },
+    "auto_promote_target": "vidux",
+    "auto_promote_max_new": 25
+  }
+}
+```
+
+When `project_name` is present, the adapter looks up the Linear project and
+requires the remote name to match before reading or mutating issues. This is
+the supported shape for codebase-owned repo queues. Product planning projects
+may omit `project_name`, but then the config review must treat that source as
+an intentionally unguarded product bucket.
+
+`auto_promote_max_new` protects clean worktrees whose gitignored sidecars are
+missing. If a source would append more than the cap as fresh `BD-*` tasks, the
+sync fails closed before mutating `PLAN.md`.
 
 ## Six steps to write a new adapter
 
@@ -182,7 +220,7 @@ Before shipping, verify end-to-end against the real external board:
    no duplicate INBOX.md lines).
 
 Keep the throwaway PLAN.md local (inside a gitignored `projects/<slug>/`)
-so the test items never land in Leo's public game-plan boards.
+so the test items never land in production planning boards.
 
 ## Token file conventions
 

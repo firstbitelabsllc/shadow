@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import contextlib
 import io
+import json
 import shutil
 import sys
 import tempfile
@@ -119,6 +120,19 @@ class InboxSyncTests(unittest.TestCase):
         state = sync.load_state(self.plan_dir)
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
+
+    def test_parse_plan_accepts_pre_colon_metadata(self):
+        self.write_plan(
+            "- [in_progress] CE-10 [ETA: 2h]: Glossary sweep batch A [Source: linear:lin_1]"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "CE-10")
+        self.assertEqual(tasks[0].eta_hours, 2.0)
+        self.assertEqual(tasks[0].source, "linear:lin_1")
+        self.assertEqual(tasks[0].title, "Glossary sweep batch A")
 
     def test_auto_promoted_source_marker_dedupes_when_state_is_missing(self):
         self.write_plan("")
@@ -281,6 +295,115 @@ class InboxSyncTests(unittest.TestCase):
         state = sync.load_state(lane_plan)
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
+
+    def test_auto_promote_recovers_existing_title_mapping_before_append(self):
+        root = Path(self.tmp)
+        other_plan = root / "plans" / "other"
+        lane_plan = root / "plans" / "linear-lane"
+        self.write_plan_at(
+            other_plan,
+            "- [pending] CE-10 [ETA: 2h]: Fix duplicated card",
+        )
+        self.write_plan_at(lane_plan, "")
+        config_path = root / "vidux.config.json"
+        config_path.write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "plan_store": { "mode": "inline", "path": "plans" },
+                  "inbox_sources": [
+                    {
+                      "adapter": "linear",
+                      "enabled": true,
+                      "config": { "auto_promote_target": "plans/linear-lane" }
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        adapter = FakeLinearAdapter([self.external_item()])
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                    "--json",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 0)
+        self.assertEqual(adapter.pushed, [])
+        self.assertFalse((other_plan / sync.INBOX_FILENAME).exists())
+        lane_text = (lane_plan / sync.PLAN_FILENAME).read_text(encoding="utf-8")
+        self.assertNotIn("[Source: linear:lin_1]", lane_text)
+        state = sync.load_state(other_plan)
+        mapping = sync.adapter_state(state, adapter.name)
+        self.assertEqual(mapping, {"CE-10": "lin_1"})
+        payload = json.loads(output.getvalue())
+        auto = [
+            r for r in payload["results"]
+            if r.get("_kind") == "auto_promote"
+        ][0]
+        self.assertEqual(auto["promoted"], 0)
+        self.assertEqual(auto["title_matched"], 1)
+
+    def test_auto_promote_refuses_large_batch_by_default(self):
+        root = Path(self.tmp)
+        lane_plan = root / "plans" / "linear-lane"
+        self.write_plan_at(lane_plan, "")
+        config_path = root / "vidux.config.json"
+        config_path.write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "plan_store": { "mode": "inline", "path": "plans" },
+                  "inbox_sources": [
+                    {
+                      "adapter": "linear",
+                      "enabled": true,
+                      "config": { "auto_promote_target": "plans/linear-lane" }
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        items = [
+            self.external_item(
+                external_id=f"lin_{i}",
+                title=f"Imported card {i}",
+            )
+            for i in range(sync.DEFAULT_AUTO_PROMOTE_MAX_NEW + 1)
+        ]
+        adapter = FakeLinearAdapter(items)
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                    "--json",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 2)
+        lane_text = (lane_plan / sync.PLAN_FILENAME).read_text(encoding="utf-8")
+        self.assertNotIn("Imported card", lane_text)
+        payload = json.loads(output.getvalue())
+        auto = [
+            r for r in payload["results"]
+            if r.get("_kind") == "auto_promote"
+        ][0]
+        self.assertEqual(auto["promoted"], 0)
+        self.assertIn("auto_promote_max_new", auto["errors"][0])
 
     def test_missing_auto_promote_target_fails_closed(self):
         root = Path(self.tmp)

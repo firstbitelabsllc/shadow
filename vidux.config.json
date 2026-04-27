@@ -68,7 +68,8 @@
         "team_id": "2f745857-a4df-4f99-93a9-6ac89f9991a2",
         "project_id": "b1473b94-8909-40f4-9cd6-5c6e395f7fb5",
         "_team_comment": "FirstBite (key EVE)",
-        "_project_comment": "Automation Ops",
+        "_project_comment": "vidux",
+        "project_name": "vidux",
         "state_mapping": {
           "pending": "36f44543-1030-4b00-8317-6064b86cdd22",
           "in_progress": "6486102b-1bdb-4ae3-9215-acd9e6418f07",
