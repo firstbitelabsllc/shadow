@@ -492,6 +492,23 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 [ETA: 0.5h]
 [Done: 2026-04-27. Kept the existing VitePress IA and config unchanged after confirming 32/32 config links still resolve. Updated only source-grounded drift in `SKILL.md` and `docs/concepts/extensions.md`: the public docs now describe the shipped `vidux-inbox-sync.py` entry point, the checked-in `gh_projects` + `linear` config, and the supported `--only-adapter` scoping without implying untracked local wrapper jobs or stale board wiring. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, `git diff --check` PASS, config-link audit PASS (32/32).]
 
+### Phase 16: Merged claudux CLI docs drift guard [completed]
+
+**Goal:** Dogfood the vidux docs again against the merged local claudux CLI and current repo `HEAD` `d936ecaf6333c126321f5b58dd60940157fec7f8`, correcting only source-proven drift while preserving the existing VitePress information architecture, page ids, nav order, deletion behavior, and pinned sections.
+
+**Evidence:**
+- [Source: .claudux/index/static-analysis.json:1-12] The authoritative docs audit is anchored to repo `HEAD` `d936ecaf6333c126321f5b58dd60940157fec7f8`, 114 indexed source files, 28 indexed documentation files, package scripts `docs:build`, `docs:dev`, and `test`, and six indexed test files.
+- [Source: /Users/leokwan/Development/claudux-worktrees/readme-dogfood-20260426/lib/templates/generic/config.json:1-53] The docs pass must validate the VitePress structure, config semantics, and file/link coverage against the template contract.
+- [Source: user directive, 2026-04-27] Dogfood vidux docs with the merged claudux CLI, keep changes source-grounded and bounded to current docs accuracy, and do not invent product behavior or touch unrelated code.
+
+#### 16.1 — Source-grounded merged-CLI docs audit [completed] [Agent: codex/claudux-dogfood-vidux-20260427-074124] [Depends: 15.1]
+
+1. Audit the current VitePress docs, `README.md`, `SKILL.md`, `scripts/`, `vidux.config.json`, and the local claudux template/config inputs against the static-analysis index to find only source-proven stale facts at `HEAD`.
+2. Preserve the existing docs IA, `docs/.vitepress/config.ts`, page ids, nav order, deletion behavior, and pinned sections unless the audit proves a contradiction or a broken link.
+3. Re-run the docs build, repo test gate, and config/link checks after the refresh; checkpoint only if the docs and gates match the current repo state.
+[ETA: 0.5h]
+[Done: 2026-04-27. Kept the VitePress IA and config intact after a fresh config-link audit passed 27/27. Updated only source-grounded docs drift: `docs/guide/quickstart.md` and `docs/guide/installation.md` now match the shipped `/vidux` startup contract instead of the older amplify/steer/fire flow or an undocumented `/vidux --plan` flag, while `docs/reference/scripts.md` and `docs/reference/config.md` now reflect the current `vidux-checkpoint.sh --outcome` surface and `vidux-doctor.sh` config usage. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, `git diff --check` PASS, config-link audit PASS (27/27). Tool note: local `claudux --help` now points users to `claudux update` as the merged docs entry point; this vidux pass did not need any public claudux command copy changes.]
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -544,6 +561,7 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 - [2026-04-09] Claude Desktop v1.1062.0 migrated from local-agent-mode-sessions/ to claude-code-sessions/. Local scheduled tasks JSON not carried over. Local task creation is UI-only — no programmatic API exists (anthropics/claude-code#41364).
 
 ## Progress
+- [2026-04-27 07:50 EDT] 16.1 completed. The merged-CLI dogfood pass found the public IA stable, so the refresh stayed narrow: the getting-started docs no longer promise the older amplify/steer/fire interaction or a `/vidux --plan` flag, and the config/script references now match the shipped `vidux-checkpoint.sh --outcome` and `vidux-doctor.sh` surfaces. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, config-link audit PASS (27/27), `git diff --check` PASS. Tool note: local `claudux --help` points to `claudux update` for the merged CLI.
 - [2026-04-27 07:30 EDT] 14.2 completed. Local browser discovery now dedupes historical repo aliases so a stale `mobiledevcombine-web/vidux/game-plan/PLAN.md` cannot appear ahead of canonical `strongyes-web/vidux/game-plan/PLAN.md` in the sidebar. Bumped release to 2.23.0 with CHANGELOG coverage. Gate: `python3 -m unittest tests.test_browser_server` PASS, `python3 -m unittest discover -s tests` PASS (178/178), `npm run docs:build` PASS, `git diff --check` PASS, live `/api/plans` check returns only `strongyes-web/vidux/game-plan/PLAN.md` for `game-plan`.
 - [2026-04-27 05:46 EDT] 15.1 completed. Static-analysis docs dogfood stayed narrow and left the VitePress IA intact: `SKILL.md` and `docs/concepts/extensions.md` now stick to repo-shipped adapter facts (`vidux-inbox-sync.py`, `--only-adapter`, checked-in `gh_projects` + `linear` config) instead of implying untracked `vidux-fleet-sync` / `vidux-linear-sync` wrappers or stale board-specific wiring. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, config-link audit PASS (32/32), `git diff --check` PASS.
 - [2026-04-09] Plan created. SKILL-v3.md drafted (220 lines). 4 guides extracted (810 lines). /claude skill created. Remote trigger created then disabled (pushed hallucinated copy to main).

@@ -64,6 +64,7 @@ The checked-in example file shows a single `gh_projects` entry, but the live `vi
 
 - `/vidux` reads the plan-store settings during startup.
 - `vidux-loop.sh` reads defaults such as archive thresholds and context warning lines.
+- `vidux-doctor.sh` reads runtime thresholds such as max worktrees, browser-process caps, Codex automation caps, and minimum free-memory percentage.
 - `resolve-plan-store.sh` resolves the active plan root for scripts.
 - `vidux-inbox-sync.py` reads enabled adapters and their state mappings.
 

@@ -19,32 +19,18 @@ Open Claude Code in your project directory and run:
 
 **On the first cycle**, Vidux gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready. This is intentional — "plan first, code second" is the core discipline.
 
-## 3. Understand the Amplification Flow
+## 3. Understand the Startup Contract
 
-When `/vidux` receives your description, it runs through an amplification step:
+The shipped `/vidux` command resolves state first, then decides whether it needs to plan or execute:
 
-```
-RAW INPUT → GATHER → AMPLIFY → PRESENT → [STEER...] → FIRE → EXECUTE
-```
+1. **Load the skill** and read `vidux.config.json` if the repo has one.
+2. **Resolve the authority plan store** (`PLAN.md` in the repo, or an external/local plan store from config).
+3. **Read the current state**: authority `PLAN.md`, recent progress, Decision Log, and git diff.
+4. **Choose the next path**:
+   - no authority plan yet -> gather evidence and draft one
+   - authority plan exists -> resume `[in_progress]` work first, otherwise pick the next ready `[pending]` task
 
-1. **GATHER** (10 sec): reads git status/log, checks existing plans, scans for active tasks
-2. **AMPLIFY**: detects mode (harness, plan, or execute) and sharpens the prompt
-3. **PRESENT**: shows the amplified prompt — you can steer or say "fire"
-4. **FIRE**: strips scaffolding, executes the task
-
-You'll see something like:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ AMPLIFIED PROMPT                                                │
-│                                                                 │
-│ Research the authentication flow in src/auth/ and create a     │
-│ PLAN.md documenting: current implementation, known issues,     │
-│ and proposed fixes with evidence citations.                     │
-└─────────────────────────────────────────────────────────────────┘
-
-Steer me or say fire.
-```
+The public `/vidux` spec does not require an intermediate "amplified prompt" review step or a special "fire" confirmation. What matters is that the command resolves the plan, reads the repo state, and then runs the stateless cycle.
 
 ## 4. The First Cycle: Evidence Gathering
 
@@ -78,7 +64,7 @@ Why this exists. One paragraph.
 ## Progress
 ```
 
-## 5. Subsequent Cycles: Code Execution
+## 5. Subsequent Cycles: Stateless Execution
 
 On the second `/vidux` invocation:
 
@@ -142,9 +128,10 @@ If nothing is found, it checkpoints and exits with proof of what was scanned.
 
 **Plan-only (no code this cycle):**
 ```
-/vidux --plan "investigate performance issues in the dashboard"
+/vidux "investigate performance issues in the dashboard. Plan only, no code this cycle."
 ```
-(Or simply tell `/vidux` "plan only, no code this cycle" — the agent honors the instruction.)
+
+There is no documented `/vidux --plan` flag in the shipped command spec. If you want a planning-only pass, say so in the request itself.
 
 ## Next Steps
 
