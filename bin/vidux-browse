@@ -9,7 +9,9 @@ set -euo pipefail
 
 ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"
 PORT="${VIDUX_BROWSER_PORT:-7191}"
-URL="http://127.0.0.1:${PORT}"
+HOST="${VIDUX_BROWSER_HOST:-127.0.0.1}"
+OPEN_HOST="${VIDUX_BROWSER_OPEN_HOST:-127.0.0.1}"
+URL="http://${OPEN_HOST}:${PORT}"
 LOG="${TMPDIR:-/tmp}/vidux-browser.log"
 PIDFILE="${TMPDIR:-/tmp}/vidux-browser.pid"
 
@@ -35,11 +37,11 @@ if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 if [[ "${FOREGROUND}" == 1 ]]; then
-  exec python3 "${ROOT}/browser/server.py"
+  exec env VIDUX_BROWSER_HOST="${HOST}" python3 "${ROOT}/browser/server.py"
 fi
 
 # Background mode.
-nohup python3 "${ROOT}/browser/server.py" >"${LOG}" 2>&1 &
+nohup env VIDUX_BROWSER_HOST="${HOST}" python3 "${ROOT}/browser/server.py" >"${LOG}" 2>&1 &
 echo $! > "${PIDFILE}"
 
 # Wait up to 3s for the server to bind.
