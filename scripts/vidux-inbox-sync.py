@@ -165,6 +165,19 @@ _INVESTIGATION_TAG = re.compile(r"\[Investigation:\s*(?P<v>[^\]]*)\]")
 _ETA_TAG = re.compile(r"\[ETA:\s*(?P<v>[^\]]+)\]")
 _ETA_HOURS = re.compile(r"(?P<n>\d+(?:\.\d+)?)\s*h", re.IGNORECASE)
 _SOURCE_TAG = re.compile(r"\[Source:\s*(?P<v>[^\]]*)\]")
+_BACKTICK_SPAN = re.compile(r"`[^`]*`")
+_PLACEHOLDER_SHAPE = re.compile(r"[<>]")
+
+
+def _strip_code_spans(text: str) -> str:
+    """Remove backtick-quoted spans before tag extraction.
+
+    Without this, a task line whose prose includes literal example syntax
+    like ``scans for `[Source: linear:<uuid>]` markers`` leaks the
+    placeholder ``<uuid>`` into the state file as a real mapping; later
+    push_status calls then fire against fake IDs and error out.
+    """
+    return _BACKTICK_SPAN.sub("", text)
 
 
 def parse_plan(plan_path: Path) -> list[PlanTask]:
@@ -205,7 +218,9 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
         status = VidxStatus(m.group("status"))
         raw_id = m.group("id")
         body = m.group("body").strip()
-        metadata_text = f"{m.group('extras') or ''} {body}"
+        metadata_text = _strip_code_spans(
+            f"{m.group('extras') or ''} {body}"
+        )
 
         title = _strip_tags(body)
 
@@ -275,11 +290,22 @@ def save_state(plan_dir: Path, state: dict[str, Any]) -> None:
 
 
 def adapter_state(state: dict[str, Any], adapter_name: str) -> dict[str, str]:
-    """Return the task-id → external_id map for one adapter, creating it lazily."""
+    """Return the task-id → external_id map for one adapter, creating it lazily.
+
+    Drops placeholder-shaped values (``<uuid>``, ``<id>``, …) on read so that
+    pre-existing pollution from earlier code revisions self-heals on the next
+    cycle without manual JSON cleanup.
+    """
     adapters = state.setdefault("adapters", {})
     entry = adapters.setdefault(adapter_name, {"task_to_external": {}})
-    entry.setdefault("task_to_external", {})
-    return entry["task_to_external"]
+    mapping = entry.setdefault("task_to_external", {})
+    polluted = [
+        k for k, v in mapping.items()
+        if isinstance(v, str) and _PLACEHOLDER_SHAPE.search(v)
+    ]
+    for k in polluted:
+        del mapping[k]
+    return mapping
 
 
 def source_external_id(task: PlanTask, adapter_name: str) -> str | None:
@@ -291,7 +317,11 @@ def source_external_id(task: PlanTask, adapter_name: str) -> str | None:
     if not source.startswith(prefix):
         return None
     external_id = source[len(prefix):].strip()
-    return external_id or None
+    if not external_id:
+        return None
+    if _PLACEHOLDER_SHAPE.search(external_id):
+        return None
+    return external_id
 
 
 def source_marker_mappings(

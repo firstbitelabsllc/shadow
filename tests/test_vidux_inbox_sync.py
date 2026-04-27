@@ -121,6 +121,52 @@ class InboxSyncTests(unittest.TestCase):
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
 
+    def test_source_marker_skips_backtick_documentation(self):
+        """Backtick-quoted [Source: ...] in task prose must not become a mapping.
+
+        Regression for the 3-error-per-cycle leak observed 2026-04-27 after
+        PR #73 enabled push_status for auto-promoted tasks: literal example
+        syntax like ``scans for `[Source: linear:<uuid>]`` had been parsed
+        as a real source marker and persisted ``<uuid>`` into state.
+        """
+        self.write_plan(
+            "- [completed] T-1: Fix sync. "
+            "Push-half scans `[Source: linear:<uuid>]` markers BEFORE pushing. "
+            "[Shipped: abc123]"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertIsNone(tasks[0].source)
+
+    def test_source_external_id_rejects_placeholder_shape(self):
+        from adapters.base import PlanTask, VidxStatus
+
+        task = PlanTask(
+            id="T-1", title="x", status=VidxStatus.PENDING,
+            source="linear:<uuid>",
+        )
+        self.assertIsNone(sync.source_external_id(task, "linear"))
+
+    def test_adapter_state_filters_placeholder_pollution_on_load(self):
+        """Pre-existing polluted entries self-heal without manual JSON edit."""
+        state = {
+            "adapters": {
+                "linear": {
+                    "task_to_external": {
+                        "Task 12": "<uuid>",
+                        "Task 8": "<id>",
+                        "BD-31": "3199f57d-real-uuid",
+                    }
+                }
+            }
+        }
+
+        mapping = sync.adapter_state(state, "linear")
+
+        self.assertEqual(mapping, {"BD-31": "3199f57d-real-uuid"})
+
     def test_parse_plan_accepts_pre_colon_metadata(self):
         self.write_plan(
             "- [in_progress] CE-10 [ETA: 2h]: Glossary sweep batch A [Source: linear:lin_1]"
