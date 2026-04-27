@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.23.0] - 2026-04-27
+
+Canonical-plan dedupe for the local Vidux browser. Legacy copied checkouts no longer hide or mis-group the active plan when the same `PLAN.md` exists under both the old and current repo names.
+
+### Fixed
+
+- **`mobiledevcombine-web` no longer wins over `strongyes-web` in the browser sidebar.** `discover_plans()` now maps known legacy repo aliases to their canonical repo and keeps the canonical checkout when duplicate plan paths exist.
+- **Regression coverage for duplicate plan discovery.** The browser server test suite now creates both legacy and canonical copies of `vidux/game-plan/PLAN.md` and asserts only `strongyes-web` is surfaced.
+
+### Verified
+
+- `python3 -m unittest tests.test_browser_server`
+- `python3 -m unittest discover -s tests` (178/178)
+- `npm run docs:build`
+- `git diff --check`
+- Local browser API check: `/api/plans` returns `strongyes-web/vidux/game-plan/PLAN.md` for `game-plan`
+
+---
+
 ## [2.22.0] - 2026-04-27
 
 Fail-closed auto-promote routing for external board/project tasks. Linear and other project-extension sources now preserve lane ownership when new external cards are added.

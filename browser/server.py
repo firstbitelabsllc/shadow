@@ -34,6 +34,12 @@ PLAN_GLOBS = [
     "*/PLAN.md",
 ]
 
+# Leo's fleet has a few historical checkout names that can still contain copied
+# vidux plans. Prefer the canonical checkout when the same plan exists in both.
+LEGACY_REPO_ALIASES = {
+    "mobiledevcombine-web": "strongyes-web",
+}
+
 # Files to expose alongside PLAN.md when present.
 # Note: PLAN.md, INBOX.md, investigations/, evidence/ are core /vidux per the
 # canonical doctrine (DOCTRINE.md + guides/fleet-ops.md + guides/investigation.md
@@ -82,8 +88,31 @@ def discover_plans() -> list[dict]:
                 continue
             seen.add(path)
             plans.append(plan_meta(path))
+    plans = dedupe_legacy_repo_plans(plans)
     plans.sort(key=lambda p: (-p["mtime"], p["repo"], p["slug"]))
     return plans
+
+
+def dedupe_legacy_repo_plans(plans: list[dict]) -> list[dict]:
+    """Drop legacy-checkout duplicates when a canonical repo has the same plan."""
+    winners: dict[tuple[str, ...], dict] = {}
+    for plan in plans:
+        parts = Path(plan["rel"]).parts
+        if not parts:
+            continue
+        canonical_repo = LEGACY_REPO_ALIASES.get(plan["repo"], plan["repo"])
+        key = (canonical_repo, *parts[1:])
+        current = winners.get(key)
+        if current is None or plan_preference(plan) > plan_preference(current):
+            winners[key] = plan
+            continue
+        if plan_preference(plan) == plan_preference(current) and plan["mtime"] > current["mtime"]:
+            winners[key] = plan
+    return list(winners.values())
+
+
+def plan_preference(plan: dict) -> int:
+    return 0 if plan["repo"] in LEGACY_REPO_ALIASES else 1
 
 
 def plan_meta(path: Path) -> dict:
