@@ -144,6 +144,19 @@ Phase 4: Polish
 - [pending] T4d Decision Log diff highlighter [ETA: 2h]
 - [pending] T4e Components inside markdown — `:::person` shorthand syntax that renders as a card without hand-writing HTML [ETA: 2h]
 
+Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made artifact-share-with-Nicole-on-LAN first-class)
+- [completed] T5a `server.py` honors `VIDUX_BROWSER_HOST` env var with safe localhost fallback. LaunchAgent sets it to `0.0.0.0` so iPhone access works on M4 Pro. Previously hardcoded localhost-only bind broke LAN access on M4 Pro (Studio worked because someone there had patched it locally). Both Macs now converge from clean clone. Shipped commit `8fb81f7` (upstream-equivalent ~`f3382c2`).
+- [completed] T5b Artifacts dark-mode patch — all 12 `~/Development/vidux/browser/artifacts/snowcubes-*.html` got a `prefers-color-scheme: dark` block (cream→#1d1a14 warm dark, ink→#f1ebd9 warm light) so they don't glare against the dark sidebar in OS dark mode. Same warm palette inverted brightness — preserves brand voice.
+- [completed] T5c Snowcubes hub artifact + 9 per-plan Nicole-friendly cards live at `vidux/browser/artifacts/snowcubes-*.html`, served via `/api/file?path=...` deep-link.
+- [completed] T5d Moussey integration — `:4321/snowcubes` (mux-snowcubes-tile commit `cc03589`) and `:4321/vidux` both 307-redirect to vidux-browse on `:7191` using request-header host derivation, so `.local` and IP both work. Moussey homepage tile shipped.
+- [completed] T5e Fleet ETA backfill pass — 8 background agents tagged ~145h of fleet AI-hours across 10 plans; vidux-browser plan itself tagged at 13h via commit `ce64cbc`. Cumulative fleet view now meaningful.
+- [pending] VB-NEW-1 Manual dark/light toggle in topbar — currently OS-driven only, add button override [ETA: 1h]
+- [pending] VB-NEW-2 ETA fleet-total in topbar meta — append "· Nh remaining" to "X plans · Y repos · Z artifacts · W/V tasks (P%)", calculated server-side [ETA: 0.5h]
+- [pending] VB-NEW-3 Sort options in sidebar — by ETA descending, by mtime, by status [ETA: 1.5h]
+- [pending] VB-NEW-4 Filter chips — quick filter for hot only / has-tasks only / has-ETA only [ETA: 1h]
+- [pending] VB-NEW-5 Artifact dark-mode CSS as shared file — ship `static/artifact-base.css` artifacts can `<link>` to (with offline-use fallback), replacing the per-artifact embedded `prefers-color-scheme: dark` block [ETA: 1h]
+- [pending] VB-NEW-6 Cron lane that auto-regenerates Nicole-friendly per-plan artifacts when source PLAN.md changes — mtime-delta detection, LaunchAgent label `com.leokwan.snowcubes-artifact-refresh`. Captured in `snowcubes-lan-share/PLAN.md` W2.1 — cross-link from here [ETA: 2h]
+
 ## UI sketch (MVP)
 
 ```
@@ -180,6 +193,7 @@ Phase 4: Polish
 - [DIRECTION] [2026-04-25 /auto] Python stdlib over Flask/Node. Reason: Leo verbatim "simple css html"; zero deps maximizes ship velocity.
 - [DIRECTION] [2026-04-25 /auto] Live HTTP server, not static SSG. Reason: Leo asked for "current chat and stuff" — fresh state on each render.
 - [DIRECTION] [2026-04-25 /auto] Read-only contract is load-bearing. Reason: PLAN.md is canonical per /vidux; the browser views, never writes.
+- [DIRECTION] [2026-04-26] vidux-browse must bind 0.0.0.0 by default for LAN-share; honor VIDUX_BROWSER_HOST env var with safe localhost fallback. Reason: artifact-share-with-Nicole-on-LAN is now first-class use case via Moussey integration.
 
 ## Open Questions
 
@@ -207,3 +221,10 @@ Phase 4: Polish
 - [2026-04-25] **Completion bar shipped (PR #41 + companions).** Per Leo: *"make a pretty bar and have the concept of completion and a moving target key to vidux plans"* + *"divide tasks remaining over total tasks, some tasks are way fucking harder."* Headline metric is now completion (X/Y done), not ETA. Sidebar gets stacked status-colored progress bar + label, with gold "shipped ✓" treatment at 100% and dashed "no tasks yet" at 0. Pane gets a prominent progress block above the tab strip. Topbar adds fleet completion stat. Investigations strip renders child .md files when present (canonical /vidux subplan nesting now visible). Plus a `pane.scrollTop = 0` reset on every render — fixes the "jump back to padding" bug from prior-view scroll persistence. T2L–T2R + T2j + T2g flipped to [completed].
 - [2026-04-25] **Doctrine companion landed via parallel agents (PRs leojkwan/vidux #42 + #43, leojkwan/ai #47).** /vidux SKILL.md softened — `[ETA: Xh]` is now optional, not "mandatory plan defect". Headline doctrine codified: *"Completion (X/Y tasks done) is the headline; ETA is supplementary, useful when tasks are similar-sized, skip when they vary in difficulty."* CHANGELOG 2.18.0 reversal entry pairs with the SKILL.md change so the historical 2.12.0 "ETAs go mandatory" line stays accurate-as-of-its-date. `leojkwan/ai/.claude/settings.json` newly tracked for /auto §G compliance (was missing — fleet sweep gap).
 - [2026-04-26] **ETA backfill pass — fleet audit gap closed.** Added `[ETA: Xh]` to all 5 untagged Phase 4 polish tasks per fleet ETA-coverage audit (T4a memory 1h, T4b ledger 1h, T4c launchd 2h, T4d decision-diff 2h, T4e components-shorthand 2h). All 11 pending tasks now carry ETA tags so `vidux-browse` surfaces real AI-hours-remaining (~13h: 5h Phase 2 + 8h Phase 4). Calibration applied: small Python edits 0.5-1h, feature work 2h, cron lane 2h. The 6 already-tagged Phase 2 tasks were not touched.
+- [2026-04-26] **LAN-share + dark-mode + Moussey integration shipped.** Five-part landing:
+  1. **`server.py` 0.0.0.0 bind fix** (commit `8fb81f7`, upstream-equivalent ~`f3382c2`) — `VIDUX_BROWSER_HOST` env var now honored with safe localhost fallback; LaunchAgent sets it to `0.0.0.0`. Previously hardcoded localhost-only bind broke iPhone access on M4 Pro (Studio worked because someone there had patched it locally). Both Macs now converge from clean clone.
+  2. **Artifacts dark-mode patch** — all 12 `~/Development/vidux/browser/artifacts/snowcubes-*.html` got `prefers-color-scheme: dark` block (cream→#1d1a14 warm dark, ink→#f1ebd9 warm light) so they don't glare against the dark sidebar in OS dark mode. Same warm palette inverted brightness — preserves brand voice. Patched 12 artifacts in one shell pass.
+  3. **Fleet ETA backfill** — 8 background agents tagged ~145h of fleet AI-hours across 10 plans. The vidux-browser plan itself was tagged at 13h via commit `ce64cbc`. Cumulative fleet view now meaningful.
+  4. **Snowcubes hub artifact + 9 per-plan Nicole-friendly cards** live at `vidux/browser/artifacts/snowcubes-*.html`, served via `/api/file?path=...` deep-link.
+  5. **Moussey integration** — Moussey at `:4321/snowcubes` (mux-snowcubes-tile commit `cc03589`) and `:4321/vidux` both 307-redirect to vidux-browse on `:7191` using request-header host derivation, so `.local` and IP both work. Moussey homepage tile shipped.
+  Decision Log entry added: `[DIRECTION] [2026-04-26] vidux-browse must bind 0.0.0.0 by default for LAN-share; honor VIDUX_BROWSER_HOST env var with safe localhost fallback. Reason: artifact-share-with-Nicole-on-LAN is now first-class use case via Moussey integration.` Phase 5 added with 5 [completed] (T5a–T5e) + 6 [pending] (VB-NEW-1 through VB-NEW-6, ~7h). Updated fleet ETA: 13h → ~20h pending across 17 open tasks.
