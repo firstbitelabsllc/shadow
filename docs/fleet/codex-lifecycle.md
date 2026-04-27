@@ -1,6 +1,8 @@
 # Codex Automation Lifecycle
 
-A Codex lane is a recurring vidux cycle scheduled via a **TOML file + DB row** read by the Codex Mac desktop app. This page documents the full lifecycle from creation to troubleshooting, including the app-restart discipline that is unique to Codex.
+A native Codex lane is a recurring vidux cycle scheduled via a **TOML file + DB row** read by the Codex Mac desktop app. This page documents the full lifecycle from creation to troubleshooting, including the app-restart discipline that is unique to Codex.
+
+The automation guide treats `Chat` as the default for Codex-created automations. Use this lifecycle only when you explicitly want a repo-bound native lane in `Local` or `Worktree`.
 
 ## Prerequisites
 

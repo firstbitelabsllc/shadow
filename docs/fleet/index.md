@@ -2,11 +2,13 @@
 
 Vidux automation is opt-in. The core discipline works without long-running lanes, but this repo also ships guidance for scheduled runs, fleet coordination, and platform-specific lifecycle details for Claude Code and Codex.
 
+For Codex, the docs in this section cover the native automation path on macOS. The automation guide treats `Chat` as the default for Codex-created automations; use the TOML + DB flow only when you explicitly want a repo-bound `Local` or `Worktree` lane.
+
 ## What lives in this section
 
 - [Claude Code Lifecycle](/fleet/claude-lifecycle) documents how a Claude lane fires, reads authority files, and checkpoints.
-- [Codex Automation Lifecycle](/fleet/codex-lifecycle) documents the Codex Mac app automation model and its persistence rules.
-- [Codex Setup Guide](/fleet/codex-setup) walks through the TOML + database + app-restart sequence used for new Codex lanes on macOS.
+- [Codex Automation Lifecycle](/fleet/codex-lifecycle) documents the native Codex Mac app automation model and its persistence rules for repo-bound lanes.
+- [Codex Setup Guide](/fleet/codex-setup) walks through the TOML + database + app-restart sequence used for native `Local` or `Worktree` Codex lanes on macOS.
 - [Platform Comparison](/fleet/platforms) explains when the repo prefers Claude Code versus Codex.
 - [Harness Authoring](/fleet/harness) summarizes the prompt authoring rules from `guides/harness.md`.
 - [Fleet Operations](/fleet/operations) summarizes the coordination rules from `guides/automation.md` and `guides/fleet-ops.md`.
