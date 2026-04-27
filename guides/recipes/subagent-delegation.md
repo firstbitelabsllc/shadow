@@ -144,7 +144,7 @@ Savings ratio is lower under same-tool dispatch but the bounded-parent-context p
 2. **Compression contract is mandatory in Mode A.** Mode B uses the 5-block spec shape instead.
 3. **Parent keeps taste.** Never let the subagent make final architectural or design decisions.
 4. **Verify before acting.** Mode A: discard off-topic summaries and re-prompt. Mode B: if `git diff` shows over-scope or spec mismatch, `git checkout .` and re-prompt.
-5. **Log every delegation.** One line per call in PROGRESS.md: task id, mode (A/B), approximate subagent tokens, parent tokens consumed, exit code.
+5. **Log every delegation.** One line per call in the plan's `## Progress` section, or in a lane `PROGRESS.md` overlay when one exists: task id, mode (A/B), approximate subagent tokens, parent tokens consumed, exit code.
 6. **Parent owns the commit boundary.** Even in Mode B, the subagent never runs `git commit`, `git push`, or mutates `.git/`.
 7. **No Mode B for schema/migration/destructive work.** Database migrations, dependency bumps, CI config, auth flows stay in the parent's direct-write path.
 

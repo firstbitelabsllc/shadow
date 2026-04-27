@@ -358,7 +358,7 @@ Run `git diff` and verify in this order — stop at the first fail:
 2. **Compression contract is mandatory in research dispatch.** Implementation dispatch uses the 5-block spec shape instead.
 3. **Primary keeps taste.** Never let the secondary make final architectural or design decisions.
 4. **Verify before acting.** Research dispatch: discard off-topic summaries and re-prompt. Implementation dispatch: if `git diff` shows over-scope or spec mismatch, `git checkout .` and re-prompt.
-5. **Log every delegation.** One line per call in PROGRESS.md: task id, mode (research/implementation), log filename, approximate secondary tokens, primary tokens consumed, exit code.
+5. **Log every delegation.** One line per call in the plan's `## Progress` section, or in a lane `PROGRESS.md` overlay when one exists: task id, mode (research/implementation), log filename, approximate secondary tokens, primary tokens consumed, exit code.
 6. **Main-context budget.** If the cycle exceeds 20 tool calls before acting, stop and checkpoint.
 7. **Sandbox matches mode.** Research dispatch -> read-only always. Implementation dispatch -> workspace-write. Never give workspace-write for research (enables edits you didn't ask for). Never give read-only for implementation (it'll just describe what it would do).
 8. **Primary owns the commit boundary.** Even in implementation dispatch, the secondary never runs `git commit`, `git push`, or mutates `.git/`.

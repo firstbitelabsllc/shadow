@@ -28,9 +28,9 @@ Every automation MUST read sibling state during its READ step. Not optional. Not
 
 > A dirty or diverged canonical checkout is a fleet-level infrastructure failure, not a per-task blocker. Detect it in 10 seconds, not after 45 minutes of deep work.
 
-Every automation works in a worktree and tries to merge back to the default branch at the end. If the canonical checkout is dirty, diverged, or behind origin, that merge-back fails. The automation then pushes to a branch instead -- real work that nobody absorbs.
+Every automation works in a worktree and is expected to leave durable state as a branch + PR before the local worktree is discarded. If the canonical checkout is dirty, diverged, or behind origin, that PR-first flow starts from a stale base and the lane burns time on avoidable conflict resolution instead of shipping.
 
-Overnight this compounds: 10 automations x 8 hours = 80 cycles producing branches that never land on main. vidux-loop.sh counts these as "unproductive" because no PLAN.md task state changed, which triggers auto-pause, which makes it worse.
+Overnight this compounds: 10 automations x 8 hours = 80 cycles producing stale branches or PRs that nobody can safely land. vidux-loop.sh counts these as "unproductive" because no PLAN.md task state changed, which triggers auto-pause, which makes it worse.
 
 ### Trunk health check (first 10 seconds of every writer gate)
 
@@ -40,7 +40,7 @@ git -C <repo> rev-list --count HEAD..origin/main
 git -C <repo> rev-list --count origin/main..HEAD
 ```
 
-- If diverged >5 commits: escalate immediately ("trunk diverged, needs human reconciliation") instead of doing deep work that will fail to merge back.
+- If diverged >5 commits: escalate immediately ("trunk diverged, needs human reconciliation") instead of doing deep work on a stale base.
 - If dirty: escalate ("trunk dirty, unsafe to merge").
 
 ### Plan file integrity
@@ -49,52 +49,46 @@ A "clean" trunk (no dirty files, no divergence) can still be catastrophically br
 
 ### Branch pushes are productive output
 
-An automation that ships code to a branch, pushes it to origin, and records the branch name in its memory note is shipping. The unproductive streak counter must not penalize this -- the work exists, it just needs absorption.
+An automation that ships code to a branch, pushes it to origin, opens or updates the PR, and records the resume point is shipping. The unproductive streak counter must not penalize this -- the work exists, it just needs nursing or merge eligibility.
 
 ---
 
-## Branch Absorption
+## PR Sweep
 
-The lead writer absorbs branches. The release-train or equivalent lead writer must check for unmerged sibling branches during its READ step and merge them before popping new tasks. This is not optional. Without it, branches accumulate until a human manually merges them.
+The lead writer or coordinator sweeps open automation PRs. `gh pr list` is the durable recovery manifest; a branch with no PR is infrastructure drift. Without a PR sweep, lanes keep creating fresh work while already-shipped work rots in review or sits only on a branch.
 
 ### Protocol (run during the lead writer's READ step, before popping new tasks)
 
-**a. Scan for unmerged sibling branches:**
+**a. Scan open automation PRs first:**
 ```bash
 git fetch origin
-git branch -r --list "origin/claude/*" --list "origin/codex/*" | while read b; do
-  commits=$(git rev-list --count origin/main..$b)
-  [ "$commits" -gt 0 ] && echo "$b ($commits unmerged)"
-done
+gh pr list --state open --json number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,url
 ```
 
-**b. If branches have unmerged commits:** merge them to main before starting new work. This keeps trunk current and prevents branch accumulation across overnight fleet cycles.
+**b. If an open automation PR exists:** nurse or merge it before creating fresh branch work. Follow the normal queue order: failing checks first, then eligible merges, then new tasks.
 
-**c. If merge is unsafe (conflicts):** do not force it. Record the conflicting branch in the automation's memory note and skip it. A human or the owning automation resolves it.
+**c. If a branch exists without a PR:** create the PR or record the blocker immediately. Branch-only work is invisible recovery state and should be treated as drift.
 
-**d. After absorbing:** push main to origin so other automations see the updated trunk:
-```bash
-git push origin main
-```
+**d. If merge is unsafe (conflicts, red CI, unresolved required findings):** do not force it. Record the conflicting PR or branch in the automation's memory note and skip it. A human or the owning automation resolves it.
 
-**e. Why this is non-optional:** 10 automations x 8 hours = 80 cycles. If each pushes to a branch instead of main, that is 80 branches nobody absorbs. `vidux-loop.sh` counts these as unproductive (no PLAN.md state change), which triggers auto-pause, which makes the accumulation worse. The absorber breaks this cycle.
+**e. Why this is non-optional:** 10 automations x 8 hours = 80 cycles. If each pushes to a branch or PR and nobody sweeps them, the queue looks "active" while trunk stops moving. The sweep keeps PR-backed work visible and prevents branch-only drift from compounding overnight.
 
 ---
 
 ## Worktree Handoff Protocol
 
-Cron agents are stateless but worktrees are not. When a session dies mid-task inside a worktree, the next cycle has no way to discover that in-progress work unless it is recorded in the plan. Without this protocol, cron agents duplicate work or create competing worktrees.
+Cron agents are stateless but worktrees are not. When a session dies mid-task inside a worktree, the next cycle only has what was recorded in the PR, plan, or lane memory. Without this protocol, cron agents duplicate work or leave invisible local state behind.
 
 ### Rules
 
-1. **Register on entry.** When a cron agent creates or enters a worktree, it MUST add an `## Active Worktrees` section to PLAN.md (or append to an existing one) with:
+1. **Register on entry when local state will survive the cycle.** When a cron agent creates or keeps a worktree after the PR is open, it SHOULD add an `## Active Worktrees` section to PLAN.md (or append to an existing one) with:
    ```
    - branch: <branch-name> | path: <worktree-path> | task: <Task N description> | status: <in_progress|blocked>
    ```
 
-2. **Read before starting.** Every cron cycle reads `## Active Worktrees` during the READ step (after Decision Log, before git log). If an entry exists for the current task, resume the worktree instead of creating a new one.
+2. **Read before starting.** If `## Active Worktrees` exists, every cron cycle reads it during the READ step (after Decision Log, before git log). If an entry exists for the current task, resume the worktree instead of creating a new one.
 
-3. **Remove on completion.** When worktree work is merged or abandoned, delete the entry from `## Active Worktrees` and add a Decision Log line:
+3. **Remove on completion.** When worktree work is merged, handed off fully via PR, or abandoned, delete the entry from `## Active Worktrees` and add a Decision Log line:
    ```
    - [WORKTREE] [date] Merged/abandoned <branch>. Reason: <why>.
    ```
@@ -109,7 +103,7 @@ Cron agents are stateless but worktrees are not. When a session dies mid-task in
    ```
    If the count drops, abort the merge and escalate. Worktree branches should minimize PLAN.md edits -- confine changes to their own task status updates.
 
-6. **Branch absorber role.** In a multi-automation fleet, sibling automations push code to `claude/*` or `codex/*` branches but never merge them to main. Without an explicit absorber, branches accumulate overnight until a human manually cleans up. The lead writer (e.g., release-train) owns this role. See "Branch Absorption" section above for the full protocol.
+6. **PR sweep role.** In a multi-automation fleet, open PRs are the durable recovery manifest. Branches without PRs are drift. The lead writer or coordinator owns the PR sweep. See "PR Sweep" section above for the full protocol.
 
 ### Worktree PR handoff rule (for prompts)
 
@@ -119,7 +113,7 @@ Every automation that uses `execution_environment = "worktree"` MUST hand off du
 ```
 WORKTREE RULE: Before stopping, push the branch and open/update the PR.
 - If work is complete and tests pass: push branch, open a ready PR, record resume point in the PR body.
-- If work is incomplete but safe: push branch, open/update PR as draft, record the exact next step.
+- If work is incomplete or a gate is still missing: push branch, open/update PR as draft, record the exact next step.
 - If work conflicts or is unsafe: record why in memory/PLAN.md and keep the branch name visible.
 - NEVER push directly to the default branch from an automation worktree.
 - NEVER exit with only local worktree commits unless the blocker is recorded.
@@ -303,7 +297,7 @@ Any fleet with 5+ automations, or any fleet where 3+ automations share the same 
 
 5. **Report a fleet scorecard** every cycle: N shipping / N idle / N blocked / N crashed / N mid-zone. The scorecard is the orchestrator's primary output -- not prompt edits.
 
-6. **Detect trunk health** -- Before any fleet-level action, check if canonical checkouts in target repos are clean, up-to-date, and not diverged. If dirty/diverged, escalate as an infrastructure blocker that affects all dependent lanes. Do not report the same merge-back blocker N times per N automations -- cluster it as one root cause.
+6. **Detect trunk health** -- Before any fleet-level action, check if canonical checkouts in target repos are clean, up-to-date, and not diverged. If dirty/diverged, escalate as an infrastructure blocker that affects all dependent lanes. Do not report the same trunk blocker N times per N automations -- cluster it as one root cause.
 
 ### Anti-patterns
 
@@ -397,7 +391,7 @@ Scanners are read-only scouts (Doctrine: role boundary). Letting scanners mutate
 
 ## Merge Conflict Protocol (Doctrine 16)
 
-> When two worktrees merge back to main, both sides' work must survive. A conflict resolved by deleting one side is not a resolution -- it's data loss.
+> When two worktrees reconcile onto the same trunk, both sides' work must survive. A conflict resolved by deleting one side is not a resolution -- it's data loss.
 
 1. **Try additive merge first.** If both sides added different things (new tests, new tasks, new functions), keep both. Most conflicts are additive, not contradictory.
 2. **If genuine conflict (same line, different intent):** Check commit timestamps. The more recent change is likely more correct -- it was written with knowledge of the earlier state.
@@ -432,7 +426,7 @@ Every automation harness prompt follows this eight-block structure, in order:
 5. CROSS-LANE     -- Read sibling memory notes + hot-files. Dedup, yield, skip.
 6. ROLE BOUNDARY  -- What this lane owns. What belongs to siblings.
 7. EXECUTION      -- How to do the work. Mid-zone kill rule. Queue drain rule.
-                     Worktree merge-back rule.
+                     PR-first worktree closeout rule.
 8. CHECKPOINT     -- Memory format. Lead line. What to leave explicit. Worktree state.
 ```
 
