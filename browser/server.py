@@ -2,7 +2,8 @@
 """
 vidux browser — local web UI for viewing PLAN.md across the fleet.
 
-Read-only viewer. Stdlib only. See projects/vidux-browser/PLAN.md.
+Read-mostly viewer. Local-only write endpoints append artifacts/INBOX notes.
+Stdlib only. See projects/vidux-browser/PLAN.md.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development"))
+DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
 HOST = os.environ.get("VIDUX_BROWSER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("VIDUX_BROWSER_PORT", "7191"))
 
@@ -54,6 +55,9 @@ ARTIFACT_MAX_BYTES = 1024 * 1024  # 1 MB cap on POSTed HTML
 ARTIFACT_TITLE_RE = re.compile(
     r"<title>([^<]+)</title>|<h1[^>]*>([^<]+)</h1>", re.I
 )
+PLAN_NOTE_MAX_BYTES = 16 * 1024
+PLAN_NOTE_SOURCE_RE = re.compile(r"[^A-Za-z0-9_.:/@ -]+")
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 
 # /vidux task-FSM markers. Used by task_stats() to compute completion-bar.
 # Per Leo 2026-04-25: completion (X/Y tasks) is the headline; ETA is parsed
@@ -306,6 +310,73 @@ def write_artifact(slug: str, html: str) -> tuple[bool, str]:
     return True, str(path)
 
 
+def is_loopback_host(host: str) -> bool:
+    return host in LOOPBACK_HOSTS
+
+
+def clean_note_label(raw: object, default: str) -> str:
+    text = str(raw or default).strip()
+    text = PLAN_NOTE_SOURCE_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text)
+    return (text or default)[:120]
+
+
+def resolve_plan_note_target(raw: str) -> Path | None:
+    p = safe_resolve(raw)
+    if not p or p.name != "PLAN.md":
+        return None
+    return p
+
+
+def write_plan_note(
+    plan_path: Path,
+    note: str,
+    source: str = "vidux-browse-local",
+    agent: str = "",
+) -> tuple[bool, str]:
+    """Append a local note to the plan directory's INBOX.md."""
+    body = note.strip()
+    if not body:
+        return False, "note must be non-empty"
+    if len(body.encode("utf-8")) > PLAN_NOTE_MAX_BYTES:
+        return False, f"note exceeds {PLAN_NOTE_MAX_BYTES} bytes"
+
+    source = clean_note_label(source, "vidux-browse-local")
+    agent = clean_note_label(agent, "") if agent else ""
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    title = re.sub(r"\s+", " ", body.splitlines()[0]).strip()[:96]
+    inbox = plan_path.parent / "INBOX.md"
+    quote = "\n".join(f"> {line}" if line else ">" for line in body.splitlines())
+    lines = [
+        f"### {stamp} - {title}",
+        f"- Source: {source}",
+    ]
+    if agent:
+        lines.append(f"- Agent: {agent}")
+    entry = "\n".join(lines) + "\n\n" + quote + "\n\n"
+
+    if inbox.exists():
+        try:
+            text = inbox.read_text(encoding="utf-8")
+        except OSError as e:
+            return False, f"read failed: {e}"
+    else:
+        text = f"# {plan_path.parent.name} Inbox\n\n## Open\n\n## Processed\n"
+
+    marker = re.search(r"(^## Open\s*\n)", text, re.M)
+    if marker:
+        insert_at = marker.end()
+        text = text[:insert_at] + "\n" + entry + text[insert_at:]
+    else:
+        text = text.rstrip() + "\n\n## Open\n\n" + entry
+
+    try:
+        inbox.write_text(text, encoding="utf-8")
+    except OSError as e:
+        return False, f"write failed: {e}"
+    return True, str(inbox)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "viduxBrowser/0.1"
 
@@ -364,6 +435,38 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, msg)
                 return
             self._json({"ok": True, "slug": slug, "path": msg})
+        elif url.path == "/api/local-plan-note":
+            if not is_loopback_host(self.client_address[0]):
+                self._send(403, "local writes require loopback client")
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > PLAN_NOTE_MAX_BYTES + 2048:
+                self._send(400, "missing or oversized body")
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._send(400, f"bad json: {e}")
+                return
+            plan_path = resolve_plan_note_target(str(payload.get("plan_path", "")))
+            if not plan_path:
+                self._send(403, "plan_path must be an allowed PLAN.md under dev_root")
+                return
+            note = payload.get("note", "")
+            if not isinstance(note, str):
+                self._send(400, "note must be a string")
+                return
+            ok, msg = write_plan_note(
+                plan_path,
+                note,
+                source=str(payload.get("source", "vidux-browse-local")),
+                agent=str(payload.get("agent", "")),
+            )
+            if not ok:
+                self._send(400, msg)
+                return
+            self._json({"ok": True, "path": msg})
         else:
             self._send(404, "not found")
 

@@ -33,11 +33,11 @@ SECTIONS=""
 
 # --- 1. Contract tests ------------------------------------------------------ #
 export VIDUX_TEST_ALL_RUNNING=1
-TEST_OUTPUT="$(python3 -m unittest tests/test_vidux_contracts.py 2>&1 || true)"
+TEST_OUTPUT="$(python3 -m unittest discover -s tests 2>&1 || true)"
 TEST_PASS="$(echo "$TEST_OUTPUT" | grep -oE 'Ran [0-9]+ tests?' | grep -oE '[0-9]+' || echo "0")"
 TEST_FAIL="$(echo "$TEST_OUTPUT" | grep -oE 'failures?=[0-9]+' | grep -oE '[0-9]+' || echo "0")"
 TEST_ERR="$(echo "$TEST_OUTPUT" | grep -oE 'errors?=[0-9]+' | grep -oE '[0-9]+' || echo "0")"
-TEST_OK="$(echo "$TEST_OUTPUT" | grep -c '^OK$' || echo "0")"
+TEST_OK="$(echo "$TEST_OUTPUT" | grep -c '^OK' || true)"
 TEST_STATUS="pass"
 if [[ "$TEST_OK" -eq 0 ]]; then
   TEST_STATUS="fail"
@@ -115,6 +115,7 @@ SECTIONS="${SECTIONS}{\"name\":\"script_syntax\",\"status\":\"$SYNTAX_STATUS\",\
 
 # --- 6. Dispatch script dry-run --------------------------------------------- #
 DISPATCH_STATUS="skip"
+DISPATCH_REC="skip"
 if [[ -f "$SCRIPT_DIR/vidux-dispatch.sh" && -f "$PLAN_FILE" ]]; then
   DISPATCH_OUTPUT="$(bash "$SCRIPT_DIR/vidux-dispatch.sh" "$PLAN_FILE" --dry-run 2>&1 || true)"
   DISPATCH_VALID="$(echo "$DISPATCH_OUTPUT" | python3 -c "import sys,json; json.load(sys.stdin); print('true')" 2>/dev/null || echo "false")"
