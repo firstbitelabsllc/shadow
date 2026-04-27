@@ -66,6 +66,7 @@ class LinearAdapter(AdapterBase):
             "auto_promote_target",  # if "vidux", new external items promote into PLAN.md
             "label_ids",            # default labels applied to every pushed issue
             "project_id",           # if set, scopes fetch_inbox AND push_task to this Linear project
+            "project_name",         # expected Linear project name; validates project_id fail-closed
         ],
     }
 
@@ -104,6 +105,7 @@ class LinearAdapter(AdapterBase):
         self.auto_promote_target: str | None = config.get("auto_promote_target")
         self.default_label_ids: list[str] = list(config.get("label_ids", []))
         self.project_id: str | None = config.get("project_id")
+        self.project_name: str | None = config.get("project_name")
 
         # Inverse map for pull_status: state UUID → vidux status string.
         self._status_by_state_id: dict[str, str] = {
@@ -114,6 +116,15 @@ class LinearAdapter(AdapterBase):
         self._blocked_label_id: str | None = None
         self._inbox_cache: list[ExternalItem] | None = None
         self._inbox_error: LinearError | None = None
+        self._project_identity_checked = False
+
+    @classmethod
+    def validate_config(cls, config: dict[str, Any]) -> None:
+        super().validate_config(config)
+        if config.get("project_name") and not config.get("project_id"):
+            raise ValueError(
+                "linear adapter config key 'project_name' requires 'project_id'"
+            )
 
     # -- Token + HTTP plumbing ------------------------------------------------
 
@@ -313,6 +324,66 @@ class LinearAdapter(AdapterBase):
     }
     """
 
+    _PROJECT_LOOKUP_QUERY = """
+    query($projectId: String!) {
+      project(id: $projectId) {
+        id
+        name
+        teams(first: 20) { nodes { id key name } }
+      }
+    }
+    """
+
+    def _ensure_project_identity(self) -> None:
+        """Fail closed when config points a repo at the wrong Linear project.
+
+        `project_id` is opaque in config reviews. `project_name` makes the
+        intended codebase-owned project explicit, so a copied config cannot
+        silently ingest or mutate a product bucket such as "Launch Queue".
+        """
+        if not self.project_name:
+            return
+        if self._project_identity_checked:
+            return
+        if not self.project_id:
+            raise LinearError(
+                "project_name requires project_id for Linear project validation"
+            )
+
+        data = self._graphql(
+            self._PROJECT_LOOKUP_QUERY,
+            {"projectId": self.project_id},
+        )
+        project = data.get("project")
+        if not project:
+            raise LinearError(
+                f"Linear project_id '{self.project_id}' not found; "
+                f"expected project_name '{self.project_name}'"
+            )
+
+        actual_name = project.get("name") or ""
+        if actual_name != self.project_name:
+            raise LinearError(
+                f"Linear project_id '{self.project_id}' resolves to "
+                f"project '{actual_name}', expected '{self.project_name}'. "
+                "Use a codebase-scoped Linear project or update project_name."
+            )
+
+        teams = ((project.get("teams") or {}).get("nodes")) or []
+        team_ids = {team.get("id") for team in teams}
+        if not team_ids:
+            raise LinearError(
+                f"Linear project '{actual_name}' has no teams assigned; "
+                f"cannot validate team_id '{self.team_id}'"
+            )
+        if self.team_id not in team_ids:
+            raise LinearError(
+                f"Linear project '{actual_name}' is not assigned to configured "
+                f"team_id '{self.team_id}'"
+            )
+
+        self._project_identity_checked = True
+
     def _get_or_create_blocked_label_id(self) -> str:
         if self._blocked_label_id is not None:
             return self._blocked_label_id
@@ -420,6 +491,8 @@ class LinearAdapter(AdapterBase):
         if self._inbox_error is not None:
             raise self._inbox_error
 
+        self._ensure_project_identity()
+
         if self.project_id:
             query = self._ISSUES_QUERY_PROJECT
             variables_base: dict[str, Any] = {
@@ -522,6 +595,8 @@ class LinearAdapter(AdapterBase):
         VidxId / VidxPlan + the typed metadata round-trip via the per-plan
         `.external-state.json` sidecar — see `adapters/README.md`.
         """
+        self._ensure_project_identity()
+
         description = self._render_body(task)
 
         input_obj: dict[str, Any] = {
@@ -548,6 +623,7 @@ class LinearAdapter(AdapterBase):
         return payload["issue"]["id"]
 
     def pull_status(self, external_id: str) -> VidxStatus:
+        self._ensure_project_identity()
         data = self._graphql(self._ISSUE_FETCH_QUERY, {"id": external_id})
         issue = data.get("issue")
         if not issue:
@@ -560,6 +636,7 @@ class LinearAdapter(AdapterBase):
         return self._status_from_state_id(state_id)
 
     def push_status(self, external_id: str, status: VidxStatus) -> None:
+        self._ensure_project_identity()
         state_id = self._state_id_for(status)  # raises on BLOCKED
         data = self._graphql(
             self._ISSUE_UPDATE_MUTATION,
@@ -579,6 +656,7 @@ class LinearAdapter(AdapterBase):
         `.external-state.json` sidecar — the sync script reads it directly,
         not via the adapter.
         """
+        self._ensure_project_identity()
         data = self._graphql(self._ISSUE_FETCH_QUERY, {"id": external_id})
         issue = data.get("issue")
         if not issue:
@@ -598,6 +676,8 @@ class LinearAdapter(AdapterBase):
         script, not via this method. Other keys are silently ignored so
         callers passing legacy field dicts still work.
         """
+        self._ensure_project_identity()
+
         blocked_change = fields.get("_blocked")
 
         # Nothing to push if the only thing the caller asked for is non-blocked

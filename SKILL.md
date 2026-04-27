@@ -252,6 +252,11 @@ When a repo opts into external boards, agents should:
 
 The repo does not ship scheduler wrappers for these sync passes; operators decide whether to run one combined `--direction=both` invocation or separate scheduled invocations per adapter.
 
+Keep organization-specific policy out of core. If a team needs concrete board
+ids, repo/project maps, review-tool gates, or fleet cadences, put those in a
+separate overlay skill or runbook that loads after `/vidux`. Core owns the
+adapter contract; overlays own local taste and bindings.
+
 Opt-in. Empty `inbox_sources: []` (the default) keeps vanilla vidux unchanged. Populate the array to enable one or more adapters:
 
 ```json

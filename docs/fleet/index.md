@@ -12,7 +12,6 @@ For Codex, the docs in this section cover the native automation path on macOS. T
 - [Platform Comparison](/fleet/platforms) explains when the repo prefers Claude Code versus Codex.
 - [Harness Authoring](/fleet/harness) summarizes the prompt authoring rules from `guides/harness.md`.
 - [Fleet Operations](/fleet/operations) summarizes the coordination rules from `guides/automation.md` and `guides/fleet-ops.md`.
-- [Linear Port Audit](/fleet/linear-port-audit) records the latest read-only board-wiring audit across Vidux, StrongYes, and Resplit repos.
 - [Recipe Catalog](/fleet/recipes) maps the reusable patterns shipped in `guides/recipes.md` and `guides/recipes/`.
 
 ## When to automate

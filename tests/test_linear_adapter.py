@@ -19,10 +19,15 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from adapters.base import PlanTask, VidxStatus  # noqa: E402
 from adapters.linear import LinearAdapter  # noqa: E402
 
 
-def _make_adapter(*, project_id: str | None = None) -> LinearAdapter:
+def _make_adapter(
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
+) -> LinearAdapter:
     """Build a LinearAdapter without touching disk or the network.
 
     Token file is set to a path the adapter never reads (we patch `_graphql`
@@ -40,20 +45,42 @@ def _make_adapter(*, project_id: str | None = None) -> LinearAdapter:
     }
     if project_id is not None:
         config["project_id"] = project_id
+    if project_name is not None:
+        config["project_name"] = project_name
     return LinearAdapter(config)
 
 
 class GraphQLRecorder:
     """Capture (query, variables) calls to `_graphql` and replay canned data."""
 
-    def __init__(self, payload: dict[str, Any]):
+    def __init__(self, payload: dict[str, Any] | list[dict[str, Any]]):
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
-        self.payload = payload
+        self.payloads = payload if isinstance(payload, list) else [payload]
 
     def __call__(self, query: str, variables: dict[str, Any] | None = None,
                  *, max_attempts: int = 4) -> dict[str, Any]:
         self.calls.append((query, dict(variables or {})))
-        return self.payload
+        index = min(len(self.calls) - 1, len(self.payloads) - 1)
+        return self.payloads[index]
+
+
+def _project_payload(
+    *,
+    name: str = "repo-web",
+    project_id: str = "project-uuid",
+    team_id: str = "team-uuid",
+) -> dict[str, Any]:
+    return {
+        "project": {
+            "id": project_id,
+            "name": name,
+            "teams": {
+                "nodes": [
+                    {"id": team_id, "key": "APP", "name": "ExampleTeam"},
+                ],
+            },
+        }
+    }
 
 
 class FetchInboxFiltersCanceled(unittest.TestCase):
@@ -145,6 +172,77 @@ class FetchInboxFiltersCanceled(unittest.TestCase):
         self.assertNotIn("duplicate-1", ids)
         self.assertEqual(len(items), 3)
 
+    def test_project_name_validates_before_project_fetch(self):
+        adapter = _make_adapter(
+            project_id="project-uuid",
+            project_name="repo-web",
+        )
+        recorder = GraphQLRecorder([_project_payload(), self._nodes()])
+        adapter._graphql = recorder  # type: ignore[assignment]
+
+        items = adapter.fetch_inbox()
+
+        self.assertEqual(len(items), 3)
+        self.assertIn("project(id: $projectId)", recorder.calls[0][0])
+        self.assertEqual(
+            recorder.calls[0][1],
+            {"projectId": "project-uuid"},
+        )
+        self.assertIn("issues(", recorder.calls[1][0])
+
+    def test_project_name_mismatch_fails_closed(self):
+        adapter = _make_adapter(
+            project_id="project-uuid",
+            project_name="repo-web",
+        )
+        recorder = GraphQLRecorder(_project_payload(name="Launch Queue"))
+        adapter._graphql = recorder  # type: ignore[assignment]
+
+        with self.assertRaisesRegex(
+            Exception,
+            "Launch Queue.*expected 'repo-web'",
+        ):
+            adapter.fetch_inbox()
+
+        self.assertEqual(len(recorder.calls), 1)
+
+    def test_project_without_teams_fails_closed(self):
+        adapter = _make_adapter(
+            project_id="project-uuid",
+            project_name="repo-web",
+        )
+        payload = _project_payload()
+        payload["project"]["teams"]["nodes"] = []
+        recorder = GraphQLRecorder(payload)
+        adapter._graphql = recorder  # type: ignore[assignment]
+
+        with self.assertRaisesRegex(Exception, "has no teams assigned"):
+            adapter.fetch_inbox()
+
+        self.assertEqual(len(recorder.calls), 1)
+
+    def test_project_name_mismatch_blocks_issue_create(self):
+        adapter = _make_adapter(
+            project_id="project-uuid",
+            project_name="repo-web",
+        )
+        recorder = GraphQLRecorder(_project_payload(name="Launch Queue"))
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="BD-1",
+            title="Do not create on wrong project",
+            status=VidxStatus.PENDING,
+        )
+
+        with self.assertRaisesRegex(
+            Exception,
+            "Launch Queue.*expected 'repo-web'",
+        ):
+            adapter.push_task(task)
+
+        self.assertEqual(len(recorder.calls), 1)
+        self.assertNotIn("issueCreate", recorder.calls[0][0])
+
 
 class GraphQLQueryShape(unittest.TestCase):
     """Both queries MUST encode the server-side state-type filter."""
@@ -163,6 +261,15 @@ class GraphQLQueryShape(unittest.TestCase):
 
     def test_drop_state_types_includes_canceled(self):
         self.assertIn("canceled", LinearAdapter._DROP_STATE_TYPES)
+
+    def test_project_name_requires_project_id(self):
+        with self.assertRaisesRegex(ValueError, "project_name.*project_id"):
+            _make_adapter(project_name="repo-web")
+
+    def test_project_lookup_query_reads_name_and_teams(self):
+        self.assertIn("project(id: $projectId)", LinearAdapter._PROJECT_LOOKUP_QUERY)
+        self.assertIn("name", LinearAdapter._PROJECT_LOOKUP_QUERY)
+        self.assertIn("teams(first: 20)", LinearAdapter._PROJECT_LOOKUP_QUERY)
 
 
 if __name__ == "__main__":

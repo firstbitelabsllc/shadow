@@ -11,7 +11,7 @@
       "adapter": "gh_projects",
       "enabled": true,
       "config": {
-        "owner": "leojkwan",
+        "owner": "github-owner",
         "project_number": 3,
         "token_file": "~/.config/vidux/gh-project.token",
         "status_field_name": "Status",
@@ -29,6 +29,25 @@
           "ETA":           { "project_field": "ETA",           "type": "NUMBER" },
           "Source":        { "project_field": "Source",        "type": "TEXT"   }
         }
+      }
+    },
+    {
+      "adapter": "linear",
+      "enabled": false,
+      "config": {
+        "token_file": "~/.config/vidux/linear.token",
+        "team_id": "team-uuid",
+        "project_id": "linear-project-uuid",
+        "project_name": "repo-name",
+        "state_mapping": {
+          "pending": "state-backlog",
+          "in_progress": "state-started",
+          "in_review": "state-review",
+          "completed": "state-done"
+        },
+        "blocked_label": "blocked",
+        "auto_promote_target": "vidux",
+        "auto_promote_max_new": 25
       }
     }
   ]
