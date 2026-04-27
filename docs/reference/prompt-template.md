@@ -1,110 +1,112 @@
 # The 8-Block Prompt Template
 
-Every vidux lane — Claude Code or Codex — has a `prompt.md` on disk that drives each cycle. The prompt follows an 8-block structure so any agent picking up the lane knows exactly what to read, when to gate, how to act, and what it owns.
+Every vidux lane has a `prompt.md` on disk that drives each cycle. The prompt follows an 8-block structure so any agent picking up the lane knows what to read, what can abort the cycle, what it owns, and how it leaves a checkpoint behind.
 
-For the runtime mechanics of how the prompt is injected each fire, see [claude-lifecycle.md](../fleet/claude-lifecycle.md) and [codex-lifecycle.md](../fleet/codex-lifecycle.md).
+For runtime mechanics, see [Claude Code Lifecycle](../fleet/claude-lifecycle.md) and [Codex Lifecycle](../fleet/codex-lifecycle.md).
 
 ## The 8 Blocks
 
 ```
 1. Mission       — why this lane exists, one paragraph
 2. Skills        — skill tokens this lane activates
-3. Read          — files to read every cycle, in order
+3. Read          — files and commands to load every cycle
 4. Gate          — pre-flight checks that can abort the cycle
 5. Assess        — priority rules for picking the next action
-6. Act           — how to actually do the work
-7. Authority     — paths owned vs paths forbidden
-8. Checkpoint    — what to write to memory.md at the end
+6. Act           — worktree, verification, PR, and delegation rules
+7. Authority     — what this lane may edit vs must never touch
+8. Checkpoint    — what to append to memory.md at the end
 ```
 
-Every block is required. A lane missing any of them is underspecified and will produce drift.
+Every block is required. A lane missing any of them is underspecified and will drift.
 
 ## Block 1: Mission
 
-One paragraph. What this lane exists to accomplish, and what "done" looks like.
+State the lane's job and retirement condition in one paragraph.
 
 ```markdown
 ## 1. Mission
 
-Ship and maintain the leojkwan.com blog. Every cycle either moves a
-[pending] PLAN.md task forward, fixes a CI failure, or merges an
-eligible PR. When the queue is empty, scout INBOX.md for promotions
-or rotate a filler audit. The lane retires when `leojkwan.com` has
-shipped its v2 launch (Phase 9 in PLAN.md).
+Ship and maintain <project>. Every cycle either resumes an
+`[in_progress]` task, fixes CI, nurses an open PR, or promotes one
+inbox finding into the plan. The lane retires when the project PLAN.md
+reaches its exit criteria.
 ```
 
-**Rules:**
-- Present-tense and concrete. Not "help with" — state the goal.
-- Name the PLAN.md path the lane drives.
-- Name the retirement condition. A lane without an exit is a zombie.
+Rules:
+
+- Present tense, concrete, and bounded.
+- Name the project or repo the lane owns.
+- Name the retirement condition so the lane does not become a zombie.
 
 ## Block 2: Skills
 
-A list of skill tokens (like `/vidux`, `/brand-leojkwan`) that the lane should invoke before acting. Skills load the domain knowledge and discipline each cycle.
+List the skills the lane should activate before acting.
 
 ```markdown
 ## 2. Skills
 
 Activate these skills every cycle, in order:
-- `/vidux` — discipline + automation (cycle, FSM, checkpoint format, Part 2 lane mechanics)
-- `/brand-leojkwan` — design decisions must match Leo's brand
-- `/frontend-design` — Tailwind v4, dark mode, craft-svg
+- `/vidux` — discipline + automation rules
+- `/frontend-design` — only if this lane owns product UI
+- `/craft-svg` — only if this lane edits inline SVG surfaces
 ```
 
-**Rules:**
+Rules:
+
 - Put `/vidux` first so the cycle and FSM load before anything else.
-- Add brand/domain skills appropriate to the repo.
-- Avoid loading skills the lane never uses — every token costs context.
+- Add repo-specific skills only when the lane actually uses them.
+- Keep the list lean; unused skills cost context every fire.
 
 ## Block 3: Read
 
-Explicit file-read order. Every cycle reads the same files in the same order, so every agent starts with the same worldview.
+Spell out the exact file and command order.
 
 ```markdown
 ## 3. Read
 
 Read in this order every cycle:
-1. `memory.md` — last 3 entries, so I know what the previous cycle did
-2. `~/Development/leojkwan/vidux/PLAN.md` — queue state, Decision Log
-3. `~/Development/leojkwan/vidux/INBOX.md` — scanner findings
-4. `git fetch && git status --short && git log --oneline -10` — repo state
-5. `gh pr list --json number,title,mergeable,statusCheckRollup` — open PRs
-6. (cross-lane) `~/.claude-automations/session-gc/memory.md` — last 1 entry
+1. `<lane-dir>/<lane-id>/memory.md` — last 3 entries
+2. `<project-root>/PLAN.md` — queue state, decisions, progress
+3. `<project-root>/INBOX.md` — only when this project uses an inbox
+4. `git fetch && git status --short && git log --oneline -10`
+5. `gh pr list --json number,title,headRefName,statusCheckRollup`
+6. sibling `memory.md` files when this lane is part of a fleet
 ```
 
-**Rules:**
-- Start with own `memory.md` — self-awareness before world-awareness.
-- End with any cross-lane reads that catch concurrent-cycle conflicts.
-- Name shell commands literally — agents copy-paste them.
+Rules:
+
+- Start with the lane's own memory file.
+- Read `INBOX.md` only when the project actually uses one.
+- Keep shell commands literal so the runtime can copy them exactly.
 
 ## Block 4: Gate
 
-Pre-flight checks that can **abort the cycle** before any action. Gates stop bad cycles cheaply.
+Define cheap checks that can abort the cycle before deeper work starts.
 
 ```markdown
 ## 4. Gate
 
 Abort this cycle (append `[QC] <reason>` to memory.md and exit) if:
 
-- Dirty tree NOT mine (uncommitted work from another session or lane)
-  → `[QC] concurrent-cycle` and exit
-- Same PLAN.md task in `[in_progress]` for 3+ consecutive cycles
-  → Set task to `[blocked]` with a Decision Log entry, then exit
-- Main CI is RED on latest commit
-  → Fix-first mode: triage the failing job, ignore other work
-- Post-push defer: last cycle pushed a PR
-  → This cycle may only review CI — do not attempt merge until
-    1h since last fix-push AND all checks green
+- Dirty tree NOT mine
+  → `[QC] concurrent-cycle`
+- Same task has stayed `[in_progress]` for 3+ cycles
+  → mark it `[blocked]` in `## Decisions`, then exit
+- Main CI is red on the latest branch head
+  → fix-first mode
+- Last cycle pushed a PR
+  → this cycle may review CI, but not merge yet
 ```
 
-**Rules:**
-- Gates are binary: trigger → exit. Don't "maybe work around it."
-- A concurrent-cycle exit is not a failure — it's the correct move.
-- Keep the list short. Too many gates and cycles never fire.
+Rules:
+
+- Gates are binary: trigger or do not trigger.
+- Keep the list short.
+- A concurrent-cycle exit is success, not failure.
 
 ## Block 5: Assess
 
-The priority rule for picking **the one thing this cycle will do**. Unified so two agents running the same lane pick the same task.
+Make the task-selection rule deterministic.
 
 ```markdown
 ## 5. Assess
@@ -112,195 +114,160 @@ The priority rule for picking **the one thing this cycle will do**. Unified so t
 Priority order (first match wins):
 
 1. Main CI red → fix the failure
-2. Open PR with failing checks → fix-push
-3. Open PR eligible for merge (CI green, push-age ≥1h, no P0/P1 reviews) → merge
-4. PLAN.md has `[in_progress]` task → resume it (prior session died mid-task)
-5. PLAN.md has `[pending]` task with evidence → promote to `[in_progress]`, execute
-6. PLAN.md empty + INBOX.md has promotable finding → promote it to a task
-7. All of the above empty → rotate one filler audit (bundle-size, sitemap, a11y),
-   then exit [IDLE]
+2. Open PR with failing checks → nurse the PR
+3. Open PR eligible for merge → merge
+4. PLAN.md has `[in_progress]` work → resume it
+5. PLAN.md has `[pending]` work with evidence → promote and execute
+6. PLAN.md is quiet but INBOX has a promotable finding → promote it
+7. Otherwise do one bounded filler audit, then exit `[IDLE]`
 ```
 
-**Rules:**
-- Exactly ONE action per cycle. Multi-tasking breaks checkpointing.
-- `[in_progress]` always resumes first — never leave mid-task work orphaned.
-- `[IDLE]` is a valid outcome. Not all cycles ship.
+Rules:
+
+- Pick one primary action per cycle.
+- Resume `[in_progress]` work before starting something new.
+- Make `[IDLE]` explicit when the queue is genuinely empty.
 
 ## Block 6: Act
 
-How to actually do the work. This block holds the heavy rules — worktree discipline, verification commands, merge procedure, and any delegation contracts.
+This is the heavy block: worktree discipline, verification, PR flow, and any delegation rules.
 
 ```markdown
 ## 6. Act
 
-### Code changes (worktree discipline)
-- Create a fresh worktree from origin/main for every code change
-- `git worktree add -b <branch> ../leojkwan-worktrees/<branch> origin/main`
-- Never edit files on the main worktree directly
+### Worktree discipline
+- Create a fresh worktree from `origin/main` for every code-writing task.
+- Never edit the main checkout directly.
 
-### Verification (mandatory before commit)
-- `npm run lint` — must pass
-- `npm run build` — must complete
-- UI change? Take a screenshot with Playwright or craft-svg
+### Verification
+- Run the repo's literal build/test commands before completion.
+- UI work requires visual proof.
 
-### Commit + push
-- `git add <specific files>` — never `-A`
-- Commit message: `<verb>(<scope>): <what>`
-- After commit, `git branch --show-current` must match intended branch
+### PR flow
+- Push a branch and open a ready-for-review PR by default.
+- Use draft only for true WIP or a missing gate.
+- Never push directly to main.
 
-### Merge (only when gate allows)
-- `gh pr merge <n> --squash --auto` — only if CI green, push-age ≥1h,
-  zero unresolved P0/P1 reviews
-
-### Delegation (optional — Mode A / Mode B)
-- If reading > 3 KB of source, delegate to `codex exec --sandbox read-only`
-  (Mode A, 3-section compression). See /vidux Part 2.
-- For bug fixes with a clear spec (>10 lines), delegate to
-  `codex exec --sandbox workspace-write` (Mode B). Review the diff, ship.
+### Delegation
+- Use same-runtime subagents for read-heavy or bounded code-writing tasks.
+- Keep the parent lane responsible for taste, verification, and the final commit boundary.
 ```
 
-**Rules:**
-- Every verification command is literal — don't paraphrase.
-- "Never `git add -A`" prevents the classic "accidentally committed .env" bug.
-- Delegation is optional per lane; include the sub-block only if the lane ships code.
+Rules:
+
+- Name verification commands literally when a specific repo requires them.
+- Keep delegation same-tool and same-runtime; the current doctrine no longer uses cross-tool `codex exec` shims.
+- Treat ready-PR flow as the default shipping path.
 
 ## Block 7: Authority
 
-Explicit paths the lane **owns** vs paths it must **never** touch. The authority block is the lane's immune system.
+Tell the lane exactly what it may touch and what it must never touch.
 
 ```markdown
 ## 7. Authority
 
-### Paths this lane owns (may edit freely)
-- `app/**/*.tsx` — page templates and components
-- `app/**/*.css` — styles
-- `next.config.ts` — config
-- `vidux/PLAN.md`, `vidux/INBOX.md`, `vidux/evidence/`
-- `~/.claude-automations/leojkwan-coordinator/memory.md`
+### May edit
+- `<project-root>/app/**`
+- `<project-root>/PLAN.md`
+- `<project-root>/evidence/**`
+- `<lane-dir>/<lane-id>/memory.md`
 
-### Paths this lane must NEVER touch
-- `content/posts/**/*.mdx` body text (Leo's historical writing — design/layout OK, prose NEVER)
-- `.env*` files (secrets)
-- `scripts/**` (cross-lane tooling, not coord-owned)
-- Other lanes' `memory.md` files — read-only
-
-### Push authorization
-- Operational PRs: push branch + open ready-for-review by default; no approval needed.
-- Draft PRs: only for true WIP or a missing gate; flip ready as soon as the gate passes.
-- Direct-to-main or destructive operations (force-push, branch delete, `git reset --hard`): forbidden for this lane.
+### Must never edit
+- `.env*`
+- secrets or credential files
+- historical prose/content paths the repo marks as immutable
+- sibling lanes' `memory.md` files
 ```
 
-**Rules:**
-- List the "never touch" paths explicitly — a lane that silently edits out-of-scope files is worse than a lane that does nothing.
-- Cite the **reason** for forbidden paths (historical prose, secrets, cross-lane). Future agents read the reason to judge edge cases.
-- The push-authorization section is mandatory for any code-writing lane. See SKILL.md for the full contract.
+Rules:
+
+- Be explicit about forbidden paths.
+- Include the reason for sensitive paths when it matters.
+- If the lane ships code, include the PR / push authorization boundary here or in Act.
 
 ## Block 8: Checkpoint
 
-The `memory.md` append format. One line per cycle. Future agents scan the last 3 entries to pick up context.
+Define the `memory.md` append shape.
 
 ```markdown
 ## 8. Checkpoint
 
-After the cycle, append ONE line to
-`~/.claude-automations/leojkwan-coordinator/memory.md`:
+Append ONE line to `<lane-dir>/<lane-id>/memory.md`:
 
-### Signal-only format
-
-```
-- [YYYY-MM-DDThh:mm:ssZ claude coord] [TAG] <what happened>. <optional second sentence on next-cycle plan>.
+- [YYYY-MM-DDThh:mm:ssZ <runtime> <lane-id>] [TAG] <what happened>. <optional next step>
 ```
 
-### Valid tags
-- `[SHIP]` — pushed a PR
-- `[MERGED]` — merged a PR
-- `[FIX]` — fixed a CI failure
-- `[PROMOTE]` — promoted an INBOX item to a task
-- `[DEFER]` — Leo is active / post-push defer / new PR watching
-- `[IDLE]` — queue empty, no work surfaced
-- `[QC]` — aborted cycle (dirty tree, stuck, etc)
-- `[AUDIT-N]` — rotated filler audit N
-- `[MILESTONE]` — plan phase boundary / big ship / course correction
+Useful tags:
 
-### No-noise rule
-No "everything fine" entries. If there's nothing to report beyond what
-the last entry already said, skip the entry entirely.
-```
+- `[SHIP]`
+- `[MERGED]`
+- `[FIX]`
+- `[PROMOTE]`
+- `[DEFER]`
+- `[IDLE]`
+- `[QC]`
+- `[AUDIT]`
+- `[MILESTONE]`
 
-**Rules:**
-- One line, not a paragraph. The diff tells the story; memory.md orients.
-- Always tag. Untagged entries are unsearchable by future agents.
-- Include the session SHA (`8249d801`) when the lane hosts cross-session state.
+Rules:
+
+- One line, not a paragraph.
+- Always tag.
+- Skip no-op chatter.
 
 ## Full Example
 
-A real (abridged) prompt file showing all 8 blocks:
-
 ```markdown
-# leojkwan-coordinator — lane prompt
+# my-project-coordinator — lane prompt
 
 ## 1. Mission
-Ship and maintain leojkwan.com. Every cycle moves PLAN.md forward, fixes CI,
-merges eligible PRs, or rotates a filler audit. Retires at Phase 9 launch.
+Ship and maintain <project>. Every cycle moves PLAN.md forward, fixes CI,
+nurses open PRs, or promotes one inbox finding. Retire when the plan's exit
+criteria are met.
 
 ## 2. Skills
-- /vidux /brand-leojkwan /frontend-design
+- /vidux
+- /frontend-design
 
 ## 3. Read
-1. memory.md (last 3)
-2. ~/Development/leojkwan/vidux/PLAN.md
-3. ~/Development/leojkwan/vidux/INBOX.md
-4. `git fetch && git status --short && git log --oneline -10`
-5. `gh pr list`
+1. <lane-dir>/my-project-coordinator/memory.md
+2. <project-root>/PLAN.md
+3. <project-root>/INBOX.md (when present)
+4. git fetch && git status --short && git log --oneline -10
+5. gh pr list --json number,title,statusCheckRollup
 
 ## 4. Gate
-- Dirty tree not mine → [QC] concurrent-cycle, exit
-- Same task [in_progress] 3+ cycles → [blocked] + exit
+- Dirty tree not mine → [QC] concurrent-cycle
+- Same task stuck 3+ cycles → [blocked] in `## Decisions`, exit
 - Main CI red → fix-first mode
-- Post-push defer: previous cycle pushed → no merge attempt this cycle
 
 ## 5. Assess
-Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
-> first [pending] with evidence > promote INBOX > rotate filler audit > [IDLE]
+1. CI red
+2. failing PR
+3. mergeable PR
+4. resume `[in_progress]`
+5. execute next `[pending]`
+6. promote inbox finding
+7. bounded filler audit, then [IDLE]
 
 ## 6. Act
-- Fresh worktree per code change
-- Verify: lint + build + (UI) screenshot
-- Commit: `<verb>(<scope>): <what>`; never `git add -A`
-- Merge: gh pr merge --squash --auto; only if CI green + push-age ≥1h
-- Delegate to codex for >3KB reads or >10-line spec'd code writes
+- fresh worktree per code-writing task
+- run repo build/test commands literally
+- push branch + ready PR by default
+- same-runtime subagent dispatch only when the task is clear and bounded
 
 ## 7. Authority
-- Owns: app/**, next.config.ts, vidux/PLAN.md, INBOX.md, evidence/
-- Never: content/posts/**/*.mdx body, .env*, other lanes' memory.md
-- Push tier: operational PRs only; ready-for-review by default, no direct-to-main/destructive ops
+- Owns: <project-root>/app/**, PLAN.md, evidence/**, its own memory.md
+- Never: secrets, immutable prose, sibling memory files
 
 ## 8. Checkpoint
-Append one line to memory.md:
-`- [YYYY-MM-DDThh:mm:ssZ claude coord] [TAG] <what>. <next-cycle hint>.`
-Tags: SHIP / MERGED / FIX / PROMOTE / DEFER / IDLE / QC / AUDIT-N / MILESTONE.
-No "everything fine" entries.
+- [2026-04-26T22:10:00Z codex my-project-coordinator] [SHIP] Fixed Task 7 and pushed PR #42. Next: nurse CI.
 ```
 
-A prompt.md this tight fits in under ~80 lines and gives any agent everything needed to run one cycle correctly.
+## Failure Modes This Template Prevents
 
-## Common Failure Modes
-
-Prompts fail in predictable ways. If you hit one of these, add the missing block.
-
-| Failure | Root cause | Fix |
-|---|---|---|
-| Agent edits forbidden files | Block 7 missing or vague | Enumerate forbidden paths with reasons |
-| Two agents both grab the same task | Block 5 priority non-deterministic | Sharpen priority order; "first match wins" |
-| Lane ships 5 redundant polish PRs | Block 6 missing polish-brake rule | Add: "if last 3 ships same surface → force rotate" |
-| Memory.md unreadable drift | Block 8 format sloppy or missing | Enforce one-line + tagged format |
-| Agent reads wrong PLAN.md | Block 3 doesn't name the absolute path | Use absolute paths, not relative |
-| Lane never exits | Block 1 missing retirement condition | Add "retires when X" to Mission |
-
-## See Also
-
-- [Five Principles](/concepts/principles) — the doctrine a prompt is enforcing
-- [The Cycle](/concepts/cycle) — the runtime flow the prompt is trying to drive
-- [PLAN.md field reference](plan-fields.md) — what the prompt's Read block is reading
-- [Claude Code Lifecycle](../fleet/claude-lifecycle.md) — how the prompt fires each cycle
-- [Codex Lifecycle](../fleet/codex-lifecycle.md) — same, for Codex lanes
+- Missing Mission → lane keeps running after the project is effectively done
+- Missing Read order → two cycles start from different assumptions
+- Missing Gate → bad cycles burn time before noticing a dirty tree or red CI
+- Missing Authority → sibling lanes step on each other
+- Missing Checkpoint format → future cycles cannot tell what actually happened

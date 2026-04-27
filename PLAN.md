@@ -374,6 +374,10 @@ Remove any remaining `/vidux-auto` references from non-historical docs, prompts,
 Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`, and archived memories.
 [Done: 2026-04-23. Deleted `commands/vidux-auto.md`. Scrubbed the remaining active docs/guides references. Updated `scripts/lib/ledger-query.sh` to anchor bimodal windows to the newest ledger entry so the contract tests stay deterministic. Gate: `python3 -m pytest -q` => 136/136 pass.]
 
+### Phase 11: Docs freshness pass [in_progress]
+
+- [in_progress] 11.1 Refresh stale VitePress docs against current repo sources [agent_id: codex/claudux-dogfood-20260426-1819] [Evidence: docs/guide/quickstart.md:24-46 documents an amplification/steering flow that does not exist in commands/vidux.md; docs/reference/hooks.md:3-35 only covers 3 git hooks while hooks/hooks.json:2-40 defines 5 hook entries including beforeTask/afterTask; docs/reference/prompt-template.md:29-72 hard-codes leojkwan-specific paths and skills; docs/fleet/codex-setup.md:40-125 hard-codes personal lane paths instead of the shared <lane-dir> pattern documented in guides/recipes/codex-runtime.md:66-79; docs/reference/plan-fields.md:7-17 still documents `## Decision Log` while the live repo plan uses `## Decisions` at PLAN.md:377] [Source: observed]
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.

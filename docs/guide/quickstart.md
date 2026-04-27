@@ -19,32 +19,22 @@ Open Claude Code in your project directory and run:
 
 **On the first cycle**, Vidux gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready. This is intentional — "plan first, code second" is the core discipline.
 
-## 3. Understand the Amplification Flow
+## 3. Watch the Command Stages
 
-When `/vidux` receives your description, it runs through an amplification step:
-
-```
-RAW INPUT → GATHER → AMPLIFY → PRESENT → [STEER...] → FIRE → EXECUTE
-```
-
-1. **GATHER** (10 sec): reads git status/log, checks existing plans, scans for active tasks
-2. **AMPLIFY**: detects mode (harness, plan, or execute) and sharpens the prompt
-3. **PRESENT**: shows the amplified prompt — you can steer or say "fire"
-4. **FIRE**: strips scaffolding, executes the task
-
-You'll see something like:
+`commands/vidux.md` defines six visible stages:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ AMPLIFIED PROMPT                                                │
-│                                                                 │
-│ Research the authentication flow in src/auth/ and create a     │
-│ PLAN.md documenting: current implementation, known issues,     │
-│ and proposed fixes with evidence citations.                     │
-└─────────────────────────────────────────────────────────────────┘
-
-Steer me or say fire.
+GATHER → PLAN → EXECUTE → VERIFY → CHECKPOINT → COMPLETE
 ```
+
+At startup, `/vidux`:
+
+1. Loads the `vidux` skill.
+2. Reads `vidux.config.json`.
+3. Resolves the authority plan store (`PLAN.md` in the repo, or a configured local/external plan store).
+4. Reads the current plan, recent progress, and the git diff before deciding whether this cycle is plan creation, research, or execution.
+
+The first run in a fresh project normally stays in `GATHER` + `PLAN`. A later run with a populated plan moves into `EXECUTE`, then `VERIFY` and `CHECKPOINT`.
 
 ## 4. The First Cycle: Evidence Gathering
 
@@ -74,7 +64,7 @@ Why this exists. One paragraph.
 - [pending] Task 1: Add rate limiting to login endpoint [Evidence: ...]
 - [pending] Task 2: Write tests for auth bypass fix [Evidence: ...]
 
-## Decision Log
+## Decisions
 ## Progress
 ```
 
@@ -88,14 +78,10 @@ On the second `/vidux` invocation:
 4. **VERIFY**: runs build and tests, shows proof
 5. **CHECKPOINT**: structured commit, updates Progress log
 
-The commit format:
+Typical checkpoint commit:
 
 ```
 vidux: add rate limiting to login endpoint
-
-- Added express-rate-limit middleware to /auth/login
-- Configured: 5 requests per 15 minutes per IP
-- Tests: auth.test.ts passes (12/12)
 ```
 
 ## 6. Crash Recovery
@@ -142,9 +128,9 @@ If nothing is found, it checkpoints and exits with proof of what was scanned.
 
 **Plan-only (no code this cycle):**
 ```
-/vidux --plan "investigate performance issues in the dashboard"
+/vidux "plan only: investigate performance issues in the dashboard"
 ```
-(Or simply tell `/vidux` "plan only, no code this cycle" — the agent honors the instruction.)
+(Or simply tell `/vidux` "plan only, no code this cycle" — the command spec already distinguishes plan creation, research, and execution based on the current plan state and your instruction.)
 
 ## Next Steps
 

@@ -117,10 +117,10 @@ vidux: recover uncommitted work from crashed session
 
 ## Stuck Detection
 
-If the same task appears in 3+ Progress entries while still `[in_progress]`, force a surface switch. Move to the next unblocked task and mark the stuck one `[blocked]` with a Decision Log entry noting what was tried. The next cycle either finds new evidence or the task stays blocked.
+If the same task appears in 3+ Progress entries while still `[in_progress]`, force a surface switch. Move to the next unblocked task and mark the stuck one `[blocked]` with a decision entry noting what was tried. The next cycle either finds new evidence or the task stays blocked.
 
 ```markdown
-## Decision Log
+## Decisions
 - [BLOCKED] [2026-04-15] Task 3 stuck 3 cycles. Tried: X, Y. Moving on.
 ```
 

@@ -13,7 +13,7 @@ The Store is designed around one constraint: **any agent, resuming cold, must re
 ```
 vidux-project/
 ├── PLAN.md                    ← source of truth
-├── INBOX.md                   ← unprocessed findings
+├── INBOX.md                   ← unprocessed findings (when the project uses an inbox)
 ├── evidence/
 │   └── YYYY-MM-DD-slug.md     ← research snapshots
 └── investigations/
@@ -32,7 +32,7 @@ Six required sections — missing any produces known failure modes:
 | Evidence | Tasks are guesses; wrong fixes get shipped |
 | Constraints | Agents violate hard requirements |
 | Tasks | No queue — agents improvise unpredictably |
-| Decision Log | Agents re-add deleted code or undo deliberate pivots |
+| Decisions | Agents re-add deleted code or undo deliberate pivots |
 | Progress | No history — agents can't tell what actually happened |
 
 Unknowns and unexpected findings don't need their own sections. Promote a question to a `[pending]` research task (or note `[Blocker: need X]` on the task); note a surprise in the Progress entry.
@@ -46,7 +46,7 @@ Evidence snapshots back the decisions in PLAN.md. Named `YYYY-MM-DD-<slug>.md` s
 Write an evidence snapshot when:
 - A grep or audit produces findings that inform a task
 - An external API response, PR comment, or design doc needs to be cited
-- A Decision Log entry references a data point that might disappear
+- A decision entry references a data point that might disappear
 
 Evidence files are **append-only**. Update by adding a new dated file, never by editing an old one. The old file is the record of what was believed at a point in time.
 

@@ -31,8 +31,8 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 | Hook | What it checks |
 |------|---------------|
 | `pre-commit-plan-check.sh` | Code changes have a corresponding PLAN.md update |
-| `post-commit-checkpoint.sh` | Checkpoint format is correct |
-| `three-strike-gate.sh` | Same task stuck 3+ cycles = blocked |
+| `post-commit-checkpoint.sh` | Reminds when `PLAN.md` has no progress entry for the current day |
+| `three-strike-gate.sh` | Warns after repeated `fix` or `retry` commits on the same surface |
 
 ## Optional: Claude Code Enforcement Hooks
 
@@ -45,6 +45,8 @@ For stronger enforcement within Claude Code sessions, add the hooks from `ENFORC
 
 See [Hooks Reference](/reference/hooks) for the full configuration.
 
+The repo also ships `hooks/hooks.json`, which declares `beforeTask` and `afterTask` entries for `scripts/vidux-doctor.sh` and `scripts/vidux-checkpoint.sh`. Those entries are for host runtimes that support task-level lifecycle hooks in addition to plain git hooks.
+
 ## Verifying Installation
 
 Open a Claude Code session and run:
@@ -54,6 +56,7 @@ Open a Claude Code session and run:
 ```
 
 If installed correctly, the agent reads the skill, gathers evidence about your project, and presents an amplified prompt for your review before executing.
+If installed correctly, the agent loads `/vidux`, resolves the authority plan store, and moves through the command stages documented in `commands/vidux.md`: `GATHER`, `PLAN`, `EXECUTE`, `VERIFY`, `CHECKPOINT`, and `COMPLETE`.
 
 ## Ecosystem Skills
 
@@ -63,6 +66,6 @@ Vidux is a **single entry point** — `/vidux` — that covers both planning and
 |---|---|
 | `/vidux` | Full plan-first cycle (Part 1) + automation patterns (Part 2) — one entry point covers planning, lane bootstrap, delegation, session GC |
 
-For deep automation details (session-gc internals, Codex shim registration, PR lifecycle nursing, cross-fleet coordination), `/vidux` reads `references/automation.md` on demand.
+For deep automation details (session-gc internals, Codex shim registration, PR lifecycle nursing, cross-fleet coordination), `/vidux` reads `guides/automation.md` and `references/automation.md` on demand.
 
 See [Commands Reference](/reference/commands).
