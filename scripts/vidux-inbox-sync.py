@@ -12,9 +12,11 @@ Direction:
 
 Policy:
   * PLAN.md is the source of truth for [pending] / [in_progress] / [in_review]
-    / [blocked] tasks. The sync script never writes a new task into the Tasks
-    section. Novel external items land in INBOX.md as `- [live-feedback]
-    <title> [Source: gh_projects:<id>]` entries for humans to promote.
+    / [blocked] tasks. By default, novel external items land in INBOX.md as
+    `- [live-feedback] <title> [Source: gh_projects:<id>]` entries for humans
+    to promote. When an adapter explicitly sets `auto_promote_target`, novel
+    external items are routed directly into that target PLAN.md as `BD-*`
+    tasks instead.
   * When an external card moves to the `completed` column, the sync flips the
     corresponding PLAN.md task to `[completed]`. (Only that direction is auto —
     PLAN.md → external status is pushed explicitly every run.)
@@ -943,18 +945,26 @@ def main(argv: list[str] | None = None) -> int:
         if promote_raw:
             base = Path(config["_config_dir"])
             cand = Path(promote_raw).expanduser()
-            promote_target_dir = (cand if cand.is_absolute() else (base / cand)).resolve()
+            promote_target_dir = (
+                cand if cand.is_absolute() else (base / cand)
+            ).resolve()
             if not (promote_target_dir / PLAN_FILENAME).exists():
-                # Treat misconfiguration as an error; don't silently fall
-                # back to INBOX since user explicitly opted in.
+                # Treat misconfiguration as fatal for this source. Falling
+                # back to INBOX would route the external task to the first
+                # plan in the store, and would also re-enable PLAN->board
+                # pushes for a source the operator configured as import-only.
                 msg = (f"auto_promote_target {promote_target_dir} has no "
-                       f"PLAN.md — falling back to INBOX")
+                       "PLAN.md; refusing to fall back to INBOX")
                 results.append({
-                    "_kind": "warning",
+                    "_kind": "auto_promote",
                     "adapter": adapter.name,
-                    "message": msg,
+                    "target": str(promote_target_dir),
+                    "promoted": 0,
+                    "errors": [msg],
                 })
-                promote_target_dir = None
+                if exit_code == 0:
+                    exit_code = 2
+                continue
 
         # When auto-promote is on, suppress the per-plan INBOX append
         # entirely (do_pull=False everywhere). The promotion sweep below

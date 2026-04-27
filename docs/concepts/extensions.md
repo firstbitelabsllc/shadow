@@ -70,6 +70,8 @@ When an adapter's config sets `auto_promote_target: <plan-dir>`, novel external 
 
 `BD-` = "board-dropped". The sequence is per-plan and minted via `_next_bd_seq` in the sync script.
 
+Missing `auto_promote_target` paths fail closed. Vidux refuses to fall back to `INBOX.md`, because that would route external work to the first plan in the store instead of the lane that owns the board/project.
+
 **Round-trip dedup is required for safety.** Without it, the push half mints duplicate cards every cycle (push uses `task.id` as the mapping key while auto-promote names cards `BD-N` — a namespace mismatch that causes infinite-mint). The sync script's push reconcile must scan task lines for an existing `[Source: <adapter>:<id>]` marker before pushing.
 
 ## Self-extending lanes
