@@ -7,8 +7,14 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 | Script | Purpose |
 |---|---|
 | `scripts/vidux-loop.sh` | Stateless cycle helper that reads a plan and emits machine-readable next-action state. |
-| `scripts/vidux-checkpoint.sh` | Structured checkpoint helper for marking work done, blocked, or archived. |
+| `scripts/vidux-checkpoint.sh` | Structured checkpoint helper for marking work done, done-with-concerns, blocked, or archived. |
 | `scripts/vidux-status.py` | Read-only status board for every `PLAN.md` under the configured roots. |
+| `scripts/vidux-test-all.sh` | Repo self-test harness that runs contract tests, doctor checks, fleet quality, and loop validation. |
+
+## Plan hygiene and sync scripts
+
+| Script | Purpose |
+|---|---|
 | `scripts/vidux-plan-gc.py` | Mechanical plan garbage collection for completed tasks, old investigations, and oversized inboxes. |
 | `scripts/vidux-plan-gc-cron.sh` | Scheduled wrapper around `vidux-plan-gc.py`. |
 | `scripts/vidux-inbox-sync.py` | Round-trip sync between `PLAN.md` state and external kanban adapters. |
@@ -18,7 +24,6 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 | Script | Purpose |
 |---|---|
 | `scripts/vidux-doctor.sh` | Runtime health checks for plans, worktrees, and automation state. |
-| `scripts/vidux-test-all.sh` | Comprehensive self-test harness for contract tests and related checks. |
 | `scripts/vidux-fleet-quality.sh` | Classifies automation runs into quick, deep, mid, and normal quality buckets. |
 
 ## Codex maintenance scripts
@@ -33,7 +38,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 
 | Library | Purpose |
 |---|---|
-| `codex-db.sh` | Safe Codex database read/write helpers. |
+| `codex-db.sh` | Safe Codex database read/write helpers, including TOML sync and verify helpers. |
 | `compat.sh` | Portable wrappers for OS-specific `stat` and `date` behavior. |
 | `ledger-config.sh` | Ledger path discovery from env vars and config. |
 | `ledger-emit.sh` | Emit vidux events into the shared ledger. |

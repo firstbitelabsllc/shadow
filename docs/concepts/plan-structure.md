@@ -1,6 +1,6 @@
 # PLAN.md Structure
 
-Every project has exactly **one PLAN.md**. Course corrections — even dramatic pivots — update the existing plan's Decision Log. They never spawn a sibling plan.
+Every project has exactly **one PLAN.md**. Course corrections — even dramatic pivots — update the existing plan's `## Decisions` section. That section acts as the decision log; it is where future agents learn what not to undo.
 
 ## Full Template
 
@@ -27,7 +27,7 @@ Ordered, with status tags and evidence citations.
 - [completed] Task 3: description [Evidence: ...]
 - [blocked] Task 4: description [Blocker: ...]
 
-## Decision Log
+## Decisions
 Intentional choices that future agents must not undo.
 - [DELETION] [date] Removed X. Reason: Y. Do not re-add.
 - [DIRECTION] [date] Chose X over Y. Reason: Z.
@@ -49,7 +49,7 @@ All six sections are required. Missing sections produce known failure modes:
 | Evidence | Tasks are guesses; wrong fixes get shipped |
 | Constraints | Agents violate hard requirements they weren't told about |
 | Tasks | No queue — agents improvise unpredictably |
-| Decision Log | Agents re-add deleted code or undo deliberate pivots |
+| Decisions | Agents re-add deleted code or undo deliberate pivots |
 | Progress | No history — agents can't tell what actually happened |
 
 ## Task Status FSM
@@ -64,7 +64,7 @@ Status rules:
 - Every task starts `[pending]`
 - Only one task per lane should be `[in_progress]` at a time
 - `[completed]` is permanent — never revert to `[pending]`
-- `[blocked]` requires a Blocker note and Decision Log entry
+- `[blocked]` requires a Blocker note and a decision entry
 - `[blocked]` is terminal — replace with a new task rather than reviving
 
 **Inside `## Tasks`, every line starting with `- ` MUST be a task with a status tag.** Use numbered lists (`1. 2. 3.`) or headers for non-task content like rollout strategies or phase preambles.
@@ -81,14 +81,14 @@ Status rules:
 - **Evidence citation** — required for all pending tasks before coding begins
 - **Depends** — optional; blocks this task until the dependency is `[completed]`
 
-## The Decision Log
+## Decisions As The Decision Log
 
-The Decision Log is the most important section for preventing agent loops. Stateless agents have no memory of WHY a previous agent made a choice. Without a Decision Log, an agent that finds "missing" code will re-add it, undoing a deliberate deletion.
+The `## Decisions` section is the most important guard against agent loops. Stateless agents have no memory of WHY a previous agent made a choice. Without that history, an agent that finds "missing" code will re-add it, undoing a deliberate deletion.
 
 ```markdown
-## Decision Log
-- [DELETION] [2026-04-10] Removed Routines integration. Reason: Fleet ops are local-first; Routines require cloud setup that users don't have. Do not re-add.
-- [DIRECTION] [2026-04-08] Chose CronCreate over Routines for automation. Reason: CronCreate works in any Claude Code session without cloud config.
+## Decisions
+- [DELETION] [2026-04-26] Removed a deprecated companion command. Reason: the repo now ships a single `/vidux` entry point. Do not re-add the old command surface.
+- [DIRECTION] [2026-04-26] Open ready-for-review PRs by default. Reason: review bots and CI should run immediately; draft is only for true WIP or a missing gate.
 - [BLOCKED] [2026-04-12] Task 3 stuck 3 cycles. Root cause: external API rate limit. Requires human to obtain API key.
 ```
 
@@ -103,7 +103,7 @@ Entry types:
 When evidence changes, the plan changes. The correct procedure:
 
 1. **Update the plan FIRST** — what changed, why, what's the new direction
-2. **Add a Decision Log entry** — `[DIRECTION]` or `[PIVOT]` with the reason
+2. **Add a decision entry** — `[DIRECTION]` or `[PIVOT]` with the reason
 3. **Mark obsolete tasks** — `[blocked]` with a pointer to the new direction
 4. **Add new tasks** — fresh `[pending]` tasks in the queue
 5. **Then update the code** — derived from the new plan state
@@ -148,7 +148,10 @@ For complex bugs or surfaces with 2+ tickets:
 
 ## Garbage Collection
 
-Archive when the plan feels heavy — the agent decides, no fixed threshold. Promoted or skipped INBOX entries are removed inline.
+This repo ships both lightweight and mechanical GC:
+
+- Add a GC task when a plan is getting heavy.
+- Use `scripts/vidux-plan-gc.py` or `scripts/vidux-plan-gc-cron.sh` when you want the repo's built-in archival rules for completed tasks, stale investigations, and oversized inboxes.
 
 Add a GC task to the plan when it gets large:
 

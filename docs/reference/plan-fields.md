@@ -13,7 +13,7 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 | 3 | `## Evidence` | ✔ | Cited facts the plan is built on |
 | 4 | `## Constraints` | ✔ | ALWAYS / NEVER rules |
 | 5 | `## Tasks` | ✔ | Ordered task queue with status tags |
-| 6 | `## Decision Log` | ✔ | Intentional choices future agents must not undo |
+| 6 | `## Decisions` | ✔ | Intentional choices future agents must not undo; this section acts as the decision log |
 | 7 | `## Progress` | ✔ | Living per-cycle log (unexpected findings + reorder notes live here) |
 
 ## Task Status FSM
@@ -29,7 +29,7 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 | `[pending]` | Queued with evidence, not yet started | Writer during plan authoring |
 | `[in_progress]` | Actively being worked (one cycle or across cycles) | Any agent picking up the task |
 | `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
-| `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
+| `[blocked]` | Terminal — replaced by a new task with a decision entry | Any agent that hits the block |
 
 **Rules:**
 
@@ -47,13 +47,13 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 | `[Evidence: ...]` | Cited source backing this task | `[Evidence: src/auth.ts:42 — no idempotency key]` |
 | `[Depends: Task N]` | Blocks until task N is `[completed]` | `[Depends: Task 3]` |
 | `[Investigation: path]` | Compound task — read sub-plan before coding | `[Investigation: investigations/payment-flow.md]` |
-| `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs Leo's PostHog prod key]` |
+| `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs a production API key]` |
 | `[Fix: file:line]` | Where the fix landed, on `[completed]` tasks | `[Fix: src/auth.ts:42]` |
 | `[Shipped: <sha>]` | Commit sha the fix landed in | `[Shipped: a1b2c3d]` |
 
-## Decision Log Entry Types
+## Decision Entry Types
 
-The Decision Log is the **lock file** that stops stateless agents from undoing deliberate choices. Every entry opens with a bracketed type tag and a date.
+The `## Decisions` section is the **lock file** that stops stateless agents from undoing deliberate choices. Every entry opens with a bracketed type tag and a date.
 
 | Type | When to use | Template |
 |---|---|---|
@@ -62,9 +62,9 @@ The Decision Log is the **lock file** that stops stateless agents from undoing d
 | `[SCOPE]` | Cut scope — what's in, what's explicitly out | `[SCOPE] 2026-04-16 Email notifications deferred to v2. Reason: requires SES provisioning.` |
 | `[PIVOT]` | Course correction — old direction obsolete, new direction active | `[PIVOT] 2026-04-16 Was targeting Postgres; now targeting Cloudflare D1. Reason: edge-compatible.` |
 | `[CONSTRAINT]` | Discovered a hard constraint (infra limit, compliance, budget) | `[CONSTRAINT] 2026-04-16 Function timeout 300s. Reason: Vercel Fluid Compute ceiling.` |
-| `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] 2026-04-16 Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
+| `[REVERSAL]` | Undoing a prior decision entry — reference the old one | `[REVERSAL] 2026-04-16 Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
 
-**Why the tags matter:** a future agent scanning the Decision Log greps by tag to answer "what's forbidden?" (`[DELETION]`), "what are the architectural choices?" (`[DIRECTION]`), or "what changed recently?" (`[PIVOT]` / `[REVERSAL]`).
+**Why the tags matter:** a future agent scanning `## Decisions` greps by tag to answer "what's forbidden?" (`[DELETION]`), "what are the architectural choices?" (`[DIRECTION]`), or "what changed recently?" (`[PIVOT]` / `[REVERSAL]`).
 
 ## Progress Entry Format
 

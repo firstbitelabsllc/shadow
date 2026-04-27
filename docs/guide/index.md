@@ -20,7 +20,7 @@ Vidux makes documentation the control plane. State lives in markdown files in a 
 ```
 PLAN.md — the only source of truth
 ├── What to build (tasks with status tags)
-├── Why it was decided (Decision Log)
+├── Why it was decided (`## Decisions`, the decision log)
 ├── What happened (Progress log)
 └── What we know (Evidence citations)
 ```
@@ -59,13 +59,13 @@ Vidux doesn't replace your coding agent — it gives your agent a memory that ou
 
 A few hard rules that prevent the most common stateless-agent failures:
 
-**One project, one `PLAN.md`** — course corrections update the existing plan's Decision Log; they never spawn a sibling plan. The Decision Log is the memory of why a pivot happened.
+**One project, one `PLAN.md`** — course corrections update the existing plan's `## Decisions` section; they never spawn a sibling plan. That section is the decision log future agents use to understand pivots and deletions.
 
 **Compound tasks + L2 investigations** — messy surfaces get a compound task that links to an `investigations/<slug>.md` sub-plan. The L2 investigation is the work until the Fix Spec is filled.
 
 **Progress is code change** — a PR that only touches `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local. This rule was codified in the repo's 2026-04-17 doctrine update.
 
-**Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries; retroactive rewrites destroy the history future agents need.
+**Append-only logs** — the `## Progress` section in `PLAN.md` and per-lane `memory.md` files are append-only. Corrections go in new entries; retroactive rewrites destroy the history future agents need.
 
 **3x stuck rule** — if the same task appears in 3+ consecutive progress entries while still in-progress, force a surface switch; the next cycle finds new evidence or the task stays blocked.
 
