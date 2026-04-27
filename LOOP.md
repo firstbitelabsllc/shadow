@@ -45,7 +45,13 @@ Read these files in order. Stop if any is missing — that's your first task.
 2. **Decision Log** — read the `## Decision Log` section before doing anything else. If `vidux-loop.sh` output has `decision_log_warning: true`, review every entry. You MUST NOT contradict a logged direction. If your next action would, skip that action and move on.
 3. `git log --oneline -10` — what happened recently? Any commits since last checkpoint?
 4. `git diff --stat` — any uncommitted work from a crashed session?
-5. Ledger (if available): `tail -5 ~/.agent-ledger/activity.jsonl | jq '.summary'`
+5. Worktree classifier — before creating a new worktree or leaving an old branch behind:
+   `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`.
+   Resume or record lane-owned `dirty`, `closed_unmerged`, or `unmerged_no_pr`
+   rows before minting another branch. `open_pr` rows are durable handoff;
+   nurse them or leave them recorded. Only `merged_clean` rows are automatic
+   local cleanup candidates.
+6. Ledger (if available): `tail -5 ~/.agent-ledger/activity.jsonl | jq '.summary'`
 
 If uncommitted work exists from a crash, commit it first with message `vidux: recover uncommitted work from crashed session`.
 
@@ -198,13 +204,29 @@ Git failures propagate — a checkpoint script exit code > 0 means the commit di
 
 ## Step 5: Complete
 
-The cycle is done. Exit cleanly. The next cron fire will read fresh from files.
+The cycle is done only after its local worktree lifecycle is closed or explicitly
+recorded. Exit cleanly. The next cron fire will read fresh from files.
+
+Before exiting:
+
+1. Run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`.
+2. If your lane's worktree is `merged_clean`, remove it with the classifier
+   from outside that worktree path: `--apply --yes`.
+3. If your lane's worktree is `open_pr`, record the PR URL/number in Progress
+   or memory and keep nursing it.
+4. If your lane's worktree is `dirty`, `closed_unmerged`, or `unmerged_no_pr`,
+   inspect/stash/commit/escalate, create a PR, absorb useful commits, or record
+   exactly why the branch is intentionally abandoned.
+
+A task is not complete while its only resume point is unrecorded local worktree
+state.
 
 Do NOT:
 - Save state in memory
 - Carry context to the "next step"
 - Start a second task
 - Leave uncommitted work
+- Leave an unclassified worktree behind
 
 ## Escalation Statuses
 
