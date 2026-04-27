@@ -17,7 +17,7 @@ Vidux is the discipline. Claude Code and Codex are two runtimes that execute vid
 | **Sandbox** | N/A (local execution, full access) | `read-only` / `workspace-write` / `danger-full-access` |
 | **Multi-agent** | `Agent` tool (subagents in-session) | `max_depth` / `max_threads` in config.toml |
 | **Session model** | Disposable sessions; lanes persist on disk | Desktop app process; automations in DB + TOML |
-| **Session GC** | Required (`session-prune.py`, mandatory lane) | Not needed (app manages its own state) |
+| **Session GC** | Required (`session-gc` lane) | Not needed (app manages its own state) |
 | **Max lanes** | 6 per session (worktree contention limit) | Limited by `max_threads` (default 6) |
 | **Delegation** | N/A (Claude is the writer) | Mode A (research) / Mode B (implementation) |
 
@@ -62,7 +62,7 @@ Both platforms use the same persistence philosophy: **lanes persist on disk, ses
 └── ...
 ```
 
-Session JSONLs (`~/.claude/projects/*/*.jsonl`) are hot storage — disposable, GC'd by `session-prune.py`. Lane files are cold storage — durable, never auto-deleted.
+Session JSONLs (`~/.claude/projects/*/*.jsonl`) are hot storage — disposable, and the automation guide treats `session-gc` as the lane that prunes them. Lane files are cold storage — durable, never auto-deleted.
 
 ### Codex
 

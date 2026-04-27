@@ -24,8 +24,8 @@ What we know, cited with sources.
 Ordered, with status tags and evidence citations.
 - [pending] Task 1: description [Evidence: ...]
 - [in_progress] Task 2: description [Evidence: ...]
-- [completed] Task 3: description [Evidence: ...]
-- [blocked] Task 4: description [Blocker: ...]
+- [in_review] Task 3: description [Evidence: ...]
+- [completed] Task 4: description [Evidence: ...]
 
 ## Decision Log
 Intentional choices that future agents must not undo.
@@ -55,24 +55,23 @@ All six sections are required. Missing sections produce known failure modes:
 ## Task Status FSM
 
 ```
-pending → in_progress → completed
-              ↓
-           blocked    (terminal)
+pending → in_progress → in_review → completed
 ```
 
 Status rules:
 - Every task starts `[pending]`
 - Only one task per lane should be `[in_progress]` at a time
+- `[in_review]` is optional. Use it when a task has an open PR and is waiting on CI, review, or merge.
 - `[completed]` is permanent — never revert to `[pending]`
-- `[blocked]` requires a Blocker note and Decision Log entry
-- `[blocked]` is terminal — replace with a new task rather than reviving
+- `[blocked]` requires a Blocker note and Decision Log entry when the blocker changes the plan
+- Existing 4-state plans remain valid. Some plans model `[blocked]` as a terminal state; newer plans keep the task active and record the blocker separately. Stay consistent within one plan.
 
 **Inside `## Tasks`, every line starting with `- ` MUST be a task with a status tag.** Use numbered lists (`1. 2. 3.`) or headers for non-task content like rollout strategies or phase preambles.
 
 ## Task Format
 
 ```markdown
-- [pending] Task N: Short description [Evidence: source:line or PR #] [Depends: Task M]
+- [pending] Task N: Short description [Evidence: source:line or PR #] [Depends: Task M] [ETA: 1h]
 ```
 
 - **Status tag** — required, one of: `[pending]`, `[in_progress]`, `[completed]`, `[blocked]`
@@ -80,6 +79,7 @@ Status rules:
 - **Description** — short, action-oriented
 - **Evidence citation** — required for all pending tasks before coding begins
 - **Depends** — optional; blocks this task until the dependency is `[completed]`
+- **ETA** — optional; machine-readable AI-hour estimate for `/vidux-status`
 
 ## The Decision Log
 
@@ -87,9 +87,9 @@ The Decision Log is the most important section for preventing agent loops. State
 
 ```markdown
 ## Decision Log
-- [DELETION] [2026-04-10] Removed Routines integration. Reason: Fleet ops are local-first; Routines require cloud setup that users don't have. Do not re-add.
-- [DIRECTION] [2026-04-08] Chose CronCreate over Routines for automation. Reason: CronCreate works in any Claude Code session without cloud config.
-- [BLOCKED] [2026-04-12] Task 3 stuck 3 cycles. Root cause: external API rate limit. Requires human to obtain API key.
+- [DELETION] [2026-04-10] Removed a duplicate automation path. Reason: the repo keeps one authority plan per project. Do not re-add.
+- [DIRECTION] [2026-04-26] Chose ready-PR-first over draft-first for operational work. Reason: review automation should run immediately.
+- [BLOCKED] [2026-04-12] Task 3 needs an external credential before it can continue.
 ```
 
 Entry types:
@@ -104,7 +104,7 @@ When evidence changes, the plan changes. The correct procedure:
 
 1. **Update the plan FIRST** — what changed, why, what's the new direction
 2. **Add a Decision Log entry** — `[DIRECTION]` or `[PIVOT]` with the reason
-3. **Mark obsolete tasks** — `[blocked]` with a pointer to the new direction
+3. **Mark obsolete tasks** — block or annotate them in the style that plan already uses, with a pointer to the new direction
 4. **Add new tasks** — fresh `[pending]` tasks in the queue
 5. **Then update the code** — derived from the new plan state
 
@@ -148,7 +148,7 @@ For complex bugs or surfaces with 2+ tickets:
 
 ## Garbage Collection
 
-Archive when the plan feels heavy — the agent decides, no fixed threshold. Promoted or skipped INBOX entries are removed inline.
+Archive when the plan feels heavy, or use the shipped `scripts/vidux-plan-gc.py` helper when you want a mechanical sweep. Promoted or skipped INBOX entries are removed inline.
 
 Add a GC task to the plan when it gets large:
 

@@ -37,9 +37,13 @@ Populate the empty docs/ directories in vidux with platform-difference guides, l
 ### Phase 4: README Cleanup
 - [completed] Task 8: Clean README.md [Shipped: 22edaae] — trim the /vidux-codex companion section (too detailed for a README), tighten Fleet Intelligence bullets, update "What Ships Here" table. Point to docs/fleet/ for platform details.
 
+### Phase 5: Stale docs refresh
+- [in_progress] Task 9: Refresh stale docs-site pages and top-level docs after the v3 simplification [Evidence: docs/guide/quickstart.md:143-147 documents unsupported `/vidux --plan`; docs/reference/prompt-template.md:9-18 uses an 8-block order that no longer matches guides/harness.md; docs/concepts/plan-structure.md:57-68 documents a task FSM without the optional `in_review` state] [agent_id: codex/claudux-dogfood-vidux-20260426-1819]
+
 ## Decision Log
 - [DIRECTION] 2026-04-16 Core vidux stays platform-agnostic. Observer Pair and Delegation patterns move to platform-specific skills only. Core describes the discipline; platforms describe the runtime.
 - [DIRECTION] 2026-04-16 Codex automations documented as TOML-first workflow (not DB-first) because the UI requires TOML files per Bug #16.
 
 ## Progress
 - [2026-04-16] Plan created. Research complete: TOML format found, cruft audit done, empty docs dirs confirmed.
+- [2026-04-26] Started Task 9 under codex/claudux-dogfood-vidux-20260426-1819. Scope is a source-grounded refresh only: fix stale command examples, align plan/prompt references with current guides, and keep the current docs IA + page IDs intact.

@@ -39,7 +39,7 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 
 ## How It Works
 
-Every change flows through a four-stage loop. Documentation is the control plane — not chat, not memory.
+Every change flows through a document-driven loop. Documentation is the control plane — not chat, not memory.
 
 ```mermaid
 flowchart LR
@@ -112,7 +112,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 **Compound tasks link to an investigation file** — messy surfaces get a compound task pointing at `investigations/<slug>.md` with seven sections (Reporter Says / Evidence / Root Cause / Impact Map / Fix Spec / Tests / Gate). The investigation IS the work until the Fix Spec is filled; then the fix and the investigation ship together as one commit. One parent plan, one child investigation per compound task — no deeper nesting.
 
-**Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries, not rewrites.
+**Append-only logs** — the `## Progress` section in `PLAN.md` and lane `memory.md` are strictly append-only. Corrections go in new entries, not rewrites.
 
 **3x stuck rule** — same task in 3+ consecutive progress entries while in-progress = auto-exit. Brake, not kill.
 
@@ -147,19 +147,19 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 |------|------|
 | `SKILL.md` | Part 1 only — discipline, cycle, PLAN.md template, compound tasks (~280 lines) |
 | `guides/automation.md` | Part 2 (opt-in) — 24/7 fleet model, session-gc, lane bootstrap, delegation |
-| `guides/recipes/` | 12 opt-in recipes — CLAUDE.md rules, lane prompts, subagent delegation, Codex runtime, friction patterns |
+| `guides/recipes/` | Focused recipe guides for CLAUDE.md rules, lane prompts, subagent delegation, Codex runtime, and common friction patterns |
 | `CHANGELOG.md` | Release notes — latest doctrine changes and migration notes |
 | `DOCTRINE.md` | The short doctrine (~5 min read) |
 | `LOOP.md` | Stateless cycle mechanics |
 | `ENFORCEMENT.md` | Claude Code hook configuration |
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
-| `commands/` | `/vidux` (single entry point — Part 1 inline, Part 2 + recipes on demand) |
+| `commands/` | `/vidux` for the main cycle, plus `/vidux-status` for read-only plan boards |
 | `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
 | `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
-| `tests/` | 144 contract tests (scripts, commands, doctrine, SKILL.md structure) |
+| `tests/` | Two Python suites covering contract behavior and plan-GC behavior |
 | `examples/` | Worked examples (bug fix lifecycle, fleet reference) |
 
 ## Ecosystem
@@ -212,10 +212,9 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 - [Harness Setup](guides/harness.md) — writing automation prompts
 - [Evidence Format](guides/evidence-format.md) — how to structure evidence files
 - [Fleet Operations](guides/fleet-ops.md) — automation fleet management
-- [Investigation Lifecycle](guides/investigation.md) — the parent-plan + child-investigation pattern
 - [Investigation Lifecycle](guides/investigation.md) — parent-plan + child-investigation format
 - [Ready PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
-- [Automation Recipes](guides/recipes.md) — 8 ready-to-deploy fleet patterns with prompt templates
+- [Automation Recipes](guides/recipes.md) — the main recipe catalog, plus focused guides in `guides/recipes/`
 - [Examples](examples/) — worked examples (start with [bug fix lifecycle](examples/bug-fix-lifecycle/))
 
 ## Sibling Project
