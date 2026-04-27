@@ -664,6 +664,7 @@ def sync_plan_with_adapter(
     push_statuses: set[VidxStatus] | None = None,
     do_pull: bool = True,
     do_push: bool = True,
+    create_missing_external_tasks: bool = True,
     fleet_known_ext_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Reconcile one plan-dir against one adapter. Return a summary dict.
@@ -767,17 +768,20 @@ def sync_plan_with_adapter(
             if t.status in effective_push
             and t.id not in mapping
         ]
-        for task in pushable:
-            try:
-                if dry_run:
-                    external_id = f"<dry-run:{task.id}>"
-                else:
-                    external_id = adapter.push_task(task)
-                mapping[task.id] = external_id
-                summary["pushed"] += 1
-                summary["pushed_ids"].append(task.id)
-            except Exception as exc:  # noqa: BLE001
-                summary["errors"].append(f"push_task({task.id}): {exc}")
+        if create_missing_external_tasks:
+            for task in pushable:
+                try:
+                    if dry_run:
+                        external_id = f"<dry-run:{task.id}>"
+                    else:
+                        external_id = adapter.push_task(task)
+                    mapping[task.id] = external_id
+                    summary["pushed"] += 1
+                    summary["pushed_ids"].append(task.id)
+                except Exception as exc:  # noqa: BLE001
+                    summary["errors"].append(f"push_task({task.id}): {exc}")
+        else:
+            summary["push_suppressed_auto_promote"] = len(pushable)
 
         # Reconcile status + blocked for tasks we already know about.
         # Idempotency: skip the GraphQL mutation when remote already
@@ -789,9 +793,6 @@ def sync_plan_with_adapter(
         for task in tasks:
             ext_id = mapping.get(task.id)
             if not ext_id:
-                continue
-            if task.status == VidxStatus.COMPLETED:
-                # We only push active tasks; completed is a terminal record.
                 continue
             if dry_run:
                 continue
@@ -807,6 +808,9 @@ def sync_plan_with_adapter(
                     else:
                         skipped += 1
                 # push_fields(_blocked): only when the flag diverges.
+                # Completed tasks are terminal; status is enough.
+                if task.status == VidxStatus.COMPLETED:
+                    continue
                 if remote is None or remote.blocked != local_blocked:
                     adapter.push_fields(ext_id, {"_blocked": local_blocked})
                 else:
@@ -1077,8 +1081,8 @@ def main(argv: list[str] | None = None) -> int:
             if not (promote_target_dir / PLAN_FILENAME).exists():
                 # Treat misconfiguration as fatal for this source. Falling
                 # back to INBOX would route the external task to the first
-                # plan in the store, and would also re-enable PLAN->board
-                # pushes for a source the operator configured as import-only.
+                # plan in the store, and would also re-enable new external
+                # task creation for local-only PLAN rows.
                 msg = (f"auto_promote_target {promote_target_dir} has no "
                        "PLAN.md; refusing to fall back to INBOX")
                 results.append({
@@ -1110,14 +1114,18 @@ def main(argv: list[str] | None = None) -> int:
 
         # When auto-promote is on, suppress the per-plan INBOX append
         # entirely (do_pull=False everywhere). The promotion sweep below
-        # handles routing to a single PLAN.md instead.
+        # handles routing to a single PLAN.md instead. Keep push enabled for
+        # source-mapped tasks so imported cards still receive status updates,
+        # but disable creation of brand-new external tasks from local-only
+        # PLAN rows.
         suppress_inbox = promote_target_dir is not None
         for idx, plan_dir in enumerate(plan_dirs):
             summary = sync_plan_with_adapter(
                 plan_dir, adapter, args.direction, args.dry_run,
                 push_statuses=push_statuses,
                 do_pull=(False if suppress_inbox else (idx == 0)),
-                do_push=(False if suppress_inbox else True),
+                do_push=True,
+                create_missing_external_tasks=not suppress_inbox,
                 fleet_known_ext_ids=fleet_known,
             )
             results.append(summary)

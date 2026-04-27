@@ -59,6 +59,9 @@ The live config uses several sections to guide scripts and automation behavior:
 - Adapter config can map task states, evidence fields, and auto-promotion targets.
 - `auto_promote_max_new` caps direct PLAN.md appends per source. The default is
   25; use `null` only for a deliberate bulk import.
+- Sources with `auto_promote_target` do not create new external items from
+  local-only PLAN rows, but they still push status for tasks already linked by
+  a `[Source: <adapter>:<id>]` marker.
 - Linear codebase intake should set both `project_id` and `project_name`; the
   adapter validates the remote project name before reading or writing so a repo
   cannot silently ingest the wrong Linear product bucket.

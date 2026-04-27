@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.24.1] - 2026-04-27
+
+Auto-promoted external cards now round-trip status without reopening the
+duplicate-card hole that `auto_promote_target` was designed to close.
+
+### Fixed
+
+- **`auto_promote_target` still pushes status for linked tasks.** When a
+  Linear/GitHub card has already landed in PLAN.md with a `[Source:
+  <adapter>:<id>]` marker, sync now reconciles status back to the external
+  board/project. A completed imported task no longer leaves the external
+  project stuck in Backlog.
+- **Local-only PLAN rows remain protected.** Auto-promote sources still refuse
+  to create brand-new external issues from unrelated local tasks, avoiding
+  duplicate-card storms in repos with large existing plan stores.
+- **Completed mapped tasks push terminal status.** `push_status(COMPLETED)` now
+  runs for known external ids; completed tasks skip only blocked-field sync.
+
+### Verified
+
+- `python3 -m unittest tests.test_vidux_inbox_sync tests.test_linear_adapter`
+- `python3 -m unittest discover -s tests`
+- `git diff --check`
+
+---
+
 ## [2.24.0] - 2026-04-27
 
 Linear codebase-project guardrails. Repo lanes can now require their Linear

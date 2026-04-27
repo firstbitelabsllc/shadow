@@ -117,6 +117,11 @@ an intentionally unguarded product bucket.
 missing. If a source would append more than the cap as fresh `BD-*` tasks, the
 sync fails closed before mutating `PLAN.md`.
 
+With `auto_promote_target`, sync does not create new external issues from
+local-only PLAN rows. It still reconciles status for tasks already linked by a
+`[Source: <adapter>:<id>]` marker so imported cards can move to completed on
+the external board.
+
 ## Six steps to write a new adapter
 
 ### 1. Subclass `AdapterBase`

@@ -119,6 +119,11 @@ When an adapter's config sets `auto_promote_target: <plan-dir>`, novel external 
 
 Missing `auto_promote_target` paths fail closed. Vidux refuses to fall back to `INBOX.md`, because that would route external work to the first plan in the store instead of the lane that owns the board/project.
 
+Auto-promote sources are guarded on the push half: they do **not** create new
+external issues from local-only PLAN rows. Already-linked rows with a
+`[Source: adapter:id]` marker still reconcile status back to the external item,
+so a completed imported task can move the external project forward.
+
 Auto-promote also has a batch safety cap: by default, more than 25 novel items
 in one run fails closed before mutating `PLAN.md`. Set
 `auto_promote_max_new` to a different integer, or to `null` to disable the cap
