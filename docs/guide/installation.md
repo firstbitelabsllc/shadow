@@ -43,7 +43,9 @@ For stronger enforcement within Claude Code sessions, add the hooks from `ENFORC
 - Enforce checkpoints: block session exit without a structured commit
 - Resume protocol: prompt plan re-read on session start
 
-The repo also ships `hooks/hooks.json` as a concrete manifest: it wraps the three git hooks above and adds `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
+The repo also ships `hooks/hooks.json` as a checked-in example manifest: it wraps the three git hooks above and adds `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
+
+`vidux-before-task` is directly runnable as shown. `vidux-after-task` is illustrative rather than zero-config: the raw `scripts/vidux-checkpoint.sh` CLI expects either `<plan-path> <task> <summary>` (plus optional flags) or `--archive`, so an app-level `afterTask` hook needs a wrapper that supplies those arguments.
 
 See [Hooks Reference](/reference/hooks) for the full configuration.
 

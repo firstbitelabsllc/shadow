@@ -40,6 +40,7 @@ const sidebar = [
       { text: 'Prompt Template', link: '/reference/prompt-template' },
       { text: 'Commands', link: '/reference/commands' },
       { text: 'Scripts', link: '/reference/scripts' },
+      { text: 'Browser UI', link: '/reference/browser' },
       { text: 'Hooks', link: '/reference/hooks' },
       { text: 'Configuration', link: '/reference/config' },
     ],
