@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.21.0] - 2026-04-27
+
+Read-only Linear/GitHub Projects port audit. This release saves the E2E result from the StrongYes / Resplit / Vidux board-wiring check so the gaps are durable instead of trapped in one chat.
+
+### Added
+
+- **`docs/fleet/linear-port-audit.md`** records the non-mutating audit across `vidux`, `strongyes-web`, `resplit-web`, and `resplit-ios`: dry-run adapter health, Linear coverage, title/description drift, stale mappings, and repo-specific next actions.
+- **Docs sidebar link** under Fleet so future agents can find the latest porting audit before changing board sync config.
+
+### Findings
+
+- **StrongYes is mostly wired but not fully ported.** Linear team fetch succeeds with 205 issues and 189 active mapped tasks; 22 active PLAN tasks are still unmapped, and 44 mapped issues have stale Purpose/title text.
+- **resplit-web Linear import works, but local plan coverage does not.** The scoped UX Overhaul project fetch returns 7 issues, while 65 active PLAN tasks are unmapped and the `mega-plan` sidecar has 7 mappings whose task ids are no longer parseable from the PLAN.
+- **resplit-web GitHub Projects config is stale.** `gh_projects` dry-run fails because `leojkwan` ProjectV2 number 4 no longer resolves.
+- **resplit-ios is not ported to repo-level Vidux sync.** The primary checkout has no `vidux.config.json`, the top-level `PLAN.md` uses non-canonical task syntax that the parser reads as 0 tasks, and old embedded `ai/skills/vidux` copies remain in the repo.
+- **No Linear HTML-comment codec leak found.** Description drift was title/Purpose mismatch, not the old visible `<!-- vidux:... -->` codec.
+
+### Verified
+
+- `python3 scripts/vidux-worktree-gc.py --base origin/main /Users/leokwan/Development/vidux`
+- `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter linear --direction=both --dry-run --json`
+- `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter gh_projects --direction=both --dry-run --json`
+
+---
+
 ## [2.20.0] — 2026-04-27
 
 Worktree lifecycle GC lands in core. Vidux now has a safe, read-only-by-default classifier for local automation worktrees so fleets can clean up after PR handoff without guessing which branches are safe to remove.
