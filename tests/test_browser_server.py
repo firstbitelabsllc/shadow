@@ -82,5 +82,39 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         self.assertFalse(browser_server.is_loopback_host("192.168.4.55"))
 
 
+class BrowserPlanDiscoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dev_root = Path(self.tmp.name).resolve()
+        browser_server.DEV_ROOT = self.dev_root
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_plan(self, repo: str, rel: str, title: str = "Demo") -> Path:
+        path = self.dev_root / repo / rel / "PLAN.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            f"# {title}\n\n## Purpose\nLocal test plan.\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_legacy_mobiledevcombine_duplicate_prefers_strongyes_checkout(self):
+        canonical = self.write_plan("strongyes-web", "vidux/game-plan", "Game Plan")
+        self.write_plan("mobiledevcombine-web", "vidux/game-plan", "Old Game Plan")
+
+        plans = browser_server.discover_plans()
+        game_plans = [
+            plan
+            for plan in plans
+            if Path(plan["rel"]).parts[1:] == ("vidux", "game-plan", "PLAN.md")
+        ]
+
+        self.assertEqual(len(game_plans), 1)
+        self.assertEqual(game_plans[0]["repo"], "strongyes-web")
+        self.assertEqual(Path(game_plans[0]["path"]), canonical.resolve())
+
+
 if __name__ == "__main__":
     unittest.main()
