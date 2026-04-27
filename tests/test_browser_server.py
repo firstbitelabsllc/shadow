@@ -1,5 +1,8 @@
 import importlib.util
+import http.client
+import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -80,6 +83,117 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         self.assertTrue(browser_server.is_loopback_host("127.0.0.1"))
         self.assertTrue(browser_server.is_loopback_host("::1"))
         self.assertFalse(browser_server.is_loopback_host("192.168.4.55"))
+
+
+class BrowserWriteEndpointHTTPTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dev_root = Path(self.tmp.name).resolve()
+        self.artifacts_dir = self.dev_root / ".artifacts"
+        self.original_dev_root = browser_server.DEV_ROOT
+        self.original_artifacts_dir = browser_server.ARTIFACTS_DIR
+        browser_server.DEV_ROOT = self.dev_root
+        browser_server.ARTIFACTS_DIR = self.artifacts_dir
+
+        self.plan_dir = self.dev_root / "repo" / "projects" / "demo"
+        self.plan_dir.mkdir(parents=True)
+        self.plan_path = self.plan_dir / "PLAN.md"
+        self.plan_path.write_text("# Demo\n\n## Purpose\nTest.\n", encoding="utf-8")
+
+        self.httpd = browser_server.ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            browser_server.Handler,
+        )
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.thread.join(timeout=2)
+        self.httpd.server_close()
+        browser_server.DEV_ROOT = self.original_dev_root
+        browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
+        self.tmp.cleanup()
+
+    def origin(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    def post(self, path: str, payload: dict | str, headers: dict[str, str]):
+        body = payload if isinstance(payload, str) else json.dumps(payload)
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("POST", path, body=body.encode("utf-8"), headers=headers)
+        res = conn.getresponse()
+        text = res.read().decode("utf-8", errors="replace")
+        conn.close()
+        return res.status, text
+
+    def json_headers(self, **extra: str) -> dict[str, str]:
+        return {"Content-Type": "application/json", **extra}
+
+    def test_artifact_post_accepts_same_origin_json(self):
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "safe-artifact", "html": "<h1>Safe</h1>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 200, text)
+        self.assertTrue((self.artifacts_dir / "safe-artifact.html").is_file())
+
+    def test_artifact_post_rejects_lan_client(self):
+        sent = []
+        handler = object.__new__(browser_server.Handler)
+        handler.client_address = ("192.168.4.55", 49152)
+        handler.headers = {
+            "Content-Type": "application/json",
+            "Host": f"127.0.0.1:{self.port}",
+            "Origin": self.origin(),
+        }
+        handler._send = lambda code, msg: sent.append((code, msg))
+
+        self.assertFalse(browser_server.Handler._require_json_write(handler))
+        self.assertEqual(sent, [(403, "write endpoints require loopback client")])
+
+    def test_artifact_post_rejects_simple_content_type(self):
+        status, text = self.post(
+            "/api/artifact",
+            json.dumps({"slug": "simple-body", "html": "<h1>Nope</h1>"}),
+            {"Content-Type": "text/plain", "Origin": self.origin()},
+        )
+
+        self.assertEqual(status, 415, text)
+        self.assertFalse((self.artifacts_dir / "simple-body.html").exists())
+
+    def test_artifact_post_rejects_cross_origin(self):
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "evil-origin", "html": "<h1>Nope</h1>"},
+            self.json_headers(Origin="http://evil.example"),
+        )
+
+        self.assertEqual(status, 403, text)
+        self.assertFalse((self.artifacts_dir / "evil-origin.html").exists())
+
+    def test_plan_note_post_accepts_same_origin_json(self):
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "safe note"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 200, text)
+        self.assertIn("safe note", (self.plan_dir / "INBOX.md").read_text(encoding="utf-8"))
+
+    def test_plan_note_post_rejects_cross_origin(self):
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "evil note"},
+            self.json_headers(Origin="http://evil.example"),
+        )
+
+        self.assertEqual(status, 403, text)
+        self.assertFalse((self.plan_dir / "INBOX.md").exists())
 
 
 class BrowserPlanDiscoveryTests(unittest.TestCase):

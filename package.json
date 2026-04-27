@@ -3,7 +3,7 @@
   "scripts": {
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "test": "python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc"
+    "test": "python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc tests.test_browser_server"
   },
   "devDependencies": {
     "vitepress": "1.6.4",

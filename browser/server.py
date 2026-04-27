@@ -64,6 +64,7 @@ ARTIFACT_TITLE_RE = re.compile(
 PLAN_NOTE_MAX_BYTES = 16 * 1024
 PLAN_NOTE_SOURCE_RE = re.compile(r"[^A-Za-z0-9_.:/@ -]+")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
+JSON_CONTENT_TYPE = "application/json"
 
 # /vidux task-FSM markers. Used by task_stats() to compute completion-bar.
 # Per Leo 2026-04-25: completion (X/Y tasks) is the headline; ETA is parsed
@@ -343,6 +344,19 @@ def is_loopback_host(host: str) -> bool:
     return host in LOOPBACK_HOSTS
 
 
+def is_json_content_type(value: str | None) -> bool:
+    return (value or "").split(";", 1)[0].strip().lower() == JSON_CONTENT_TYPE
+
+
+def origin_matches_host(raw: str, host: str) -> bool:
+    if not raw or raw == "null" or not host:
+        return False
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return False
+    return parsed.netloc.lower() == host.lower()
+
+
 def clean_note_label(raw: object, default: str) -> str:
     text = str(raw or default).strip()
     text = PLAN_NOTE_SOURCE_RE.sub("", text)
@@ -444,6 +458,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802 — stdlib override
         url = urlparse(self.path)
         if url.path == "/api/artifact":
+            if not self._require_json_write():
+                return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > ARTIFACT_MAX_BYTES + 1024:
                 self._send(400, "missing or oversized body")
@@ -465,8 +481,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json({"ok": True, "slug": slug, "path": msg})
         elif url.path == "/api/local-plan-note":
-            if not is_loopback_host(self.client_address[0]):
-                self._send(403, "local writes require loopback client")
+            if not self._require_json_write():
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > PLAN_NOTE_MAX_BYTES + 2048:
@@ -498,6 +513,33 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "path": msg})
         else:
             self._send(404, "not found")
+
+    def _require_json_write(self) -> bool:
+        if not is_loopback_host(self.client_address[0]):
+            self._send(403, "write endpoints require loopback client")
+            return False
+        if not is_json_content_type(self.headers.get("Content-Type")):
+            self._send(415, "Content-Type must be application/json")
+            return False
+        ok, reason = self._same_origin_ok()
+        if not ok:
+            self._send(403, reason)
+            return False
+        return True
+
+    def _same_origin_ok(self) -> tuple[bool, str]:
+        host = (self.headers.get("Host") or "").strip()
+        origin = (self.headers.get("Origin") or "").strip()
+        referer = (self.headers.get("Referer") or "").strip()
+        if origin:
+            if origin_matches_host(origin, host):
+                return True, ""
+            return False, "Origin must match vidux-browse host"
+        if referer:
+            if origin_matches_host(referer, host):
+                return True, ""
+            return False, "Referer must match vidux-browse host"
+        return True, ""
 
     def _serve_static(self, name: str, ctype: str | None = None):
         if not name:
