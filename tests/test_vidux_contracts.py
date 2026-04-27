@@ -28,6 +28,7 @@ PLAN = ROOT / "PLAN.md"
 LOOP = ROOT / "LOOP.md"
 ENFORCEMENT = ROOT / "ENFORCEMENT.md"
 INGREDIENTS = ROOT / "INGREDIENTS.md"
+GITIGNORE = ROOT / ".gitignore"
 
 
 def _read(path: Path) -> str:
@@ -103,6 +104,24 @@ class ViduxContractTests(unittest.TestCase):
             "unmerged_no_pr",
         ]:
             self.assertIn(bucket, text)
+
+    def test_external_state_sidecars_are_ignored(self):
+        """External board state sidecars must stay local even in tracked plan dirs."""
+        text = _read(GITIGNORE)
+        self.assertIn(".external-state.json", text)
+        result = subprocess.run(
+            ["git", "check-ignore", "-v", "projects/vidux-browser/.external-state.json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(
+            0,
+            result.returncode,
+            f"external state sidecar is not ignored\nstdout={result.stdout}\nstderr={result.stderr}",
+        )
 
     # test_skill_has_failure_protocol — removed in v3 (covered by principle 5: Prove it mechanically)
 
