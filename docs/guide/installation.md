@@ -30,9 +30,9 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 
 | Hook | What it checks |
 |------|---------------|
-| `pre-commit-plan-check.sh` | Code changes have a corresponding PLAN.md update |
-| `post-commit-checkpoint.sh` | Checkpoint format is correct |
-| `three-strike-gate.sh` | Same task stuck 3+ cycles = blocked |
+| `pre-commit-plan-check.sh` | Blocks staged non-markdown code changes when `PLAN.md` has no active or pending task. |
+| `post-commit-checkpoint.sh` | Prints a reminder when `PLAN.md` has no progress entry for today. |
+| `three-strike-gate.sh` | Warns after 3 recent `fix` / `retry` / `attempt` commits so you step up an abstraction level. |
 
 ## Optional: Claude Code Enforcement Hooks
 
@@ -42,6 +42,8 @@ For stronger enforcement within Claude Code sessions, add the hooks from `ENFORC
 - Detect drift: flag file changes that don't match the active plan task
 - Enforce checkpoints: block session exit without a structured commit
 - Resume protocol: prompt plan re-read on session start
+
+The repo also ships `hooks/hooks.json` as a concrete manifest: it wraps the three git hooks above and adds `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
 
 See [Hooks Reference](/reference/hooks) for the full configuration.
 

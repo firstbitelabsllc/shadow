@@ -1,8 +1,8 @@
 # Hooks Reference
 
-Vidux ships three optional git hooks in `hooks/`. They are lightweight local enforcement helpers, not a replacement for the main planning discipline.
+Vidux ships three optional git hooks in `hooks/`. The repo also includes `hooks/hooks.json`, a source-grounded manifest that maps those scripts plus two task-lifecycle helpers into higher-level hook events.
 
-## Available hooks
+## Git hooks
 
 | Hook | Behavior |
 |---|---|
@@ -19,6 +19,20 @@ cp hooks/pre-commit-plan-check.sh /path/to/your/project/.git/hooks/pre-commit
 cp hooks/post-commit-checkpoint.sh /path/to/your/project/.git/hooks/post-commit
 cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 ```
+
+## Hook manifest
+
+`hooks/hooks.json` is the repo's checked-in example for app-level hook wiring. It currently declares five entries:
+
+| Manifest entry | Event | Script |
+|---|---|---|
+| `vidux-pre-commit` | `pre-commit` | `hooks/pre-commit-plan-check.sh` |
+| `vidux-checkpoint` | `post-commit` | `hooks/post-commit-checkpoint.sh` |
+| `vidux-three-strike` | `post-build-failure` | `hooks/three-strike-gate.sh` |
+| `vidux-before-task` | `beforeTask` | `scripts/vidux-doctor.sh --json` |
+| `vidux-after-task` | `afterTask` | `scripts/vidux-checkpoint.sh` |
+
+These entries are examples, not auto-installed defaults. In the shipped manifest, `vidux-before-task` is a non-blocking health check and `vidux-after-task` expects `PLAN_PATH` so it can write a structured post-flight checkpoint.
 
 ## Behavior notes
 
@@ -38,3 +52,4 @@ Hooks are a good fit when you want a local nudge without running a scheduled lan
 
 - Read [PLAN.md Field Reference](/reference/plan-fields) to understand what the pre-commit hook is looking for.
 - Read [Scripts](/reference/scripts) for the heavier command-line helpers that complement these hooks.
+- Read `ENFORCEMENT.md` when you need the prompt-hook examples for Claude Code session wiring.

@@ -439,6 +439,24 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 3. Re-run the docs build, repo test gate, and link/config checks after the refresh; checkpoint only if the docs and gates match the current repo state.
 [Done: 2026-04-27. Kept the existing VitePress IA and config unchanged after confirming 32/32 config links in `docs/.vitepress/config.ts` still resolve. Updated only source-grounded drift: session-gc docs now say the repo documents the lane pattern but does not ship a `scripts/session-prune.py` helper, the platform comparison no longer claims an unsupported Codex `max_threads` default, and the bug-fix example now checkpoints in `## Progress` with current task and Decision Log syntax. Gate: `npm ci` PASS, `npm run docs:build` PASS, `python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc` PASS (156/156), `git diff --check` PASS, config-link audit PASS (32/32). Tool note: local `claudux validate` FAILS with `Unknown command: validate`; the current CLI help points to `claudux update` for built-in validation.]
 
+### Phase 13: Post-static-analysis hooks docs drift guard [completed]
+
+**Goal:** Keep the public docs source-grounded after the post-#65 pass by correcting the hook-install surfaces that still contradict the shipped hook scripts and hook manifest, without changing the current VitePress information architecture or config.
+
+**Evidence:**
+- [Source: docs/guide/installation.md:31-35] The install-page hook table says `post-commit-checkpoint.sh` validates checkpoint format and `three-strike-gate.sh` means "same task stuck 3+ cycles = blocked."
+- [Source: hooks/post-commit-checkpoint.sh:2-18] The shipped post-commit hook only prints a reminder when today's `PLAN.md` progress entry is missing.
+- [Source: hooks/three-strike-gate.sh:2-21] The shipped three-strike hook counts recent `fix|retry|attempt` commits and prints escalation guidance; it does not mutate task state.
+- [Source: hooks/hooks.json:1-40] The repo now ships a five-entry hook manifest including `beforeTask` and `afterTask` script hooks that the public hooks reference does not currently name.
+
+#### 13.1 — Hooks install/reference drift pass [completed] [Agent: codex/claudux-dogfood-chat]
+
+1. Correct the install guide's hook table so each row matches the actual script behavior.
+2. Expand the hooks reference to mention the shipped `hooks/hooks.json` manifest and its `beforeTask` / `afterTask` entries without inventing new integration steps.
+3. Re-run the docs build, repo test gate, and `git diff --check`; leave `docs/.vitepress/config.ts` unchanged unless a broken link is proven.
+[ETA: 0.25h]
+[Done: 2026-04-27. Corrected the install guide's hook table so it matches the shipped git-hook scripts, and expanded the hooks reference with the checked-in `hooks/hooks.json` manifest plus its `beforeTask` / `afterTask` entries. Kept `docs/.vitepress/config.ts` unchanged after the config-link audit passed 32/32. Gate: `npm test` PASS (156/156), `npm ci` PASS, `npm run docs:build` PASS, `git diff --check` PASS.]
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -533,4 +551,5 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 - [2026-04-27 01:40 EDT] 11.1 completed. Post-`2.20.0` static-analysis dogfood found the docs IA stable, so the refresh stayed narrow: `docs/reference/scripts.md` now names the worktree-GC lifecycle buckets, documents that `--apply --yes` protects both the primary and invocation checkouts, and records the dedicated CI coverage. Gate: `npm ci` PASS, `npm run docs:build` PASS, `python3 -m unittest tests.test_worktree_gc` PASS, local `claudux validate` PASS, config-link audit PASS (27/27), `git diff --check` PASS, and parent `npm test` PASS (156/156). Tool note: local `claudux validate-output --help` still fails with `Unknown command: validate-output`; the working entry point is `claudux validate`.
 - [2026-04-27 01:58 EDT] 11.3 completed. Merge-nursed claudux dogfood PR #65 after #64 advanced `main`; kept #64's millisecond timestamp, adapter, and worktree-GC corrections, then added only the remaining native Codex default clarification to the public fleet docs. Gate: `npm run docs:build` PASS, `python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc` PASS (156/156), local `claudux validate` PASS, `git diff --check` PASS.
 - [2026-04-27 02:54 EDT] 12.1 completed. Post-#65 docs dogfood stayed narrow and left the VitePress IA untouched: `guides/automation.md`, `references/automation.md`, `docs/fleet/claude-lifecycle.md`, and `docs/fleet/platforms.md` now describe session-gc as a documented lane pattern that relies on an operator-provided JSONL cleanup helper instead of a shipped `scripts/session-prune.py`, `docs/fleet/platforms.md` drops the unsupported Codex `max_threads` default claim, and `examples/bug-fix-lifecycle/README.md` now checkpoints in `## Progress` with current task and Decision Log syntax. Gate: `npm ci` PASS, `npm run docs:build` PASS, `python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc` PASS (156/156), config-link audit PASS (32/32), `git diff --check` PASS. Tool note: local `claudux validate` now fails with `Unknown command: validate`; current CLI help points to `claudux update` for built-in validation.
+- [2026-04-27 03:43 EDT] 13.1 completed. Kept the VitePress IA untouched and corrected only source-proven hook drift: `docs/guide/installation.md` now matches the shipped git-hook scripts, and `docs/reference/hooks.md` now documents the checked-in `hooks/hooks.json` manifest plus its `beforeTask` / `afterTask` entries. Gate: `npm test` PASS (156/156), `npm ci` PASS, `npm run docs:build` PASS, config-link audit PASS (32/32), `git diff --check` PASS.
 <!-- 3 tasks archived to ARCHIVE.md -->
