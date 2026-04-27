@@ -17,38 +17,26 @@ Open Claude Code in your project directory and run:
 /vidux "your project description"
 ```
 
-**On the first cycle**, Vidux gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready. This is intentional — "plan first, code second" is the core discipline.
+On a brand-new project, the first cycle gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready. This is intentional — "plan first, code second" is the core discipline.
 
-## 3. Understand the Amplification Flow
+## 3. Interactive Prompt Flow
 
-When `/vidux` receives your description, it runs through an amplification step:
+If you are using `/vidux` through the interactive prompt layer described in `guides/harness.md`, the request can be sharpened before execution:
 
 ```
 RAW INPUT → GATHER → AMPLIFY → PRESENT → [STEER...] → FIRE → EXECUTE
 ```
 
-1. **GATHER** (10 sec): reads git status/log, checks existing plans, scans for active tasks
-2. **AMPLIFY**: detects mode (harness, plan, or execute) and sharpens the prompt
-3. **PRESENT**: shows the amplified prompt — you can steer or say "fire"
-4. **FIRE**: strips scaffolding, executes the task
+1. **GATHER**: reads repo state, existing plans, and recent context
+2. **AMPLIFY**: detects whether the request is plan work, harness work, or execution work
+3. **PRESENT**: shows the sharpened prompt so you can steer it
+4. **FIRE**: executes the final task spec
 
-You'll see something like:
+This interactive shaping step is useful, but it is not the core cycle itself. The durable contract still starts from the plan store, not from chat text.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ AMPLIFIED PROMPT                                                │
-│                                                                 │
-│ Research the authentication flow in src/auth/ and create a     │
-│ PLAN.md documenting: current implementation, known issues,     │
-│ and proposed fixes with evidence citations.                     │
-└─────────────────────────────────────────────────────────────────┘
+## 4. The First Cycle: Plan Creation
 
-Steer me or say fire.
-```
-
-## 4. The First Cycle: Evidence Gathering
-
-The first cycle always produces a `PLAN.md`, not code. Vidux follows the rule:
+On a new project, the first cycle produces a `PLAN.md`, not code. Vidux follows the rule:
 
 > **A plan entry without evidence is a guess. Guesses cause rework.**
 
@@ -70,6 +58,10 @@ Why this exists. One paragraph.
 - [Source: codebase grep] src/auth/login.ts:42 — missing rate limit
 - [Source: git log] commit abc123 — "fix: auth bypass" (3 days ago)
 
+## Constraints
+- ALWAYS: run tests before claiming done
+- NEVER: ship code that has no evidence-backed task
+
 ## Tasks
 - [pending] Task 1: Add rate limiting to login endpoint [Evidence: ...]
 - [pending] Task 2: Write tests for auth bypass fix [Evidence: ...]
@@ -78,7 +70,7 @@ Why this exists. One paragraph.
 ## Progress
 ```
 
-## 5. Subsequent Cycles: Code Execution
+## 5. Later Cycles: Queue Execution
 
 On the second `/vidux` invocation:
 
@@ -111,7 +103,7 @@ Committing: "vidux: recover uncommitted work from crashed session"
 
 The agent commits the in-progress work, then continues from the last checkpoint.
 
-## 7. When All Tasks Complete
+## 7. When the Queue Empties
 
 When the queue empties, the agent doesn't just exit — it scans for new work:
 
@@ -142,9 +134,9 @@ If nothing is found, it checkpoints and exits with proof of what was scanned.
 
 **Plan-only (no code this cycle):**
 ```
-/vidux --plan "investigate performance issues in the dashboard"
+/vidux "investigate performance issues in the dashboard"
 ```
-(Or simply tell `/vidux` "plan only, no code this cycle" — the agent honors the instruction.)
+Tell `/vidux` in plain language that you want plan work only. The command spec in this repo does not document a separate dedicated flag for that mode.
 
 ## Next Steps
 

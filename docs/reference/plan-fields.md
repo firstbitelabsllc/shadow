@@ -19,21 +19,21 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 ## Task Status FSM
 
 ```
-  pending ─────▶ in_progress ─────▶ completed
-                      │
-                      └── blocked (terminal)
+  pending ─────▶ in_progress ─────▶ in_review ─────▶ completed
 ```
 
 | Status | Meaning | Who sets it |
 |---|---|---|
 | `[pending]` | Queued with evidence, not yet started | Writer during plan authoring |
 | `[in_progress]` | Actively being worked (one cycle or across cycles) | Any agent picking up the task |
+| `[in_review]` | Optional holding state while a PR waits on CI, review, or merge | The agent that opened the reviewable change |
 | `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
-| `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
+| `[blocked]` | Explicit blocker state or blocker label, depending on the plan's style | Any agent that hits the block |
 
 **Rules:**
 
 - A task is `[in_progress]` for at most one cycle at a time. If the session dies mid-task, the next agent resumes it.
+- `in_review` is optional. Existing four-state plans without it are still valid.
 - A task appears in 3+ Progress entries while still `[in_progress]` → force a surface switch; the next cycle finds new evidence or the task stays blocked.
 - `[completed]` is earned by verification evidence (a command, screenshot, or build output), not by assertion. Claiming complete without evidence is a lie (SKILL.md Principle 5).
 - Status flows UP from sub-plans: an L1 task stays `[in_progress]` while its L2 investigation has any `(pending)` section.
@@ -48,6 +48,7 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 | `[Depends: Task N]` | Blocks until task N is `[completed]` | `[Depends: Task 3]` |
 | `[Investigation: path]` | Compound task — read sub-plan before coding | `[Investigation: investigations/payment-flow.md]` |
 | `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs Leo's PostHog prod key]` |
+| `[ETA: Xh]` | Optional AI-hour estimate for `/vidux-status` | `[ETA: 0.5h]` |
 | `[Fix: file:line]` | Where the fix landed, on `[completed]` tasks | `[Fix: src/auth.ts:42]` |
 | `[Shipped: <sha>]` | Commit sha the fix landed in | `[Shipped: a1b2c3d]` |
 
@@ -97,6 +98,7 @@ Every item in the Evidence section cites a source. Standard tags:
 | `[Source: design doc]` | An architecture or product doc (inline quote preferred) |
 | `[Source: team chat]` | A Slack / Linear / email decision (screenshot or quote) |
 | `[Source: measurement]` | A benchmark, perf measurement, or experiment result |
+| `[Source: observed]` | User-observed behavior that should be treated as first-class evidence |
 
 **Rule:** a plan entry without a source is a guess. Guesses cause rework (SKILL.md Principle 1).
 

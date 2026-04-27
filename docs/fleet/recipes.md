@@ -27,6 +27,7 @@ This page maps that material into the docs site so the VitePress navigation matc
 
 The repo also ships focused recipe documents for recurring surfaces:
 
+- `README.md`
 - `claude-md-rules.md`
 - `codex-runtime.md`
 - `env-var-forensics.md`

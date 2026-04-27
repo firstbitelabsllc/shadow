@@ -27,7 +27,7 @@ PLAN.md — the only source of truth
 
 ## How It Works
 
-Every change flows through a four-stage loop:
+Every cycle moves through a document-driven loop:
 
 ```
 Doc Tree → Work Queue → Fresh Agent → Code Change → Doc Tree
@@ -65,7 +65,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 **Progress is code change** — a PR that only touches `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local. This rule was codified in the repo's 2026-04-17 doctrine update.
 
-**Append-only logs** — `PROGRESS.md` and `memory.md` are strictly append-only. Corrections go in new entries; retroactive rewrites destroy the history future agents need.
+**Append-only logs** — the `## Progress` section in `PLAN.md` and lane `memory.md` are append-only. Corrections go in new entries; retroactive rewrites destroy the history future agents need.
 
 **3x stuck rule** — if the same task appears in 3+ consecutive progress entries while still in-progress, force a surface switch; the next cycle finds new evidence or the task stays blocked.
 

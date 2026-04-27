@@ -30,9 +30,9 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 
 | Hook | What it checks |
 |------|---------------|
-| `pre-commit-plan-check.sh` | Code changes have a corresponding PLAN.md update |
-| `post-commit-checkpoint.sh` | Checkpoint format is correct |
-| `three-strike-gate.sh` | Same task stuck 3+ cycles = blocked |
+| `pre-commit-plan-check.sh` | Blocks code commits when the repo has no active or pending task in `PLAN.md` |
+| `post-commit-checkpoint.sh` | Prints a reminder when `PLAN.md` has no progress entry for today |
+| `three-strike-gate.sh` | Prints escalation guidance after repeated `fix` / `retry` style commits |
 
 ## Optional: Claude Code Enforcement Hooks
 
@@ -55,14 +55,17 @@ Open a Claude Code session and run:
 
 If installed correctly, the agent reads the skill, gathers evidence about your project, and presents an amplified prompt for your review before executing.
 
-## Ecosystem Skills
+The current command spec also says `/vidux` reads `vidux.config.json`, resolves the authority plan store, and then either creates a new `PLAN.md` or resumes the existing queue. In interactive sessions, `guides/harness.md` adds an amplification step before execution.
 
-Vidux is a **single entry point** — `/vidux` — that covers both planning and automation. As of 2026-04-17, previously separate planning, automation, platform-specific, and fleet companion commands were merged into `/vidux` or pruned as orphaned.
+## Command Surface
 
-| Skill | What it does |
+The repo ships two command specs in `commands/`:
+
+| Command | What it does |
 |---|---|
-| `/vidux` | Full plan-first cycle (Part 1) + automation patterns (Part 2) — one entry point covers planning, lane bootstrap, delegation, session GC |
+| `/vidux` | Main plan-first orchestrator. Resolves the authority plan, runs the stateless cycle, and loads deeper automation guides on demand. |
+| `/vidux-status` | Read-only board for scanning `PLAN.md` files and summarizing progress, ETAs, and stale work across repos. |
 
-For deep automation details (session-gc internals, Codex shim registration, PR lifecycle nursing, cross-fleet coordination), `/vidux` reads `references/automation.md` on demand.
+For deeper automation details, the repo keeps the runtime guidance in `guides/automation.md` and the longer-form doctrine in `references/automation.md`.
 
 See [Commands Reference](/reference/commands).
