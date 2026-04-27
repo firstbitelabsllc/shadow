@@ -6,6 +6,7 @@ __pycache__/
 node_modules/
 docs/.vitepress/dist/
 .claudux/
+.claudux-state.json
 QUEUE.jsonl
 
 # Private project plans — never commit to public repo
