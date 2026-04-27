@@ -55,7 +55,8 @@ Every work session follows this loop:
 
 ```
 READ       -> git fetch --prune (kill stale tracking refs first),
-              PLAN.md, INBOX.md, git log, git diff (uncommitted work?)
+              PLAN.md, INBOX.md, git log, git diff (uncommitted work?),
+              vidux-worktree-gc.py --base origin/main before new worktrees.
 ASSESS     -> Resume [in_progress] first, else pick highest-impact unblocked task.
              No evidence? Gather it locally before coding. Empty plan? Research first.
 ACT        -> Execute tasks until queue empty, blocker, or context budget.
@@ -64,6 +65,7 @@ ACT        -> Execute tasks until queue empty, blocker, or context budget.
 VERIFY     -> Build, test, gate
 CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
              Reconcile planned vs actual; update plan if they diverge.
+COMPLETE   -> Close the local worktree lifecycle or record why it remains.
 ```
 
 **Crash recovery:** If `git diff` shows uncommitted work from a dead session, commit it first: `vidux: recover uncommitted work from crashed session`.
@@ -71,6 +73,8 @@ CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
 **Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Force a surface switch — move to the next unblocked task and mark the stuck one `[blocked]` with a one-line Decision Log entry explaining what was tried. No human hand-off required; the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced. Polish is fractal — the brake is what prevents forever-loops, not a human approval gate.
 
 **Push authorization:** Operational PRs are always safe to push without asking. Open them ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization. A lane prompt that says "NEVER push" without qualification still allows a normal PR push; parking on a local branch wastes cycles.
+
+**Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only automatic cleanup bucket. `open_pr` is durable handoff and must be nursed or recorded. `dirty`, `closed_unmerged`, and `unmerged_no_pr` are not cleanup; they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
 
 ### Queue order
 

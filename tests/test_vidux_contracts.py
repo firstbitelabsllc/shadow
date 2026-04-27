@@ -90,6 +90,20 @@ class ViduxContractTests(unittest.TestCase):
             "SKILL.md missing negative activation criteria",
         )
 
+    def test_skill_cycle_has_worktree_lifecycle_gate(self):
+        """SKILL.md core cycle must require worktree classification and closeout."""
+        text = _read(SKILL)
+        self.assertIn("vidux-worktree-gc.py", text)
+        self.assertIn("Worktree lifecycle", text)
+        for bucket in [
+            "merged_clean",
+            "open_pr",
+            "dirty",
+            "closed_unmerged",
+            "unmerged_no_pr",
+        ]:
+            self.assertIn(bucket, text)
+
     # test_skill_has_failure_protocol — removed in v3 (covered by principle 5: Prove it mechanically)
 
     # -----------------------------------------------------------------------
@@ -197,6 +211,21 @@ class ViduxContractTests(unittest.TestCase):
         text = _read(LOOP)
         for n in range(1, 6):
             self.assertRegex(text, rf"##\s+Step\s+{n}", f"LOOP.md missing Step {n}")
+
+    def test_loop_requires_worktree_lifecycle_closeout(self):
+        """LOOP.md must make worktree classification part of read + complete."""
+        text = _read(LOOP)
+        self.assertIn("vidux-worktree-gc.py", text)
+        self.assertIn("unclassified worktree", text)
+        self.assertIn("not complete", text.lower())
+        for bucket in [
+            "merged_clean",
+            "open_pr",
+            "dirty",
+            "closed_unmerged",
+            "unmerged_no_pr",
+        ]:
+            self.assertIn(bucket, text)
 
     def test_loop_has_unify_step(self):
         """LOOP.md must mention UNIFY or 'planned vs actual'."""
