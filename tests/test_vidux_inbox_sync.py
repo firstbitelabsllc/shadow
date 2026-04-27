@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import shutil
 import sys
 import tempfile
@@ -60,7 +62,11 @@ class InboxSyncTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write_plan(self, tasks: str) -> None:
-        (self.plan_dir / "PLAN.md").write_text(
+        self.write_plan_at(self.plan_dir, tasks)
+
+    def write_plan_at(self, plan_dir: Path, tasks: str) -> None:
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "PLAN.md").write_text(
             textwrap.dedent(
                 f"""\
                 # Test Plan
@@ -228,6 +234,91 @@ class InboxSyncTests(unittest.TestCase):
         self.assertEqual(adapter.pushed, [])
         self.assertEqual(adapter.status_pushes, [])
         self.assertEqual(adapter.field_pushes, [])
+
+    def test_main_auto_promote_routes_to_target_lane_and_suppresses_push(self):
+        root = Path(self.tmp)
+        other_plan = root / "plans" / "other"
+        lane_plan = root / "plans" / "linear-lane"
+        self.write_plan_at(other_plan, "- [pending] Task 1: Local task")
+        self.write_plan_at(lane_plan, "")
+        config_path = root / "vidux.config.json"
+        config_path.write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "plan_store": { "mode": "inline", "path": "plans" },
+                  "inbox_sources": [
+                    {
+                      "adapter": "linear",
+                      "enabled": true,
+                      "config": { "auto_promote_target": "plans/linear-lane" }
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        adapter = FakeLinearAdapter([self.external_item()])
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 0)
+        self.assertEqual(adapter.pushed, [])
+        self.assertFalse((other_plan / sync.INBOX_FILENAME).exists())
+        lane_text = (lane_plan / sync.PLAN_FILENAME).read_text(encoding="utf-8")
+        self.assertIn(
+            "- [pending] BD-1: Fix duplicated card [Source: linear:lin_1]",
+            lane_text,
+        )
+        state = sync.load_state(lane_plan)
+        mapping = sync.adapter_state(state, adapter.name)
+        self.assertEqual(mapping, {"BD-1": "lin_1"})
+
+    def test_missing_auto_promote_target_fails_closed(self):
+        root = Path(self.tmp)
+        home_plan = root / "plans" / "home"
+        self.write_plan_at(home_plan, "- [pending] Task 1: Local task")
+        config_path = root / "vidux.config.json"
+        config_path.write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "plan_store": { "mode": "inline", "path": "plans" },
+                  "inbox_sources": [
+                    {
+                      "adapter": "linear",
+                      "enabled": true,
+                      "config": { "auto_promote_target": "plans/missing-lane" }
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        adapter = FakeLinearAdapter([self.external_item()])
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 2)
+        self.assertEqual(adapter.pushed, [])
+        self.assertFalse((home_plan / sync.INBOX_FILENAME).exists())
+        self.assertFalse((root / "plans" / "missing-lane").exists())
 
 
 if __name__ == "__main__":

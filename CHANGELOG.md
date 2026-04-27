@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.22.0] - 2026-04-27
+
+Fail-closed auto-promote routing for external board/project tasks. Linear and other project-extension sources now preserve lane ownership when new external cards are added.
+
+### Fixed
+
+- **`auto_promote_target` misconfiguration no longer falls back to INBOX.** If the target plan path is missing or has no `PLAN.md`, `vidux-inbox-sync.py` exits with config error `2` for that source and refuses to append to the first plan's `INBOX.md`.
+- **Import-only sources stay import-only on target failure.** The same failure path also suppresses PLAN-to-board pushes, avoiding accidental mass issue creation when a lane target is typoed or deleted.
+
+### Added
+
+- **Main-path regression tests** for successful auto-promotion into the configured target lane and for missing-target fail-closed behavior.
+
+### Verified
+
+- `python3 -m unittest tests.test_vidux_inbox_sync`
+- `python3 -m unittest discover -s tests`
+- `npm run docs:build`
+- `python3 scripts/vidux-inbox-sync.py --config /Users/leokwan/Development/vidux/vidux.config.json --only-adapter linear --direction=both --dry-run --json`
+
+---
+
 ## [2.21.0] - 2026-04-27
 
 Read-only Linear/GitHub Projects port audit. This release saves the E2E result from the StrongYes / Resplit / Vidux board-wiring check so the gaps are durable instead of trapped in one chat.
