@@ -475,6 +475,23 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 [ETA: 0.5h]
 [Done: 2026-04-27. Added a new docs-site reference page for the shipped local browser, wired it into `docs/.vitepress/config.ts` and the reference index, clarified that `hooks/hooks.json` is an example manifest whose `afterTask` entry needs a wrapper for `vidux-checkpoint.sh`, and narrowed `in_review` wording to match the current four-state core helper support while preserving the adapter-level FSM docs. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, `git diff --check` PASS, config-link audit PASS (28/28).]
 
+### Phase 15: Static-analysis docs guard refresh II [completed]
+
+**Goal:** Dogfood the vidux public docs against the authoritative static-analysis index at repo `HEAD` `09aea3141f62735b66b0173e950fb2219b07b8c3`, correcting only source-proven stale facts while preserving the current VitePress information architecture, page ids, nav order, deletion behavior, and pinned sections.
+
+**Evidence:**
+- [Source: .claudux/index/static-analysis.json:1-12] The current audit is anchored to repo `HEAD` `09aea3141f62735b66b0173e950fb2219b07b8c3`, 114 indexed source files, 27 indexed docs files, and the package-script/test surface that the docs must reflect exactly.
+- [Source: user directive, 2026-04-27] Refresh only stale documentation facts that can be verified from repository files; keep copy source-grounded, avoid broad rewrites, and leave behavior unchanged.
+- [Source: /Users/leokwan/Development/claudux-worktrees/readme-dogfood-20260426/lib/templates/generic/config.json:1-53] The docs pass still has to validate the VitePress structure and config semantics even if the final refresh lands as markdown-only.
+
+#### 15.1 — Source-grounded docs drift pass [completed] [Agent: codex/claudux-dogfood-vidux-20260427-0940]
+
+1. Audit the current VitePress docs, `README.md`, `SKILL.md`, and the referenced repo files against the static-analysis index to find only source-proven stale facts at `HEAD`.
+2. Preserve the existing docs IA, `docs/.vitepress/config.ts`, page ids, nav order, deletion behavior, and pinned sections unless the audit proves a contradiction.
+3. Re-run the docs build, repo test gate, and config/link checks after the refresh; checkpoint only if the docs and gates match the current repo state.
+[ETA: 0.5h]
+[Done: 2026-04-27. Kept the existing VitePress IA and config unchanged after confirming 32/32 config links still resolve. Updated only source-grounded drift in `SKILL.md` and `docs/concepts/extensions.md`: the public docs now describe the shipped `vidux-inbox-sync.py` entry point, the checked-in `gh_projects` + `linear` config, and the supported `--only-adapter` scoping without implying untracked local wrapper jobs or stale board wiring. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, `git diff --check` PASS, config-link audit PASS (32/32).]
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -527,6 +544,7 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 - [2026-04-09] Claude Desktop v1.1062.0 migrated from local-agent-mode-sessions/ to claude-code-sessions/. Local scheduled tasks JSON not carried over. Local task creation is UI-only — no programmatic API exists (anthropics/claude-code#41364).
 
 ## Progress
+- [2026-04-27 05:46 EDT] 15.1 completed. Static-analysis docs dogfood stayed narrow and left the VitePress IA intact: `SKILL.md` and `docs/concepts/extensions.md` now stick to repo-shipped adapter facts (`vidux-inbox-sync.py`, `--only-adapter`, checked-in `gh_projects` + `linear` config) instead of implying untracked `vidux-fleet-sync` / `vidux-linear-sync` wrappers or stale board-specific wiring. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, config-link audit PASS (32/32), `git diff --check` PASS.
 - [2026-04-09] Plan created. SKILL-v3.md drafted (220 lines). 4 guides extracted (810 lines). /claude skill created. Remote trigger created then disabled (pushed hallucinated copy to main).
 - [2026-04-09] All 12 Codex automations on v3 prompts. 0 vidux-loop.sh refs. resplit-web-ux SHIPPED (CTA fix). codex-watch ran fleet scan. StrongYes T92 shipped (/prep 44→101 companies). Bad copy reverted + COPY SAFETY added. 4 repos synced (0/0).
 - [2026-04-09] SKILL.md replaced with v3 (1000→208 lines). 14 contract tests updated. 394 worktree dirs GC'd (33GB freed, disk 2.8→147GB). 38 merged branches deleted. All 4 phases complete — v3 revamp shipped.

@@ -29,8 +29,8 @@ See [`adapters/README.md`](https://github.com/leojkwan/vidux/blob/main/adapters/
 
 | Adapter | Status | Notes |
 |---------|--------|-------|
-| `gh_projects` | live | GitHub Projects v2 — primary fleet board today |
-| `linear`      | live | Linear GraphQL — front door for human-authored task input |
+| `gh_projects` | live | GitHub Projects v2 adapter |
+| `linear`      | live | Linear GraphQL adapter |
 | `asana`       | stub | API + auth scaffolded; subclass-ready |
 | `jira`        | stub | API + auth scaffolded; subclass-ready |
 | `trello`      | stub | API + auth scaffolded; subclass-ready |
@@ -43,15 +43,15 @@ This means migrating from one tracker to another is a no-op — you don't migrat
 
 ## Sync architecture
 
-Independent crons handle independent quota buckets, separated via the `--only-adapter` flag on the sync script:
+The repo ships one sync entry point: `scripts/vidux-inbox-sync.py`. Operators can schedule separate invocations per adapter via `--only-adapter` when they want independent cadences or credentials:
 
-| Cron | Cadence | Scope | Quota |
-|------|---------|-------|-------|
-| `vidux-fleet-sync`              | 30 min  | `--only-adapter=gh_projects` | GitHub PAT |
-| `vidux-linear-sync`             | 10 min  | `--only-adapter=linear`      | Linear personal-key |
-| Per-plan nurse (e.g. `vidux-linear-primacy-nurse-local`) | 15 min | `claude -p` against an in-flight plan | Claude Max |
+| Invocation shape | Scope | Credential bucket |
+|------|-------|-------|
+| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter gh_projects --direction=both` | GitHub Projects only | GitHub token file |
+| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter linear --direction=both` | Linear only | Linear token file |
+| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --direction=both` | All enabled adapters for that repo | All configured token files |
 
-**Never collapse the crons.** One bucket exhaustion would silently take down the other surface.
+Separating scheduler entries is optional, but the `--only-adapter` split is the repo-supported way to scope a run to one external surface.
 
 ## State sidecar
 
