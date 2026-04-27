@@ -55,8 +55,8 @@ model = "gpt-5.4"
 reasoning_effort = "medium"
 execution_environment = "worktree"
 cwds = ["/path/to/repo"]
-created_at = 1744761600
-updated_at = 1744761600
+created_at = 1744761600000
+updated_at = 1744761600000
 ```
 
 **Field notes:**
@@ -68,7 +68,7 @@ updated_at = 1744761600
   - Hourly on the hour: `FREQ=HOURLY;INTERVAL=1;BYMINUTE=0`
   - Daily at 09:00: `FREQ=DAILY;BYHOUR=9;BYMINUTE=0`
 - `cwds` — JSON-style array of absolute paths. Codex runs in the first path by default.
-- `created_at` / `updated_at` — **required**. Missing either causes silent failure (Bug #18). Use `date +%s` for the current unix epoch.
+- `created_at` / `updated_at` — **required**. Missing either causes silent failure (Bug #18). Use a **millisecond** unix epoch integer. If you have already sourced `scripts/lib/codex-db.sh`, `codex_db_epoch_ms` prints the right format.
 - `execution_environment` — `"worktree"` for recurring vidux lanes. Sandbox access still comes from `sandbox_mode` in `~/.codex/config.toml`.
 
 ## Step 2 — Insert the DB row
@@ -76,7 +76,7 @@ updated_at = 1744761600
 The TOML is the UI source; the DB is the runtime. Both must exist.
 
 ```bash
-NOW=$(date +%s)
+NOW=$(python3 -c 'import time; print(int(time.time() * 1000))')
 PROMPT_ESCAPED=$(grep '^prompt = ' "$HOME/.codex/automations/$LANE_ID/automation.toml" | sed 's/^prompt = "\(.*\)"$/\1/')
 
 sqlite3 "$HOME/.codex/sqlite/codex-dev.db" <<EOF
@@ -187,7 +187,7 @@ To change the prompt, schedule, or model of a live lane:
 $EDITOR "$HOME/.codex/automations/$LANE_ID/automation.toml"
 
 # 2. Update the DB row (both sources must match)
-NOW=$(date +%s)
+NOW=$(python3 -c 'import time; print(int(time.time() * 1000))')
 sqlite3 "$HOME/.codex/sqlite/codex-dev.db" \
   "UPDATE automations SET prompt='{new prompt}', updated_at=$NOW WHERE id='$LANE_ID';"
 

@@ -38,11 +38,11 @@ model = "gpt-5.4"
 reasoning_effort = "medium"
 execution_environment = "worktree"
 cwds = ["/path/to/repo"]
-created_at = 1744761600
-updated_at = 1744761600
+created_at = 1744761600000
+updated_at = 1744761600000
 ```
 
-**Required fields** in the public examples and the helper-generated TOMLs (`codex_sync_tomls`) are: `version`, `id`, `kind`, `name`, `prompt`, `status`, `rrule`, `model`, `reasoning_effort`, `execution_environment`, `cwds`, `created_at`, `updated_at`. Missing `created_at` / `updated_at` causes silent failure (Bug #18).
+**Required fields** in the public examples and the helper-generated TOMLs (`codex_sync_tomls`) are: `version`, `id`, `kind`, `name`, `prompt`, `status`, `rrule`, `model`, `reasoning_effort`, `execution_environment`, `cwds`, `created_at`, `updated_at`. Missing `created_at` / `updated_at` causes silent failure (Bug #18). The current scheduler rows use **millisecond** epoch integers, not seconds.
 
 `execution_environment = "worktree"` is the current registration shape written by the shipped Codex helpers. Sandbox access still comes from `sandbox_mode` in `~/.codex/config.toml`.
 
@@ -54,7 +54,7 @@ updated_at = 1744761600
 INSERT INTO automations (id, name, prompt, status, rrule, cwds, model, reasoning_effort, created_at, updated_at)
 VALUES ('project-coordinator', 'project coordinator', '{prompt}', 'ACTIVE',
         'FREQ=MINUTELY;INTERVAL=30', '["/path/to/repo"]',
-        'gpt-5.4', 'medium', 1744761600, 1744761600);
+        'gpt-5.4', 'medium', 1744761600000, 1744761600000);
 ```
 
 ### 3. Verify
@@ -127,7 +127,7 @@ When the Mac app reopens after a quit, it reads the DB, resumes all `ACTIVE` aut
 | 14 | New automation invisible after DB insert | Full-quit app (`osascript 'quit'`), not just restart app-server |
 | 15 | `pkill app-server` doesn't pick up new rows | Electron frontend caches automation list separately — full quit required |
 | 16 | TOML files required for UI visibility | DB-only inserts are runnable but hidden — always write both |
-| 18 | Automation fails silently | Missing `created_at` / `updated_at` — both must be set to unix epoch |
+| 18 | Automation fails silently | Missing `created_at` / `updated_at` — both must be set to millisecond epoch integers |
 | 22 | TOML parse failure on multi-line prompts | Raw newlines break parsing — escape as `\n` |
 
 Use `codex_verify_tomls` as the lightweight local preflight, or `codex_safe_restart` for the full shipped quit → sync → reopen path.
@@ -138,7 +138,7 @@ Use `codex_verify_tomls` as the lightweight local preflight, or `codex_safe_rest
 |---|---|---|
 | Automation not firing | App quit or rrule typo | Reopen app; check `rrule` syntax (RFC 5545) |
 | Automation invisible in UI | TOML missing or DB-only | Write both TOML + DB row, full-quit + reopen |
-| Silent failure on fire | Missing `created_at` / `updated_at` | Fill both; run verify script |
+| Silent failure on fire | Missing `created_at` / `updated_at` | Fill both with millisecond epoch values; run verify script |
 | Prompt truncated | Raw newline in TOML | Replace `\n` with `\\n` escape; re-verify |
 | Lane can't write files | Sandbox = `read-only` | Switch to `workspace-write` for implementation dispatch tasks |
 | Can't run from CLI | Expected — CLI doesn't support automations | Use Mac desktop app |

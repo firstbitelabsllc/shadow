@@ -93,7 +93,7 @@ Every new automation follows this exact 5-step sequence:
 1. Write automation.toml       → disk (UI visibility source)
 2. Insert DB row               → sqlite (runtime source)
 3. Write prompt.md + memory.md → disk (lane state — hot-reload target)
-4. Run codex-toml-verify.sh    → catches missing fields / TOML-DB drift
+4. Run codex_verify_tomls      → catches missing fields / TOML-DB drift
 5. Full-quit + reopen the app  → clears Electron cache (Bug #14/#15)
 ```
 
@@ -112,8 +112,8 @@ INSERT INTO automations (
   '["/path/to/repo"]',
   'gpt-5.4',
   'medium',
-  <unix-epoch-seconds>,
-  <unix-epoch-seconds>
+  <unix-epoch-milliseconds>,
+  <unix-epoch-milliseconds>
 );
 ```
 
@@ -123,7 +123,7 @@ INSERT INTO automations (
 - `prompt` — single-line, newlines escaped as `\n`.
 - `rrule` — RFC 5545. Common patterns: `FREQ=MINUTELY;INTERVAL=30`, `FREQ=HOURLY;INTERVAL=1;BYMINUTE=0`, `FREQ=DAILY;BYHOUR=9;BYMINUTE=0`.
 - `cwds` — JSON-style array of absolute paths. Codex runs in the first path by default.
-- `created_at` / `updated_at` — **both required.** Missing either causes silent failure (Bug #18). Use `date +%s`.
+- `created_at` / `updated_at` — **both required.** Missing either causes silent failure (Bug #18). Use millisecond epoch integers (`python3 -c 'import time; print(int(time.time() * 1000))'`) or `codex_db_epoch_ms` from `scripts/lib/codex-db.sh`.
 
 ### Python batch registration
 
@@ -134,7 +134,7 @@ import sqlite3, time, os
 
 db = os.path.expanduser("~/.codex/sqlite/codex-dev.db")
 conn = sqlite3.connect(db)
-now = int(time.time())
+now = int(time.time() * 1000)
 
 for lane in lanes:  # lanes = list of dicts with id, name, rrule, cwds, ...
     conn.execute("""
@@ -150,6 +150,8 @@ conn.close()
 ```
 
 After the INSERTs, **full-quit and reopen Codex** before the first fire.
+
+Before the reopen, source `scripts/lib/codex-db.sh` and run `codex_verify_tomls` so broken prompt lines or missing TOMLs fail locally instead of on the next fire.
 
 ---
 

@@ -58,7 +58,7 @@ The live config uses several sections to guide scripts and automation behavior:
 - `inbox_sources` enables adapters such as `gh_projects`.
 - Adapter config can map task states, evidence fields, and auto-promotion targets.
 
-The live `vidux.config.json` also includes a disabled `linear` adapter entry with an inline comment explaining why it is turned off.
+The checked-in example file shows a single `gh_projects` entry, but the live `vidux.config.json` enables both shipped adapters: `gh_projects` and `linear`. Both live entries also carry `auto_promote_target` values, so the config docs should be read as "one minimal example plus one fuller real-world config," not as an exhaustive mirror of the example file alone.
 
 ## Where config is used
 
