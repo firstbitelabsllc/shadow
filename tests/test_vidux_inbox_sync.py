@@ -204,6 +204,27 @@ class InboxSyncTests(unittest.TestCase):
         self.assertEqual(summary["push_skipped_idempotent"], 1)
         self.assertEqual(summary["errors"], [])
 
+    def test_completed_mapped_task_pushes_terminal_status(self):
+        self.write_plan(
+            "- [completed] Task 1: Shipped work [Source: linear:lin_1]"
+        )
+        adapter = FakeLinearAdapter(
+            [self.external_item(status=sync.VidxStatus.PENDING)]
+        )
+
+        summary = sync.sync_plan_with_adapter(
+            self.plan_dir,
+            adapter,
+            direction="push",
+            dry_run=False,
+        )
+
+        self.assertEqual(
+            adapter.status_pushes, [("lin_1", sync.VidxStatus.COMPLETED)]
+        )
+        self.assertEqual(adapter.field_pushes, [])
+        self.assertEqual(summary["errors"], [])
+
     def test_push_fields_fires_when_blocked_flag_diverges(self):
         self.write_plan(
             "- [blocked] Task 1: Stuck work [Source: linear:lin_1]"
@@ -249,7 +270,7 @@ class InboxSyncTests(unittest.TestCase):
         self.assertEqual(adapter.status_pushes, [])
         self.assertEqual(adapter.field_pushes, [])
 
-    def test_main_auto_promote_routes_to_target_lane_and_suppresses_push(self):
+    def test_main_auto_promote_routes_to_target_lane_and_suppresses_new_push(self):
         root = Path(self.tmp)
         other_plan = root / "plans" / "other"
         lane_plan = root / "plans" / "linear-lane"
@@ -295,6 +316,64 @@ class InboxSyncTests(unittest.TestCase):
         state = sync.load_state(lane_plan)
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
+
+    def test_main_auto_promote_pushes_status_for_source_mapped_tasks(self):
+        root = Path(self.tmp)
+        other_plan = root / "plans" / "other"
+        lane_plan = root / "plans" / "linear-lane"
+        self.write_plan_at(other_plan, "- [pending] Task 1: Local task")
+        self.write_plan_at(
+            lane_plan,
+            "- [completed] BD-1: Fix duplicated card [Source: linear:lin_1]",
+        )
+        config_path = root / "vidux.config.json"
+        config_path.write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "plan_store": { "mode": "inline", "path": "plans" },
+                  "inbox_sources": [
+                    {
+                      "adapter": "linear",
+                      "enabled": true,
+                      "config": { "auto_promote_target": "plans/linear-lane" }
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        adapter = FakeLinearAdapter(
+            [self.external_item(status=sync.VidxStatus.PENDING)]
+        )
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                    "--json",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 0)
+        self.assertEqual(adapter.pushed, [])
+        self.assertEqual(
+            adapter.status_pushes, [("lin_1", sync.VidxStatus.COMPLETED)]
+        )
+        self.assertFalse((other_plan / sync.INBOX_FILENAME).exists())
+        payload = json.loads(output.getvalue())
+        summaries = [
+            r for r in payload["results"]
+            if r.get("adapter") == "linear" and "plan" in r
+        ]
+        self.assertEqual(
+            sum(r["push_suppressed_auto_promote"] for r in summaries),
+            1,
+        )
 
     def test_auto_promote_recovers_existing_title_mapping_before_append(self):
         root = Path(self.tmp)
