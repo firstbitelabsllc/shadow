@@ -20,7 +20,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 | `scripts/vidux-doctor.sh` | Runtime health checks for plans, worktrees, and automation state. |
 | `scripts/vidux-test-all.sh` | Comprehensive self-test harness for contract tests and related checks. |
 | `scripts/vidux-fleet-quality.sh` | Classifies automation runs into quick, deep, mid, and normal quality buckets. |
-| `scripts/vidux-worktree-gc.py` | Read-only by default. Classifies Vidux automation worktrees and, with `--apply --yes`, removes only clean non-primary worktrees that are already merged into the base branch or tied to merged PRs. |
+| `scripts/vidux-worktree-gc.py` | Read-only by default. Classifies worktrees into `primary`, `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `unknown`; with `--apply --yes`, removes only `merged_clean` worktrees and protects both the primary checkout and the invocation checkout from removal. |
 
 ## Codex maintenance scripts
 
@@ -52,5 +52,6 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 ## How to navigate the directory
 
 - Start with the header comment in each script. The repo is disciplined about stating purpose and usage at the top of the file.
+- `scripts/vidux-worktree-gc.py` is covered by `tests/test_worktree_gc.py`, and CI runs that suite in the dedicated `worktree-gc-tests` job.
 - Use [Configuration](/reference/config) when a script reads defaults from `vidux.config.json`.
 - Use [Hooks](/reference/hooks) if you want lightweight git-based enforcement instead of a full automation lane.
