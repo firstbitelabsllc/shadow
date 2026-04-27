@@ -1,6 +1,8 @@
 # Codex Setup Guide
 
-Step-by-step guide to creating a Codex automation on Mac. Covers the TOML + DB + app-restart sequence that every new lane must follow.
+Step-by-step guide to creating a native Codex automation on Mac. Covers the TOML + DB + app-restart sequence for repo-bound `Local` or `Worktree` lanes.
+
+The automation guide treats `Chat` as the default for Codex-created automations. Use this setup flow only when the lane truly needs native project-folder execution.
 
 > **⚠️ The Codex CLI cannot run automations.**
 > The `codex` CLI can run one-shot tasks, but recurring jobs require the **Codex Mac desktop app**. If you're on Linux, a remote server, or CI — this workflow will not work. Use Claude Code `CronCreate` instead (see [claude-lifecycle.md](claude-lifecycle.md)).

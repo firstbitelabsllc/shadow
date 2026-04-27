@@ -2,6 +2,8 @@
 
 Vidux is the discipline. Claude Code and Codex are two runtimes that execute vidux cycles on a schedule. This page documents the concrete differences so you can pick the right platform for each lane.
 
+For Codex, this page describes the native automation path that registers a repo-bound lane with the desktop app. The automation guide treats `Chat` as the default for Codex-created automations; `Local` and `Worktree` are explicit opt-ins when the lane truly needs direct project-folder execution.
+
 ## At a Glance
 
 | Feature | Claude Code | Codex |
@@ -21,6 +23,8 @@ Vidux is the discipline. Claude Code and Codex are two runtimes that execute vid
 | **Max lanes** | 6 per session (worktree contention limit) | Limited by `max_threads` (default 6) |
 | **Delegation** | Mode A / Mode B via native subagents | Mode A / Mode B via native subagents |
 
+For Codex, the table above applies to native scheduled automations. A Chat-mode Codex automation skips the TOML + DB registration path and only needs the shared lane files and prompt discipline.
+
 ## Scheduling
 
 ### Claude Code
@@ -38,6 +42,8 @@ To restart a fleet after a session dies: re-schedule each `CronCreate` in the ne
 ### Codex
 
 Scheduling uses **TOML files + DB rows** read by the Mac desktop app. The Codex CLI (`codex` command) **cannot run automations** — it can only run one-shot commands. All recurring work requires the desktop app.
+
+This is the opt-in native path. If a Codex automation can stay in Chat mode, prefer that simpler default and only use the native registration flow when the lane needs direct `Local` or `Worktree` execution.
 
 Each automation lives at `~/.codex/automations/{id}/automation.toml` with a corresponding row in `~/.codex/sqlite/codex-dev.db`. The actual lane instructions and memory live under a shared `{lane-dir}/{lane-id}/`. All four pieces matter: the DB is the runtime source, the TOML is the UI source, and `prompt.md` + `memory.md` are the hot-editable lane state.
 

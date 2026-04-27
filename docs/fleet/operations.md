@@ -16,7 +16,7 @@ The repo's default pattern is one coordinator lane per active repo, not a large 
 
 - One coordinator reduces plan stampedes.
 - The same lane that ships a change is expected to fix the fallout from that change.
-- The automation guide recommends a practical cap of six lanes per session.
+- The current guidance is 2-4 total lanes for 1-3 active repos, with a hard cap of 6 lanes per session.
 - The "polish-brake" rule forces a surface switch if the last three checkpoints all ship from the same area.
 
 ## Dispatch model
@@ -56,6 +56,7 @@ The fleet guide treats PR sweep and worktree handoff as operational requirements
 
 - Open automation PRs are the durable recovery manifest and should be swept before new branch work starts.
 - Active worktrees should be resumed or garbage-collected instead of duplicated.
+- `vidux-worktree-gc.py` protects both the primary checkout and the checkout it is invoked from; only `merged_clean` rows are auto-removable.
 - PLAN changes should stay append-mostly so stale merges do not clobber task queues.
 - Lanes should not exit with unexplained local worktree commits or branch-only drift.
 
