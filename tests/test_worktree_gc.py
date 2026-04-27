@@ -153,6 +153,28 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertTrue((self.worktrees_dir / "closed-unmerged").exists())
         self.assertTrue((self.worktrees_dir / "unmerged-no-pr").exists())
 
+    def test_invocation_worktree_is_never_removed(self):
+        linked = self.worktrees_dir / "merged-clean"
+        result = run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--base",
+                "origin/main",
+                "--json",
+                "--apply",
+                "--yes",
+                str(linked),
+            ],
+            env=self.env,
+        )
+        payload = json.loads(result.stdout)
+        by_branch = {item["branch"]: item for item in payload["worktrees"]}
+
+        self.assertEqual("primary", by_branch["merged-clean"]["bucket"])
+        self.assertFalse(by_branch["merged-clean"]["removable"])
+        self.assertTrue(linked.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

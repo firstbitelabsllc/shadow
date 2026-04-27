@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.20.0] — 2026-04-27
+
+Worktree lifecycle GC lands in core. Vidux now has a safe, read-only-by-default classifier for local automation worktrees so fleets can clean up after PR handoff without guessing which branches are safe to remove.
+
+### Added
+
+- **`scripts/vidux-worktree-gc.py`** classifies local git worktrees into `primary`, `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `unknown`.
+- **Safe cleanup mode** via `--apply --yes`. It removes only `merged_clean` worktrees: clean, non-protected worktrees whose branch is already in the base ref or whose PR is merged.
+- **Machine-readable output** via `--json`, including bucket summary, PR metadata, removal list, warnings, and per-worktree reasons.
+- **Regression coverage** in `tests/test_worktree_gc.py` for lifecycle buckets, `--apply --yes`, post-removal summaries, and the linked-worktree invocation safety case.
+
+### Changed
+
+- **Worktree doctrine is now PR-first.** `guides/fleet-ops.md` no longer tells automation prompts to merge worktree commits directly back to the default branch. Lanes push branch + PR, record the resume point there, then treat the local worktree as disposable after classification.
+- **Garbage-collection docs now split plan GC from worktree GC.** `SKILL.md` documents that plan cleanup and local worktree cleanup are separate tools with separate safety rules.
+- **Invocation checkout is protected.** QA found that running cleanup from inside a linked worktree could classify that checkout as removable if only the first Git worktree was protected. `2.20.0` protects both the primary Git worktree and the invocation checkout.
+
+### Verified
+
+- `python3 -m unittest tests.test_worktree_gc`
+- `python3 -m py_compile scripts/vidux-worktree-gc.py tests/test_worktree_gc.py`
+- `git diff --check`
+- Disposable clone full suite: `python3 -m unittest discover -s tests` (165/165)
+- GitHub PR #53 CI before merge: Contract tests, Plan GC tests, ShellCheck, Doc structure all passed.
+- Dogfood read-only scan on the Vidux repo after release QA found 17 local worktrees: 7 `dirty`, 7 `closed_unmerged`, 2 `unmerged_no_pr`, 1 `primary`; no removals performed.
+
+---
+
 ## [2.19.0] — 2026-04-26
 
 Ready-PR-first replaces draft-first as the core automation push policy. Operational PRs open ready-for-review by default so configured review bots and preview checks can run immediately; draft is now reserved for true WIP or a missing gate.

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -18,9 +17,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 SAFE_BUCKET = "merged_clean"
-UNSAFE_BUCKETS = {"dirty", "open_pr", "closed_unmerged", "unmerged_no_pr", "unknown"}
-
-
 class CommandError(RuntimeError):
     def __init__(self, command: List[str], returncode: int, stderr: str) -> None:
         self.command = command
@@ -180,7 +176,7 @@ def load_prs(repo: Path, limit: int) -> Tuple[Dict[str, PullRequestInfo], Option
 def classify_worktree(
     repo: Path,
     raw: Dict[str, Any],
-    primary_path: Path,
+    protected_paths: set[Path],
     prs_by_branch: Dict[str, PullRequestInfo],
     base: str,
     warnings: List[str],
@@ -188,7 +184,7 @@ def classify_worktree(
     path = Path(raw["path"]).resolve()
     branch = raw.get("branch")
     head = raw.get("head")
-    is_primary = path == primary_path
+    is_primary = path in protected_paths
 
     try:
         dirty_count = dirty_file_count(path)
@@ -204,7 +200,7 @@ def classify_worktree(
 
     if is_primary:
         bucket = "primary"
-        reason = "primary checkout is never removed"
+        reason = "primary or invocation checkout is never removed"
     elif dirty_count < 0:
         bucket = "unknown"
         reason = "git status failed"
@@ -345,13 +341,13 @@ def main(argv: List[str]) -> int:
         print("no worktrees found", file=sys.stderr)
         return 1
 
-    primary_path = Path(raw_worktrees[0]["path"]).resolve()
+    protected_paths = {Path(raw_worktrees[0]["path"]).resolve(), repo}
     prs_by_branch, pr_warning = load_prs(repo, args.pr_limit)
     if pr_warning:
         warnings.append(pr_warning)
 
     worktrees = [
-        classify_worktree(repo, raw, primary_path, prs_by_branch, args.base, warnings)
+        classify_worktree(repo, raw, protected_paths, prs_by_branch, args.base, warnings)
         for raw in raw_worktrees
     ]
 
@@ -361,7 +357,7 @@ def main(argv: List[str]) -> int:
         if removed:
             raw_worktrees = load_worktrees(repo)
             worktrees = [
-                classify_worktree(repo, raw, primary_path, prs_by_branch, args.base, warnings)
+                classify_worktree(repo, raw, protected_paths, prs_by_branch, args.base, warnings)
                 for raw in raw_worktrees
             ]
 
