@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-vidux browser — localhost web UI for viewing PLAN.md across the fleet.
+vidux browser — local web UI for viewing PLAN.md across the fleet.
 
 Read-only viewer. Stdlib only. See projects/vidux-browser/PLAN.md.
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development"))
-HOST = "127.0.0.1"
+HOST = os.environ.get("VIDUX_BROWSER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("VIDUX_BROWSER_PORT", "7191"))
 
 BROWSER_DIR = Path(__file__).resolve().parent
