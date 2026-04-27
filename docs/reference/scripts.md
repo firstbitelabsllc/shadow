@@ -7,11 +7,20 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 | Script | Purpose |
 |---|---|
 | `scripts/vidux-loop.sh` | Stateless cycle helper that reads a plan and emits machine-readable next-action state. |
-| `scripts/vidux-checkpoint.sh` | Structured checkpoint helper for marking work done, blocked, or archived. |
+| `scripts/vidux-checkpoint.sh` | Structured checkpoint helper for marking work done, blocked, or archived. Its two entry shapes are `vidux-checkpoint.sh <plan> <task> <summary> ...` and `vidux-checkpoint.sh <plan> --archive`. |
 | `scripts/vidux-status.py` | Read-only status board for every `PLAN.md` under the configured roots. |
 | `scripts/vidux-plan-gc.py` | Mechanical plan garbage collection for completed tasks, old investigations, and oversized inboxes. |
 | `scripts/vidux-plan-gc-cron.sh` | Scheduled wrapper around `vidux-plan-gc.py`. |
 | `scripts/vidux-inbox-sync.py` | Round-trip sync between `PLAN.md` state and external kanban adapters. |
+
+## Checkpoint script contract
+
+The checked-in hook manifest points at `scripts/vidux-checkpoint.sh`, but the raw script is not a bare post-task hook:
+
+- Normal checkpoint mode: `vidux-checkpoint.sh <plan-path> <task-description> <summary> [--blocker <text>] [--status done|done_with_concerns|blocked]`
+- Archive mode: `vidux-checkpoint.sh <plan-path> --archive`
+
+If you wire it into an app-level `afterTask` event, wrap it with the task-specific arguments you want to record.
 
 ## Health and verification scripts
 

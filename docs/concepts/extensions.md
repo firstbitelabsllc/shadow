@@ -19,7 +19,9 @@ Every adapter subclasses `AdapterBase` and implements six methods:
 | `pull_fields` | external → | Read typed custom-field values (Evidence, ETA, …) |
 | `push_fields` | → external | Write typed custom-field values |
 
-The pipeline (`pending` → `in_progress` → `in_review` → `completed`) is the column. The `Blocked` flag is **orthogonal** — written via `push_fields({'_blocked': True})` so the pipeline column never moves when an item gets blocked. `push_status(BLOCKED)` is reserved and must raise.
+The pipeline (`pending` → `in_progress` → `in_review` → `completed`) is the adapter-facing column. The `Blocked` flag is **orthogonal** — written via `push_fields({'_blocked': True})` so the pipeline column never moves when an item gets blocked. `push_status(BLOCKED)` is reserved and must raise.
+
+That full pipeline is real in the adapter layer, but some local shell helpers still operate on the four-state core subset. In practice, `in_review` is most useful when the board or PR workflow needs it; local scripts such as `vidux-status.py` and `vidux-loop.sh` still assume `pending`, `in_progress`, `completed`, and `blocked`.
 
 See [`adapters/README.md`](https://github.com/leojkwan/vidux/blob/main/adapters/README.md) in the repo for the six-step authoring guide and the round-trip test rubric.
 

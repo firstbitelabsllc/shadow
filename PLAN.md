@@ -457,6 +457,24 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 [ETA: 0.25h]
 [Done: 2026-04-27. Corrected the install guide's hook table so it matches the shipped git-hook scripts, and expanded the hooks reference with the checked-in `hooks/hooks.json` manifest plus its `beforeTask` / `afterTask` entries. Kept `docs/.vitepress/config.ts` unchanged after the config-link audit passed 32/32. Gate: `npm test` PASS (156/156), `npm ci` PASS, `npm run docs:build` PASS, `git diff --check` PASS.]
 
+### Phase 14: Post-browser + hook-manifest docs drift guard [completed]
+
+**Goal:** Keep the public docs source-grounded after the hook pass by documenting the shipped local browser surface, clarifying the real `vidux-checkpoint.sh` hook contract, and narrowing `in_review` claims to what the current tooling actually supports, without inventing new IA beyond source-proven pages.
+
+**Evidence:**
+- [Source: bin/vidux-browse:1-48] The repo ships a local `vidux-browse` launcher with `--no-open` and `--foreground` flags, defaulting to `http://127.0.0.1:7191`.
+- [Source: browser/server.py:1-240] The browser is a local plan viewer with loopback-only note writes, safe file allowlists, sibling-file tabs, and investigation/evidence reads.
+- [Source: hooks/hooks.json:1-40, scripts/vidux-checkpoint.sh:1-220] The checked-in `afterTask` manifest entry points at `scripts/vidux-checkpoint.sh`, but the raw script still requires explicit CLI args (`<plan-path> <task> <summary>` or `--archive`) and is not a drop-in zero-arg hook.
+- [Source: docs/reference/plan-fields.md:22-31, docs/concepts/plan-structure.md:58-79, scripts/vidux-status.py:23-27, scripts/vidux-loop.sh:10-14, scripts/vidux-checkpoint.sh:5-10] Docs currently describe `in_review` as part of the plan FSM, while the core status/loop/checkpoint helpers still operate on the four-state subset (`pending`, `in_progress`, `completed`, `blocked`).
+
+#### 14.1 — Browser + hook-manifest + FSM docs drift pass [completed] [Agent: codex/claudux-dogfood-vidux-20260427-0538]
+
+1. Add or update public docs so the shipped local browser surface is discoverable from the docs site and grounded in `bin/vidux-browse` plus `browser/server.py`.
+2. Correct the hook docs to say the checked-in `afterTask` manifest entry is illustrative and needs a wrapper or explicit arguments before `vidux-checkpoint.sh` can run successfully.
+3. Narrow `in_review` wording so the docs distinguish the broader plan/adapter convention from the current four-state core helper support, then re-run the docs/test/link gates.
+[ETA: 0.5h]
+[Done: 2026-04-27. Added a new docs-site reference page for the shipped local browser, wired it into `docs/.vitepress/config.ts` and the reference index, clarified that `hooks/hooks.json` is an example manifest whose `afterTask` entry needs a wrapper for `vidux-checkpoint.sh`, and narrowed `in_review` wording to match the current four-state core helper support while preserving the adapter-level FSM docs. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, `git diff --check` PASS, config-link audit PASS (28/28).]
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -552,4 +570,5 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 - [2026-04-27 01:58 EDT] 11.3 completed. Merge-nursed claudux dogfood PR #65 after #64 advanced `main`; kept #64's millisecond timestamp, adapter, and worktree-GC corrections, then added only the remaining native Codex default clarification to the public fleet docs. Gate: `npm run docs:build` PASS, `python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc` PASS (156/156), local `claudux validate` PASS, `git diff --check` PASS.
 - [2026-04-27 02:54 EDT] 12.1 completed. Post-#65 docs dogfood stayed narrow and left the VitePress IA untouched: `guides/automation.md`, `references/automation.md`, `docs/fleet/claude-lifecycle.md`, and `docs/fleet/platforms.md` now describe session-gc as a documented lane pattern that relies on an operator-provided JSONL cleanup helper instead of a shipped `scripts/session-prune.py`, `docs/fleet/platforms.md` drops the unsupported Codex `max_threads` default claim, and `examples/bug-fix-lifecycle/README.md` now checkpoints in `## Progress` with current task and Decision Log syntax. Gate: `npm ci` PASS, `npm run docs:build` PASS, `python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc` PASS (156/156), config-link audit PASS (32/32), `git diff --check` PASS. Tool note: local `claudux validate` now fails with `Unknown command: validate`; current CLI help points to `claudux update` for built-in validation.
 - [2026-04-27 03:43 EDT] 13.1 completed. Kept the VitePress IA untouched and corrected only source-proven hook drift: `docs/guide/installation.md` now matches the shipped git-hook scripts, and `docs/reference/hooks.md` now documents the checked-in `hooks/hooks.json` manifest plus its `beforeTask` / `afterTask` entries. Gate: `npm test` PASS (156/156), `npm ci` PASS, `npm run docs:build` PASS, config-link audit PASS (32/32), `git diff --check` PASS.
+- [2026-04-27 05:46 EDT] 14.1 completed. Added a docs-site reference page for the shipped local browser (`bin/vidux-browse` + `browser/server.py`), linked it from the VitePress sidebar/reference index, corrected the hook docs so `hooks/hooks.json` is clearly an example manifest whose `afterTask` entry still needs explicit `vidux-checkpoint.sh` arguments, and narrowed `in_review` wording to match the current four-state core helper support while leaving the adapter-facing FSM intact. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, config-link audit PASS (28/28), `git diff --check` PASS.
 <!-- 3 tasks archived to ARCHIVE.md -->

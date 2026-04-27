@@ -32,13 +32,14 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 | `vidux-before-task` | `beforeTask` | `scripts/vidux-doctor.sh --json` |
 | `vidux-after-task` | `afterTask` | `scripts/vidux-checkpoint.sh` |
 
-These entries are examples, not auto-installed defaults. In the shipped manifest, `vidux-before-task` is a non-blocking health check and `vidux-after-task` expects `PLAN_PATH` so it can write a structured post-flight checkpoint.
+These entries are examples, not auto-installed defaults. In the shipped manifest, `vidux-before-task` is a non-blocking health check. `vidux-after-task` is illustrative rather than plug-and-play: the raw `scripts/vidux-checkpoint.sh` CLI exits with usage unless it receives either `--archive` or `<plan-path> <task> <summary>` (plus optional flags), so a real app hook needs a wrapper that supplies those arguments.
 
 ## Behavior notes
 
 - `pre-commit-plan-check.sh` allows doc-only and plan-only commits through.
 - `post-commit-checkpoint.sh` is advisory. It prints a reminder and does not block.
 - `three-strike-gate.sh` is also advisory. It prints escalation guidance and exits cleanly.
+- `hooks/hooks.json` is a source-grounded example manifest, not an auto-installer or full hook runner.
 
 ## When to use hooks
 

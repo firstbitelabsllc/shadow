@@ -32,6 +32,8 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 | `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
 | `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
 
+`[in_review]` is part of the broader plan and adapter model, but the current core shell helpers still center the four-state subset. `scripts/vidux-status.py`, `scripts/vidux-loop.sh`, `scripts/vidux-checkpoint.sh`, and the contract tests all count or transition `pending`, `in_progress`, `completed`, and `blocked`. Use `in_review` when your repo has an explicit PR/review workflow around it; otherwise the simpler four-state flow remains the safest default.
+
 **Rules:**
 
 - A task is `[in_progress]` for at most one cycle at a time. If the session dies mid-task, the next agent resumes it.

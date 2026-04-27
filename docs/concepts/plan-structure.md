@@ -68,6 +68,8 @@ Status rules:
 - `[blocked]` requires a Blocker note and Decision Log entry
 - `[blocked]` is terminal — replace with a new task rather than reviving
 
+The broader docs and adapter layer understand `in_review`, but the current core shell helpers are still four-state-first: `scripts/vidux-status.py`, `scripts/vidux-loop.sh`, and `scripts/vidux-checkpoint.sh` only model `pending`, `in_progress`, `completed`, and `blocked`. Treat `in_review` as opt-in PR-state metadata unless your lane/tooling explicitly handles it.
+
 **Inside `## Tasks`, every line starting with `- ` MUST be a task with a status tag.** Use numbered lists (`1. 2. 3.`) or headers for non-task content like rollout strategies or phase preambles.
 
 ## Task Format
