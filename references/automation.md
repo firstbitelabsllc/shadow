@@ -32,7 +32,7 @@ Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
 | Layer | What lives here | Lifetime | GC |
 |---|---|---|---|
 | **Cold (durable)** | PLAN.md (queue + decision log), evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Until assignment done | Agent archives completed tasks when the plan feels heavy — no fixed threshold |
-| **Hot (disposable)** | `~/.claude/projects/*/*.jsonl` (conversation log) | One session | Automatic via `session-prune.py --gc-old` hourly |
+| **Hot (disposable)** | `~/.claude/projects/*/*.jsonl` (conversation log) | One session | Automatic via the session-gc lane's operator-provided JSONL cleanup helper |
 
 **Every cold-storage entry has a stable home and a reason to exist.** Every hot-storage byte is evictable once the session it belongs to is inactive. If you find yourself reading old JSONLs to recover state, the cold-storage contract is broken — fix the checkpoint discipline, don't revive the JSONL.
 
@@ -53,7 +53,7 @@ If your constraints differ (single account, no local tooling, hourly cadence is 
 
 ## 2. Session Management
 
-Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 1 GB in days, and makes `/resume` unusable. **session-gc is mandatory for 24/7 operation.**
+Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 1 GB in days, and makes `/resume` unusable. **session-gc is mandatory for 24/7 operation.** This repo documents the session-gc lane pattern, but it does not ship a `scripts/session-prune.py` helper; operators provide the JSONL cleanup command that their fleet runs.
 
 ### What grows (per 24h with a 5-lane fleet)
 
@@ -67,7 +67,7 @@ Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 
 | `skill_listing`, `invoked_skills`, `deferred_tools_delta`, `mcp_instructions_delta` | ~5% | Keep-last-N | Keep recent 1-3, prune older |
 | `subagent JSONLs` | -- | YES — delete entirely | Session forks spawned by `Agent()`. Results already in parent. Throwaway after 1h. |
 
-### The three GC levels (all in `scripts/session-prune.py`)
+### The three GC levels (implemented by your session-gc helper)
 
 **Level 1 — Per-session noise pruning (`--prune <file>`).**
 Strips noise categories from a JSONL file. Repairs the `parentUuid` chain so `/resume` still works. Creates a `.bak` backup first. Applied to INACTIVE sessions only — never the live one.
@@ -80,11 +80,11 @@ Same `--gc-old` invocation also deletes ALL subagent JSONL files older than 1 da
 
 ```bash
 # Commands (run manually or via the session-gc lane)
-python3 scripts/session-prune.py --dry-run     <file>     # read-only analysis
-python3 scripts/session-prune.py --prune       <file>     # strip noise + repair chain + backup
-python3 scripts/session-prune.py --gc-old-dry  3          # preview what would be deleted
-python3 scripts/session-prune.py --gc-old      3          # DELETE main >3d + subagents >1d
-python3 scripts/session-prune.py --gc-subagents 1         # DELETE subagents >1 hour
+python3 <your-session-gc-helper> --dry-run     <file>     # read-only analysis
+python3 <your-session-gc-helper> --prune       <file>     # strip noise + repair chain + backup
+python3 <your-session-gc-helper> --gc-old-dry  3          # preview what would be deleted
+python3 <your-session-gc-helper> --gc-old      3          # DELETE main >3d + subagents >1d
+python3 <your-session-gc-helper> --gc-subagents 1         # DELETE subagents >1 hour
 ```
 
 **Measured results:** A typical GC pass reclaims 30-50% of disk. Per-session noise pruning saves ~30% on fleet-heavy sessions.
@@ -114,7 +114,7 @@ The human reads the signal and decides when to restart. On restart:
 
 Each fire does EXACTLY this, in order:
 
-1. `python3 scripts/session-prune.py --gc-old 3` — delete stale sessions + subagents
+1. Run your JSONL cleanup helper to delete stale sessions + subagents
 2. Measure current session size and growth since last cycle
 3. If current session > 40-80 MB (tunable threshold) → emit `[CYCLE SIGNAL]` in `memory.md`
 4. Append checkpoint:

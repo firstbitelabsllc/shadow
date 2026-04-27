@@ -44,11 +44,11 @@ A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of wh
 | Layer | Lives here | GC |
 |---|---|---|
 | **Cold** (durable) | PLAN.md, evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Agent-decided archive when the plan feels heavy |
-| **Hot** (disposable) | `~/.claude/projects/*/*.jsonl` | Automatic via `session-prune.py --gc-old` hourly |
+| **Hot** (disposable) | `~/.claude/projects/*/*.jsonl` | Automatic via the session-gc lane's operator-provided JSONL cleanup helper |
 
 ### session-gc is mandatory for 24/7
 
-A lane at `<lane-dir>/session-gc/prompt.md` fires hourly, runs `python3 scripts/session-prune.py --gc-old 3`, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. Without it, JSONLs grow unbounded and `/resume` stops working.
+A lane at `<lane-dir>/session-gc/prompt.md` fires hourly, runs the operator's JSONL cleanup helper against stale Claude session logs, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. This repo documents the lane pattern, but it does not ship a `scripts/session-prune.py` helper. Without session-gc, JSONLs grow unbounded and `/resume` stops working.
 
 ### Session bloat controls
 

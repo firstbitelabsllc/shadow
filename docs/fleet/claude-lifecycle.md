@@ -78,7 +78,7 @@ Without garbage collection, session JSONLs grow unbounded and `/resume` becomes 
 3. Measure the current session's size and growth rate
 4. Emit a `[CYCLE SIGNAL]` when the session exceeds 40 MB
 
-The GC lane uses `session-prune.py` and NEVER touches lane files, ledger, or git repos.
+The GC lane uses an operator-provided JSONL cleanup helper and NEVER touches lane files, ledger, or git repos. This repo documents the lane pattern, but it does not ship the pruning script itself.
 
 ### CYCLE SIGNAL
 
