@@ -453,7 +453,7 @@ Discovery globs (covers the three conventions in use across the fleet):
 - `<repo>/projects/<slug>/PLAN.md`
 - `<repo>/PLAN.md` (root-level)
 
-Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` from CDN. Zero pip dependencies. Bind is `127.0.0.1` only — no auth, trust the localhost boundary.
+Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` from CDN. Zero pip dependencies. Default bind is `127.0.0.1`; `VIDUX_BROWSER_HOST=0.0.0.0` enables trusted-LAN read access for Moussey-style home dashboards.
 
 Code lives at `~/Development/vidux/browser/`. See `projects/vidux-browser/PLAN.md` for design decisions and the v1/Polish roadmap (sessions panel, ledger entries, memory viewer, launchd auto-start).
 
@@ -493,3 +493,15 @@ Artifacts render via direct `innerHTML` into the same pane that renders markdown
 - Plan-adjacent visualizations (timeline, network graph, decision tree) without bloating PLAN.md
 
 For lanes consuming this surface: drop the artifact, log the URL to memory if you want to reference it later (`http://127.0.0.1:7191/` then click into the slug in the sidebar). The artifact survives across sessions; the slug is the stable handle.
+
+### Local plan notes (loopback-only)
+
+When an agent needs to leave a constrained note for the current Mac's vidux plan, use the local plan-note endpoint. It appends to that plan directory's `INBOX.md`; it does not edit `PLAN.md` directly.
+
+```bash
+curl -X POST http://127.0.0.1:7191/api/local-plan-note \
+  -H "Content-Type: application/json" \
+  -d '{"plan_path":"/Users/leokwan/Development/vidux/projects/moussey/PLAN.md","source":"codex/moussey","agent":"codex/moussey","note":"Short note for the next local agent."}'
+```
+
+This endpoint rejects non-loopback clients. Even when vidux-browse is bound to `0.0.0.0` for home-LAN reading, `POST /api/local-plan-note` must be called through `127.0.0.1` or `::1`; other Wi-Fi devices can read but cannot write plan notes.
