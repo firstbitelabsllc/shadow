@@ -19,6 +19,9 @@ projects/*
 # Temp files from checkpoint script
 tmp*.md
 
+# External board sync sidecars
+.external-state.json
+
 # Claude Code local state
 .claude/*
 !.claude/settings.json
