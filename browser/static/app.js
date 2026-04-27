@@ -8,6 +8,59 @@ const state = {
   activeTab: "PLAN.md",
 };
 
+// ─── URL deep-linking ─────────────────────────────────────────────────────
+// Selection is reflected in the URL via query params so any view is bookmarkable
+// and back/forward navigation works:
+//   ?artifact=<slug>                 → load that artifact
+//   ?plan=<rel-path>                 → load that plan (PLAN.md tab by default)
+//   ?plan=<rel-path>&tab=PROGRESS.md → load plan + open a sibling tab
+//   ?plan=<rel-path>&tab=INV:<path>  → load plan + open an investigation
+// `rel` is the plan's path relative to DEV_ROOT (stable, readable, comes from
+// /api/plans). Selection updates use pushState so each navigation lands in the
+// browser's history; popstate restores state on back/forward.
+
+function currentParams() {
+  return new URLSearchParams(window.location.search);
+}
+
+function pushUrl(params) {
+  const search = params.toString();
+  const newUrl = window.location.pathname + (search ? `?${search}` : "") + window.location.hash;
+  // Avoid no-op history entries when the URL didn't actually change.
+  if (newUrl === window.location.pathname + window.location.search + window.location.hash) return;
+  window.history.pushState(null, "", newUrl);
+}
+
+function applyUrlSelection() {
+  const params = currentParams();
+  const artifactSlug = params.get("artifact");
+  const planRel = params.get("plan");
+  const tab = params.get("tab");
+
+  if (artifactSlug) {
+    const a = state.artifacts.find(x => x.slug === artifactSlug);
+    if (a) { selectArtifact(a, { skipUrl: true, scrollIntoView: true }); return true; }
+  }
+  if (planRel) {
+    const plan = state.plans.find(p => p.rel === planRel);
+    if (plan) {
+      selectPlan(plan, { skipUrl: true, tab: tab || "PLAN.md", scrollIntoView: true });
+      return true;
+    }
+  }
+  return false;
+}
+
+function scrollActiveRowIntoView() {
+  // Wait one tick for the sidebar to re-render, then scroll the active row
+  // into view if it's offscreen. Use 'nearest' so we don't yank the page on
+  // already-visible items.
+  requestAnimationFrame(() => {
+    const row = els.list.querySelector(".plan-row.is-active");
+    if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+}
+
 const els = {
   list: document.getElementById("sidebar-list"),
   filter: document.getElementById("filter"),
@@ -227,24 +280,50 @@ async function loadAll() {
     state.plans = plansData.plans || [];
     state.artifacts = artifactsData.artifacts || [];
     renderSidebar();
+    // Restore selection from URL on initial load (and after refresh).
+    applyUrlSelection();
   } catch (e) {
     els.count.textContent = "error";
     els.list.innerHTML = `<div class="error">failed to load: ${escapeText(String(e))}</div>`;
   }
 }
 
-async function selectPlan(plan) {
+async function selectPlan(plan, opts = {}) {
   state.active = { kind: "plan", ...plan };
-  state.activeTab = "PLAN.md";
+  state.activeTab = opts.tab || "PLAN.md";
+  if (!opts.skipUrl) {
+    const p = new URLSearchParams();
+    p.set("plan", plan.rel);
+    if (state.activeTab && state.activeTab !== "PLAN.md") p.set("tab", state.activeTab);
+    pushUrl(p);
+  }
   renderSidebar();
+  if (opts.scrollIntoView) scrollActiveRowIntoView();
   await renderPane();
 }
 
-async function selectArtifact(a) {
+async function selectArtifact(a, opts = {}) {
   state.active = { kind: "artifact", ...a };
   state.activeTab = null;
+  if (!opts.skipUrl) {
+    const p = new URLSearchParams();
+    p.set("artifact", a.slug);
+    pushUrl(p);
+  }
   renderSidebar();
+  if (opts.scrollIntoView) scrollActiveRowIntoView();
   await renderArtifactPane();
+}
+
+function setActiveTab(tab) {
+  state.activeTab = tab;
+  if (state.active && state.active.kind === "plan") {
+    const p = new URLSearchParams();
+    p.set("plan", state.active.rel);
+    if (tab && tab !== "PLAN.md") p.set("tab", tab);
+    pushUrl(p);
+  }
+  renderPane();
 }
 
 async function renderArtifactPane() {
@@ -333,14 +412,12 @@ async function renderPane() {
 
   els.pane.querySelectorAll(".pane-tabs button").forEach(b => {
     b.addEventListener("click", () => {
-      state.activeTab = b.getAttribute("data-tab");
-      renderPane();
+      setActiveTab(b.getAttribute("data-tab"));
     });
   });
   els.pane.querySelectorAll(".pane-investigations-strip button").forEach(b => {
     b.addEventListener("click", () => {
-      state.activeTab = `INV:${b.getAttribute("data-inv")}`;
-      renderPane();
+      setActiveTab(`INV:${b.getAttribute("data-inv")}`);
     });
   });
 
@@ -412,6 +489,18 @@ document.addEventListener("keydown", e => {
       state.filter = "";
       renderSidebar();
     }
+  }
+});
+
+// Browser back/forward — restore the selection that matches the new URL.
+// If the user navigates back past the first selection, clear the pane.
+window.addEventListener("popstate", () => {
+  const matched = applyUrlSelection();
+  if (!matched) {
+    state.active = null;
+    state.activeTab = "PLAN.md";
+    renderSidebar();
+    els.pane.innerHTML = "";
   }
 });
 
