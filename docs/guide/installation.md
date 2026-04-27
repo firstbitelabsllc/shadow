@@ -57,7 +57,7 @@ Open a Claude Code session and run:
 /vidux "test project"
 ```
 
-If installed correctly, the agent reads the skill, gathers evidence about your project, and presents an amplified prompt for your review before executing.
+If installed correctly, the agent reads the skill, loads `vidux.config.json` when present, resolves the authority plan store, and then either drafts or resumes the authoritative `PLAN.md` before executing the stateless cycle.
 
 ## Ecosystem Skills
 

@@ -17,7 +17,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 
 The checked-in hook manifest points at `scripts/vidux-checkpoint.sh`, but the raw script is not a bare post-task hook:
 
-- Normal checkpoint mode: `vidux-checkpoint.sh <plan-path> <task-description> <summary> [--blocker <text>] [--status done|done_with_concerns|blocked]`
+- Normal checkpoint mode: `vidux-checkpoint.sh <plan-path> <task-description> <summary> [--blocker <text>] [--status done|done_with_concerns|blocked] [--outcome useful|busy|blocked_clarified]`
 - Archive mode: `vidux-checkpoint.sh <plan-path> --archive`
 
 If you wire it into an app-level `afterTask` event, wrap it with the task-specific arguments you want to record.
