@@ -343,10 +343,21 @@ class LinearAdapter(AdapterBase):
 
     # -- Read path ------------------------------------------------------------
 
+    # Linear state types we drop server-side. `canceled` covers BOTH the
+    # default "Canceled" workflow state AND custom "Duplicate" states (Linear
+    # treats "Duplicate" as a `canceled`-typed workflow state, not its own
+    # type). Pulling these in causes `_status_from_state_id` to fall back to
+    # PENDING (the state UUIDs are not in the user's `state_mapping`), which
+    # in turn lets the sync script auto-promote them as fresh BD-* tasks.
+    _DROP_STATE_TYPES: ClassVar[tuple[str, ...]] = ("canceled",)
+
     _ISSUES_QUERY_TEAM = """
     query($teamId: ID!, $first: Int!, $after: String) {
       issues(
-        filter: { team: { id: { eq: $teamId } } },
+        filter: {
+          team: { id: { eq: $teamId } },
+          state: { type: { neq: "canceled" } }
+        },
         first: $first,
         after: $after,
         orderBy: updatedAt
@@ -370,7 +381,8 @@ class LinearAdapter(AdapterBase):
       issues(
         filter: {
           team: { id: { eq: $teamId } },
-          project: { id: { eq: $projectId } }
+          project: { id: { eq: $projectId } },
+          state: { type: { neq: "canceled" } }
         },
         first: $first,
         after: $after,
@@ -432,6 +444,9 @@ class LinearAdapter(AdapterBase):
                 )
                 issues = (data.get("issues") or {})
                 for node in issues.get("nodes", []):
+                    state_type = ((node.get("state") or {}).get("type") or "")
+                    if state_type in self._DROP_STATE_TYPES:
+                        continue
                     items.append(self._node_to_external(node))
                 page_info = issues.get("pageInfo") or {}
                 if not page_info.get("hasNextPage"):
