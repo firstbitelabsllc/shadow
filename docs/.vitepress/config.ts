@@ -15,6 +15,7 @@ const sidebar = [
       { text: 'The Cycle', link: '/concepts/cycle' },
       { text: 'PLAN.md Structure', link: '/concepts/plan-structure' },
       { text: 'The Store', link: '/concepts/store' },
+      { text: 'Extensions', link: '/concepts/extensions' },
     ],
   },
   {
