@@ -20,6 +20,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 | `scripts/vidux-doctor.sh` | Runtime health checks for plans, worktrees, and automation state. |
 | `scripts/vidux-test-all.sh` | Comprehensive self-test harness for contract tests and related checks. |
 | `scripts/vidux-fleet-quality.sh` | Classifies automation runs into quick, deep, mid, and normal quality buckets. |
+| `scripts/vidux-worktree-gc.py` | Read-only by default. Classifies Vidux automation worktrees and, with `--apply --yes`, removes only clean non-primary worktrees that are already merged into the base branch or tied to merged PRs. |
 
 ## Codex maintenance scripts
 
@@ -45,6 +46,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 
 | Script | Purpose |
 |---|---|
+| `scripts/vidux-linear-reconcile.py` | One-shot reconcile for auto-promoted Linear tasks. Removes local `PLAN.md` task lines and `.external-state.json` mappings only when the remote Linear issue state is canceled (including duplicate-style canceled states). |
 | `scripts/strip-linear-codec-markers.py` | Clean old vidux metadata markers out of Linear issue descriptions and persist metadata to sidecar state. |
 
 ## How to navigate the directory
