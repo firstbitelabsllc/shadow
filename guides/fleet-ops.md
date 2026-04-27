@@ -111,31 +111,36 @@ Cron agents are stateless but worktrees are not. When a session dies mid-task in
 
 6. **Branch absorber role.** In a multi-automation fleet, sibling automations push code to `claude/*` or `codex/*` branches but never merge them to main. Without an explicit absorber, branches accumulate overnight until a human manually cleans up. The lead writer (e.g., release-train) owns this role. See "Branch Absorption" section above for the full protocol.
 
-### Worktree merge-back rule (for prompts)
+### Worktree PR handoff rule (for prompts)
 
-Every automation that uses `execution_environment = "worktree"` MUST merge its commits back to the default branch before exiting. Without this, the runtime creates a fresh worktree each cycle. The agent works, commits, checkpoints, exits. The commits stay in the worktree branch. After 48 hours you have 90+ orphan worktrees with real commits that never reached main.
+Every automation that uses `execution_environment = "worktree"` MUST hand off durable state before exiting. The durable state is the branch + PR, not the local worktree. Without this, the runtime creates a fresh worktree each cycle and the old one becomes invisible local state.
 
 **The rule (add to block 7 -- Execution in the prompt):**
 ```
-WORKTREE RULE: Before stopping, merge your worktree commits to the default branch.
-- If the work is complete and tests pass: merge to main, push, delete the worktree branch.
-- If the work is incomplete but safe: merge what you have, note remaining work in memory.
-- If the work conflicts or is unsafe to merge: record in Decision Log why not, and leave
-  the branch name in your memory note so the next cycle can resume it instead of creating new.
-- NEVER exit with unmerged worktree commits without explanation.
-- NEVER create a new worktree if a previous one for this lane has unmerged commits.
+WORKTREE RULE: Before stopping, push the branch and open/update the PR.
+- If work is complete and tests pass: push branch, open a ready PR, record resume point in the PR body.
+- If work is incomplete but safe: push branch, open/update PR as draft, record the exact next step.
+- If work conflicts or is unsafe: record why in memory/PLAN.md and keep the branch name visible.
+- NEVER push directly to the default branch from an automation worktree.
+- NEVER exit with only local worktree commits unless the blocker is recorded.
 ```
 
-**Detecting orphan worktrees:**
+After a branch is pushed and the resume point is recorded, the local worktree is disposable. If a lane intentionally keeps it for PR nursing, keep the `## Active Worktrees` entry current; otherwise remove the entry and rely on `gh pr list` for recovery.
+
+**Detecting and classifying local worktrees:**
 ```bash
-git worktree list | grep -v "detached HEAD" | grep -v "\[main\]"
+python3 scripts/vidux-worktree-gc.py --base origin/main
+python3 scripts/vidux-worktree-gc.py --json --base origin/main
 ```
+
+The classifier separates worktrees into `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `primary`. Only `merged_clean` worktrees are eligible for automatic removal.
 
 **Cleanup:**
-1. For each branch: check if commits are already on main (`git log main..<branch> --oneline`)
-2. If unique commits exist: cherry-pick or merge the valuable ones to main
-3. If already superseded: `git worktree remove <path> && git branch -D <branch>`
-4. For bulk cleanup: `git worktree prune` removes stale entries
+1. Run `git fetch --prune origin` so `origin/main` and PR refs are fresh.
+2. Run `python3 scripts/vidux-worktree-gc.py --base origin/main`.
+3. Inspect any `dirty`, `closed_unmerged`, or `unmerged_no_pr` rows. These require a human or lane-owner decision.
+4. Remove safe local-only worktrees explicitly: `python3 scripts/vidux-worktree-gc.py --base origin/main --apply --yes`.
+5. Run `git worktree prune` afterward to remove stale metadata entries.
 
 ---
 

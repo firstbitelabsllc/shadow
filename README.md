@@ -155,7 +155,7 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
 | `commands/` | `/vidux` (single entry point — Part 1 inline, Part 2 + recipes on demand) |
 | `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
-| `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
+| `scripts/` | vidux-loop, vidux-checkpoint, vidux-doctor, vidux-worktree-gc, vidux-fleet-quality, vidux-fleet-rebuild, vidux-test-all |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |

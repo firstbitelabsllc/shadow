@@ -330,6 +330,14 @@ Three operations, one script:
 
 **Exit 2** (hard cap exceeded) is the gate signal: coordinators should hold ACT and loudly note the bloat in the next checkpoint — the plan structurally needs attention beyond archival (too many tasks completed without being split into phases, or Phase rollover is overdue).
 
+Worktree GC is separate from plan GC. It classifies local git worktrees by branch/PR state before removing anything:
+
+```bash
+python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main [repo-dir]
+```
+
+Read-only is the default. `--apply --yes` removes only `merged_clean` worktrees: clean non-primary worktrees whose branch is already merged into the base or whose PR is merged. Dirty worktrees, open PRs, closed-unmerged PRs, and no-PR unmerged branches are reported but never removed automatically.
+
 ---
 
 ## Course Correction
