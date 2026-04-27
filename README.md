@@ -159,7 +159,7 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
-| `tests/` | 144 contract tests (scripts, commands, doctrine, SKILL.md structure) |
+| `tests/` | Contract and lifecycle tests (scripts, commands, doctrine, worktree lifecycle, SKILL.md structure) |
 | `examples/` | Worked examples (bug fix lifecycle, fleet reference) |
 
 ## Ecosystem

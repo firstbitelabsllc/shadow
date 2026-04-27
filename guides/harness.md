@@ -29,7 +29,7 @@ Every harness follows these eight blocks, in this order. Rearranging or omitting
 4. AUTHORITY      -- Read order for plan files. Primary state file is #1.
 5. CROSS-LANE     -- Read sibling memory + hot-files. Dedup, yield, skip.
 6. ROLE BOUNDARY  -- What this lane owns. What belongs to siblings.
-7. EXECUTION      -- How to do the work. Mid-zone kill. Queue drain. Worktree merge-back.
+7. EXECUTION      -- How to do the work. Mid-zone kill. Queue drain. PR-first worktree closeout.
 8. CHECKPOINT     -- Memory format. Lead line. What to leave explicit. Worktree state.
 ```
 

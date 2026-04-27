@@ -52,12 +52,12 @@ A writer on the wrong plan may waste a cycle. A scanner on the wrong gate can st
 
 ## Worktree and branch discipline
 
-The fleet guide treats branch absorption and worktree handoff as operational requirements:
+The fleet guide treats PR sweep and worktree handoff as operational requirements:
 
-- Unmerged sibling branches must be absorbed by the lead writer.
-- Active worktrees should be registered and resumed instead of duplicated.
+- Open automation PRs are the durable recovery manifest and should be swept before new branch work starts.
+- Active worktrees should be resumed or garbage-collected instead of duplicated.
 - PLAN changes should stay append-mostly so stale merges do not clobber task queues.
-- Lanes should not exit with unexplained, unmerged worktree commits.
+- Lanes should not exit with unexplained local worktree commits or branch-only drift.
 
 ## Inbox and merge conflict protocol
 
