@@ -62,8 +62,7 @@
     },
     {
       "adapter": "linear",
-      "enabled": false,
-      "_disabled_comment": "DISABLED 2026-04-26 after round-trip bug: sync script pushed every [pending] task on each cycle as a NEW Linear card because mapping namespace mismatches between Task-N (PLAN.md) and BD-N (auto-promoted). Project went 4→34 issues in 2 runs. Re-enable only after the push-loop dedup uses the same task.id space as auto-promote.",
+      "enabled": true,
       "config": {
         "token_file": "~/.config/vidux/linear.token",
         "team_id": "2f745857-a4df-4f99-93a9-6ac89f9991a2",
