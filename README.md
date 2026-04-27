@@ -145,9 +145,9 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 
 | Path | What |
 |------|------|
-| `SKILL.md` | Part 1 only — discipline, cycle, PLAN.md template, compound tasks (~280 lines) |
+| `SKILL.md` | Core discipline plus activation and loading guidance — five principles, the cycle, PLAN.md template, investigations, and opt-in automation pointers |
 | `guides/automation.md` | Part 2 (opt-in) — 24/7 fleet model, session-gc, lane bootstrap, delegation |
-| `guides/recipes/` | 12 opt-in recipes — CLAUDE.md rules, lane prompts, subagent delegation, Codex runtime, friction patterns |
+| `guides/recipes/` | 11 focused recipe guides — CLAUDE.md rules, lane prompts, subagent delegation, Codex runtime, friction patterns, and more |
 | `CHANGELOG.md` | Release notes — latest doctrine changes and migration notes |
 | `DOCTRINE.md` | The short doctrine (~5 min read) |
 | `LOOP.md` | Stateless cycle mechanics |
@@ -164,7 +164,7 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 
 ## Ecosystem
 
-Vidux has **one entry point** — `/vidux` — loading the core discipline inline. The automation layer and the recipes layer are opt-in: load `guides/automation.md` and `guides/recipes/*.md` only when the task calls for them. Vidux runs single-tool: you run on Claude with Claude subagents, or on Codex with Codex subagents. Never both at once.
+Vidux has **one entry point** — `/vidux` — loading the core discipline inline. The automation layer and the recipes layer are opt-in: load `guides/automation.md`, `guides/recipes.md`, and only the focused `guides/recipes/*.md` files the task actually needs. Vidux runs single-tool: you run on Claude with Claude subagents, or on Codex with Codex subagents. Never both at once.
 
 | Skill | What it does | Ships in this repo? |
 |---|---|---|
@@ -189,7 +189,7 @@ See [guides/fleet-ops.md](guides/fleet-ops.md) and [guides/recipes.md](guides/re
 
 ## Fleet Patterns
 
-Patterns for autonomous multi-lane fleets. See [`guides/automation.md`](guides/automation.md) and [`references/automation.md`](references/automation.md) for mechanics, plus the [recipe catalog](guides/recipes/) for ready-to-deploy patterns with prompt templates.
+Patterns for autonomous multi-lane fleets. See [`guides/automation.md`](guides/automation.md) and [`references/automation.md`](references/automation.md) for mechanics, plus the main [recipe catalog](guides/recipes.md) and the focused [recipe guides](guides/recipes/) for reusable patterns with prompt templates.
 
 - **Ready-PR-first** — automation pushes open ready-for-review by default so review bots run; draft is reserved for true WIP or missing gates ([guide](guides/draft-pr-flow.md))
 - **Progress is code change** — PRs that only touch `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` are bookkeeping, not progress. Bundle plan updates into the code PR, or keep notes local ([CHANGELOG](CHANGELOG.md#290--2026-04-17))
@@ -214,7 +214,7 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 - [Fleet Operations](guides/fleet-ops.md) — automation fleet management
 - [Investigation Lifecycle](guides/investigation.md) — the parent-plan + child-investigation pattern
 - [Ready PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
-- [Automation Recipes](guides/recipes.md) — 8 ready-to-deploy fleet patterns with prompt templates
+- [Automation Recipes](guides/recipes.md) — 11 named automation recipes with prompt templates
 - [Examples](examples/) — worked examples (start with [bug fix lifecycle](examples/bug-fix-lifecycle/))
 
 ## Sibling Project
