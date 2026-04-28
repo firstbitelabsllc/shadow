@@ -332,7 +332,10 @@ class InboxSyncTests(unittest.TestCase):
                     {
                       "adapter": "linear",
                       "enabled": true,
-                      "config": { "auto_promote_target": "plans/linear-lane" }
+                      "config": {
+                        "allow_team_wide": true,
+                        "auto_promote_target": "plans/linear-lane"
+                      }
                     }
                   ]
                 }
@@ -382,7 +385,10 @@ class InboxSyncTests(unittest.TestCase):
                     {
                       "adapter": "linear",
                       "enabled": true,
-                      "config": { "auto_promote_target": "plans/linear-lane" }
+                      "config": {
+                        "allow_team_wide": true,
+                        "auto_promote_target": "plans/linear-lane"
+                      }
                     }
                   ]
                 }
@@ -440,7 +446,10 @@ class InboxSyncTests(unittest.TestCase):
                     {
                       "adapter": "linear",
                       "enabled": true,
-                      "config": { "auto_promote_target": "plans/linear-lane" }
+                      "config": {
+                        "allow_team_wide": true,
+                        "auto_promote_target": "plans/linear-lane"
+                      }
                     }
                   ]
                 }
@@ -491,7 +500,10 @@ class InboxSyncTests(unittest.TestCase):
                     {
                       "adapter": "linear",
                       "enabled": true,
-                      "config": { "auto_promote_target": "plans/linear-lane" }
+                      "config": {
+                        "allow_team_wide": true,
+                        "auto_promote_target": "plans/linear-lane"
+                      }
                     }
                   ]
                 }
@@ -544,7 +556,10 @@ class InboxSyncTests(unittest.TestCase):
                     {
                       "adapter": "linear",
                       "enabled": true,
-                      "config": { "auto_promote_target": "plans/missing-lane" }
+                      "config": {
+                        "allow_team_wide": true,
+                        "auto_promote_target": "plans/missing-lane"
+                      }
                     }
                   ]
                 }

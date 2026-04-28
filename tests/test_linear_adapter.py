@@ -27,6 +27,8 @@ def _make_adapter(
     *,
     project_id: str | None = None,
     project_name: str | None = None,
+    allow_team_wide: bool = False,
+    allow_unguarded_project: bool = False,
 ) -> LinearAdapter:
     """Build a LinearAdapter without touching disk or the network.
 
@@ -47,6 +49,10 @@ def _make_adapter(
         config["project_id"] = project_id
     if project_name is not None:
         config["project_name"] = project_name
+    if allow_team_wide:
+        config["allow_team_wide"] = True
+    if allow_unguarded_project:
+        config["allow_unguarded_project"] = True
     return LinearAdapter(config)
 
 
@@ -146,7 +152,7 @@ class FetchInboxFiltersCanceled(unittest.TestCase):
         }
 
     def test_team_query_drops_canceled_type(self):
-        adapter = _make_adapter()
+        adapter = _make_adapter(allow_team_wide=True)
         recorder = GraphQLRecorder(self._nodes())
         adapter._graphql = recorder  # type: ignore[assignment]
 
@@ -161,7 +167,10 @@ class FetchInboxFiltersCanceled(unittest.TestCase):
         self.assertEqual(len(items), 3)
 
     def test_project_query_drops_canceled_type(self):
-        adapter = _make_adapter(project_id="project-uuid")
+        adapter = _make_adapter(
+            project_id="project-uuid",
+            allow_unguarded_project=True,
+        )
         recorder = GraphQLRecorder(self._nodes())
         adapter._graphql = recorder  # type: ignore[assignment]
 
@@ -265,6 +274,31 @@ class GraphQLQueryShape(unittest.TestCase):
     def test_project_name_requires_project_id(self):
         with self.assertRaisesRegex(ValueError, "project_name.*project_id"):
             _make_adapter(project_name="repo-web")
+
+    def test_team_wide_source_requires_explicit_allowlist(self):
+        with self.assertRaisesRegex(ValueError, "allow_team_wide"):
+            _make_adapter()
+
+    def test_project_id_requires_project_name_or_allowlist(self):
+        with self.assertRaisesRegex(ValueError, "project_id.*project_name"):
+            _make_adapter(project_id="project-uuid")
+
+    def test_explicit_unguarded_project_allowlist_passes(self):
+        adapter = _make_adapter(
+            project_id="project-uuid",
+            allow_unguarded_project=True,
+        )
+
+        self.assertEqual(adapter.project_id, "project-uuid")
+        self.assertIsNone(adapter.project_name)
+
+    def test_allow_team_wide_rejected_with_project_id(self):
+        with self.assertRaisesRegex(ValueError, "allow_team_wide.*project_id"):
+            _make_adapter(
+                project_id="project-uuid",
+                project_name="repo-web",
+                allow_team_wide=True,
+            )
 
     def test_project_lookup_query_reads_name_and_teams(self):
         self.assertIn("project(id: $projectId)", LinearAdapter._PROJECT_LOOKUP_QUERY)

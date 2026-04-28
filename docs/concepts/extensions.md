@@ -68,6 +68,12 @@ field sync all validate the remote Linear project before doing work. A copied
 config that still points at "Launch Queue" fails closed instead of promoting
 product-board cards into the wrong repo plan.
 
+As an extension-level policy, the Linear adapter refuses unsafe sources before
+mutation: team-wide sync with no `project_id` requires
+`allow_team_wide: true`, and project-scoped sync without `project_name`
+requires `allow_unguarded_project: true`. Repo-owned codebase lanes should
+not set either flag.
+
 ## Local policy overlays
 
 Core vidux stays open-source and organization-neutral. If your team needs

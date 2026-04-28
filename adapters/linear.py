@@ -67,6 +67,8 @@ class LinearAdapter(AdapterBase):
             "label_ids",            # default labels applied to every pushed issue
             "project_id",           # if set, scopes fetch_inbox AND push_task to this Linear project
             "project_name",         # expected Linear project name; validates project_id fail-closed
+            "allow_team_wide",      # explicit opt-in for no project_id
+            "allow_unguarded_project",  # explicit opt-in for project_id without project_name
         ],
     }
 
@@ -121,9 +123,37 @@ class LinearAdapter(AdapterBase):
     @classmethod
     def validate_config(cls, config: dict[str, Any]) -> None:
         super().validate_config(config)
+        project_id = config.get("project_id")
+        project_name = config.get("project_name")
+        allow_team_wide = config.get("allow_team_wide") is True
+        allow_unguarded_project = config.get("allow_unguarded_project") is True
+
         if config.get("project_name") and not config.get("project_id"):
             raise ValueError(
                 "linear adapter config key 'project_name' requires 'project_id'"
+            )
+        if project_id and not project_name and not allow_unguarded_project:
+            raise ValueError(
+                "linear adapter config key 'project_id' requires "
+                "'project_name' for fail-closed repo intake; set "
+                "'allow_unguarded_project': true only for an intentional "
+                "product/planning bucket"
+            )
+        if not project_id and not allow_team_wide:
+            raise ValueError(
+                "linear adapter config without 'project_id' is team-wide; set "
+                "'allow_team_wide': true only when importing the whole team is "
+                "intentional"
+            )
+        if project_id and allow_team_wide:
+            raise ValueError(
+                "linear adapter config key 'allow_team_wide' is only valid "
+                "when 'project_id' is absent"
+            )
+        if project_name and allow_unguarded_project:
+            raise ValueError(
+                "linear adapter config key 'allow_unguarded_project' is "
+                "redundant when 'project_name' is set"
             )
 
     # -- Token + HTTP plumbing ------------------------------------------------

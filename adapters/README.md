@@ -109,9 +109,19 @@ meant to feed one codebase:
 
 When `project_name` is present, the adapter looks up the Linear project and
 requires the remote name to match before reading or mutating issues. This is
-the supported shape for codebase-owned repo queues. Product planning projects
-may omit `project_name`, but then the config review must treat that source as
-an intentionally unguarded product bucket.
+the supported shape for codebase-owned repo queues.
+
+The Linear adapter also validates its extension-specific intake policy before
+any PLAN.md or INBOX.md mutation:
+
+- `project_id` without `project_name` fails unless
+  `allow_unguarded_project: true` is set for an intentional product/planning
+  bucket.
+- No `project_id` means team-wide intake and fails unless
+  `allow_team_wide: true` is set.
+
+Those allowlist flags should be rare. They exist for deliberate planning
+lanes, not repo-owned codebase intake.
 
 `auto_promote_max_new` protects clean worktrees whose gitignored sidecars are
 missing. If a source would append more than the cap as fresh `BD-*` tasks, the
