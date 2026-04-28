@@ -44,6 +44,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -167,6 +168,17 @@ _ETA_HOURS = re.compile(r"(?P<n>\d+(?:\.\d+)?)\s*h", re.IGNORECASE)
 _SOURCE_TAG = re.compile(r"\[Source:\s*(?P<v>[^\]]*)\]")
 _BACKTICK_SPAN = re.compile(r"`[^`]*`")
 _PLACEHOLDER_SHAPE = re.compile(r"[<>]")
+_PLAN_TASK_REF = re.compile(
+    r"\bPlan task:\s*`?"
+    r"(?P<id>[A-Z][A-Za-z0-9_.+\-]*(?:\s+\d+(?:\.\d+)?)?)"
+    r"`?",
+    re.IGNORECASE,
+)
+_LINEAR_BODY_REF = re.compile(r"(?im)^\s*Linear:\s*(?P<identifier>[A-Z]+-\d+)\s*$")
+
+
+def _normalized_task_id(task_id: str) -> str:
+    return task_id.strip().upper()
 
 
 def _strip_code_spans(text: str) -> str:
@@ -335,6 +347,22 @@ def source_marker_mappings(
         if external_id:
             mappings[task.id] = external_id
     return mappings
+
+
+def task_index_by_id(plan_dirs: list[Path]) -> dict[str, PlanTask | None]:
+    """Build a task-id index; duplicate ids map to None so callers skip them."""
+    index: dict[str, PlanTask | None] = {}
+    for plan_dir in plan_dirs:
+        plan_path = plan_dir / PLAN_FILENAME
+        if not plan_path.exists():
+            continue
+        for task in parse_plan(plan_path):
+            task_id = _normalized_task_id(task.id)
+            if task_id in index:
+                index[task_id] = None
+            else:
+                index[task_id] = task
+    return index
 
 
 # --- INBOX.md append ---------------------------------------------------------
@@ -855,21 +883,98 @@ def sync_plan_with_adapter(
     return summary
 
 
-def sync_prs_to_project(adapter: AdapterBase,
-                        repo_dir: Path,
-                        dry_run: bool) -> dict[str, Any]:
-    """Add open + recently-closed PRs from a repo onto the bound GH Project.
+def _plan_task_ref_from_pr(pr: dict[str, Any]) -> str | None:
+    body = pr.get("body") or ""
+    match = _PLAN_TASK_REF.search(body)
+    if not match:
+        return None
+    return _normalized_task_id(match.group("id"))
+
+
+def _ensure_pr_body_linear_ref(
+    *,
+    repo_full: str,
+    pr: dict[str, Any],
+    issue_identifier: str,
+    dry_run: bool,
+) -> tuple[bool, str | None]:
+    """Ensure PR body carries a `Linear: EVE-N` line."""
+    body = pr.get("body") or ""
+    existing = _LINEAR_BODY_REF.search(body)
+    if existing:
+        if existing.group("identifier") == issue_identifier:
+            return False, None
+        return (
+            False,
+            f"pr#{pr.get('number')}: existing Linear ref "
+            f"{existing.group('identifier')} != {issue_identifier}",
+        )
+
+    new_body = body.rstrip()
+    if new_body:
+        new_body = f"{new_body}\n\nLinear: {issue_identifier}\n"
+    else:
+        new_body = f"Linear: {issue_identifier}\n"
+
+    if dry_run:
+        return True, None
+
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            delete=False,
+            prefix="vidux-pr-body-",
+            suffix=".md",
+        ) as tmp:
+            tmp.write(new_body)
+            tmp_path = Path(tmp.name)
+        proc = subprocess.run(
+            [
+                "gh", "pr", "edit", str(pr.get("number")),
+                "--repo", repo_full,
+                "--body-file", str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return False, f"gh pr edit #{pr.get('number')}: {proc.stderr.strip()[:160]}"
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+    pr["body"] = new_body
+    return True, None
+
+
+def sync_prs_to_project(
+    adapter: AdapterBase,
+    repo_dir: Path,
+    dry_run: bool,
+    task_index: dict[str, PlanTask | None] | None = None,
+) -> dict[str, Any]:
+    """Link open + recently-closed PRs from a repo to the configured adapter.
 
     Idempotent: walks all open and recently-merged PRs, looks each up in the
-    adapter's PR-url cache, and only calls add_pr_to_project for PRs not yet
-    represented as a project item. Status is set to:
+    adapter's PR-url cache when the adapter is GitHub Projects, or maps PRs to
+    Linear issues by `Plan task: <id>` body metadata when the adapter exposes
+    `sync_pull_request_link`.
+
+    GH Projects status is set to:
         OPEN draft         → IN_PROGRESS  (Dev column)
         OPEN ready         → IN_REVIEW    (QA/Testing/Review column)
         MERGED             → COMPLETED    (Prod/Shipped column)
         CLOSED (not merged)→ skipped (no card; closed-without-merge is noise)
 
-    Only supports gh_projects adapters today; other adapters raise here. The
-    sync is best-effort — a single PR's failure doesn't abort the sweep.
+    Linear PR linkage is an extension, not core policy: the issue is matched
+    through a PLAN.md task with `[Source: linear:<issue-id>]`, then the adapter
+    creates a Linear attachment/comment and this script ensures the PR body has
+    a `Linear: EVE-N` line.
+
+    The sync is best-effort — a single PR's failure doesn't abort the sweep.
     """
     summary: dict[str, Any] = {
         "repo": str(repo_dir),
@@ -877,10 +982,13 @@ def sync_prs_to_project(adapter: AdapterBase,
         "merged_prs": 0,
         "added": 0,
         "moved": 0,
+        "linked": 0,
+        "attached": 0,
+        "commented": 0,
+        "body_updates": 0,
+        "skipped": 0,
         "errors": [],
     }
-    if adapter.name != "gh_projects":
-        return summary  # only gh_projects supports PR linking
 
     # Discover the repo's owner/name via `gh repo view`.
     try:
@@ -905,7 +1013,7 @@ def sync_prs_to_project(adapter: AdapterBase,
             proc = subprocess.run(
                 ["gh", "pr", "list", "--repo", repo_full, "--state", state_arg,
                  "--limit", "50",
-                 "--json", "number,url,title,id,isDraft,state,mergedAt"],
+                 "--json", "number,url,title,id,isDraft,state,mergedAt,headRefName,body"],
                 capture_output=True, text=True, check=False,
             )
             if proc.returncode != 0:
@@ -925,46 +1033,90 @@ def sync_prs_to_project(adapter: AdapterBase,
     if not pr_index:
         return summary
 
-    # Idempotency map: PR URL → project_item_id (already on board).
-    try:
-        url_to_item = adapter._pr_url_to_item_id_cache()  # type: ignore[attr-defined]
-    except Exception as exc:  # noqa: BLE001
-        summary["errors"].append(f"fetch project items: {exc}")
+    if adapter.name == "gh_projects":
+        # Idempotency map: PR URL → project_item_id (already on board).
+        try:
+            url_to_item = adapter._pr_url_to_item_id_cache()  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            summary["errors"].append(f"fetch project items: {exc}")
+            return summary
+
+        for url, pr in pr_index.items():
+            # Compute target status from PR state.
+            if pr["state"] == "MERGED":
+                target_status = VidxStatus.COMPLETED
+            elif pr.get("isDraft"):
+                target_status = VidxStatus.IN_PROGRESS
+            else:
+                target_status = VidxStatus.IN_REVIEW
+
+            item_id = url_to_item.get(url)
+            try:
+                if item_id is None:
+                    # Only auto-ADD open PRs to the board. Merged PRs that were
+                    # never tracked stay off — backfilling 50 historical merges
+                    # would flood the Backlog with already-shipped work.
+                    if pr["state"] == "MERGED":
+                        continue
+                    if dry_run:
+                        summary["added"] += 1
+                        continue
+                    item_id = adapter.add_pr_to_project(pr["id"], target_status)
+                    url_to_item[url] = item_id
+                    summary["added"] += 1
+                else:
+                    # Already on board — reconcile status if it drifted.
+                    if dry_run:
+                        summary["moved"] += 1
+                        continue
+                    adapter.push_status(item_id, target_status)
+                    summary["moved"] += 1
+            except Exception as exc:  # noqa: BLE001
+                summary["errors"].append(
+                    f"pr#{pr['number']} ({target_status.value}): {str(exc)[:160]}"
+                )
+        return summary
+
+    linker = getattr(adapter, "sync_pull_request_link", None)
+    if linker is None:
+        summary["skipped"] = len(pr_index)
         return summary
 
     for url, pr in pr_index.items():
-        # Compute target status from PR state.
-        if pr["state"] == "MERGED":
-            target_status = VidxStatus.COMPLETED
-        elif pr.get("isDraft"):
-            target_status = VidxStatus.IN_PROGRESS
-        else:
-            target_status = VidxStatus.IN_REVIEW
-
-        item_id = url_to_item.get(url)
+        task_id = _plan_task_ref_from_pr(pr)
+        if not task_id:
+            summary["skipped"] += 1
+            continue
+        task = (task_index or {}).get(task_id)
+        if task is None:
+            summary["skipped"] += 1
+            continue
+        external_id = source_external_id(task, adapter.name)
+        if not external_id:
+            summary["skipped"] += 1
+            continue
         try:
-            if item_id is None:
-                # Only auto-ADD open PRs to the board. Merged PRs that were
-                # never tracked stay off — backfilling 50 historical merges
-                # would flood the Backlog with already-shipped work.
-                if pr["state"] == "MERGED":
-                    continue
-                if dry_run:
-                    summary["added"] += 1
-                    continue
-                item_id = adapter.add_pr_to_project(pr["id"], target_status)
-                url_to_item[url] = item_id
-                summary["added"] += 1
-            else:
-                # Already on board — reconcile status if it drifted.
-                if dry_run:
-                    summary["moved"] += 1
-                    continue
-                adapter.push_status(item_id, target_status)
-                summary["moved"] += 1
+            result = linker(external_id, pr, dry_run=dry_run)
+            identifier = result.get("issue_identifier")
+            if identifier:
+                updated, err = _ensure_pr_body_linear_ref(
+                    repo_full=repo_full,
+                    pr=pr,
+                    issue_identifier=identifier,
+                    dry_run=dry_run,
+                )
+                if err:
+                    summary["errors"].append(err)
+                if updated:
+                    summary["body_updates"] += 1
+            summary["linked"] += 1
+            if result.get("attached"):
+                summary["attached"] += 1
+            if result.get("commented"):
+                summary["commented"] += 1
         except Exception as exc:  # noqa: BLE001
             summary["errors"].append(
-                f"pr#{pr['number']} ({target_status.value}): {str(exc)[:160]}"
+                f"pr#{pr['number']} (linear link): {str(exc)[:160]}"
             )
     return summary
 
@@ -1056,6 +1208,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     results: list[dict[str, Any]] = []
+    plan_task_index = task_index_by_id(plan_dirs)
     exit_code = 0
     for source in sources:
         try:
@@ -1211,7 +1364,12 @@ def main(argv: list[str] | None = None) -> int:
             repo_dir = Path(
                 args.repo_dir or config.get("_config_dir", str(Path.cwd()))
             ).expanduser().resolve()
-            pr_summary = sync_prs_to_project(adapter, repo_dir, args.dry_run)
+            pr_summary = sync_prs_to_project(
+                adapter,
+                repo_dir,
+                args.dry_run,
+                task_index=plan_task_index,
+            )
             pr_summary["adapter"] = adapter.name
             results.append({"_kind": "pr_sweep", **pr_summary})
             if pr_summary["errors"]:
@@ -1230,7 +1388,13 @@ def main(argv: list[str] | None = None) -> int:
             kind = r.get("_kind")
             if kind == "pr_sweep":
                 print(f"{tag}{r['adapter']} × pr_sweep")
-                print(f"  added={r.get('added', 0)} skipped={r.get('skipped', 0)}")
+                print(
+                    f"  added={r.get('added', 0)} moved={r.get('moved', 0)} "
+                    f"linked={r.get('linked', 0)} attached={r.get('attached', 0)} "
+                    f"commented={r.get('commented', 0)} "
+                    f"body_updates={r.get('body_updates', 0)} "
+                    f"skipped={r.get('skipped', 0)}"
+                )
                 for err in r.get("errors", []):
                     print(f"  ! {err}")
                 continue

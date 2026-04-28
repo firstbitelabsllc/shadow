@@ -33,6 +33,7 @@ class FakeLinearAdapter:
         self.pushed = []
         self.status_pushes = []
         self.field_pushes = []
+        self.pr_links = []
 
     def fetch_inbox(self):
         return list(self.items)
@@ -52,6 +53,16 @@ class FakeLinearAdapter:
 
     def push_fields(self, external_id, fields):
         self.field_pushes.append((external_id, fields))
+
+    def sync_pull_request_link(self, external_id, pr, *, dry_run=False):
+        self.pr_links.append((external_id, pr["number"], dry_run))
+        return {
+            "issue_identifier": "EVE-123",
+            "attached": True,
+            "commented": True,
+            "already_attached": False,
+            "already_commented": False,
+        }
 
 
 class InboxSyncTests(unittest.TestCase):
@@ -582,6 +593,114 @@ class InboxSyncTests(unittest.TestCase):
         self.assertEqual(adapter.pushed, [])
         self.assertFalse((home_plan / sync.INBOX_FILENAME).exists())
         self.assertFalse((root / "plans" / "missing-lane").exists())
+
+    def test_linear_pr_sweep_links_matching_source_task_and_updates_body(self):
+        self.write_plan(
+            "- [in_review] BD-1: Wire Linear links [Source: linear:lin_1]"
+        )
+        adapter = FakeLinearAdapter([])
+        body_files: list[str] = []
+
+        class Result:
+            def __init__(self, returncode=0, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def fake_run(cmd, **_kwargs):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return Result(stdout=json.dumps({"nameWithOwner": "leojkwan/repo"}))
+            if cmd[:4] == ["gh", "pr", "list", "--repo"]:
+                state = cmd[cmd.index("--state") + 1]
+                if state == "merged":
+                    return Result(stdout="[]")
+                return Result(stdout=json.dumps([
+                    {
+                        "number": 42,
+                        "url": "https://github.com/leojkwan/repo/pull/42",
+                        "title": "fix(linear): link PRs",
+                        "id": "PR_node",
+                        "isDraft": False,
+                        "state": "OPEN",
+                        "mergedAt": None,
+                        "headRefName": "codex/linear-links",
+                        "body": "Lane: codex/test | Plan task: bd-1 | ship it",
+                    }
+                ]))
+            if cmd[:3] == ["gh", "pr", "edit"]:
+                body_file = cmd[cmd.index("--body-file") + 1]
+                body_files.append(Path(body_file).read_text(encoding="utf-8"))
+                return Result()
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        original_run = sync.subprocess.run
+        try:
+            sync.subprocess.run = fake_run
+            summary = sync.sync_prs_to_project(
+                adapter,
+                self.plan_dir,
+                dry_run=False,
+                task_index=sync.task_index_by_id([self.plan_dir]),
+            )
+        finally:
+            sync.subprocess.run = original_run
+
+        self.assertEqual(adapter.pr_links, [("lin_1", 42, False)])
+        self.assertEqual(summary["linked"], 1)
+        self.assertEqual(summary["attached"], 1)
+        self.assertEqual(summary["commented"], 1)
+        self.assertEqual(summary["body_updates"], 1)
+        self.assertIn("Linear: EVE-123", body_files[0])
+
+    def test_linear_pr_sweep_skips_pr_without_plan_task_body_ref(self):
+        self.write_plan(
+            "- [in_review] BD-1: Wire Linear links [Source: linear:lin_1]"
+        )
+        adapter = FakeLinearAdapter([])
+
+        class Result:
+            def __init__(self, returncode=0, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def fake_run(cmd, **_kwargs):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return Result(stdout=json.dumps({"nameWithOwner": "leojkwan/repo"}))
+            if cmd[:4] == ["gh", "pr", "list", "--repo"]:
+                state = cmd[cmd.index("--state") + 1]
+                if state == "merged":
+                    return Result(stdout="[]")
+                return Result(stdout=json.dumps([
+                    {
+                        "number": 42,
+                        "url": "https://github.com/leojkwan/repo/pull/42",
+                        "title": "fix(linear): link PRs",
+                        "id": "PR_node",
+                        "isDraft": False,
+                        "state": "OPEN",
+                        "mergedAt": None,
+                        "headRefName": "codex/linear-links",
+                        "body": "No plan metadata yet",
+                    }
+                ]))
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        original_run = sync.subprocess.run
+        try:
+            sync.subprocess.run = fake_run
+            summary = sync.sync_prs_to_project(
+                adapter,
+                self.plan_dir,
+                dry_run=False,
+                task_index=sync.task_index_by_id([self.plan_dir]),
+            )
+        finally:
+            sync.subprocess.run = original_run
+
+        self.assertEqual(adapter.pr_links, [])
+        self.assertEqual(summary["linked"], 0)
+        self.assertEqual(summary["skipped"], 1)
 
 
 if __name__ == "__main__":

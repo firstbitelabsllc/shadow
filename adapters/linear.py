@@ -22,6 +22,9 @@ Key design decisions (informed by Linear schema research 2026-04-25):
 - **Blocked is orthogonal.** Stored as a label (`blocked`) on the issue, NOT a
   state. `push_status(BLOCKED)` raises (matches gh_projects.py contract);
   callers set blocked via `push_fields({"_blocked": True})` instead.
+- **PR linkage is an extension method.** Core vidux stays tracker-neutral; the
+  sync script calls `sync_pull_request_link` only when the adapter exposes it.
+  Linear stores GitHub PRs as issue attachments plus a human-readable comment.
 - **Rate limits**: 5,000 req/hour + 3M complexity points/hour personal-key.
   Single-query ceiling 10K points. We batch reads with `first: 250` (Linear's
   max) and avoid deep nested queries to stay under the per-query cap.
@@ -616,6 +619,34 @@ class LinearAdapter(AdapterBase):
       }
     }
     """
+    _ISSUE_PR_LINKS_QUERY = """
+    query($id: String!) {
+      issue(id: $id) {
+        id
+        identifier
+        title
+        url
+        attachments(first: 50) { nodes { id title url } }
+        comments(first: 50, orderBy: createdAt) { nodes { id body } }
+      }
+    }
+    """
+    _ATTACHMENT_CREATE_MUTATION = """
+    mutation($input: AttachmentCreateInput!) {
+      attachmentCreate(input: $input) {
+        success
+        attachment { id url }
+      }
+    }
+    """
+    _COMMENT_CREATE_MUTATION = """
+    mutation($input: CommentCreateInput!) {
+      commentCreate(input: $input) {
+        success
+        comment { id }
+      }
+    }
+    """
 
     def push_task(self, task: PlanTask) -> str:
         """Create a Linear issue from a PlanTask. Returns Linear issue UUID.
@@ -744,3 +775,112 @@ class LinearAdapter(AdapterBase):
         if not payload.get("success"):
             raise LinearError(f"issueUpdate(fields) failed: {data}")
         self._inbox_cache = None
+
+    # -- PR linkage extension ------------------------------------------------
+
+    @staticmethod
+    def _pr_review_gate(pr: dict[str, Any]) -> str:
+        if pr.get("state") == "MERGED":
+            return "merged"
+        if pr.get("isDraft"):
+            return "draft"
+        return "ready-for-review"
+
+    @classmethod
+    def _render_pr_comment(cls, pr: dict[str, Any]) -> str:
+        number = pr.get("number")
+        branch = pr.get("headRefName") or "(unknown)"
+        status = str(pr.get("state") or "UNKNOWN").lower()
+        review_gate = cls._pr_review_gate(pr)
+        url = pr.get("url") or ""
+        title = pr.get("title") or "(untitled)"
+        return "\n".join([
+            f"GitHub PR #{number}: {title}",
+            "",
+            f"- Branch: `{branch}`",
+            f"- Status: {status}",
+            f"- Review gate: {review_gate}",
+            f"- PR: {url}",
+        ])
+
+    def sync_pull_request_link(
+        self,
+        external_id: str,
+        pr: dict[str, Any],
+        *,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Attach/comment a GitHub PR on a Linear issue, idempotently.
+
+        This is intentionally outside the AdapterBase contract. Linear has a
+        first-class issue attachment/comment surface; other adapters may expose
+        their own PR-linking extension without making core vidux know about it.
+        """
+        self._ensure_project_identity()
+        pr_url = pr.get("url")
+        if not pr_url:
+            raise LinearError("cannot link PR without url")
+
+        data = self._graphql(self._ISSUE_PR_LINKS_QUERY, {"id": external_id})
+        issue = data.get("issue")
+        if not issue:
+            raise LinearError(f"issue {external_id} not found")
+
+        attachments = ((issue.get("attachments") or {}).get("nodes")) or []
+        comments = ((issue.get("comments") or {}).get("nodes")) or []
+        has_attachment = any(node.get("url") == pr_url for node in attachments)
+        has_comment = any(pr_url in (node.get("body") or "") for node in comments)
+
+        result = {
+            "issue_identifier": issue.get("identifier") or "",
+            "issue_url": issue.get("url") or "",
+            "attached": False,
+            "commented": False,
+            "already_attached": has_attachment,
+            "already_commented": has_comment,
+        }
+
+        if not has_attachment:
+            result["attached"] = True
+            if not dry_run:
+                title = f"GitHub PR #{pr.get('number')}: {pr.get('title') or '(untitled)'}"
+                subtitle = (
+                    f"{pr.get('headRefName') or '(unknown branch)'} · "
+                    f"{self._pr_review_gate(pr)}"
+                )
+                payload = self._graphql(
+                    self._ATTACHMENT_CREATE_MUTATION,
+                    {"input": {
+                        "issueId": external_id,
+                        "title": title,
+                        "subtitle": subtitle,
+                        "url": pr_url,
+                        "metadata": {
+                            "source": "vidux",
+                            "kind": "github_pull_request",
+                            "number": pr.get("number"),
+                            "branch": pr.get("headRefName"),
+                            "status": pr.get("state"),
+                            "reviewGate": self._pr_review_gate(pr),
+                        },
+                    }},
+                )
+                attachment_payload = payload.get("attachmentCreate") or {}
+                if not attachment_payload.get("success"):
+                    raise LinearError(f"attachmentCreate failed: {payload}")
+
+        if not has_comment:
+            result["commented"] = True
+            if not dry_run:
+                payload = self._graphql(
+                    self._COMMENT_CREATE_MUTATION,
+                    {"input": {
+                        "issueId": external_id,
+                        "body": self._render_pr_comment(pr),
+                    }},
+                )
+                comment_payload = payload.get("commentCreate") or {}
+                if not comment_payload.get("success"):
+                    raise LinearError(f"commentCreate failed: {payload}")
+
+        return result

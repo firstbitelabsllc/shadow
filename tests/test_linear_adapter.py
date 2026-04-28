@@ -306,5 +306,103 @@ class GraphQLQueryShape(unittest.TestCase):
         self.assertIn("teams(first: 20)", LinearAdapter._PROJECT_LOOKUP_QUERY)
 
 
+class PullRequestLinking(unittest.TestCase):
+    def _pr(self) -> dict[str, Any]:
+        return {
+            "number": 42,
+            "url": "https://github.com/leojkwan/repo/pull/42",
+            "title": "fix(linear): link PRs",
+            "state": "OPEN",
+            "isDraft": False,
+            "headRefName": "codex/linear-linkage",
+        }
+
+    def _issue_payload(
+        self,
+        *,
+        attachment_url: str | None = None,
+        comment_body: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "issue": {
+                "id": "lin-issue-1",
+                "identifier": "EVE-123",
+                "title": "Wire PR linkage",
+                "url": "https://linear.app/leojkwan/issue/EVE-123/wire-pr-linkage",
+                "attachments": {
+                    "nodes": (
+                        [{
+                            "id": "att-1",
+                            "title": "GitHub PR #42",
+                            "url": attachment_url,
+                        }]
+                        if attachment_url
+                        else []
+                    )
+                },
+                "comments": {
+                    "nodes": (
+                        [{"id": "comment-1", "body": comment_body}]
+                        if comment_body
+                        else []
+                    )
+                },
+            }
+        }
+
+    def test_sync_pull_request_link_creates_attachment_and_comment(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder([
+            self._issue_payload(),
+            {"attachmentCreate": {"success": True, "attachment": {"id": "att-1"}}},
+            {"commentCreate": {"success": True, "comment": {"id": "comment-1"}}},
+        ])
+        adapter._graphql = recorder  # type: ignore[assignment]
+
+        result = adapter.sync_pull_request_link("lin-issue-1", self._pr())
+
+        self.assertEqual(result["issue_identifier"], "EVE-123")
+        self.assertTrue(result["attached"])
+        self.assertTrue(result["commented"])
+        self.assertEqual(len(recorder.calls), 3)
+        self.assertIn("attachmentCreate", recorder.calls[1][0])
+        self.assertEqual(
+            recorder.calls[1][1]["input"]["url"],
+            "https://github.com/leojkwan/repo/pull/42",
+        )
+        self.assertIn("commentCreate", recorder.calls[2][0])
+        self.assertIn("Review gate: ready-for-review", recorder.calls[2][1]["input"]["body"])
+
+    def test_sync_pull_request_link_is_idempotent_when_url_already_present(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        pr = self._pr()
+        recorder = GraphQLRecorder(
+            self._issue_payload(
+                attachment_url=pr["url"],
+                comment_body=f"Already linked {pr['url']}",
+            )
+        )
+        adapter._graphql = recorder  # type: ignore[assignment]
+
+        result = adapter.sync_pull_request_link("lin-issue-1", pr)
+
+        self.assertFalse(result["attached"])
+        self.assertFalse(result["commented"])
+        self.assertTrue(result["already_attached"])
+        self.assertTrue(result["already_commented"])
+        self.assertEqual(len(recorder.calls), 1)
+
+    def test_sync_pull_request_link_dry_run_plans_without_mutation(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder(self._issue_payload())
+        adapter._graphql = recorder  # type: ignore[assignment]
+
+        result = adapter.sync_pull_request_link("lin-issue-1", self._pr(), dry_run=True)
+
+        self.assertTrue(result["attached"])
+        self.assertTrue(result["commented"])
+        self.assertEqual(len(recorder.calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
