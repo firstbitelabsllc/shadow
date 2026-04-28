@@ -52,7 +52,7 @@ surface area can layer on without breaking the 6-method contract:
 | **Project milestone** | phase marker inside one project (Phase 0 → 1) | set `projectMilestoneId` |
 | **Attachment**   | GitHub PR URL linked to an issue                   | `sync_pull_request_link` extension method |
 | **Comment**      | discussion thread on an issue                      | `sync_pull_request_link` extension method |
-| **Label**        | tag (workspace OR team scoped)                     | `default_label_ids` in adapter config + auto-managed `blocked` label |
+| **Label**        | tag (workspace OR team scoped)                     | `label_ids` / `label_names`, `managed_labels`, and auto-managed `blocked` label |
 | **Webhook**      | push notification for issue/comment changes        | future extension — would replace polling fetch_inbox |
 
 The 6-method contract stays unchanged. New capabilities ride on top via
@@ -102,6 +102,12 @@ meant to feed one codebase:
       "in_review": "state-review",
       "completed": "state-done"
     },
+    "managed_labels": {
+      "repo": "repo:repo-name",
+      "source": "source:vidux",
+      "pr_state_prefix": "pr-state:",
+      "review_state_prefix": "review-state:"
+    },
     "auto_promote_target": "vidux",
     "auto_promote_max_new": 25
   }
@@ -132,6 +138,39 @@ With `auto_promote_target`, sync does not create new external issues from
 local-only PLAN rows. It still reconciles status for tasks already linked by a
 `[Source: <adapter>:<id>]` marker so imported cards can move to completed on
 the external board.
+
+## Linear labels
+
+Linear label automation is opt-in and extension-owned. Core vidux does not
+define a global taxonomy; the Linear adapter reads label rules from the
+adapter config and creates team-scoped labels by name when needed.
+
+Static defaults:
+
+- `label_ids`: existing Linear label UUIDs to apply to every pushed issue.
+- `label_names`: Linear label names to look up or create and apply to every
+  pushed issue.
+
+Managed taxonomy:
+
+```json
+"managed_labels": {
+  "repo": "repo:vidux",
+  "source": "source:vidux",
+  "pr_state_prefix": "pr-state:",
+  "review_state_prefix": "review-state:"
+}
+```
+
+`repo` and `source` are applied to new issues and to issues touched by PR
+linkage. During PR linkage, the adapter also applies exactly one
+`pr_state_prefix` label (`pr-state:open`, `pr-state:merged`, or
+`pr-state:closed`) and one `review_state_prefix` label
+(`review-state:draft`, `review-state:ready-for-review`, or
+`review-state:merged`). Labels with those configured prefixes are
+auto-managed: stale values are removed when a PR's state changes. All other
+Linear labels remain human-owned. The existing `blocked_label` stays
+auto-managed through `push_fields({"_blocked": true})`.
 
 ## Linear PR linkage
 

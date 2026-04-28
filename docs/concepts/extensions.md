@@ -58,6 +58,12 @@ The Linear adapter supports an explicit guardrail:
     "team_id": "linear-team-uuid",
     "project_id": "linear-project-uuid",
     "project_name": "repo-name",
+    "managed_labels": {
+      "repo": "repo:repo-name",
+      "source": "source:vidux",
+      "pr_state_prefix": "pr-state:",
+      "review_state_prefix": "review-state:"
+    },
     "auto_promote_target": "vidux"
   }
 }
@@ -84,6 +90,19 @@ The Linear adapter then creates an issue attachment for the GitHub PR and a
 comment with PR number, branch, status, review gate, and URL. The PR body is
 updated with `Linear: EVE-N` so humans and audits can see the issue link
 without reading `.external-state.json`.
+
+## Linear Labels
+
+Label taxonomy is also an extension-level concern. The Linear adapter supports
+two static defaults, `label_ids` and `label_names`, plus an optional
+`managed_labels` object for repo/source/PR-state/review-state labels. Repo and
+source labels are applied to new issues and linked-PR issues. PR-state and
+review-state labels are prefix-owned: for example, when
+`pr_state_prefix` is `pr-state:`, vidux may replace `pr-state:open` with
+`pr-state:merged`, but it will not touch labels outside that prefix.
+
+`blocked_label` remains separately auto-managed through
+`push_fields({'_blocked': True})`. All other labels are human-owned.
 
 ## Local policy overlays
 

@@ -29,6 +29,8 @@ def _make_adapter(
     project_name: str | None = None,
     allow_team_wide: bool = False,
     allow_unguarded_project: bool = False,
+    label_names: list[str] | None = None,
+    managed_labels: dict[str, Any] | None = None,
 ) -> LinearAdapter:
     """Build a LinearAdapter without touching disk or the network.
 
@@ -53,6 +55,10 @@ def _make_adapter(
         config["allow_team_wide"] = True
     if allow_unguarded_project:
         config["allow_unguarded_project"] = True
+    if label_names is not None:
+        config["label_names"] = label_names
+    if managed_labels is not None:
+        config["managed_labels"] = managed_labels
     return LinearAdapter(config)
 
 
@@ -305,6 +311,58 @@ class GraphQLQueryShape(unittest.TestCase):
         self.assertIn("name", LinearAdapter._PROJECT_LOOKUP_QUERY)
         self.assertIn("teams(first: 20)", LinearAdapter._PROJECT_LOOKUP_QUERY)
 
+    def test_label_names_must_be_non_empty_strings(self):
+        with self.assertRaisesRegex(ValueError, "label_names"):
+            _make_adapter(allow_team_wide=True, label_names=["repo:vidux", ""])
+
+    def test_managed_labels_reject_unknown_keys(self):
+        with self.assertRaisesRegex(ValueError, "managed_labels.*unknown"):
+            _make_adapter(
+                allow_team_wide=True,
+                managed_labels={"repo": "repo:vidux", "mystery": "nope"},
+            )
+
+
+class ManagedLabels(unittest.TestCase):
+    @staticmethod
+    def _label_payload(label_id: str, name: str) -> dict[str, Any]:
+        return {"issueLabels": {"nodes": [{"id": label_id, "name": name}]}}
+
+    @staticmethod
+    def _create_payload() -> dict[str, Any]:
+        return {"issueCreate": {"success": True, "issue": {"id": "lin-issue-1"}}}
+
+    def test_push_task_applies_label_names_and_managed_repo_source_labels(self):
+        adapter = _make_adapter(
+            allow_team_wide=True,
+            label_names=["fleet"],
+            managed_labels={
+                "repo": "repo:vidux",
+                "source": "source:vidux",
+            },
+        )
+        recorder = GraphQLRecorder([
+            self._label_payload("label-fleet", "fleet"),
+            self._label_payload("label-repo", "repo:vidux"),
+            self._label_payload("label-source", "source:vidux"),
+            self._create_payload(),
+        ])
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="BD-1",
+            title="Label managed issue",
+            status=VidxStatus.PENDING,
+        )
+
+        external_id = adapter.push_task(task)
+
+        self.assertEqual(external_id, "lin-issue-1")
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertEqual(
+            issue_input["labelIds"],
+            ["label-fleet", "label-repo", "label-source"],
+        )
+
 
 class PullRequestLinking(unittest.TestCase):
     def _pr(self) -> dict[str, Any]:
@@ -322,6 +380,7 @@ class PullRequestLinking(unittest.TestCase):
         *,
         attachment_url: str | None = None,
         comment_body: str | None = None,
+        labels: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         return {
             "issue": {
@@ -329,6 +388,7 @@ class PullRequestLinking(unittest.TestCase):
                 "identifier": "EVE-123",
                 "title": "Wire PR linkage",
                 "url": "https://linear.app/leojkwan/issue/EVE-123/wire-pr-linkage",
+                "labels": {"nodes": labels or []},
                 "attachments": {
                     "nodes": (
                         [{
@@ -402,6 +462,49 @@ class PullRequestLinking(unittest.TestCase):
         self.assertTrue(result["attached"])
         self.assertTrue(result["commented"])
         self.assertEqual(len(recorder.calls), 1)
+
+    def test_sync_pull_request_link_reconciles_managed_pr_labels(self):
+        adapter = _make_adapter(
+            allow_team_wide=True,
+            managed_labels={
+                "pr_state_prefix": "pr-state:",
+                "review_state_prefix": "review-state:",
+            },
+        )
+        recorder = GraphQLRecorder([
+            self._issue_payload(
+                labels=[{"id": "label-old", "name": "pr-state:draft"}]
+            ),
+            {"issueLabels": {"nodes": [{
+                "id": "label-pr-open",
+                "name": "pr-state:open",
+            }]}},
+            {"issueLabels": {"nodes": [{
+                "id": "label-review-ready",
+                "name": "review-state:ready-for-review",
+            }]}},
+            {"issueUpdate": {"success": True, "issue": {"id": "lin-issue-1"}}},
+            {"attachmentCreate": {"success": True, "attachment": {"id": "att-1"}}},
+            {"commentCreate": {"success": True, "comment": {"id": "comment-1"}}},
+        ])
+        adapter._graphql = recorder  # type: ignore[assignment]
+
+        result = adapter.sync_pull_request_link("lin-issue-1", self._pr())
+
+        self.assertEqual(
+            result["labels_added"],
+            ["pr-state:open", "review-state:ready-for-review"],
+        )
+        self.assertEqual(result["labels_removed"], ["pr-state:draft"])
+        update_call = recorder.calls[3]
+        self.assertIn("issueUpdate", update_call[0])
+        self.assertEqual(
+            update_call[1]["input"],
+            {
+                "addedLabelIds": ["label-pr-open", "label-review-ready"],
+                "removedLabelIds": ["label-old"],
+            },
+        )
 
 
 if __name__ == "__main__":

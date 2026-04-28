@@ -68,6 +68,8 @@ class LinearAdapter(AdapterBase):
             "blocked_label",        # default "blocked"
             "auto_promote_target",  # if "vidux", new external items promote into PLAN.md
             "label_ids",            # default labels applied to every pushed issue
+            "label_names",          # default label names applied to every pushed issue
+            "managed_labels",       # repo/source/PR/review-state label taxonomy
             "project_id",           # if set, scopes fetch_inbox AND push_task to this Linear project
             "project_name",         # expected Linear project name; validates project_id fail-closed
             "allow_team_wide",      # explicit opt-in for no project_id
@@ -77,6 +79,15 @@ class LinearAdapter(AdapterBase):
 
     ENDPOINT = "https://api.linear.app/graphql"
     DEFAULT_BLOCKED_LABEL = "blocked"
+    DEFAULT_LABEL_COLOR = "#5E6AD2"
+    DEFAULT_LABEL_COLORS: ClassVar[dict[str, str]] = {
+        "default": "#5E6AD2",
+        "repo": "#5E6AD2",
+        "source": "#26A69A",
+        "pr_state": "#F2C94C",
+        "review_state": "#9B51E0",
+        "blocked": "#EB5757",
+    }
     PAGE_SIZE = 250  # Linear's max per `first:`
     HTTP_TIMEOUT = 30.0
 
@@ -109,6 +120,8 @@ class LinearAdapter(AdapterBase):
         )
         self.auto_promote_target: str | None = config.get("auto_promote_target")
         self.default_label_ids: list[str] = list(config.get("label_ids", []))
+        self.default_label_names: list[str] = list(config.get("label_names", []))
+        self.managed_labels: dict[str, Any] = dict(config.get("managed_labels", {}))
         self.project_id: str | None = config.get("project_id")
         self.project_name: str | None = config.get("project_name")
 
@@ -119,6 +132,7 @@ class LinearAdapter(AdapterBase):
 
         # Lazy caches.
         self._blocked_label_id: str | None = None
+        self._label_id_by_name: dict[str, str] = {}
         self._inbox_cache: list[ExternalItem] | None = None
         self._inbox_error: LinearError | None = None
         self._project_identity_checked = False
@@ -158,6 +172,59 @@ class LinearAdapter(AdapterBase):
                 "linear adapter config key 'allow_unguarded_project' is "
                 "redundant when 'project_name' is set"
             )
+        label_names = config.get("label_names", [])
+        if "label_names" in config and (
+            not isinstance(label_names, list)
+            or not all(isinstance(name, str) and name.strip() for name in label_names)
+        ):
+            raise ValueError(
+                "linear adapter config key 'label_names' must be a list of "
+                "non-empty strings"
+            )
+
+        managed_labels = config.get("managed_labels")
+        if managed_labels is not None:
+            if not isinstance(managed_labels, dict):
+                raise ValueError(
+                    "linear adapter config key 'managed_labels' must be an object"
+                )
+            allowed_keys = {
+                "repo",
+                "source",
+                "pr_state_prefix",
+                "review_state_prefix",
+                "colors",
+            }
+            unknown = sorted(set(managed_labels) - allowed_keys)
+            if unknown:
+                raise ValueError(
+                    "linear adapter config key 'managed_labels' has unknown "
+                    f"keys: {unknown}"
+                )
+            for key in ("repo", "source", "pr_state_prefix", "review_state_prefix"):
+                value = managed_labels.get(key)
+                if value is not None and (
+                    not isinstance(value, str) or not value.strip()
+                ):
+                    raise ValueError(
+                        "linear adapter config key "
+                        f"'managed_labels.{key}' must be a non-empty string"
+                    )
+            colors = managed_labels.get("colors")
+            if colors is not None and (
+                not isinstance(colors, dict)
+                or not all(
+                    isinstance(k, str)
+                    and isinstance(v, str)
+                    and k.strip()
+                    and v.strip()
+                    for k, v in colors.items()
+                )
+            ):
+                raise ValueError(
+                    "linear adapter config key 'managed_labels.colors' must "
+                    "map non-empty strings to color strings"
+                )
 
     # -- Token + HTTP plumbing ------------------------------------------------
 
@@ -417,33 +484,89 @@ class LinearAdapter(AdapterBase):
 
         self._project_identity_checked = True
 
-    def _get_or_create_blocked_label_id(self) -> str:
-        if self._blocked_label_id is not None:
-            return self._blocked_label_id
+    def _managed_label_color(self, kind: str) -> str:
+        colors = self.managed_labels.get("colors")
+        if isinstance(colors, dict):
+            color = colors.get(kind)
+            if isinstance(color, str) and color.strip():
+                return color.strip()
+        return self.DEFAULT_LABEL_COLORS.get(kind, self.DEFAULT_LABEL_COLOR)
+
+    def _get_or_create_label_id(self, name: str, *, color: str | None = None) -> str:
+        label_name = name.strip()
+        if not label_name:
+            raise LinearError("cannot create Linear label with empty name")
+        if label_name in self._label_id_by_name:
+            return self._label_id_by_name[label_name]
+
         data = self._graphql(
             self._LABEL_LOOKUP_QUERY,
-            {"name": self.blocked_label, "teamId": self.team_id},
+            {"name": label_name, "teamId": self.team_id},
         )
         nodes = (data.get("issueLabels") or {}).get("nodes") or []
         if nodes:
-            self._blocked_label_id = nodes[0]["id"]
-            return self._blocked_label_id
+            label_id = nodes[0]["id"]
+            self._label_id_by_name[label_name] = label_id
+            return label_id
         # Not found — create it scoped to this team.
         created = self._graphql(
             self._LABEL_CREATE_MUTATION,
             {"input": {
-                "name": self.blocked_label,
+                "name": label_name,
                 "teamId": self.team_id,
-                "color": "#EB5757",
+                "color": color or self.DEFAULT_LABEL_COLOR,
             }},
         )
         payload = created.get("issueLabelCreate") or {}
         if not payload.get("success") or not payload.get("issueLabel"):
             raise LinearError(
-                f"failed to create blocked label '{self.blocked_label}': {created}"
+                f"failed to create label '{label_name}': {created}"
             )
-        self._blocked_label_id = payload["issueLabel"]["id"]
+        label_id = payload["issueLabel"]["id"]
+        self._label_id_by_name[label_name] = label_id
+        return label_id
+
+    def _get_or_create_blocked_label_id(self) -> str:
+        if self._blocked_label_id is not None:
+            return self._blocked_label_id
+        self._blocked_label_id = self._get_or_create_label_id(
+            self.blocked_label,
+            color=self._managed_label_color("blocked"),
+        )
         return self._blocked_label_id
+
+    def _configured_base_label_names(self) -> list[tuple[str, str]]:
+        labels: list[tuple[str, str]] = []
+        for name in self.default_label_names:
+            labels.append((name, "default"))
+        repo_label = self.managed_labels.get("repo")
+        if isinstance(repo_label, str) and repo_label.strip():
+            labels.append((repo_label, "repo"))
+        source_label = self.managed_labels.get("source")
+        if isinstance(source_label, str) and source_label.strip():
+            labels.append((source_label, "source"))
+        return self._dedupe_label_pairs(labels)
+
+    @staticmethod
+    def _dedupe_label_pairs(labels: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        seen: set[str] = set()
+        out: list[tuple[str, str]] = []
+        for name, kind in labels:
+            label_name = name.strip()
+            if not label_name or label_name in seen:
+                continue
+            seen.add(label_name)
+            out.append((label_name, kind))
+        return out
+
+    def _label_ids_for_pairs(self, labels: list[tuple[str, str]]) -> list[str]:
+        return [
+            self._get_or_create_label_id(
+                name,
+                color=self._managed_label_color(kind),
+            )
+            for name, kind in labels
+        ]
 
     # -- Read path ------------------------------------------------------------
 
@@ -626,6 +749,7 @@ class LinearAdapter(AdapterBase):
         identifier
         title
         url
+        labels(first: 50) { nodes { id name } }
         attachments(first: 50) { nodes { id title url } }
         comments(first: 50, orderBy: createdAt) { nodes { id body } }
       }
@@ -670,6 +794,9 @@ class LinearAdapter(AdapterBase):
             input_obj["projectId"] = self.project_id
         if self.default_label_ids:
             input_obj["labelIds"] = list(self.default_label_ids)
+        label_ids = self._label_ids_for_pairs(self._configured_base_label_names())
+        if label_ids:
+            input_obj.setdefault("labelIds", []).extend(label_ids)
         if task.blocked:
             input_obj.setdefault("labelIds", []).append(
                 self._get_or_create_blocked_label_id()
@@ -803,6 +930,95 @@ class LinearAdapter(AdapterBase):
             f"- PR: {url}",
         ])
 
+    @staticmethod
+    def _pr_state_label_value(pr: dict[str, Any]) -> str:
+        if pr.get("state") == "MERGED":
+            return "merged"
+        if pr.get("state") == "CLOSED":
+            return "closed"
+        return "open"
+
+    def _pr_link_label_pairs(self, pr: dict[str, Any]) -> list[tuple[str, str]]:
+        labels = self._configured_base_label_names()
+        pr_state_prefix = self.managed_labels.get("pr_state_prefix")
+        if isinstance(pr_state_prefix, str) and pr_state_prefix.strip():
+            labels.append((
+                f"{pr_state_prefix}{self._pr_state_label_value(pr)}",
+                "pr_state",
+            ))
+        review_prefix = self.managed_labels.get("review_state_prefix")
+        if isinstance(review_prefix, str) and review_prefix.strip():
+            labels.append((
+                f"{review_prefix}{self._pr_review_gate(pr)}",
+                "review_state",
+            ))
+        return self._dedupe_label_pairs(labels)
+
+    def _sync_managed_pr_labels(
+        self,
+        external_id: str,
+        issue: dict[str, Any],
+        pr: dict[str, Any],
+        *,
+        dry_run: bool,
+    ) -> dict[str, list[str]]:
+        desired_pairs = self._pr_link_label_pairs(pr)
+        desired_names = {name for name, _kind in desired_pairs}
+        current_labels = ((issue.get("labels") or {}).get("nodes")) or []
+        current_by_name = {
+            label.get("name"): label.get("id")
+            for label in current_labels
+            if label.get("name") and label.get("id")
+        }
+
+        owned_prefixes = [
+            value
+            for key in ("pr_state_prefix", "review_state_prefix")
+            if isinstance((value := self.managed_labels.get(key)), str)
+            and value.strip()
+        ]
+        stale_ids: list[str] = []
+        stale_names: list[str] = []
+        for name, label_id in current_by_name.items():
+            if name in desired_names:
+                continue
+            if any(name.startswith(prefix) for prefix in owned_prefixes):
+                stale_ids.append(label_id)
+                stale_names.append(name)
+
+        labels_to_add = [
+            (name, kind)
+            for name, kind in desired_pairs
+            if name not in current_by_name
+        ]
+        if dry_run:
+            return {
+                "labels_added": [name for name, _kind in labels_to_add],
+                "labels_removed": stale_names,
+            }
+
+        added_ids = self._label_ids_for_pairs(labels_to_add)
+
+        if added_ids or stale_ids:
+            update_input: dict[str, Any] = {}
+            if added_ids:
+                update_input["addedLabelIds"] = added_ids
+            if stale_ids:
+                update_input["removedLabelIds"] = stale_ids
+            data = self._graphql(
+                self._ISSUE_UPDATE_MUTATION,
+                {"id": external_id, "input": update_input},
+            )
+            payload = data.get("issueUpdate") or {}
+            if not payload.get("success"):
+                raise LinearError(f"issueUpdate(labels) failed: {data}")
+            self._inbox_cache = None
+
+        return {
+            "labels_added": [name for name, _kind in labels_to_add],
+            "labels_removed": stale_names,
+        }
+
     def sync_pull_request_link(
         self,
         external_id: str,
@@ -838,7 +1054,17 @@ class LinearAdapter(AdapterBase):
             "commented": False,
             "already_attached": has_attachment,
             "already_commented": has_comment,
+            "labels_added": [],
+            "labels_removed": [],
         }
+
+        label_result = self._sync_managed_pr_labels(
+            external_id,
+            issue,
+            pr,
+            dry_run=dry_run,
+        )
+        result.update(label_result)
 
         if not has_attachment:
             result["attached"] = True

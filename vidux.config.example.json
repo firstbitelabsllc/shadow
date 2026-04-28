@@ -46,6 +46,12 @@
           "completed": "state-done"
         },
         "blocked_label": "blocked",
+        "managed_labels": {
+          "repo": "repo:repo-name",
+          "source": "source:vidux",
+          "pr_state_prefix": "pr-state:",
+          "review_state_prefix": "review-state:"
+        },
         "auto_promote_target": "vidux",
         "auto_promote_max_new": 25
       }

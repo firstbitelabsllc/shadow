@@ -65,6 +65,10 @@ The live config uses several sections to guide scripts and automation behavior:
 - Linear codebase intake should set both `project_id` and `project_name`; the
   adapter validates the remote project name before reading or writing so a repo
   cannot silently ingest the wrong Linear product bucket.
+- Linear labels are configured per adapter, not in core vidux. Use `label_ids`
+  for known Linear label UUIDs, `label_names` for static labels that should be
+  looked up or created by name, and `managed_labels` for repo/source plus
+  PR-state/review-state prefix labels.
 
 A real repo may enable one or more shipped adapters, including `gh_projects`
 and `linear`, and may add `auto_promote_target` when external cards should
