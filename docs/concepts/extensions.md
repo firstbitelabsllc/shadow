@@ -74,6 +74,17 @@ mutation: team-wide sync with no `project_id` requires
 requires `allow_unguarded_project: true`. Repo-owned codebase lanes should
 not set either flag.
 
+## PR Linkage
+
+Linear PR handling also stays in the extension layer. When
+`scripts/vidux-inbox-sync.py` runs with `--include-prs --only-adapter linear`,
+it looks for PR bodies that include `Plan task: <id>`, finds the matching
+PLAN.md task, and only links the PR if that task has `[Source: linear:<id>]`.
+The Linear adapter then creates an issue attachment for the GitHub PR and a
+comment with PR number, branch, status, review gate, and URL. The PR body is
+updated with `Linear: EVE-N` so humans and audits can see the issue link
+without reading `.external-state.json`.
+
 ## Local policy overlays
 
 Core vidux stays open-source and organization-neutral. If your team needs

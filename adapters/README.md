@@ -50,14 +50,15 @@ surface area can layer on without breaking the 6-method contract:
 | **Initiative**   | top-level cross-cutting goal (workspace-wide)      | M:M via `InitiativeToProject` join — extension API |
 | **Cycle**        | sprint window (orthogonal to projects)             | optional — set `cycleId` in `push_fields` |
 | **Project milestone** | phase marker inside one project (Phase 0 → 1) | set `projectMilestoneId` |
-| **Comment**      | discussion thread on an issue                      | `commentCreate` mutation — not in core contract |
+| **Attachment**   | GitHub PR URL linked to an issue                   | `sync_pull_request_link` extension method |
+| **Comment**      | discussion thread on an issue                      | `sync_pull_request_link` extension method |
 | **Label**        | tag (workspace OR team scoped)                     | `default_label_ids` in adapter config + auto-managed `blocked` label |
 | **Webhook**      | push notification for issue/comment changes        | future extension — would replace polling fetch_inbox |
 
 The 6-method contract stays unchanged. New capabilities ride on top via
 adapter-specific config (e.g. `project_id`, `cycle_id`) or out-of-band
-extension methods (e.g. `add_comment`, `register_webhook`) that core vidux
-never calls.
+extension methods (e.g. `sync_pull_request_link`, `register_webhook`) that
+core vidux discovers by capability rather than hardcoding into the contract.
 
 ## Contract
 
@@ -131,6 +132,26 @@ With `auto_promote_target`, sync does not create new external issues from
 local-only PLAN rows. It still reconciles status for tasks already linked by a
 `[Source: <adapter>:<id>]` marker so imported cards can move to completed on
 the external board.
+
+## Linear PR linkage
+
+`scripts/vidux-inbox-sync.py --include-prs --only-adapter linear` links PRs to
+Linear when the PR body names a plan task and that task has a Linear source
+marker:
+
+```text
+Lane: codex/example | Plan task: BD-1 | Implements the fix
+```
+
+```markdown
+- [in_review] BD-1: Implements the fix [Source: linear:<issue-id>]
+```
+
+For each match, the Linear adapter idempotently creates a GitHub PR attachment
+on the issue and posts a comment with PR number, branch, status, review gate,
+and URL. The sync also ensures the GitHub PR body carries `Linear: EVE-N` so
+reviewers and audit scripts can find the Linear issue without reading the
+sidecar.
 
 ## Six steps to write a new adapter
 
