@@ -985,6 +985,8 @@ def sync_prs_to_project(
         "linked": 0,
         "attached": 0,
         "commented": 0,
+        "labels_added": 0,
+        "labels_removed": 0,
         "body_updates": 0,
         "skipped": 0,
         "errors": [],
@@ -1114,6 +1116,8 @@ def sync_prs_to_project(
                 summary["attached"] += 1
             if result.get("commented"):
                 summary["commented"] += 1
+            summary["labels_added"] += len(result.get("labels_added") or [])
+            summary["labels_removed"] += len(result.get("labels_removed") or [])
         except Exception as exc:  # noqa: BLE001
             summary["errors"].append(
                 f"pr#{pr['number']} (linear link): {str(exc)[:160]}"
@@ -1392,6 +1396,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"  added={r.get('added', 0)} moved={r.get('moved', 0)} "
                     f"linked={r.get('linked', 0)} attached={r.get('attached', 0)} "
                     f"commented={r.get('commented', 0)} "
+                    f"labels_added={r.get('labels_added', 0)} "
+                    f"labels_removed={r.get('labels_removed', 0)} "
                     f"body_updates={r.get('body_updates', 0)} "
                     f"skipped={r.get('skipped', 0)}"
                 )
