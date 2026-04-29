@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -63,6 +64,12 @@ ARTIFACT_TITLE_RE = re.compile(
 )
 PLAN_NOTE_MAX_BYTES = 16 * 1024
 PLAN_NOTE_SOURCE_RE = re.compile(r"[^A-Za-z0-9_.:/@ -]+")
+COMMENTS_FILE = Path(
+    os.environ.get("VIDUX_BROWSER_COMMENTS_FILE", Path.home() / ".vidux-browser" / "comments.jsonl")
+).expanduser()
+COMMENT_BODY_MAX_BYTES = 8 * 1024
+COMMENT_AUTHOR_MAX_CHARS = 80
+COMMENT_AUTHOR_RE = re.compile(r"[^A-Za-z0-9_.:/@' -]+")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 JSON_CONTENT_TYPE = "application/json"
 
@@ -364,6 +371,70 @@ def clean_note_label(raw: object, default: str) -> str:
     return (text or default)[:120]
 
 
+def clean_comment_author(raw: object) -> str:
+    text = str(raw or "").strip()
+    text = COMMENT_AUTHOR_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text)
+    return (text or "Anonymous")[:COMMENT_AUTHOR_MAX_CHARS]
+
+
+def comment_target_kind(path: Path) -> str:
+    try:
+        path.relative_to(ARTIFACTS_DIR.resolve())
+    except ValueError:
+        return "plan"
+    return "artifact"
+
+
+def append_comment(
+    target_path: Path,
+    author: object,
+    body: str,
+    remote_address: str,
+) -> tuple[bool, str | dict]:
+    text = body.strip()
+    if not text:
+        return False, "comment must be non-empty"
+    if len(text.encode("utf-8")) > COMMENT_BODY_MAX_BYTES:
+        return False, f"comment exceeds {COMMENT_BODY_MAX_BYTES} bytes"
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "target_path": str(target_path),
+        "target_kind": comment_target_kind(target_path),
+        "author": clean_comment_author(author),
+        "body": text,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "remote_address": remote_address,
+    }
+
+    try:
+        COMMENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with COMMENTS_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except OSError as e:
+        return False, f"write failed: {e}"
+    return True, record
+
+
+def read_comments(target_path: Path, limit: int = 100) -> list[dict]:
+    if not COMMENTS_FILE.is_file():
+        return []
+    target = str(target_path)
+    comments: list[dict] = []
+    try:
+        for line in COMMENTS_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if item.get("target_path") == target:
+                comments.append(item)
+    except OSError:
+        return []
+    return comments[-limit:]
+
+
 def resolve_plan_note_target(raw: str) -> Path | None:
     p = safe_resolve(raw)
     if not p or p.name != "PLAN.md":
@@ -443,6 +514,18 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/artifacts":
             self._json({"artifacts": discover_artifacts(),
                         "artifacts_dir": str(ARTIFACTS_DIR)})
+        elif route == "/api/comments":
+            raw = (qs.get("path") or [""])[0]
+            p = safe_resolve_any(raw)
+            if not p:
+                self._send(403, "forbidden")
+                return
+            self._json({
+                "ok": True,
+                "path": str(p),
+                "target_kind": comment_target_kind(p),
+                "comments": read_comments(p),
+            })
         elif route == "/api/file":
             raw = (qs.get("path") or [""])[0]
             p = safe_resolve_any(raw)  # plans + artifacts
@@ -511,6 +594,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, msg)
                 return
             self._json({"ok": True, "path": msg})
+        elif url.path == "/api/comments":
+            if not self._require_browser_json(require_origin=True):
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > COMMENT_BODY_MAX_BYTES + 2048:
+                self._send(400, "missing or oversized body")
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._send(400, f"bad json: {e}")
+                return
+            target_path = safe_resolve_any(str(payload.get("target_path", "")))
+            if not target_path:
+                self._send(403, "target_path must be an allowed plan file or artifact")
+                return
+            body = payload.get("body", "")
+            if not isinstance(body, str):
+                self._send(400, "body must be a string")
+                return
+            ok, result = append_comment(
+                target_path,
+                payload.get("author", ""),
+                body,
+                self.client_address[0],
+            )
+            if not ok:
+                self._send(400, str(result))
+                return
+            self._json({"ok": True, "comment": result})
         else:
             self._send(404, "not found")
 
@@ -518,16 +632,19 @@ class Handler(BaseHTTPRequestHandler):
         if not is_loopback_host(self.client_address[0]):
             self._send(403, "write endpoints require loopback client")
             return False
+        return self._require_browser_json()
+
+    def _require_browser_json(self, require_origin: bool = False) -> bool:
         if not is_json_content_type(self.headers.get("Content-Type")):
             self._send(415, "Content-Type must be application/json")
             return False
-        ok, reason = self._same_origin_ok()
+        ok, reason = self._same_origin_ok(require_origin=require_origin)
         if not ok:
             self._send(403, reason)
             return False
         return True
 
-    def _same_origin_ok(self) -> tuple[bool, str]:
+    def _same_origin_ok(self, require_origin: bool = False) -> tuple[bool, str]:
         host = (self.headers.get("Host") or "").strip()
         origin = (self.headers.get("Origin") or "").strip()
         referer = (self.headers.get("Referer") or "").strip()
@@ -539,6 +656,8 @@ class Handler(BaseHTTPRequestHandler):
             if origin_matches_host(referer, host):
                 return True, ""
             return False, "Referer must match vidux-browse host"
+        if require_origin:
+            return False, "Origin or Referer required"
         return True, ""
 
     def _serve_static(self, name: str, ctype: str | None = None):

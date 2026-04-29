@@ -6,8 +6,9 @@ Two surfaces, one tool, for any /vidux user (not Leo-specific):
 
 1. **Plan viewer** — localhost web UI that visualizes every `PLAN.md` + canonical sibling artifacts (`INBOX.md`, `investigations/`, `evidence/`) across the user's repo fleet at a glance. Answers "where am I" without grepping markdown.
 2. **Ad-hoc artifact surface** — anytime, anywhere in any session, an agent can drop an HTML artifact into a known directory and it appears in the browser as a top-level "Artifacts" section. Decoupled from any specific plan. The artifact creator is "in chat" — agents POST or write files; the browser surfaces them.
+3. **Named comment surface** — LAN viewers can leave named comments on a plan tab or artifact, like lightweight annotations. Comments are vidux-browse app data, not plan/artifact source edits.
 
-The plan files ARE the source of truth (per `/vidux` discipline). The browser is **read-only against plans**, **append-only against artifacts**.
+The plan files ARE the source of truth (per `/vidux` discipline). The browser is **read-only against plans**, **append-only against artifacts**, and **append-only against comments**.
 
 ### Audience clarifier (added 2026-04-25)
 
@@ -38,18 +39,19 @@ This is a **generic /vidux user tool**. Default schema = canonical /vidux only (
 ## Constraints
 
 **ALWAYS:**
-- Read-only — viewer never edits PLAN.md / PROGRESS.md / etc.
-- Localhost only (`127.0.0.1:7191`)
+- Read-only against plan source — viewer never edits PLAN.md / PROGRESS.md / etc.
+- Localhost by default (`127.0.0.1:7191`); LAN bind only when launcher/LaunchAgent explicitly sets `VIDUX_BROWSER_HOST=0.0.0.0`
 - Python stdlib only for v1 (no Flask, no FastAPI, no Node) — matches Leo's "simple css html" ask
 - Plain HTML + CSS + vanilla JS — no React/Vue/Svelte/Tailwind/etc.
 - One stable URL Leo can bookmark
 - Survives PLAN.md schema drift (renders any markdown gracefully even if structure varies)
+- Comments are separate app data (`~/.vidux-browser/comments.jsonl` by default), never mutations to plan or artifact source files
 
 **NEVER:**
 - New repo (extend vidux core)
 - AWS/GCP/Firebase / paid SaaS
 - Editing plan files from the browser (read-only contract is load-bearing)
-- Auth (it's localhost; trust the boundary)
+- Treat LAN comments as plan writes, task claims, repo writes, or inbox mutation
 - Heavy framework (Leo asked for simple)
 
 ## Decision table
@@ -157,6 +159,7 @@ Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made ar
 - [pending] VB-NEW-5 Artifact dark-mode CSS as shared file — ship `static/artifact-base.css` artifacts can `<link>` to (with offline-use fallback), replacing the per-artifact embedded `prefers-color-scheme: dark` block [ETA: 1h]
 - [pending] VB-NEW-6 Cron lane that auto-regenerates Nicole-friendly per-plan artifacts when source PLAN.md changes — mtime-delta detection, LaunchAgent label `com.leokwan.snowcubes-artifact-refresh`. Captured in `snowcubes-lan-share/PLAN.md` W2.1 — cross-link from here [ETA: 2h]
 - [completed] VB-SEC-1 Harden write endpoints before work-computer LAN use — require loopback client, JSON content-type, and same-origin browser posts for `/api/artifact` and `/api/local-plan-note`; add browser server tests to the default gate. [Evidence: 2026-04-27 code-review findings P1/P2 on unauthenticated artifact writes, CSRFable plan notes, and missing browser tests] [Done: 2026-04-27; verified `python3 -m unittest tests.test_browser_server`, `npm test`, extra unittest modules, `npm run docs:build`]
+- [completed] VB-COM-1 Named comments for plan tabs and artifacts — add `/api/comments` GET/POST, append-only JSONL storage, LAN same-origin JSON guard, UI name field + comment form + comment list. Comments do not write `PLAN.md`, `INBOX.md`, repo code, or artifact HTML. [Done: 2026-04-29]
 
 ## UI sketch (MVP)
 
@@ -195,6 +198,7 @@ Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made ar
 - [DIRECTION] [2026-04-25 /auto] Live HTTP server, not static SSG. Reason: Leo asked for "current chat and stuff" — fresh state on each render.
 - [DIRECTION] [2026-04-25 /auto] Read-only contract is load-bearing. Reason: PLAN.md is canonical per /vidux; the browser views, never writes.
 - [DIRECTION] [2026-04-26] vidux-browse must bind 0.0.0.0 by default for LAN-share; honor VIDUX_BROWSER_HOST env var with safe localhost fallback. Reason: artifact-share-with-Nicole-on-LAN is now first-class use case via Moussey integration.
+- [DIRECTION] [2026-04-29] Named LAN comments are app data, not plan/artifact writes. Reason: LAN viewers need annotation-style feedback without reopening cross-machine write holes.
 
 ## Open Questions
 
@@ -230,3 +234,4 @@ Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made ar
   4. **Snowcubes hub artifact + 9 per-plan Nicole-friendly cards** live at `vidux/browser/artifacts/snowcubes-*.html`, served via `/api/file?path=...` deep-link.
   5. **Moussey integration** — Moussey at `:4321/snowcubes` (mux-snowcubes-tile commit `cc03589`) and `:4321/vidux` both 307-redirect to vidux-browse on `:7191` using request-header host derivation, so `.local` and IP both work. Moussey homepage tile shipped.
   Decision Log entry added: `[DIRECTION] [2026-04-26] vidux-browse must bind 0.0.0.0 by default for LAN-share; honor VIDUX_BROWSER_HOST env var with safe localhost fallback. Reason: artifact-share-with-Nicole-on-LAN is now first-class use case via Moussey integration.` Phase 5 added with 5 [completed] (T5a–T5e) + 6 [pending] (VB-NEW-1 through VB-NEW-6, ~7h). Updated fleet ETA: 13h → ~20h pending across 17 open tasks.
+- [2026-04-29] **Named comments/annotations shipped in branch `codex/vidux-lan-comments-20260429`.** Added `/api/comments` GET/POST, separate JSONL app-data store, LAN same-origin JSON guard, comment UI with saved name field, and browser-server tests for plan/artifact comments plus cross-origin/simple-post rejects. Source files remain read-only: no `PLAN.md`, `INBOX.md`, repo, or artifact mutation from comments.

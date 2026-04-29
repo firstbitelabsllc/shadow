@@ -69,6 +69,8 @@ const els = {
   refresh: document.getElementById("refresh"),
 };
 
+const COMMENT_AUTHOR_KEY = "vidux-browser-comment-author";
+
 function fmtAge(days) {
   if (days < 1) return "today";
   if (days < 2) return "1d";
@@ -341,8 +343,10 @@ async function renderArtifactPane() {
         <span class="muted">${escapeText(a.path)}</span>
       </div>
     </div>
+    ${renderCommentsPanel(a.path)}
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
+  setupCommentsPanel(a.path);
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(a.path)}`);
     if (!res.ok) {
@@ -406,6 +410,7 @@ async function renderPane() {
       `).join("")}
     </div>
     ${invStripHTML}
+    ${renderCommentsPanel(tabPath)}
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
   els.pane.innerHTML = headerHTML;
@@ -420,6 +425,7 @@ async function renderPane() {
       setActiveTab(`INV:${b.getAttribute("data-inv")}`);
     });
   });
+  setupCommentsPanel(tabPath);
 
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(tabPath)}`);
@@ -438,6 +444,133 @@ async function renderPane() {
     document.getElementById("md-body").innerHTML =
       `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
   }
+}
+
+function getStoredCommentAuthor() {
+  try {
+    return window.localStorage.getItem(COMMENT_AUTHOR_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function setStoredCommentAuthor(value) {
+  try {
+    window.localStorage.setItem(COMMENT_AUTHOR_KEY, value);
+  } catch {
+    // localStorage can be unavailable in constrained browser contexts.
+  }
+}
+
+function renderCommentsPanel(targetPath) {
+  const author = getStoredCommentAuthor();
+  return `
+    <section class="comments-panel" id="comments-panel" data-target-path="${escapeAttr(targetPath)}">
+      <div class="comments-head">
+        <div>
+          <h3>Comments</h3>
+          <p>Named notes for this view. Stored separately from source files.</p>
+        </div>
+        <span class="comment-count" id="comment-count">loading</span>
+      </div>
+      <form class="comment-form" id="comment-form">
+        <input id="comment-author" class="comment-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name">
+        <textarea id="comment-body" name="body" rows="2" maxlength="8192" placeholder="Add a comment"></textarea>
+        <div class="comment-actions">
+          <span class="comment-status" id="comment-status"></span>
+          <button type="submit">Add</button>
+        </div>
+      </form>
+      <div class="comment-list" id="comment-list"></div>
+    </section>`;
+}
+
+function setupCommentsPanel(targetPath) {
+  const panel = document.getElementById("comments-panel");
+  if (!panel) return;
+  const form = document.getElementById("comment-form");
+  const authorInput = document.getElementById("comment-author");
+  const bodyInput = document.getElementById("comment-body");
+  const status = document.getElementById("comment-status");
+
+  loadComments(targetPath);
+
+  authorInput.addEventListener("input", () => setStoredCommentAuthor(authorInput.value.trim()));
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const author = authorInput.value.trim();
+    const body = bodyInput.value.trim();
+    if (!body) {
+      status.textContent = "write a comment first";
+      return;
+    }
+    setStoredCommentAuthor(author);
+    status.textContent = "sending…";
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_path: targetPath, author, body }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      bodyInput.value = "";
+      status.textContent = "added";
+      await loadComments(targetPath);
+      setTimeout(() => {
+        if (status.textContent === "added") status.textContent = "";
+      }, 1800);
+    } catch (err) {
+      status.textContent = `failed: ${String(err.message || err)}`;
+    }
+  });
+}
+
+async function loadComments(targetPath) {
+  const list = document.getElementById("comment-list");
+  const count = document.getElementById("comment-count");
+  if (!list || !count) return;
+  const panel = document.getElementById("comments-panel");
+  if (!panel || panel.getAttribute("data-target-path") !== targetPath) return;
+  try {
+    const res = await fetch(`/api/comments?path=${encodeURIComponent(targetPath)}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const currentPanel = document.getElementById("comments-panel");
+    if (!currentPanel || currentPanel.getAttribute("data-target-path") !== targetPath) return;
+    const comments = data.comments || [];
+    count.textContent = `${comments.length}`;
+    if (!comments.length) {
+      list.innerHTML = `<div class="comment-empty">No comments yet.</div>`;
+      return;
+    }
+    list.innerHTML = comments.map(renderComment).join("");
+  } catch (err) {
+    count.textContent = "error";
+    list.innerHTML = `<div class="error">failed to load comments: ${escapeText(String(err.message || err))}</div>`;
+  }
+}
+
+function renderComment(comment) {
+  return `
+    <article class="comment-item">
+      <div class="comment-meta">
+        <strong>${escapeText(comment.author || "Anonymous")}</strong>
+        <span>${escapeText(formatCommentTime(comment.created_at))}</span>
+      </div>
+      <div class="comment-body">${escapeText(comment.body || "").replace(/\n/g, "<br>")}</div>
+    </article>`;
+}
+
+function formatCommentTime(raw) {
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function naiveMarkdown(md) {
