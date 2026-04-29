@@ -23,6 +23,8 @@ Policy:
   * Mapping between vidux task ids and external_ids lives in a per-plan
     sidecar `<plan_dir>/.external-state.json` (gitignored since the whole
     projects/ tree is gitignored). Never touched by humans.
+  * Unmapped external items that are already completed are terminal history:
+    they are skipped instead of being imported as fresh pending PLAN work.
 
 Usage:
   vidux-inbox-sync.py
@@ -587,6 +589,8 @@ def auto_promote_novel_items(
     for item in items:
         if item.external_id in skip_set:
             continue
+        if item.status == VidxStatus.COMPLETED:
+            continue
         # Build a sanitized, single-line title so it survives PLAN.md parsing.
         title = re.sub(r"\s+", " ", item.title).strip()
         if len(title) > 240:
@@ -760,6 +764,7 @@ def sync_plan_with_adapter(
         "source_mapped": source_mapped,
         "push_skipped_idempotent": 0,
         "push_suppressed_auto_promote": 0,
+        "completed_novel_skipped": 0,
         "errors": [],
     }
 
@@ -784,12 +789,16 @@ def sync_plan_with_adapter(
         if fleet_known_ext_ids is not None:
             known_ext_ids |= fleet_known_ext_ids
         novel = [item for item in external_items if item.external_id not in known_ext_ids]
+        active_novel = [
+            item for item in novel if item.status != VidxStatus.COMPLETED
+        ]
+        summary["completed_novel_skipped"] = len(novel) - len(active_novel)
         # Only the first plan in the fleet-iteration actually writes novel
         # items to its INBOX.md. Everyone else skips the append but still
         # performs the flip reconcile below (that's per-plan data).
         if do_pull:
             summary["inbox_appended"] = append_inbox(
-                plan_dir, novel, adapter.name, dry_run
+                plan_dir, active_novel, adapter.name, dry_run
             )
 
         # Flip PLAN.md tasks that have moved to completed on the external board.
@@ -804,6 +813,12 @@ def sync_plan_with_adapter(
             if item.status == VidxStatus.COMPLETED and plan_task.status != VidxStatus.COMPLETED:
                 flips[task_id] = VidxStatus.COMPLETED
         summary["plan_flipped"] = flip_plan_statuses(plan_path, flips, dry_run)
+        if summary["plan_flipped"]:
+            # Keep the push half of a same-process `--direction=both` run from
+            # re-pushing stale pre-flip statuses back to the external board.
+            for task_id, status in flips.items():
+                if task_id in tasks_by_id:
+                    tasks_by_id[task_id].status = status
         summary["flipped_ids"] = sorted(flips.keys())
 
     if direction in ("push", "both") and not do_push:
@@ -1325,15 +1340,25 @@ def main(argv: list[str] | None = None) -> int:
             auto_exit_code = 0
             auto_promoted = 0
             auto_mappings: dict[str, str] = {}
+            completed_skipped = 0
             try:
                 ext_items = adapter.fetch_inbox()  # cached
             except Exception as exc:  # noqa: BLE001
                 auto_errors = [f"fetch_inbox: {str(exc)[:200]}"]
                 auto_exit_code = 3
             else:
+                completed_skipped = len([
+                    item for item in ext_items
+                    if item.status == VidxStatus.COMPLETED
+                    and item.external_id not in fleet_known
+                ])
+                promotable_items = [
+                    item for item in ext_items
+                    if item.status != VidxStatus.COMPLETED
+                ]
                 try:
                     count, new_mappings = auto_promote_novel_items(
-                        promote_target_dir, ext_items, adapter.name,
+                        promote_target_dir, promotable_items, adapter.name,
                         fleet_known, args.dry_run,
                         max_new=promote_max_new,
                     )
@@ -1360,6 +1385,7 @@ def main(argv: list[str] | None = None) -> int:
                 "target": str(promote_target_dir),
                 "promoted": auto_promoted,
                 "title_matched": len(title_recovered_ext_ids),
+                "completed_skipped": completed_skipped,
                 "errors": auto_errors,
             })
 
@@ -1406,7 +1432,10 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if kind == "auto_promote":
                 print(f"{tag}{r['adapter']} × auto_promote → {r.get('target','?')}")
-                print(f"  promoted={r.get('promoted', 0)}")
+                print(
+                    f"  promoted={r.get('promoted', 0)} "
+                    f"completed_skipped={r.get('completed_skipped', 0)}"
+                )
                 for err in r.get("errors", []):
                     print(f"  ! {err}")
                 continue
@@ -1424,6 +1453,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     "  push suppressed by auto_promote="
                     f"{r['push_suppressed_auto_promote']}"
+                )
+            if r.get("completed_novel_skipped"):
+                print(
+                    "  completed novel skipped="
+                    f"{r['completed_novel_skipped']}"
                 )
             for err in r.get("errors", []):
                 print(f"  ! {err}")
