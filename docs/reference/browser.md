@@ -76,7 +76,7 @@ This behavior is covered by `tests/test_browser_server.py`.
 - Artifact comments attach to the specific artifact HTML file.
 - The UI remembers the commenter name in browser `localStorage`.
 - Cross-machine LAN viewers can comment when they are using the vidux-browse origin.
-- For precise placement, use `Annotate` or `Cmd/Ctrl+Shift+C`, then click the rendered plan or artifact element the comment targets.
+- For precise placement, use the top-bar `Annotate` control or `Cmd/Ctrl+Shift+C`, then click the rendered plan or artifact element the comment targets. Annotation/filter shortcuts are ignored while typing in inputs, textareas, selects, or contenteditable fields.
 - Anchors store sanitized selector, label, excerpt, tag, kind, and index metadata. They are best-effort display pointers; the source markdown or artifact remains unchanged.
 - The rendered `Target` pill scrolls to and highlights the captured element when it is still present.
 

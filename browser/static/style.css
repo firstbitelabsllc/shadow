@@ -61,6 +61,19 @@ body {
   border-radius: 3px;
 }
 .topbar-meta button:hover { background: var(--select); }
+.topbar-meta button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.topbar-meta button.root-annotation-toggle {
+  font-family: var(--mono);
+  min-width: 82px;
+}
+.topbar-meta button.root-annotation-toggle.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
 
 .layout {
   display: grid;
@@ -456,7 +469,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 
 .comments-panel {
   margin: 0 0 22px;
-  padding: 12px 14px;
+  padding: 14px;
   border: 1px solid var(--rule);
   border-radius: 6px;
   background: var(--paper-2);
@@ -466,7 +479,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .comments-head h3 {
   margin: 0;
@@ -502,8 +515,8 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   color: var(--paper);
 }
 .comment-count {
-  min-width: 24px;
-  padding: 1px 7px;
+  min-width: 72px;
+  padding: 2px 8px;
   border: 1px solid var(--rule);
   border-radius: 999px;
   background: var(--paper);
@@ -515,7 +528,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .comment-form {
   display: grid;
   grid-template-columns: minmax(120px, 180px) 1fr;
-  gap: 8px;
+  gap: 9px;
   align-items: start;
 }
 .comment-author,
@@ -533,7 +546,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   padding: 7px 9px;
 }
 .comment-form textarea {
-  min-height: 62px;
+  min-height: 72px;
   resize: vertical;
   padding: 7px 9px;
   line-height: 1.45;
@@ -552,10 +565,10 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .comment-anchor-preview {
   grid-column: 2;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 6px 8px;
+  padding: 7px 9px;
   border: 1px solid var(--accent);
   border-radius: 3px;
   background: var(--paper);
@@ -568,7 +581,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   font-family: var(--mono);
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 .comment-anchor-preview .anchor-text {
   overflow: hidden;
@@ -589,7 +602,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   border: 1px solid var(--accent);
   color: var(--paper);
   border-radius: 3px;
-  padding: 5px 12px;
+  padding: 6px 12px;
   cursor: pointer;
   font-family: var(--mono);
   font-size: 11.5px;
@@ -603,12 +616,14 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .comment-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 14px;
 }
 .comment-item {
-  border-top: 1px solid var(--rule);
-  padding-top: 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  padding: 9px 10px;
 }
 .comment-meta {
   display: flex;

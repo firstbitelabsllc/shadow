@@ -72,6 +72,7 @@ const els = {
   pane: document.getElementById("pane"),
   count: document.getElementById("meta-count"),
   refresh: document.getElementById("refresh"),
+  annotate: document.getElementById("root-annotation-toggle"),
 };
 
 const COMMENT_AUTHOR_KEY = "vidux-browser-comment-author";
@@ -481,20 +482,19 @@ function renderCommentsPanel(targetPath) {
       <div class="comments-head">
         <div>
           <h3>Comments</h3>
-          <p>Named notes for this view. Stored separately from source files.</p>
+          <p>Notes for this view. Use the top-bar Annotate control for exact targets.</p>
         </div>
         <div class="comments-tools">
-          <button type="button" id="annotation-toggle" class="annotation-toggle" title="Cmd/Ctrl+Shift+C">Annotate</button>
           <span class="comment-count" id="comment-count">loading</span>
         </div>
       </div>
       <form class="comment-form" id="comment-form">
         <input id="comment-author" class="comment-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name">
-        <textarea id="comment-body" name="body" rows="2" maxlength="8192" placeholder="Add a comment"></textarea>
+        <textarea id="comment-body" name="body" rows="2" maxlength="8192" placeholder="Add a comment. Annotate first to attach it to a rendered line."></textarea>
         <div class="comment-anchor-preview" id="comment-anchor-preview" hidden></div>
         <div class="comment-actions">
           <span class="comment-status" id="comment-status"></span>
-          <button type="submit">Add</button>
+          <button type="submit">Add comment</button>
         </div>
       </form>
       <div class="comment-list" id="comment-list"></div>
@@ -508,13 +508,11 @@ function setupCommentsPanel(targetPath) {
   const authorInput = document.getElementById("comment-author");
   const bodyInput = document.getElementById("comment-body");
   const status = document.getElementById("comment-status");
-  const annotationToggle = document.getElementById("annotation-toggle");
 
   loadComments(targetPath);
   updateAnnotationUI();
 
   authorInput.addEventListener("input", () => setStoredCommentAuthor(authorInput.value.trim()));
-  annotationToggle.addEventListener("click", () => toggleAnnotationCapture(targetPath));
   form.addEventListener("submit", async e => {
     e.preventDefault();
     const author = authorInput.value.trim();
@@ -579,15 +577,20 @@ function updateAnnotationUI() {
   const captureActive = state.annotation.capture && state.annotation.targetPath === currentTarget;
   const anchorActive = state.annotation.anchor && state.annotation.targetPath === currentTarget;
   const body = document.getElementById("md-body");
-  const toggle = document.getElementById("annotation-toggle");
   const preview = document.getElementById("comment-anchor-preview");
   const status = document.getElementById("comment-status");
+  const rootToggle = els.annotate;
 
   document.body.classList.toggle("is-annotation-mode", Boolean(captureActive));
   if (body) body.classList.toggle("is-annotation-capture", Boolean(captureActive));
-  if (toggle) {
-    toggle.textContent = captureActive ? "Cancel" : "Annotate";
-    toggle.classList.toggle("is-active", Boolean(captureActive));
+  if (rootToggle) {
+    rootToggle.disabled = !currentTarget;
+    rootToggle.textContent = captureActive ? "Cancel" : (anchorActive ? "Retarget" : "Annotate");
+    rootToggle.classList.toggle("is-active", Boolean(captureActive || anchorActive));
+    rootToggle.setAttribute("aria-pressed", String(Boolean(captureActive)));
+    rootToggle.title = currentTarget
+      ? "Annotate selected view (Cmd/Ctrl+Shift+C)"
+      : "Select a plan or artifact to annotate";
   }
   if (status && captureActive) {
     status.textContent = "select target in document";
@@ -602,7 +605,7 @@ function updateAnnotationUI() {
   }
   preview.hidden = false;
   preview.innerHTML = `
-    <span class="anchor-label">Target</span>
+    <span class="anchor-label">Selected target</span>
     <span class="anchor-text">${escapeText(state.annotation.anchor.label || state.annotation.anchor.excerpt || "")}</span>
     <button type="button" id="comment-anchor-clear">Clear</button>
   `;
@@ -711,9 +714,9 @@ async function loadComments(targetPath) {
     const currentPanel = document.getElementById("comments-panel");
     if (!currentPanel || currentPanel.getAttribute("data-target-path") !== targetPath) return;
     const comments = data.comments || [];
-    count.textContent = `${comments.length}`;
+    count.textContent = `${comments.length} ${comments.length === 1 ? "comment" : "comments"}`;
     if (!comments.length) {
-      list.innerHTML = `<div class="comment-empty">No comments yet.</div>`;
+      list.innerHTML = `<div class="comment-empty">No comments yet. Use Annotate for exact placement.</div>`;
       return;
     }
     list.innerHTML = comments.map(renderComment).join("");
@@ -784,11 +787,26 @@ function escapeAttr(s) {
   return escapeText(s).replace(/"/g, "&quot;");
 }
 
+function isEditableShortcutTarget(target) {
+  const el = target && target.nodeType === Node.ELEMENT_NODE ? target : document.activeElement;
+  if (!el || el === document.body) return false;
+  const tag = String(el.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  if (el.isContentEditable) return true;
+  return Boolean(el.closest && el.closest('[contenteditable]:not([contenteditable="false"])'));
+}
+
 els.filter.addEventListener("input", e => {
   state.filter = e.target.value;
   renderSidebar();
 });
 els.refresh.addEventListener("click", loadAll);
+if (els.annotate) {
+  els.annotate.addEventListener("click", () => {
+    const targetPath = currentCommentTargetPath();
+    if (targetPath) toggleAnnotationCapture(targetPath);
+  });
+}
 
 // Mobile sidebar drawer toggle (visible only at narrow widths via CSS).
 const sidebarEl = document.getElementById("sidebar");
@@ -812,13 +830,15 @@ els.pane.addEventListener("click", e => {
 
 // Keyboard shortcuts: `/` focuses filter, Esc clears or closes drawer.
 document.addEventListener("keydown", e => {
+  const editableTarget = isEditableShortcutTarget(e.target);
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "c") {
+    if (editableTarget) return;
     const targetPath = currentCommentTargetPath();
     if (targetPath) {
       e.preventDefault();
       toggleAnnotationCapture(targetPath);
     }
-  } else if (e.key === "/" && document.activeElement !== els.filter) {
+  } else if (e.key === "/" && !editableTarget && document.activeElement !== els.filter) {
     e.preventDefault();
     els.filter.focus();
     els.filter.select();
