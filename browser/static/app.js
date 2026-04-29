@@ -12,6 +12,7 @@ const state = {
     anchor: null,
   },
 };
+let activePopoverTarget = null;
 
 // ─── URL deep-linking ─────────────────────────────────────────────────────
 // Selection is reflected in the URL via query params so any view is bookmarkable
@@ -107,9 +108,8 @@ const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#refresh",
   "#sidebar-toggle",
   "#filter",
-  "#comment-form",
-  "#comment-form *",
-  "#comment-anchor-clear",
+  "#annotation-popover",
+  "#annotation-popover *",
   ".comment-anchor button",
 ].join(",");
 
@@ -520,27 +520,17 @@ function setStoredCommentAuthor(value) {
 }
 
 function renderCommentsPanel(targetPath) {
-  const author = getStoredCommentAuthor();
   return `
     <section class="comments-panel" id="comments-panel" data-target-path="${escapeAttr(targetPath)}">
       <div class="comments-head">
         <div>
           <h3>Comments</h3>
-          <p>Notes for this view. Use the header Annotate control for exact targets.</p>
+          <p>Use Annotate, then click a target to open the popover composer.</p>
         </div>
         <div class="comments-tools">
           <span class="comment-count" id="comment-count">loading</span>
         </div>
       </div>
-      <form class="comment-form" id="comment-form">
-        <input id="comment-author" class="comment-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name">
-        <textarea id="comment-body" name="body" rows="2" maxlength="8192" placeholder="Add a comment. Annotate first to attach it to the browser surface."></textarea>
-        <div class="comment-anchor-preview" id="comment-anchor-preview" hidden></div>
-        <div class="comment-actions">
-          <span class="comment-status" id="comment-status"></span>
-          <button type="submit">Add comment</button>
-        </div>
-      </form>
       <div class="comment-list" id="comment-list"></div>
     </section>`;
 }
@@ -548,54 +538,15 @@ function renderCommentsPanel(targetPath) {
 function setupCommentsPanel(targetPath) {
   const panel = document.getElementById("comments-panel");
   if (!panel) return;
-  const form = document.getElementById("comment-form");
-  const authorInput = document.getElementById("comment-author");
-  const bodyInput = document.getElementById("comment-body");
-  const status = document.getElementById("comment-status");
-
   loadComments(targetPath);
   updateAnnotationUI();
-
-  authorInput.addEventListener("input", () => setStoredCommentAuthor(authorInput.value.trim()));
-  form.addEventListener("submit", async e => {
-    e.preventDefault();
-    const author = authorInput.value.trim();
-    const body = bodyInput.value.trim();
-    if (!body) {
-      status.textContent = "write a comment first";
-      return;
-    }
-    setStoredCommentAuthor(author);
-    status.textContent = "sending…";
-    try {
-      const res = await fetch("/api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target_path: targetPath,
-          author,
-          body,
-          anchor: state.annotation.targetPath === targetPath ? state.annotation.anchor : null,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      bodyInput.value = "";
-      clearAnnotationState();
-      status.textContent = "added";
-      await loadComments(targetPath);
-      setTimeout(() => {
-        if (status.textContent === "added") status.textContent = "";
-      }, 1800);
-    } catch (err) {
-      status.textContent = `failed: ${String(err.message || err)}`;
-    }
-  });
 }
 
 function clearAnnotationState() {
   state.annotation.capture = false;
   state.annotation.targetPath = "";
   state.annotation.anchor = null;
+  closeAnnotationPopover({ preserveState: true });
   updateAnnotationUI();
 }
 
@@ -616,12 +567,9 @@ function currentCommentTargetPath() {
 }
 
 function updateAnnotationUI() {
-  const panel = document.getElementById("comments-panel");
   const currentTarget = currentCommentTargetPath();
   const captureActive = state.annotation.capture && state.annotation.targetPath === currentTarget;
   const anchorActive = state.annotation.anchor && state.annotation.targetPath === currentTarget;
-  const preview = document.getElementById("comment-anchor-preview");
-  const status = document.getElementById("comment-status");
   const rootToggle = els.annotate;
 
   document.body.classList.toggle("is-annotation-mode", Boolean(captureActive));
@@ -634,31 +582,118 @@ function updateAnnotationUI() {
       ? "Annotate selected view (Cmd/Ctrl+Shift+C)"
       : "Select a plan or artifact to annotate";
   }
-  if (status && captureActive) {
-    status.textContent = "select target in browser";
-  } else if (status && status.textContent === "select target in browser") {
-    status.textContent = "";
+}
+
+function openAnnotationPopover(anchor, targetEl) {
+  const targetPath = currentCommentTargetPath();
+  if (!targetPath || !anchor) return;
+  closeAnnotationPopover({ preserveState: true });
+
+  state.annotation.capture = false;
+  state.annotation.targetPath = targetPath;
+  state.annotation.anchor = anchor;
+  activePopoverTarget = targetEl || findAnchorElement(anchor);
+
+  const author = getStoredCommentAuthor();
+  const label = anchor.label || anchor.excerpt || "Selected target";
+  const popover = document.createElement("aside");
+  popover.id = "annotation-popover";
+  popover.className = "annotation-popover";
+  popover.setAttribute("role", "dialog");
+  popover.setAttribute("aria-label", "Add annotation");
+  popover.innerHTML = `
+    <div class="annotation-popover-head">
+      <div>
+        <span class="annotation-popover-kicker">Annotating</span>
+        <strong>${escapeText(label)}</strong>
+      </div>
+      <button type="button" class="annotation-popover-close" aria-label="Close">&times;</button>
+    </div>
+    <form id="annotation-popover-form" class="annotation-popover-form">
+      <input id="annotation-popover-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name">
+      <textarea id="annotation-popover-body" name="body" rows="3" maxlength="8192" placeholder="Add a comment"></textarea>
+      <div class="annotation-popover-actions">
+        <span id="annotation-popover-status" class="annotation-popover-status"></span>
+        <button type="button" class="annotation-popover-cancel">Cancel</button>
+        <button type="submit">Add comment</button>
+      </div>
+    </form>`;
+  document.body.appendChild(popover);
+
+  const closeButton = popover.querySelector(".annotation-popover-close");
+  const cancelButton = popover.querySelector(".annotation-popover-cancel");
+  const form = popover.querySelector("#annotation-popover-form");
+  const authorInput = popover.querySelector("#annotation-popover-author");
+  const bodyInput = popover.querySelector("#annotation-popover-body");
+  const status = popover.querySelector("#annotation-popover-status");
+
+  closeButton.addEventListener("click", clearAnnotationState);
+  cancelButton.addEventListener("click", clearAnnotationState);
+  authorInput.addEventListener("input", () => setStoredCommentAuthor(authorInput.value.trim()));
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const authorValue = authorInput.value.trim();
+    const bodyValue = bodyInput.value.trim();
+    if (!bodyValue) {
+      status.textContent = "write a comment first";
+      bodyInput.focus();
+      return;
+    }
+    setStoredCommentAuthor(authorValue);
+    status.textContent = "sending…";
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_path: targetPath,
+          author: authorValue,
+          body: bodyValue,
+          anchor,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadComments(targetPath);
+      clearAnnotationState();
+    } catch (err) {
+      status.textContent = `failed: ${String(err.message || err)}`;
+    }
+  });
+
+  updateAnnotationUI();
+  positionAnnotationPopover();
+  bodyInput.focus();
+}
+
+function closeAnnotationPopover({ preserveState = false } = {}) {
+  const popover = document.getElementById("annotation-popover");
+  if (popover) popover.remove();
+  activePopoverTarget = null;
+  if (!preserveState) clearAnnotationState();
+}
+
+function positionAnnotationPopover() {
+  const popover = document.getElementById("annotation-popover");
+  if (!popover) return;
+  const target = activePopoverTarget && document.body.contains(activePopoverTarget)
+    ? activePopoverTarget
+    : findAnchorElement(state.annotation.anchor);
+  activePopoverTarget = target;
+  const margin = 12;
+  const width = Math.min(380, Math.max(280, window.innerWidth - margin * 2));
+  popover.style.width = `${width}px`;
+  const height = popover.offsetHeight || 230;
+  let left = margin;
+  let top = margin;
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    left = Math.min(Math.max(rect.left, margin), window.innerWidth - width - margin);
+    top = rect.bottom + 10;
+    if (top + height > window.innerHeight - margin) top = rect.top - height - 10;
+    if (top < margin) top = margin;
   }
-  if (!preview) return;
-  if (!anchorActive) {
-    preview.hidden = true;
-    preview.innerHTML = "";
-    return;
-  }
-  preview.hidden = false;
-  preview.innerHTML = `
-    <span class="anchor-label">Selected target</span>
-    <span class="anchor-text">${escapeText(state.annotation.anchor.label || state.annotation.anchor.excerpt || "")}</span>
-    <button type="button" id="comment-anchor-clear">Clear</button>
-  `;
-  const clear = document.getElementById("comment-anchor-clear");
-  if (clear) {
-    clear.addEventListener("click", () => {
-      state.annotation.anchor = null;
-      state.annotation.capture = false;
-      updateAnnotationUI();
-    });
-  }
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(top)}px`;
 }
 
 function compactText(value, limit = 360) {
@@ -690,7 +725,7 @@ function refreshAnnotationTargets() {
 function isAnnotationCandidate(el) {
   if (!el || !document.body.contains(el)) return false;
   if (el.matches && el.matches(ANNOTATION_CAPTURE_EXCLUDE_SELECTOR)) return false;
-  if (el.closest && el.closest("#comment-form")) return false;
+  if (el.closest && el.closest("#annotation-popover")) return false;
   if (el.hidden || (el.closest && el.closest("[hidden]"))) return false;
   if (typeof window.getComputedStyle === "function") {
     const style = window.getComputedStyle(el);
@@ -921,16 +956,24 @@ if (sidebarToggleBtn && sidebarEl) {
 
 document.addEventListener("click", e => {
   if (!state.annotation.capture) return;
+  const anchorTarget = e.target && e.target.closest ? e.target.closest("[data-vidux-anchor]") : null;
   const anchor = describeAnchorTarget(e.target);
   if (!anchor) return;
   e.preventDefault();
   e.stopPropagation();
-  state.annotation.capture = false;
-  state.annotation.anchor = anchor;
-  updateAnnotationUI();
-  const body = document.getElementById("comment-body");
-  if (body) body.focus();
+  openAnnotationPopover(anchor, anchorTarget);
 }, true);
+
+document.addEventListener("mousedown", e => {
+  const popover = document.getElementById("annotation-popover");
+  if (!popover || popover.contains(e.target)) return;
+  if (e.target && e.target.closest && e.target.closest("#root-annotation-toggle")) return;
+  if (state.annotation.capture) return;
+  clearAnnotationState();
+}, true);
+
+window.addEventListener("resize", positionAnnotationPopover);
+els.pane.addEventListener("scroll", positionAnnotationPopover, { passive: true });
 
 // Keyboard shortcuts: `/` focuses filter, Esc clears or closes drawer.
 document.addEventListener("keydown", e => {
