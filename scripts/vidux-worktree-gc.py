@@ -281,15 +281,26 @@ def format_text(repo: Path, base: str, worktrees: List[WorktreeInfo], warnings: 
     return "\n".join(lines)
 
 
-def remove_worktrees(repo: Path, worktrees: List[WorktreeInfo], delete_branches: bool) -> List[str]:
+def remove_worktrees(
+    repo: Path,
+    worktrees: List[WorktreeInfo],
+    delete_branches: bool,
+    warnings: List[str],
+) -> List[str]:
     removed: List[str] = []
     for worktree in worktrees:
         if not worktree.removable:
             continue
-        run(["git", "-C", str(repo), "worktree", "remove", worktree.path])
+        try:
+            run(["git", "-C", str(repo), "worktree", "remove", worktree.path])
+        except CommandError as error:
+            warnings.append(f"skipped removal for {worktree.path}: {error.stderr}")
+            continue
         removed.append(worktree.path)
         if delete_branches and worktree.branch:
-            run(["git", "-C", str(repo), "branch", "-d", worktree.branch], check=False)
+            result = run(["git", "-C", str(repo), "branch", "-d", worktree.branch], check=False)
+            if result.returncode != 0:
+                warnings.append(f"could not delete branch {worktree.branch}: {result.stderr.strip()}")
     return removed
 
 
@@ -353,7 +364,7 @@ def main(argv: List[str]) -> int:
 
     removed: List[str] = []
     if args.apply:
-        removed = remove_worktrees(repo, worktrees, args.delete_branches)
+        removed = remove_worktrees(repo, worktrees, args.delete_branches, warnings)
         if removed:
             raw_worktrees = load_worktrees(repo)
             worktrees = [
