@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.25.0] - 2026-04-29
+
+Named annotations for vidux-browse. LAN viewers can now leave comments on a plan tab or artifact without turning comments into plan writes.
+
+### Added
+
+- **Named comments on plan tabs and artifacts.** vidux-browse now renders a compact comments panel with a saved name field and append form for the selected markdown view or HTML artifact.
+- **Append-only comment store.** `GET /api/comments` and `POST /api/comments` read/write `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`. Comments are app data and never mutate `PLAN.md`, `INBOX.md`, source files, task claims, or artifact HTML.
+- **LAN-safe annotation guard.** Comment POSTs may come from LAN users of the vidux-browse UI, but require JSON plus a same-origin `Origin` or `Referer`. Existing artifact and local plan-note write endpoints remain loopback-only.
+- **Docs and skill guidance** for when to use comments versus `INBOX.md`.
+
+### Verified
+
+- `python3 -m unittest tests.test_browser_server`
+- `npm test`
+- `npm run docs:build`
+- `node --check browser/static/app.js`
+- `python3 -m py_compile browser/server.py`
+- `git diff --check`
+- Live API smoke with temp comments file and no `INBOX.md` mutation
+- Playwright desktop/mobile screenshots: `/tmp/vidux-comments-ui.png`, `/tmp/vidux-comments-ui-mobile.png`
+
+---
+
 ## [2.24.1] - 2026-04-27
 
 Auto-promoted external cards now round-trip status without reopening the

@@ -445,6 +445,7 @@ vidux-browse -f           # foreground (stream logs)
 What it shows:
 - Sidebar grouped by repo, with hot/stale/cold pills (≤7d / 7-30d / >30d by mtime)
 - Selected plan rendered as markdown, with sibling tabs for `PROGRESS.md` / `INBOX.md` / `ASK-LEO.md` when present
+- Named comments attached to the selected plan tab or artifact, stored separately from source files
 - Filter box to search across repo / slug / purpose
 
 Discovery globs (covers the three conventions in use across the fleet):
@@ -494,6 +495,16 @@ Artifacts render via direct `innerHTML` into the same pane that renders markdown
 - Plan-adjacent visualizations (timeline, network graph, decision tree) without bloating PLAN.md
 
 For lanes consuming this surface: drop the artifact, log the URL to memory if you want to reference it later (`http://127.0.0.1:7191/` then click into the slug in the sidebar). The artifact survives across sessions; the slug is the stable handle.
+
+### Named comments / annotations
+
+vidux-browse comments are lightweight annotations on the current view. They can target either an allowed markdown file (`PLAN.md`, `INBOX.md`, `investigations/*.md`, `evidence/*.md`, etc.) or an HTML artifact.
+
+Key contract:
+- Comments are append-only app data in `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`.
+- Comments never mutate `PLAN.md`, `INBOX.md`, repo files, task claims, or artifact HTML.
+- Cross-machine LAN viewers may comment through the vidux-browse UI, but POSTs must be JSON and same-origin (`Origin` or `Referer` must match the browser host).
+- Use comments for human feedback, review notes, “worth knowing” annotations, and LAN collaboration. Use `INBOX.md` only when a local agent intentionally needs the note inside vidux state.
 
 ### Local plan notes (loopback-only)
 
