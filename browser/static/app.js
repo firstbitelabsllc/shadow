@@ -76,7 +76,42 @@ const els = {
 };
 
 const COMMENT_AUTHOR_KEY = "vidux-browser-comment-author";
-const ANCHOR_SELECTOR = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,table,tr,.contact-card,.lead-row";
+const RENDERED_ANCHOR_SELECTORS = [
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "p", "li", "blockquote", "pre", "table", "thead", "tbody", "tr", "th", "td",
+  "article", "section", "aside", "header", "footer", "figure", "figcaption",
+  "details", "summary", "dl", "dt", "dd", "div", "span", "a", "button",
+];
+const APP_ANCHOR_SELECTOR = [
+  ".topbar",
+  ".topbar h1",
+  "#meta-count",
+  ".repo-group h2",
+  ".plan-row",
+  ".pane-header",
+  ".pane-header .breadcrumb",
+  ".pane-header h2",
+  ".pane-header .meta",
+  ".pane-progress",
+  ".pane-tabs",
+  ".pane-tabs button",
+  ".pane-investigations-strip",
+  ".pane-investigations-strip button",
+  ".comments-panel",
+  ".comments-head",
+  ".comment-list .comment-item",
+  ...RENDERED_ANCHOR_SELECTORS.map(selector => `#md-body ${selector}`),
+].join(",");
+const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
+  "#root-annotation-toggle",
+  "#refresh",
+  "#sidebar-toggle",
+  "#filter",
+  "#comment-form",
+  "#comment-form *",
+  "#comment-anchor-clear",
+  ".comment-anchor button",
+].join(",");
 
 function fmtAge(days) {
   if (days < 1) return "today";
@@ -199,6 +234,7 @@ function renderSidebar() {
 
   if (filteredPlans.length === 0 && filteredArtifacts.length === 0) {
     els.list.innerHTML = `<p class="muted" style="padding:12px">no matches</p>`;
+    refreshAnnotationTargets();
     return;
   }
 
@@ -275,6 +311,7 @@ function renderSidebar() {
       }
     });
   });
+  refreshAnnotationTargets();
 }
 
 async function loadAll() {
@@ -355,21 +392,24 @@ async function renderArtifactPane() {
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
   setupCommentsPanel(a.path);
+  refreshAnnotationTargets();
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(a.path)}`);
     if (!res.ok) {
       document.getElementById("md-body").innerHTML =
         `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
+      refreshAnnotationTargets();
       return;
     }
     const html = await res.text();
     // Artifacts are local files; write endpoints are loopback + same-origin only.
     const body = document.getElementById("md-body");
     body.innerHTML = html;
-    decorateAnchorTargets(body);
+    refreshAnnotationTargets();
   } catch (e) {
     document.getElementById("md-body").innerHTML =
       `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
+    refreshAnnotationTargets();
   }
 }
 
@@ -425,6 +465,7 @@ async function renderPane() {
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
   els.pane.innerHTML = headerHTML;
+  refreshAnnotationTargets();
 
   els.pane.querySelectorAll(".pane-tabs button").forEach(b => {
     b.addEventListener("click", () => {
@@ -437,6 +478,7 @@ async function renderPane() {
     });
   });
   setupCommentsPanel(tabPath);
+  refreshAnnotationTargets();
 
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(tabPath)}`);
@@ -444,6 +486,7 @@ async function renderPane() {
       const txt = await res.text();
       document.getElementById("md-body").innerHTML =
         `<div class="error">${res.status}: ${escapeText(txt)}</div>`;
+      refreshAnnotationTargets();
       return;
     }
     const md = await res.text();
@@ -452,10 +495,11 @@ async function renderPane() {
       : naiveMarkdown(md);
     const body = document.getElementById("md-body");
     body.innerHTML = html;
-    decorateAnchorTargets(body);
+    refreshAnnotationTargets();
   } catch (e) {
     document.getElementById("md-body").innerHTML =
       `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
+    refreshAnnotationTargets();
   }
 }
 
@@ -482,7 +526,7 @@ function renderCommentsPanel(targetPath) {
       <div class="comments-head">
         <div>
           <h3>Comments</h3>
-          <p>Notes for this view. Use the top-bar Annotate control for exact targets.</p>
+          <p>Notes for this view. Use the header Annotate control for exact targets.</p>
         </div>
         <div class="comments-tools">
           <span class="comment-count" id="comment-count">loading</span>
@@ -490,7 +534,7 @@ function renderCommentsPanel(targetPath) {
       </div>
       <form class="comment-form" id="comment-form">
         <input id="comment-author" class="comment-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name">
-        <textarea id="comment-body" name="body" rows="2" maxlength="8192" placeholder="Add a comment. Annotate first to attach it to a rendered line."></textarea>
+        <textarea id="comment-body" name="body" rows="2" maxlength="8192" placeholder="Add a comment. Annotate first to attach it to the browser surface."></textarea>
         <div class="comment-anchor-preview" id="comment-anchor-preview" hidden></div>
         <div class="comment-actions">
           <span class="comment-status" id="comment-status"></span>
@@ -576,13 +620,11 @@ function updateAnnotationUI() {
   const currentTarget = currentCommentTargetPath();
   const captureActive = state.annotation.capture && state.annotation.targetPath === currentTarget;
   const anchorActive = state.annotation.anchor && state.annotation.targetPath === currentTarget;
-  const body = document.getElementById("md-body");
   const preview = document.getElementById("comment-anchor-preview");
   const status = document.getElementById("comment-status");
   const rootToggle = els.annotate;
 
   document.body.classList.toggle("is-annotation-mode", Boolean(captureActive));
-  if (body) body.classList.toggle("is-annotation-capture", Boolean(captureActive));
   if (rootToggle) {
     rootToggle.disabled = !currentTarget;
     rootToggle.textContent = captureActive ? "Cancel" : (anchorActive ? "Retarget" : "Annotate");
@@ -593,8 +635,8 @@ function updateAnnotationUI() {
       : "Select a plan or artifact to annotate";
   }
   if (status && captureActive) {
-    status.textContent = "select target in document";
-  } else if (status && status.textContent === "select target in document") {
+    status.textContent = "select target in browser";
+  } else if (status && status.textContent === "select target in browser") {
     status.textContent = "";
   }
   if (!preview) return;
@@ -619,33 +661,99 @@ function updateAnnotationUI() {
   }
 }
 
-function decorateAnchorTargets(container) {
-  if (!container) return;
-  let index = 0;
-  container.querySelectorAll(ANCHOR_SELECTOR).forEach(el => {
-    const text = compactText(el.innerText || el.textContent || "", 24);
-    if (!text) return;
-    index += 1;
-    el.dataset.viduxAnchor = `a${index}`;
-    el.dataset.viduxAnchorIndex = String(index);
-  });
-}
-
 function compactText(value, limit = 360) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
+function refreshAnnotationTargets() {
+  document.querySelectorAll("[data-vidux-anchor]").forEach(el => {
+    delete el.dataset.viduxAnchor;
+    delete el.dataset.viduxAnchorIndex;
+    delete el.dataset.viduxAnchorKind;
+    delete el.dataset.viduxAnchorLabel;
+  });
+
+  let index = 0;
+  document.querySelectorAll(APP_ANCHOR_SELECTOR).forEach(el => {
+    if (!isAnnotationCandidate(el)) return;
+    const label = annotationLabelForElement(el);
+    const text = compactText(el.innerText || el.textContent || el.getAttribute("aria-label") || "", 24);
+    if (!label && !text) return;
+    index += 1;
+    el.dataset.viduxAnchor = `a${index}`;
+    el.dataset.viduxAnchorIndex = String(index);
+    el.dataset.viduxAnchorKind = el.closest("#md-body") ? "rendered" : "browser";
+    el.dataset.viduxAnchorLabel = label || text;
+  });
+}
+
+function isAnnotationCandidate(el) {
+  if (!el || !document.body.contains(el)) return false;
+  if (el.matches && el.matches(ANNOTATION_CAPTURE_EXCLUDE_SELECTOR)) return false;
+  if (el.closest && el.closest("#comment-form")) return false;
+  if (el.hidden || (el.closest && el.closest("[hidden]"))) return false;
+  if (typeof window.getComputedStyle === "function") {
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+  }
+  return true;
+}
+
+function annotationRegionForElement(el) {
+  if (el.closest(".topbar")) return "Header";
+  if (el.closest(".sidebar")) return "Sidebar";
+  if (el.closest("#comments-panel")) return "Comments";
+  if (el.closest("#md-body")) return "Content";
+  if (el.closest(".pane")) return "View";
+  return "Browser";
+}
+
+function annotationLabelForElement(el) {
+  const region = annotationRegionForElement(el);
+  if (el.matches(".plan-row")) {
+    const kind = el.getAttribute("data-kind") === "artifact" ? "Artifact" : "Plan";
+    const title = compactText(el.querySelector(".plan-row-head")?.innerText || el.innerText || "", 120);
+    return `${region} / ${kind} row${title ? ` / ${title}` : ""}`;
+  }
+  if (el.matches(".repo-group h2")) {
+    return `${region} / ${compactText(el.innerText || el.textContent || "group", 120)}`;
+  }
+  if (el.matches("#meta-count")) return `${region} / fleet summary`;
+  if (el.matches(".topbar h1")) return `${region} / ${compactText(el.innerText || "vidux browser", 80)}`;
+  if (el.matches(".topbar")) return `${region} / browser controls`;
+  if (el.matches(".pane-header h2")) return `${region} title / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".pane-header .breadcrumb")) return `${region} breadcrumb / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".pane-header .meta")) return `${region} metadata / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".pane-header")) return `${region} header / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".pane-progress")) return `${region} completion / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".pane-tabs button")) return `${region} tab / ${compactText(el.innerText || el.textContent || "", 80)}`;
+  if (el.matches(".pane-tabs")) return `${region} tabs`;
+  if (el.matches(".pane-investigations-strip button")) return `${region} investigation / ${compactText(el.innerText || el.textContent || "", 80)}`;
+  if (el.matches(".pane-investigations-strip")) return `${region} investigations`;
+  if (el.matches(".comments-head")) return `${region} header`;
+  if (el.matches(".comment-list .comment-item")) return `${region} item / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".comments-panel")) return `${region} panel`;
+  return compactText(el.innerText || el.textContent || el.getAttribute("aria-label") || region, 120);
+}
+
 function describeAnchorTarget(rawTarget) {
-  const container = document.getElementById("md-body");
-  const target = rawTarget && rawTarget.closest ? rawTarget.closest("[data-vidux-anchor]") : null;
-  if (!container || !target || !container.contains(target)) return null;
+  const rawEl = rawTarget && rawTarget.nodeType === Node.ELEMENT_NODE ? rawTarget : null;
+  if (!rawEl || rawEl.closest(ANNOTATION_CAPTURE_EXCLUDE_SELECTOR)) return null;
+  const target = rawEl.closest("[data-vidux-anchor]");
+  if (!target || !document.body.contains(target)) return null;
+  const body = document.getElementById("md-body");
   const excerpt = compactText(target.innerText || target.textContent || "");
   const tag = target.tagName.toLowerCase();
   const index = Number.parseInt(target.dataset.viduxAnchorIndex || "0", 10);
-  const heading = nearestHeadingText(target, container);
-  const label = compactText(heading && heading !== excerpt ? `${heading} / ${excerpt}` : excerpt, 180);
+  const kind = target.dataset.viduxAnchorKind || (body && body.contains(target) ? "rendered" : "browser");
+  const heading = kind === "rendered" && body ? nearestHeadingText(target, body) : "";
+  const storedLabel = target.dataset.viduxAnchorLabel || "";
+  const label = compactText(
+    heading && heading !== excerpt ? `${heading} / ${excerpt}` : (storedLabel || excerpt),
+    180
+  );
   return {
-    kind: "rendered",
+    kind,
     selector: `[data-vidux-anchor="${target.dataset.viduxAnchor}"]`,
     label: label || `${tag} #${index}`,
     excerpt,
@@ -664,22 +772,11 @@ function nearestHeadingText(target, container) {
   return heading;
 }
 
-function captureAnnotationTarget(rawTarget) {
-  const anchor = describeAnchorTarget(rawTarget);
-  if (!anchor) return;
-  state.annotation.capture = false;
-  state.annotation.anchor = anchor;
-  updateAnnotationUI();
-  const body = document.getElementById("comment-body");
-  if (body) body.focus();
-}
-
 function findAnchorElement(anchor) {
-  const body = document.getElementById("md-body");
-  if (!body || !anchor) return null;
+  if (!anchor) return null;
   if (anchor.selector) {
     try {
-      const found = body.querySelector(anchor.selector);
+      const found = document.querySelector(anchor.selector);
       if (found) return found;
     } catch {
       // Fall back to excerpt matching if old stored selectors become invalid.
@@ -687,7 +784,7 @@ function findAnchorElement(anchor) {
   }
   const excerpt = compactText(anchor.excerpt || anchor.label || "", 120);
   if (!excerpt) return null;
-  return [...body.querySelectorAll("[data-vidux-anchor]")].find(el => {
+  return [...document.querySelectorAll("[data-vidux-anchor]")].find(el => {
     const text = compactText(el.innerText || el.textContent || "", 180);
     return text.includes(excerpt) || excerpt.includes(text);
   }) || null;
@@ -717,6 +814,7 @@ async function loadComments(targetPath) {
     count.textContent = `${comments.length} ${comments.length === 1 ? "comment" : "comments"}`;
     if (!comments.length) {
       list.innerHTML = `<div class="comment-empty">No comments yet. Use Annotate for exact placement.</div>`;
+      refreshAnnotationTargets();
       return;
     }
     list.innerHTML = comments.map(renderComment).join("");
@@ -727,9 +825,11 @@ async function loadComments(targetPath) {
         if (comment && comment.anchor) jumpToCommentAnchor(comment.anchor);
       });
     });
+    refreshAnnotationTargets();
   } catch (err) {
     count.textContent = "error";
     list.innerHTML = `<div class="error">failed to load comments: ${escapeText(String(err.message || err))}</div>`;
+    refreshAnnotationTargets();
   }
 }
 
@@ -819,13 +919,17 @@ if (sidebarToggleBtn && sidebarEl) {
   });
 }
 
-els.pane.addEventListener("click", e => {
+document.addEventListener("click", e => {
   if (!state.annotation.capture) return;
-  const body = e.target && e.target.closest ? e.target.closest("#md-body") : null;
-  if (!body) return;
+  const anchor = describeAnchorTarget(e.target);
+  if (!anchor) return;
   e.preventDefault();
   e.stopPropagation();
-  captureAnnotationTarget(e.target);
+  state.annotation.capture = false;
+  state.annotation.anchor = anchor;
+  updateAnnotationUI();
+  const body = document.getElementById("comment-body");
+  if (body) body.focus();
 }, true);
 
 // Keyboard shortcuts: `/` focuses filter, Esc clears or closes drawer.

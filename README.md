@@ -50,7 +50,7 @@ By default it opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` on
 The browser keeps the plan contract intact:
 
 - Plan files and artifacts are rendered from disk; comments are separate append-only app data.
-- The top-bar `Annotate` button or `Cmd/Ctrl+Shift+C` lets a commenter click the exact rendered plan or artifact element they mean; shortcuts are ignored while typing in form fields.
+- The top-bar `Annotate` button or `Cmd/Ctrl+Shift+C` lets a commenter click the exact browser surface they mean, including the header, sidebar rows, pane chrome, comments, and rendered plan or artifact content; shortcuts are ignored while typing in form fields.
 - Comment anchors are display pointers, not source edits: they never mutate `PLAN.md`, `INBOX.md`, repo code, task claims, or artifact HTML.
 - Local plan-note writes are loopback-only; LAN viewers can comment through the browser origin but cannot write plan state.
 

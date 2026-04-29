@@ -498,22 +498,6 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   gap: 8px;
   flex-shrink: 0;
 }
-.annotation-toggle {
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  color: var(--ink);
-  border-radius: 3px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 11px;
-}
-.annotation-toggle:hover { background: var(--select); }
-.annotation-toggle.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--paper);
-}
 .comment-count {
   min-width: 72px;
   padding: 2px 8px;
@@ -725,15 +709,23 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .markdown th { background: var(--paper-2); font-weight: 600; }
 .markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .markdown a:hover { text-decoration-thickness: 2px; }
-.markdown.is-annotation-capture [data-vidux-anchor] {
+body.is-annotation-mode [data-vidux-anchor] {
   cursor: crosshair;
 }
-.markdown.is-annotation-capture [data-vidux-anchor]:hover {
+body.is-annotation-mode [data-vidux-anchor]:hover {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   background: var(--select);
 }
-.markdown [data-vidux-anchor].is-anchor-highlight {
+body.is-annotation-mode #comment-form,
+body.is-annotation-mode #comment-form *,
+body.is-annotation-mode #root-annotation-toggle,
+body.is-annotation-mode #refresh,
+body.is-annotation-mode #sidebar-toggle,
+body.is-annotation-mode #filter {
+  cursor: auto;
+}
+[data-vidux-anchor].is-anchor-highlight {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   background: var(--select);
