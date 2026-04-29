@@ -70,6 +70,14 @@ COMMENTS_FILE = Path(
 COMMENT_BODY_MAX_BYTES = 8 * 1024
 COMMENT_AUTHOR_MAX_CHARS = 80
 COMMENT_AUTHOR_RE = re.compile(r"[^A-Za-z0-9_.:/@' -]+")
+COMMENT_ANCHOR_FIELD_LIMITS = {
+    "selector": 160,
+    "label": 180,
+    "excerpt": 360,
+    "tag": 32,
+    "kind": 32,
+}
+COMMENT_ANCHOR_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 JSON_CONTENT_TYPE = "application/json"
 
@@ -378,6 +386,31 @@ def clean_comment_author(raw: object) -> str:
     return (text or "Anonymous")[:COMMENT_AUTHOR_MAX_CHARS]
 
 
+def clean_comment_anchor_text(raw: object, limit: int) -> str:
+    text = str(raw or "").strip()
+    text = COMMENT_ANCHOR_CONTROL_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text)
+    return text[:limit]
+
+
+def clean_comment_anchor(raw: object) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    anchor: dict[str, object] = {"version": 1}
+    for key, limit in COMMENT_ANCHOR_FIELD_LIMITS.items():
+        value = clean_comment_anchor_text(raw.get(key), limit)
+        if value:
+            anchor[key] = value
+    if "index" in raw:
+        try:
+            index = int(raw.get("index"))
+        except (TypeError, ValueError):
+            index = None
+        if index is not None and 0 <= index <= 100_000:
+            anchor["index"] = index
+    return anchor if len(anchor) > 1 else None
+
+
 def comment_target_kind(path: Path) -> str:
     try:
         path.relative_to(ARTIFACTS_DIR.resolve())
@@ -391,6 +424,7 @@ def append_comment(
     author: object,
     body: str,
     remote_address: str,
+    anchor: object = None,
 ) -> tuple[bool, str | dict]:
     text = body.strip()
     if not text:
@@ -407,6 +441,9 @@ def append_comment(
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "remote_address": remote_address,
     }
+    clean_anchor = clean_comment_anchor(anchor)
+    if clean_anchor:
+        record["anchor"] = clean_anchor
 
     try:
         COMMENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -620,6 +657,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload.get("author", ""),
                 body,
                 self.client_address[0],
+                anchor=payload.get("anchor"),
             )
             if not ok:
                 self._send(400, str(result))

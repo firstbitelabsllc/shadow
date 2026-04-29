@@ -227,6 +227,38 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(payload["comments"][0]["author"], "Viewer")
         self.assertEqual(payload["comments"][0]["body"], "This needs a quick annotation.")
 
+    def test_comments_post_persists_clean_anchor_metadata(self):
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": "Anchored note.",
+                "anchor": {
+                    "selector": '[data-vidux-anchor="a3"]',
+                    "label": "Tasks / - [pending] Demo task",
+                    "excerpt": "- [pending] Demo task",
+                    "tag": "li",
+                    "kind": "rendered",
+                    "index": 3,
+                    "ignored": "nope",
+                },
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 200, text)
+        payload = json.loads(text)
+        anchor = payload["comment"]["anchor"]
+        self.assertEqual(anchor["version"], 1)
+        self.assertEqual(anchor["selector"], '[data-vidux-anchor="a3"]')
+        self.assertEqual(anchor["label"], "Tasks / - [pending] Demo task")
+        self.assertEqual(anchor["excerpt"], "- [pending] Demo task")
+        self.assertEqual(anchor["tag"], "li")
+        self.assertEqual(anchor["kind"], "rendered")
+        self.assertEqual(anchor["index"], 3)
+        self.assertNotIn("ignored", anchor)
+
     def test_comments_post_accepts_artifact_target(self):
         self.artifacts_dir.mkdir(parents=True)
         artifact = self.artifacts_dir / "demo.html"
