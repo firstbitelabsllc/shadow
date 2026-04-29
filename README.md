@@ -37,6 +37,25 @@ cp hooks/post-commit-checkpoint.sh /path/to/your/project/.git/hooks/post-commit
 cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 ```
 
+## Vidux Browse
+
+Vidux also ships a local browser surface for reading plans, reviewing HTML artifacts, and leaving comments without editing the source files:
+
+```bash
+bin/vidux-browse
+```
+
+By default it opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` only on a trusted LAN when you want another device to view the same machine's plans and artifacts.
+
+The browser keeps the plan contract intact:
+
+- Plan files and artifacts are rendered from disk; comments are separate append-only app data.
+- The `Annotate` button or `Cmd/Ctrl+Shift+C` lets a commenter click the exact rendered plan or artifact element they mean.
+- Comment anchors are display pointers, not source edits: they never mutate `PLAN.md`, `INBOX.md`, repo code, task claims, or artifact HTML.
+- Local plan-note writes are loopback-only; LAN viewers can comment through the browser origin but cannot write plan state.
+
+See [`docs/reference/browser.md`](docs/reference/browser.md) for the HTTP surface and safety model.
+
 ## How It Works
 
 Every change flows through a four-stage loop. Documentation is the control plane — not chat, not memory.

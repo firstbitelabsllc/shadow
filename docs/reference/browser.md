@@ -1,6 +1,6 @@
 # Browser UI
 
-Vidux ships a local browser surface for inspecting plans across `DEV_ROOT`, reading sibling docs, adding named comments to the current view, and dropping bounded local notes into a plan's `INBOX.md`.
+Vidux ships a local browser surface for inspecting plans across `DEV_ROOT`, reading sibling docs, adding named or anchored comments to the current view, and dropping bounded local notes into a plan's `INBOX.md`.
 
 ## What ships
 
@@ -8,7 +8,7 @@ Vidux ships a local browser surface for inspecting plans across `DEV_ROOT`, read
 - `browser/server.py` serves the read-mostly HTTP API and static frontend.
 - `browser/static/` contains the frontend assets.
 - `browser/artifacts/` stores ad-hoc HTML artifacts that the UI can list and open.
-- `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}` stores named comments as append-only app data.
+- `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}` stores named comments and optional anchor metadata as append-only app data.
 
 ## Launching it
 
@@ -39,7 +39,7 @@ The server is stdlib-only and exposes these routes:
 - `GET /api/file?path=...` returns an allowed markdown file or HTML artifact.
 - `GET /api/comments?path=...` returns named comments attached to an allowed markdown file or HTML artifact.
 - `POST /api/artifact` writes a bounded HTML artifact (`slug` + `html` JSON payload).
-- `POST /api/comments` appends a bounded named comment to the separate comments store.
+- `POST /api/comments` appends a bounded named or anchored comment to the separate comments store.
 - `POST /api/local-plan-note` appends a bounded local note to a plan directory's `INBOX.md`.
 
 ## Read/write safety model
@@ -52,7 +52,7 @@ The server is intentionally narrow:
 - `node_modules` paths are rejected even if the filename matches the allowlist.
 - Artifact writes and local plan-note writes are loopback-only, require `Content-Type: application/json`, and reject cross-origin browser posts.
 - Comment writes may come from LAN viewers of the vidux-browse UI, but still require JSON and a same-origin `Origin` or `Referer` header.
-- Comments never edit plan files, `INBOX.md`, or artifact HTML. They append JSONL records to the comments store.
+- Comments never edit plan files, `INBOX.md`, or artifact HTML. They append JSONL records to the comments store; optional anchors point back to rendered elements only.
 
 ## Plan-note behavior
 
@@ -69,13 +69,16 @@ This behavior is covered by `tests/test_browser_server.py`.
 
 ## Comment behavior
 
-`POST /api/comments` is an annotation endpoint, not a plan-writing endpoint. It accepts `target_path`, `author`, and `body`, then appends a JSONL record to `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`.
+`POST /api/comments` is an annotation endpoint, not a plan-writing endpoint. It accepts `target_path`, `author`, `body`, and optional `anchor` metadata, then appends a JSONL record to `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`.
 
 - Targets must resolve through the same allowlist as `GET /api/file`.
 - Plan-tab comments attach to the specific markdown file being viewed.
 - Artifact comments attach to the specific artifact HTML file.
 - The UI remembers the commenter name in browser `localStorage`.
 - Cross-machine LAN viewers can comment when they are using the vidux-browse origin.
+- For precise placement, use `Annotate` or `Cmd/Ctrl+Shift+C`, then click the rendered plan or artifact element the comment targets.
+- Anchors store sanitized selector, label, excerpt, tag, kind, and index metadata. They are best-effort display pointers; the source markdown or artifact remains unchanged.
+- The rendered `Target` pill scrolls to and highlights the captured element when it is still present.
 
 ## Discovery model
 

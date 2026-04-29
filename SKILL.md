@@ -446,6 +446,7 @@ What it shows:
 - Sidebar grouped by repo, with hot/stale/cold pills (≤7d / 7-30d / >30d by mtime)
 - Selected plan rendered as markdown, with sibling tabs for `PROGRESS.md` / `INBOX.md` / `ASK-LEO.md` when present
 - Named comments attached to the selected plan tab or artifact, stored separately from source files
+- Anchored annotations: click `Annotate` or press `Cmd/Ctrl+Shift+C`, then click the exact rendered element the comment is about
 - Filter box to search across repo / slug / purpose
 
 Discovery globs (covers the three conventions in use across the fleet):
@@ -505,6 +506,7 @@ Key contract:
 - Comments never mutate `PLAN.md`, `INBOX.md`, repo files, task claims, or artifact HTML.
 - Cross-machine LAN viewers may comment through the vidux-browse UI, but POSTs must be JSON and same-origin (`Origin` or `Referer` must match the browser host).
 - Use comments for human feedback, review notes, “worth knowing” annotations, and LAN collaboration. Use `INBOX.md` only when a local agent intentionally needs the note inside vidux state.
+- For precise comments, use the `Annotate` button or `Cmd/Ctrl+Shift+C`; the next clicked rendered markdown/artifact element becomes a sanitized anchor with selector, label, excerpt, tag, and index metadata. The `Target` pill scrolls back to that element. Anchors are best-effort UI pointers, not plan authority.
 
 ### Local plan notes (loopback-only)
 

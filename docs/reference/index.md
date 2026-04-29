@@ -11,7 +11,7 @@ This section groups the repo's durable reference material: prompt structure, pla
 
 - [Commands](/reference/commands) summarizes the `/vidux` and `/vidux-status` command specs stored in `commands/`.
 - [Scripts](/reference/scripts) lists the shipped scripts and support libraries in `scripts/`.
-- [Browser UI](/reference/browser) documents the local `vidux-browse` launcher plus the read-mostly browser server in `browser/`.
+- [Browser UI](/reference/browser) documents the local `vidux-browse` launcher plus the read-mostly browser server, artifact shelf, and anchored comment surface in `browser/`.
 - [Hooks](/reference/hooks) explains the optional git hooks in `hooks/`.
 - [Configuration](/reference/config) summarizes `vidux.config.json` and `vidux.config.example.json`.
 
@@ -19,5 +19,5 @@ This section groups the repo's durable reference material: prompt structure, pla
 
 - Start with [PLAN.md Field Reference](/reference/plan-fields) when you need to read or repair a plan.
 - Use [Commands](/reference/commands) when you are checking how the prompt-layer commands are supposed to behave.
-- Use [Browser UI](/reference/browser) when you need the repo's local plan viewer, artifact shelf, or loopback-only note drop.
+- Use [Browser UI](/reference/browser) when you need the repo's local plan viewer, artifact shelf, anchored comments, or loopback-only note drop.
 - Use [Scripts](/reference/scripts) or [Hooks](/reference/hooks) when you are wiring the repo into a local automation workflow.
