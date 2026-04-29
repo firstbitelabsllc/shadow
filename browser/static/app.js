@@ -6,6 +6,11 @@ const state = {
   filter: "",
   active: null,        // {kind: 'plan'|'artifact', ...metadata}
   activeTab: "PLAN.md",
+  annotation: {
+    capture: false,
+    targetPath: "",
+    anchor: null,
+  },
 };
 
 // ─── URL deep-linking ─────────────────────────────────────────────────────
@@ -70,6 +75,7 @@ const els = {
 };
 
 const COMMENT_AUTHOR_KEY = "vidux-browser-comment-author";
+const ANCHOR_SELECTOR = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,table,tr,.contact-card,.lead-row";
 
 function fmtAge(days) {
   if (days < 1) return "today";
@@ -332,6 +338,7 @@ async function renderArtifactPane() {
   const a = state.active;
   if (!a || a.kind !== "artifact") return;
   els.pane.scrollTop = 0;
+  clearAnnotationState();
   els.pane.innerHTML = `
     <div class="pane-header">
       <div class="breadcrumb">artifact · ${escapeText(a.slug)}.html</div>
@@ -356,7 +363,9 @@ async function renderArtifactPane() {
     }
     const html = await res.text();
     // Artifacts are local files; write endpoints are loopback + same-origin only.
-    document.getElementById("md-body").innerHTML = html;
+    const body = document.getElementById("md-body");
+    body.innerHTML = html;
+    decorateAnchorTargets(body);
   } catch (e) {
     document.getElementById("md-body").innerHTML =
       `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
@@ -365,6 +374,7 @@ async function renderArtifactPane() {
 
 async function renderPane() {
   if (!state.active) return;
+  clearAnnotationState();
   const plan = state.active;
   const tabs = ["PLAN.md", ...plan.siblings];
   const investigations = plan.investigations || [];
@@ -439,7 +449,9 @@ async function renderPane() {
     const html = window.marked
       ? window.marked.parse(md, { breaks: false, gfm: true })
       : naiveMarkdown(md);
-    document.getElementById("md-body").innerHTML = html;
+    const body = document.getElementById("md-body");
+    body.innerHTML = html;
+    decorateAnchorTargets(body);
   } catch (e) {
     document.getElementById("md-body").innerHTML =
       `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
@@ -471,11 +483,15 @@ function renderCommentsPanel(targetPath) {
           <h3>Comments</h3>
           <p>Named notes for this view. Stored separately from source files.</p>
         </div>
-        <span class="comment-count" id="comment-count">loading</span>
+        <div class="comments-tools">
+          <button type="button" id="annotation-toggle" class="annotation-toggle" title="Cmd/Ctrl+Shift+C">Annotate</button>
+          <span class="comment-count" id="comment-count">loading</span>
+        </div>
       </div>
       <form class="comment-form" id="comment-form">
         <input id="comment-author" class="comment-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name">
         <textarea id="comment-body" name="body" rows="2" maxlength="8192" placeholder="Add a comment"></textarea>
+        <div class="comment-anchor-preview" id="comment-anchor-preview" hidden></div>
         <div class="comment-actions">
           <span class="comment-status" id="comment-status"></span>
           <button type="submit">Add</button>
@@ -492,10 +508,13 @@ function setupCommentsPanel(targetPath) {
   const authorInput = document.getElementById("comment-author");
   const bodyInput = document.getElementById("comment-body");
   const status = document.getElementById("comment-status");
+  const annotationToggle = document.getElementById("annotation-toggle");
 
   loadComments(targetPath);
+  updateAnnotationUI();
 
   authorInput.addEventListener("input", () => setStoredCommentAuthor(authorInput.value.trim()));
+  annotationToggle.addEventListener("click", () => toggleAnnotationCapture(targetPath));
   form.addEventListener("submit", async e => {
     e.preventDefault();
     const author = authorInput.value.trim();
@@ -510,10 +529,16 @@ function setupCommentsPanel(targetPath) {
       const res = await fetch("/api/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_path: targetPath, author, body }),
+        body: JSON.stringify({
+          target_path: targetPath,
+          author,
+          body,
+          anchor: state.annotation.targetPath === targetPath ? state.annotation.anchor : null,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       bodyInput.value = "";
+      clearAnnotationState();
       status.textContent = "added";
       await loadComments(targetPath);
       setTimeout(() => {
@@ -523,6 +548,154 @@ function setupCommentsPanel(targetPath) {
       status.textContent = `failed: ${String(err.message || err)}`;
     }
   });
+}
+
+function clearAnnotationState() {
+  state.annotation.capture = false;
+  state.annotation.targetPath = "";
+  state.annotation.anchor = null;
+  updateAnnotationUI();
+}
+
+function toggleAnnotationCapture(targetPath) {
+  if (state.annotation.capture && state.annotation.targetPath === targetPath) {
+    clearAnnotationState();
+    return;
+  }
+  state.annotation.capture = true;
+  state.annotation.targetPath = targetPath;
+  state.annotation.anchor = null;
+  updateAnnotationUI();
+}
+
+function currentCommentTargetPath() {
+  const panel = document.getElementById("comments-panel");
+  return panel ? panel.getAttribute("data-target-path") || "" : "";
+}
+
+function updateAnnotationUI() {
+  const panel = document.getElementById("comments-panel");
+  const currentTarget = currentCommentTargetPath();
+  const captureActive = state.annotation.capture && state.annotation.targetPath === currentTarget;
+  const anchorActive = state.annotation.anchor && state.annotation.targetPath === currentTarget;
+  const body = document.getElementById("md-body");
+  const toggle = document.getElementById("annotation-toggle");
+  const preview = document.getElementById("comment-anchor-preview");
+  const status = document.getElementById("comment-status");
+
+  document.body.classList.toggle("is-annotation-mode", Boolean(captureActive));
+  if (body) body.classList.toggle("is-annotation-capture", Boolean(captureActive));
+  if (toggle) {
+    toggle.textContent = captureActive ? "Cancel" : "Annotate";
+    toggle.classList.toggle("is-active", Boolean(captureActive));
+  }
+  if (status && captureActive) {
+    status.textContent = "select target in document";
+  } else if (status && status.textContent === "select target in document") {
+    status.textContent = "";
+  }
+  if (!preview) return;
+  if (!anchorActive) {
+    preview.hidden = true;
+    preview.innerHTML = "";
+    return;
+  }
+  preview.hidden = false;
+  preview.innerHTML = `
+    <span class="anchor-label">Target</span>
+    <span class="anchor-text">${escapeText(state.annotation.anchor.label || state.annotation.anchor.excerpt || "")}</span>
+    <button type="button" id="comment-anchor-clear">Clear</button>
+  `;
+  const clear = document.getElementById("comment-anchor-clear");
+  if (clear) {
+    clear.addEventListener("click", () => {
+      state.annotation.anchor = null;
+      state.annotation.capture = false;
+      updateAnnotationUI();
+    });
+  }
+}
+
+function decorateAnchorTargets(container) {
+  if (!container) return;
+  let index = 0;
+  container.querySelectorAll(ANCHOR_SELECTOR).forEach(el => {
+    const text = compactText(el.innerText || el.textContent || "", 24);
+    if (!text) return;
+    index += 1;
+    el.dataset.viduxAnchor = `a${index}`;
+    el.dataset.viduxAnchorIndex = String(index);
+  });
+}
+
+function compactText(value, limit = 360) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function describeAnchorTarget(rawTarget) {
+  const container = document.getElementById("md-body");
+  const target = rawTarget && rawTarget.closest ? rawTarget.closest("[data-vidux-anchor]") : null;
+  if (!container || !target || !container.contains(target)) return null;
+  const excerpt = compactText(target.innerText || target.textContent || "");
+  const tag = target.tagName.toLowerCase();
+  const index = Number.parseInt(target.dataset.viduxAnchorIndex || "0", 10);
+  const heading = nearestHeadingText(target, container);
+  const label = compactText(heading && heading !== excerpt ? `${heading} / ${excerpt}` : excerpt, 180);
+  return {
+    kind: "rendered",
+    selector: `[data-vidux-anchor="${target.dataset.viduxAnchor}"]`,
+    label: label || `${tag} #${index}`,
+    excerpt,
+    tag,
+    index,
+  };
+}
+
+function nearestHeadingText(target, container) {
+  let heading = "";
+  container.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach(h => {
+    if (h === target || (h.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      heading = compactText(h.innerText || h.textContent || "", 100);
+    }
+  });
+  return heading;
+}
+
+function captureAnnotationTarget(rawTarget) {
+  const anchor = describeAnchorTarget(rawTarget);
+  if (!anchor) return;
+  state.annotation.capture = false;
+  state.annotation.anchor = anchor;
+  updateAnnotationUI();
+  const body = document.getElementById("comment-body");
+  if (body) body.focus();
+}
+
+function findAnchorElement(anchor) {
+  const body = document.getElementById("md-body");
+  if (!body || !anchor) return null;
+  if (anchor.selector) {
+    try {
+      const found = body.querySelector(anchor.selector);
+      if (found) return found;
+    } catch {
+      // Fall back to excerpt matching if old stored selectors become invalid.
+    }
+  }
+  const excerpt = compactText(anchor.excerpt || anchor.label || "", 120);
+  if (!excerpt) return null;
+  return [...body.querySelectorAll("[data-vidux-anchor]")].find(el => {
+    const text = compactText(el.innerText || el.textContent || "", 180);
+    return text.includes(excerpt) || excerpt.includes(text);
+  }) || null;
+}
+
+function jumpToCommentAnchor(anchor) {
+  const target = findAnchorElement(anchor);
+  if (!target) return;
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.classList.add("is-anchor-highlight");
+  setTimeout(() => target.classList.remove("is-anchor-highlight"), 2200);
 }
 
 async function loadComments(targetPath) {
@@ -544,6 +717,13 @@ async function loadComments(targetPath) {
       return;
     }
     list.innerHTML = comments.map(renderComment).join("");
+    list.querySelectorAll("[data-comment-jump]").forEach(button => {
+      button.addEventListener("click", () => {
+        const id = button.getAttribute("data-comment-jump");
+        const comment = comments.find(item => item.id === id);
+        if (comment && comment.anchor) jumpToCommentAnchor(comment.anchor);
+      });
+    });
   } catch (err) {
     count.textContent = "error";
     list.innerHTML = `<div class="error">failed to load comments: ${escapeText(String(err.message || err))}</div>`;
@@ -551,14 +731,27 @@ async function loadComments(targetPath) {
 }
 
 function renderComment(comment) {
+  const anchorHTML = renderCommentAnchor(comment);
   return `
     <article class="comment-item">
       <div class="comment-meta">
         <strong>${escapeText(comment.author || "Anonymous")}</strong>
         <span>${escapeText(formatCommentTime(comment.created_at))}</span>
       </div>
+      ${anchorHTML}
       <div class="comment-body">${escapeText(comment.body || "").replace(/\n/g, "<br>")}</div>
     </article>`;
+}
+
+function renderCommentAnchor(comment) {
+  const anchor = comment.anchor;
+  if (!anchor || typeof anchor !== "object") return "";
+  const label = anchor.label || anchor.excerpt || "captured target";
+  return `
+    <div class="comment-anchor">
+      <button type="button" data-comment-jump="${escapeAttr(comment.id || "")}">Target</button>
+      <span>${escapeText(label)}</span>
+    </div>`;
 }
 
 function formatCommentTime(raw) {
@@ -608,14 +801,31 @@ if (sidebarToggleBtn && sidebarEl) {
   });
 }
 
+els.pane.addEventListener("click", e => {
+  if (!state.annotation.capture) return;
+  const body = e.target && e.target.closest ? e.target.closest("#md-body") : null;
+  if (!body) return;
+  e.preventDefault();
+  e.stopPropagation();
+  captureAnnotationTarget(e.target);
+}, true);
+
 // Keyboard shortcuts: `/` focuses filter, Esc clears or closes drawer.
 document.addEventListener("keydown", e => {
-  if (e.key === "/" && document.activeElement !== els.filter) {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "c") {
+    const targetPath = currentCommentTargetPath();
+    if (targetPath) {
+      e.preventDefault();
+      toggleAnnotationCapture(targetPath);
+    }
+  } else if (e.key === "/" && document.activeElement !== els.filter) {
     e.preventDefault();
     els.filter.focus();
     els.filter.select();
   } else if (e.key === "Escape") {
-    if (sidebarEl && sidebarEl.classList.contains("is-open")) {
+    if (state.annotation.capture || state.annotation.anchor) {
+      clearAnnotationState();
+    } else if (sidebarEl && sidebarEl.classList.contains("is-open")) {
       sidebarEl.classList.remove("is-open");
     } else if (document.activeElement === els.filter && state.filter) {
       els.filter.value = "";
