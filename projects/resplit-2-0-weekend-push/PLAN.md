@@ -1,8 +1,17 @@
 # Resplit 2.0 — Weekend Ship Push (May 2–3, 2026)
 
+## Parent plan
+
+This is the **resplit-ios lane detail** for the multi-platform Resplit 2.0 launch.
+
+- **Multi-platform mega plan**: `~/Development/resplit-web/vidux/resplit-2.0-launch/PLAN.md` (open as PR #541 on `firstbitelabsllc/resplit-web`, branch `claude/resplit-2.0-launch-plan-consolidation`).
+- **What the mega plan owns**: web-side ship gates (T3 security review, T5 test coverage, T7 E2E guest flow, staging redeploy from main, dark-mode visual baselines, autobot-resplit-web cron) + the cross-platform Definition of Done.
+- **What this plan owns**: the 8 ASC bug rows specific to the iOS app. The mega plan's iOS gate (`iOS App Store Connect submission accepted — owned by resplit-ios lane, gated independently`) is satisfied when every P0/P1 task below ships and `bundle exec fastlane beta` lands a build with all eight bugs verified.
+- **Convergence**: agents working iOS read THIS plan; agents working web read the mega plan. Cross-references in both directions (parent → child via the iOS row, child → parent via this section).
+
 ## Purpose
 
-Ship Resplit 2.0 to App Store this weekend. The launch was supposed to land April 3; it is now May 1. Eight ASC bug rows stand between the current build and a tag-able release. This file is the master convergence point — every cron, every lane, every agent reads this during the vidux READ step and converges on shipping these eight bugs (or explicitly marking them deferred). All other work (brand, gradient, skill registry, doc refresh, refactor) is FROZEN until 2.0 is in the App Store.
+Ship Resplit 2.0 to App Store this weekend. The launch was supposed to land April 3; it is now May 1. Eight ASC bug rows stand between the current build and a tag-able release. This file is the master convergence point for the iOS lane — every iOS cron, every iOS lane, every iOS agent reads this during the vidux READ step and converges on shipping these eight bugs (or explicitly marking them deferred). All other iOS work (brand, gradient, skill registry, doc refresh, refactor) is FROZEN until 2.0 is in the App Store.
 
 The fleet's recent failure mode was producing brand polish PRs and bookkeeping closeouts while ASC bug rows sat untouched. The existence of this PLAN.md is the fix: when you read it, the only legitimate next action is shipping a row below or escalating a hard exception.
 
