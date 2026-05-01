@@ -1,0 +1,47 @@
+# T1 — AAFuZnay: Receipt detail card "way too fucking big"
+
+**Status:** [pending]
+**Priority:** P0 (Saturday parallel-dispatchable)
+**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>` — first writer wins; if both fields are empty, claim by editing this line atomically (pull → edit → commit → push) with your agent_id.
+**ASC ID:** AAFuZnay
+**DerivedData namespace:** `/tmp/resplit-dd-T1-${RANDOM}` (your worktree must export `RESPLIT_DD_PATH` to this; per `/bigapple` build isolation rule)
+
+## Reporter Says
+
+> "way too fucking big make them one row side by side and adjust copy"
+
+## Surface guess
+
+Receipt detail header card OR wrap-up sheet (two stacked tiles needing horizontal flex). Verify by `grep -rn "receiptDetail\|wrapUpSheet\|HeaderCard"` in `ResplitCore/ReceiptDetail/` and inspecting the two largest tiles.
+
+## Investigation
+
+See `.cursor/plans/investigations/asc-AAFuZnay-receipt-card-too-big-2026-05-01.md` (you must create this if missing — sibling agent stubs the file).
+
+## Fix Spec (filled by claimer)
+
+- [ ] Identify the two stacked tiles
+- [ ] Convert VStack → HStack (or use `.gridCellColumns(2)` if Grid layout)
+- [ ] Adjust copy per reporter intent (likely shorter labels)
+- [ ] file:line of the change
+
+## Tests (MT-5 required)
+
+- [ ] XCTest snapshot or `XCTAssertEqual(layout.axis, .horizontal)` regression
+
+## Visual proof
+
+- [ ] BEFORE: `docs/autobot-evidence/2026-05-0X-T1-AAFuZnay/before.jpg`
+- [ ] AFTER: `docs/autobot-evidence/2026-05-0X-T1-AAFuZnay/after.jpg`
+
+## Ship gate
+
+- Local build clean (`tuist xcodebuild build -scheme 'Resplit Debug' -derivedDataPath /tmp/resplit-dd-T1-${RANDOM}`)
+- MT-5 regression test green
+- Visual proof committed
+- PR draft → @graphite review → resolve threads → ready → auto-merge
+
+## Cross-references
+
+- Master plan: `~/Development/vidux/projects/resplit-2-0-weekend-push/PLAN.md` row T1
+- Multi-platform mega plan: `~/Development/resplit-web/vidux/resplit-2.0-launch/PLAN.md` (PR #541)
