@@ -172,6 +172,24 @@ function findParentPlan(child) {
   return null;
 }
 
+// Walk up the parent chain from `plan` to root. Returns the ancestor list
+// in root → leaf order (so [root, A, B] for a leaf C). Cycle-safe via
+// visited-set; bails after 8 levels because deeper than that is almost
+// certainly a config bug, not a real plan tree.
+function ancestorChain(plan) {
+  const chain = [];
+  const seen = new Set();
+  let current = plan;
+  while (current && chain.length < 8) {
+    const parent = findParentPlan(current);
+    if (!parent || seen.has(parent.path)) break;
+    seen.add(parent.path);
+    chain.unshift(parent);
+    current = parent;
+  }
+  return chain;
+}
+
 // Completion bar — per /vidux, completion (X/Y) is the headline. Bar segments
 // are proportional to status counts. 100% gets a "shipped" gold treatment.
 const PROGRESS_ORDER = ["completed", "in_progress", "in_review", "blocked", "pending"];
@@ -684,9 +702,17 @@ async function renderPane() {
     </div>` : "";
 
   els.pane.scrollTop = 0;
-  const parentPlan = findParentPlan(plan);
-  const parentLinkHTML = parentPlan
-    ? `<div class="parent-link"><a href="?plan=${encodeURIComponent(parentPlan.rel)}" data-parent-rel="${escapeAttr(parentPlan.rel)}">← ${escapeText(parentPlan.slug === "_root_" ? parentPlan.repo : parentPlan.slug)}</a></div>`
+  // Ancestor breadcrumb — each segment is a clickable link back up the tree.
+  // For a leaf C in (root → A → B → C), shows: ← root · A · B
+  // Replaces the prior single-parent "← Parent" link (which made you click
+  // N times to reach root in deep chains).
+  const ancestors = ancestorChain(plan);
+  const parentLinkHTML = ancestors.length
+    ? `<div class="parent-link">← ${ancestors.map((p, i) => {
+        const label = p.slug === "_root_" ? p.repo : p.slug;
+        const sep = i < ancestors.length - 1 ? `<span class="parent-link-sep">·</span>` : "";
+        return `<a href="?plan=${encodeURIComponent(p.rel)}" data-parent-rel="${escapeAttr(p.rel)}">${escapeText(label)}</a>${sep}`;
+      }).join("")}</div>`
     : "";
   const headerHTML = `
     <div class="pane-header">

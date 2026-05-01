@@ -340,6 +340,11 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .pane-header .parent-link {
   font-size: 12px;
   margin-bottom: 4px;
+  color: var(--ink-2);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .pane-header .parent-link a {
   color: var(--ink-2);
@@ -350,6 +355,10 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .pane-header .parent-link a:hover {
   color: var(--ink);
   border-bottom-color: var(--ink);
+}
+.pane-header .parent-link .parent-link-sep {
+  opacity: 0.5;
+  margin: 0 2px;
 }
 .pane-header .breadcrumb {
   font-family: var(--mono);
