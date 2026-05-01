@@ -18,6 +18,9 @@ projects/*
 # Exception: resplit-2-0-weekend-push is the active ship plan for Resplit 2.0
 # (May 2026 launch window). Tracked so both Macs see the same plan.
 !projects/resplit-2-0-weekend-push/
+# Exception: ocr-moat is the post-2.0-launch foundation project for vendor-neutral
+# receipt scanning. Tracked so all agents converge on the same plan.
+!projects/ocr-moat/
 
 # Temp files from checkpoint script
 tmp*.md
