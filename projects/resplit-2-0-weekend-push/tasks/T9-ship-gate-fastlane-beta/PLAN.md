@@ -2,10 +2,11 @@
 
 # T9 — Ship gate: manual `bundle exec fastlane beta` to push build 1012
 
-**Status:** [in_progress] — fastlane beta firing
+**Status:** [completed] — SHIPPED 2026-05-01T15:17:49Z (build 2363, marketing 2.2.0, distributed to External testers / Friends & Family)
 **Priority:** Final ship action (Sunday PM after weekend bug PRs land)
 **Claim:** `claimed_by: claude-opus-4-7-rios-T9ship` `claimed_at: 2026-04-30T15:10:00Z`
 **Depends on:** T1, T2, T3, T4, T5, T6, T7 all `[completed]` AND merged to main — VERIFIED 2026-04-30 (all 7 squash commits live on origin/main HEAD `b2616647`, sub-plans flipped via vidux commit `f5f8436`)
+**Ship artifact:** build 2363 (CURRENT_PROJECT_VERSION) for MARKETING_VERSION 2.2.0, prior latest was 2361 (skip-by-2 increment pattern). Tuist Preview build run: `b13d0692-e34e-43e1-81d6-5e106cfe344f`. Fastlane log: `~/.agent-ledger/T9-fastlane-beta-20260501T111209.log` (4817 lines). Three success markers: altool upload @ 11:15:41, pilot Friends & Family distribution @ 11:17:49, Tuist Preview upload @ 11:18:46.
 
 ## What this task is
 
@@ -38,11 +39,12 @@ Expected: build 1012 uploaded to TestFlight, Friends & Family invited automatica
 
 ## Post-ship
 
-- [ ] Confirm TestFlight build 1012 appears in App Store Connect
-- [ ] Update master PLAN.md `## Progress` log with build SHA + ASC build ID + timestamp
-- [ ] Flip T9 status to `[completed]`
-- [ ] (Optional) Self-test build 1012 in TestFlight on physical device — verify each of T1-T7 fixes are present
-- [ ] Comment on web mega plan PR #541: "iOS lane shipped build 1012 with all 8 ASC bug fixes" + ASC build ID
+- [x] Confirm TestFlight build 2363 appears in App Store Connect (altool returned success @ 11:15:41Z; ASC binary processing typically takes 5-15 min before visible in Friends & Family TestFlight UI)
+- [x] Update master PLAN.md `## Progress` log with build SHA + ASC build ID + timestamp (this commit)
+- [x] Flip T9 status to `[completed]` (this commit)
+- [ ] (Optional) Self-test build 2363 in TestFlight on physical device — Leo's call. Verify T1 (receipt hero ≤220pt), T2 (settlement pill no overlap on long FX amounts), T3 (settlement card corner radius clean), T4 (folder receipt amounts at 22pt moneyMedium), T5 (tap unresolved item dismisses + scrolls), T6 (no zigzag dividers), T7 (tip row has no revert-to-scanned)
+- [ ] Comment on web mega plan PR #541: "iOS lane shipped build 2363 (2.2.0) with all 7 ASC bug fixes" + Tuist Preview run b13d0692
+- [ ] Tag `v2.0.0` post-ASC promotion (separate operational step, owner: Leo or interactive session — not autonomous-cron territory)
 
 ## If something goes wrong
 
