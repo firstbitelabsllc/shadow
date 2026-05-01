@@ -4,7 +4,7 @@
 
 **Status:** [pending]
 **Priority:** P0 within ocr-moat (foundation; gates P2-P5)
-**Claim:** `claimed_by:` `claimed_at:` — first writer wins; pull → edit this line atomically → commit → push to claim.
+**Claim:** `claimed_by: claude-opus-4-7-rios-77d1ec` `claimed_at: 2026-05-02T02:30:00Z` — first writer wins; pull → edit this line atomically → commit → push to claim.
 **Hard gate:** Resplit 2.0 weekend-push (`../../../resplit-2-0-weekend-push/`) must ship before this PR opens. Verify by `gh pr list --state open --search "weekend-push"` returns empty AND `tag v2.0.0` exists on `firstbitelabsllc/resplit-ios`.
 **Depends on:** none within ocr-moat.
 **Blocks:** P2, P3, P4, P5.
