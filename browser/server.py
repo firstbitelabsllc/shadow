@@ -27,11 +27,17 @@ BROWSER_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BROWSER_DIR / "static"
 ARTIFACTS_DIR = BROWSER_DIR / "artifacts"
 
-# Three known plan-layout conventions in Leo's fleet.
+# Plan-layout conventions in Leo's fleet. The two-segment vidux/projects/ai
+# patterns catch parent plans (e.g., `vidux/design-overhaul/PLAN.md`); the
+# `**` recursive forms pick up sub-plans nested under those parents (e.g.,
+# `vidux/design-overhaul/<child>/PLAN.md`). Recursive globs land MORE files
+# but `discover_plans()` dedupes by resolved path so we never count twice.
 PLAN_GLOBS = [
     "*/ai/plans/*/PLAN.md",
     "*/vidux/*/PLAN.md",
+    "*/vidux/**/PLAN.md",
     "*/projects/*/PLAN.md",
+    "*/projects/**/PLAN.md",
     "*/PLAN.md",
 ]
 
@@ -88,15 +94,33 @@ TASKS_SECTION_RE = re.compile(r"^##\s+Tasks\s*\n(.*?)(?=^##\s|\Z)", re.M | re.S)
 TASK_LINE_RE = re.compile(r"^-\s+\[(pending|in_progress|in_review|completed|blocked)\]", re.M)
 ETA_RE = re.compile(r"\[ETA:\s*([\d.]+)h\]")
 INVESTIGATION_RE = re.compile(r"\[Investigation:\s*([^\]]+?)\]")
+# Sub-plan backlink: child plans declare their parent on a line near the top
+# matching either `> Parent: <relpath>` or `**Parent:** <relpath>`. The relpath
+# is taken verbatim and normalized to a string later.
+PARENT_REF_RE = re.compile(
+    r"^(?:>\s*Parent:|\*\*Parent:\*\*)\s*([^\s][^\n]*?)\s*$",
+    re.M,
+)
 TASK_STATUSES = ("pending", "in_progress", "in_review", "completed", "blocked")
 
 
 def discover_plans() -> list[dict]:
-    """Walk DEV_ROOT and return one entry per PLAN.md found."""
+    """Walk DEV_ROOT and return one entry per PLAN.md found.
+
+    Post-processing wires up:
+      * `children`: list of child plan-dicts that backlink this plan via
+        `> Parent: <relpath>`. The list lives directly on the parent so the
+        client can render indented sidebar rows without a second pass.
+      * `aggregate_stats`: rolled-up `task_stats` across this plan plus every
+        descendant in the parent→children tree. Cycle-safe via visited-set.
+    """
     seen: set[Path] = set()
     plans: list[dict] = []
     for pattern in PLAN_GLOBS:
-        for hit in glob(str(DEV_ROOT / pattern)):
+        # recursive=True so `**` in patterns expands to "any depth"; deduped
+        # against the seen-set below so the shallow + recursive variants
+        # of the same pattern don't double-count.
+        for hit in glob(str(DEV_ROOT / pattern), recursive=True):
             path = Path(hit).resolve()
             if path in seen:
                 continue
@@ -105,8 +129,107 @@ def discover_plans() -> list[dict]:
             seen.add(path)
             plans.append(plan_meta(path))
     plans = dedupe_legacy_repo_plans(plans)
+    plans = attach_children(plans)
+    for plan in plans:
+        plan["aggregate_stats"] = aggregate_stats(plan)
     plans.sort(key=lambda p: (-p["mtime"], p["repo"], p["slug"]))
     return plans
+
+
+def attach_children(plans: list[dict]) -> list[dict]:
+    """Group plans by parent_rel and attach `children` lists in place.
+
+    Lookup is two-tier: prefer an exact match against full DEV_ROOT-rel paths
+    (e.g., `repo/vidux/foo/PLAN.md`), then fall back to a repo-scoped match
+    where the backlink is written relative to the repo root (e.g.,
+    `vidux/foo/PLAN.md` from a child living in the same repo). Authors write
+    backlinks the natural way — relative to where they are — so the resolver
+    has to bridge both shapes.
+
+    Children are sorted by rel-path for deterministic UI order. Plans without
+    a recognized parent get `children = []` so the frontend can branch on
+    existence-only rather than presence checks.
+    """
+    by_rel: dict[str, dict] = {p["rel"]: p for p in plans}
+    # Repo-scoped index: ('<repo>', '<repo-relative-rel>') → plan. The
+    # repo-relative rel strips the leading `<repo>/` so a child's
+    # `vidux/foo/PLAN.md` backlink finds `<repo>/vidux/foo/PLAN.md`.
+    by_repo_rel: dict[tuple[str, str], dict] = {}
+    for plan in plans:
+        parts = plan["rel"].split("/")
+        if len(parts) >= 2:
+            by_repo_rel[(plan["repo"], "/".join(parts[1:]))] = plan
+    for plan in plans:
+        plan["children"] = []
+    for plan in plans:
+        parent_rel = plan.get("parent_rel")
+        if not parent_rel:
+            continue
+        parent = by_rel.get(parent_rel)
+        if parent is None:
+            # Backlink wasn't a full DEV_ROOT-rel — try repo-scoped resolution.
+            parent = by_repo_rel.get((plan["repo"], parent_rel))
+        if parent is None:
+            # Dangling backlink — child references a parent we didn't discover
+            # in either repo. Leave it ungrouped at the sidebar root.
+            continue
+        if parent is plan:
+            # Self-reference (a plan that says "Parent: <self>"). Ignore.
+            continue
+        parent["children"].append(plan)
+    for plan in plans:
+        plan["children"].sort(key=lambda c: c["rel"])
+    return plans
+
+
+def aggregate_stats(plan: dict, _visited: set[str] | None = None) -> dict:
+    """Recursively roll up task_stats across a plan and all descendants.
+
+    Returns the same shape as `task_stats()` (counts/total/eta_total/
+    eta_tagged/eta_eligible) plus a `descendants` count. Cycle-safe: the
+    visited set tracks rel-paths so a cyclic Parent: chain (broken plan
+    authorship) never recurses forever.
+    """
+    if _visited is None:
+        _visited = set()
+    rel = plan.get("rel", "")
+    if rel in _visited:
+        return {
+            "counts": {s: 0 for s in TASK_STATUSES},
+            "total": 0,
+            "eta_total": 0.0,
+            "eta_tagged": 0,
+            "eta_eligible": 0,
+            "descendants": 0,
+        }
+    _visited.add(rel)
+
+    own = plan.get("task_stats") or {}
+    counts = {s: int((own.get("counts") or {}).get(s, 0)) for s in TASK_STATUSES}
+    total = int(own.get("total", 0))
+    eta_total = float(own.get("eta_total", 0.0))
+    eta_tagged = int(own.get("eta_tagged", 0))
+    eta_eligible = int(own.get("eta_eligible", 0))
+    descendants = 0
+
+    for child in plan.get("children", []) or []:
+        sub = aggregate_stats(child, _visited)
+        for s in TASK_STATUSES:
+            counts[s] += int((sub.get("counts") or {}).get(s, 0))
+        total += int(sub.get("total", 0))
+        eta_total += float(sub.get("eta_total", 0.0))
+        eta_tagged += int(sub.get("eta_tagged", 0))
+        eta_eligible += int(sub.get("eta_eligible", 0))
+        descendants += 1 + int(sub.get("descendants", 0))
+
+    return {
+        "counts": counts,
+        "total": total,
+        "eta_total": round(eta_total, 2),
+        "eta_tagged": eta_tagged,
+        "eta_eligible": eta_eligible,
+        "descendants": descendants,
+    }
 
 
 def dedupe_legacy_repo_plans(plans: list[dict]) -> list[dict]:
@@ -157,6 +280,7 @@ def plan_meta(path: Path) -> dict:
         text = ""
     stats = task_stats(text)
     investigations = discover_investigations(parent_dir, text)
+    parent_rel = extract_parent_rel(text)
     return {
         "repo": repo,
         "slug": slug,
@@ -170,7 +294,32 @@ def plan_meta(path: Path) -> dict:
         "purpose": purpose,
         "task_stats": stats,
         "investigations": investigations,
+        "parent_rel": parent_rel,
     }
+
+
+def extract_parent_rel(text: str) -> str | None:
+    """Pull the rel-path from a `> Parent:` or `**Parent:**` backlink.
+
+    Returns a forward-slash rel-path (e.g., `vidux/design-overhaul/PLAN.md`)
+    with surrounding backticks/quotes stripped. Anything after whitespace
+    in the value (e.g., `... task D2`) is dropped — only the path is meaningful
+    for parent→children grouping. Returns None if no backlink is present.
+    """
+    m = PARENT_REF_RE.search(text)
+    if not m:
+        return None
+    raw = m.group(1).strip()
+    # Drop backticks/quotes/markdown emphasis around the path token.
+    raw = raw.strip("`'\"")
+    # Some plans extend the backlink with `... task D2` — keep only the path.
+    token = raw.split()[0] if raw else ""
+    token = token.strip("`'\",")
+    if not token or token in (".", ".."):
+        return None
+    # Normalize to forward slashes; PLAN.md `rel` strings always use / on POSIX
+    # because `Path.relative_to(...)` plus `str()` round-trips that way on macOS.
+    return token.replace("\\", "/")
 
 
 def task_stats(text: str) -> dict:
