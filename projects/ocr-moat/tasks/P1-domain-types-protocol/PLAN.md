@@ -2,7 +2,7 @@
 
 # P1 — Domain types + provider protocol + Azure adapter
 
-**Status:** [pending]
+**Status:** [in_progress] — P1.1 shipped as PR #562 (ready-for-review). P1.2 (adapter) + P1.3 (ViewModel migration) still pending.
 **Priority:** P0 within ocr-moat (foundation; gates P2-P5)
 **Claim:** `claimed_by: claude-opus-4-7-rios-77d1ec` `claimed_at: 2026-05-02T02:30:00Z` — first writer wins; pull → edit this line atomically → commit → push to claim.
 **Hard gate:** Resplit 2.0 weekend-push (`../../../resplit-2-0-weekend-push/`) must ship before this PR opens. Verify by `gh pr list --state open --search "weekend-push"` returns empty AND `tag v2.0.0` exists on `firstbitelabsllc/resplit-ios`.
@@ -125,4 +125,7 @@ OCR is on the revert-prone surfaces list. Same-PR regression tests:
 
 ## Progress
 
-(empty — populated when claimed)
+- [2026-05-01 17:10 EDT] Claimed by `claude-opus-4-7-rios-77d1ec`. Worktree at `~/Development/resplit-ios-worktrees/ocrmoat-P1-77d1ec/`, branch `claude/ocrmoat-P1.1-domain-types`.
+- [2026-05-01 17:10 EDT] **P1.1 shipped as PR #562** (https://github.com/firstbitelabsllc/resplit-ios/pull/562) — ready-for-review. Bundled the authority spec doc per CLAUDE.md `§MT-1`. 3 source files added (no existing files modified): `ResplitCore/OCR/ScannedReceipt.swift`, `ResplitCore/OCR/ReceiptScanProvider.swift`, `ResplitCoreTests/OCR/ScannedReceiptTests.swift`. Gates: build ✓, 9/9 new tests ✓, 1181/1181 ResplitCore unit tests (skip pre-existing FF flag) ✓, swiftlint ✓, cloudkit-lint ✓.
+- [DESIGN PIVOT 2026-05-01] Simpler `ScannedReceipt` shape than the spec proposed: mirrored `OCRSnapshot` field-for-field (flat `merchantName: String?` + `merchantAddress: String?` instead of nested `Merchant` struct, `Double?` for amounts instead of `Money` type, `String?` for dates instead of `Date`). Reason: minimizes the bridge surface in P1.3, matches existing codebase conventions, and defers `Merchant` / `Money` / typed-Date refactors to a future cleanup phase. The vendor-neutrality contract is unchanged — typed-core fields + `extras` bag + `provenance` are the architectural anchor; whether the merchant is flat-string or nested-struct is a cosmetic detail.
+- Next: P1.2 (Azure DI v4 adapter wrapping existing `ReceiptScanner` + `OCRSnapshotMapper`, returning `ScannedReceipt`). Sub-plan unchanged. Wait for PR #562 to merge before opening P1.2 to avoid base-branch race; OR P1.2 can stack on PR #562 via Graphite.
