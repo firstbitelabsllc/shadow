@@ -1,3 +1,5 @@
+> Parent: ../../PLAN.md
+
 # T5 — ACHQtix2: "Tappping doesn't dismisss and scroll to right place"
 
 **Status:** [pending]
