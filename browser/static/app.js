@@ -121,6 +121,57 @@ function fmtAge(days) {
   return `${(days / 365).toFixed(1)}y`;
 }
 
+// ─── UI state (per-browser, localStorage) ───────────────────────────────────
+// Persists sidebar expand/collapse + recently-viewed across page reloads.
+// Schema: { collapsed: ["repo:resplit-ios", "section:artifacts", ...],
+//           recents:   [{id: "plan:<rel>"|"artifact:<slug>", ts: <ms>}] }
+const UI_STATE_KEY = "vidux:ui-state";
+const RECENTS_MAX = 5;
+const uiState = (() => {
+  try {
+    const raw = localStorage.getItem(UI_STATE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      collapsed: new Set(Array.isArray(parsed.collapsed) ? parsed.collapsed : []),
+      recents: Array.isArray(parsed.recents) ? parsed.recents : [],
+    };
+  } catch (e) {
+    return { collapsed: new Set(), recents: [] };
+  }
+})();
+function saveUiState() {
+  try {
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify({
+      collapsed: [...uiState.collapsed],
+      recents: uiState.recents.slice(0, RECENTS_MAX * 2),
+    }));
+  } catch (e) { /* localStorage full or disabled — silently ignore */ }
+}
+function trackRecent(kind, key) {
+  const id = `${kind}:${key}`;
+  uiState.recents = uiState.recents.filter(r => r.id !== id);
+  uiState.recents.unshift({ id, ts: Date.now() });
+  uiState.recents = uiState.recents.slice(0, RECENTS_MAX * 2);
+  saveUiState();
+}
+function toggleCollapsed(key) {
+  if (uiState.collapsed.has(key)) uiState.collapsed.delete(key);
+  else uiState.collapsed.add(key);
+  saveUiState();
+}
+function isCollapsed(key) { return uiState.collapsed.has(key); }
+
+// Find the plan that lists `child` in its children array. O(n) per lookup but
+// n=70 in practice, fine. Returns null if no parent indexed (parent_rel pointed
+// at a path the discovery sweep didn't pick up, or there's no parent_rel).
+function findParentPlan(child) {
+  if (!child || !child.parent_rel) return null;
+  for (const p of state.plans) {
+    if (p.children && p.children.some(c => c.path === child.path)) return p;
+  }
+  return null;
+}
+
 // Completion bar — per /vidux, completion (X/Y) is the headline. Bar segments
 // are proportional to status counts. 100% gets a "shipped" gold treatment.
 const PROGRESS_ORDER = ["completed", "in_progress", "in_review", "blocked", "pending"];
@@ -327,29 +378,74 @@ function renderSidebar() {
     return;
   }
 
-  // Artifacts section (top — decoupled from plans).
+  // Helpers for collapsible group headers — used by recents, artifacts, repos.
+  // Disclosure caret on left, count on right. Click toggles persisted state.
+  function groupHeaderHTML(key, label, count) {
+    const collapsed = isCollapsed(key);
+    const caret = collapsed ? "▸" : "▾";
+    const cls = collapsed ? "is-collapsed" : "";
+    return `<div class="repo-group ${cls}" data-collapse-key="${escapeAttr(key)}">
+      <h2><span class="caret">${caret}</span>${escapeText(label)} <span class="repo-count">(${count})</span></h2>
+    </div>`;
+  }
+  function artifactRow(a) {
+    const active = state.active && state.active.kind === "artifact" && state.active.path === a.path ? "is-active" : "";
+    return `
+      <div class="plan-row ${active}" data-kind="artifact" data-path="${escapeAttr(a.path)}">
+        <div class="plan-row-head">
+          <span class="pill pill-artifact" title="artifact · ${fmtAge(a.age_days)}"></span>
+          <span>${escapeText(a.title || a.slug)}</span>
+        </div>
+        <div class="plan-row-meta">
+          <span>${escapeText(a.slug)}.html</span>
+          <span>${fmtAge(a.age_days)}</span>
+          <span>${(a.size / 1024).toFixed(1)}KB</span>
+        </div>
+      </div>`;
+  }
+
+  // Recently viewed — top of sidebar. Drawn from localStorage. Shows up to
+  // RECENTS_MAX items that still resolve to a plan/artifact in current state.
+  let recentsHTML = "";
+  const recentItems = uiState.recents
+    .map(r => {
+      const colon = r.id.indexOf(":");
+      if (colon < 0) return null;
+      const kind = r.id.slice(0, colon);
+      const key = r.id.slice(colon + 1);
+      if (kind === "plan") {
+        const plan = state.plans.find(p => p.rel === key);
+        return plan ? { kind, plan } : null;
+      } else if (kind === "artifact") {
+        const a = state.artifacts.find(x => x.slug === key);
+        return a ? { kind, a } : null;
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .slice(0, RECENTS_MAX);
+  if (recentItems.length) {
+    const header = groupHeaderHTML("section:recents", "recently viewed", recentItems.length);
+    if (isCollapsed("section:recents")) {
+      recentsHTML = header;
+    } else {
+      const rows = recentItems.map(r => {
+        if (r.kind === "plan") return renderPlanRow(r.plan, 0);
+        return artifactRow(r.a);
+      }).join("");
+      recentsHTML = header + rows;
+    }
+  }
+
+  // Artifacts section.
   let artifactsHTML = "";
   if (filteredArtifacts.length) {
-    const rows = filteredArtifacts.map(a => {
-      const active = state.active && state.active.kind === "artifact" && state.active.path === a.path ? "is-active" : "";
-      return `
-        <div class="plan-row ${active}" data-kind="artifact" data-path="${escapeAttr(a.path)}">
-          <div class="plan-row-head">
-            <span class="pill pill-artifact" title="artifact · ${fmtAge(a.age_days)}"></span>
-            <span>${escapeText(a.title || a.slug)}</span>
-          </div>
-          <div class="plan-row-meta">
-            <span>${escapeText(a.slug)}.html</span>
-            <span>${fmtAge(a.age_days)}</span>
-            <span>${(a.size / 1024).toFixed(1)}KB</span>
-          </div>
-        </div>`;
-    }).join("");
-    artifactsHTML = `
-      <div class="repo-group">
-        <h2>artifacts <span class="repo-count">(${filteredArtifacts.length})</span></h2>
-      </div>
-      ${rows}`;
+    const header = groupHeaderHTML("section:artifacts", "artifacts", filteredArtifacts.length);
+    if (isCollapsed("section:artifacts")) {
+      artifactsHTML = header;
+    } else {
+      artifactsHTML = header + filteredArtifacts.map(artifactRow).join("");
+    }
   }
 
   // Recursive row renderer — emits a parent followed by its children at one
@@ -414,18 +510,31 @@ function renderSidebar() {
     return rowHTML + childRowsHTML;
   }
 
-  const repoOrder = [...groups.keys()].sort();
+  // Sort repos by their freshest plan (mtime desc — recently-touched repos
+  // rise to the top). Within each repo, sort plans by mtime desc too.
+  // Alphabetical-by-repo-name was the prior default; recency reflects what
+  // the user is actually working on, which is usually the right answer.
+  const maxMtime = repo => Math.max(...groups.get(repo).map(p => p.mtime || 0));
+  const repoOrder = [...groups.keys()].sort((a, b) => maxMtime(b) - maxMtime(a));
   const plansHTML = repoOrder.map(repo => {
     const rows = groups.get(repo);
+    rows.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    const key = `repo:${repo}`;
+    const header = groupHeaderHTML(key, repo, rows.length);
+    if (isCollapsed(key)) return header;
     const inner = rows.map(plan => renderPlanRow(plan, 0)).join("");
-    return `
-      <div class="repo-group">
-        <h2>${escapeText(repo)} <span class="repo-count">(${rows.length})</span></h2>
-      </div>
-      ${inner}`;
+    return header + inner;
   }).join("");
 
-  els.list.innerHTML = artifactsHTML + plansHTML;
+  els.list.innerHTML = recentsHTML + artifactsHTML + plansHTML;
+
+  // Click on group header → toggle collapsed state for that section/repo.
+  els.list.querySelectorAll(".repo-group[data-collapse-key]").forEach(grp => {
+    grp.querySelector("h2")?.addEventListener("click", () => {
+      const key = grp.getAttribute("data-collapse-key");
+      if (key) { toggleCollapsed(key); renderSidebar(); }
+    });
+  });
 
   els.list.querySelectorAll(".plan-row").forEach(row => {
     row.addEventListener("click", () => {
@@ -466,6 +575,7 @@ async function loadAll() {
 async function selectPlan(plan, opts = {}) {
   state.active = { kind: "plan", ...plan };
   state.activeTab = opts.tab || "PLAN.md";
+  trackRecent("plan", plan.rel);
   if (!opts.skipUrl) {
     const p = new URLSearchParams();
     p.set("plan", plan.rel);
@@ -480,6 +590,7 @@ async function selectPlan(plan, opts = {}) {
 async function selectArtifact(a, opts = {}) {
   state.active = { kind: "artifact", ...a };
   state.activeTab = null;
+  trackRecent("artifact", a.slug);
   if (!opts.skipUrl) {
     const p = new URLSearchParams();
     p.set("artifact", a.slug);
@@ -573,8 +684,13 @@ async function renderPane() {
     </div>` : "";
 
   els.pane.scrollTop = 0;
+  const parentPlan = findParentPlan(plan);
+  const parentLinkHTML = parentPlan
+    ? `<div class="parent-link"><a href="?plan=${encodeURIComponent(parentPlan.rel)}" data-parent-rel="${escapeAttr(parentPlan.rel)}">← ${escapeText(parentPlan.slug === "_root_" ? parentPlan.repo : parentPlan.slug)}</a></div>`
+    : "";
   const headerHTML = `
     <div class="pane-header">
+      ${parentLinkHTML}
       <div class="breadcrumb">${escapeText(plan.rel)}</div>
       <h2>${escapeText(plan.slug === "_root_" ? plan.repo : `${plan.repo} · ${plan.slug}`)}</h2>
       <div class="meta">
@@ -599,6 +715,16 @@ async function renderPane() {
   els.pane.innerHTML = headerHTML;
   refreshAnnotationTargets();
 
+  // Parent backlink → navigate to parent plan in-app (preserves SPA flow,
+  // doesn't trigger a page reload; href is there for opening-in-new-tab).
+  els.pane.querySelectorAll(".parent-link a[data-parent-rel]").forEach(a => {
+    a.addEventListener("click", e => {
+      e.preventDefault();
+      const rel = a.getAttribute("data-parent-rel");
+      const target = state.plans.find(p => p.rel === rel);
+      if (target) selectPlan(target, { scrollIntoView: true });
+    });
+  });
   els.pane.querySelectorAll(".pane-tabs button").forEach(b => {
     b.addEventListener("click", () => {
       setActiveTab(b.getAttribute("data-tab"));

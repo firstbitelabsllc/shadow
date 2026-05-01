@@ -97,37 +97,16 @@ The minimum surface that beats grepping:
 ## Tasks
 
 Phase 0: Sign-off
-- [completed] T0a Leo reviewed PLAN.md, redirected to "please continue" → modal-Leo defaults applied (port 7191, Python stdlib, vidux/browser/, glob 3 conventions, section in /vidux SKILL.md)
-- [completed] T0b Port 7191 confirmed (no collision with Storybook 6006, Vercel 3000-3002)
-
 Phase 1: MVP
-- [completed] T1a `~/Development/vidux/browser/server.py` — stdlib `ThreadingHTTPServer`, routes: `/`, `/static/*`, `/api/health`, `/api/plans`, `/api/file?path=…`. Path-traversal guard via `safe_resolve()` (path must resolve under `DEV_ROOT`).
-- [completed] T1b `~/Development/vidux/browser/static/{index.html, style.css, app.js}` — sidebar + pane layout, `marked.js` from jsDelivr CDN, paper-and-ink palette, hot/stale/cold pills. Vanilla JS, no framework.
-- [completed] T1c `~/Development/vidux/bin/vidux-browse` shell launcher — backgrounds server, polls `/api/health`, opens default browser. Symlinked to `~/bin/vidux-browse` (on PATH).
-- [completed] T1d `~/Development/vidux/SKILL.md` got a `## Browser` section.
-- [completed] T1e Verified: 40 plans across 7 repos discovered on first run (13 hot, 25 stale, 2 cold). Visual proof — `/tmp/vidux-browser-mvp.png` (sidebar), `/tmp/vidux-browser-render.png` (markdown), `/tmp/vidux-browser-tabs.png` (PROGRESS tab). Path-traversal guards verified (HTTP 403 for `/etc/passwd` and `~/.ssh/config`).
-- [completed] T1f Bonus: sibling tabs (PLAN / PROGRESS / INBOX / ASK-LEO) shipped with MVP — was Phase 2 scope, but trivial once `plan_meta` was already surfacing siblings.
-
 Phase 2: v1 — plan-viewer enrichment
 - [pending] T2a Discovery upgrades — handle missing files gracefully, surface broken markdown [ETA: 0.5h]
-- [completed] T2b PROGRESS / INBOX / ASK-LEO tabs in pane (shipped early as T1f)
 - [pending] T2c Session panel — read latest JSONL per repo from `~/.claude/projects/`, parse summary [ETA: 1.5h]
 - [pending] T2d Auto-poll every 5s [ETA: 0.25h]
-- [completed] T2e Status pill heuristic — "hot" ≤7d, "stale" 7-30d, "cold" >30d (shipped with MVP)
-- [completed] T2f Filter across plans (shipped with MVP — searchbox over repo/slug/purpose)
-- [completed] T2g Investigations sub-page — investigations strip rendered below sibling tabs in the pane; clicks open the inv `.md`. Shipped via T2Q+T2R in #41.
 - [pending] T2h Evidence directory viewer — `evidence/YYYY-MM-DD-<slug>.md` rendered as a chronological timeline tab per plan [ETA: 0.75h]
 - [pending] T2i Decision Log promoted to first-class — Doctrine: agents MUST NOT contradict logged directions; surface this prominently, not buried inside PLAN.md [ETA: 0.5h]
-- [completed] T2j Tasks rendered as structured FSM — `task_stats()` parser + sidebar progress bar + pane progress block + fleet completion stat. Shipped via T2L–T2P in #41.
 - [pending] T2k Cross-plan dashboard — "all in_progress across the fleet", "all blocked", "all open ASK-LEO", "all INBOX entries" [ETA: 1.5h]
 
 Phase 2 — completion bar elevation (added 2026-04-25 per Leo "make a pretty bar … completion and a moving target key to vidux plans")
-- [completed] T2L `task_stats()` parser shipped on `/api/plans` (counts by FSM status + ETA total parsed but secondary). PR #41.
-- [completed] T2M Pretty stacked progress bar in sidebar (rounded, status-colored segments + "X/Y done · N%" label). PR #41.
-- [completed] T2N Completion treatment shipped — gold gradient + "shipped ✓" mark at 100%; dashed bar + "no tasks yet" hint at 0. PR #41.
-- [completed] T2O Pane progress block shipped — large %, ratio, status legend above the tab strip. PR #41.
-- [completed] T2P Fleet completion stat shipped — `278/404 tasks (69%)` in topbar meta-count. PR #41.
-- [completed] T2Q Investigations + evidence parser shipped — `discover_investigations()` auto-lists + parses `[Investigation:]` refs; `safe_resolve()` whitelist extended to `.md` under `investigations/` and `evidence/` dirs. PR #41.
 - [completed] T2R Investigations strip shipped — secondary chip row below sibling tabs, only renders when present. PR #41.
 
 Phase 3: Ad-hoc artifact surface (Leo's "anytime anywhere" ask 2026-04-25)
@@ -248,3 +227,11 @@ Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made ar
 - [2026-04-29] Started VB-COM-3 after Leo asked for root-level annotation control and text-box-safe shortcuts. Scope: topbar annotate button, comments card UX cleanup, and keyboard guard for editable targets. Next: verify JS/tests/docs and live-browser smoke. Blocker: none.
 - [2026-04-29] Completed VB-COM-4 on branch `codex/vidux-appwide-annotation-20260429`. Root Annotate now decorates the shared browser shell plus generic rendered HTML targets, not just markdown/body-specific selectors: header, sidebar rows, pane title/meta/progress/tabs, comments, arbitrary artifact spans/buttons, and plan/artifact content all capture anchor metadata from the same topbar mode. Verification: `node --check browser/static/app.js`, `python3 -m unittest tests.test_browser_server`, `npm test` (174 tests), `PATH=/Users/leokwan/Development/vidux/node_modules/.bin:$PATH npm run docs:build`, `git diff --check`, and Playwright smoke on `127.0.0.1:7193` with screenshot `/tmp/vidux-appwide-annotation-smoke.png`. Next: merge and restart live `:7191`. Blocker: none.
 - [2026-04-29] Completed VB-COM-5 on branch `codex/vidux-popover-annotations-20260429`. Removed the persistent comments form from the comments panel and replaced it with a fixed-position popover composer that opens beside the selected annotation target. The popover carries name/body fields, posts the same append-only `/api/comments` payload, refreshes the comment list, closes on submit/cancel/outside click/Esc, and keeps annotation shortcuts ignored while typing. Verification: `node --check browser/static/app.js`, `python3 -m unittest tests.test_browser_server`, `npm test` (174 tests), `PATH=/Users/leokwan/Development/vidux/node_modules/.bin:$PATH npm run docs:build`, `git diff --check`, and Playwright smoke on `127.0.0.1:7193` with screenshot `/tmp/vidux-popover-annotation-smoke.png`. Next: merge and restart live `:7191`. Blocker: none.
+
+Phase 6: Left-panel rework (added 2026-05-01 per Leo "the most annoying fucking thing" + "redo the whole left panel")
+- [completed] VB-LP-1 localStorage state shim (`vidux:ui-state` key — collapsed Set + recents array, RECENTS_MAX=5, JSON-encoded). saveUiState debounce-implicit (called only on toggle/track). [Done: 2026-05-01]
+- [completed] VB-LP-2 "Recently viewed" section at top of sidebar — drawn from `uiState.recents`, shows up to 5 items that still resolve in current state, mixes plans + artifacts, dedup-on-track. trackRecent() called from selectPlan/selectArtifact. [Done: 2026-05-01]
+- [completed] VB-LP-3 "← Parent: <name>" backlink in pane header for child plans — uses findParentPlan() to walk state.plans for any plan that lists this one in its children array; navigates in-app via selectPlan, href present for cmd-click open-in-new-tab. [Done: 2026-05-01]
+- [completed] VB-LP-4 Sort change: alphabetical-by-repo replaced with mtime descending. Repos sort by their freshest plan's mtime; within each repo, plans sort by mtime descending. The prior alphabetical default surfaced cold long-tail repos above active ones — the chronic friction Leo flagged. [Done: 2026-05-01]
+- [completed] VB-LP-5 Collapsible group headers — recents, artifacts, and each repo. Click h2 → toggleCollapsed(key) → renderSidebar(). State persists across reloads via localStorage. Caret visual (`▾` open, `▸` collapsed). [Done: 2026-05-01]
+
