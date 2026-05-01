@@ -1,3 +1,5 @@
+> Parent: ../../PLAN.md
+
 # T1 — AAFuZnay: Receipt detail card "way too fucking big"
 
 **Status:** [in_review]

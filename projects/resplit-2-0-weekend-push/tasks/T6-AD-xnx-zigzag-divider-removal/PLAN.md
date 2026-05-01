@@ -1,3 +1,5 @@
+> Parent: ../../PLAN.md
+
 # T6 — AD-xnx: Zigzag divider removal
 
 **Status:** [pending]
