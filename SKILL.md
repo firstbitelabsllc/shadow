@@ -304,6 +304,66 @@ Per-plan sidecar `.external-state.json` stores the `task_id ↔ external_id` map
 
 **Writing a new adapter.** See `~/Development/vidux/adapters/README.md` for the 6-step authors guide + 5-step round-trip rubric (push seed, pull status change, custom-field round-trip, blocked orthogonality check, idempotency). Current fleet: `gh_projects` and `linear` are live; `asana` / `jira` / `trello` ship as stubs (`NotImplementedError`) with per-platform auth + API docstrings — subclass-ready when a real integration is needed.
 
+### Linear extension — full round-trip (PULL + PUSH + CLOSEOUT)
+
+The `linear` adapter (`~/Development/vidux/adapters/linear.py`) supports a complete project-management round-trip: external Linear cards become PLAN.md tasks via PULL; new local tasks become Linear issues via PUSH; status changes flow both directions; agents close issues from PLAN status flips. This is the canonical worked example for the broader adapter contract — Asana / Jira / Trello adapters should follow the same shape.
+
+**PULL** — Linear → PLAN.md:
+
+- New Linear issues in the configured project become `[pending] BD-<seq>: <title> [Source: linear:<issue-id>]` rows in INBOX.md (or auto-promoted to a target plan via `auto_promote_target` in `vidux.config.json`).
+- Status changes on tracked issues flow back: a Linear issue moved to "Done" auto-flips its mapped PLAN.md row to `[completed]`.
+- Idempotency: per-plan `.external-state.json` sidecar maps `task_id ↔ linear_issue_id`. The in-text `[Source:]` marker is the safety net if the sidecar is lost (see `### External boards` race-recovery rule).
+
+**PUSH** — PLAN.md → Linear:
+
+- Unmapped `[pending]` / `[in_progress]` PLAN tasks create Linear issues via `mcp__plugin_linear_linear__create_issue` (or the adapter's REST equivalent).
+- Status flips on PLAN rows push to Linear via `update_issue` mutation:
+  - `[pending]` → Backlog
+  - `[in_progress]` → In Progress
+  - `[in_review]` → In Review (if configured) or "Ready for QA"
+  - `[completed]` → Done
+- The `_blocked` flag pushes via `push_fields({'_blocked': True})` and sets the Blocked field separately (does NOT change pipeline status — Blocked is orthogonal per the adapter contract).
+
+**CLOSEOUT** — when a fix PR merges:
+
+- The agent that shipped the fix flips the PLAN row to `[completed]`. The next inbox-sync cycle pushes that to Linear automatically.
+- For real-time closeout (don't wait for the next cron tick), call directly:
+
+```bash
+# Find the issue's stateId for the project's "Done" state via:
+mcp__plugin_linear_linear__get_workflow_states project="<project-name>"
+# Then update:
+mcp__plugin_linear_linear__update_issue id=<issue-id> stateId=<done-state-uuid>
+# Add the fix-commit SHA as context:
+mcp__plugin_linear_linear__create_comment issueId=<issue-id> body="Fixed in <commit-sha> (PR #<N>)."
+```
+
+**Configuration** — each user / org configures their own Linear binding in `vidux.config.json`:
+
+```json
+{
+  "inbox_sources": [{
+    "adapter": "linear",
+    "enabled": true,
+    "config": {
+      "project_uuid": "<your-linear-project-uuid>",
+      "project_name": "<project-display-name>",
+      "token_file": "~/.config/vidux/linear.token",
+      "state_mapping": {
+        "pending": "<backlog-state-uuid>",
+        "in_progress": "<in-progress-state-uuid>",
+        "completed": "<done-state-uuid>"
+      },
+      "auto_promote_target": "vidux/PLAN.md"
+    }
+  }]
+}
+```
+
+Workspace-specific bindings (project UUIDs, state UUIDs, token paths) are LOCAL to each user's `vidux.config.json` — core vidux ships only the adapter contract.
+
+**Why this lives in CORE (not in a per-user overlay).** Linear is one of the supported PM tools alongside `gh_projects`, `asana`, `jira`, `trello`. The closeout pattern (fix PR → status flip → external system update) is the SAME shape for all of them. Documenting it in core lets other vidux users adopt Linear (or any adapter) without re-inventing the round-trip.
+
 ### Inbox
 
 `INBOX.md` is where humans or external tools drop findings for agents to act on:
