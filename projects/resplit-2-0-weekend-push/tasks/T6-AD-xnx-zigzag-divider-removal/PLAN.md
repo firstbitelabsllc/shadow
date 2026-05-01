@@ -2,7 +2,7 @@
 
 # T6 — AD-xnx: Zigzag divider removal
 
-**Status:** [in_review]
+**Status:** [completed] (MERGED 2026-05-01 via PR #553 squash `b2616647`)
 **Priority:** P1 Sunday
 **Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T15:55:00Z`
 **Progress:** PR https://github.com/firstbitelabsllc/resplit-ios/pull/553 (commit `df34b4ee`) — draft, awaiting Graphite review

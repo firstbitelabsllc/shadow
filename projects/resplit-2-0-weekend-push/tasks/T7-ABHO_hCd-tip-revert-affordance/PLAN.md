@@ -2,7 +2,7 @@
 
 # T7 — ABHO_hCd: Tip revert affordance
 
-**Status:** [in_review]
+**Status:** [completed] (MERGED 2026-05-01 via PR #552 squash `476b3905`)
 **Priority:** P1 Sunday
 **Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T15:55:00Z`
 **Progress:** PR #552 — https://github.com/firstbitelabsllc/resplit-ios/pull/552
