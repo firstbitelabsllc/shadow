@@ -1,4 +1,6 @@
-# Resplit 2.0 — Weekend Ship Push (May 2–3, 2026)
+# Resplit 2.0 — Weekend Ship Push (May 2–3, soft target May 4)
+
+**Soft target:** Monday May 4 morning. **No hard cutoff.** Per Leo verbatim 2026-05-01: *"I really care more about whether we can just keep pushing along and get the bugs fixed. Bug fixing and production-level testability is all they care about."* The metric is **bugs-shipped, not calendar-met**. May 4 is when we'd ideally have a TestFlight build with all 8 ASC bugs verified — slipping a day or two is fine if it means shipping the fixes correctly.
 
 ## Parent plan
 
@@ -56,6 +58,7 @@ Existing investigation files:
 - Raw `xcodebuild` or bare `tuist build` — both bypass DerivedData isolation and SIGTERM the deploy-watcher.
 - Run `claudux update` against this repo until 2.0 ships. The 5 `docs(claudux):` PRs in 48h (cb706a34, e60a8071, 6afd86dc, 825f5fe7, plus prior) come from interactive Codex CLI sessions and gate the deploy-watcher's `min 3 new commits` threshold with noise. To stop: stop running `claudux update` interactively, or revoke Codex's branch-push permission for this repo.
 - Load `/brand-resplit` for active work. It's frozen — load THIS PLAN.md instead. Historical brand doctrine archived at `~/Development/ai/skills/brand-resplit/_archive/` (2026-05-01 freeze).
+- Surface or pitch any net-new feature ideas, "have you considered…" suggestions, refactor opportunities, or backlog items to Leo until 2.0 has shipped to TestFlight Friends & Family with all 8 ASC bug fixes verified. Per Leo verbatim 2026-05-01: *"I have a lot of things that I want us to like work on that's like net new or like kind of uncovered from a long time ago, but I don't want to talk about that unless we're ready to at least start shipping and working first."* The backlog pump stays OFF until ship.
 
 ### ALWAYS (additions)
 - When the reactive bug queue (ASC + Sentry + Linear + Jam + PR review threads) is empty, dispatch a proactive `/autobot-resplit` sim-walk BEFORE declaring IDLE. Discovery work counts as cron purview; idle does not.
@@ -117,6 +120,10 @@ Existing investigation files:
 - **2026-05-01** — `resplit-watch` harness updated to enumerate 5 reactive sources (ASC reporter feedback, Sentry unresolved errors, Linear `RESPLIT-IOS-*` issues, Jam.dev recordings tagged resplit.app, GitHub PR review threads on draft PRs) PLUS one proactive source (sim-walk via `/autobot-resplit` X1 smoke preset). When the 5 reactive sources return zero new bugs in a cycle, the cron dispatches the proactive sim-walk before declaring IDLE. Discovery counts as cron purview; IDLE is rarest-status only.
 
 - **2026-05-01** — 24 launchd plists exist on the Mac, only 6 currently loaded (most failing with non-zero exit, several duplicate). Kill list cataloged at `~/.agent-ledger/launchd-audit-2026-05-01.md` but **NOT executed** pending Leo's per-plist confirmation per CLAUDE.md's new "deleting user-staged things needs confirmation" Hard Exception. Agents reading this PLAN should NOT attempt to bootstrap or unload plists on Leo's behalf — surface the audit doc, let Leo confirm, then act.
+
+- **2026-05-01 (afternoon)** — **No hard cutoff date.** Soft target Monday May 4 morning. The metric is bugs-shipped, not calendar-met. Per Leo verbatim: *"Ideally we want to ship by like Monday morning, like you know, May today's May 1st, 2nd, 3rd, 4th. I don't know by May 4th ideally, but I really care more about whether we can just keep pushing along and get the bugs fixed. Bug fixing and production-level testability is all they care about."* Slipping to Tuesday/Wednesday is acceptable if it means shipping the fixes correctly with regression tests + visual proof intact. The trap to avoid: hard-date pressure that makes a Sunday-night agent skip the MT-5 test or the visual proof gate to "make the date." That's how the EditAmountPopoverField regressed 22 times. **No carve-outs for date pressure.**
+
+- **2026-05-01 (afternoon)** — **Net-new feature pump OFF until 2.0 ships.** Leo has a backlog of net-new ideas + long-uncovered surfaces but explicitly does not want them surfaced or pitched until we are shipping the 8 ASC bugs. Per verbatim: *"I don't want to talk about that unless we're ready to at least start shipping and working first."* Codified in §Constraints NEVER above. Any agent that feels the urge to suggest "while we're in there, what if we also…" must instead append the idea to a `2.0.1-net-new-backlog.md` file (create-on-demand) and say nothing in chat until 2.0 ships.
 
 ## Progress
 
