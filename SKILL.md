@@ -444,7 +444,7 @@ vidux-browse -f           # foreground (stream logs)
 
 What it shows:
 - Sidebar grouped by repo, with hot/stale/cold pills (≤7d / 7-30d / >30d by mtime)
-- Selected plan rendered as markdown, with sibling tabs for `PROGRESS.md` / `INBOX.md` / `ASK-LEO.md` when present
+- Selected plan rendered as markdown, with sibling tabs for any sibling `.md` files in the same plan directory when present (common conventions include `PROGRESS.md` and `INBOX.md`; per-owner conventions like `ASK-<OWNER>.md` are also supported)
 - Named comments attached to the selected plan tab or artifact, stored separately from source files
 - Anchored annotations: click the top-bar `Annotate` control or press `Cmd/Ctrl+Shift+C`, then click the exact rendered element the comment is about
 - Filter box to search across repo / slug / purpose
