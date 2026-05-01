@@ -1,8 +1,8 @@
 # T1 — AAFuZnay: Receipt detail card "way too fucking big"
 
-**Status:** [pending]
+**Status:** [in_progress]
 **Priority:** P0 (Saturday parallel-dispatchable)
-**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>` — first writer wins; if both fields are empty, claim by editing this line atomically (pull → edit → commit → push) with your agent_id.
+**Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T13:01:11Z` — first writer wins; if both fields are empty, claim by editing this line atomically (pull → edit → commit → push) with your agent_id.
 **ASC ID:** AAFuZnay
 **DerivedData namespace:** `/tmp/resplit-dd-T1-${RANDOM}` (your worktree must export `RESPLIT_DD_PATH` to this; per `/bigapple` build isolation rule)
 
