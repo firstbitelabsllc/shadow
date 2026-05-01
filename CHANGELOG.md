@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.1] - 2026-05-01
+
+Patch on the same-day 2.26.0 left-panel rework. Walks the parent chain instead of stopping at one level, then bulk-connects 51 orphan plans across 6 repos so the new traversal has something to walk.
+
+### Changed
+
+- **Pane header now shows the full ancestor breadcrumb** instead of a single `← Parent` link. Root → … → leaf (e.g. `← strongyes-web/PLAN.md · vidux/PLAN.md · content-lane/PLAN.md`). Walks `state.plans` with a cycle-safe visited set capped at 8 levels deep. Closes the deep-chain gap where third-level sub-plans could not navigate past their immediate parent.
+
+### Added
+
+- **Bulk parent-link pass.** One-shot Python audit against `/api/plans` filtered orphans (`parent_rel == null`) where the structural parent (`dirname/dirname/PLAN.md`) was also indexed. 51 of 100 orphans matched and got a `> Parent: ../PLAN.md` backlink prepended after the H1. Idempotent — re-running is a no-op (skip if Parent line already present). Landed as `vidux: bulk parent-link pass for orphan PLAN.md files` across `strongyes-web`, `resplit-web`, `resplit-ios`, `fcp-workflow`, `leojkwan`, `revolver` (36 + 7 + 1 + 1 + 1 + 1 = 47 file changes; 4 of the 51 were the same-repo deltas already covered by the 36/7 commits in those repos).
+
+### Verified
+
+- All 6 repos pushed cleanly (leojkwan needed a stash-rebase-pop dance for unrelated INBOX edits).
+- `/api/plans` count of `parent_rel == "../PLAN.md"` jumped from baseline to 51 immediately after the pass.
+
+---
+
 ## [2.26.0] - 2026-05-01
 
 Browser left-panel rework: recently-viewed at top, recency-based ordering, persistent collapse state, parent backlinks. Plus recursive sub-plan rollup as a first-class second nesting mode.
