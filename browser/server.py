@@ -401,6 +401,14 @@ def extract_purpose(path: Path) -> str:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+    # Strip leading Parent: metadata blockquote / bold line so it doesn't
+    # leak into the sidebar purpose preview.
+    text = re.sub(
+        r"^(#[^\n]*\n+)?(?:>[ \t]*Parent:|\*\*Parent:\*\*)[^\n]*\n+",
+        lambda m: m.group(1) or "",
+        text,
+        count=1,
+    )
     m = re.search(r"##\s+Purpose\s*\n+([^\n#].+?)(?=\n\s*\n|\n##|\Z)", text, re.S)
     if not m:
         # Fall back to first non-heading paragraph after the title.
