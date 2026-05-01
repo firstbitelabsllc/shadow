@@ -15,6 +15,9 @@ QUEUE.jsonl
 projects/*
 # Exception: vidux-browser is internal-to-vidux tooling, ships with the code.
 !projects/vidux-browser/
+# Exception: resplit-2-0-weekend-push is the active ship plan for Resplit 2.0
+# (May 2026 launch window). Tracked so both Macs see the same plan.
+!projects/resplit-2-0-weekend-push/
 
 # Temp files from checkpoint script
 tmp*.md
