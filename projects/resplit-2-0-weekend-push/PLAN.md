@@ -167,7 +167,7 @@ Each task's worktree is its own git ref + DerivedData path. No contention.
 
 ### Ship gate
 
-- [in_progress] **T9 — Cut 2.0 release** [Claimed: claude-opus-4-7-rios-T9ship at 2026-04-30T15:10:00Z] — After T1–T7 are `[MERGED]`, run `bundle exec fastlane beta` (this is the deploy-watcher path, which uploads to TestFlight). Then promote the resulting build to App Store in App Store Connect. Tag `v2.0.0` post-promotion.
+- [completed] **T9 — Cut 2.0 release** [SHIPPED 2026-05-01T15:17:49Z, build 2363 (marketing 2.2.0), distributed to External testers / Friends & Family. Tuist Preview run `b13d0692-e34e-43e1-81d6-5e106cfe344f`. Fastlane log `~/.agent-ledger/T9-fastlane-beta-20260501T111209.log`.] — After T1–T7 are `[MERGED]`, run `bundle exec fastlane beta` (this is the deploy-watcher path, which uploads to TestFlight). Then promote the resulting build to App Store in App Store Connect. Tag `v2.0.0` post-promotion.
 
 ### Cron-purview tasks (resplit-watch infrastructure, separate from bug fixes)
 
@@ -204,3 +204,4 @@ Each task's worktree is its own git ref + DerivedData path. No contention.
 ## Progress
 
 - [2026-05-01] T3 [in_review]: settlement-sheet hero gradient leaks past corners — `.clipShape` missing between `.background(RoundedRectangle.fill.overlay { LinearGradient })` and stroke overlay. 1-line fix at TripSettlementSheet.swift:316 + MT-5 contrapositive pair (positive + negative). PR #549.
+- [2026-05-01 11:17:49Z] **T9 [completed] — RESPLIT 2.0 WEEKEND PUSH SHIPPED.** Build 2363 (marketing 2.2.0) uploaded to TestFlight + distributed to Friends & Family External testers via `bundle exec fastlane beta` from primary worktree. Three independent success endpoints confirmed: altool upload 11:15:41, pilot distribution 11:17:49, Tuist Preview upload 11:18:46 (run `b13d0692-e34e-43e1-81d6-5e106cfe344f`). All 7 P0/P1 ASC bug fixes (T1-T7, squash commits `6daf2859` `6d7f937b` `b24f72da` `04f684ed` `bd8df378` `476b3905` `b2616647`) are in this build. T8 (ADIQ SF Symbol preference) deferred to 2.0.1 by design. **Definition of Done met for the iOS lane of the weekend push.** Next: optional Leo self-test on physical device walking the 7 fixes, then ASC promotion to App Store + tag `v2.0.0` post-promotion. Fastlane log archived at `~/.agent-ledger/T9-fastlane-beta-20260501T111209.log` (4817 lines).
