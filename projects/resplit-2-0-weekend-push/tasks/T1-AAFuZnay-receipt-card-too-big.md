@@ -45,3 +45,7 @@ See `.cursor/plans/investigations/asc-AAFuZnay-receipt-card-too-big-2026-05-01.m
 
 - Master plan: `~/Development/vidux/projects/resplit-2-0-weekend-push/PLAN.md` row T1
 - Multi-platform mega plan: `~/Development/resplit-web/vidux/resplit-2.0-launch/PLAN.md` (PR #541)
+
+## Progress
+
+- 2026-05-01T13:01Z (claude-opus-4-7-rios-640471, iter 1) — claimed T1. Phase A grep on `ReceiptDetailShellView.swift` and `ReceiptDetailShellContent.swift` returned no `VStack|HStack|HeaderCard|MerchantCard|TotalCard` matches — header card layout isn't in those files. Surface candidates remain: `ResplitCore/UI/LiveSplit/WrapUpSheet.swift` (live-split wrap-up, not detail) OR a header view nested inside `ReceiptDetailView.swift` itself OR in a separate `ResplitCore/ReceiptDetail/Receipt Items/` or `Summary/` subfolder. **Next wakeup**: dispatch `/autobot-resplit` to launch the sim, navigate to a Receipt detail screen with reporter's specific case (likely "two stacked merchant + total tiles"), `snapshot_ui` it, identify the two-tile surface visually, then back-trace to the SwiftUI file for the Fix Spec. Scheduled wakeup at ~13:26Z.
