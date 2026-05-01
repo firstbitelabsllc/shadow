@@ -314,7 +314,7 @@ function renderPaneSubplans(plan) {
           <span class="pill pill-${child.status}" title="${child.status} · ${fmtAge(child.age_days)}"></span>
           <span class="subplan-row-slug">${escapeText(slug)}</span>
           ${subplanCount ? `<span class="child-count" title="${subplanCount} descendant${subplanCount === 1 ? "" : "s"}">⌐${subplanCount}</span>` : ""}
-          <button type="button" class="subplan-open" data-subplan-rel="${escapeAttr(child.rel)}">→ open</button>
+          <span class="subplan-open-hint" aria-hidden="true">→ open</span>
         </div>
         ${child.purpose ? `<div class="subplan-row-purpose">${escapeText(child.purpose)}</div>` : ""}
         <div class="subplan-row-progress">
@@ -761,9 +761,9 @@ async function renderPane() {
       setActiveTab(`INV:${b.getAttribute("data-inv")}`);
     });
   });
-  els.pane.querySelectorAll(".subplan-open").forEach(b => {
-    b.addEventListener("click", () => {
-      const rel = b.getAttribute("data-subplan-rel");
+  els.pane.querySelectorAll(".subplan-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const rel = row.getAttribute("data-subplan-rel");
       const target = state.plans.find(p => p.rel === rel);
       if (target) selectPlan(target, { scrollIntoView: true });
     });
@@ -780,7 +780,7 @@ async function renderPane() {
       refreshAnnotationTargets();
       return;
     }
-    const md = await res.text();
+    const md = stripParentMetadata(await res.text());
     const html = window.marked
       ? window.marked.parse(md, { breaks: false, gfm: true })
       : naiveMarkdown(md);
@@ -1201,6 +1201,25 @@ function naiveMarkdown(md) {
     .split(/\n\n+/)
     .map(p => `<p>${escapeText(p).replace(/\n/g, "<br>")}</p>`)
     .join("");
+}
+
+// The Parent: <relpath> line at the top of a child plan is metadata the
+// pane header consumes for the breadcrumb; rendering it again as a
+// blockquote in the body is duplicate clutter. Strip leading parent
+// blockquotes / bold lines (with their trailing blank line) before render.
+function stripParentMetadata(md) {
+  const lines = md.split("\n");
+  let i = 0;
+  if (lines[i] && /^# /.test(lines[i])) i++;
+  while (i < lines.length && lines[i].trim() === "") i++;
+  if (i < lines.length && /^(?:>\s*Parent:|\*\*Parent:\*\*)/i.test(lines[i])) {
+    lines.splice(i, 1);
+    while (i < lines.length && lines[i].trim() === "") {
+      lines.splice(i, 1);
+      break;
+    }
+  }
+  return lines.join("\n");
 }
 
 function escapeText(s) {
