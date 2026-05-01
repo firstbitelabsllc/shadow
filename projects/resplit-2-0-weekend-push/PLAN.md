@@ -89,11 +89,33 @@ Each task has a `DerivedData namespace` field in its sub-plan: `/tmp/resplit-dd-
 
 ### Master plan write contract
 
-Only ONE agent at a time edits the master PLAN.md, and only to:
-- Flip a task's `[status]` from `[pending]` → `[in_progress]` → `[completed]`
-- Append to the `## Progress` log
+The master PLAN.md is **not append-only**. Per `/vidux` Principle 4 (self-extend with a brake), agents can and SHOULD update, refine, and reappraise the project as they work — the plan LIVES, it doesn't just track. Allowed master-plan edits (any agent, atomic-commit pattern):
 
-All other plan content lives in sub-plans. If you need to add/remove tasks, do it via a sub-plan + a single coordinated master-plan edit at the end of your cycle.
+- **Flip a task's `[status]`** between `[pending]` → `[in_progress]` → `[completed]` / `[blocked]` / `[deferred]`
+- **Append to the `## Progress` log** with one-line cycle summaries (date, what shipped, what's next)
+- **Append to the `## Decision Log`** with `[DIRECTION]` / `[DELETION]` / `[REFRAME]` entries when evidence changes mid-cycle (per Principle 4 "If evidence changes mid-cycle, the queue re-sorts. You don't need permission to reorder. Note the reorder in the next Progress entry.")
+- **Add new `[pending]` tasks** when investigation surfaces a new bug or constraint not covered by T1-T9. Stub a sub-plan in `tasks/T<N>-<slug>.md` in the same commit.
+- **Refine an existing task's bullet** (e.g., `[Evidence: ...]`, `[ETA: Xh]`, `[Investigation: ...]` fields) when better data lands. Don't rewrite history; refine forward.
+- **Update Constraints** (ALWAYS / NEVER) when a new failure mode is observed. Cite the trigger in the Decision Log.
+- **Reappraise priorities** if a P1 escalates to P0 (e.g., reporter sends Sentry crash for a bug previously triaged as polish). Re-sort, note in Progress.
+
+What you should NOT do via master-plan edits:
+- Fill in a sub-plan's Fix Spec / Tests / Gate — that lives in the sub-plan file (`tasks/T<N>-*.md`)
+- Fill in an investigation file's Root Cause / Impact Map — that lives in `.cursor/plans/investigations/`
+- Take action without an evidence-cited Decision Log entry — Principle 5 (prove it mechanically)
+
+**Atomic-commit pattern for master-plan edits** (race-safe under 10-20 parallel agents):
+```bash
+cd ~/Development/vidux
+git pull --rebase
+# ... edit PLAN.md (one logical change per commit) ...
+git add projects/resplit-2-0-weekend-push/PLAN.md
+git commit -m "plan(resplit-2.0): <one-line description of the edit>"
+git pull --rebase  # in case another agent committed during your edit
+git push           # if push fails, repeat from `git pull --rebase`
+```
+
+If you find yourself wanting to make MULTIPLE unrelated edits to PLAN.md in one cycle, do them as separate commits — that way another agent's concurrent edit can merge cleanly with yours instead of conflict-resolving across mixed concerns.
 
 ### Investigation file partition
 
