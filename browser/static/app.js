@@ -268,14 +268,15 @@ function renderSidebar() {
     const rows = groups.get(repo);
     const inner = rows.map(plan => {
       const active = state.active && state.active.kind === "plan" && state.active.path === plan.path ? "is-active" : "";
-      const slug = plan.slug === "_root_" ? "(root)" : plan.slug;
+      const isRoot = plan.slug === "_root_";
+      const slugLabel = isRoot ? `${plan.repo}/PLAN.md` : plan.slug;
       const stats = plan.task_stats || { counts: {}, total: 0 };
       const invCount = (plan.investigations || []).length;
       return `
         <div class="plan-row ${active}" data-kind="plan" data-path="${escapeAttr(plan.path)}">
           <div class="plan-row-head">
             <span class="pill pill-${plan.status}" title="${plan.status} · ${fmtAge(plan.age_days)}"></span>
-            <span>${escapeText(slug)}</span>
+            <span>${escapeText(slugLabel)}</span>
           </div>
           ${plan.purpose ? `<div class="plan-row-purpose">${escapeText(plan.purpose)}</div>` : ""}
           <div class="plan-row-meta">
@@ -383,7 +384,7 @@ async function renderArtifactPane() {
       <h2>${escapeText(a.title || a.slug)}</h2>
       <div class="meta">
         <span><span class="pill pill-artifact"></span>artifact</span>
-        <span>modified ${fmtAge(a.age_days)} ago</span>
+        <span>${fmtAge(a.age_days) === "today" ? "modified today" : `modified ${fmtAge(a.age_days)} ago`}</span>
         <span>${(a.size / 1024).toFixed(1)}KB</span>
         <span class="muted">${escapeText(a.path)}</span>
       </div>
@@ -446,10 +447,10 @@ async function renderPane() {
   const headerHTML = `
     <div class="pane-header">
       <div class="breadcrumb">${escapeText(plan.rel)}</div>
-      <h2>${escapeText(plan.repo)} · ${escapeText(plan.slug === "_root_" ? "(root)" : plan.slug)}</h2>
+      <h2>${escapeText(plan.slug === "_root_" ? plan.repo : `${plan.repo} · ${plan.slug}`)}</h2>
       <div class="meta">
         <span><span class="pill pill-${plan.status}"></span>${plan.status}</span>
-        <span>modified ${fmtAge(plan.age_days)} ago</span>
+        <span>${fmtAge(plan.age_days) === "today" ? "modified today" : `modified ${fmtAge(plan.age_days)} ago`}</span>
         <span>${(plan.size / 1024).toFixed(1)}KB</span>
         <span class="muted">${escapeText(plan.path)}</span>
       </div>
