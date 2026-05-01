@@ -177,7 +177,11 @@ Vidux is designed for projects that span days to months. A quarter project has:
 
 The plan LIVES -- it gets updated every cycle, not written once and followed blindly.
 
-### When a task needs an investigation (the only nesting vidux allows)
+### Two nesting modes
+
+Vidux supports two distinct nesting shapes — pick the one that fits the work:
+
+**1. Investigation (1-level, for compound tasks needing root-cause work)**
 
 Some tasks are atomic — one PR, clear diff. Others are messy: unclear root cause, 3+ files in play, you need to think before you touch code. For those, the parent plan task delegates its deep work to a child investigation file:
 
@@ -185,7 +189,27 @@ Some tasks are atomic — one PR, clear diff. Others are messy: unclear root cau
 - [in_progress] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
 ```
 
-That's the entire nesting model. One parent plan, one child investigation per compound task. No deeper nesting. If you need a third level, split into two separate parent plans instead.
+One parent plan, one child investigation per compound task. The investigation file lives next to the parent plan and is consumed when the parent task ships.
+
+**2. Sub-plan rollup (N-level, for multi-phase missions with parallel sub-streams)**
+
+For larger missions where multiple sub-streams ship in parallel — each with their own task list — use child PLAN.md files with a Parent backlink at the top:
+
+```markdown
+> Parent: vidux/projects/big-mission/PLAN.md
+```
+
+or
+
+```markdown
+**Parent:** vidux/projects/big-mission/PLAN.md
+```
+
+`vidux-browse` parses these backlinks, builds a parent → children tree, and computes recursive aggregate stats so the parent shows BOTH its own progress bar AND a rolled-up bar across every descendant. Sidebar indents children under their parent; cycle-safe via visited-set.
+
+Use this when you have 5+ child plans that meaningfully ship independently (e.g., `T1-*/PLAN.md` through `T9-*/PLAN.md`). Don't use it for trivial nesting where an investigation file would do.
+
+**Choosing between the two:** investigation = "I need to think before I code, for one task." Sub-plan rollup = "this mission has many sub-streams that ship independently and I want a consolidated dashboard." If you're not sure, default to investigation — it's the lower-overhead shape.
 
 **How it works:**
 
