@@ -1,3 +1,5 @@
+> Parent: ../../PLAN.md
+
 # T8 — ADIQ: SF symbol preference (DEFERRED to 2.0.1)
 
 **Status:** [deferred]

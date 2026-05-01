@@ -1,3 +1,5 @@
+> Parent: ../../PLAN.md
+
 # T9 — Ship gate: manual `bundle exec fastlane beta` to push build 1012
 
 **Status:** [pending — gated on T1-T7 [completed]]

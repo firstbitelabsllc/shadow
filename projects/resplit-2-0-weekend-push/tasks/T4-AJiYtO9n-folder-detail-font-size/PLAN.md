@@ -1,3 +1,5 @@
+> Parent: ../../PLAN.md
+
 # T4 — AJiYtO9n: "Why the fuck are numbers still not same font size"
 
 **Status:** [pending]
