@@ -2,7 +2,7 @@
 
 # T4 — AJiYtO9n: "Why the fuck are numbers still not same font size"
 
-**Status:** [in_review]
+**Status:** [completed] (MERGED 2026-05-01 via PR #550 squash `04f684ed`)
 **Priority:** P0 (Saturday parallel-dispatchable)
 **Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T14:55:00Z`
 **Progress:** PR https://github.com/firstbitelabsllc/resplit-ios/pull/550 (`claude/T4-AJiYtO9n-folder-detail-font-size`) — Build Succeeded, MT-5 green, Graphite review fired, ready for merge.

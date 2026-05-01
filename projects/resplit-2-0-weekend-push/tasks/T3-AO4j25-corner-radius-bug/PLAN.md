@@ -2,7 +2,7 @@
 
 # T3 — AO4j25: Corner radius bug
 
-**Status:** [in_review]
+**Status:** [completed] (MERGED 2026-05-01 via PR #549 squash `b24f72da`)
 **Priority:** P0 Saturday
 **Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T14:25:00Z`
 **ASC ID:** AO4j25

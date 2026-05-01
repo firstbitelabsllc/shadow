@@ -2,7 +2,7 @@
 
 # T5 — ACHQtix2: "Tappping doesn't dismisss and scroll to right place"
 
-**Status:** [in_review]
+**Status:** [completed] (MERGED 2026-05-01 via PR #551 squash `bd8df378`)
 **PR:** https://github.com/firstbitelabsllc/resplit-ios/pull/551
 **Priority:** P1 (Sunday morning, ~3hr)
 **Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T15:25:00Z`
