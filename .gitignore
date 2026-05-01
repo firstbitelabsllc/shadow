@@ -46,3 +46,4 @@ secrets/
 # Browser runtime artifacts (user-generated HTML, not source)
 browser/artifacts/*
 !browser/artifacts/.gitkeep
+.playwright-cli/
