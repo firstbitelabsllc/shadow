@@ -2,10 +2,10 @@
 
 # T9 — Ship gate: manual `bundle exec fastlane beta` to push build 1012
 
-**Status:** [pending — gated on T1-T7 [completed]]
+**Status:** [in_progress] — fastlane beta firing
 **Priority:** Final ship action (Sunday PM after weekend bug PRs land)
-**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>` — only ONE agent claims this; others wait
-**Depends on:** T1, T2, T3, T4, T5, T6, T7 all `[completed]` AND merged to main
+**Claim:** `claimed_by: claude-opus-4-7-rios-T9ship` `claimed_at: 2026-04-30T15:10:00Z`
+**Depends on:** T1, T2, T3, T4, T5, T6, T7 all `[completed]` AND merged to main — VERIFIED 2026-04-30 (all 7 squash commits live on origin/main HEAD `b2616647`, sub-plans flipped via vidux commit `f5f8436`)
 
 ## What this task is
 

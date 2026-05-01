@@ -167,7 +167,7 @@ Each task's worktree is its own git ref + DerivedData path. No contention.
 
 ### Ship gate
 
-- [pending] **T9 — Cut 2.0 release** — After T1–T7 are `[MERGED]`, run `bundle exec fastlane beta` (this is the deploy-watcher path, which uploads to TestFlight). Then promote the resulting build to App Store in App Store Connect. Tag `v2.0.0` post-promotion.
+- [in_progress] **T9 — Cut 2.0 release** [Claimed: claude-opus-4-7-rios-T9ship at 2026-04-30T15:10:00Z] — After T1–T7 are `[MERGED]`, run `bundle exec fastlane beta` (this is the deploy-watcher path, which uploads to TestFlight). Then promote the resulting build to App Store in App Store Connect. Tag `v2.0.0` post-promotion.
 
 ### Cron-purview tasks (resplit-watch infrastructure, separate from bug fixes)
 
