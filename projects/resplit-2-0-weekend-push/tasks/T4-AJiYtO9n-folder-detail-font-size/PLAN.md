@@ -2,9 +2,9 @@
 
 # T4 — AJiYtO9n: "Why the fuck are numbers still not same font size"
 
-**Status:** [pending]
+**Status:** [in_progress]
 **Priority:** P0 (Saturday parallel-dispatchable)
-**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>`
+**Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T14:55:00Z`
 **ASC ID:** AJiYtO9n
 **DerivedData namespace:** `/tmp/resplit-dd-T4-${RANDOM}`
 
