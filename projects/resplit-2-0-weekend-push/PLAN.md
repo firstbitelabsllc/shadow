@@ -63,6 +63,60 @@ Existing investigation files:
 ### ALWAYS (additions)
 - When the reactive bug queue (ASC + Sentry + Linear + Jam + PR review threads) is empty, dispatch a proactive `/autobot-resplit` sim-walk BEFORE declaring IDLE. Discovery work counts as cron purview; idle does not.
 
+## Parallel-agent partition contract
+
+This plan is designed for **10-20 agents working in parallel**. The partition prevents collision:
+
+### Per-task sub-plan files
+
+Every task T1-T9 has its own file at `~/Development/vidux/projects/resplit-2-0-weekend-push/tasks/T<N>-<id>-<slug>.md`. Agents claim, fill, and ship their assigned sub-plan independently. No one edits the master PLAN.md directly except to flip a row's `[status]` after the sub-plan ships.
+
+### Claim mechanism
+
+Each sub-plan has two empty fields at the top:
+```
+**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>`
+```
+
+To claim a task:
+1. `cd ~/Development/vidux && git pull --rebase`
+2. Read the sub-plan. If `claimed_by` is non-empty AND `claimed_at` is within last 30 minutes, the task is taken — pick the next `[pending]` row.
+3. If empty OR `claimed_at` >30min stale (assume dead session, free to re-claim), atomically: edit the two fields → `git add` → `git commit` → `git pull --rebase` → `git push`. First push wins. If your push fails, your claim is invalidated — pick another task.
+
+### Per-task DerivedData namespace
+
+Each task has a `DerivedData namespace` field in its sub-plan: `/tmp/resplit-dd-T<N>-${RANDOM}`. Your worktree must export `RESPLIT_DD_PATH` to this value before running `tuist xcodebuild build` per `/bigapple` build isolation. **Do NOT** use `/tmp/resplit-dd-claude-${SESSION_ID}` (collides with deploy-watcher) or `/tmp/resplit-dd-watcher` (deploy-watcher's path) or any path without the T<N> namespace.
+
+### Master plan write contract
+
+Only ONE agent at a time edits the master PLAN.md, and only to:
+- Flip a task's `[status]` from `[pending]` → `[in_progress]` → `[completed]`
+- Append to the `## Progress` log
+
+All other plan content lives in sub-plans. If you need to add/remove tasks, do it via a sub-plan + a single coordinated master-plan edit at the end of your cycle.
+
+### Investigation file partition
+
+Each task has its own investigation file at `.cursor/plans/investigations/asc-<ID>-<slug>-2026-05-01.md` (already stubbed). Agents fill the Root Cause, Impact Map, Fix Spec, Tests, Gate sections of THEIR investigation. No collision because each is a different file.
+
+### Worktree isolation
+
+Use `/superpowers:using-git-worktrees` or `/bigapple` per-lane worktree pattern:
+```
+cd ~/Development/resplit-ios
+git worktree add ../resplit-ios-worktrees/T<N>-<slug> -b claude/T<N>-<slug>
+cd ../resplit-ios-worktrees/T<N>-<slug>
+export RESPLIT_DD_PATH=/tmp/resplit-dd-T<N>-${RANDOM}
+```
+
+Each task's worktree is its own git ref + DerivedData path. No contention.
+
+### Pre-flight checks (every agent BEFORE claiming)
+
+1. `pgrep -lx xcodebuild` returns nothing (else: deploy-watcher or another agent is building, defer 60s)
+2. `cat ~/.agent-ledger/deploy-watcher.state` — if `CONTENTION_BACKOFF_UNTIL_TS` is in the future, wait
+3. Verify your assigned `RESPLIT_DD_PATH` doesn't exist (else: pick a different `${RANDOM}`)
+
 ## Tasks
 
 ### Saturday, May 2 — P0 batch (parallel-dispatchable, ~80 min each)
