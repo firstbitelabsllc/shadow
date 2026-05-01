@@ -10,6 +10,7 @@ This is the **resplit-ios lane detail** for the multi-platform Resplit 2.0 launc
 - **What the mega plan owns**: web-side ship gates (T3 security review, T5 test coverage, T7 E2E guest flow, staging redeploy from main, dark-mode visual baselines, autobot-resplit-web cron) + the cross-platform Definition of Done.
 - **What this plan owns**: the 8 ASC bug rows specific to the iOS app. The mega plan's iOS gate (`iOS App Store Connect submission accepted — owned by resplit-ios lane, gated independently`) is satisfied when every P0/P1 task below ships and `bundle exec fastlane beta` lands a build with all eight bugs verified.
 - **Convergence**: agents working iOS read THIS plan; agents working web read the mega plan. Cross-references in both directions (parent → child via the iOS row, child → parent via this section).
+- **Sibling iOS project (post-launch foundation)**: `../ocr-moat/PLAN.md` — vendor-neutral receipt scanning contract + fixture corpus + reconciliation + telemetry + dev-app annotator. **GATED behind this weekend-push shipping.** Created 2026-05-01 per Leo's "moat of the app" directive. Agents on this weekend plan: do NOT touch ocr-moat tasks until every Open ASC row above is verified or explicitly deferred.
 
 ## Purpose
 
