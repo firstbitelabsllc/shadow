@@ -2,7 +2,7 @@
 
 # T1 — AAFuZnay: Receipt detail card "way too fucking big"
 
-**Status:** [in_review]
+**Status:** [completed] (MERGED 2026-05-01 via PR #547 squash `6daf2859`)
 **Priority:** P0 (Saturday parallel-dispatchable)
 **Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T13:01:11Z` — first writer wins; if both fields are empty, claim by editing this line atomically (pull → edit → commit → push) with your agent_id.
 **PR:** [#547](https://github.com/firstbitelabsllc/resplit-ios/pull/547) — opened ready, Graphite triggered, waiting on review.

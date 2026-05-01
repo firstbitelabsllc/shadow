@@ -2,7 +2,7 @@
 
 # T2 — ANgvTW: "Still overlapping" (settlement pill / participant chip)
 
-**Status:** [in_review]
+**Status:** [completed] (MERGED 2026-05-01 via PR #548 squash `6d7f937b`)
 **Priority:** P0 (Saturday parallel-dispatchable)
 **Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T13:36:30Z`
 **PR:** [#548](https://github.com/firstbitelabsllc/resplit-ios/pull/548) — opened 2026-05-01, all 9 MT-5 tests passing, awaiting Graphite review
