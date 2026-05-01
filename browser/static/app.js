@@ -195,6 +195,72 @@ function renderPaneProgress(stats) {
     </div>`;
 }
 
+// Render the parent's aggregate (rolled-up across sub-plans) progress block.
+// Only emitted when the plan actually has children — a leaf plan would just
+// repeat its own bar, which is noise.
+function renderPaneAggregateProgress(plan, aggregate) {
+  if (!planHasChildren(plan)) return "";
+  const total = aggregate?.total || 0;
+  if (!total) return "";
+  const c = aggregate.counts || {};
+  const done = c.completed || 0;
+  const isShipped = done === total;
+  const pctText = isShipped
+    ? `<span class="pct-large is-shipped">shipped ✓</span>`
+    : `<span class="pct-large">${pct(done, total)}%</span>`;
+  const summary = PROGRESS_ORDER.map(k => {
+    const n = c[k] || 0;
+    const cls = `stat-${k}${n ? "" : " stat-zero"}`;
+    return `<span class="${cls}">${n} ${PROGRESS_LABELS[k]}</span>`;
+  }).join("");
+  return `
+    <div class="pane-progress pane-progress-rollup ${isShipped ? "is-shipped" : ""}">
+      <div class="progress-headline">
+        <div>
+          <div class="label">With sub-plans (${aggregate.descendants || 0})</div>
+          <div class="ratio">${done} of ${total} tasks across this branch</div>
+        </div>
+        ${pctText}
+      </div>
+      ${renderProgressBar(aggregate)}
+      <div class="progress-summary">${summary}</div>
+    </div>`;
+}
+
+// Render an at-a-glance list of immediate children with their own mini bars.
+// Each row has an "open" button that re-uses selectPlan() — same code path
+// the sidebar takes — so the URL deep-link behavior stays consistent.
+function renderPaneSubplans(plan) {
+  if (!planHasChildren(plan)) return "";
+  const rows = plan.children.map(child => {
+    const stats = child.task_stats || { counts: {}, total: 0 };
+    const childAgg = child.aggregate_stats || stats;
+    const slug = child.slug === "_root_" ? "(root)" : child.slug;
+    const total = stats?.total || 0;
+    const done = stats?.counts?.completed || 0;
+    const subplanCount = (child.aggregate_stats?.descendants) || 0;
+    return `
+      <div class="subplan-row" data-subplan-rel="${escapeAttr(child.rel)}">
+        <div class="subplan-row-head">
+          <span class="pill pill-${child.status}" title="${child.status} · ${fmtAge(child.age_days)}"></span>
+          <span class="subplan-row-slug">${escapeText(slug)}</span>
+          ${subplanCount ? `<span class="child-count" title="${subplanCount} descendant${subplanCount === 1 ? "" : "s"}">⌐${subplanCount}</span>` : ""}
+          <button type="button" class="subplan-open" data-subplan-rel="${escapeAttr(child.rel)}">→ open</button>
+        </div>
+        ${child.purpose ? `<div class="subplan-row-purpose">${escapeText(child.purpose)}</div>` : ""}
+        <div class="subplan-row-progress">
+          ${renderProgressBar(stats)}
+          <span class="subplan-row-label">${total ? `${done}/${total} done` : "no tasks"}</span>
+        </div>
+      </div>`;
+  }).join("");
+  return `
+    <section class="pane-subplans">
+      <h3>Sub-plans <span class="muted">(${plan.children.length})</span></h3>
+      ${rows}
+    </section>`;
+}
+
 function fleetCompletionStat(plans) {
   let done = 0, total = 0;
   for (const p of plans) {
@@ -205,6 +271,19 @@ function fleetCompletionStat(plans) {
   }
   if (!total) return "";
   return ` · ${done}/${total} tasks (${pct(done, total)}%)`;
+}
+
+// Plans whose `parent_rel` matches another plan's `rel` are surfaced as
+// indented children under that parent in the sidebar. Children are rendered
+// immediately after their parent so the visual lineage matches the data.
+function planHasChildren(plan) {
+  return Array.isArray(plan.children) && plan.children.length > 0;
+}
+
+function isOrphanChild(plan, byRel) {
+  const parentRel = plan?.parent_rel;
+  if (!parentRel) return false;
+  return byRel.has(parentRel);
 }
 
 function renderSidebar() {
@@ -223,8 +302,18 @@ function renderSidebar() {
         (a.title || "").toLowerCase().includes(filter))
     : state.artifacts;
 
+  // Build a rel→plan lookup over the FILTERED set so child indentation only
+  // happens when both parent and child survive the filter. A child whose
+  // parent was filtered out shows up at the top level instead of orphaned
+  // under nothing.
+  const byRel = new Map();
+  for (const plan of filteredPlans) byRel.set(plan.rel, plan);
+  // Only include plans at the "top level" (no surviving parent) in repo
+  // grouping. Surviving children are rendered inline below their parent.
+  const topLevelPlans = filteredPlans.filter(p => !isOrphanChild(p, byRel));
+
   const groups = new Map();
-  for (const plan of filteredPlans) {
+  for (const plan of topLevelPlans) {
     if (!groups.has(plan.repo)) groups.set(plan.repo, []);
     groups.get(plan.repo).push(plan);
   }
@@ -263,33 +352,72 @@ function renderSidebar() {
       ${rows}`;
   }
 
-  const repoOrder = [...groups.keys()].sort();
-  const plansHTML = repoOrder.map(repo => {
-    const rows = groups.get(repo);
-    const inner = rows.map(plan => {
-      const active = state.active && state.active.kind === "plan" && state.active.path === plan.path ? "is-active" : "";
-      const isRoot = plan.slug === "_root_";
-      const slugLabel = isRoot ? `${plan.repo}/PLAN.md` : plan.slug;
-      const stats = plan.task_stats || { counts: {}, total: 0 };
-      const invCount = (plan.investigations || []).length;
-      return `
-        <div class="plan-row ${active}" data-kind="plan" data-path="${escapeAttr(plan.path)}">
-          <div class="plan-row-head">
-            <span class="pill pill-${plan.status}" title="${plan.status} · ${fmtAge(plan.age_days)}"></span>
-            <span>${escapeText(slugLabel)}</span>
-          </div>
-          ${plan.purpose ? `<div class="plan-row-purpose">${escapeText(plan.purpose)}</div>` : ""}
-          <div class="plan-row-meta">
-            <span>${fmtAge(plan.age_days)}</span>
-            <span>${(plan.size / 1024).toFixed(1)}KB</span>
-            ${plan.siblings.length ? `<span>+${plan.siblings.length}</span>` : ""}
-          </div>
+  // Recursive row renderer — emits a parent followed by its children at one
+  // higher indent depth. A child whose own children survive the filter keeps
+  // recursing. depth=0 is the top-level repo-row look; depth>=1 gets the
+  // `.is-child` modifier styled in style.css.
+  function renderPlanRow(plan, depth) {
+    const active = state.active && state.active.kind === "plan" && state.active.path === plan.path ? "is-active" : "";
+    const isRoot = plan.slug === "_root_";
+    const slug = isRoot ? `${plan.repo}/PLAN.md` : plan.slug;
+    const stats = plan.task_stats || { counts: {}, total: 0 };
+    const agg = plan.aggregate_stats || stats;
+    const hasChildren = planHasChildren(plan);
+    const invCount = (plan.investigations || []).length;
+    const childModifier = depth > 0 ? `is-child is-child-${Math.min(depth, 4)}` : "";
+    const indentStyle = depth > 0 ? `style="--child-depth:${depth}"` : "";
+    // Parent rows show an own-tasks bar AND an aggregate (with-sub-plans) bar.
+    // Plans without children only need one bar — use the existing single-bar
+    // treatment so leaf rows look unchanged from the pre-rollup UI.
+    const progressHTML = hasChildren
+      ? `
+          <div class="progress-row progress-row-with-rollup">
+            <div class="progress-row-line">
+              <span class="progress-row-tag">this plan</span>
+              ${renderProgressBar(stats, "is-self")}
+              ${renderProgressLabel(stats, invCount)}
+            </div>
+            <div class="progress-row-line">
+              <span class="progress-row-tag is-rollup">+ sub-plans (${agg.descendants || 0})</span>
+              ${renderProgressBar(agg, "is-rollup")}
+              ${renderProgressLabel(agg, 0)}
+            </div>
+          </div>`
+      : `
           <div class="progress-row">
             ${renderProgressBar(stats)}
             ${renderProgressLabel(stats, invCount)}
-          </div>
-        </div>`;
-    }).join("");
+          </div>`;
+    const rowHTML = `
+      <div class="plan-row ${active} ${childModifier}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle}>
+        <div class="plan-row-head">
+          <span class="pill pill-${plan.status}" title="${plan.status} · ${fmtAge(plan.age_days)}"></span>
+          <span>${escapeText(slug)}</span>
+          ${hasChildren ? `<span class="child-count" title="${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}">⌐${plan.children.length}</span>` : ""}
+        </div>
+        ${plan.purpose ? `<div class="plan-row-purpose">${escapeText(plan.purpose)}</div>` : ""}
+        <div class="plan-row-meta">
+          <span>${fmtAge(plan.age_days)}</span>
+          <span>${(plan.size / 1024).toFixed(1)}KB</span>
+          ${plan.siblings.length ? `<span>+${plan.siblings.length}</span>` : ""}
+        </div>
+        ${progressHTML}
+      </div>`;
+    // Only render children that survived the filter — a filter that drops
+    // a child plan should hide it from the indented list under its parent.
+    const childRowsHTML = hasChildren
+      ? plan.children
+          .filter(child => byRel.has(child.rel))
+          .map(child => renderPlanRow(child, depth + 1))
+          .join("")
+      : "";
+    return rowHTML + childRowsHTML;
+  }
+
+  const repoOrder = [...groups.keys()].sort();
+  const plansHTML = repoOrder.map(repo => {
+    const rows = groups.get(repo);
+    const inner = rows.map(plan => renderPlanRow(plan, 0)).join("");
     return `
       <div class="repo-group">
         <h2>${escapeText(repo)} <span class="repo-count">(${rows.length})</span></h2>
@@ -433,6 +561,7 @@ async function renderPane() {
   }
 
   const stats = plan.task_stats || { counts: {}, total: 0 };
+  const aggregate = plan.aggregate_stats || stats;
   const invStripHTML = investigations.length ? `
     <div class="pane-investigations-strip">
       <span class="label">Investigations (${investigations.length}):</span>
@@ -456,6 +585,8 @@ async function renderPane() {
       </div>
     </div>
     ${renderPaneProgress(stats)}
+    ${renderPaneAggregateProgress(plan, aggregate)}
+    ${renderPaneSubplans(plan)}
     <div class="pane-tabs">
       ${tabs.map(t => `
         <button data-tab="${escapeAttr(t)}" class="${t === state.activeTab ? "is-active" : ""}">${escapeText(t)}</button>
@@ -476,6 +607,13 @@ async function renderPane() {
   els.pane.querySelectorAll(".pane-investigations-strip button").forEach(b => {
     b.addEventListener("click", () => {
       setActiveTab(`INV:${b.getAttribute("data-inv")}`);
+    });
+  });
+  els.pane.querySelectorAll(".subplan-open").forEach(b => {
+    b.addEventListener("click", () => {
+      const rel = b.getAttribute("data-subplan-rel");
+      const target = state.plans.find(p => p.rel === rel);
+      if (target) selectPlan(target, { scrollIntoView: true });
     });
   });
   setupCommentsPanel(tabPath);

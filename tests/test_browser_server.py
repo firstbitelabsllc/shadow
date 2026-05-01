@@ -360,5 +360,123 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(Path(game_plans[0]["path"]), canonical.resolve())
 
 
+class BrowserSubplanRollupTests(unittest.TestCase):
+    """Recursive parent→child task-stat rollup via `> Parent:` backlinks.
+
+    Sets up a parent plan with 5 completed + 5 pending tasks, then two child
+    plans pointing back at the parent (3/3 + 2/2). Asserts:
+      * `task_stats` stays scoped to the file's own ## Tasks (5/10).
+      * `aggregate_stats` rolls in descendants (10/15, 2 descendants).
+      * `parent_rel` parsing handles the `> Parent: <relpath>` form.
+      * `children` are wired as a list of plan-dicts on the parent.
+    Without this, the sidebar progress bar lies about parent completion.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dev_root = Path(self.tmp.name).resolve()
+        browser_server.DEV_ROOT = self.dev_root
+
+        # Parent plan: 5 completed + 5 pending = 5/10 own tasks.
+        parent_dir = self.dev_root / "demo-repo" / "vidux" / "design-overhaul"
+        parent_dir.mkdir(parents=True)
+        parent_path = parent_dir / "PLAN.md"
+        parent_tasks = (
+            "\n".join(f"- [completed] task done {i}" for i in range(5))
+            + "\n"
+            + "\n".join(f"- [pending] task pending {i}" for i in range(5))
+        )
+        parent_path.write_text(
+            "# Parent\n\n## Purpose\nParent plan.\n\n## Tasks\n" + parent_tasks + "\n",
+            encoding="utf-8",
+        )
+        self.parent_rel = "demo-repo/vidux/design-overhaul/PLAN.md"
+
+        # Child A: 3/3 — every task completed.
+        child_a_dir = parent_dir / "alpha"
+        child_a_dir.mkdir(parents=True)
+        (child_a_dir / "PLAN.md").write_text(
+            "# Child A\n\n"
+            f"> Parent: {self.parent_rel} task D2\n\n"
+            "## Tasks\n"
+            "- [completed] a1\n- [completed] a2\n- [completed] a3\n",
+            encoding="utf-8",
+        )
+
+        # Child B: 0/2 — nothing done.
+        child_b_dir = parent_dir / "beta"
+        child_b_dir.mkdir(parents=True)
+        (child_b_dir / "PLAN.md").write_text(
+            "# Child B\n\n"
+            f"**Parent:** {self.parent_rel}\n\n"
+            "## Tasks\n"
+            "- [pending] b1\n- [pending] b2\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _find(self, plans, rel: str) -> dict:
+        for plan in plans:
+            if plan["rel"] == rel:
+                return plan
+        raise AssertionError(f"plan {rel} not in {[p['rel'] for p in plans]}")
+
+    def test_extract_parent_rel_handles_both_forms(self):
+        self.assertEqual(
+            browser_server.extract_parent_rel(
+                "# T\n\n> Parent: vidux/x/PLAN.md task D2\n"
+            ),
+            "vidux/x/PLAN.md",
+        )
+        self.assertEqual(
+            browser_server.extract_parent_rel("# T\n\n**Parent:** vidux/y/PLAN.md\n"),
+            "vidux/y/PLAN.md",
+        )
+        self.assertIsNone(browser_server.extract_parent_rel("# T\n\nno parent\n"))
+
+    def test_parent_task_stats_count_only_own_tasks(self):
+        plans = browser_server.discover_plans()
+        parent = self._find(plans, self.parent_rel)
+        self.assertEqual(parent["task_stats"]["total"], 10)
+        self.assertEqual(parent["task_stats"]["counts"]["completed"], 5)
+        self.assertEqual(parent["task_stats"]["counts"]["pending"], 5)
+
+    def test_aggregate_stats_rolls_up_children(self):
+        plans = browser_server.discover_plans()
+        parent = self._find(plans, self.parent_rel)
+        agg = parent["aggregate_stats"]
+        # 10 own + 3 child-A + 2 child-B = 15 total tasks under this branch.
+        self.assertEqual(agg["total"], 15)
+        # 5 own completed + 3 child-A completed + 0 child-B completed = 8.
+        self.assertEqual(agg["counts"]["completed"], 8)
+        # 5 own pending + 0 child-A pending + 2 child-B pending = 7.
+        self.assertEqual(agg["counts"]["pending"], 7)
+        self.assertEqual(agg["descendants"], 2)
+
+    def test_children_attached_to_parent(self):
+        plans = browser_server.discover_plans()
+        parent = self._find(plans, self.parent_rel)
+        rels = sorted(child["rel"] for child in parent["children"])
+        self.assertEqual(
+            rels,
+            [
+                "demo-repo/vidux/design-overhaul/alpha/PLAN.md",
+                "demo-repo/vidux/design-overhaul/beta/PLAN.md",
+            ],
+        )
+
+    def test_child_keeps_own_task_stats_independent(self):
+        plans = browser_server.discover_plans()
+        child_a = self._find(plans, "demo-repo/vidux/design-overhaul/alpha/PLAN.md")
+        # Children should get their own aggregate_stats too — no descendants
+        # for a leaf, so it equals the own task_stats.
+        self.assertEqual(child_a["task_stats"]["total"], 3)
+        self.assertEqual(child_a["aggregate_stats"]["total"], 3)
+        self.assertEqual(child_a["aggregate_stats"]["descendants"], 0)
+        self.assertEqual(child_a["parent_rel"], self.parent_rel)
+
+
 if __name__ == "__main__":
     unittest.main()
