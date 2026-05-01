@@ -2,9 +2,9 @@
 
 # T5 — ACHQtix2: "Tappping doesn't dismisss and scroll to right place"
 
-**Status:** [pending]
+**Status:** [in_progress]
 **Priority:** P1 (Sunday morning, ~3hr)
-**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>`
+**Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T15:25:00Z`
 **ASC ID:** ACHQtix2
 **DerivedData namespace:** `/tmp/resplit-dd-T5-${RANDOM}`
 
