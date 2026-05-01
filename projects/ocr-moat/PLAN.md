@@ -2,7 +2,7 @@
 
 > Sibling of `../resplit-2-0-weekend-push/PLAN.md`. Post-launch foundation work.
 
-**Status:** [pending] (gate: Resplit 2.0 weekend-push must ship first)
+**Status:** [unblocked — ready-to-claim] (gate lifted 2026-05-01T15:17:49Z when weekend-push T9 shipped build 2363 / v2.2.0 to TestFlight; see `../resplit-2-0-weekend-push/PLAN.md` line 208)
 **Estimated scope:** 5 phases, 32 AI-hours, ~6 calendar weeks
 **Authority spec:** `firstbitelabsllc/resplit-ios:docs/superpowers/specs/2026-05-01-ocr-moat-design.md`
 **Created:** 2026-05-01 (Leo verbatim approval: *"great keep working move on"*, scope D)
