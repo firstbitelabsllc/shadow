@@ -21,6 +21,10 @@ projects/*
 # Exception: ocr-moat is the post-2.0-launch foundation project for vendor-neutral
 # receipt scanning. Tracked so all agents converge on the same plan.
 !projects/ocr-moat/
+# Exception: higgs-reader-poc is the quality-gate PoC for Higgs Audio V2 TTS —
+# verifying whether it can read out Claude analysis on walks. Tracked so the
+# autonomous /loop cron can resume across sessions / machines.
+!projects/higgs-reader-poc/
 
 # Temp files from checkpoint script
 tmp*.md
