@@ -2,9 +2,9 @@
 
 # T3 — AO4j25: Corner radius bug
 
-**Status:** [pending]
+**Status:** [in_progress]
 **Priority:** P0 Saturday
-**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>`
+**Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T14:25:00Z`
 **ASC ID:** AO4j25
 **DerivedData namespace:** `/tmp/resplit-dd-T3-${RANDOM}`
 
