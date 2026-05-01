@@ -2,9 +2,9 @@
 
 # T2 — ANgvTW: "Still overlapping" (settlement pill / participant chip)
 
-**Status:** [pending]
+**Status:** [in_progress]
 **Priority:** P0 (Saturday parallel-dispatchable)
-**Claim:** `claimed_by: <agent_id>` `claimed_at: <iso>`
+**Claim:** `claimed_by: claude-opus-4-7-rios-640471` `claimed_at: 2026-05-01T13:36:30Z`
 **ASC ID:** ANgvTW
 **DerivedData namespace:** `/tmp/resplit-dd-T2-${RANDOM}`
 **Special concern:** Reporter said "STILL overlapping" → a prior fix exists and didn't work. **First step: find the prior fix commit** before writing new code.
