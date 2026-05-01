@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.0] - 2026-05-01
+
+Browser left-panel rework: recently-viewed at top, recency-based ordering, persistent collapse state, parent backlinks. Plus recursive sub-plan rollup as a first-class second nesting mode.
+
+### Added
+
+- **Recursive sub-plan rollup.** vidux-browse now parses `> Parent: <relpath>` and `**Parent:** <relpath>` backlinks at the top of child PLAN.md files, builds a parent → children tree post-discovery, and computes `aggregate_stats` recursively across each branch. Sidebar indents children under their parent (`.plan-row.is-child`); parent rows render two stacked progress bars (own tasks + rolled-up sub-plans). Pane gets a "with sub-plans" headline plus a Sub-plans section listing each child with a mini bar and an open button. Cycle-safe via visited-set. (#86)
+- **"← Parent" backlink in pane header for child plans.** Child plans can now navigate to their parent in one click; href is present so cmd-click opens in a new tab. Closes the doubly-linked-list gap.
+- **Recently-viewed section at top of sidebar.** Up to 5 items (mixes plans + artifacts), tracked in localStorage and deduped on click. Survives reloads.
+- **Persisted collapse state.** Click any group header (recents, artifacts, or each repo) and it stays collapsed across reloads via localStorage `vidux:ui-state`. Disclosure caret (▾/▸) makes the affordance visible.
+- **Two nesting modes documented in SKILL.md.** Investigation files (1-level, for compound tasks) and sub-plan rollup (N-level, for multi-phase missions with parallel sub-streams). The discipline doc now matches the browser's actual capability.
+
+### Changed
+
+- **Sidebar sort: alphabetical → recency.** Repos sort by their freshest plan's mtime; within each repo, plans sort by mtime descending. Active work rises automatically; cold tail sinks. Resolves the "most annoying" friction with the prior alphabetical default.
+- **Repo-root plan labels.** `_root_` slug now renders as `<repo>/PLAN.md` in the sidebar (not the literal "(root)") and the pane header shows just `<repo>` for root-level plans (no `· (root)` suffix).
+- **"modified today ago" → "modified today".** Grammar bug in the pane meta line.
+
+### Verified
+
+- Playwright smoke on Studio: recently-viewed populates after first plan click, parent backlink renders + navigates in-app, VIDUX (30 plans) repo rises above smaller cold repos due to recency sort.
+- Server already exposed `parent_rel` per child plan; the client walks `state.plans` to find the parent (O(n) per lookup, n≈70).
+
+---
+
 ## [2.25.0] - 2026-04-29
 
 Named annotations for vidux-browse. LAN viewers can now leave comments on a plan tab or artifact without turning comments into plan writes.
