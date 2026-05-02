@@ -49,3 +49,27 @@ rm -rf /tmp/whisperx-probe /tmp/mlx-stt-probe.json
 ```
 
 (whisperx model cache stays at `~/.cache/whisper` for reuse; the `whisperx` uv tool is installed and idle until the M10 integration cycle.)
+
+## Follow-up probe — path 2 ruled out (2026-05-02 +30m)
+
+Tested `mlx-community/whisper-base-mlx` to see if it ships its HF processor (which would make `mlx_audio.stt.generate` work cleanly):
+
+```
+$ ls ~/.cache/huggingface/hub/models--mlx-community--whisper-base-mlx/snapshots/*/
+config.json
+weights.npz
+
+$ mlx_audio.stt.generate --model mlx-community/whisper-base-mlx --audio ... --language en
+ValueError: Processor not found. Make sure the model was loaded with a HuggingFace processor.
+```
+
+Same error as `whisper-tiny-mlx`. The mlx-community snapshots ship ONLY the converted weights + config — no processor / tokenizer / preprocessor. mlx-audio's `post_load_hook` calls `WhisperProcessor.from_pretrained(model_path)` against the local snapshot dir and fails when those files are missing.
+
+**Workaround would require** downloading processor/tokenizer files from `openai/whisper-base` and merging them into the mlx-community snapshot dir. Doable but multi-step and brittle — every model-cache wipe re-introduces the issue.
+
+**Path 2 is effectively ruled out without upstream mlx-community packaging fix or a per-Mac processor-merge helper.** That leaves:
+
+- **Path 1** (whisperx CPU pre-compute, ~RTF 10×) — viable but adds 10s latency per chunk on top of synthesis
+- **Path 3** (heuristic even-distribution of words across chunk duration) — free, zero-latency, but inaccurate when speech rate varies
+
+Either is multi-cycle integration work that needs Leo's explicit pick before kicking off.
