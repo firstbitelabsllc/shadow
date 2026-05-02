@@ -2,76 +2,91 @@
 
 ## Purpose
 
-Ship a 🔊 "Read aloud" button in vidux-browse that reads the current artifact / PLAN.md aloud using Mistral's Voxtral 4B TTS, **running entirely in the user's browser via WebGPU**. Zero server, zero cloud, zero ongoing cost. Personal use only (Voxtral is CC BY NC 4.0 — Leo's confirmed personal scope is fine, this is NOT for Snowcubes / Resplit / StrongYes commercial use).
+Ship a 🔊 "Read aloud" button in vidux-browse that reads the current artifact / PLAN.md aloud using **Mistral Voxtral 4B TTS running locally on Apple Silicon via mlx-audio**. vidux-browse is a thin HTTP client; mlx-audio.server (`localhost:8000`, OpenAI-compatible REST) owns model + GPU. Fully local, no cloud, no API billing. Leo's M-series Macs only.
 
-The killer use case is hands-free consumption of agent output during walks / commutes — the same goal that drove the abandoned Higgs-on-Modal path (2026-05-01 cycles 1-9). Voxtral's WebGPU runtime is what makes this finally tractable: M-series Apple Silicon GPU + Transformers.js v4 + zero install + Mistral-grade voice quality.
+The killer use case is hands-free consumption of agent output during walks / commutes / dog-walks. Personal use only — Voxtral 4B-TTS is CC-BY-NC-4.0 (Leo confirmed personal scope). Commercial Leo properties (Snowcubes, Resplit, StrongYes) MUST NOT use this — substitute Apple Premium voices or Apache-2.0 Kokoro for those.
+
+**Two-agent coordination (2026-05-01).** Codex is joining this plan. Both agents (Claude + Codex) read PLAN.md, claim a `[pending]` task by setting it `[in_progress] [owner: <agent>]`, ship, then flip `[completed]`. Coordination rules in `## Two-Agent Coordination` below.
 
 ## Evidence
 
-- [Source: WebSearch 2026-05-01] Mistral released Voxtral TTS on 2026-03-26. 4B params (3.4B decoder + 390M flow-matching acoustic + 300M neural codec). RTF ~9.7x, 70ms latency for typical input. Beats ElevenLabs Flash v2.5 in 68.4% of blind tests. 9 languages. Voice cloning from <5s reference audio.
-- [Source: WebFetch 2026-05-01 — `mistral.ai/news/voxtral-tts`] License: **CC BY NC 4.0** (NON-commercial). HF model path: `mistralai/Voxtral-4B-TTS-2603`. API pricing $0.016/1k chars (not used here — we run local).
-- [Source: WebSearch 2026-05-01] WebGPU Space exists at `huggingface.co/spaces/mistralai/Voxtral-Realtime-WebGPU` — runs entirely in the browser, no server. Confirmed reference for the local-runtime path.
-- [Source: agent research 2026-05-01 — Voxtral integration approach] Picked Transformers.js v4 via CDN over (a) iframe-the-Space and (c) raw onnxruntime-web. Rationale: v4 ships `VoxtralForConditionalGeneration` + `VoxtralProcessor` with `device: 'webgpu'` as a one-liner, importable directly from `https://cdn.jsdelivr.net/npm/@huggingface/transformers@4` in `<script type="module">`. ~40-60 LOC total, no build step required. ~2.5 GB Q4 quantized weights cached in IndexedDB on first run; subsequent loads instant.
-- [Source: agent research 2026-05-01 — vidux-browse code map] Integration points:
-  - Top-bar button next to existing `#root-annotation-toggle` at `static/index.html:17`
-  - Artifact body innerHTML at `static/app.js:665` (`renderArtifactPane()`)
-  - PLAN.md body innerHTML at `static/app.js:788` (`renderPane()` after marked.js)
-  - Add new button to `ANNOTATION_CAPTURE_EXCLUDE_SELECTOR` (app.js:106-114) so click doesn't trigger annotation
-  - Style follows `.topbar-meta button` (style.css:57-67) with `.is-active` toggle pattern
-  - No existing audio infrastructure — fresh integration
-- [Source: observed] Leo (2026-05-01): "okay let's do this please /vidux plan cron create harness tag the result of getting a vidux browse integrated feature have moussey or whatever skill know how to install and set this up as an optional vidux browse add on please put into core vidux docs please."
-- [Source: observed] Leo (2026-05-01): "thats totallly fine man i just need it for personal" — confirmed CC BY NC license is acceptable for the leojkwan/vidux personal-use scope.
+- [Source: shell verify 2026-05-01] `mlx-audio` installed via `uv tool install --with mlx-audio mlx-audio` → 5 binaries at `/Users/leokwan/.local/bin/`: `mlx_audio.server`, `mlx_audio.tts.generate`, `mlx_audio.stt.generate`, `mlx_audio.sts.generate`, `mlx_audio.convert`.
+- [Source: WebFetch 2026-05-01 — github.com/Blaizzy/mlx-audio README] mlx-audio supports `mlx-community/Voxtral-4B-TTS-2603-mlx-bf16` natively. Other supported TTS: Kokoro, Qwen3-TTS, Higgs Audio v2, Chatterbox, OuteTTS, Spark, Dia, MeloTTS, MOSS-TTS, CSM, KugelAudio, LongCat-AudioDiT, Soprano, Ming Omni TTS. MIT license on the library itself.
+- [Source: WebFetch 2026-05-01 — `mlx-community/Voxtral-4B-TTS-2603-mlx-bf16`] Confirmed: ~8GB MLX bf16 quantization, ungated public download, 9 languages, 20 voice presets. RTF 6.50× short / 6.32× long on Apple Silicon (faster than real-time). 1,362 downloads last month.
+- [Source: WebFetch 2026-05-01 — mistralai/Voxtral-4B-TTS-2603 file tree] Original BF16 model has NO ONNX export, only `consolidated.safetensors` (8GB). This is why browser/WebGPU paths fail — Transformers.js needs ONNX, which doesn't exist.
+- [Source: WebFetch 2026-05-01 — mistralai/Voxtral-Realtime-WebGPU Space] Browser-WebGPU Space exists but uses Voxtral-Mini-3B-2507 (audio understanding / ASR, wrong direction for read-aloud).
+- [Source: observed] Leo (2026-05-01): "im happy to create huggingface account" + "thats totallly fine man im happy to create huggingface account" + "be absoletely sure voxtral can't be used" — drove the mlx-audio discovery this cycle.
+- [Source: shell check 2026-05-01] vidux-browse running on `:7191` via Python http.server (`browser/server.py` PID 57444 owned by leokwan). LaunchAgent: `com.leokwan.vidux-browser`. Studio + M4 Pro both run their own.
+- [Source: agent research cycle 1] vidux-browse code map — top-bar button slot at `static/index.html:17`, `ANNOTATION_CAPTURE_EXCLUDE_SELECTOR` at `static/app.js:106-114`. Existing `static/readaloud.js` (cycle 4 Kokoro pivot) gets rewritten as HTTP client.
 
 ## Constraints
 
-- ALWAYS: WebGPU runtime in the browser. NO server-side TTS, NO cloud API calls, NO Modal.
-- ALWAYS: Voxtral runs locally via Transformers.js v4 imported from CDN — no build step, no bundler, no React.
-- ALWAYS: Lazy-load the model on FIRST click — never block initial vidux-browse page load.
-- ALWAYS: Voice playback uses `AudioContext` or `<audio>` element with progress UI during the ~60-180s first-load weights download.
-- ALWAYS: Vanilla JS to match existing vidux-browse stack (Python http.server + plain HTML + marked.js CDN).
-- NEVER: Use Voxtral for commercial Leo properties (Snowcubes, Resplit, StrongYes) — license forbids it. Personal scope only (leojkwan, vidux internal tooling).
-- NEVER: Bundle the 2.5GB weights with vidux-browse — they download on first click and cache in IndexedDB.
-- NEVER: Add an iframe of the HF Space — brittle, cross-origin postMessage isn't documented, and cold-start re-downloads the entire Space shell every click.
-- NEVER: Roll our own onnxruntime-web integration — Transformers.js already wraps the decode loop, KV cache, mel-spec preprocessing. ~600 LOC of avoidable work.
+- ALWAYS: Voxtral 4B-TTS via mlx-audio is the primary TTS path. Browser-side TTS (Kokoro Transformers.js) stays in repo as `readaloud-kokoro.js` (renamed from `readaloud.js`) for offline / lower-RAM machines. Default `readaloud.js` is the HTTP client.
+- ALWAYS: mlx-audio server runs on `localhost:8000` (default port). vidux-browse calls `POST http://localhost:8000/v1/audio/speech` (OpenAI-compatible).
+- ALWAYS: mlx-audio.server lives as a per-Mac LaunchAgent (`com.leokwan.mlx-audio`) so it auto-starts at login alongside vidux-browse.
+- NEVER: Push the mlx-audio server to LAN/external. Loopback only — same discipline as vidux-browse's `:7191` default. Voxtral weights are NC-licensed and must not be served beyond Leo's personal devices.
+- NEVER: Commercial Leo property (Snowcubes / Resplit / StrongYes) calls into mlx-audio Voxtral. License forbids it. Those use Web Speech API or Kokoro.
+- NEVER: Bundle Voxtral weights with the vidux repo. They're ~8GB; lives at `~/.cache/huggingface/hub/models--mlx-community--Voxtral-4B-TTS-2603-mlx-bf16/`.
+- NEVER: Ship a vidux-browse change that crashes the existing surface. Test reload + render before declaring [completed].
+
+## Two-Agent Coordination
+
+This plan is being executed by **Claude** (this agent) AND **Codex** (parallel agent). Coordination protocol:
+
+1. **Atomic claim:** Before starting work on a `[pending]` task, edit the row to `[in_progress] [owner: <claude|codex>]` and commit immediately (`git add PLAN.md && git commit -m "vidux: claim <task>" && git push`). The push is the lock — first-pusher wins; second-pusher pulls + picks a different task.
+2. **Read fresh:** Always `cd ~/Development/vidux && git pull --rebase` before reading PLAN.md. Stale state causes claim-collisions.
+3. **Pick highest-priority unblocked task whose deps are met.** If two tasks are equally unblocked, prefer the one matching your strengths (Codex: Python/server work; Claude: vidux-browse JS + research/writing).
+4. **Ship code BEFORE marking [completed].** Per vidux principle 5: only commit `PLAN.md → [completed]` alongside the actual code change. No bookkeeping-only commits.
+5. **Conflict resolution:** If you pull and find another agent claimed your task, pick a different task from the queue. Don't argue.
+6. **Hand-off:** When you finish a task that unblocks another agent's task, the unblocked task automatically becomes claimable (no DM needed). The plan file is the only state.
+7. **Deadlock breakers:** If you've been blocked >2 cycles waiting on the other agent's claim, comment `[BLOCKED-CHECK: <date>]` in INBOX.md. The other agent picks up the comment on their next READ.
 
 ## Tasks
 
-### Phase 0 — Quality verdict (active)
+### Phase 1 — mlx-audio + vidux-browse integration (active)
 
-- [pending] V0: Leo opens `huggingface.co/spaces/mistralai/Voxtral-Realtime-WebGPU` in Chrome/Safari, types a test paragraph, listens. Writes verdict to `evidence/2026-05-01-voxtral-quality-verdict.md`. Verdict ∈ {**GO** (clears the bar — proceed to V1), **NEEDS-CLONING** (default voice insufficient, need to test voice-cloning path before committing), **NO-GO** (kill — fall back to Apple Premium voices)}. [ETA: 0.1h] [Depends: Leo's ears]
+- [in_progress] [owner: claude] M1: Smoke test mlx-audio Voxtral. Background task `bjjvivzeq` running `mlx_audio.tts.generate --model mlx-community/Voxtral-4B-TTS-2603-mlx-bf16 --text "Hello from Leo's Voxtral pipeline..." --voice casual_male --file_prefix evidence/2026-05-01-mlx-voxtral-smoke --audio_format wav --verbose`. First run downloads ~8GB weights to `~/.cache/huggingface/`, then synthesizes. Auto-flips to [completed] when WAV lands at `evidence/2026-05-01-mlx-voxtral-smoke.wav`. **Verifies the entire mlx-audio Voxtral path on Leo's M4 before any architecture commits.** [Evidence: evidence/2026-05-01-mlx-voxtral-smoke.{wav,log}]
+- [pending] M2: Architecture decision lock. Once M1 confirms Voxtral works, lock: (a) port = `8000` (mlx-audio default; conflicts: none on Leo's Macs as of 2026-05-01); (b) endpoint = `POST http://localhost:8000/v1/audio/speech` (OpenAI-compatible JSON `{model, input, voice, response_format}`); (c) server lifecycle = LaunchAgent `com.leokwan.mlx-audio` per Mac. Write `evidence/2026-05-01-architecture.md` documenting these choices + rejected alternatives. [Depends: M1]
+- [pending] M3: Rewrite `browser/static/readaloud.js` as HTTP client. Strip Kokoro browser-side code (move to `readaloud-kokoro.js` for offline fallback). New flow: button click → `fetch('http://localhost:8000/v1/audio/speech', { method: POST, body: JSON.stringify({ model: '...', input: text, voice: 'casual_male', response_format: 'wav' }) })` → blob URL → `<audio>.play()`. Streaming chunks if mlx-audio.server supports `stream: true` (verify against mlx-audio docs). Highlight active chunk via the existing `readaloudHighlightChunk()` pattern. [Depends: M2] [ETA: 1.0h]
+- [pending] M4: LaunchAgent for mlx-audio.server. Create `~/Library/LaunchAgents/com.leokwan.mlx-audio.plist` that runs `/Users/leokwan/.local/bin/mlx_audio.server --host 127.0.0.1 --port 8000 --model mlx-community/Voxtral-4B-TTS-2603-mlx-bf16` at login. `RunAtLoad=true`, `KeepAlive=true`. Save plist to repo at `scripts/launchd/com.leokwan.mlx-audio.plist` for cross-Mac install. Log file at `~/Library/Logs/mlx-audio.log`. [Depends: M2] [ETA: 0.5h]
+- [pending] M5: End-to-end smoke. Reload http://localhost:7191, click 🔊 on a real PLAN.md / artifact, verify audio plays + chunk highlights track. Capture `evidence/2026-05-01-m5-screenshot.png` showing a chunk highlighted mid-playback. Capture timing: button-click → first-audio latency. [Depends: M3, M4]
+- [pending] M6: Update `~/Development/ai/skills/vidux/SKILL.md` Browser block — replace the cycle-1 "Read-aloud add-on (Voxtral, optional)" subsection with the corrected mlx-audio architecture. Document: prereq is mlx-audio + LaunchAgent, vidux-browse is the HTTP client, port 8000 default, license is CC-BY-NC-4.0 (personal-only). [Depends: M2] [ETA: 0.5h] [Note: parallel with M3, M4]
+- [pending] M7: Update `~/Development/ai/skills/moussey/SKILL.md` "Voxtral Reader add-on (optional)" section — replace browser-only install steps with: `pip install mlx-audio` → first run downloads 8GB → `launchctl load ~/Library/LaunchAgents/com.leokwan.mlx-audio.plist` → reload vidux-browse. Per-Mac (Studio + M4 Pro both need install). [Depends: M2] [ETA: 0.3h] [Note: parallel with M3, M4]
 
-### Phase 1 — vidux-browse 🔊 add-on (BLOCKED until V0 = GO)
+### Phase 2 — Polish (deferred until Phase 1 ships)
 
-- [completed] V1: Add 🔊 button surface to top bar. Shipped cycle 1 — `index.html:18` adds `<button id="root-readaloud-toggle" class="root-readaloud-toggle">🔊 Read</button>` between meta-count and annotation toggle. CSS at `style.css:77-90` mirrors the annotation-toggle pattern (`.topbar-meta button.root-readaloud-toggle` + `.is-active` accent + `.is-loading` italic). [Evidence: browser/static/index.html, style.css — visible at http://localhost:7191 on page reload]
-- [in_progress] V2: Lazy-load TTS engine on first click. **PIVOT-2 cycle 4:** swapped Voxtral → Kokoro. Now uses `kokoro-js@1.2.0` from esm.sh, calls `KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "webgpu" })` with WASM fallback if `navigator.gpu` is missing. Promise cached for subsequent clicks. ~80MB download (vs Voxtral's 2.5GB). **Verification pending Leo's next click on his M4** after the pivot ships.
-- [in_progress] V3: Generate audio + play with chunk-level streaming. **PIVOT-2 cycle 4:** rewritten to use Kokoro's streaming API (`tts.stream(splitter, { voice: "af_heart" })`). Each chunk arrives as `{text, audio: RawAudio}`. Plays via Web Audio API's `AudioBufferSourceNode` scheduled contiguously. As each chunk's audio starts playing, `readaloudHighlightChunk()` finds that chunk's text in the body via `TreeWalker` + `Range.surroundContents`, wraps in `<span class="ra-active">` (CSS at style.css `.ra-active` — accent background + paper-color text), scrolls into view. Highlight clears between chunks. **V7 (per-chunk highlight) ships as part of V3 since Kokoro's streaming exposes chunk text natively** — true per-WORD timing not exposed by Kokoro, so chunk-level is the practical max without adding HeadTTS or browser-side forced alignment.
-- [completed] V4: Connect button to current artifact / PLAN.md text. Shipped cycle 1 — `readaloud.js:107-114` reads from `#md-body` first (used by both `renderPane` and `renderArtifactPane`), falls back to `.pane > div:not(.pane-empty)`. Cap at 2000 chars for first-pass UX. Word-highlight + tap-to-seek DEFERRED to V7-V8.
-- [completed] V5: Stop button + replay. Shipped cycle 1 — `readaloud.js:96-101` handles the stop case (click during `state === "playing"` pauses + resets currentTime + flips state to idle). Replay = click again. State machine: idle → loading → playing → idle (or error → idle on retry).
-- [completed] V6: Update `ANNOTATION_CAPTURE_EXCLUDE_SELECTOR` to include `#root-readaloud-toggle`. Shipped cycle 1 — `app.js:108`. Confirmed clicks on the readaloud button cannot accidentally trigger annotation capture.
-- [completed] V7 [shipped via Kokoro pivot]: Chunk-level highlight as audio plays. Achieved via Kokoro's `TextSplitterStream` chunk yield + `readaloudHighlightChunk()` DOM range wrap. Per-WORD precision NOT achieved (Kokoro doesn't expose phoneme→word→time mapping in the basic streaming API); chunk-level is the v0 ceiling without integrating HeadTTS or browser-side forced alignment. Acceptance: highlight tracks the active phrase, scrolls into view, clears between chunks.
-- [blocked] V8 [POLISH, optional]: Tap-to-seek. Click a word during playback → restart audio from that word's character offset. Voxtral's chunked generation makes this feasible. [ETA: 1.0h] [Depends: V7]
-- [blocked] V9 [POLISH, optional]: Voice cloning UI. File picker accepts 5-30s reference audio (mp3/wav/m4a). Pass to `VoxtralProcessor` as reference. Cached per session. [ETA: 1.5h] [Depends: V6]
+- [blocked] M8: Voice cloning UI. mlx-audio supports `--ref_audio` for several models (verify Voxtral). UI: file picker accepts 5-30s audio sample, sent as form-data to `/v1/audio/speech`. [Blocker: M5 ships]
+- [blocked] M9: Voice picker. 20 Voxtral presets exist (`casual_male`, etc.) — sidebar dropdown to pick. [Blocker: M5 ships]
+- [blocked] M10: True per-word highlight via mlx-audio streaming events. Currently chunk-level only. Investigate whether mlx-audio.server emits per-word timing in the SSE stream. [Blocker: M5 ships]
 
-### Phase 2 — Documentation (parallelizable with Phase 1)
+### Phase 3 — Cross-machine sync (deferred)
 
-- [completed] D1: Add Read-aloud add-on subsection to `~/Development/ai/skills/vidux/SKILL.md` Browser block. **Cycle 1 ships this alongside the plan.** Documents the integration approach (Transformers.js v4 + WebGPU + CDN import), license note (CC BY NC 4.0 personal-only), and minimal install requirements (modern browser with WebGPU support). [Evidence: vidux/SKILL.md updated, see commit]
-- [completed] D2: Add Voxtral install section to `~/Development/ai/skills/moussey/SKILL.md`. Documents the optional add-on enable for vidux-browse on Studio + M4 Pro: enable WebGPU in Chrome/Safari, click 🔊 once to trigger first-time weights download, IndexedDB persists across sessions. **Cycle 1 ships this.** [Evidence: moussey/SKILL.md updated, see commit]
+- [blocked] X1: Verify on Studio. Repeat M1+M4 install. Document any per-machine gotchas (M1 vs M4 Pro RAM, MLX version differences). [Blocker: M5 ships]
+- [blocked] X2: iOS reader (Phase 3 of original plan). Calls the same Mac mlx-audio server when iPhone is on home Wi-Fi. SwiftUI app. AVAudioPlayer + lock-screen controls. [Blocker: X1 ships]
 
-### Phase 3 — Cross-machine sync (BLOCKED until V6 ships and weights cache verified on Studio)
+### Phase 4 — Full-duplex voice chat (long-term)
 
-- [blocked] X1: Verify on Studio. WebGPU weights download once per Mac (IndexedDB is per-browser-profile). Document the ~2.5GB one-time hit per machine in moussey docs.
-- [blocked] X2: Optional — check if Apple Safari supports WebGPU well enough for parity with Chrome. Per Mistral docs, Chrome is the primary target.
+- [blocked] P4-T1: Full voice loop = STT (whisper.cpp / Voxtral-Mini-3B-ASR via same mlx-audio.server) + VAD (silero-vad on-device) + Claude API + TTS (Voxtral via this same mlx-audio.server). Sub-300ms latency target. [Blocker: Phase 3 ships AND multi-week budget approved]
+
+### Archive — Browser TTS path (deferred per PIVOT-3)
+
+- [completed] V1-V6: Cycle 1-4 work shipped the in-browser button + Kokoro-via-Transformers.js. Code is at `browser/static/readaloud.js` (current Kokoro implementation). Will be renamed `readaloud-kokoro.js` in M3 as the offline-fallback path. NOT deleted — useful when mlx-audio.server isn't running, or for machines with insufficient RAM for 8GB Voxtral weights.
+- [completed] D1, D2: Cycle 1 docs in vidux + moussey SKILL.md. Will be REWRITTEN in M6, M7 to reflect mlx-audio architecture.
 
 ## Decision Log
 
-- [DIRECTION] [2026-05-01] Voxtral 4B over Higgs Audio V2. Reason: Voxtral runs in the browser via WebGPU on M-series Apple Silicon — no GPU billing, no Modal account, no cloud dependency. Higgs is CUDA-only (verified 2026-05-01 cycles 1-9). Cost of switching: zero (Higgs path was killed mid-deploy with $0 spent).
-- [DIRECTION] [2026-05-01] Transformers.js v4 over iframe-the-Space and raw onnxruntime-web. Reason: v4 ships Voxtral first-class, importable from CDN as ES module, ~40-60 LOC integration in plain HTML. iframe is brittle (no documented postMessage, audio extraction across origins is messy). Raw ORT requires reimplementing Voxtral's decode loop (~600 LOC).
-- [DIRECTION] [2026-05-01] Personal use only — Voxtral is CC BY NC 4.0. Vidux + leojkwan personal site = OK. Snowcubes + Resplit + StrongYes commercial = NOT OK (use Apple Premium voices or paid TTS for those).
-- [DIRECTION] [2026-05-01] Lazy-load weights on first click, not on page load. Reason: ~2.5GB download blocks every cold vidux-browse page load if eager. Lazy means the cost is paid once per browser profile, only by users who actually click the 🔊 button.
-- [DELETION] [2026-05-01] Higgs-on-Modal path deprecated for the reader use case. Code stays in `vidux/projects/higgs-reader-poc/modal_app/higgs.py` as Phase 4 (full-duplex voice chat) reference if STT cloud GPU is ever needed there.
-- [PIVOT-2] [2026-05-01 cycle 4] Voxtral 4B-TTS → Kokoro 82M. **Trigger:** Leo's first-click on the V1 button surfaced a 404 from HF: `mistralai/Voxtral-4B-TTS-2603/resolve/main/config.json` not found. **Root cause:** the only browser-runnable Voxtral on HF is `Voxtral-Mini-3B-2507` which is an audio-INPUT model (ASR), NOT TTS. The Voxtral-4B-TTS variant is API-only / gated — weights never published for browser download. I conflated the two. **Fix:** swap to Kokoro 82M (`onnx-community/Kokoro-82M-v1.0-ONNX`) via `kokoro-js` library — Apache 2.0 (commercial-OK, removes the NC-license blocker too), 80MB Q8 weights vs Voxtral's 2.5GB, browser-native via Transformers.js. **Bonus:** Apache license means the add-on can be enabled for commercial Leo properties (Snowcubes, Resplit, StrongYes) — the previous "personal use only" constraint goes away. **Streaming:** kokoro-js `TextSplitterStream` returns chunks (phrase-level), enabling chunk-level highlight-as-it-reads per Leo's V7-lite ask. [Evidence: WebSearch 2026-05-01 confirmed kokoro-js + onnx-community/Kokoro-82M-v1.0-ONNX is the canonical browser TTS path; Xenova post on HF; npm kokoro-js@1.2.0]
+- [DIRECTION] [2026-05-01] mlx-audio + Voxtral 4B-TTS over browser-WebGPU TTS. Reason: Voxtral 4B-TTS has no ONNX export (only safetensors); the browser-runnable Voxtral is Mini-3B (ASR, wrong direction). mlx-audio is the canonical Apple-Silicon-native path that actually exposes Voxtral 4B for inference. RTF 6.5× on M-series.
+- [DIRECTION] [2026-05-01] Architecture: vidux-browse → HTTP → mlx-audio.server. Reason: separation of concerns. vidux-browse stays a thin static-file server; the heavy GPU+model state lives in a dedicated Python process. Allows other tools (CLI, future iOS Wi-Fi caller, vidux-leo overlays) to use the same TTS service without re-implementing.
+- [DIRECTION] [2026-05-01] Personal use only — CC-BY-NC-4.0 inherited from Voxtral weights. Vidux + leojkwan.com personal site = OK. Snowcubes / Resplit / StrongYes = NOT OK (use Web Speech API or Apache-2.0 Kokoro).
+- [DIRECTION] [2026-05-01] LaunchAgent for mlx-audio.server, mirroring `com.leokwan.vidux-browser`. Reason: Leo's Macs already follow the LaunchAgent pattern for local services; one more is consistent.
+- [PIVOT] [2026-05-01 cycle 4] Voxtral 4B-TTS browser → Kokoro 82M browser. Trigger: 404 on `mistralai/Voxtral-4B-TTS-2603/resolve/main/config.json`. Root cause: I conflated Voxtral-4B-TTS (no ONNX) with Voxtral-Mini-3B (has ONNX). **Reverted by PIVOT-3.**
+- [PIVOT-3] [2026-05-01 cycle 5+] Kokoro browser → mlx-audio Voxtral local server. Trigger: Leo's "be absolutely sure voxtral can't be used" pushed me to find `mlx-audio` (Blaizzy), which DOES support Voxtral 4B-TTS via the mlx-community fp16 conversion. Architecture changes from in-browser inference to localhost HTTP, but quality goes from Kokoro 82M → real Voxtral 4B (3-4× the params, native voice cloning, 20 presets). Kokoro code retained as offline fallback.
+- [DELETION] [2026-05-01] Cron job `f2d150cf` (10-min Kokoro debug loop) deleted alongside PIVOT-3. New cron will fire after M5 ships and the architecture is verified end-to-end.
 
 ## Progress
 
-- [2026-05-01] Plan created. Phase 0 (Voxtral quality verdict) is the only active task — Leo opens the WebGPU Space, listens, decides. If GO, V1-V6 ship the read-aloud button autonomously via cron loop. Phase 2 docs (D1, D2) shipped in this same cycle alongside the plan.
-- [2026-05-01] Cycle 2: Per Leo "what are u waiting for keep going" — pivoted from waiting on V0 verdict to shipping V1-V6 autonomously since they're code-only and don't depend on quality verdict (verdict gates MERGE not BUILD). Created `browser/static/readaloud.js` (~165 lines) — full standalone module: lazy Transformers.js v4 import, Voxtral pipeline init with progress UI, source-text reader (md-body or pane fallback, 2000-char cap), WAV blob conversion, AudioContext playback, stop/replay state machine. Edited `browser/static/index.html` to add `<button id="root-readaloud-toggle">` + `<script type="module" src="/static/readaloud.js" defer>`. Edited `browser/static/app.js:108` to add `#root-readaloud-toggle` to `ANNOTATION_CAPTURE_EXCLUDE_SELECTOR`. Edited `browser/static/style.css:77-90` with `.root-readaloud-toggle` + `.is-active` + `.is-loading` rules mirroring the annotation toggle pattern. V1, V4, V5, V6 [completed] (code-level). V2, V3 [in_progress] — verification pending Leo's first click. Next: Leo reloads http://localhost:7191, sees the 🔊 button, clicks, watches Transformers.js download Voxtral weights (~2.5GB, 60-180s) into IndexedDB, hears Voxtral-synthesized PLAN.md.
+- [2026-05-01] Plan created (cycle 1). Phase 0 = Voxtral quality verdict via WebGPU Space.
+- [2026-05-01] Cycle 2: V1-V6 shipped — 🔊 button + lazy-load + chunk highlight. Code-level done; runtime verification pending Leo's first click.
+- [2026-05-01] Cycle 3: idle on V0 verdict.
+- [2026-05-01] Cycle 4: Leo's first click → 404 on `Voxtral-4B-TTS-2603/config.json`. PIVOT to Kokoro 82M browser-runtime via kokoro-js@1.2.0. Apache 2.0 license bonus.
+- [2026-05-01] Cycle 5+: Leo invoked /effort max + /nia, demanded "be absolutely sure voxtral can't be used." Found `mlx-audio` library (Blaizzy/MIT) that supports `mlx-community/Voxtral-4B-TTS-2603-mlx-bf16` natively on Apple Silicon, exposes OpenAI-compatible REST server. PIVOT-3: Kokoro browser → mlx-audio Voxtral local server. mlx-audio installed (`uv tool install`). Smoke test running in background (downloads ~8GB Voxtral weights, then synthesizes). Plan rewritten with M1-M7 task atoms + Two-Agent Coordination protocol for Codex parallelism. Cron `f2d150cf` deleted. **Next: smoke test result determines whether to ship M2-M7 or pivot again.**
