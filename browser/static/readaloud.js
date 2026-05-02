@@ -40,6 +40,11 @@ const CLONE_TEXT_KEY = "vidux.readaloud.cloneRefText";
 const PREVIEW_TEXT = "This is a sample of the selected voice.";
 const MAX_INPUT_CHARS = 5000;
 const TARGET_CHUNK_CHARS = 320;
+// M12: Voxtral default cadence is conversational; Leo's morning M5 verdict
+// flagged "talks a bit slow." mlx-audio's OpenAI-compatible endpoint accepts
+// `speed` (server-side resample, NOT a client-side playbackRate chipmunk hack).
+// Verified 2026-05-02: speed=1.25 returns ~72% of the bytes for the same text.
+const SPEED = 1.25;
 
 function readaloudCloneState() {
   let path = null, text = null;
@@ -262,6 +267,7 @@ function readaloudSetState(state, label) {
       b.textContent = "🔊 Read";
       b.disabled = false;
       b.title = "Read aloud (Voxtral via local mlx-audio.server)";
+      b.style.removeProperty("--ra-progress");
       break;
     case "loading":
       b.textContent = label || "🔊 Synthesizing…";
@@ -283,16 +289,35 @@ function readaloudSetState(state, label) {
 
 function readaloudClearHighlights() {
   for (const span of READALOUD.highlightedSpans) {
-    span.classList.remove("ra-active");
+    if (span.parentNode) {
+      const parent = span.parentNode;
+      // First flatten any .ra-word children to plain text so we don't leave
+      // orphaned per-word spans floating in the DOM.
+      const wordSpans = span.querySelectorAll(".ra-word");
+      for (const ws of wordSpans) {
+        if (ws.parentNode) {
+          ws.parentNode.replaceChild(document.createTextNode(ws.textContent || ""), ws);
+        }
+      }
+      // Then unwrap the .ra-active wrapper itself.
+      while (span.firstChild) parent.insertBefore(span.firstChild, span);
+      parent.removeChild(span);
+      // Coalesce adjacent text nodes so subsequent walks see one node again.
+      parent.normalize();
+    } else {
+      span.classList.remove("ra-active");
+    }
   }
   READALOUD.highlightedSpans = [];
 }
 
 function readaloudHighlightChunk(chunkText, body) {
-  if (!chunkText || !body) return;
+  // Legacy chunk-level highlight (no per-word migration). Kept as fallback for
+  // chunks that span multiple text nodes (rich-text in markdown body).
+  if (!chunkText || !body) return false;
   readaloudClearHighlights();
   const needle = chunkText.trim();
-  if (!needle) return;
+  if (!needle) return false;
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   let node;
   while ((node = walker.nextNode())) {
@@ -306,14 +331,115 @@ function readaloudHighlightChunk(chunkText, body) {
       span.className = "ra-active";
       range.surroundContents(span);
       READALOUD.highlightedSpans.push(span);
-      span.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      return;
+      try { span.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (_) {}
+      return true;
     } catch (e) {
-      // Range straddled element boundaries; skip the highlight, keep playing.
       console.debug("[readaloud] highlight range skipped:", e.message);
-      return;
+      return false;
     }
   }
+  return false;
+}
+
+// M13: per-word highlight via heuristic even-distribution across the chunk's
+// audio duration. setTimeout per word at audioDur/wordCount intervals migrates
+// the .ra-word-active class. Inaccurate when speech rate varies WITHIN a chunk
+// (which is rare for Voxtral at conversational cadence) but free + zero-latency.
+//
+// Real markdown bodies split text across paragraphs/headings/list items, so
+// the FULL chunk text (e.g., 320 chars spanning 3 paragraphs) is never found
+// in a single DOM text node. We shorten the needle progressively until one
+// fits: first sentence → first 60 chars → first 30 chars. The wrapper still
+// represents "where this chunk's audio is currently anchored visually," even
+// if it covers only the chunk's first sentence.
+function readaloudFindChunkRange(chunkText, body) {
+  const trimmed = chunkText.trim();
+  if (!trimmed) return null;
+  // Candidate needles, longest first (most informative match wins).
+  const candidates = [];
+  candidates.push(trimmed);
+  // First sentence (split on . ! ? followed by space or end).
+  const firstSentMatch = trimmed.match(/^[^.!?\n]+[.!?]/);
+  if (firstSentMatch && firstSentMatch[0].length < trimmed.length) {
+    candidates.push(firstSentMatch[0]);
+  }
+  // Up to first newline.
+  const firstLine = trimmed.split(/\n/)[0];
+  if (firstLine && firstLine.length < trimmed.length) candidates.push(firstLine);
+  // Hard fallbacks.
+  if (trimmed.length > 80) candidates.push(trimmed.slice(0, 80).replace(/\s\S*$/, ""));
+  if (trimmed.length > 30) candidates.push(trimmed.slice(0, 30).replace(/\s\S*$/, ""));
+  for (const needle of candidates) {
+    if (!needle) continue;
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const idx = node.nodeValue.indexOf(needle);
+      if (idx === -1) continue;
+      const range = document.createRange();
+      try {
+        range.setStart(node, idx);
+        range.setEnd(node, idx + needle.length);
+        return { range, matched: needle };
+      } catch (_) { continue; }
+    }
+  }
+  return null;
+}
+
+function readaloudHighlightChunkWords(chunkText, audioDur, body, signal) {
+  if (!chunkText || !body) return false;
+  readaloudClearHighlights();
+  const found = readaloudFindChunkRange(chunkText, body);
+  if (!found) return false;
+  const { range, matched } = found;
+  try {
+    const wrapper = document.createElement("span");
+    wrapper.className = "ra-active";
+    const tokens = matched.split(/(\s+)/);
+    const wordSpans = [];
+    for (const t of tokens) {
+      if (!t) continue;
+      if (/^\s+$/.test(t)) {
+        wrapper.appendChild(document.createTextNode(t));
+      } else {
+        const ws = document.createElement("span");
+        ws.className = "ra-word";
+        ws.textContent = t;
+        wrapper.appendChild(ws);
+        wordSpans.push(ws);
+      }
+    }
+    range.deleteContents();
+    range.insertNode(wrapper);
+    READALOUD.highlightedSpans.push(wrapper);
+    try { wrapper.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (_) {}
+    if (wordSpans.length > 0 && audioDur > 0) {
+      const ms = (audioDur * 1000) / wordSpans.length;
+      for (let i = 0; i < wordSpans.length; i++) {
+        setTimeout(() => {
+          if (signal && signal.aborted) return;
+          for (const w of wordSpans) w.classList.remove("ra-word-active");
+          wordSpans[i].classList.add("ra-word-active");
+        }, i * ms);
+      }
+    }
+    return true;
+  } catch (e) {
+    console.debug("[readaloud] word-highlight skipped:", e.message);
+    return false;
+  }
+}
+
+// M14: keep the button label informative through playback. After chunk 1 starts
+// playing the button used to freeze on "■ Stop" for ~95s on a 19-chunk plan.
+// Now it shows the current chunk index and a fill on the bottom CSS bar.
+function readaloudUpdatePlayingLabel(idx, total) {
+  const b = READALOUD.button;
+  if (!b || READALOUD.state !== "playing") return;
+  b.textContent = `■ ${idx}/${total}`;
+  b.title = `Playing chunk ${idx} of ${total} — click to stop`;
+  b.style.setProperty("--ra-progress", `${(idx / total) * 100}%`);
 }
 
 // Split text into ~TARGET_CHUNK_CHARS-sized chunks at sentence boundaries.
@@ -358,6 +484,7 @@ async function readaloudFetchChunkAudio(chunkText, voice, signal) {
     input: chunkText,
     voice,
     response_format: "wav",
+    speed: SPEED,
   };
   // When voice clone is set, include the server-local ref_audio path + transcript.
   // Voxtral requires BOTH `voice` and `ref_audio` set (verified 2026-05-02 — passing
@@ -452,12 +579,17 @@ async function readaloudOnClick() {
         (nextStartTime - READALOUD.audioContext.currentTime) * 1000,
       );
       const chunkText = chunks[i];
+      const chunkIdx = i + 1;
+      const chunkDur = audioBuf.duration;
       setTimeout(() => {
-        if (!signal.aborted) readaloudHighlightChunk(chunkText, body);
+        if (signal.aborted) return;
+        readaloudUpdatePlayingLabel(chunkIdx, chunks.length);
+        readaloudHighlightChunkWords(chunkText, chunkDur, body, signal);
       }, startsInMs);
 
       if (!firstChunkScheduled) {
         readaloudSetState("playing");
+        readaloudUpdatePlayingLabel(chunkIdx, chunks.length);
         firstChunkScheduled = true;
       }
 
