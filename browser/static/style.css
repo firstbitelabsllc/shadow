@@ -87,6 +87,13 @@ body {
   font-style: italic;
   opacity: 0.85;
 }
+.ra-active {
+  background: var(--accent);
+  color: var(--paper);
+  padding: 0 2px;
+  border-radius: 2px;
+  transition: background-color 120ms ease-out;
+}
 
 .layout {
   display: grid;

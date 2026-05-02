@@ -1,38 +1,33 @@
 /**
- * Voxtral Read-aloud add-on for vidux-browse (optional)
+ * Kokoro Read-aloud add-on for vidux-browse
  *
- * Mistral Voxtral 4B TTS via Transformers.js v4, running entirely in the
- * browser via WebGPU. CC BY NC 4.0 — personal use only. Do NOT enable for
- * commercial UIs (Snowcubes, Resplit, StrongYes).
+ * Kokoro 82M TTS via kokoro-js, running 100% in the browser via WebGPU
+ * (WASM fallback). Apache 2.0 license — works for personal AND
+ * commercial use. ~80MB Q8 weights cached in IndexedDB on first click.
  *
- * First click triggers ~2.5GB Q4 weights download from HF CDN, cached in
- * IndexedDB by ORT. Subsequent clicks are instant.
- *
- * To disable: delete this file and remove its <script> tag from index.html
- * + the #root-readaloud-toggle button entry. ANNOTATION_CAPTURE_EXCLUDE_SELECTOR
- * in app.js can keep the entry — harmless if the button is gone.
+ * History: pivoted from Voxtral 4B-TTS (2026-05-01) — that model is
+ * Mistral-API-only / gated; the only browser-runnable Voxtral is the
+ * 3B-Mini ASR (wrong direction). Kokoro is the actual browser TTS.
  *
  * Plan: ~/Development/vidux/projects/voxtral-reader-addon/PLAN.md
+ * (project name retained for git history continuity)
  */
 
 const READALOUD = {
   button: null,
-  audio: null,
-  pipelinePromise: null,
+  ttsPromise: null,
   state: "idle", // idle | loading | playing | error
+  abortController: null,
+  audioContext: null,
+  highlightedSpans: [],
 };
 
 function readaloudInit() {
   READALOUD.button = document.getElementById("root-readaloud-toggle");
   if (!READALOUD.button) return;
-  READALOUD.audio = new Audio();
-  READALOUD.audio.addEventListener("ended", () => readaloudSetState("idle"));
-  READALOUD.audio.addEventListener("error", () =>
-    readaloudSetState("error", "Playback failed"),
-  );
   READALOUD.button.addEventListener("click", readaloudOnClick);
   readaloudSetState("idle");
-  console.log("[readaloud] initialized");
+  console.log("[readaloud] initialized (kokoro-js)");
 }
 
 function readaloudSetState(state, label) {
@@ -45,12 +40,12 @@ function readaloudSetState(state, label) {
     case "idle":
       b.textContent = "🔊 Read";
       b.disabled = false;
-      b.title = "Read aloud (Voxtral, WebGPU)";
+      b.title = "Read aloud (Kokoro 82M, WebGPU/WASM)";
       break;
     case "loading":
       b.textContent = label || "🔊 Loading…";
-      b.disabled = true;
-      b.title = label || "Loading Voxtral…";
+      b.disabled = false; // keep clickable so user can cancel
+      b.title = label || "Loading Kokoro…";
       break;
     case "playing":
       b.textContent = "■ Stop";
@@ -65,45 +60,94 @@ function readaloudSetState(state, label) {
   }
 }
 
-async function readaloudGetPipeline() {
-  if (READALOUD.pipelinePromise) return READALOUD.pipelinePromise;
-  READALOUD.pipelinePromise = (async () => {
-    const url = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4";
-    const tx = await import(url);
-    const { VoxtralForConditionalGeneration, VoxtralProcessor } = tx;
-    if (!VoxtralForConditionalGeneration || !VoxtralProcessor) {
-      throw new Error(
-        "Transformers.js v4 missing Voxtral exports — check CDN version",
-      );
+async function readaloudGetTTS() {
+  if (READALOUD.ttsPromise) return READALOUD.ttsPromise;
+  READALOUD.ttsPromise = (async () => {
+    // esm.sh gives clean ESM with deps resolved; jsdelivr +esm path is finicky
+    // for kokoro-js's transformers.js peer dep
+    const url = "https://esm.sh/kokoro-js@1.2.0";
+    const mod = await import(url);
+    const { KokoroTTS, TextSplitterStream } = mod;
+    if (!KokoroTTS) {
+      throw new Error("kokoro-js missing KokoroTTS export — check CDN URL");
     }
-    const progress_callback = (p) => {
-      if (p && typeof p.progress === "number") {
-        readaloudSetState("loading", `🔊 ${Math.round(p.progress)}%`);
+    const modelId = "onnx-community/Kokoro-82M-v1.0-ONNX";
+    let device = "webgpu";
+    try {
+      // Probe WebGPU; fall back to WASM if not available.
+      if (!navigator.gpu) {
+        console.warn("[readaloud] no navigator.gpu — falling back to WASM");
+        device = "wasm";
       }
-    };
-    const modelId = "mistralai/Voxtral-4B-TTS-2603";
-    const model = await VoxtralForConditionalGeneration.from_pretrained(modelId, {
-      device: "webgpu",
-      dtype: "q4",
-      progress_callback,
+    } catch (_) {
+      device = "wasm";
+    }
+    readaloudSetState("loading", `🔊 Init (${device})…`);
+    const tts = await KokoroTTS.from_pretrained(modelId, {
+      dtype: "q8",
+      device,
+      progress_callback: (p) => {
+        if (p && typeof p.progress === "number") {
+          readaloudSetState("loading", `🔊 ${Math.round(p.progress)}%`);
+        }
+      },
     });
-    const processor = await VoxtralProcessor.from_pretrained(modelId);
-    return { model, processor };
+    return { tts, TextSplitterStream };
   })();
-  return READALOUD.pipelinePromise;
+  return READALOUD.ttsPromise;
+}
+
+function readaloudClearHighlights() {
+  for (const span of READALOUD.highlightedSpans) {
+    span.classList.remove("ra-active");
+  }
+  READALOUD.highlightedSpans = [];
+}
+
+function readaloudHighlightChunk(chunkText, body) {
+  // Find the contiguous innerText range matching chunkText, wrap in highlight.
+  // Naive: find first occurrence of trimmed chunk in body.innerText, locate
+  // the corresponding text node via Range, wrap that range with a marker class.
+  if (!chunkText || !body) return;
+  readaloudClearHighlights();
+  const needle = chunkText.trim();
+  if (!needle) return;
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const idx = node.nodeValue.indexOf(needle);
+    if (idx === -1) continue;
+    try {
+      const range = document.createRange();
+      range.setStart(node, idx);
+      range.setEnd(node, idx + needle.length);
+      const span = document.createElement("span");
+      span.className = "ra-active";
+      range.surroundContents(span);
+      READALOUD.highlightedSpans.push(span);
+      span.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      return;
+    } catch (e) {
+      // Range straddled element boundaries — skip this chunk's highlight,
+      // keep playing audio. Long chunks across <p> boundaries get no highlight.
+      console.debug("[readaloud] highlight range skipped:", e.message);
+      return;
+    }
+  }
 }
 
 async function readaloudOnClick() {
-  if (READALOUD.state === "playing") {
-    READALOUD.audio.pause();
-    READALOUD.audio.currentTime = 0;
+  if (READALOUD.state === "playing" || READALOUD.state === "loading") {
+    if (READALOUD.abortController) READALOUD.abortController.abort();
+    if (READALOUD.audioContext) {
+      try { await READALOUD.audioContext.close(); } catch (_) {}
+      READALOUD.audioContext = null;
+    }
+    readaloudClearHighlights();
     readaloudSetState("idle");
     return;
   }
 
-  // Source text: prefer the markdown body; fall back to the active pane's
-  // first content div. Works for both PLAN.md (renderPane) and artifact
-  // (renderArtifactPane) surfaces.
   const body =
     document.getElementById("md-body") ||
     document.querySelector(".pane > div:not(.pane-empty)");
@@ -112,62 +156,77 @@ async function readaloudOnClick() {
     readaloudSetState("error", "No content to read");
     return;
   }
-  // Cap to ~2000 chars for first-pass UX (Voxtral handles longer, but
-  // long input on first cold-start GPU pass is a bad first impression).
-  const capped = text.length > 2000 ? text.slice(0, 2000) + "…" : text;
+  // Cap to ~3000 chars; Kokoro streams chunks so longer is OK but UX gets
+  // unwieldy past a single article-length read.
+  const capped = text.length > 3000 ? text.slice(0, 3000) + "…" : text;
+
+  READALOUD.abortController = new AbortController();
+  const signal = READALOUD.abortController.signal;
 
   try {
     readaloudSetState("loading", "🔊 Loading model…");
-    const { model, processor } = await readaloudGetPipeline();
-    readaloudSetState("loading", "🔊 Synthesizing…");
+    const { tts, TextSplitterStream } = await readaloudGetTTS();
+    if (signal.aborted) return;
 
-    const inputs = await processor(capped);
-    const output = await model.generate(inputs);
-    const samples = output.audio || output.audio_values || output.waveform;
-    const sampleRate = output.sampling_rate || 24000;
-    if (!samples) {
-      throw new Error(
-        "Voxtral output missing audio field — API surface may have changed",
-      );
+    readaloudSetState("playing");
+    READALOUD.audioContext = new AudioContext({ sampleRate: 24000 });
+
+    const splitter = new TextSplitterStream();
+    const stream = tts.stream(splitter, { voice: "af_heart" });
+    splitter.push(capped);
+    splitter.close();
+
+    let nextStartTime = READALOUD.audioContext.currentTime + 0.05;
+    let lastChunkEndTime = nextStartTime;
+
+    for await (const chunk of stream) {
+      if (signal.aborted) break;
+      const { text: chunkText, audio } = chunk;
+      if (!audio) continue;
+
+      // audio is a RawAudio with .audio (Float32Array) and .sampling_rate
+      const samples = audio.audio || audio.data || audio;
+      const sampleRate = audio.sampling_rate || audio.sample_rate || 24000;
+      if (!samples || !samples.length) continue;
+
+      // Schedule chunk playback contiguously.
+      const buf = READALOUD.audioContext.createBuffer(1, samples.length, sampleRate);
+      buf.copyToChannel(samples, 0);
+      const source = READALOUD.audioContext.createBufferSource();
+      source.buffer = buf;
+      source.connect(READALOUD.audioContext.destination);
+      source.start(nextStartTime);
+
+      const chunkDuration = samples.length / sampleRate;
+      const startsInMs = Math.max(0, (nextStartTime - READALOUD.audioContext.currentTime) * 1000);
+
+      // Highlight this chunk when its audio actually starts playing.
+      setTimeout(() => {
+        if (!signal.aborted) readaloudHighlightChunk(chunkText, body);
+      }, startsInMs);
+
+      nextStartTime += chunkDuration;
+      lastChunkEndTime = nextStartTime;
     }
 
-    const wavBlob = floatToWavBlob(samples, sampleRate);
-    READALOUD.audio.src = URL.createObjectURL(wavBlob);
-    await READALOUD.audio.play();
-    readaloudSetState("playing");
+    // After last chunk finishes, return to idle.
+    const totalWaitMs = Math.max(
+      0,
+      (lastChunkEndTime - READALOUD.audioContext.currentTime) * 1000 + 200,
+    );
+    setTimeout(() => {
+      if (signal.aborted) return;
+      readaloudClearHighlights();
+      readaloudSetState("idle");
+      if (READALOUD.audioContext) {
+        try { READALOUD.audioContext.close(); } catch (_) {}
+        READALOUD.audioContext = null;
+      }
+    }, totalWaitMs);
   } catch (err) {
+    if (err.name === "AbortError") return;
     console.error("[readaloud]", err);
     readaloudSetState("error", err.message || "Failed");
-  }
-}
-
-function floatToWavBlob(samples, sampleRate) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-  writeString(view, 0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(view, 8, "WAVE");
-  writeString(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, 1, true); // mono
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(view, 36, "data");
-  view.setUint32(40, samples.length * 2, true);
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return new Blob([buffer], { type: "audio/wav" });
-}
-
-function writeString(view, offset, str) {
-  for (let i = 0; i < str.length; i++) {
-    view.setUint8(offset + i, str.charCodeAt(i));
   }
 }
 
