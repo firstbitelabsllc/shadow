@@ -19,6 +19,9 @@
 const READALOUD = {
   button: null,
   voiceSelect: null,
+  previewButton: null,
+  previewAbort: null,
+  previewContext: null,
   state: "idle", // idle | loading | playing | error
   abortController: null,
   audioContext: null,
@@ -29,6 +32,7 @@ const ENDPOINT = "http://127.0.0.1:8000/v1/audio/speech";
 const MODEL = "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16";
 const DEFAULT_VOICE = "casual_male";
 const VOICE_STORAGE_KEY = "vidux.readaloud.voice";
+const PREVIEW_TEXT = "This is a sample of the selected voice.";
 const MAX_INPUT_CHARS = 5000;
 const TARGET_CHUNK_CHARS = 320;
 
@@ -58,8 +62,75 @@ function readaloudInit() {
     });
   }
 
+  READALOUD.previewButton = document.getElementById("root-readaloud-preview");
+  if (READALOUD.previewButton) {
+    READALOUD.previewButton.addEventListener("click", readaloudOnPreviewClick);
+  }
+
   readaloudSetState("idle");
   console.log("[readaloud] initialized (mlx-audio HTTP client, voice =", readaloudCurrentVoice(), ")");
+}
+
+async function readaloudOnPreviewClick() {
+  const btn = READALOUD.previewButton;
+  if (!btn) return;
+  // If already previewing, abort + reset.
+  if (READALOUD.previewAbort) {
+    READALOUD.previewAbort.abort();
+    READALOUD.previewAbort = null;
+    if (READALOUD.previewContext) {
+      try { await READALOUD.previewContext.close(); } catch (_) { /* ignore */ }
+      READALOUD.previewContext = null;
+    }
+    btn.textContent = "▶";
+    btn.disabled = false;
+    btn.title = "Preview selected voice with a sample sentence";
+    return;
+  }
+
+  const voice = readaloudCurrentVoice();
+  READALOUD.previewAbort = new AbortController();
+  const signal = READALOUD.previewAbort.signal;
+
+  btn.textContent = "…";
+  btn.disabled = true;
+  btn.title = `Synthesizing preview (${voice})…`;
+
+  try {
+    const arrayBuf = await readaloudFetchChunkAudio(PREVIEW_TEXT, voice, signal);
+    if (signal.aborted) return;
+    READALOUD.previewContext = new AudioContext({ sampleRate: 24000 });
+    const audioBuf = await READALOUD.previewContext.decodeAudioData(arrayBuf);
+    if (signal.aborted) return;
+    const source = READALOUD.previewContext.createBufferSource();
+    source.buffer = audioBuf;
+    source.connect(READALOUD.previewContext.destination);
+    btn.textContent = "■";
+    btn.disabled = false;
+    btn.title = "Stop preview";
+    source.onended = async () => {
+      btn.textContent = "▶";
+      btn.disabled = false;
+      btn.title = "Preview selected voice with a sample sentence";
+      if (READALOUD.previewContext) {
+        try { await READALOUD.previewContext.close(); } catch (_) { /* ignore */ }
+        READALOUD.previewContext = null;
+      }
+      READALOUD.previewAbort = null;
+    };
+    source.start();
+  } catch (err) {
+    if (err.name === "AbortError") return;
+    console.error("[readaloud] preview", err);
+    btn.textContent = "▶";
+    btn.disabled = false;
+    btn.title = err.message || "Preview failed";
+    READALOUD.previewAbort = null;
+    if (READALOUD.previewContext) {
+      try { await READALOUD.previewContext.close(); } catch (_) { /* ignore */ }
+      READALOUD.previewContext = null;
+    }
+  }
 }
 
 function readaloudSetState(state, label) {

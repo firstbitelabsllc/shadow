@@ -99,6 +99,11 @@ body {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
 }
+.topbar-meta button.root-readaloud-preview {
+  font-family: var(--mono);
+  min-width: 28px;
+  padding: 4px 8px;
+}
 .ra-active {
   background: var(--accent);
   color: var(--paper);
