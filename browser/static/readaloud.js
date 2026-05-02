@@ -18,6 +18,7 @@
 
 const READALOUD = {
   button: null,
+  voiceSelect: null,
   state: "idle", // idle | loading | playing | error
   abortController: null,
   audioContext: null,
@@ -26,17 +27,39 @@ const READALOUD = {
 
 const ENDPOINT = "http://127.0.0.1:8000/v1/audio/speech";
 const MODEL = "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16";
-const VOICE = "casual_male";
+const DEFAULT_VOICE = "casual_male";
+const VOICE_STORAGE_KEY = "vidux.readaloud.voice";
 const MAX_INPUT_CHARS = 5000;
 const TARGET_CHUNK_CHARS = 320;
+
+function readaloudCurrentVoice() {
+  if (READALOUD.voiceSelect && READALOUD.voiceSelect.value) {
+    return READALOUD.voiceSelect.value;
+  }
+  return DEFAULT_VOICE;
+}
 
 function readaloudInit() {
   READALOUD.button = document.getElementById("root-readaloud-toggle");
   if (!READALOUD.button) return;
   READALOUD.button.addEventListener("click", readaloudOnClick);
   READALOUD.button.title = "Read aloud (Voxtral via local mlx-audio.server)";
+
+  READALOUD.voiceSelect = document.getElementById("root-readaloud-voice");
+  if (READALOUD.voiceSelect) {
+    let saved = null;
+    try { saved = localStorage.getItem(VOICE_STORAGE_KEY); } catch (_) { /* private mode */ }
+    if (saved) {
+      const valid = Array.from(READALOUD.voiceSelect.options).some(o => o.value === saved);
+      if (valid) READALOUD.voiceSelect.value = saved;
+    }
+    READALOUD.voiceSelect.addEventListener("change", () => {
+      try { localStorage.setItem(VOICE_STORAGE_KEY, READALOUD.voiceSelect.value); } catch (_) { /* ignore */ }
+    });
+  }
+
   readaloudSetState("idle");
-  console.log("[readaloud] initialized (mlx-audio HTTP client)");
+  console.log("[readaloud] initialized (mlx-audio HTTP client, voice =", readaloudCurrentVoice(), ")");
 }
 
 function readaloudSetState(state, label) {
@@ -140,7 +163,7 @@ function readaloudSplitText(text) {
   return safe;
 }
 
-async function readaloudFetchChunkAudio(chunkText, signal) {
+async function readaloudFetchChunkAudio(chunkText, voice, signal) {
   const resp = await fetch(ENDPOINT, {
     method: "POST",
     signal,
@@ -148,7 +171,7 @@ async function readaloudFetchChunkAudio(chunkText, signal) {
     body: JSON.stringify({
       model: MODEL,
       input: chunkText,
-      voice: VOICE,
+      voice,
       response_format: "wav",
     }),
   });
@@ -192,6 +215,8 @@ async function readaloudOnClick() {
 
   READALOUD.abortController = new AbortController();
   const signal = READALOUD.abortController.signal;
+  // Snapshot voice at click-time so mid-playback voice changes don't desync chunks.
+  const voice = readaloudCurrentVoice();
 
   try {
     readaloudSetState("loading", `🔊 Synthesizing 1/${chunks.length}…`);
@@ -208,7 +233,7 @@ async function readaloudOnClick() {
         firstChunkScheduled ? undefined : `🔊 Synthesizing ${i + 1}/${chunks.length}…`,
       );
 
-      const arrayBuf = await readaloudFetchChunkAudio(chunks[i], signal);
+      const arrayBuf = await readaloudFetchChunkAudio(chunks[i], voice, signal);
       if (signal.aborted) break;
 
       let audioBuf;
