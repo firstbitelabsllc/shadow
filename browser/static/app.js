@@ -105,6 +105,7 @@ const APP_ANCHOR_SELECTOR = [
 ].join(",");
 const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#root-annotation-toggle",
+  "#root-readaloud-toggle",
   "#refresh",
   "#sidebar-toggle",
   "#filter",
