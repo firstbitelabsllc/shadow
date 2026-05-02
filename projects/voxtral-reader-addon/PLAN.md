@@ -56,7 +56,7 @@ This plan is being executed by **Claude** (this agent) AND **Codex** (parallel a
 ### Phase 2 — Polish (deferred until Phase 1 ships)
 
 - [blocked] M8: Voice cloning UI. mlx-audio supports `--ref_audio` for several models (verify Voxtral). UI: file picker accepts 5-30s audio sample, sent as form-data to `/v1/audio/speech`. [Blocker: M5 ships]
-- [blocked] M9: Voice picker. 20 Voxtral presets exist (`casual_male`, etc.) — sidebar dropdown to pick. [Blocker: M5 ships]
+- [in_progress] [owner: claude] M9: Voice picker. 20 Voxtral presets exist (`casual_male`, etc.) — sidebar dropdown to pick. [Blocker: M5 ships → CLEARED]
 - [blocked] M10: True per-word highlight via mlx-audio streaming events. Currently chunk-level only. Investigate whether mlx-audio.server emits per-word timing in the SSE stream. [Blocker: M5 ships]
 
 ### Phase 3 — Cross-machine sync (deferred)
