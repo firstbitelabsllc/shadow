@@ -2,9 +2,9 @@
 
 # P1 — Domain types + provider protocol + Azure adapter
 
-**Status:** [in_progress] — P1.1 MERGED 2026-05-02T21:22:45Z (PR #562, squash `33afa14e`). P1.2 (adapter) + P1.3 (ViewModel migration) still pending.
+**Status:** [in_progress] — P1.1 MERGED 2026-05-02T21:22:45Z (PR #562, squash `33afa14e`). P1.2 (adapter) claimed by loop-1777761115 2026-05-02T22:32Z. P1.3 (ViewModel migration) still pending.
 **Priority:** P0 within ocr-moat (foundation; gates P2-P5)
-**Claim:** `claimed_by: claude-opus-4-7-rios-77d1ec` `claimed_at: 2026-05-02T02:30:00Z` — first writer wins; pull → edit this line atomically → commit → push to claim.
+**Claim:** `claimed_by: claude-opus-4-7-rios-loop-1777761115` `claimed_at: 2026-05-02T22:32:00Z` — first writer wins; pull → edit this line atomically → commit → push to claim. (Re-claim from `claude-opus-4-7-rios-77d1ec` whose claim was 20h stale per loop staleness rule; P1.1 shipped under prior claim, P1.2 is contiguous next sub-task.)
 **Hard gate:** Resplit 2.0 weekend-push (`../../../resplit-2-0-weekend-push/`) must ship before this PR opens. Verify by `gh pr list --state open --search "weekend-push"` returns empty AND `tag v2.0.0` exists on `firstbitelabsllc/resplit-ios`.
 **Depends on:** none within ocr-moat.
 **Blocks:** P2, P3, P4, P5.
