@@ -603,3 +603,38 @@ curl -X POST http://127.0.0.1:7191/api/local-plan-note \
 ```
 
 This endpoint rejects non-loopback clients. Even when vidux-browse is bound to `0.0.0.0` for home-LAN reading, `POST /api/local-plan-note` must be called through `127.0.0.1` or `::1`; other Wi-Fi devices can read but cannot write plan notes.
+
+### Read-aloud add-on (Voxtral 4B-TTS via mlx-audio, optional)
+
+vidux-browse can ship a 🔊 "Read aloud" button that reads the active artifact / `PLAN.md` aloud via **Mistral Voxtral 4B-TTS running locally on Apple Silicon through `mlx-audio.server`**. vidux-browse is a thin HTTP client; the model and GPU state live in a dedicated Python process the operator manages as a LaunchAgent.
+
+**Status:** opt-in add-on. Default vidux-browse builds include the client JS but it gracefully shows `🔊 Server offline — start mlx-audio LaunchAgent` until the operator installs the server side.
+
+**Topology**
+
+```
+vidux-browse (127.0.0.1:7191)            mlx-audio.server (127.0.0.1:8000)
+  static/readaloud.js (HTTP client)  ──▶  POST /v1/audio/speech
+                                          loads weights lazily, returns WAV
+                                          launchd: com.leokwan.mlx-audio
+```
+
+**Stack:**
+
+- **Model:** `mlx-community/Voxtral-4B-TTS-2603-mlx-bf16` (Mistral Voxtral 4B TTS, mlx-community bf16 conversion). 9 languages, 20 voice presets, native `ref_audio` voice cloning. RTF ~0.8× on M4 Pro after warm-up; peak ~9.3 GB RAM during synthesis.
+- **Server:** `mlx_audio.server` from [Blaizzy/mlx-audio](https://github.com/Blaizzy/mlx-audio) (MIT). Exposes the OpenAI-compatible `/v1/audio/speech` endpoint over uvicorn/FastAPI.
+- **Client:** plain `fetch` from `browser/static/readaloud.js`. No build step. Sentence-level chunking client-side; per-chunk highlight migrates as audio plays.
+- **Hardware:** Apple Silicon (verified M4 Pro). 16 GB Macs likely OK with caveats; 8 GB Macs not recommended (peak 9.3 GB).
+- **Browser fallback:** `browser/static/readaloud-kokoro.js` ships alongside as the offline / Apache-2.0 alternative (Kokoro 82M via WebGPU). Operators on machines without mlx-audio swap the `<script src>` in `index.html`.
+
+**License — IMPORTANT:** Voxtral weights are **CC-BY-NC-4.0** (non-commercial). Personal vidux use is fine. Commercial Leo properties (Snowcubes / Resplit / StrongYes) MUST NOT call this endpoint with Voxtral — substitute Apple Premium voices via Web Speech API, or the Apache-2.0 Kokoro fallback.
+
+**CORS:** mlx-audio.server's `--allowed-origins` allowlist must include both `http://localhost:7191` and `http://127.0.0.1:7191` for vidux-browse to call it from the browser. Loopback-only by default; LAN reading from another device requires adding that device's origin.
+
+**Install:** see the **/moussey** skill, "Voxtral Reader add-on" section. The full install command, plist install, and `launchctl bootstrap` step live there because they're per-Mac (Studio + M4 Pro both need their own).
+
+**Reference plan + architecture:**
+
+- `~/Development/vidux/projects/voxtral-reader-addon/PLAN.md` — task breakdown M1-M10 + Decision Log + Two-Agent Coordination protocol.
+- `~/Development/vidux/projects/voxtral-reader-addon/evidence/2026-05-01-architecture.md` — port + endpoint + CORS + LaunchAgent decisions, with the canonical `uv tool install` command including the seven `--with` extras mlx-audio's PyPI metadata is missing.
+- `~/Development/vidux/scripts/launchd/com.leokwan.mlx-audio.plist` — the in-repo source-of-truth plist for cross-Mac install.
