@@ -104,6 +104,15 @@ body {
   min-width: 28px;
   padding: 4px 8px;
 }
+.topbar-meta button.root-readaloud-clone {
+  font-family: var(--mono);
+  min-width: 86px;
+}
+.topbar-meta button.root-readaloud-clone.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
 .ra-active {
   background: var(--accent);
   color: var(--paper);

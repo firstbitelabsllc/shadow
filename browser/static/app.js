@@ -109,6 +109,8 @@ const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#root-readaloud-voice",
   "#root-readaloud-voice *",
   "#root-readaloud-preview",
+  "#root-readaloud-clone",
+  "#root-readaloud-clone-file",
   "#refresh",
   "#sidebar-toggle",
   "#filter",

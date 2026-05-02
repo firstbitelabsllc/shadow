@@ -22,6 +22,8 @@ const READALOUD = {
   previewButton: null,
   previewAbort: null,
   previewContext: null,
+  cloneButton: null,
+  cloneFileInput: null,
   state: "idle", // idle | loading | playing | error
   abortController: null,
   audioContext: null,
@@ -29,12 +31,24 @@ const READALOUD = {
 };
 
 const ENDPOINT = "http://127.0.0.1:8000/v1/audio/speech";
+const UPLOAD_ENDPOINT = "/api/upload-ref-audio"; // same-origin (vidux-browse)
 const MODEL = "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16";
 const DEFAULT_VOICE = "casual_male";
 const VOICE_STORAGE_KEY = "vidux.readaloud.voice";
+const CLONE_PATH_KEY = "vidux.readaloud.cloneRefPath";
+const CLONE_TEXT_KEY = "vidux.readaloud.cloneRefText";
 const PREVIEW_TEXT = "This is a sample of the selected voice.";
 const MAX_INPUT_CHARS = 5000;
 const TARGET_CHUNK_CHARS = 320;
+
+function readaloudCloneState() {
+  let path = null, text = null;
+  try {
+    path = localStorage.getItem(CLONE_PATH_KEY) || null;
+    text = localStorage.getItem(CLONE_TEXT_KEY) || null;
+  } catch (_) { /* private mode */ }
+  return { path, text };
+}
 
 function readaloudCurrentVoice() {
   if (READALOUD.voiceSelect && READALOUD.voiceSelect.value) {
@@ -67,8 +81,112 @@ function readaloudInit() {
     READALOUD.previewButton.addEventListener("click", readaloudOnPreviewClick);
   }
 
+  READALOUD.cloneButton = document.getElementById("root-readaloud-clone");
+  READALOUD.cloneFileInput = document.getElementById("root-readaloud-clone-file");
+  if (READALOUD.cloneButton) {
+    READALOUD.cloneButton.addEventListener("click", readaloudOnCloneClick);
+  }
+  if (READALOUD.cloneFileInput) {
+    READALOUD.cloneFileInput.addEventListener("change", readaloudOnCloneFile);
+  }
+  readaloudUpdateCloneButton();
+
   readaloudSetState("idle");
   console.log("[readaloud] initialized (mlx-audio HTTP client, voice =", readaloudCurrentVoice(), ")");
+}
+
+function readaloudUpdateCloneButton() {
+  const btn = READALOUD.cloneButton;
+  if (!btn) return;
+  const { path } = readaloudCloneState();
+  if (path) {
+    const fname = path.split("/").pop();
+    btn.textContent = "🎤 Cloned";
+    btn.title = `Voice clone active: ${fname} — click to clear and revert to picker voice`;
+    btn.classList.add("is-active");
+  } else {
+    btn.textContent = "🎤 Clone";
+    btn.title = "Upload a 5-30s audio sample + transcript to clone the voice";
+    btn.classList.remove("is-active");
+  }
+}
+
+function readaloudOnCloneClick() {
+  const { path } = readaloudCloneState();
+  if (path) {
+    const fname = path.split("/").pop();
+    if (!confirm(`Clear cloned voice (${fname})?`)) return;
+    try {
+      localStorage.removeItem(CLONE_PATH_KEY);
+      localStorage.removeItem(CLONE_TEXT_KEY);
+    } catch (_) { /* ignore */ }
+    readaloudUpdateCloneButton();
+    return;
+  }
+  const inp = READALOUD.cloneFileInput;
+  if (!inp) return;
+  inp.value = ""; // reset so the change event fires even if same file picked twice
+  inp.click();
+}
+
+async function readaloudOnCloneFile(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const transcript = window.prompt(
+    "Transcript of the audio clip (5-30s recommended). Used as ref_text so Voxtral knows what was said:",
+    "",
+  );
+  if (transcript === null) return; // cancelled
+  const trimmed = transcript.trim();
+  if (!trimmed) {
+    alert("Transcript is required for voice cloning — Voxtral needs to know what the audio says.");
+    return;
+  }
+  const btn = READALOUD.cloneButton;
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "🎤 Uploading…";
+  try {
+    const arrayBuf = await file.arrayBuffer();
+    const u8 = new Uint8Array(arrayBuf);
+    // Chunked btoa to avoid call-stack overflow on large files
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < u8.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+    }
+    const b64 = btoa(bin);
+    const ext = (file.name.split(".").pop() || "wav").toLowerCase();
+    const resp = await fetch(UPLOAD_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio_base64: b64, ext }),
+    });
+    if (!resp.ok) {
+      let detail = "";
+      try { detail = await resp.text(); } catch (_) { /* ignore */ }
+      if (resp.status === 404) {
+        throw new Error(
+          "Upload endpoint missing — restart vidux-browse so M8 server changes take effect:\n" +
+          "  launchctl kickstart -k gui/$(id -u)/com.leokwan.vidux-browser",
+        );
+      }
+      throw new Error(`HTTP ${resp.status} ${resp.statusText}${detail ? ` — ${detail.slice(0, 120)}` : ""}`);
+    }
+    const data = await resp.json();
+    if (!data.ok || !data.path) throw new Error("upload returned no path");
+    try {
+      localStorage.setItem(CLONE_PATH_KEY, data.path);
+      localStorage.setItem(CLONE_TEXT_KEY, trimmed);
+    } catch (_) { /* ignore */ }
+  } catch (err) {
+    console.error("[readaloud] clone upload", err);
+    alert(`Voice clone upload failed:\n${err.message || err}`);
+    btn.textContent = prevText;
+  } finally {
+    btn.disabled = false;
+    readaloudUpdateCloneButton();
+  }
 }
 
 async function readaloudOnPreviewClick() {
@@ -235,16 +353,25 @@ function readaloudSplitText(text) {
 }
 
 async function readaloudFetchChunkAudio(chunkText, voice, signal) {
+  const body = {
+    model: MODEL,
+    input: chunkText,
+    voice,
+    response_format: "wav",
+  };
+  // When voice clone is set, include the server-local ref_audio path + transcript.
+  // Voxtral requires BOTH `voice` and `ref_audio` set (verified 2026-05-02 — passing
+  // ref_audio alone yields "Either ref_audio or voice must be defined" assertion).
+  const clone = readaloudCloneState();
+  if (clone.path && clone.text) {
+    body.ref_audio = clone.path;
+    body.ref_text = clone.text;
+  }
   const resp = await fetch(ENDPOINT, {
     method: "POST",
     signal,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      input: chunkText,
-      voice,
-      response_format: "wav",
-    }),
+    body: JSON.stringify(body),
   });
   if (!resp.ok) {
     let detail = "";
