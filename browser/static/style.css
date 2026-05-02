@@ -87,6 +87,18 @@ body {
   font-style: italic;
   opacity: 0.85;
 }
+.topbar-meta select.root-readaloud-voice {
+  background: var(--paper); border: 1px solid var(--rule);
+  color: var(--ink); padding: 3px 6px; cursor: pointer;
+  font-family: var(--mono); font-size: 12px;
+  border-radius: 3px;
+  max-width: 140px;
+}
+.topbar-meta select.root-readaloud-voice:hover { background: var(--select); }
+.topbar-meta select.root-readaloud-voice:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
 .ra-active {
   background: var(--accent);
   color: var(--paper);

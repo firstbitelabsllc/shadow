@@ -106,6 +106,8 @@ const APP_ANCHOR_SELECTOR = [
 const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#root-annotation-toggle",
   "#root-readaloud-toggle",
+  "#root-readaloud-voice",
+  "#root-readaloud-voice *",
   "#refresh",
   "#sidebar-toggle",
   "#filter",
