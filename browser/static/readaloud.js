@@ -84,6 +84,7 @@ function readaloudInit() {
   READALOUD.previewButton = document.getElementById("root-readaloud-preview");
   if (READALOUD.previewButton) {
     READALOUD.previewButton.addEventListener("click", readaloudOnPreviewClick);
+    readaloudUpdatePreviewButton();
   }
 
   READALOUD.cloneButton = document.getElementById("root-readaloud-clone");
@@ -113,6 +114,22 @@ function readaloudUpdateCloneButton() {
     btn.textContent = "🎤 Clone";
     btn.title = "Upload a 5-30s audio sample + transcript to clone the voice";
     btn.classList.remove("is-active");
+  }
+  // Keep preview button title in sync — clone state determines whether ▶
+  // hears the picker voice or the cloned timbre.
+  readaloudUpdatePreviewButton();
+}
+
+function readaloudUpdatePreviewButton() {
+  const btn = READALOUD.previewButton;
+  if (!btn) return;
+  // Don't clobber transient labels (…/■) mid-preview.
+  if (btn.textContent !== "▶") return;
+  const { path } = readaloudCloneState();
+  if (path) {
+    btn.title = "Preview cloned voice (sample sentence)";
+  } else {
+    btn.title = "Preview selected voice with a sample sentence";
   }
 }
 
@@ -234,7 +251,7 @@ async function readaloudOnPreviewClick() {
     source.onended = async () => {
       btn.textContent = "▶";
       btn.disabled = false;
-      btn.title = "Preview selected voice with a sample sentence";
+      readaloudUpdatePreviewButton();
       if (READALOUD.previewContext) {
         try { await READALOUD.previewContext.close(); } catch (_) { /* ignore */ }
         READALOUD.previewContext = null;
