@@ -1,0 +1,86 @@
+gui/501/com.leokwan.mlx-audio = {
+	active count = 1
+	path = /Users/leokwan/Library/LaunchAgents/com.leokwan.mlx-audio.plist
+	type = LaunchAgent
+	state = running
+
+	program = /Users/leokwan/.local/bin/mlx_audio.server
+	arguments = {
+		/Users/leokwan/.local/bin/mlx_audio.server
+		--host
+		127.0.0.1
+		--port
+		8000
+		--allowed-origins
+		http://localhost:7191
+		http://127.0.0.1:7191
+		--log-dir
+		/Users/leokwan/Library/Logs
+	}
+
+	working directory = /Users/leokwan
+
+	stdout path = /Users/leokwan/Library/Logs/mlx-audio.stdout.log
+	stderr path = /Users/leokwan/Library/Logs/mlx-audio.stderr.log
+	inherited environment = {
+		SSH_AUTH_SOCK => /private/tmp/com.apple.launchd.kWYjKIV3g6/Listeners
+	}
+
+	default environment = {
+		PATH => /usr/bin:/bin:/usr/sbin:/sbin
+	}
+
+	environment = {
+		OSLogRateLimit => 64
+		HF_HOME => /Users/leokwan/.cache/huggingface
+		LANG => en_US.UTF-8
+		PATH => /Users/leokwan/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+		LC_ALL => en_US.UTF-8
+		HOME => /Users/leokwan
+		XPC_SERVICE_NAME => com.leokwan.mlx-audio
+	}
+
+	domain = gui/501 [100025]
+	asid = 100025
+	minimum runtime = 30
+	exit timeout = 5
+	runs = 1
+	pid = 7402
+	immediate reason = speculative
+	forks = 1
+	execs = 1
+	initialized = 1
+	trampolined = 1
+	started suspended = 0
+	proxy started suspended = 0
+	checked allocations = 0 (queried = 1)
+	checked allocations reason = no host
+	checked allocations flags = 0x0
+	last exit code = (never exited)
+
+	resource coalition = {
+		ID = 431122
+		type = resource
+		state = active
+		active count = 1
+		name = com.leokwan.mlx-audio
+	}
+
+	jetsam coalition = {
+		ID = 431123
+		type = jetsam
+		state = active
+		active count = 1
+		name = com.leokwan.mlx-audio
+	}
+
+	spawn type = background (5)
+	jetsam priority = 40
+	jetsam memory limit (active) = (unlimited)
+	jetsam memory limit (inactive) = (unlimited)
+	jetsamproperties category = daemon
+	jetsam thread limit = 32
+	cpumon = default
+
+	properties = keepalive | runatload | inferred program
+}
