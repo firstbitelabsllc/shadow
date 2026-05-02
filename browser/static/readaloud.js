@@ -1,33 +1,42 @@
 /**
- * Kokoro Read-aloud add-on for vidux-browse
+ * Voxtral Read-aloud HTTP client for vidux-browse
  *
- * Kokoro 82M TTS via kokoro-js, running 100% in the browser via WebGPU
- * (WASM fallback). Apache 2.0 license — works for personal AND
- * commercial use. ~80MB Q8 weights cached in IndexedDB on first click.
+ * Thin client that POSTs the active artifact's text to a local
+ * mlx-audio.server (Mistral Voxtral 4B-TTS on Apple Silicon) and
+ * streams the resulting WAV chunks through the Web Audio API.
  *
- * History: pivoted from Voxtral 4B-TTS (2026-05-01) — that model is
- * Mistral-API-only / gated; the only browser-runnable Voxtral is the
- * 3B-Mini ASR (wrong direction). Kokoro is the actual browser TTS.
+ * No model state in the browser — all inference happens in the
+ * mlx_audio.server process listening on http://127.0.0.1:8000.
  *
- * Plan: ~/Development/vidux/projects/voxtral-reader-addon/PLAN.md
- * (project name retained for git history continuity)
+ *   Architecture: vidux/projects/voxtral-reader-addon/evidence/2026-05-01-architecture.md
+ *   Plan:         vidux/projects/voxtral-reader-addon/PLAN.md (M3)
+ *   Server install: see /moussey skill, "Voxtral Reader add-on" section.
+ *
+ * Offline fallback: see `readaloud-kokoro.js` (kokoro-js + WebGPU,
+ * Apache-2.0, ~80 MB Q8 weights). Swap the <script src> in index.html.
  */
 
 const READALOUD = {
   button: null,
-  ttsPromise: null,
   state: "idle", // idle | loading | playing | error
   abortController: null,
   audioContext: null,
   highlightedSpans: [],
 };
 
+const ENDPOINT = "http://127.0.0.1:8000/v1/audio/speech";
+const MODEL = "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16";
+const VOICE = "casual_male";
+const MAX_INPUT_CHARS = 5000;
+const TARGET_CHUNK_CHARS = 320;
+
 function readaloudInit() {
   READALOUD.button = document.getElementById("root-readaloud-toggle");
   if (!READALOUD.button) return;
   READALOUD.button.addEventListener("click", readaloudOnClick);
+  READALOUD.button.title = "Read aloud (Voxtral via local mlx-audio.server)";
   readaloudSetState("idle");
-  console.log("[readaloud] initialized (kokoro-js)");
+  console.log("[readaloud] initialized (mlx-audio HTTP client)");
 }
 
 function readaloudSetState(state, label) {
@@ -40,12 +49,12 @@ function readaloudSetState(state, label) {
     case "idle":
       b.textContent = "🔊 Read";
       b.disabled = false;
-      b.title = "Read aloud (Kokoro 82M, WebGPU/WASM)";
+      b.title = "Read aloud (Voxtral via local mlx-audio.server)";
       break;
     case "loading":
-      b.textContent = label || "🔊 Loading…";
-      b.disabled = false; // keep clickable so user can cancel
-      b.title = label || "Loading Kokoro…";
+      b.textContent = label || "🔊 Synthesizing…";
+      b.disabled = false;
+      b.title = label || "Synthesizing…";
       break;
     case "playing":
       b.textContent = "■ Stop";
@@ -60,43 +69,6 @@ function readaloudSetState(state, label) {
   }
 }
 
-async function readaloudGetTTS() {
-  if (READALOUD.ttsPromise) return READALOUD.ttsPromise;
-  READALOUD.ttsPromise = (async () => {
-    // esm.sh gives clean ESM with deps resolved; jsdelivr +esm path is finicky
-    // for kokoro-js's transformers.js peer dep
-    const url = "https://esm.sh/kokoro-js@1.2.0";
-    const mod = await import(url);
-    const { KokoroTTS, TextSplitterStream } = mod;
-    if (!KokoroTTS) {
-      throw new Error("kokoro-js missing KokoroTTS export — check CDN URL");
-    }
-    const modelId = "onnx-community/Kokoro-82M-v1.0-ONNX";
-    let device = "webgpu";
-    try {
-      // Probe WebGPU; fall back to WASM if not available.
-      if (!navigator.gpu) {
-        console.warn("[readaloud] no navigator.gpu — falling back to WASM");
-        device = "wasm";
-      }
-    } catch (_) {
-      device = "wasm";
-    }
-    readaloudSetState("loading", `🔊 Init (${device})…`);
-    const tts = await KokoroTTS.from_pretrained(modelId, {
-      dtype: "q8",
-      device,
-      progress_callback: (p) => {
-        if (p && typeof p.progress === "number") {
-          readaloudSetState("loading", `🔊 ${Math.round(p.progress)}%`);
-        }
-      },
-    });
-    return { tts, TextSplitterStream };
-  })();
-  return READALOUD.ttsPromise;
-}
-
 function readaloudClearHighlights() {
   for (const span of READALOUD.highlightedSpans) {
     span.classList.remove("ra-active");
@@ -105,9 +77,6 @@ function readaloudClearHighlights() {
 }
 
 function readaloudHighlightChunk(chunkText, body) {
-  // Find the contiguous innerText range matching chunkText, wrap in highlight.
-  // Naive: find first occurrence of trimmed chunk in body.innerText, locate
-  // the corresponding text node via Range, wrap that range with a marker class.
   if (!chunkText || !body) return;
   readaloudClearHighlights();
   const needle = chunkText.trim();
@@ -128,19 +97,77 @@ function readaloudHighlightChunk(chunkText, body) {
       span.scrollIntoView({ block: "nearest", behavior: "smooth" });
       return;
     } catch (e) {
-      // Range straddled element boundaries — skip this chunk's highlight,
-      // keep playing audio. Long chunks across <p> boundaries get no highlight.
+      // Range straddled element boundaries; skip the highlight, keep playing.
       console.debug("[readaloud] highlight range skipped:", e.message);
       return;
     }
   }
 }
 
+// Split text into ~TARGET_CHUNK_CHARS-sized chunks at sentence boundaries.
+// Falls back to paragraph splits, then to fixed-width slices for content
+// without sentence terminators (code blocks, lists). Each chunk is sent as
+// one /v1/audio/speech request.
+function readaloudSplitText(text) {
+  const sentenceRegex = /[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+(?=\n|$)/g;
+  const sentences = text.match(sentenceRegex) || [text];
+  const chunks = [];
+  let buffer = "";
+  for (const s of sentences) {
+    const trimmed = s.trim();
+    if (!trimmed) continue;
+    if (!buffer) {
+      buffer = trimmed;
+    } else if ((buffer + " " + trimmed).length <= TARGET_CHUNK_CHARS) {
+      buffer += " " + trimmed;
+    } else {
+      chunks.push(buffer);
+      buffer = trimmed;
+    }
+  }
+  if (buffer) chunks.push(buffer);
+  // Ultra-long single-sentence pathological case: hard-split.
+  const safe = [];
+  for (const c of chunks) {
+    if (c.length <= TARGET_CHUNK_CHARS * 2) {
+      safe.push(c);
+    } else {
+      for (let i = 0; i < c.length; i += TARGET_CHUNK_CHARS) {
+        safe.push(c.slice(i, i + TARGET_CHUNK_CHARS));
+      }
+    }
+  }
+  return safe;
+}
+
+async function readaloudFetchChunkAudio(chunkText, signal) {
+  const resp = await fetch(ENDPOINT, {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: MODEL,
+      input: chunkText,
+      voice: VOICE,
+      response_format: "wav",
+    }),
+  });
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const text = await resp.text();
+      detail = text.slice(0, 200);
+    } catch (_) { /* ignore */ }
+    throw new Error(`HTTP ${resp.status} ${resp.statusText}${detail ? ` — ${detail}` : ""}`);
+  }
+  return resp.arrayBuffer();
+}
+
 async function readaloudOnClick() {
   if (READALOUD.state === "playing" || READALOUD.state === "loading") {
     if (READALOUD.abortController) READALOUD.abortController.abort();
     if (READALOUD.audioContext) {
-      try { await READALOUD.audioContext.close(); } catch (_) {}
+      try { await READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
       READALOUD.audioContext = null;
     }
     readaloudClearHighlights();
@@ -156,77 +183,96 @@ async function readaloudOnClick() {
     readaloudSetState("error", "No content to read");
     return;
   }
-  // Cap to ~3000 chars; Kokoro streams chunks so longer is OK but UX gets
-  // unwieldy past a single article-length read.
-  const capped = text.length > 3000 ? text.slice(0, 3000) + "…" : text;
+  const capped = text.length > MAX_INPUT_CHARS ? text.slice(0, MAX_INPUT_CHARS) + "…" : text;
+  const chunks = readaloudSplitText(capped);
+  if (chunks.length === 0) {
+    readaloudSetState("error", "No content to read");
+    return;
+  }
 
   READALOUD.abortController = new AbortController();
   const signal = READALOUD.abortController.signal;
 
   try {
-    readaloudSetState("loading", "🔊 Loading model…");
-    const { tts, TextSplitterStream } = await readaloudGetTTS();
-    if (signal.aborted) return;
-
-    readaloudSetState("playing");
+    readaloudSetState("loading", `🔊 Synthesizing 1/${chunks.length}…`);
     READALOUD.audioContext = new AudioContext({ sampleRate: 24000 });
 
-    const splitter = new TextSplitterStream();
-    const stream = tts.stream(splitter, { voice: "af_heart" });
-    splitter.push(capped);
-    splitter.close();
+    let nextStartTime = READALOUD.audioContext.currentTime + 0.1;
+    let lastEndTime = nextStartTime;
+    let firstChunkScheduled = false;
 
-    let nextStartTime = READALOUD.audioContext.currentTime + 0.05;
-    let lastChunkEndTime = nextStartTime;
-
-    for await (const chunk of stream) {
+    for (let i = 0; i < chunks.length; i++) {
       if (signal.aborted) break;
-      const { text: chunkText, audio } = chunk;
-      if (!audio) continue;
+      readaloudSetState(
+        firstChunkScheduled ? "playing" : "loading",
+        firstChunkScheduled ? undefined : `🔊 Synthesizing ${i + 1}/${chunks.length}…`,
+      );
 
-      // audio is a RawAudio with .audio (Float32Array) and .sampling_rate
-      const samples = audio.audio || audio.data || audio;
-      const sampleRate = audio.sampling_rate || audio.sample_rate || 24000;
-      if (!samples || !samples.length) continue;
+      const arrayBuf = await readaloudFetchChunkAudio(chunks[i], signal);
+      if (signal.aborted) break;
 
-      // Schedule chunk playback contiguously.
-      const buf = READALOUD.audioContext.createBuffer(1, samples.length, sampleRate);
-      buf.copyToChannel(samples, 0);
+      let audioBuf;
+      try {
+        audioBuf = await READALOUD.audioContext.decodeAudioData(arrayBuf);
+      } catch (decodeErr) {
+        console.warn("[readaloud] decode failed for chunk", i, decodeErr);
+        continue;
+      }
+
       const source = READALOUD.audioContext.createBufferSource();
-      source.buffer = buf;
+      source.buffer = audioBuf;
       source.connect(READALOUD.audioContext.destination);
       source.start(nextStartTime);
 
-      const chunkDuration = samples.length / sampleRate;
-      const startsInMs = Math.max(0, (nextStartTime - READALOUD.audioContext.currentTime) * 1000);
-
-      // Highlight this chunk when its audio actually starts playing.
+      const startsInMs = Math.max(
+        0,
+        (nextStartTime - READALOUD.audioContext.currentTime) * 1000,
+      );
+      const chunkText = chunks[i];
       setTimeout(() => {
         if (!signal.aborted) readaloudHighlightChunk(chunkText, body);
       }, startsInMs);
 
-      nextStartTime += chunkDuration;
-      lastChunkEndTime = nextStartTime;
+      if (!firstChunkScheduled) {
+        readaloudSetState("playing");
+        firstChunkScheduled = true;
+      }
+
+      nextStartTime += audioBuf.duration;
+      lastEndTime = nextStartTime;
     }
 
-    // After last chunk finishes, return to idle.
     const totalWaitMs = Math.max(
       0,
-      (lastChunkEndTime - READALOUD.audioContext.currentTime) * 1000 + 200,
+      (lastEndTime - READALOUD.audioContext.currentTime) * 1000 + 200,
     );
     setTimeout(() => {
       if (signal.aborted) return;
       readaloudClearHighlights();
       readaloudSetState("idle");
       if (READALOUD.audioContext) {
-        try { READALOUD.audioContext.close(); } catch (_) {}
+        try { READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
         READALOUD.audioContext = null;
       }
     }, totalWaitMs);
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error("[readaloud]", err);
-    readaloudSetState("error", err.message || "Failed");
+    let msg = err.message || "Failed";
+    const networkish =
+      err.message &&
+      (err.message.includes("Failed to fetch") ||
+        err.message.includes("NetworkError") ||
+        err.message.includes("ECONNREFUSED") ||
+        err.message.includes("Load failed"));
+    if (networkish) {
+      msg = "🔊 Server offline — start mlx-audio LaunchAgent (see /moussey)";
+    }
+    readaloudSetState("error", msg);
+    if (READALOUD.audioContext) {
+      try { await READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
+      READALOUD.audioContext = null;
+    }
   }
 }
 
