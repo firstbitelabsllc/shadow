@@ -74,6 +74,19 @@ body {
   border-color: var(--accent);
   color: var(--paper);
 }
+.topbar-meta button.root-readaloud-toggle {
+  font-family: var(--mono);
+  min-width: 88px;
+}
+.topbar-meta button.root-readaloud-toggle.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.topbar-meta button.root-readaloud-toggle.is-loading {
+  font-style: italic;
+  opacity: 0.85;
+}
 
 .layout {
   display: grid;
