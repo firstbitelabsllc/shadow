@@ -25,6 +25,10 @@ projects/*
 # verifying whether it can read out Claude analysis on walks. Tracked so the
 # autonomous /loop cron can resume across sessions / machines.
 !projects/higgs-reader-poc/
+# Exception: voxtral-reader-addon is the active vidux-browse 🔊 Read-aloud
+# add-on plan (Mistral Voxtral 4B WebGPU, browser-local, personal use only).
+# Replaces higgs-reader-poc as the active reader project.
+!projects/voxtral-reader-addon/
 
 # Temp files from checkpoint script
 tmp*.md
