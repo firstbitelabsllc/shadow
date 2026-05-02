@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" defer></script>
   <script src="/static/app.js" defer></script>
+  <script type="module" src="/static/readaloud.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -14,6 +15,7 @@
     <h1>vidux browser</h1>
     <div class="topbar-meta">
       <span id="meta-count">…</span>
+      <button id="root-readaloud-toggle" class="root-readaloud-toggle" type="button" title="Read aloud (Voxtral, WebGPU)">🔊 Read</button>
       <button id="root-annotation-toggle" class="root-annotation-toggle" type="button" title="Annotate selected view (Cmd/Ctrl+Shift+C)" disabled>Annotate</button>
       <button id="refresh" type="button" title="Re-scan">↻ refresh</button>
     </div>
