@@ -77,6 +77,8 @@ body {
 .topbar-meta button.root-readaloud-toggle {
   font-family: var(--mono);
   min-width: 88px;
+  position: relative;
+  overflow: hidden;
 }
 .topbar-meta button.root-readaloud-toggle.is-active {
   background: var(--accent);
@@ -86,6 +88,20 @@ body {
 .topbar-meta button.root-readaloud-toggle.is-loading {
   font-style: italic;
   opacity: 0.85;
+}
+/* M14: thin progress bar fills bottom of button as chunks advance through
+   playback. --ra-progress set by readaloudUpdatePlayingLabel(). */
+.topbar-meta button.root-readaloud-toggle.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--ra-progress, 0%);
+  background: var(--paper);
+  opacity: 0.55;
+  transition: width 200ms ease-out;
+  pointer-events: none;
 }
 .topbar-meta select.root-readaloud-voice {
   background: var(--paper); border: 1px solid var(--rule);
@@ -119,6 +135,18 @@ body {
   padding: 0 2px;
   border-radius: 2px;
   transition: background-color 120ms ease-out;
+}
+/* M13: per-word highlight WITHIN the chunk highlight. Each word is its own
+   span; .ra-word-active gets a subtle underline + slight inversion so it
+   stands out against the .ra-active background without being garish. */
+.ra-word {
+  transition: background-color 80ms ease-out, color 80ms ease-out;
+}
+.ra-word-active {
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .layout {
