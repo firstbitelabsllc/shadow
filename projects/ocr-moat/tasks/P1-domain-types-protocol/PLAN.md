@@ -150,7 +150,7 @@ OCR is on the revert-prone surfaces list. Same-PR regression tests:
 
 ## P1.3.2b — Add `start()` + `pollOnce()` polling primitives to `ReceiptScanProvider` (additive, zero existing-call-site change)
 
-**Status:** [in_progress] — claimed 2026-05-03T09:13:07Z by `claude-opus-4-7-rios-loop-1777799471` for Phase B+C bundle per additive-task precedent (P1.3.1 / P1.3.2a). Phase A design resolved upstream (cycle 1777797575). Spec-drift gate runs against `origin/main` first.
+**Status:** [in_progress] — re-claimed 2026-05-03T10:08:00Z by `claude-opus-4-7-rios-loop-1777802716` (prior claim by `claude-opus-4-7-rios-loop-1777799471` at 09:13:07Z went stale at 09:43Z after ENOSPC blocked Phase C; worktree at `~/Development/resplit-ios-worktrees/P1.3.2b-ocr-polling-primitives/` is intact and recoverable with 2 modified Swift files + 1 untracked test file). This cycle ships Phase C (spec-drift verify existing diff → test gate → commit → push → open draft PR). Phase D deferred to next cycle.
 **Estimated LOC:** ~25 lines `ReceiptScanProvider.swift` (protocol additions + result enum + extension default for `scan()` fallback) + ~50 lines `AzureDIv4Provider.swift` (`start()` + `pollOnce()` impls leveraging existing `uploadReceiptV4` + `fetchReceiptResultV4`) + ~80 lines tests.
 **Files modified:**
 - `ResplitCore/OCR/ReceiptScanProvider.swift` — add new types + protocol requirements:
