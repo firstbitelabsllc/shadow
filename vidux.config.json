@@ -83,7 +83,11 @@
           "pr_state_prefix": "pr-state:",
           "review_state_prefix": "review-state:"
         },
-        "auto_promote_target": "projects/vidux-linear-primacy"
+        "auto_promote_target": "projects/vidux-linear-primacy",
+        "push_only_for_plans": [
+          "projects/resplit-2-0-weekend-push",
+          "projects/ocr-moat"
+        ]
       }
     }
   ],
