@@ -191,6 +191,187 @@ class InboxSyncTests(unittest.TestCase):
         self.assertEqual(tasks[0].source, "linear:lin_1")
         self.assertEqual(tasks[0].title, "Glossary sweep batch A")
 
+    def test_parse_plan_accepts_bold_composite_id_with_slug(self):
+        """Bold-wrapped task IDs that embed an em-dash slug + colon must parse.
+
+        Regression for the iOS Resplit fleet where every weekend-push task
+        used `**T1 — AAFuZnay: title**` shape, causing
+        `vidux-inbox-sync.py --direction=push --only-adapter linear` to
+        return `tasks: 0` for resplit-2-0-weekend-push and ocr-moat
+        (Leo 2026-05-03: 'i would push ios work into linear otherwise
+        how are we gonna track the work?').
+        """
+        self.write_plan(
+            "- [completed] **T1 — AAFuZnay: cap receipt scan hero image height to 220pt** "
+            "[Evidence: ASC quote] [Source: linear:lin_1]"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "T1")
+        self.assertEqual(
+            tasks[0].title,
+            "cap receipt scan hero image height to 220pt",
+        )
+        self.assertEqual(tasks[0].source, "linear:lin_1")
+        self.assertEqual(tasks[0].evidence, "ASC quote")
+        self.assertEqual(tasks[0].status, sync.VidxStatus.COMPLETED)
+
+    def test_parse_plan_accepts_em_dash_separator_no_colon(self):
+        """`T-cron-1 — Seed proactive baseline` (em-dash, no colon)."""
+        self.write_plan(
+            "- [pending] T-cron-1 — Seed proactive sim-walk baseline directory [ETA: 1h]"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "T-cron-1")
+        self.assertEqual(
+            tasks[0].title,
+            "Seed proactive sim-walk baseline directory",
+        )
+        self.assertEqual(tasks[0].eta_hours, 1.0)
+
+    def test_parse_plan_accepts_no_separator_body(self):
+        """`T1 Add value-mix brake subsection` (whitespace-only separator)."""
+        self.write_plan(
+            "- [pending] T1 Add value-mix brake subsection [Evidence: usage report]"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "T1")
+        self.assertEqual(tasks[0].title, "Add value-mix brake subsection")
+
+    def test_parse_plan_accepts_task_keyword_prefix(self):
+        """`Task MOU-1: Ship Moussey dashboard` (mouseey/moussey style)."""
+        self.write_plan(
+            "- [completed] Task MOU-1: Ship Moussey dashboard entrypoint"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "MOU-1")
+        self.assertEqual(tasks[0].title, "Ship Moussey dashboard entrypoint")
+
+    def test_parse_plan_accepts_digit_leading_id(self):
+        """`4.1 Continue README iteration` (claudux-evolution style)."""
+        self.write_plan(
+            "- [pending] 4.1 Continue README iteration via claudux-opensource cron"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "4.1")
+        self.assertEqual(
+            tasks[0].title,
+            "Continue README iteration via claudux-opensource cron",
+        )
+
+    def test_parse_plan_accepts_pre_id_bracket_annotation(self):
+        """`[owner: claude] M1: Smoke test` (voxtral-reader-addon style)."""
+        self.write_plan(
+            "- [completed] [owner: claude] M1: Smoke test mlx-audio Voxtral [ETA: 0.5h]"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "M1")
+        self.assertEqual(tasks[0].title, "Smoke test mlx-audio Voxtral")
+        self.assertEqual(tasks[0].eta_hours, 0.5)
+
+    def test_parse_plan_accepts_backtick_wrapped_status(self):
+        """``` `[pending]` **P1 — Domain types** ``` (ocr-moat style)."""
+        self.write_plan(
+            "- `[pending]` **P1 — Domain types + provider protocol + Azure adapter** "
+            "[Sub-plan: tasks/P1-domain-types-protocol/PLAN.md] [ETA: 8h]"
+        )
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "P1")
+        self.assertEqual(
+            tasks[0].title,
+            "Domain types + provider protocol + Azure adapter",
+        )
+        self.assertEqual(tasks[0].eta_hours, 8.0)
+
+    def test_parse_plan_accepts_tasks_phases_header(self):
+        """`## Tasks (Phases)` header variant (ocr-moat)."""
+        plan = textwrap.dedent(
+            """\
+            # Test
+            ## Tasks (Phases)
+            - [pending] **P1 — Domain types** [ETA: 8h] — Lock the contract.
+            - [pending] **P2 — Fixture corpus** [ETA: 6h] — JSONL frozen.
+            ## Decision Log
+            """
+        )
+        (self.plan_dir / "PLAN.md").write_text(plan, encoding="utf-8")
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual(tasks[0].id, "P1")
+        self.assertEqual(tasks[1].id, "P2")
+
+    def test_parse_plan_does_not_match_non_status_brackets(self):
+        """Defence in depth: `[Source:]`, `[DIRECTION]`, `[deferred]` are not tasks.
+
+        Vidux's status FSM is strictly pending|in_progress|in_review|
+        completed|blocked. `[deferred]` is intentionally unsupported (see
+        `adapters/base.VidxStatus`) — Resplit's deferred-to-2.0.1 rows MUST
+        NOT push to Linear.
+        """
+        plan = textwrap.dedent(
+            """\
+            # Test
+            ## Tasks
+            - [Source: codebase] not a task
+            - [DIRECTION] not a task
+            - [deferred] T8: replace icon (must not parse — deferred is not a vidux state)
+            - [pending] T9: real task
+            ## Decision Log
+            """
+        )
+        (self.plan_dir / "PLAN.md").write_text(plan, encoding="utf-8")
+
+        tasks = sync.parse_plan(self.plan_dir / sync.PLAN_FILENAME)
+
+        # Only the [pending] row counts. The bracketed annotations and
+        # the [deferred] row must be skipped.
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "T9")
+
+    def test_flip_plan_statuses_handles_bold_composite_ids(self):
+        """flip_plan_statuses must use the same lenient matcher as parse_plan.
+
+        Otherwise a status-flip request for `T1` would silently no-op
+        because the canonical regex doesn't match `**T1 — AAFuZnay: ...**`.
+        """
+        self.write_plan(
+            "- [pending] **T1 — AAFuZnay: cap receipt scan**"
+        )
+        plan_path = self.plan_dir / sync.PLAN_FILENAME
+
+        flipped = sync.flip_plan_statuses(
+            plan_path,
+            {"T1": sync.VidxStatus.COMPLETED},
+            dry_run=False,
+        )
+
+        self.assertEqual(flipped, 1)
+        text = plan_path.read_text(encoding="utf-8")
+        self.assertIn("[completed] **T1 — AAFuZnay:", text)
+        self.assertNotIn("[pending] **T1 —", text)
+
     def test_auto_promoted_source_marker_dedupes_when_state_is_missing(self):
         self.write_plan("")
         adapter = FakeLinearAdapter([self.external_item()])

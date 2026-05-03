@@ -50,7 +50,7 @@ import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # --- Path bootstrap: scripts/ lives alongside adapters/ -----------------------
 
@@ -149,12 +149,25 @@ def resolve_plan_dirs(config: dict[str, Any], explicit: str | None) -> list[Path
 
 # --- PLAN.md parsing ---------------------------------------------------------
 
-# Match task lines. Supports:
+# Match task lines. Supports the historical canonical form:
 #   "- [pending] T7: description ..."              (vidux-kanban-ext style)
 #   "- [pending] **GP-M6**: description ..."       (bolded task id)
 #   "- [pending] I5: description ..."              (single-letter prefix)
-# ID must start with an uppercase letter and may contain alphanumerics, `-`, `_`, `.`
-# Optional `**...**` bold wrapping is tolerated and stripped by post-match cleanup.
+#
+# Plus the additional shapes observed in the Resplit / mouseey / voxtral / claudux
+# fleets (added 2026-05-03 — see _match_task_line() for the full grammar):
+#   "- [completed] **T1 — AAFuZnay: cap receipt scan**"  (bold composite ID + slug + colon)
+#   "- [pending] T1 Add value-mix brake subsection"      (no separator before body)
+#   "- [pending] T2a Discovery upgrades [ETA: 0.5h]"     (em-dash separator, no colon)
+#   "- [pending] Task MOU-1: Ship Moussey dashboard"     (`Task ` keyword prefix)
+#   "- [pending] 4.1 Continue README iteration"          (digit-leading ID)
+#   "- [completed] [owner: claude] M1: Smoke test"       (pre-ID bracket annotation)
+#   "- `[pending]` **P1 — Domain types**"                (backtick-wrapped status)
+#
+# `_TASK_LINE` retained as a fast-path canonical matcher; `_match_task_line`
+# performs the full multi-shape parse and is the source of truth for parse_plan
+# + flip_plan_statuses. All historic [Source: ...] backtick guards and tag
+# extraction continue to work via the shared post-match pipeline.
 _TASK_LINE = re.compile(
     r"^- \[(?P<status>pending|in_progress|in_review|completed|blocked)\] "
     r"(?:\*\*)?(?P<id>[A-Z][A-Za-z0-9_.+\-]*(?:\s+\d+(?:\.\d+)?)?)(?:\*\*)?"
@@ -162,6 +175,119 @@ _TASK_LINE = re.compile(
     r"\s*:\s*"
     r"(?P<body>.*)$"
 )
+
+# Lenient task-line matcher used by parse_plan + flip_plan_statuses.
+# Stage 1: capture the status (with optional backtick wrapping) + the rest of the line.
+_LENIENT_STATUS = re.compile(
+    r"^- `?\[(?P<status>pending|in_progress|in_review|completed|blocked)\]`?\s+"
+    r"(?P<rest>.+)$"
+)
+# Stage 2a: pre-ID bracket annotations like `[owner: claude]`.
+_LENIENT_PRE_BRACKETS = re.compile(r"^(?:\[[^\]]+\]\s+)+")
+# Stage 2b: a `**...**` bold span carrying the header.
+_LENIENT_BOLD_SPAN = re.compile(
+    r"\*\*(?P<bold>[^*]+)\*\*\s*(?:[—–:\-]\s*)?(?P<after>.*)$"
+)
+# Stage 2c: ID at the start of a header chunk, allowing optional `Task ` prefix.
+_LENIENT_ID_START = re.compile(
+    r"^(?:Task\s+)?"
+    r"(?P<id>[A-Za-z0-9][A-Za-z0-9_.+\-]*(?:\s+\d+(?:\.\d+)?)?)"
+)
+# Stage 2d: a "slug" inside a bold composite — `T1 — AAFuZnay: title` shape.
+# Matches ` — <slug>: ` or ` — <slug> — ` so the parser can drop the slug
+# and recover the human title.
+_LENIENT_SLUG_AFTER_DASH = re.compile(
+    r"^\s*[—–]\s*"
+    r"(?P<slug>[A-Za-z0-9][A-Za-z0-9_.+\-]*)"
+    r"\s*[:—–]\s*"
+)
+_LENIENT_LEADING_SEP = re.compile(r"^[\s:—–\-]+")
+_LENIENT_LEADING_BRACKETS = re.compile(r"^(?:\s*\[[^\]]+\])+")
+
+
+class _ParsedTaskLine(NamedTuple):
+    status: str
+    id: str
+    extras: str
+    body: str
+    title: str
+
+
+def _match_task_line(line: str) -> _ParsedTaskLine | None:
+    """Parse a PLAN.md task line; return None if the line is not a task.
+
+    Supports every shape documented above the `_TASK_LINE` canonical regex.
+    `extras` accumulates `[bracketed]` and `(parenthetical)` annotations
+    found between the ID and the body so downstream tag extraction
+    (`[ETA: 2h]`, `[Source: linear:...]`, etc.) continues to work.
+    """
+    m1 = _LENIENT_STATUS.match(line)
+    if not m1:
+        return None
+    status = m1.group("status")
+    rest = m1.group("rest")
+
+    # Drop pre-ID bracket annotations like `[owner: claude]` but keep them in
+    # extras so [Source: ...] / [ETA: ...] tags still feed the metadata pipe.
+    extras_buf: list[str] = []
+    pre = _LENIENT_PRE_BRACKETS.match(rest)
+    if pre:
+        extras_buf.append(pre.group(0).strip())
+        rest = rest[pre.end():]
+
+    # Variant A: `**...**` bold span. Header lives inside the bold.
+    mb = _LENIENT_BOLD_SPAN.match(rest)
+    if mb:
+        header = mb.group("bold").strip()
+        after = mb.group("after")
+        midx = _LENIENT_ID_START.match(header)
+        if midx:
+            tid = midx.group("id").strip()
+            tail = header[midx.end():]
+            ms = _LENIENT_SLUG_AFTER_DASH.match(tail)
+            if ms:
+                tail = tail[ms.end():]
+            else:
+                tail = _LENIENT_LEADING_SEP.sub("", tail)
+            title_in_bold = tail.strip()
+            # If the bold contained only the ID (e.g. `**T2**`), the title
+            # lives in the post-bold prose.
+            if title_in_bold:
+                body = title_in_bold
+                # `after` is trailing prose / metadata — append to extras for
+                # tag extraction without polluting the title.
+                if after.strip():
+                    extras_buf.append(after.strip())
+            else:
+                body = after.strip()
+            extras = " ".join(extras_buf)
+            title = _strip_tags(body)
+            return _ParsedTaskLine(
+                status=status, id=tid, extras=extras, body=body, title=title
+            )
+
+    # Variant B: bare ID at the start of `rest`.
+    midx = _LENIENT_ID_START.match(rest)
+    if midx:
+        tid = midx.group("id").strip()
+        tail = rest[midx.end():]
+        # Drain bracketed extras that sit between the ID and the body.
+        while True:
+            mb2 = _LENIENT_LEADING_BRACKETS.match(tail)
+            if not mb2:
+                break
+            extras_buf.append(mb2.group(0).strip())
+            tail = tail[mb2.end():]
+        tail = _LENIENT_LEADING_SEP.sub("", tail)
+        body = tail.strip()
+        extras = " ".join(extras_buf)
+        title = _strip_tags(body)
+        return _ParsedTaskLine(
+            status=status, id=tid, extras=extras, body=body, title=title
+        )
+
+    return None
+
 
 _EVIDENCE_TAG = re.compile(r"\[Evidence:\s*(?P<v>[^\]]*)\]")
 _INVESTIGATION_TAG = re.compile(r"\[Investigation:\s*(?P<v>[^\]]*)\]")
@@ -209,9 +335,12 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
         "## ARCHIVE",
         "## Archive",
     )
+    # Accept the canonical `## Tasks` header AND `## Tasks (Phases)` style
+    # variants used by long-form plans like ocr-moat.
+    task_header = re.compile(r"^## Tasks(\s*\([^)]*\))?\s*$")
     task_start = task_end = None
     for i, line in enumerate(lines):
-        if re.match(r"^## Tasks\s*$", line):
+        if task_header.match(line):
             task_start = i + 1
             continue
         if task_start is not None:
@@ -226,17 +355,13 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
 
     tasks: list[PlanTask] = []
     for line in lines[task_start:task_end]:
-        m = _TASK_LINE.match(line)
-        if not m:
+        parsed = _match_task_line(line)
+        if parsed is None:
             continue
-        status = VidxStatus(m.group("status"))
-        raw_id = m.group("id")
-        body = m.group("body").strip()
+        status = VidxStatus(parsed.status)
         metadata_text = _strip_code_spans(
-            f"{m.group('extras') or ''} {body}"
+            f"{parsed.extras} {parsed.body}"
         )
-
-        title = _strip_tags(body)
 
         evidence = _first(_EVIDENCE_TAG, metadata_text)
         investigation = _first(_INVESTIGATION_TAG, metadata_text)
@@ -245,8 +370,8 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
 
         tasks.append(
             PlanTask(
-                id=raw_id,
-                title=title,
+                id=parsed.id,
+                title=parsed.title,
                 status=status,
                 evidence=evidence,
                 investigation=investigation,
@@ -671,9 +796,10 @@ def flip_plan_statuses(plan_path: Path, flips: dict[str, VidxStatus],
         "## ARCHIVE",
         "## Archive",
     )
+    task_header = re.compile(r"^## Tasks(\s*\([^)]*\))?\s*$")
     task_start = None
     for i, line in enumerate(lines):
-        if re.match(r"^## Tasks\s*$", line.rstrip("\n")):
+        if task_header.match(line.rstrip("\n")):
             task_start = i + 1
             break
     if task_start is None:
@@ -684,14 +810,14 @@ def flip_plan_statuses(plan_path: Path, flips: dict[str, VidxStatus],
         stripped = line.rstrip("\n").rstrip()
         if any(stripped == h or stripped.startswith(h + " ") for h in _TERMINATOR_HEADERS):
             break
-        m = _TASK_LINE.match(line.rstrip("\n"))
-        if not m:
+        parsed = _match_task_line(line.rstrip("\n"))
+        if parsed is None:
             continue
-        tid = m.group("id")
+        tid = parsed.id
         if tid not in flips:
             continue
         new_status = flips[tid].value
-        old_status = m.group("status")
+        old_status = parsed.status
         if old_status == new_status:
             continue
         lines[i] = line.replace(f"[{old_status}]", f"[{new_status}]", 1)
