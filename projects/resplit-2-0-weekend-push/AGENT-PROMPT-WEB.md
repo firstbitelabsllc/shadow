@@ -1,18 +1,27 @@
-# Resplit Web — MVP-Tonight Agent Prompt (Sunday 2026-05-03)
+# Resplit Web — Master Agent Prompt (standing, 15-min cron, indefinite)
 
 > Paste this verbatim into a fresh Claude / Codex session targeting `resplit-web` (or `resplit-ios` for share-related work — see §K).
 > One agent per session. Up to **4 agents simultaneously** (PW_PORT budget = 3110–3119).
 > Multi-agent assumption: many parallel sessions may run this same prompt — atomic claim (§C) is what keeps you from stepping on each other.
+> **Cron cadence: 15 min** (`com.leokwan.resplit-watch` + `com.leokwan.resplit-2-0-loop`, both `StartInterval=900`). Standing indefinitely; no time-window expiration. Runs through MVP launch and post-launch.
 
 ---
 
-## §A — MISSION: SHIP MVP TONIGHT (binding through 2026-05-04 02:00 EDT)
+## §A — MISSION: STANDING (no time cutoff)
 
-**You are pushing Resplit 2.0 to MVP tonight.** Web is primary. Native (iOS) is in scope when — and only when — the surface is **share-related** (share-link generation, share-text format/locale, share-sheet UX, deep-link receive). Everything else iOS = Lane 2 territory.
+**You are the standing Resplit Web agent.** Web is primary. Native (iOS) is in scope when — and only when — the surface is **share-related** (share-link generation, share-text format/locale, share-sheet UX, deep-link receive). Everything else iOS = Lane 2 territory.
 
-Per Leo verbatim 2026-05-03 (post-#547-merge directive): *"let's keep working guys move forward and let's get to an MVP tonight for 2.0 resplit focus on web please, actually do web and any feature on native related to sharing."*
+Mission lifecycle (always-on, no expiration):
 
-Earlier-same-day directive still binds: *"users opening the app... they essentially know what is gonna happen when they open the link. They wanna just split shit. We need to be so fucking clear, so fucking localized and just properly done... all the mobile nuances, all of like the little knickknacks with intricacies. I need /autobot-resplit-web to find all of these issues. Keep running test, keep running storybook, keep running playwright."*
+- **Pre-launch / launch-day:** drain T-final-audit FA.1-FA.10 + iOS share targets per §K; ship MVP-quality fixes same-cycle.
+- **Post-launch:** drain reactive P0s as they land (Sentry / Vercel toolbar / Jam / Linear); maintain Sentry 7-day-streak; pick up 2.0.1 punch-list rows as they appear.
+- **Always:** keep tests green, Storybook serving (dark/light only), Playwright happy paths passing.
+
+Per Leo verbatim 2026-05-03 (the operating-mode directives):
+
+- *"users opening the app... they essentially know what is gonna happen when they open the link. They wanna just split shit. We need to be so fucking clear, so fucking localized and just properly done... all the mobile nuances, all of like the little knickknacks with intricacies. I need /autobot-resplit-web to find all of these issues. Keep running test, keep running storybook, keep running playwright."*
+- *"let's keep working guys move forward and let's get to an MVP tonight for 2.0 resplit focus on web please, actually do web and any feature on native related to sharing."*
+- *"keep and update cron dont stop run every 15 min indefinitely have master prompt"* (this prompt is that master prompt; cron at 900s indefinite).
 
 **Queues, in priority order:**
 
@@ -29,9 +38,9 @@ Earlier-same-day directive still binds: *"users opening the app... they essentia
 - New Storybook stories EXCEPT dark/light validation of existing components
 - iOS work that ISN'T share-related — that stays Lane 2's queue (`vidux/projects/resplit-2-0-weekend-push/PLAN.md` T1-T9 ASC bug rows). Don't poach.
 
-**MVP-tonight defines the bar:** every fix PR ships the smallest vertical slice that makes the surface *correct under real use*, not polished. Polish is post-launch. Localization gap → fix the missing string + the share-text locale, not the entire i18n migration. Mobile padding bug → fix the specific tap-target + safe-area-inset, not a global spacing audit.
+**Smallest-slice bar:** every fix PR ships the smallest vertical slice that makes the surface *correct under real use*, not polished. Polish is post-launch. Localization gap → fix the missing string, not the entire i18n migration. Mobile padding bug → fix the specific tap-target + safe-area-inset, not a global spacing audit.
 
-After 2026-05-04 02:00 EDT: MVP-tonight pressure releases; AGENT-PROMPT-WEB drops to standard 20-min cron operation (T-final-audit FA.x continues at normal cadence).
+This prompt is the master and stands indefinitely. The cron fires every 15 min via launchd; pull `vidux/main` at the start of each cycle to pick up the latest version of this prompt.
 
 ---
 
@@ -220,8 +229,8 @@ If any P0 lands: switch from FA.x to the P0 fix lane same-cycle. After P0 closes
 
 ## §J — Cycle budget + IDLE
 
-- **Budget**: ~25 min wall-clock. 20 min code work + 5 min closeout pressure (merge + memory.md write).
-- **IDLE FORBIDDEN during MVP-tonight window** (through 2026-05-04 02:00 EDT). Empty queues at all 3 priority tiers = dispatch `/autobot-resplit-web` walk against any of the 5 guest-flow surfaces, diff vs baseline, file findings as new FA.x sub-rows in T-final-audit/PLAN.md. Idle is the rarest status until MVP ships.
+- **Budget**: ~12 min wall-clock per fire (15-min cron interval minus 3-min closeout reserve). Tight slices ship; multi-cycle work breaks down or skips.
+- **IDLE is the rarest status.** Empty queues at all 3 priority tiers = dispatch `/autobot-resplit-web` walk against any of the 5 guest-flow surfaces, diff vs baseline, file findings as new FA.x sub-rows in T-final-audit/PLAN.md. Cron is a heartbeat — re-read state ONLY when prior cycle ended IDLE / QC-DEFERRED / cleanly with no follow-on, OR a 3-strike stuck-state triggers re-grounding. Otherwise resume in-flight work.
 
 ---
 
