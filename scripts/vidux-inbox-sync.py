@@ -770,6 +770,39 @@ def auto_promote_max_new(source: dict[str, Any]) -> int | None:
     return value
 
 
+def push_only_plan_overrides(source: dict[str, Any], config_dir: Path) -> set[Path]:
+    """Resolve per-source `push_only_for_plans` allowlist to absolute plan_dir paths.
+
+    When `auto_promote_target` is configured on a source, brand-new external
+    issues are normally suppressed for every local-only PLAN row across the
+    fleet. Some lanes (e.g. iOS plans being tracked in Linear) need to opt INTO
+    PUSH while the rest of the fleet stays in PULL-only mode. The
+    `push_only_for_plans` list is that opt-in.
+
+    Entries may be relative (resolved against the config file's parent dir) or
+    absolute. Both forms are normalized to absolute paths so the per-plan
+    membership check in main() is a simple set lookup.
+
+    Empty / unset returns the empty set, preserving the existing
+    auto-promote suppression for every plan.
+    """
+    raw = (source.get("config") or {}).get("push_only_for_plans") or []
+    if not isinstance(raw, list):
+        raise ValueError(
+            "push_only_for_plans must be a list of plan-dir paths (relative or absolute)"
+        )
+    out: set[Path] = set()
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValueError(
+                "push_only_for_plans entries must be non-empty strings"
+            )
+        cand = Path(entry).expanduser()
+        resolved = (cand if cand.is_absolute() else (config_dir / cand)).resolve()
+        out.add(resolved)
+    return out
+
+
 # --- PLAN.md status flip -----------------------------------------------------
 
 
@@ -1447,13 +1480,37 @@ def main(argv: list[str] | None = None) -> int:
         # but disable creation of brand-new external tasks from local-only
         # PLAN rows.
         suppress_inbox = promote_target_dir is not None
+        try:
+            push_only = push_only_plan_overrides(
+                source, Path(config["_config_dir"])
+            )
+        except ValueError as exc:
+            results.append({
+                "_kind": "auto_promote",
+                "adapter": adapter.name,
+                "target": str(promote_target_dir) if promote_target_dir else "",
+                "promoted": 0,
+                "errors": [str(exc)],
+            })
+            if exit_code == 0:
+                exit_code = 2
+            continue
         for idx, plan_dir in enumerate(plan_dirs):
+            # Per-plan PUSH opt-in: when `push_only_for_plans` lists this
+            # plan_dir, override the auto-promote suppression so brand-new
+            # external issues fire for ITS local-only rows (iOS-lane use case
+            # — see SKILL.md AUTO-PROMOTE section). Other plans stay
+            # suppressed, so the global `auto_promote_target` still prevents
+            # the rest of the fleet from flooding the external board.
+            plan_dir_resolved = plan_dir.resolve()
+            push_opt_in = plan_dir_resolved in push_only
+            create_missing = (not suppress_inbox) or push_opt_in
             summary = sync_plan_with_adapter(
                 plan_dir, adapter, args.direction, args.dry_run,
                 push_statuses=push_statuses,
                 do_pull=(False if suppress_inbox else (idx == 0)),
                 do_push=True,
-                create_missing_external_tasks=not suppress_inbox,
+                create_missing_external_tasks=create_missing,
                 fleet_known_ext_ids=fleet_known,
             )
             results.append(summary)
