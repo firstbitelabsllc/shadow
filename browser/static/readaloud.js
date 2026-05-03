@@ -75,6 +75,10 @@ function readaloudInit() {
     if (saved) {
       const valid = Array.from(READALOUD.voiceSelect.options).some(o => o.value === saved);
       if (valid) READALOUD.voiceSelect.value = saved;
+      // M17 — drop stale localStorage if the saved voice was removed (e.g. multilingual
+      // options dropped). Without this, the picker silently falls back to default but
+      // the stale value lingers in storage forever.
+      else { try { localStorage.removeItem(VOICE_STORAGE_KEY); } catch (_) { /* ignore */ } }
     }
     READALOUD.voiceSelect.addEventListener("change", () => {
       try { localStorage.setItem(VOICE_STORAGE_KEY, READALOUD.voiceSelect.value); } catch (_) { /* ignore */ }
