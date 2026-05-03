@@ -495,7 +495,103 @@ function readaloudSplitText(text) {
   return safe;
 }
 
+// M16 — localStorage audio cache. Keyed by sha256(text+voice+speed+clone state)
+// so any change forces a fresh synth, but unchanged content replays instantly
+// instead of paying the ~5–10 s/chunk Voxtral synthesis cost. localStorage cap
+// is ~5 MB per origin in Chrome; the cache LRU-evicts oldest when the index
+// total exceeds CACHE_MAX_BYTES. base64 encoding adds ~33% overhead vs raw
+// bytes, so 4 MB of base64 ≈ 3 MB of WAV ≈ ~80–150 chunks at speed 1.25.
+const CACHE_INDEX_KEY = "vidux.readaloud.cache.index";
+const CACHE_VALUE_PREFIX = "vidux.readaloud.cache.v.";
+const CACHE_MAX_BYTES = 4 * 1024 * 1024; // 4 MB of base64 (Chrome quota leeway)
+
+async function readaloudCacheKey(text, voice, speed, clonePath, cloneText) {
+  const enc = new TextEncoder();
+  const data = enc.encode(JSON.stringify({ text, voice, speed, clonePath, cloneText }));
+  const hashBuf = await crypto.subtle.digest("SHA-256", data);
+  const hashArr = Array.from(new Uint8Array(hashBuf));
+  return hashArr.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function readaloudCacheGetIndex() {
+  try { return JSON.parse(localStorage.getItem(CACHE_INDEX_KEY) || "[]"); }
+  catch (_) { return []; }
+}
+
+function readaloudCacheSetIndex(idx) {
+  try { localStorage.setItem(CACHE_INDEX_KEY, JSON.stringify(idx)); } catch (_) { /* ignore */ }
+}
+
+function readaloudCacheGet(key) {
+  try {
+    const b64 = localStorage.getItem(CACHE_VALUE_PREFIX + key);
+    if (!b64) return null;
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    // Bump LRU timestamp on hit
+    const idx = readaloudCacheGetIndex();
+    const found = idx.find(e => e.k === key);
+    if (found) { found.t = Date.now(); readaloudCacheSetIndex(idx); }
+    return u8.buffer;
+  } catch (_) { return null; }
+}
+
+function readaloudCacheSet(key, arrayBuf) {
+  try {
+    const u8 = new Uint8Array(arrayBuf);
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < u8.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+    }
+    const b64 = btoa(bin);
+    const size = b64.length;
+
+    let idx = readaloudCacheGetIndex();
+    const existing = idx.find(e => e.k === key);
+    if (existing) { existing.t = Date.now(); existing.s = size; }
+    else { idx.push({ k: key, t: Date.now(), s: size }); }
+
+    // LRU evict until under cap
+    let total = idx.reduce((a, e) => a + e.s, 0);
+    if (total > CACHE_MAX_BYTES) {
+      idx.sort((a, b) => a.t - b.t);
+      while (total > CACHE_MAX_BYTES && idx.length > 1) {
+        const ev = idx.shift();
+        try { localStorage.removeItem(CACHE_VALUE_PREFIX + ev.k); } catch (_) { /* ignore */ }
+        total -= ev.s;
+      }
+    }
+
+    localStorage.setItem(CACHE_VALUE_PREFIX + key, b64);
+    readaloudCacheSetIndex(idx);
+  } catch (e) {
+    // QuotaExceededError: drop oldest half + skip caching this chunk.
+    console.warn("[readaloud] cache.set failed (likely quota):", e.message);
+    try {
+      const idx = readaloudCacheGetIndex();
+      idx.sort((a, b) => a.t - b.t);
+      const half = Math.ceil(idx.length / 2);
+      for (let i = 0; i < half; i++) {
+        try { localStorage.removeItem(CACHE_VALUE_PREFIX + idx[i].k); } catch (_) { /* ignore */ }
+      }
+      readaloudCacheSetIndex(idx.slice(half));
+    } catch (_) { /* ignore */ }
+  }
+}
+
 async function readaloudFetchChunkAudio(chunkText, voice, signal) {
+  const clone = readaloudCloneState();
+  // Cache key includes ALL inputs that influence the audio. Hand-test by
+  // changing any of them — the cache miss + re-synth proves the boundary.
+  const cacheKey = await readaloudCacheKey(chunkText, voice, SPEED, clone.path, clone.text);
+  const cached = readaloudCacheGet(cacheKey);
+  if (cached) {
+    console.log("[readaloud] cache HIT", cacheKey.slice(0, 8), `${cached.byteLength}B`);
+    return cached;
+  }
+
   const body = {
     model: MODEL,
     input: chunkText,
@@ -506,7 +602,6 @@ async function readaloudFetchChunkAudio(chunkText, voice, signal) {
   // When voice clone is set, include the server-local ref_audio path + transcript.
   // Voxtral requires BOTH `voice` and `ref_audio` set (verified 2026-05-02 — passing
   // ref_audio alone yields "Either ref_audio or voice must be defined" assertion).
-  const clone = readaloudCloneState();
   if (clone.path && clone.text) {
     body.ref_audio = clone.path;
     body.ref_text = clone.text;
@@ -525,7 +620,10 @@ async function readaloudFetchChunkAudio(chunkText, voice, signal) {
     } catch (_) { /* ignore */ }
     throw new Error(`HTTP ${resp.status} ${resp.statusText}${detail ? ` — ${detail}` : ""}`);
   }
-  return resp.arrayBuffer();
+  const arrayBuf = await resp.arrayBuffer();
+  // Cache the synthesized audio so the next play of the same content is instant.
+  readaloudCacheSet(cacheKey, arrayBuf);
+  return arrayBuf;
 }
 
 async function readaloudOnClick() {
