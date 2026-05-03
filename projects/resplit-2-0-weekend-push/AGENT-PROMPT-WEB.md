@@ -1,27 +1,37 @@
-# Resplit Web — Audit-Window Agent Prompt (Sunday 2026-05-03)
+# Resplit Web — MVP-Tonight Agent Prompt (Sunday 2026-05-03)
 
-> Paste this verbatim into a fresh Claude / Codex session targeting `resplit-web`.
+> Paste this verbatim into a fresh Claude / Codex session targeting `resplit-web` (or `resplit-ios` for share-related work — see §K).
 > One agent per session. Up to **4 agents simultaneously** (PW_PORT budget = 3110–3119).
 > Multi-agent assumption: many parallel sessions may run this same prompt — atomic claim (§C) is what keeps you from stepping on each other.
 
 ---
 
-## §A — MISSION (binding through 2026-05-03 17:30 EDT)
+## §A — MISSION: SHIP MVP TONIGHT (binding through 2026-05-04 02:00 EDT)
 
-**You are auditing the Resplit Web guest-flow first-impression.** Mission: kill AI slop, verify localization is real, fix every mobile knickknack on the 5 surfaces a stranger walks when they click Leo's share link.
+**You are pushing Resplit 2.0 to MVP tonight.** Web is primary. Native (iOS) is in scope when — and only when — the surface is **share-related** (share-link generation, share-text format/locale, share-sheet UX, deep-link receive). Everything else iOS = Lane 2 territory.
 
-Per Leo verbatim 2026-05-03: *"users opening the app... they essentially know what is gonna happen when they open the link. They wanna just split shit. We need to be so fucking clear, so fucking localized and just properly done... all the mobile nuances, all of like the little knickknacks with intricacies. I need /autobot-resplit-web to find all of these issues. Keep running test, keep running storybook, keep running playwright."*
+Per Leo verbatim 2026-05-03 (post-#547-merge directive): *"let's keep working guys move forward and let's get to an MVP tonight for 2.0 resplit focus on web please, actually do web and any feature on native related to sharing."*
 
-**The queue is `vidux/resplit-2.0-launch/T-final-audit/PLAN.md` — FA.1 through FA.10.** Claim the next unblocked row, ship a fix PR same-cycle, repeat. Reactive sources (Sentry / Vercel toolbar / Jam / Linear) still get a scan at the start of each cycle; any P0 there interrupts the audit queue. Otherwise: audit work.
+Earlier-same-day directive still binds: *"users opening the app... they essentially know what is gonna happen when they open the link. They wanna just split shit. We need to be so fucking clear, so fucking localized and just properly done... all the mobile nuances, all of like the little knickknacks with intricacies. I need /autobot-resplit-web to find all of these issues. Keep running test, keep running storybook, keep running playwright."*
+
+**Queues, in priority order:**
+
+1. **Reactive P0s** (interrupt-driven, scan every cycle): Sentry resplit-web new unresolved → Vercel preview-toolbar comments on `www.resplit.app` → Jam.dev tagged `resplit.app` → Linear EVE-resplit-web `priority=1`.
+2. **Web — `vidux/resplit-2.0-launch/T-final-audit/PLAN.md` FA.1-FA.10** (the audit lane): claim atomically per §C, ship same-cycle fix per §D-E.
+3. **Native — share surfaces in `~/Development/resplit-ios`** (cross-fleet, see §K): `ParticipantShareMessageGenerator.swift`, `LiveSessionShareSemantics.swift`, `ReceiptShareMessageGenerator.swift`, `FolderShareMessageGenerator.swift`, `ReceiptListShareAppNavButton.swift`, `ShareScreen.swift`. Locale-aware share text (per parent INBOX P2-17 *"settle-up share prompt should use user's preferred language/locale, fall back to English"*) is the canonical MVP-tonight ask.
 
 **FROZEN — drop on the floor, do NOT log to backlog:**
+
 - Bold UX vs Gradient UX parity (any new `*_Bold` / `*_Gradient` Storybook story or "should match the Gradient ref" finding)
 - Brand-resplit gradient/typography/layout/token experiments (per `/brand-resplit` v6 freeze)
-- Hero CTA / landing-headline copy
+- Hero CTA / landing-headline copy edits (`/auto` Hard NEVER #5)
 - Architecture rewrites, Tailwind/design-system migrations
 - New Storybook stories EXCEPT dark/light validation of existing components
+- iOS work that ISN'T share-related — that stays Lane 2's queue (`vidux/projects/resplit-2-0-weekend-push/PLAN.md` T1-T9 ASC bug rows). Don't poach.
 
-After 2026-05-03 17:30 EDT: §A drops to advisory; reactive-source priority resumes.
+**MVP-tonight defines the bar:** every fix PR ships the smallest vertical slice that makes the surface *correct under real use*, not polished. Polish is post-launch. Localization gap → fix the missing string + the share-text locale, not the entire i18n migration. Mobile padding bug → fix the specific tap-target + safe-area-inset, not a global spacing audit.
+
+After 2026-05-04 02:00 EDT: MVP-tonight pressure releases; AGENT-PROMPT-WEB drops to standard 20-min cron operation (T-final-audit FA.x continues at normal cadence).
 
 ---
 
@@ -211,7 +221,50 @@ If any P0 lands: switch from FA.x to the P0 fix lane same-cycle. After P0 closes
 ## §J — Cycle budget + IDLE
 
 - **Budget**: ~25 min wall-clock. 20 min code work + 5 min closeout pressure (merge + memory.md write).
-- **IDLE FORBIDDEN during the audit window.** Empty FA queue + no P0 reactive = dispatch `/autobot-resplit-web` walk against any of the 5 surfaces, diff vs baseline, file findings as new FA.x sub-rows in T-final-audit/PLAN.md. Idle is the rarest status during 2026-05-03 11:30→17:30 EDT.
+- **IDLE FORBIDDEN during MVP-tonight window** (through 2026-05-04 02:00 EDT). Empty queues at all 3 priority tiers = dispatch `/autobot-resplit-web` walk against any of the 5 guest-flow surfaces, diff vs baseline, file findings as new FA.x sub-rows in T-final-audit/PLAN.md. Idle is the rarest status until MVP ships.
+
+---
+
+## §K — Cross-fleet share-feature scope (when to cross from resplit-web → resplit-ios)
+
+**The bridge:** an iOS user shares → resplit-web's guest flow receives. Both ends live or die together. During MVP-tonight, share-related work in BOTH repos is in your scope; non-share iOS work stays Lane 2's.
+
+**Inclusion test** — pick up an iOS task ONLY if it satisfies ALL of these:
+
+1. The file path matches `*Share*` / `*share*` (e.g. `ResplitCore/**/ParticipantShareMessageGenerator.swift`, `ShareScreen.swift`, `*ShareAppNavButton.swift`)
+2. The change affects what a user SEES or RECEIVES via a share link (text, deep-link parsing, locale handling, fallback behavior)
+3. The change does NOT require Tuist regenerate beyond `tuist build "Resplit Debug"` (i.e. it's a Swift edit + test, not a project structure change)
+
+If ANY of those fail → defer to Lane 2's `vidux/projects/resplit-2-0-weekend-push/PLAN.md` queue. Do NOT poach iOS bug rows from T1-T7 (they're ASC-feedback bugs Lane 2 owns).
+
+**Top MVP-tonight share targets** (based on inventory at 2026-05-03 13:55 EDT):
+
+| iOS file | What to verify | Why MVP |
+|---|---|---|
+| `ResplitCore/**/ParticipantShareMessageGenerator.swift` | Share text uses `Locale.current` for "owes you", "you owe" copy + currency formatting | Per parent INBOX P2-17 — settle-up share prompt locale-aware |
+| `ResplitCore/**/LiveSessionShareSemantics.swift` | Live-session share message has correct `https://www.resplit.app/s/<slug>` URL shape, not bare host | Web side already canonicalizes www.; iOS share text must match |
+| `ResplitCore/**/ReceiptShareMessageGenerator.swift` | Receipt share preview line + amount formatting locale-aware | Same as ParticipantShareMessageGenerator |
+| `ResplitCore/**/FolderShareMessageGenerator.swift` | Trip-level share copy locale-aware | Same |
+| `ResplitCore/Receipt List Container/ReceiptListShareAppNavButton.swift` | Tap target + accessibility label localized | UI-side mobile nuance |
+| `ResplitCore/Walkthroughs/Screens/ShareScreen.swift` | Onboarding share-screen locale + copy clarity | First-time user share flow |
+| `ResplitCoreTests/*ShareMessageGeneratorTests.swift` (4 files) | Add locale-fallback test cases (es, zh, ja); existing tests likely en-only | MT-5 regression test required for any share-message change |
+
+**iOS work cycle delta** — when the claimed task is iOS-side:
+
+- Worktree under `~/Development/resplit-ios-worktrees/share-<slug>-<RANDOM>` (per `/bigapple` build-isolation rule, not the resplit-web worktree path)
+- `tuist build "Resplit Debug" -derivedDataPath /tmp/resplit-dd-share-${RANDOM}` is the gate (per `/bigapple` no-killall swarm safety)
+- `tuist test ResplitCoreTests` for the share-message-generator test class
+- BEFORE/AFTER capture via `/autobot-resplit` (iOS sim driver) screenshotting the actual share-sheet — NOT `/autobot-resplit-web`. The two simdrivers don't conflict; share testing needs the iOS sheet.
+- Visual proof in `docs/autobot-evidence/<date>-share-<slug>/before.jpg` + `after.jpg` per CLAUDE.md § Visual Proof Merge Gate
+- Closeout: same §E discipline — PR ready, `@graphite review`, threads resolved, squash-merge once Graphite/Seer SUCCESS
+
+**iOS-specific Hard NEVERs** (in addition to §F):
+
+- Never modify `EditAmountPopoverField.swift` — owned by CLAUDE.md § Bug Fix Discipline (22× fixed)
+- Never run `tuist generate` without `--no-open` flag (opens Xcode, breaks cron)
+- Never commit `tuist generate` artifacts — `Tuist/.build/` and per-target `.xcworkspace` files are gitignored
+
+**Coordination with Lane 2:** if you start an iOS share task and notice Lane 2 has a `[claimed]` row touching the same surface in `vidux/projects/resplit-2-0-weekend-push/PLAN.md`, BACK OFF. The cron's atomic-claim mechanism doesn't span repos. Defer your work until Lane 2's claim is `[completed]` or `>30 min stale`.
 
 ---
 
