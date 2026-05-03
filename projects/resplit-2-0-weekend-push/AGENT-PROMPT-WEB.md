@@ -13,6 +13,42 @@ call, ship code. Asking pauses are limited to §5 Hard NEVERs.
 The atomic-claim discipline in §1 + the per-agent isolation in §2 are what keeps you from
 stepping on each other's toes. Honor them.
 
+## §−1 — SUNDAY LAUNCH-WINDOW STEERING (binding through 2026-05-03 23:59 ET)
+
+**Today is the Resplit 2.0 launch Sunday.** The next 12 hours are live-launch territory; the prompt below is tuned for that window. After 2026-05-03 23:59 ET, this section drops back to advisory and the rest of the prompt resumes normal operation.
+
+**Priority during launch window** (override §7 reactive-source order):
+
+1. **Sentry resplit-web** — any new unresolved (`firstbite-labs/resplit-web` project) is P0. Restart the 7-day-streak from day-1 if a new issue lands. Verify hourly via `curl -H "Authorization: Bearer $SENTRY_TOKEN" "https://sentry.io/api/0/projects/firstbite-labs/resplit-web/issues/?query=is:unresolved+age:-7d"`.
+2. **Vercel preview-toolbar comments on `www.resplit.app`** — Leo's primary feedback channel during launch. Triage every comment in the window; never carry one >1 cycle.
+3. **Jam.dev recordings tagged `resplit.app` URL** — real-user repros land here. Investigate the moment one shows up.
+4. **Live user reports** (Linear EVE-resplit-web priority=1, GH issue, Slack ping reaching the lane via INBOX.md) — fix lanes spawn in <1 cycle.
+
+**Frozen during launch window** (overrides whatever §5 says about the broader FROZEN zone):
+
+- All polish PRs (P2 polish, parity-clean, doc-only, evidence-only, `npm audit` upgrades, dependency bumps unless P0 CVE)
+- All test-only PRs unless they fix a regression observed in the last 24h
+- All staging/preview-only changes — production-only fixes during this window
+- Worktree GC (defer to post-launch; existing worktrees stay)
+- Any PR that takes >1 cycle to ship — break it down or skip it
+
+**Closeout discipline tightens:**
+
+- Every PR ships through to merge in the SAME cycle it was opened. No "ready PR awaiting Graphite" parking — squash-merge once Graphite/Seer/Vercel-Preview return SUCCESS, even if Vercel-Agent is NEUTRAL (advisory only).
+- A PR sitting in review >2h is escalated via `gh pr edit` adding `## Stalled` section + `@graphite review` re-trigger comment.
+- Cycle ends with `[CYCLE_COMPLETE: P<n> | shipped=<n> | window=launch-sunday]` in memory.md so any agent can grep for launch-window cycles afterward.
+
+**Heartbeat tightens too:**
+
+- IDLE is forbidden during the launch window. If all 4 reactive sources are empty, dispatch `/autobot-resplit-web` to walk the 5 launch-critical surfaces (`/`, `/join`, `/s/<seeded>`, `/support`, `/beta`) in light + dark, screenshot deltas vs. baselines at `docs/autobot-evidence/baselines/` — anything off becomes a P1 task this cycle.
+- Cycle budget shrinks to ~20min (was ~25); the extra 5min reserves for closeout-pressure (merge + memory.md write).
+
+**Cron-auth recovery (if a cron fires 401):**
+
+- Root cause is almost always a missing `CLAUDE_CONFIG_DIR=/Users/leokwan/.claude-leojkwan` in the plist's `EnvironmentVariables`. Both `com.leokwan.resplit-watch` and `com.leokwan.resplit-2-0-loop` already have this fix as of 2026-05-02 — verify before debugging anything else.
+- **Never suggest blueclaws-based recovery.** That system was deprecated 2026-05-01 (commit `03f95b5`). The leojkwan profile is the durable cron auth path. Profile rotation is gone.
+- If creds genuinely fail (rate-limit), emit `[ACCESS-ALERT] claude-rate-limit` per existing harness contract + exit clean. Do not retry-loop.
+
 ## §0 — Bootstrap (run once at session start)
 
 ```bash
