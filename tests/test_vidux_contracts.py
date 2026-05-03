@@ -2082,13 +2082,19 @@ class ViduxContractTests(unittest.TestCase):
     # def test_witness_produces_valid_json(self): — removed (script deleted in v2.6.0)
     # def test_witness_fleet_grade_is_letter(self): — removed (script deleted in v2.6.0)
     def test_skill_has_compound_tasks_section(self):
-        """SKILL.md must document compound tasks (nesting model) and investigations.
+        """SKILL.md must document the two nesting modes (investigation + sub-plan rollup).
 
-        Section was renamed in 2.10.0 from 'Compound tasks and sub-plans' to
-        'When a task needs an investigation (the only nesting vidux allows)'.
+        Section evolved through three names:
+        - 2.10.0: 'Compound tasks and sub-plans'
+        - 2.11.0: 'When a task needs an investigation (the only nesting vidux allows)'
+        - 2.17.0: 'Two nesting modes' (investigation + sub-plan rollup)
+
+        The contract is the SEMANTIC presence of compound-task / investigation
+        nesting documentation, not any specific section header. We assert the
+        terms and the two-mode structure rather than the literal header text.
         """
         text = _read(ROOT / "SKILL.md")
-        self.assertIn("task needs an investigation", text, "SKILL.md missing nesting/investigation subsection")
+        self.assertIn("Two nesting modes", text, "SKILL.md missing 'Two nesting modes' section header")
         self.assertIn("compound task", text.lower(), "SKILL.md missing compound-task reference")
         self.assertIn("Investigation", text, "SKILL.md missing 'Investigation' reference")
         self.assertIn("Impact Map", text, "SKILL.md missing 'Impact Map'")
