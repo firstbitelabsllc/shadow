@@ -164,7 +164,7 @@ Each task's worktree is its own git ref + DerivedData path. No contention.
 
 ### Defer to 2.0.1
 
-- [pending] **T8 — ADIQ: replace icon with SF Symbol (DEFERRED to 2.0.1)** [Evidence: ASC quote "Love this, i would prefer a SF symbol" — partial-positive, explicit "love this" + soft preference] — Not a bug. Open as 2.0.1 row after 2.0 ships. Do NOT block weekend launch.
+- [deferred] **T8 — ADIQ: replace icon with SF Symbol (DEFERRED to 2.0.1)** [Evidence: ASC quote "Love this, i would prefer a SF symbol" — partial-positive, explicit "love this" + soft preference] [Status flip 2026-05-03: was [pending] which was wrong — description always said DEFERRED. Now matches.] — Not a bug. Open as 2.0.1 row after 2.0 ships. Do NOT block weekend launch.
 
 ### Ship gate
 
@@ -172,9 +172,9 @@ Each task's worktree is its own git ref + DerivedData path. No contention.
 
 ### Cron-purview tasks (resplit-watch infrastructure, separate from bug fixes)
 
-- [in_review] **T-cron-1 — Seed proactive sim-walk baseline directory** [PR https://github.com/firstbitelabsllc/resplit-ios/pull/554 — `Captured: PARTIAL`, 3 of 4 surfaces captured; surface 04 (trip-settlement sheet) blocked on either MCP UI-automation tools (`tap`) being enabled OR a new `screenshot-trip-settlement` UITestScenario case. MANIFEST.md documents the action item.] [Evidence: §Constraints ALWAYS — proactive sim-walk dispatched after empty reactive cycles needs a baseline to diff against] — Create `docs/autobot-evidence/baselines/` in `resplit-ios`. Run `/autobot-resplit` once interactively against the X1 smoke preset (Trip + Folder + Receipt detail + Settlement). Save the resulting screenshots to `docs/autobot-evidence/baselines/2026-05-01-sim-walk-baseline/` with a `MANIFEST.md` listing every screen captured + the launch args used. **ETA:** ~20 min. **Owner:** first cron firing OR an interactive Leo session, whichever comes first. **Done when:** baseline directory committed to `main` so subsequent cron sim-walks have a visual diff target.
+- [completed] **T-cron-1 — Seed proactive sim-walk baseline directory** [SHIPPED 2026-05-02 via PR stack #554 squash `902a9da6` (3 surfaces) + #559 squash `761d4bb4` (4th surface + new screenshot-trip-settlement UITestScenario case) + #560 squash `bc64e0c3` (pinpad + Live-Split surfaces 5+6) + #561 squash `51359575` (6 dark-mode surfaces). Net: 12-surface light+dark baseline locked in `docs/autobot-evidence/baselines/2026-05-01-sim-walk-baseline/` on origin/main. Status flip 2026-05-03 — was [in_review] but the entire stack merged 24h ago.] [Evidence: §Constraints ALWAYS — proactive sim-walk dispatched after empty reactive cycles needs a baseline to diff against] — DONE.
 
-- [pending] **T-cron-2 — Verify resplit-watch cron is actually loaded after profile unblock** [Evidence: 24 launchd plists exist on the Mac, only 6 loaded — cataloged but NOT executed pending Leo per-plist confirmation] — Run `launchctl list | grep com.leokwan.resplit-watch` and confirm a non-zero PID OR an exit-status-0 most-recent run. If the plist is unloaded, run `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.leokwan.resplit-watch.plist` and re-verify. If the plist is missing entirely, regenerate via `resplit-watch --install` (per the resplit-watch skill SKILL.md). **ETA:** ~5 min. **Done when:** `launchctl print gui/$UID/com.leokwan.resplit-watch | grep -E '(state|last exit code)'` shows running or last-exit 0.
+- [completed] **T-cron-2 — Verify resplit-watch cron is actually loaded after profile unblock** [SHIPPED 2026-05-03 by lane-lead — both `com.leokwan.resplit-watch` (LAST_RC=0 LAST_VERDICT=QUOTA-CLEARED at 15:29Z) AND `com.leokwan.resplit-2-0-loop` (LAST_RC=0 LAST_VERDICT=OK at 17:31Z) confirmed loaded + healthy; subsequently bumped 20→10 min cadence per Leo "more aggressive please" via launchctl bootout + bootstrap + chezmoi sync (commit `89e1b78`). State file updates ongoing per cron fires every 10 min.] [Evidence: 24 launchd plists exist on the Mac, only 6 loaded — cataloged but NOT executed pending Leo per-plist confirmation] — DONE.
 
 ## Decision Log
 
