@@ -871,6 +871,192 @@ class InboxSyncTests(unittest.TestCase):
         self.assertFalse((home_plan / sync.INBOX_FILENAME).exists())
         self.assertFalse((root / "plans" / "missing-lane").exists())
 
+    def test_push_to_external_opt_in_overrides_auto_promote_suppression(self):
+        """`push_only_for_plans` lets opted-in plans push brand-new external issues
+        even when `auto_promote_target` would normally suppress that creation
+        for the rest of the fleet.
+
+        Use case (Leo 2026-05-03): iOS-lane plans (resplit-2-0-weekend-push,
+        ocr-moat) should push their tasks to Linear while the rest of the fleet
+        stays in PULL-only mode (auto_promote_target keeps non-iOS plans from
+        flooding Linear with 267 fleet tasks).
+        """
+        root = Path(self.tmp)
+        ios_plan = root / "plans" / "resplit-2-0-weekend-push"
+        other_plan = root / "plans" / "other-fleet-plan"
+        lane_plan = root / "plans" / "linear-lane"
+        self.write_plan_at(
+            ios_plan,
+            "- [pending] T1: iOS task that should push to Linear",
+        )
+        self.write_plan_at(
+            other_plan,
+            "- [pending] T1: Non-iOS task that must stay suppressed",
+        )
+        self.write_plan_at(lane_plan, "")
+        config_path = root / "vidux.config.json"
+        config_path.write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "plan_store": { "mode": "inline", "path": "plans" },
+                  "inbox_sources": [
+                    {
+                      "adapter": "linear",
+                      "enabled": true,
+                      "config": {
+                        "allow_team_wide": true,
+                        "auto_promote_target": "plans/linear-lane",
+                        "push_only_for_plans": ["plans/resplit-2-0-weekend-push"]
+                      }
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        adapter = FakeLinearAdapter([])
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                    "--json",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 0)
+        # iOS plan's task pushed to Linear (override fired)
+        self.assertEqual(len(adapter.pushed), 1)
+        self.assertEqual(adapter.pushed[0].id, "T1")
+        self.assertEqual(
+            adapter.pushed[0].title,
+            "iOS task that should push to Linear",
+        )
+        # Non-iOS plan's task stayed suppressed (default behavior preserved)
+        payload = json.loads(output.getvalue())
+        other_summary = [
+            r for r in payload["results"]
+            if r.get("plan", "").endswith("other-fleet-plan")
+        ][0]
+        self.assertEqual(other_summary["push_suppressed_auto_promote"], 1)
+        self.assertEqual(other_summary["pushed"], 0)
+
+    def test_push_to_external_default_unset_preserves_existing_suppression(self):
+        """When `push_only_for_plans` is unset / empty, every plan stays suppressed
+        — preserves the pre-feature contract for the 267-fleet-task case."""
+        root = Path(self.tmp)
+        plan_a = root / "plans" / "plan-a"
+        plan_b = root / "plans" / "plan-b"
+        lane_plan = root / "plans" / "linear-lane"
+        self.write_plan_at(plan_a, "- [pending] T1: Local-only task A")
+        self.write_plan_at(plan_b, "- [pending] T1: Local-only task B")
+        self.write_plan_at(lane_plan, "")
+        config_path = root / "vidux.config.json"
+        config_path.write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "plan_store": { "mode": "inline", "path": "plans" },
+                  "inbox_sources": [
+                    {
+                      "adapter": "linear",
+                      "enabled": true,
+                      "config": {
+                        "allow_team_wide": true,
+                        "auto_promote_target": "plans/linear-lane"
+                      }
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        adapter = FakeLinearAdapter([])
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                    "--json",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 0)
+        # No push fired anywhere; all plans suppressed by auto_promote_target.
+        self.assertEqual(adapter.pushed, [])
+        payload = json.loads(output.getvalue())
+        per_plan = [
+            r for r in payload["results"]
+            if r.get("adapter") == "linear" and "plan" in r
+        ]
+        self.assertEqual(
+            sum(r["push_suppressed_auto_promote"] for r in per_plan),
+            2,
+        )
+        self.assertEqual(sum(r["pushed"] for r in per_plan), 0)
+
+    def test_push_to_external_path_matching_relative_and_absolute(self):
+        """`push_only_for_plans` accepts both relative (resolved against the config
+        file's parent dir) and absolute paths. Both forms must opt the listed
+        plan into PUSH; entries that don't match any plan_dir are silently
+        ignored (no error — operator may pre-stage paths)."""
+        root = Path(self.tmp)
+        rel_plan = root / "plans" / "rel-plan"
+        abs_plan = root / "plans" / "abs-plan"
+        lane_plan = root / "plans" / "linear-lane"
+        self.write_plan_at(rel_plan, "- [pending] T1: Relative-path opt-in task")
+        self.write_plan_at(abs_plan, "- [pending] T1: Absolute-path opt-in task")
+        self.write_plan_at(lane_plan, "")
+        config_path = root / "vidux.config.json"
+        # Mix relative + absolute entries to exercise both branches of the
+        # path-resolution logic.
+        config_payload = {
+            "plan_store": {"mode": "inline", "path": "plans"},
+            "inbox_sources": [
+                {
+                    "adapter": "linear",
+                    "enabled": True,
+                    "config": {
+                        "allow_team_wide": True,
+                        "auto_promote_target": "plans/linear-lane",
+                        "push_only_for_plans": [
+                            "plans/rel-plan",
+                            str(abs_plan.resolve()),
+                        ],
+                    },
+                }
+            ],
+        }
+        config_path.write_text(json.dumps(config_payload), encoding="utf-8")
+        adapter = FakeLinearAdapter([])
+        original = sync.instantiate_adapter
+        try:
+            sync.instantiate_adapter = lambda _source: adapter
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = sync.main([
+                    "--config", str(config_path), "--direction", "both",
+                ])
+        finally:
+            sync.instantiate_adapter = original
+
+        self.assertEqual(code, 0)
+        # Both opted-in plans pushed their tasks (count == 2).
+        self.assertEqual(len(adapter.pushed), 2)
+        pushed_titles = sorted(t.title for t in adapter.pushed)
+        self.assertEqual(
+            pushed_titles,
+            ["Absolute-path opt-in task", "Relative-path opt-in task"],
+        )
+
     def test_linear_pr_sweep_links_matching_source_task_and_updates_body(self):
         self.write_plan(
             "- [in_review] BD-1: Wire Linear links [Source: linear:lin_1]"
