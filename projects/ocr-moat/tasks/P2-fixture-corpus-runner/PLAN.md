@@ -17,6 +17,28 @@ Stand up the fixture corpus and the replay infrastructure that feeds it through 
 
 ## What ships
 
+### P2.0 — Apple Photos album importer (NEW 2026-05-03)
+
+Per Leo verbatim 2026-05-03: *"i can help take like 50 photos and upload to apple photos album and u can use that improt and add to th eanalysis is that coool?"* + lane-lead reply: *"YES, please. Album name: `Resplit OCR Fixtures` (case-sensitive)."*
+
+Build a one-shot CLI importer at `scripts/import-photos-album-fixtures.swift` (or `.sh` wrapping `osascript`/Photos framework) that:
+
+1. Authorizes Photos access via `PHPhotoLibrary.requestAuthorization(for: .readOnly, handler:)` (one-time prompt; subsequent runs use cached authorization)
+2. Fetches the album by exact title `Resplit OCR Fixtures` via `PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: PHFetchOptions where title == "Resplit OCR Fixtures")`
+3. For each `PHAsset` in the album:
+   - SHA256 the underlying JPEG bytes (via `PHAssetResource` → `PHAssetResourceManager.requestData`)
+   - Filename: `<short-sha>-<asset-creation-date-yyyyMMdd>.jpg`
+   - Write to `Tests/Fixtures/Receipts/images/<filename>`
+   - Append a stub line to `corpus.jsonl` with `id=<short-sha>`, `image_path="Tests/Fixtures/Receipts/images/<filename>"`, `expected=null` (to be hand-edited per P2.2 workflow), `annotations.source="photos-album:Resplit OCR Fixtures"`, `annotations.imported_at=<ISO-Z>`
+4. Skip photos already imported (idempotent — SHA256 dedup against existing `images/` content)
+5. Output a one-line summary: `Imported N new fixtures from "Resplit OCR Fixtures" (M skipped as duplicates)`
+
+After import, the **P2.2 workflow takes over**: claim agent picks each new stub line, runs `scripts/capture-azure-fixture.sh <image-path> <fixture-id>` to populate `azure-v4-responses/<id>.json`, hand-edits `expected` to match what the receipt actually says, fills `annotations.tags` + `known_issues` + `leo_note`.
+
+**Why this exists**: the original P2.2 workflow assumed git-feed/AirDrop ingestion. Apple Photos album is faster (Leo can take + tag receipts in his pocket without thinking about repo state), survives across Macs (iCloud Photos sync), and gives the Photos library tools (date filter, location filter, "show similar") for free. Per Decision Log entry below.
+
+**Hard NEVER**: do not upload Photos library data anywhere. Photos framework access is local-only on Leo's Mac. The importer reads + writes to local repo; no network calls outside the existing Azure DI capture step (which only touches the JPEG bytes, not Photos metadata).
+
 ### P2.1 — Corpus directory + JSONL schema
 
 Create `Tests/Fixtures/Receipts/` in the iOS repo:
@@ -36,7 +58,7 @@ Tests/Fixtures/Receipts/
 
 ### P2.2 — Annotate ~10 of Leo's real receipts
 
-Working set Leo provides (via `git feed` or AirDrop into the repo's `Tests/Fixtures/Receipts/images/`). Goal: cover the categorical surface, not exhaustive volume.
+Working set Leo provides via Apple Photos album `Resplit OCR Fixtures` (per P2.0 importer above; supersedes the older git-feed/AirDrop path per Decision Log 2026-05-03). Leo target: ~50 photos covering the categorical distribution. Goal: cover the surface, not exhaustive volume.
 
 Target distribution (claim agent should pick from Leo's actual stack):
 - 2 simple US receipts (one tax, one tax+tip)
@@ -159,6 +181,7 @@ But: ensure the test runner ITSELF has a unit test (`ReceiptFixtureCorpusTests`)
 - [DIRECTION] 2026-05-01 — Image-hash-based fixture lookup, not file-path. Reason: tests pass `imageData: Data` per protocol, not paths; SHA256 of bytes is the deterministic key.
 - [DIRECTION] 2026-05-01 — `ScannedReceipt.diff(against:)` helper returning a string. Reason: structured `assertEqual` per field would fail-fast; the diff helper enumerates ALL mismatches per fixture, so one corpus run reveals the full failure surface, not just the first.
 - [DIRECTION] 2026-05-01 — Test scheme `ResplitCore Corpus Tests` separate from `ResplitCore Unit Tests`. Reason: corpus tests load JPEGs from disk (slower) and we want them in the gate matrix but separable for selective testing.
+- [DIRECTION] 2026-05-03 — **Apple Photos album `Resplit OCR Fixtures` becomes the canonical ingestion path** (per Leo offer + lane-lead accept this session). Adds new sub-task P2.0 (Photos importer script) upstream of P2.1/P2.2. Supersedes the original "git feed or AirDrop" path (P2.2 prose updated to cite the album). Reason: faster + ergonomic for Leo (take photo in pocket, tag to album, importer pulls), iCloud-sync survives across both Macs, Photos library tools (date filter, similar-search) come for free. Local-only access via PHFetchOptions; no external upload. Per /vidux Course Correction — evidence changed (Leo's preferred ingestion path), plan updated accordingly.
 
 ## Progress
 
