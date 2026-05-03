@@ -40,8 +40,10 @@ stepping on each other's toes. Honor them.
 
 **Heartbeat tightens too:**
 
-- IDLE is forbidden during the launch window. If all 4 reactive sources are empty, dispatch `/autobot-resplit-web` to walk the 5 launch-critical surfaces (`/`, `/join`, `/s/<seeded>`, `/support`, `/beta`) in light + dark, screenshot deltas vs. baselines at `docs/autobot-evidence/baselines/` — anything off becomes a P1 task this cycle.
+- IDLE is forbidden during the launch window. If all 4 reactive sources are empty, **claim the next unblocked row from `vidux/resplit-2.0-launch/T-final-audit/PLAN.md`** (FA.1-FA.10 — 5-axis rubric audit of guest-flow surfaces). This sub-plan is the proactive queue during the 6h launch-day audit window (2026-05-03 11:30→17:30 EDT). Per Leo: *"need /autobot-resplit-web to find all these issues"* — the audit IS that finding pass.
+- If T-final-audit also empty, fall back to `/autobot-resplit-web` walk of the 5 launch-critical guest-flow surfaces (`/join`, `/s/<seeded>`, `/s/<seeded>/name`, `/s/<seeded>/claim`, `/s/<seeded>/done`) at 390×844 + 1280×720 in light + dark, diff vs `docs/autobot-evidence/baselines/`.
 - Cycle budget shrinks to ~20min (was ~25); the extra 5min reserves for closeout-pressure (merge + memory.md write).
+- **Audit findings spawn fix PRs same-cycle.** The 5-axis rubric (clarity / localization / mobile-padding / hierarchy / AI-slop) is the gate: any axis ≤3/5 is a fix-PR target. Brand-axis findings (Bold/Gradient parity) are FROZEN — drop on the floor, do NOT log to Post-Launch Backlog (those polish PRs are exactly what the freeze targets).
 
 **Cron-auth recovery (if a cron fires 401):**
 
