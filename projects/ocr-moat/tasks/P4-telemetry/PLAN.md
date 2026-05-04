@@ -6,7 +6,84 @@
 
 **P4 redesign context:** Phase A recon shipped 2026-05-04T14:32Z by `claude-opus-4-7-rios-loop-c1777905169`; Phase B+C P4.1 shipped 2026-05-04T14:57Z by `claude-opus-4-7-rios-loop-c1777906165` as PR #594 (`feat(ocr-moat): P4.1 Event enum OCR cases + ScanTelemetryHandle`), branch `claude/ocrmoat-P4-1-c1777906165`, implementation commit `25b842ba`. Major spec drift discovered via cycle 1777902839's "throw-away-data audit" rule: Resplit-iOS already has `AnalyticsServiceType`, `AnalyticsService`, `PostHogAnalyticsProvider`, `AnalyticsEvent`, `Event`, and `captureForTesting`, so the parallel `ReceiptScanTelemetry` protocol/wrapper design was dropped. Redesigned slice plan: **P4.1 (done)** extends `Event` with OCR cases and adds `ScanTelemetryHandle`; **P4.2 (next)** wires `Event.ocrScan*` into `ReceiptOCRAnalyzing.swift:38-134 analyze(status:)` at the existing breadcrumb call-sites via `analyticsService.track(...)`; **P4.3** creates or documents the PostHog `Resplit OCR Health` dashboard; **P4.4** adds the field-confidence histogram event.
 **Priority:** P1 within ocr-moat (parallel-safe with P5)
-**Claim:** `claimed_by: claude-opus-4-7-rios-loop-c1777907480` `claimed_at: 2026-05-04T15:11Z` — first writer wins; pull → edit this line atomically → commit → push to claim. P4.2 slice (analyzer wire-up) claimed this cycle; Phase B+C bundled into one cycle per P4.1 precedent. Prior P4.1 claim history: `claude-opus-4-7-rios-loop-c1777905169` (Phase A recon 2026-05-04T14:32Z) → `claude-opus-4-7-rios-loop-c1777906165` (Phase B+C ship 2026-05-04T14:57Z PR #594) → `codex/night-watch-chat-updates` (Phase D merge 2026-05-04T15:10Z squash `c526b749`).
+**Claim:** `claimed_by: claude-opus-4-7-rios-loop-c1777911481` `claimed_at: 2026-05-04T16:24Z` — P4.4 slice (field-confidence histogram) claimed; Phase A recon complete in this cycle (read `ScannedReceipt.swift` + `AnalyticsServiceType.swift` Event enum + `ReceiptOCRAnalyzing.swift` `.completed(scannedReceipt):` block on origin/main). Pure-additive shape (3-touch: enum case + bucket helper + post-success-event for-loops) — Phase B+C will be attempted in this same cycle per cycle 1777906165's single-cycle-additive precedent; if Phase B blocks, cycle exits with redesign written here for the next cycle to transcribe. Prior P4 claim history: P4.1 = `claude-opus-4-7-rios-loop-c1777905169` (recon) → `c1777906165` (Phase B+C PR #594) → `codex/night-watch-chat-updates` (Phase D squash `c526b749`); P4.2 = `c1777907480` (Phase B+C PR #595) → `c1777909518` (Phase D inherited squash `28ddad01`).
+
+**P4.4 redesigned slice plan (transcription guide for any cycle inheriting Phase B):**
+
+- **Surface 1 — Event enum extension** in `ResplitCore/Analytics/AnalyticsServiceType.swift`:
+  - Add case after `ocrScanFailed` (~line 157):
+    ```swift
+    case ocrFieldConfidence(
+      provider: String,
+      providerVersion: String,
+      fieldName: String,
+      confidenceBucket: String
+    )
+    ```
+  - Add `eventTitle` (~line 244 alongside other OCR titles):
+    ```swift
+    case .ocrFieldConfidence:
+      "OCR field confidence"
+    ```
+  - Add `properties` case (~line 389 after `.ocrScanFailed` properties):
+    ```swift
+    case let .ocrFieldConfidence(provider, providerVersion, fieldName, confidenceBucket):
+      [
+        "provider": provider,
+        "provider_version": providerVersion,
+        "field_name": fieldName,
+        "confidence_bucket": confidenceBucket
+      ]
+    ```
+
+- **Surface 2 — Bucket helper.** Add a new top-level free function in `ResplitCore/Analytics/ScanTelemetryHandle.swift` (existing P4.1 file — keeps telemetry primitives co-located):
+  ```swift
+  public enum ConfidenceBucket {
+    public static func label(for confidence: Double) -> String {
+      switch confidence {
+      case ..<0.5: return "0.0-0.5"
+      case ..<0.7: return "0.5-0.7"
+      case ..<0.9: return "0.7-0.9"
+      default: return "0.9-1.0"
+      }
+    }
+  }
+  ```
+  Boundaries match P4 PLAN line 70: `0.0-0.5 | 0.5-0.7 | 0.7-0.9 | 0.9-1.0`. Half-open intervals: `[0.0, 0.5) | [0.5, 0.7) | [0.7, 0.9) | [0.9, ∞)` — so 0.5 falls into "0.5-0.7", 0.7 into "0.7-0.9", 0.9 into "0.9-1.0". 1.0 included in top bucket (default).
+
+- **Surface 3 — Wire-up** in `ReceiptOCRAnalyzing.swift` `case let .completed(scannedReceipt):` block (currently around line ~95-117 on origin/main, post-`ocrScanSucceeded` track call, before `return .success(.loaded(suggestion))`):
+  ```swift
+  for item in scannedReceipt.lineItems {
+    guard let confidence = item.confidence else { continue }
+    analyticsService.track(
+      Event.ocrFieldConfidence(
+        provider: provider.providerName,
+        providerVersion: provider.providerVersion,
+        fieldName: "line_item",
+        confidenceBucket: ConfidenceBucket.label(for: confidence)
+      )
+    )
+  }
+  for extra in scannedReceipt.extras {
+    guard let confidence = extra.confidence else { continue }
+    analyticsService.track(
+      Event.ocrFieldConfidence(
+        provider: provider.providerName,
+        providerVersion: provider.providerVersion,
+        fieldName: "extra_\(extra.kind.rawValue)",
+        confidenceBucket: ConfidenceBucket.label(for: confidence)
+      )
+    )
+  }
+  ```
+
+- **Tests required (MT-5)**:
+  - `Tests/ResplitCoreTests/EventOcrTests.swift` (extend the existing P4.1 file): bucket-boundary tests (`label(for: 0.0)` → "0.0-0.5", 0.49 → "0.0-0.5", 0.5 → "0.5-0.7", 0.69 → "0.5-0.7", 0.7 → "0.7-0.9", 0.89 → "0.7-0.9", 0.9 → "0.9-1.0", 1.0 → "0.9-1.0") + schema test asserting `Event.ocrFieldConfidence(provider: "azure-di", providerVersion: "v4", fieldName: "line_item", confidenceBucket: "0.7-0.9").eventTitle == "OCR field confidence"` + properties dict matches.
+  - `Tests/ResplitCoreTests/ReceiptOCRAnalyzerTelemetryTests.swift` (extend the existing P4.2 file): contrapositive `testV4SuccessEmitsFieldConfidencePerNonNilField` — feed mock provider returning `ScannedReceipt` with 3 lineItems (confidences 0.4 / 0.7 / nil) + 2 extras (kind=.tax confidence 0.95 / kind=.fee confidence nil). Assert exactly 3 `ocrFieldConfidence` events emitted (NOT 5 — nil confidence skipped) with field_name values `["line_item", "line_item", "extra_tax"]` and confidence_bucket values `["0.0-0.5", "0.7-0.9", "0.9-1.0"]`. The contrapositive asserts that nil-confidence fields don't pollute the histogram.
+
+- **Estimated LOC**: +25 production (5 enum case + 1 eventTitle + 7 properties + 9 bucket helper + 12 wire-up loops, minus 9 reuse) / +90 tests. Total <120 LOC, single-file-per-surface, no new dependencies, no DI changes (analyticsService already injected per P4.2). Pure-additive: no call-frequency change since for-loops fire in the same scan-success context as the existing `ocrScanSucceeded` track.
+
+- **Why this is pure-additive** (single-cycle-ship safe, per cycle 1777909518's wire-up budget rule): the for-loops execute exactly once per `.completed(scannedReceipt)` arrival, which happens exactly once per scan (V4 polling resumption short-circuits at `receipt.hasV4Snapshot` before reaching the success block). No risk of poll-tick re-emission. No risk of legacy-path orphan events (the legacy short-circuit `analyzeLegacy` returns before reaching this block). No new instance-state to manage.
 **Depends on:** P1 [completed], P2 [completed], P3 [completed via P3.4e PR #593 squash `bfa59831` — bookkeeping flip from `[in_review]` → `[completed]` rides with the next code PR per CLAUDE.md `§MT-1`]. **Throw-away-data audit confirms** `AnalyticsServiceType` + `PostHogAnalyticsProvider` already wired in `ResplitCore/Analytics/AnalyticsServiceType.swift` — no new SPM dep, no platform-decision ASK-LEO needed, no parallel protocol.
 **Blocks:** none (P5 dev-app is parallel-safe — its OCR-event surface inspector can read whatever `Event` enum cases exist whenever they ship).
 **ETA:** 4h total across 4 slices (P4.1 ~1h, P4.2 ~1h, P4.3 deferrable, P4.4 ~1h).
