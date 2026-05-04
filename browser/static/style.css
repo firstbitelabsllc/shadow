@@ -149,6 +149,72 @@ body {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+/* M19: per-section play button. Sits in the left margin of every <p>/<h*>/<li>
+   in #md-body. Hover-revealed on desktop; falls inline on mobile so it doesn't
+   get clipped by the smaller pane padding. */
+.ra-section-host {
+  position: relative;
+}
+.ra-section-play {
+  position: absolute;
+  left: -30px;
+  top: 0.2em;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+  border-radius: 50%;
+  cursor: pointer;
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
+  z-index: 1;
+}
+.ra-section-host:hover > .ra-section-play,
+.ra-section-play:focus {
+  opacity: 0.55;
+  outline: none;
+}
+.ra-section-play:hover {
+  opacity: 1;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.ra-section-play.is-loading {
+  opacity: 1;
+  font-style: italic;
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.ra-section-play.is-playing {
+  opacity: 1;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+@media (max-width: 900px) {
+  /* On narrow viewports the negative left would clip past the pane padding;
+     fall back to inline so the button never disappears off-screen. */
+  .ra-section-play {
+    position: static;
+    margin-right: 6px;
+    vertical-align: middle;
+    opacity: 0.5;
+  }
+  .ra-section-host:hover > .ra-section-play {
+    opacity: 1;
+  }
+}
+
 .layout {
   display: grid;
   grid-template-columns: 360px 1fr;

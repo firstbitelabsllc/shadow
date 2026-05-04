@@ -28,6 +28,12 @@ const READALOUD = {
   abortController: null,
   audioContext: null,
   highlightedSpans: [],
+  // M19: per-section playback. Independent of main read-aloud — clicking a
+  // section button aborts main playback (and any other section) and plays
+  // ONLY that section's text. Reuses readaloudFetchChunkAudio so M16 cache
+  // makes re-clicks instant.
+  sectionPlayback: null, // { abort, context, button } | null
+  sectionObserver: null,
 };
 
 const ENDPOINT = "http://127.0.0.1:8000/v1/audio/speech";
@@ -102,7 +108,154 @@ function readaloudInit() {
   readaloudUpdateCloneButton();
 
   readaloudSetState("idle");
+  readaloudWatchMarkdownBody();
   console.log("[readaloud] initialized (mlx-audio HTTP client, voice =", readaloudCurrentVoice(), ")");
+}
+
+// M19: per-section playback. Inject a small ▶ button before each
+// <p>/<h*>/<li> in #md-body. Click → synth + play that section only.
+// Re-injection is idempotent (checks for an existing direct-child button).
+function readaloudInjectSectionButtons() {
+  const body = document.getElementById("md-body");
+  if (!body) return;
+  const sections = body.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li");
+  for (const section of sections) {
+    if (section.querySelector(":scope > .ra-section-play")) continue;
+    const text = (section.innerText || section.textContent || "").trim();
+    if (!text || text.length < 4) continue; // skip empty / trivial
+    const btn = document.createElement("button");
+    btn.className = "ra-section-play";
+    btn.type = "button";
+    btn.textContent = "▶";
+    btn.title = "Read this section aloud";
+    btn.setAttribute("aria-label", "Read this section aloud");
+    btn.addEventListener("click", readaloudOnSectionPlay);
+    section.classList.add("ra-section-host");
+    section.insertBefore(btn, section.firstChild);
+  }
+}
+
+function readaloudExtractSectionText(section) {
+  // Clone so we can strip the button + any active word/highlight spans
+  // without mutating the live DOM.
+  const clone = section.cloneNode(true);
+  clone.querySelectorAll(".ra-section-play").forEach(b => b.remove());
+  clone.querySelectorAll(".ra-word").forEach(w => {
+    w.replaceWith(document.createTextNode(w.textContent || ""));
+  });
+  return (clone.innerText || clone.textContent || "").trim();
+}
+
+function readaloudStopSectionPlayback() {
+  const sp = READALOUD.sectionPlayback;
+  if (!sp) return;
+  try { if (sp.abort) sp.abort.abort(); } catch (_) { /* ignore */ }
+  if (sp.context) {
+    try { sp.context.close(); } catch (_) { /* ignore */ }
+  }
+  if (sp.button) {
+    sp.button.classList.remove("is-loading", "is-playing");
+    sp.button.textContent = "▶";
+    sp.button.title = "Read this section aloud";
+  }
+  READALOUD.sectionPlayback = null;
+}
+
+async function readaloudOnSectionPlay(ev) {
+  ev.stopPropagation();
+  ev.preventDefault();
+  const btn = ev.currentTarget;
+  const section = btn.parentElement;
+  if (!section) return;
+
+  // Toggle off if THIS section is already playing.
+  if (READALOUD.sectionPlayback && READALOUD.sectionPlayback.button === btn) {
+    readaloudStopSectionPlayback();
+    return;
+  }
+
+  // Abort any other playback (main or other section) so we never have two
+  // streams competing for the user's ears.
+  if (READALOUD.abortController) {
+    try { READALOUD.abortController.abort(); } catch (_) { /* ignore */ }
+    if (READALOUD.audioContext) {
+      try { await READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
+      READALOUD.audioContext = null;
+    }
+    readaloudClearHighlights();
+    readaloudSetState("idle");
+  }
+  if (READALOUD.sectionPlayback) {
+    readaloudStopSectionPlayback();
+  }
+
+  const text = readaloudExtractSectionText(section);
+  if (!text) return;
+
+  const voice = readaloudCurrentVoice();
+  const abort = new AbortController();
+  const context = new AudioContext({ sampleRate: 24000 });
+  READALOUD.sectionPlayback = { abort, context, button: btn };
+
+  btn.classList.add("is-loading");
+  btn.textContent = "…";
+  btn.title = "Synthesizing…";
+
+  try {
+    const arrayBuf = await readaloudFetchChunkAudio(text, voice, abort.signal);
+    if (abort.signal.aborted) return;
+    const audioBuf = await context.decodeAudioData(arrayBuf);
+    if (abort.signal.aborted) return;
+    const source = context.createBufferSource();
+    source.buffer = audioBuf;
+    source.connect(context.destination);
+    btn.classList.remove("is-loading");
+    btn.classList.add("is-playing");
+    btn.textContent = "■";
+    btn.title = "Stop section playback";
+    source.onended = () => {
+      if (READALOUD.sectionPlayback && READALOUD.sectionPlayback.button === btn) {
+        readaloudStopSectionPlayback();
+      }
+    };
+    source.start();
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      console.error("[readaloud] section play", err);
+      btn.title = err.message || "Section playback failed";
+    }
+    readaloudStopSectionPlayback();
+  }
+}
+
+function readaloudWatchMarkdownBody() {
+  // #md-body is sometimes replaced wholesale (when the pane re-renders for
+  // a new plan) and sometimes its innerHTML is updated in place. Observe
+  // the #pane subtree so we catch both cases. Injection is idempotent so
+  // re-firing on every mutation is safe.
+  const pane = document.getElementById("pane");
+  if (!pane) return;
+  if (READALOUD.sectionObserver) {
+    try { READALOUD.sectionObserver.disconnect(); } catch (_) { /* ignore */ }
+  }
+  let raId = 0;
+  const observer = new MutationObserver(() => {
+    if (raId) cancelAnimationFrame(raId);
+    raId = requestAnimationFrame(() => {
+      raId = 0;
+      // Stop any section playback if the body changed under us.
+      const body = document.getElementById("md-body");
+      if (!body) return;
+      if (READALOUD.sectionPlayback && !body.contains(READALOUD.sectionPlayback.button)) {
+        readaloudStopSectionPlayback();
+      }
+      readaloudInjectSectionButtons();
+    });
+  });
+  observer.observe(pane, { childList: true, subtree: true });
+  READALOUD.sectionObserver = observer;
+  // Initial pass in case content is already rendered.
+  readaloudInjectSectionButtons();
 }
 
 function readaloudUpdateCloneButton() {
