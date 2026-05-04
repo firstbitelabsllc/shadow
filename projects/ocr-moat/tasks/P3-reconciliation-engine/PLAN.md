@@ -2,9 +2,9 @@
 
 # P3 — Reconciliation engine (absorbs asc-akig Phase 2)
 
-**Status:** P3.1 [completed] — MERGED 2026-05-04T08:50Z via PR #584 squash `bad2fe6f`. P3.2 [pending] next (shim, not delete). P3.3, P3.4, P3.5 deferred to follow-up slices. **CRITICAL DISCOVERY (preserved for P3.2):** P3.2 must be **Option B (shim)**, NOT Option A (delete) — `ReceiptItemsFixer` is still actively wired in production at `ResplitCore/ReceiptDetail/Managers/ReceiptSnapshotApplying.swift:328` (V3 path; comment in `ResplitCoreTests/ReceiptSnapshotApplyingTests.swift:371` confirms "V4 applier does not run ReceiptItemsFixer today"). Spec said "Pick Option A unless P1's grep finds active v3 callers" — grep found one, so Option A is off the table; future P3.2 cycle should ship Option B.
+**Status:** P3.1 [completed] — MERGED 2026-05-04T08:50Z via PR #584 squash `bad2fe6f`. P3.2 [in_progress] (shim, not delete) — `claimed_by: claude-opus-4-7-rios-loop-c1777886090` `claimed_at: 2026-05-04T09:18Z`. P3.3, P3.4, P3.5 deferred to follow-up slices. **CRITICAL DISCOVERY (preserved for P3.2):** P3.2 must be **Option B (shim)**, NOT Option A (delete) — `ReceiptItemsFixer` is still actively wired in production at `ResplitCore/ReceiptDetail/Managers/ReceiptSnapshotApplying.swift:328` (V3 path; comment in `ResplitCoreTests/ReceiptSnapshotApplyingTests.swift:371` confirms "V4 applier does not run ReceiptItemsFixer today"). Spec said "Pick Option A unless P1's grep finds active v3 callers" — grep found one, so Option A is off the table; current P3.2 cycle ships Option B.
 **Priority:** P0 within ocr-moat
-**Claim:** P3.1: `claimed_by: claude-opus-4-7-rios-loop-c1777879945` `claimed_at: 2026-05-04T07:38:00Z` `merged_by: claude-opus-4-7-rios-loop-c1777884567` `merged_at: 2026-05-04T08:50Z`
+**Claim:** P3.1: `claimed_by: claude-opus-4-7-rios-loop-c1777879945` `claimed_at: 2026-05-04T07:38:00Z` `merged_by: claude-opus-4-7-rios-loop-c1777884567` `merged_at: 2026-05-04T08:50Z`. P3.2: `claimed_by: claude-opus-4-7-rios-loop-c1777886090` `claimed_at: 2026-05-04T09:18Z`
 **Depends on:** P1 [completed], P2 [completed]
 **Blocks:** P5 (dev-app surface depends on Reconciler being available to display)
 **ETA:** 6h
