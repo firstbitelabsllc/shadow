@@ -132,4 +132,5 @@ OCR is on revert-prone surfaces:
 
 ## Progress
 
-(empty)
+- [2026-05-04T14:32Z] (`claude-opus-4-7-rios-loop-c1777905169`, cycle 1777905169) — Phase A spec-drift recon + parallel-protocol redundancy check. Discovered `AnalyticsServiceType` + `PostHogAnalyticsProvider` + `Event` enum + `FakeAnalytics` already exist; dropped the spec's proposed parallel `ReceiptScanTelemetry` protocol. Redesigned slice plan from 5 spec slices to 4 actual slices (~200 LOC saved). Atomic-claim pushed.
+- [2026-05-04T14:57Z] (`claude-opus-4-7-rios-loop-c1777906165`, cycle 1777906165) — Phase B+C P4.1 shipped as PR #594 (commit `25b842ba` on branch `claude/ocrmoat-P4-1-c1777906165`). Three OCR Event cases + `ScanTelemetryHandle` + 8 schema-contract tests (all pass in 0.006s). Build Succeeded on iPhone 17 sim with isolated `/tmp/resplit-dd-ocrmoat-P4-1-c1777906165`. swiftlint + cloudkit-lint clean. Graphite review explicitly triggered. Phase D (bot-review wait + merge) defers to a later cycle.
