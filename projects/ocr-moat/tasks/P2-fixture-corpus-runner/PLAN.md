@@ -185,4 +185,4 @@ But: ensure the test runner ITSELF has a unit test (`ReceiptFixtureCorpusTests`)
 
 ## Progress
 
-(empty)
+- 2026-05-03 — P2.0 Photos importer in flight via `claude-opus-4-7-rios-subagent-a1cc8dfcf78a8438e`. Files shipped: `scripts/import-photos-album-fixtures.swift`, `Tests/Fixtures/Receipts/{README.md,corpus.jsonl,images/.gitkeep,azure-v4-responses/.gitkeep}`, `ResplitCoreTests/Fixtures/PhotosAlbumImporterTests.swift` (8 unit tests, all green), `.swiftlint.yml` (added `scripts/` to excluded). Local gates: `tuist generate --no-open` PASS, `tuist xcodebuild build -scheme 'Resplit Debug' …` PASS, `tuist test "ResplitCore Unit Tests" …PhotosAlbumImporterTests` PASS (8/8), swiftlint PASS, cloudkit-model-lint PASS. Importer is gated on Leo populating the `Resplit OCR Fixtures` Photos album; until then, `swift scripts/import-photos-album-fixtures.swift` is a no-op (prints "album not found" with exit 0).
