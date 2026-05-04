@@ -4,7 +4,7 @@
 
 **Status:** [in_progress] — **P2.0 SHIPPED 2026-05-04T02:30Z via PR #576 squash `ed40c7ae`** by subagent `claude-opus-4-7-rios-subagent-a1cc8dfcf78a8438e` (8 unit tests + CLI script + corpus README + .gitkeep dirs + .swiftlint.yml exclude; importer no-ops until Leo populates `Resplit OCR Fixtures` Photos album). Graphite mergeability_check + AI Reviews SUCCESS + Seer skipped (small infrastructure-only diff). P2.1-P2.5 pending pickup; next claimant should pick P2.1 (corpus directory + JSONL schema). KEY INSTALLATION NOTE for next claimant: Apple's Photos framework only exposes `PHAccessLevel.addOnly` and `.readWrite` (NOT `.readOnly` as the original spec said). The shipped script uses `.readWrite` and never writes — do NOT "fix" this back to `.readOnly` in future PRs; it doesn't exist on `PHAccessLevel`.
 **Priority:** P0 within ocr-moat
-**Claim:** `claimed_by:` `claimed_at:` (P2.0 partial completed; P2.1+ available for fresh claim)
+**Claim:** `claimed_by: claude-opus-4-7-rios-loop-c1777863402` `claimed_at: 2026-05-04T02:58:00Z` — **scope: P2.3-slice-1 only** (`ScannedReceipt.diff(against:)` helper; explicit P2 deliverable per spec lines 127, 145; unblocks both P2.3 main + P2.4 corpus runner). P2.0 SHIPPED via #576. P2.1 deliverables (`Tests/Fixtures/Receipts/{corpus.jsonl,README.md,images/.gitkeep,azure-v4-responses/.gitkeep}`) ALSO already on `origin/main` via #576 ride-along (verified `ed40c7ae` 2026-05-04T02:58Z) — P2.1's [pending] tag is stale notation, will be flipped to [completed] in this slice's PR per MT-1. P2.3 main (`FixtureReplayProvider` + `ReceiptFixtureCorpus`) + P2.4-P2.5 still available for fresh claim.
 **Depends on:** P1 [completed]
 **Blocks:** P3, P5
 **ETA:** 6h
