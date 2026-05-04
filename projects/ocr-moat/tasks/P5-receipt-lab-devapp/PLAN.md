@@ -2,7 +2,7 @@
 
 # P5 — Receipt Lab dev-app surface
 
-**Status:** [in_progress] — Phase A recon shipped 2026-05-04T16:48Z by `claude-opus-4-7-rios-loop-c1777913113`. Slice plan written into `## Progress` below per cycle 1777906165's "encode redesign in PLAN body for two-cycle handoff" rule. **P5.1 [in_review] via PR #597** — `claimed_by: claude-opus-4-7-rios-loop-c1777914119` `claimed_at: 2026-05-04T17:03Z` `phaseBC_at: 2026-05-04T17:12Z`. Phase B+C single-cycle ship: 3 files / +152 LOC (DevFlow `case receiptLab` + `ResplitDevApp/Flows/ReceiptLabFlowView.swift` with internal `TabView` + 3 placeholder tabs + `ReceiptLabTab` enum + 2 new tests in `DevFlowTests.swift`). 4/4 tests pass in 0.039s (`testReceiptLabFlowAvailable` + `testReceiptLabTabCasesAndSystemImagesValid` SF-Symbol contrapositive locks all 4 systemImage strings via `UIImage(systemName:)` per audit dim 3). Build Succeeded on iPhone 17 sim with isolated `/tmp/resplit-dd-ocrmoat-P5-1-c1777914119`. swiftlint 0 violations after `.font(.system)` → `designSystem.typography.display` swap. PR ready + `@graphite review` triggered. Phase D (bot-review wait + merge) defers to next cycle per pure-additive-slice precedent (P4.4 cycle 1777911481, P3.4e cycle 1777902839). Visual proof N/A this slice per CLAUDE.md Visual Proof Merge Gate new-feature carve-out + P3.4e precedent — placeholder tabs have no functional surface to verify; meaningful visual ships in P5.2 once Live Scan parses real fixtures. P5.2-P5.4 wire-ups to follow per slice plan below.
+**Status:** [in_progress] — Phase A recon shipped 2026-05-04T16:48Z by `claude-opus-4-7-rios-loop-c1777913113`. Slice plan written into `## Progress` below per cycle 1777906165's "encode redesign in PLAN body for two-cycle handoff" rule. **P5.1 [completed] — MERGED 2026-05-04T17:26Z via PR #597 squash `78c6d30e` by `claude-opus-4-7-rios-loop-c1777915611`.** All 3 bot checks SUCCESS (Graphite AI Reviews + Graphite mergeability_check + Sentry Seer Code Review) within 90s of `@graphite review` trigger; 0 inline comments; 0 unresolved threads; mergeStateStatus=CLEAN. 11min elapsed since last bot check satisfied the 5-min human-cognition gate. Worktree torn down. P5.2-P5.4 wire-ups remain `[pending]` per slice plan below.
 **Priority:** P2 within ocr-moat (capstone — closes corpus-growth loop)
 **Claim:** `claimed_by: claude-opus-4-7-rios-loop-c1777913113` `claimed_at: 2026-05-04T16:48Z` — Phase A only (recon + slice plan). Phase B+ defers to next cycle's P5.1 atomic-claim.
 **Depends on:** P1 [completed], P2 [completed], P3 [completed]. P4 optional (telemetry events visible in dev-app if wired, harmless if not).
@@ -286,5 +286,27 @@ The next cycle should atomic-claim P5.1 by editing the `**Status:**` line above 
 **Wall-time:** ~10min (claim 17:03Z → push 17:12Z + bookkeeping). Within the cycle 1777906165 prediction of ~12min for pure-additive single-cycle B+C — confirms the slice-shape budget rule continues to hold for new-flow scaffolds.
 
 **Next claimable surface: P5.2** (Live Scan tab — `PhotosPicker` + `Azure Live | Fixture Replay` segmented control + `Reconciler.reconcile(_:)` chip + findings list inline below the parsed `ScannedReceipt` card). Wire-up shape per cycle 1777907480 budget rule: ~28min Phase B+C in subagent + 30min Phase D inheritance (1-2 fix-up commits expected). Slice plan above is fully transcribable; subagent dispatch should follow subagent-hygiene rules 1-4 (active-poll-with-timeout, commit-before-wait, git-evidence in report, 30min wall budget).
+
+### Phase D P5.1 closeout — 2026-05-04T17:26Z by `claude-opus-4-7-rios-loop-c1777915611` (cycle 1777915611)
+
+**Inherited PR #597** from prior cycle's deferred Phase D. State at cycle entry: non-draft, mergeStateStatus=CLEAN, mergeable=MERGEABLE, all 3 bot checks SUCCESS:
+
+- Graphite AI Reviews — SUCCESS (completed 2026-05-04T17:14:01Z, ~3min after PR ready)
+- Graphite mergeability_check — SUCCESS (completed 2026-05-04T17:13:47Z)
+- Sentry Seer Code Review — SUCCESS (completed 2026-05-04T17:15:06Z)
+
+Zero inline comments across all three reviewers. Zero unresolved review threads via `gh api graphql`. Only PR-level comment is the cron's own `@graphite review` trigger.
+
+**Phase D gate evaluation:**
+- ≥1 bot review exists ✓ (3 SUCCESS check_runs from configured AI reviewers)
+- All comments addressed ✓ (none to address)
+- All threads resolved ✓ (none open)
+- 5-min human-cognition gate ✓ (11min elapsed: 17:15:06Z last check → 17:26Z merge decision)
+
+**Squash-merged** to `origin/main` at `78c6d30e` via `gh pr merge 597 --squash --delete-branch`. Remote branch `claude/ocrmoat-P5-1-c1777914119` deleted. Worktree at `~/Development/resplit-ios-worktrees/ocrmoat-P5-1-c1777914119` removed. Local branch deleted (was `aea9729e`).
+
+**Wall-time:** ~3min (cycle entry 17:23Z → push 17:26Z) for PR-state read + thread check + merge + worktree teardown + plan flip. Confirms cycle 1777911481's "single-cycle Phase D inheritance" pattern: when no fix-up waves are needed (the boring-is-good outcome of all 3 reviewers passing 0-comment), inherited Phase D fits in the cycle's read+verify+merge+cleanup envelope without re-claiming.
+
+**Generalizable rule for /resplit-2-0-loop:** the asymmetric-cost-of-AI-review pattern (cycle 1777911481) extends to Phase D inheritance — pure-additive scaffolding with 0 inline comments needs no fix-up wave at all, so Phase D is just the merge + cleanup ceremony (3min wall). Compare to wire-up surfaces (cycles 1777909518 / 1777911481) where Phase D inherits 1-2 fix-up wave commits taking 25-33min wall. The cycle's pre-flight `gh pr view --json mergeStateStatus,reviews,statusCheckRollup` is the cheap test that decides which envelope you're in.
 
 
