@@ -221,9 +221,9 @@ Each cycle starts with a 30-second scan; any P0 here interrupts the FA.x queue:
 1. **Sentry resplit-web** — `curl -H "Authorization: Bearer $SENTRY_TOKEN" "https://sentry.io/api/0/projects/firstbite-labs/resplit-web/issues/?query=is%3Aunresolved+age%3A-1d"` — any new unresolved is P0
 2. **Vercel preview-toolbar comments** — `mcp__claude_ai_Vercel__list_toolbar_threads` — Leo's primary feedback channel
 3. **Jam.dev** — `mcp__Jam__listJams url=resplit.app`
-4. **Linear EVE-resplit-web** — project UUID `87181bb4-379d-4254-ae5b-4f652cf66755`, `priority=1` rows are P0
+4. **Linear EVE-resplit-web** — project UUID `87181bb4-379d-4254-ae5b-4f652cf66755`, `priority=1` rows are P0. **Linear sync ACTIVE as of 2026-05-03 14:23 EDT** — `com.leokwan.vidux-linear-sync` LaunchAgent loaded (Leo upped to business tier, unblocked the cron). Bidirectional round-trip live: new Linear cards auto-promote into PLAN.md as `BD-N`; PLAN row flips push back to Linear `stateId`. Manual real-time push: `python3 ~/Development/vidux/scripts/vidux-inbox-sync.py --config vidux.config.json --direction=push --only-adapter linear --json`.
 
-If any P0 lands: switch from FA.x to the P0 fix lane same-cycle. After P0 closes, resume FA.x.
+If any P0 lands: switch from FA.x to the P0 fix lane same-cycle. After P0 closes, resume FA.x. Linear-sourced fixes get a `Closes EVE-<N>` line in the PR body so Linear auto-closes on merge.
 
 ---
 
