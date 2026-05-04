@@ -19,7 +19,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from adapters.base import PlanTask, VidxStatus  # noqa: E402
+from adapters.base import ExternalItem, PlanTask, VidxStatus  # noqa: E402
 from adapters.linear import LinearAdapter  # noqa: E402
 
 
@@ -362,6 +362,99 @@ class ManagedLabels(unittest.TestCase):
             issue_input["labelIds"],
             ["label-fleet", "label-repo", "label-source"],
         )
+
+
+class BodyRendering(unittest.TestCase):
+    def test_render_body_includes_details_tags_plan_location_and_gaps(self):
+        task = PlanTask(
+            id="P1",
+            title="Domain types + provider protocol + Azure adapter",
+            status=VidxStatus.PENDING,
+            details="Lock the contract. ScannedReceipt becomes canonical.",
+            evidence="projects/ocr-moat/PLAN.md:53",
+            eta_hours=8,
+            source="linear:lin_1",
+            tags={
+                "Sub-plan": "tasks/P1-domain-types-protocol/PLAN.md",
+                "ETA": "8h",
+                "Evidence": "projects/ocr-moat/PLAN.md:53",
+                "Source": "linear:lin_1",
+            },
+            plan_path="/Users/leokwan/Development/vidux/projects/ocr-moat/PLAN.md",
+            line_number=53,
+        )
+
+        body = LinearAdapter._render_body(task)
+
+        self.assertIn("## Details", body)
+        self.assertIn("ScannedReceipt becomes canonical", body)
+        self.assertIn("## Tags\n- Sub-plan:", body)
+        self.assertIn("tasks/P1-domain-types-protocol/PLAN.md", body)
+        self.assertIn("## Plan", body)
+        self.assertIn("PLAN.md:53", body)
+        self.assertIn("## ETA\n8h", body)
+        self.assertNotIn("## Intake Gaps", body)
+
+    def test_render_body_surfaces_title_only_intake_gaps(self):
+        task = PlanTask(
+            id="BD-1",
+            title="Receipt Lab dev-app surface",
+            status=VidxStatus.PENDING,
+            plan_path="/tmp/PLAN.md",
+            line_number=12,
+        )
+
+        body = LinearAdapter._render_body(task)
+
+        self.assertIn("## Purpose\nReceipt Lab dev-app surface", body)
+        self.assertIn("## Intake Gaps", body)
+        self.assertIn("Missing `[Evidence: ...]`", body)
+        self.assertIn("Missing `[ETA: Xh]`", body)
+
+    def test_sync_task_metadata_updates_stale_description(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder({"issueUpdate": {"success": True}})
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="BD-1",
+            title="Receipt Lab dev-app surface",
+            status=VidxStatus.PENDING,
+            plan_path="/tmp/PLAN.md",
+            line_number=12,
+        )
+        remote = ExternalItem(
+            external_id="lin_1",
+            title="Receipt Lab dev-app surface",
+            status=VidxStatus.PENDING,
+            fields={"_description": "## Purpose\nReceipt Lab dev-app surface"},
+        )
+
+        changed = adapter.sync_task_metadata("lin_1", task, remote=remote)
+
+        self.assertTrue(changed)
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertNotIn("title", issue_input)
+        self.assertIn("## Intake Gaps", issue_input["description"])
+
+    def test_sync_task_metadata_noops_when_title_and_description_match(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        task = PlanTask(
+            id="BD-1",
+            title="Receipt Lab dev-app surface",
+            status=VidxStatus.PENDING,
+            plan_path="/tmp/PLAN.md",
+            line_number=12,
+        )
+        remote = ExternalItem(
+            external_id="lin_1",
+            title=task.title,
+            status=VidxStatus.PENDING,
+            fields={"_description": LinearAdapter._render_body(task)},
+        )
+
+        changed = adapter.sync_task_metadata("lin_1", task, remote=remote)
+
+        self.assertFalse(changed)
 
 
 class PullRequestLinking(unittest.TestCase):

@@ -45,6 +45,11 @@ class PlanTask:
     investigation: str | None = None      # raw text of [Investigation: ...]
     eta_hours: float | None = None        # parsed from [ETA: Xh]
     source: str | None = None             # "PLAN.md:L<a>-L<b>" when seeded
+    details: str | None = None            # prose after the task title, if present
+    tags: dict[str, str] = field(default_factory=dict)  # parsed bracket tags
+    plan_path: str | None = None          # PLAN.md path this task came from
+    line_number: int | None = None        # 1-based line in PLAN.md
+    raw_line: str | None = None           # original task line for audit/debug
     external_id: str | None = None        # opaque adapter handle if already synced
     blocked: bool = False                 # orthogonal to status
 

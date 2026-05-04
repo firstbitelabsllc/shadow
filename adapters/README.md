@@ -25,8 +25,9 @@ Linear renders HTML comments as visible text in its description UI, so the
 markers were leaking into the rendered view and breaking human readability.
 
 The adapter now writes **clean human-facing markdown only** — Purpose /
-Evidence / Investigation / Source / ETA sections (sections with no source data
-are omitted). Round-trip metadata moves into the per-plan
+Details / Evidence / Investigation / Tags / Plan / ETA sections, plus an
+`Intake Gaps` section when the PLAN row is missing details, evidence, or an
+estimate. Round-trip metadata moves into the per-plan
 `.external-state.json` sidecar under
 `adapters.linear.task_metadata`, keyed by VidxId. The sync script reads / writes
 the sidecar; the adapter never inspects descriptions for codec markers.
@@ -138,6 +139,15 @@ With `auto_promote_target`, sync does not create new external issues from
 local-only PLAN rows. It still reconciles status for tasks already linked by a
 `[Source: <adapter>:<id>]` marker so imported cards can move to completed on
 the external board.
+
+For Linear specifically, title-only cards are not claimable work. If a novel
+Linear issue has no description, auto-promote writes it as `[blocked]` with a
+`[Blocker: needs Linear intake details ...]` tag so agents see the card but do
+not burn a cycle guessing. If the Linear description exists, vidux preserves a
+short excerpt in `[Evidence: Linear ...]` and stores the full description in the
+sidecar metadata. Already-mapped Linear issues are also refreshed on sync:
+`sync_task_metadata()` updates stale titles/descriptions when PLAN.md now has
+richer Details, Tags, Plan, ETA, or Intake Gaps.
 
 ## Linear labels
 
