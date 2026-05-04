@@ -264,4 +264,27 @@ Aggregate predicted wall: ~3h 30min across 4-5 cron cycles. Original spec ETA wa
 
 The next cycle should atomic-claim P5.1 by editing the `**Status:**` line above to add `**P5.1 [in_progress]**` and filling `claimed_by:` + `claimed_at:` with its own agent_id. P5.1's slice scope is fully transcribable from the section above — no further recon needed. Single new file + single enum case + 2 tests + 1 screenshot = single-cycle ship.
 
+### Phase B+C P5.1 — 2026-05-04T17:12Z by `claude-opus-4-7-rios-loop-c1777914119` (cycle 1777914119)
+
+**Shipped:** PR #597 — `feat(ocr-moat): P5.1 Receipt Lab DevFlow scaffold`. 3 files / +152 LOC:
+
+- `ResplitDevApp/DevAppRoot.swift`: appended `case receiptLab` after `designSystem` + 3 switch arms (title `"Receipt Lab"`, icon `"flask"`, destination `ReceiptLabFlowView()`).
+- `ResplitDevApp/Flows/ReceiptLabFlowView.swift` NEW: SwiftUI `View` with internal `TabView`. 3 private placeholder tab views (`ReceiptLabLiveScanTab`, `ReceiptLabAnnotateTab`, `ReceiptLabReplayTab`) each rendering a `ReceiptLabPlaceholder` card with SF Symbol + title + detail + "Coming in P5.N" tag. `ReceiptLabTab` enum (`liveScan`/`annotate`/`replay`) carries `title` + `icon` for `.tabItem` labels.
+- `ResplitDevAppTests/DevFlowTests.swift`: +2 tests. `testReceiptLabFlowAvailable` pins receiptLab in `DevFlow.allCases` + asserts rawValue/title/icon stable. `testReceiptLabTabCasesAndSystemImagesValid` is the audit-dim-3 contrapositive — enumerates `ReceiptLabTab.allCases` + `DevFlow.receiptLab.icon` and asserts `UIImage(systemName: .)` is non-nil for each (a typo on `flask` / `camera.viewfinder` / `pencil.and.list.clipboard` / `play.rectangle` would fail the test rather than silently render a missing-glyph cell).
+
+**Gate results:**
+
+- `tuist generate --no-open` ✓ (25.350s)
+- `tuist xcodebuild build -scheme 'Resplit Dev App' -derivedDataPath /tmp/resplit-dd-ocrmoat-P5-1-c1777914119 -destination 'generic/platform=iOS Simulator'` Build Succeeded
+- `tuist xcodebuild test -scheme 'Resplit Dev App Tests' ... -only-testing:ResplitDevAppTests/DevFlowTests` 4/4 pass in 0.039s
+- `swiftlint lint` 0 violations (after `.font(.system(size: 44, weight: .regular))` → `.font(designSystem.typography.display)` swap on the placeholder Image — the `no_direct_system_font_usage` rule blocks `.system(...)` font use)
+
+**Phase D defers** to next cycle's 10-min cron tick per pure-additive-slice precedent (P4.4 cycle 1777911481, P3.4e cycle 1777902839). PR is non-draft, `@graphite review` triggered. The next cron fire inherits the bot-review wait + merge.
+
+**Visual proof N/A this slice** per CLAUDE.md §Visual Proof Merge Gate **Special cases / New feature** rule + P3.4e PR #593 precedent. Each tab in this slice is a placeholder "Coming in P5.N" card — there is no functional surface to verify visually. The tab structure + SF Symbol glyphs are mechanically locked by `testReceiptLabTabCasesAndSystemImagesValid`. The meaningful AFTER screenshot ships in P5.2 once Live Scan parses real fixtures.
+
+**Wall-time:** ~10min (claim 17:03Z → push 17:12Z + bookkeeping). Within the cycle 1777906165 prediction of ~12min for pure-additive single-cycle B+C — confirms the slice-shape budget rule continues to hold for new-flow scaffolds.
+
+**Next claimable surface: P5.2** (Live Scan tab — `PhotosPicker` + `Azure Live | Fixture Replay` segmented control + `Reconciler.reconcile(_:)` chip + findings list inline below the parsed `ScannedReceipt` card). Wire-up shape per cycle 1777907480 budget rule: ~28min Phase B+C in subagent + 30min Phase D inheritance (1-2 fix-up commits expected). Slice plan above is fully transcribable; subagent dispatch should follow subagent-hygiene rules 1-4 (active-poll-with-timeout, commit-before-wait, git-evidence in report, 30min wall budget).
+
 
