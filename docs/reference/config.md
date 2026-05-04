@@ -62,6 +62,9 @@ The live config uses several sections to guide scripts and automation behavior:
 - Sources with `auto_promote_target` do not create new external items from
   local-only PLAN rows, but they still push status for tasks already linked by
   a `[Source: <adapter>:<id>]` marker.
+- Linear auto-promote treats an empty issue description as incomplete intake:
+  the row lands as `[blocked]` with a blocker asking for description,
+  evidence/source, acceptance or repro, and estimate.
 - Linear codebase intake should set both `project_id` and `project_name`; the
   adapter validates the remote project name before reading or writing so a repo
   cannot silently ingest the wrong Linear product bucket.

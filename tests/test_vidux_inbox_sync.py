@@ -131,6 +131,9 @@ class InboxSyncTests(unittest.TestCase):
         state = sync.load_state(self.plan_dir)
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
+        metadata = sync.adapter_task_metadata(state, adapter.name)
+        self.assertEqual(metadata["BD-1"]["external_id"], "lin_1")
+        self.assertTrue(metadata["BD-1"]["plan_path"].endswith("PLAN.md"))
 
     def test_source_marker_skips_backtick_documentation(self):
         """Backtick-quoted [Source: ...] in task prose must not become a mapping.
@@ -290,6 +293,7 @@ class InboxSyncTests(unittest.TestCase):
         """``` `[pending]` **P1 — Domain types** ``` (ocr-moat style)."""
         self.write_plan(
             "- `[pending]` **P1 — Domain types + provider protocol + Azure adapter** "
+            "Lock the contract. ScannedReceipt becomes canonical. "
             "[Sub-plan: tasks/P1-domain-types-protocol/PLAN.md] [ETA: 8h]"
         )
 
@@ -302,6 +306,16 @@ class InboxSyncTests(unittest.TestCase):
             "Domain types + provider protocol + Azure adapter",
         )
         self.assertEqual(tasks[0].eta_hours, 8.0)
+        self.assertEqual(
+            tasks[0].details,
+            "Lock the contract. ScannedReceipt becomes canonical.",
+        )
+        self.assertEqual(
+            tasks[0].tags["Sub-plan"],
+            "tasks/P1-domain-types-protocol/PLAN.md",
+        )
+        self.assertTrue(tasks[0].plan_path.endswith("PLAN.md"))
+        self.assertIsNotNone(tasks[0].line_number)
 
     def test_parse_plan_accepts_tasks_phases_header(self):
         """`## Tasks (Phases)` header variant (ocr-moat)."""
@@ -376,7 +390,7 @@ class InboxSyncTests(unittest.TestCase):
         self.write_plan("")
         adapter = FakeLinearAdapter([self.external_item()])
 
-        promoted, new_mappings = sync.auto_promote_novel_items(
+        promoted, new_mappings, new_metadata = sync.auto_promote_novel_items(
             self.plan_dir,
             adapter.fetch_inbox(),
             adapter.name,
@@ -385,6 +399,7 @@ class InboxSyncTests(unittest.TestCase):
         )
         self.assertEqual(promoted, 1)
         self.assertEqual(new_mappings, {"BD-1": "lin_1"})
+        self.assertEqual(new_metadata["BD-1"]["external_id"], "lin_1")
         self.assertFalse((self.plan_dir / sync.STATE_FILENAME).exists())
 
         summary = sync.sync_plan_with_adapter(
@@ -399,6 +414,49 @@ class InboxSyncTests(unittest.TestCase):
         state = sync.load_state(self.plan_dir)
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
+
+    def test_linear_auto_promote_blocks_title_only_cards(self):
+        self.write_plan("")
+        adapter = FakeLinearAdapter([self.external_item(title="Receipt Lab dev-app surface")])
+
+        promoted, new_mappings, new_metadata = sync.auto_promote_novel_items(
+            self.plan_dir,
+            adapter.fetch_inbox(),
+            adapter.name,
+            fleet_known_ext_ids=set(),
+            dry_run=False,
+        )
+
+        self.assertEqual(promoted, 1)
+        self.assertEqual(new_mappings, {"BD-1": "lin_1"})
+        self.assertIn("intake details", new_metadata["BD-1"]["intake_gap"])
+        text = (self.plan_dir / sync.PLAN_FILENAME).read_text(encoding="utf-8")
+        self.assertIn("- [blocked] BD-1: Receipt Lab dev-app surface", text)
+        self.assertIn("[Blocker: needs Linear intake details before claim", text)
+
+    def test_linear_auto_promote_preserves_description_excerpt(self):
+        self.write_plan("")
+        item = self.external_item(title="Receipt Lab dev-app surface")
+        item.fields["_description"] = (
+            "Build the dev app surface for receipt OCR fixture review.\n\n"
+            "Acceptance: paste fixture JSON and compare parsed totals."
+        )
+        adapter = FakeLinearAdapter([item])
+
+        promoted, _, new_metadata = sync.auto_promote_novel_items(
+            self.plan_dir,
+            adapter.fetch_inbox(),
+            adapter.name,
+            fleet_known_ext_ids=set(),
+            dry_run=False,
+        )
+
+        self.assertEqual(promoted, 1)
+        self.assertNotIn("intake_gap", new_metadata["BD-1"])
+        text = (self.plan_dir / sync.PLAN_FILENAME).read_text(encoding="utf-8")
+        self.assertIn("- [pending] BD-1: Receipt Lab dev-app surface", text)
+        self.assertIn("[Evidence: Linear description:", text)
+        self.assertIn("fixture review", text)
 
     def test_pull_skips_completed_novel_items_for_inbox(self):
         self.write_plan("")
@@ -737,12 +795,15 @@ class InboxSyncTests(unittest.TestCase):
         self.assertFalse((other_plan / sync.INBOX_FILENAME).exists())
         lane_text = (lane_plan / sync.PLAN_FILENAME).read_text(encoding="utf-8")
         self.assertIn(
-            "- [pending] BD-1: Fix duplicated card [Source: linear:lin_1]",
+            "- [blocked] BD-1: Fix duplicated card [Source: linear:lin_1]",
             lane_text,
         )
+        self.assertIn("needs Linear intake details", lane_text)
         state = sync.load_state(lane_plan)
         mapping = sync.adapter_state(state, adapter.name)
         self.assertEqual(mapping, {"BD-1": "lin_1"})
+        metadata = sync.adapter_task_metadata(state, adapter.name)
+        self.assertIn("intake details", metadata["BD-1"]["intake_gap"])
 
     def test_main_auto_promote_skips_completed_novel_items(self):
         root = Path(self.tmp)

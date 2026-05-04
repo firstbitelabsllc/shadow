@@ -318,6 +318,9 @@ class LinearAdapter(AdapterBase):
             ## Purpose
             <one-line title summary>
 
+            ## Details
+            <prose preserved from the task line>
+
             ## Evidence
             - <file path 1>
             - <file path 2>
@@ -326,11 +329,19 @@ class LinearAdapter(AdapterBase):
             ## Investigation
             <task.investigation>
 
-            ## Source
-            <task.source>
+            ## Tags
+            - <non-core metadata tags>
+
+            ## Plan
+            - Task: `<id>`
+            - Status: `<status>`
+            - Location: `<PLAN.md>:<line>`
 
             ## ETA
             <eta>h
+
+            ## Intake Gaps
+            - <missing fields, when any>
 
         NO HTML-comment codec — Linear renders `<!-- ... -->` as visible text,
         which broke description readability. Round-trip metadata (Evidence,
@@ -340,11 +351,10 @@ class LinearAdapter(AdapterBase):
         """
         sections: list[str] = []
 
-        # Purpose — short prose summary. We use the task title as the source
-        # of truth since PlanTask doesn't carry a separate body field today.
-        # If the title is the only thing we have, we still emit a Purpose
-        # section so the doc has predictable shape.
         sections.append(f"## Purpose\n{task.title.strip()}")
+
+        if task.details:
+            sections.append(f"## Details\n{task.details.strip()}")
 
         # Evidence — bullet list, one item per line. Evidence in PlanTask is
         # a single free-form string (often semicolon-separated paths). Split
@@ -358,8 +368,13 @@ class LinearAdapter(AdapterBase):
         if task.investigation:
             sections.append(f"## Investigation\n{task.investigation.strip()}")
 
-        if task.source:
-            sections.append(f"## Source\n{task.source.strip()}")
+        tag_lines = cls._format_task_tags(task)
+        if tag_lines:
+            sections.append("## Tags\n" + "\n".join(tag_lines))
+
+        plan_lines = cls._format_plan_lines(task)
+        if plan_lines:
+            sections.append("## Plan\n" + "\n".join(plan_lines))
 
         if task.eta_hours is not None:
             # Render as "Xh" — accepts either int or float ETAs.
@@ -367,7 +382,51 @@ class LinearAdapter(AdapterBase):
             eta_str = f"{int(eta)}h" if float(eta).is_integer() else f"{eta}h"
             sections.append(f"## ETA\n{eta_str}")
 
+        gaps = cls._intake_gaps(task)
+        if gaps:
+            sections.append("## Intake Gaps\n" + "\n".join(f"- {gap}" for gap in gaps))
+
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _format_plan_lines(task: PlanTask) -> list[str]:
+        lines = [
+            f"- Task: `{task.id}`",
+            f"- Status: `{task.status.value}`",
+        ]
+        if task.plan_path:
+            location = task.plan_path
+            if task.line_number is not None:
+                location = f"{location}:{task.line_number}"
+            lines.append(f"- Location: `{location}`")
+        if task.source:
+            lines.append(f"- Source: `{task.source.strip()}`")
+        return lines
+
+    @staticmethod
+    def _format_task_tags(task: PlanTask) -> list[str]:
+        if not task.tags:
+            return []
+        core = {"Evidence", "Investigation", "Source", "ETA"}
+        lines: list[str] = []
+        for key in sorted(task.tags):
+            if key in core:
+                continue
+            value = task.tags[key].strip()
+            if value:
+                lines.append(f"- {key}: `{value}`")
+        return lines
+
+    @staticmethod
+    def _intake_gaps(task: PlanTask) -> list[str]:
+        gaps: list[str] = []
+        if not task.details:
+            gaps.append("No prose details beyond the title.")
+        if not task.evidence:
+            gaps.append("Missing `[Evidence: ...]` in PLAN.md.")
+        if task.eta_hours is None:
+            gaps.append("Missing `[ETA: Xh]` estimate in PLAN.md.")
+        return gaps
 
     @staticmethod
     def _split_evidence(raw: str) -> list[str]:
@@ -776,7 +835,7 @@ class LinearAdapter(AdapterBase):
         """Create a Linear issue from a PlanTask. Returns Linear issue UUID.
 
         Description is clean human-readable markdown (Purpose / Evidence /
-        Investigation / Source / ETA sections, with empty sections elided).
+        Investigation / Tags / Plan / ETA sections, with empty sections elided).
         VidxId / VidxPlan + the typed metadata round-trip via the per-plan
         `.external-state.json` sidecar — see `adapters/README.md`.
         """
@@ -809,6 +868,45 @@ class LinearAdapter(AdapterBase):
         # Invalidate cache so next fetch_inbox sees the new issue.
         self._inbox_cache = None
         return payload["issue"]["id"]
+
+    def sync_task_metadata(
+        self,
+        external_id: str,
+        task: PlanTask,
+        *,
+        remote: ExternalItem | None = None,
+    ) -> bool:
+        """Idempotently refresh an existing issue's title + description.
+
+        `push_task()` fixes newly-created issues. This extension method fixes
+        already-mapped issues on subsequent sync cycles, so old title-only
+        Linear cards get the richer Details / Tags / Plan / Intake Gaps body
+        without reminting issues.
+        """
+        self._ensure_project_identity()
+        desired_description = self._render_body(task)
+        update_input: dict[str, Any] = {}
+
+        if remote is None or remote.title != task.title:
+            update_input["title"] = task.title
+        remote_description = ""
+        if remote is not None:
+            remote_description = str(remote.fields.get("_description") or "")
+        if remote is None or remote_description != desired_description:
+            update_input["description"] = desired_description
+
+        if not update_input:
+            return False
+
+        data = self._graphql(
+            self._ISSUE_UPDATE_MUTATION,
+            {"id": external_id, "input": update_input},
+        )
+        payload = data.get("issueUpdate") or {}
+        if not payload.get("success"):
+            raise LinearError(f"issueUpdate(metadata) failed: {data}")
+        self._inbox_cache = None
+        return True
 
     def pull_status(self, external_id: str) -> VidxStatus:
         self._ensure_project_identity()
