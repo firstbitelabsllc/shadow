@@ -47,7 +47,6 @@ import re
 import subprocess
 import sys
 import tempfile
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -211,6 +210,7 @@ class _ParsedTaskLine(NamedTuple):
     extras: str
     body: str
     title: str
+    details: str | None
 
 
 def _match_task_line(line: str) -> _ParsedTaskLine | None:
@@ -250,6 +250,7 @@ def _match_task_line(line: str) -> _ParsedTaskLine | None:
             else:
                 tail = _LENIENT_LEADING_SEP.sub("", tail)
             title_in_bold = tail.strip()
+            details: str | None = None
             # If the bold contained only the ID (e.g. `**T2**`), the title
             # lives in the post-bold prose.
             if title_in_bold:
@@ -258,12 +259,20 @@ def _match_task_line(line: str) -> _ParsedTaskLine | None:
                 # tag extraction without polluting the title.
                 if after.strip():
                     extras_buf.append(after.strip())
+                    details = _LENIENT_LEADING_SEP.sub(
+                        "", _strip_tags(after)
+                    ).strip() or None
             else:
                 body = after.strip()
             extras = " ".join(extras_buf)
             title = _strip_tags(body)
             return _ParsedTaskLine(
-                status=status, id=tid, extras=extras, body=body, title=title
+                status=status,
+                id=tid,
+                extras=extras,
+                body=body,
+                title=title,
+                details=details,
             )
 
     # Variant B: bare ID at the start of `rest`.
@@ -283,7 +292,12 @@ def _match_task_line(line: str) -> _ParsedTaskLine | None:
         extras = " ".join(extras_buf)
         title = _strip_tags(body)
         return _ParsedTaskLine(
-            status=status, id=tid, extras=extras, body=body, title=title
+            status=status,
+            id=tid,
+            extras=extras,
+            body=body,
+            title=title,
+            details=None,
         )
 
     return None
@@ -294,6 +308,7 @@ _INVESTIGATION_TAG = re.compile(r"\[Investigation:\s*(?P<v>[^\]]*)\]")
 _ETA_TAG = re.compile(r"\[ETA:\s*(?P<v>[^\]]+)\]")
 _ETA_HOURS = re.compile(r"(?P<n>\d+(?:\.\d+)?)\s*h", re.IGNORECASE)
 _SOURCE_TAG = re.compile(r"\[Source:\s*(?P<v>[^\]]*)\]")
+_ANY_TAG = re.compile(r"\[(?P<k>[A-Za-z][A-Za-z0-9 _./-]*):\s*(?P<v>[^\]]*)\]")
 _BACKTICK_SPAN = re.compile(r"`[^`]*`")
 _PLACEHOLDER_SHAPE = re.compile(r"[<>]")
 _PLAN_TASK_REF = re.compile(
@@ -354,7 +369,7 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
         task_end = len(lines)
 
     tasks: list[PlanTask] = []
-    for line in lines[task_start:task_end]:
+    for line_number, line in enumerate(lines[task_start:task_end], start=task_start + 1):
         parsed = _match_task_line(line)
         if parsed is None:
             continue
@@ -367,6 +382,7 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
         investigation = _first(_INVESTIGATION_TAG, metadata_text)
         source = _first(_SOURCE_TAG, metadata_text)
         eta_hours = _parse_eta(metadata_text)
+        tags = _extract_tags(metadata_text)
 
         tasks.append(
             PlanTask(
@@ -377,6 +393,11 @@ def parse_plan(plan_path: Path) -> list[PlanTask]:
                 investigation=investigation,
                 eta_hours=eta_hours,
                 source=source,
+                details=parsed.details,
+                tags=tags,
+                plan_path=str(plan_path),
+                line_number=line_number,
+                raw_line=line.rstrip("\n"),
             )
         )
     return tasks
@@ -388,6 +409,17 @@ def _first(pattern: re.Pattern[str], text: str) -> str | None:
         return None
     val = m.group("v").strip()
     return val or None
+
+
+def _extract_tags(text: str) -> dict[str, str]:
+    """Extract bracketed `Key: value` metadata tags from a task line."""
+    tags: dict[str, str] = {}
+    for match in _ANY_TAG.finditer(text):
+        key = re.sub(r"\s+", " ", match.group("k")).strip()
+        value = match.group("v").strip()
+        if key and value:
+            tags[key] = value
+    return tags
 
 
 def _parse_eta(body: str) -> float | None:
@@ -445,6 +477,40 @@ def adapter_state(state: dict[str, Any], adapter_name: str) -> dict[str, str]:
     for k in polluted:
         del mapping[k]
     return mapping
+
+
+def adapter_task_metadata(
+    state: dict[str, Any],
+    adapter_name: str,
+) -> dict[str, dict[str, Any]]:
+    """Return sidecar task metadata for one adapter, creating it lazily."""
+    adapters = state.setdefault("adapters", {})
+    entry = adapters.setdefault(adapter_name, {"task_to_external": {}})
+    return entry.setdefault("task_metadata", {})
+
+
+def plan_task_metadata(task: PlanTask) -> dict[str, Any]:
+    """Serialize PlanTask fields that make external issue sync auditable."""
+    payload: dict[str, Any] = {
+        "id": task.id,
+        "title": task.title,
+        "status": task.status.value,
+        "details": task.details,
+        "evidence": task.evidence,
+        "investigation": task.investigation,
+        "eta_hours": task.eta_hours,
+        "source": task.source,
+        "tags": task.tags,
+        "plan_path": task.plan_path,
+        "line_number": task.line_number,
+        "raw_line": task.raw_line,
+        "external_id": task.external_id,
+        "blocked": task.blocked,
+    }
+    return {
+        key: value for key, value in payload.items()
+        if value not in (None, "", {}, [])
+    }
 
 
 def source_external_id(task: PlanTask, adapter_name: str) -> str | None:
@@ -550,6 +616,57 @@ def _matchable_title(title: str) -> str:
     lowered = lowered.replace("—", "-").replace("–", "-")
     lowered = re.sub(r"\s+", " ", lowered)
     return lowered.strip(" *`\"'")
+
+
+def _single_line(text: str, limit: int = 240) -> str:
+    """Collapse markdown/prose to one PLAN-safe line."""
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    cleaned = cleaned.replace("[", "(").replace("]", ")")
+    if len(cleaned) > limit:
+        return cleaned[: max(0, limit - 1)].rstrip() + "…"
+    return cleaned
+
+
+def _external_description(item: ExternalItem) -> str:
+    return str(item.fields.get("_description") or "").strip()
+
+
+def _external_identifier(item: ExternalItem) -> str:
+    return str(item.fields.get("_identifier") or "").strip()
+
+
+def _linear_intake_gap(item: ExternalItem) -> str | None:
+    """Return why a novel Linear card should not be claimable yet."""
+    if _external_description(item):
+        return None
+    return (
+        "needs Linear intake details before claim: add description, "
+        "evidence/source, acceptance or repro, and estimate"
+    )
+
+
+def _external_item_metadata(
+    item: ExternalItem,
+    *,
+    task_id: str,
+    adapter_name: str,
+    intake_gap: str | None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "id": task_id,
+        "external_id": item.external_id,
+        "external_identifier": _external_identifier(item),
+        "external_title": item.title,
+        "status": item.status.value,
+        "blocked": item.blocked,
+        "description": _external_description(item),
+        "adapter": adapter_name,
+        "intake_gap": intake_gap,
+    }
+    return {
+        key: value for key, value in metadata.items()
+        if value not in (None, "", {}, [])
+    }
 
 
 def recover_title_mappings(
@@ -678,12 +795,12 @@ def auto_promote_novel_items(
     fleet_known_ext_ids: set[str],
     dry_run: bool,
     max_new: int | None = DEFAULT_AUTO_PROMOTE_MAX_NEW,
-) -> tuple[int, dict[str, str]]:
+) -> tuple[int, dict[str, str], dict[str, dict[str, Any]]]:
     """Promote novel external items directly to a target plan's `## Tasks`.
 
-    Returns (count_appended, new_mappings). `new_mappings` is a dict of
-    {task_id: external_id} the caller should merge into the target plan_dir's
-    state file via adapter_state(...) + save_state(...).
+    Returns (count_appended, new_mappings, new_metadata). `new_mappings` is a
+    dict of {task_id: external_id}; `new_metadata` carries the source card body
+    and intake quality notes for `.external-state.json`.
 
     Idempotency is double-checked:
       1. `fleet_known_ext_ids` (state-file-derived) — primary signal
@@ -695,7 +812,7 @@ def auto_promote_novel_items(
     state file or the in-text marker prevents re-promotion.
     """
     if not items:
-        return 0, {}
+        return 0, {}, {}
     plan_path = target_plan_dir / PLAN_FILENAME
     text = plan_path.read_text(encoding="utf-8") if plan_path.exists() else ""
     seq = _next_bd_seq(text)
@@ -711,6 +828,7 @@ def auto_promote_novel_items(
 
     new_lines: list[str] = []
     new_mappings: dict[str, str] = {}
+    new_metadata: dict[str, dict[str, Any]] = {}
     for item in items:
         if item.external_id in skip_set:
             continue
@@ -723,11 +841,27 @@ def auto_promote_novel_items(
         task_id = f"BD-{seq}"
         seq += 1
         marker = f"[Source: {adapter_name}:{item.external_id}]"
-        new_lines.append(f"- [pending] {task_id}: {title} {marker}")
+        description = _external_description(item)
+        intake_gap = _linear_intake_gap(item) if adapter_name == "linear" else None
+        status = "blocked" if intake_gap else "pending"
+        tags = [marker]
+        if description:
+            identifier = _external_identifier(item)
+            prefix = f"Linear {identifier}: " if identifier else "Linear description: "
+            tags.append(f"[Evidence: {_single_line(prefix + description, 180)}]")
+        if intake_gap:
+            tags.append(f"[Blocker: {_single_line(intake_gap, 180)}]")
+        new_lines.append(f"- [{status}] {task_id}: {title} {' '.join(tags)}")
         new_mappings[task_id] = item.external_id
+        new_metadata[task_id] = _external_item_metadata(
+            item,
+            task_id=task_id,
+            adapter_name=adapter_name,
+            intake_gap=intake_gap,
+        )
 
     if not new_lines:
-        return 0, {}
+        return 0, {}, {}
 
     if max_new is not None and len(new_lines) > max_new:
         raise ValueError(
@@ -750,7 +884,7 @@ def auto_promote_novel_items(
         else:
             new_text = head + addition + ("\n" if tail else "") + tail
         plan_path.write_text(new_text, encoding="utf-8")
-    return len(new_lines), new_mappings
+    return len(new_lines), new_mappings, new_metadata
 
 
 def auto_promote_max_new(source: dict[str, Any]) -> int | None:
@@ -900,6 +1034,7 @@ def sync_plan_with_adapter(
     plan_path = plan_dir / PLAN_FILENAME
     state = load_state(plan_dir)
     mapping = adapter_state(state, adapter.name)
+    metadata = adapter_task_metadata(state, adapter.name)
 
     tasks = parse_plan(plan_path)
     tasks_by_id = {t.id: t for t in tasks}
@@ -923,6 +1058,7 @@ def sync_plan_with_adapter(
         "source_mapped": source_mapped,
         "push_skipped_idempotent": 0,
         "push_suppressed_auto_promote": 0,
+        "metadata_synced": 0,
         "completed_novel_skipped": 0,
         "errors": [],
     }
@@ -1008,6 +1144,8 @@ def sync_plan_with_adapter(
                     else:
                         external_id = adapter.push_task(task)
                     mapping[task.id] = external_id
+                    task.external_id = external_id
+                    metadata[task.id] = plan_task_metadata(task)
                     summary["pushed"] += 1
                     summary["pushed_ids"].append(task.id)
                 except Exception as exc:  # noqa: BLE001
@@ -1022,6 +1160,8 @@ def sync_plan_with_adapter(
         # a busy repo even when nothing changed, exhausting Linear's
         # hourly bucket in one hour. INBOX P1 2026-04-25.
         skipped = 0
+        metadata_synced = 0
+        sync_task_metadata = getattr(adapter, "sync_task_metadata", None)
         for task in tasks:
             ext_id = mapping.get(task.id)
             if not ext_id:
@@ -1039,6 +1179,9 @@ def sync_plan_with_adapter(
                         adapter.push_status(ext_id, task.status)
                     else:
                         skipped += 1
+                if callable(sync_task_metadata):
+                    if sync_task_metadata(ext_id, task, remote=remote):
+                        metadata_synced += 1
                 # push_fields(_blocked): only when the flag diverges.
                 # Completed tasks are terminal; status is enough.
                 if task.status == VidxStatus.COMPLETED:
@@ -1050,8 +1193,13 @@ def sync_plan_with_adapter(
             except Exception as exc:  # noqa: BLE001
                 summary["errors"].append(f"push_status({task.id}): {exc}")
         summary["push_skipped_idempotent"] = skipped
+        summary["metadata_synced"] = metadata_synced
 
     if not dry_run:
+        for task in tasks:
+            if task.id in mapping:
+                task.external_id = mapping[task.id]
+                metadata[task.id] = plan_task_metadata(task)
         save_state(plan_dir, state)
 
     return summary
@@ -1523,6 +1671,7 @@ def main(argv: list[str] | None = None) -> int:
             auto_exit_code = 0
             auto_promoted = 0
             auto_mappings: dict[str, str] = {}
+            auto_metadata: dict[str, dict[str, Any]] = {}
             completed_skipped = 0
             try:
                 ext_items = adapter.fetch_inbox()  # cached
@@ -1540,7 +1689,7 @@ def main(argv: list[str] | None = None) -> int:
                     if item.status != VidxStatus.COMPLETED
                 ]
                 try:
-                    count, new_mappings = auto_promote_novel_items(
+                    count, new_mappings, new_metadata = auto_promote_novel_items(
                         promote_target_dir, promotable_items, adapter.name,
                         fleet_known, args.dry_run,
                         max_new=promote_max_new,
@@ -1550,15 +1699,21 @@ def main(argv: list[str] | None = None) -> int:
                     auto_exit_code = 2
                     auto_promoted = 0
                     auto_mappings = {}
+                    auto_metadata = {}
                 else:
                     auto_promoted = count
                     auto_mappings = new_mappings
+                    auto_metadata = new_metadata
                 # Persist the new task_id ↔ external_id mapping in the target's
                 # state file so subsequent cycles don't re-promote.
                 if auto_mappings and not args.dry_run:
                     target_state = load_state(promote_target_dir)
                     target_mapping = adapter_state(target_state, adapter.name)
                     target_mapping.update(auto_mappings)
+                    target_metadata = adapter_task_metadata(
+                        target_state, adapter.name
+                    )
+                    target_metadata.update(auto_metadata)
                     save_state(promote_target_dir, target_state)
             if auto_exit_code and exit_code == 0:
                 exit_code = auto_exit_code
