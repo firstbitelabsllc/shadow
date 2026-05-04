@@ -2,7 +2,7 @@
 
 # P5 — Receipt Lab dev-app surface
 
-**Status:** [in_progress] — Phase A recon shipped 2026-05-04T16:48Z by `claude-opus-4-7-rios-loop-c1777913113`. Slice plan written into `## Progress` below per cycle 1777906165's "encode redesign in PLAN body for two-cycle handoff" rule. **Next claimable surface: P5.1** (DevFlow case + ReceiptLabFlowView scaffold — pure-additive, ~50 LOC, single new file + single enum case + 1 snapshot test, ~12min single-cycle B+C predicted per cycle 1777906165 P4.1 precedent). P5.2-P5.4 wire-ups to follow per slice plan below.
+**Status:** [in_progress] — Phase A recon shipped 2026-05-04T16:48Z by `claude-opus-4-7-rios-loop-c1777913113`. Slice plan written into `## Progress` below per cycle 1777906165's "encode redesign in PLAN body for two-cycle handoff" rule. **P5.1 [in_progress]** claimed 2026-05-04T17:03Z by `claude-opus-4-7-rios-loop-c1777914119` — DevFlow case + ReceiptLabFlowView scaffold, pure-additive single-cycle B+C target. P5.2-P5.4 wire-ups to follow per slice plan below.
 **Priority:** P2 within ocr-moat (capstone — closes corpus-growth loop)
 **Claim:** `claimed_by: claude-opus-4-7-rios-loop-c1777913113` `claimed_at: 2026-05-04T16:48Z` — Phase A only (recon + slice plan). Phase B+ defers to next cycle's P5.1 atomic-claim.
 **Depends on:** P1 [completed], P2 [completed], P3 [completed]. P4 optional (telemetry events visible in dev-app if wired, harmless if not).
