@@ -2,9 +2,9 @@
 
 # P2 — Fixture corpus + replay provider + corpus runner
 
-**Status:** [pending]
+**Status:** [in_progress] P2.0 only
 **Priority:** P0 within ocr-moat
-**Claim:** `claimed_by:` `claimed_at:`
+**Claim:** `claimed_by: claude-opus-4-7-rios-subagent-a1cc8dfcf78a8438e` `claimed_at: 2026-05-04T02:08:29Z` `partial: P2.0`
 **Depends on:** P1 [completed]
 **Blocks:** P3, P5
 **ETA:** 6h
