@@ -118,6 +118,41 @@ git push           # if push fails, repeat from `git pull --rebase`
 
 If you find yourself wanting to make MULTIPLE unrelated edits to PLAN.md in one cycle, do them as separate commits — that way another agent's concurrent edit can merge cleanly with yours instead of conflict-resolving across mixed concerns.
 
+### Continuous stack-drain doctrine (added 2026-05-03 per Leo "no minute left between sessions")
+
+Per Leo verbatim 2026-05-03: *"Once a ticket comes off the stack, we work on it. Once we're finished, we pick up the next task in the stack."* + *"I don't expect any minute to be left in between each session. If you're working in the middle of something and then the cron pings every ten minutes and you're in the middle of it, ignore it. Keep working hard and keep. Once you're done, keep finding another task to work on."*
+
+Two rules every agent (cron OR ad-hoc OR lane-lead) follows:
+
+1. **Mid-cycle cron-ping immunity.** If you are inside Phase A/B/C/D of a current claim when a new 10-min cron cycle fires, IGNORE the new cycle. The atomic-claim contract protects this: the new cron run sees `claimed_at:` < 30min stale and skips your claim. Continue your current phase to completion. Do NOT context-switch on every ping.
+
+2. **Zero-idle-gap drain.** After CHECKPOINT (PR merged + Sentry resolved + worktree torn down), immediately re-PULL the master plan + every sub-plan index. Pick the next [pending] sub-plan in the **same agent session** and run another full cycle. Only declare IDLE when ALL of these are exhausted simultaneously:
+   - weekend-push T1-T9 (currently 7 [completed] + 1 [deferred] + 1 [completed] = terminal, but check for ASC-driven additions)
+   - `~/Development/vidux/projects/ocr-moat/tasks/P*-*/PLAN.md` (P1 chain shipped through P1.3.2c; P1.3.3, P2-P5 pending)
+   - `.cursor/plans/investigations/asc-*.md` with `## Fix Spec\n(pending)` (any open-but-not-coded ASC ticket)
+   - Any `[in_progress]` claim from another agent ≥30min stale (orphan reclaim per snapshot-first protocol)
+   - Open `[pending]` rows in any other vidux project this lane is qualified to drain
+
+The pairing creates: **continuous throughput while preserving claim coherence**. The cron is the discoverer; YOU are the drainer. Drain until dry.
+
+**What this looks like in practice (single-agent cadence):**
+
+```
+Session start → claim ocr-moat P1.3.3 → ship Phase A/B/C/D → MERGED →
+  re-pull → claim ocr-moat P2.0 → ship → MERGED →
+  re-pull → no ocr-moat-P? left → check .cursor/plans/investigations/asc-*.md (Fix Spec pending) → claim → ship → MERGED →
+  re-pull → check ASC API for new reporter feedback since session start → if new, write investigation + ship → MERGED →
+  re-pull → all queues dry → IDLE (legitimate, only now)
+```
+
+NEVER: claim → ship → IDLE → wait for cron-ping. The cron is the FALLBACK discoverer for cases where YOU exit (rate-limit, OOM, manual stop). When YOU are alive, YOU drain.
+
+**What this looks like in practice (multi-agent fan-out):**
+
+The lane-lead OR an autonomous high-context agent (claude-opus-4-7-rios) MAY dispatch N parallel subagents (each in `isolation: "worktree"`) to drain the queue concurrently. The atomic-claim contract makes this collision-safe — each subagent claims its own sub-plan, ships, returns. The lane-lead aggregates results + dispatches the next wave.
+
+Recommended fan-out cadence: 3-5 parallel subagents per wave, each owning one sub-plan from a different surface (e.g., ocr-moat P1.3.3 + ocr-moat P2.0 + ASC investigation A123 + Sentry top-unresolved + i18n gap). Avoid 10+ simultaneous because (a) each subagent eats a worktree slot, (b) build contention rises, (c) review-bot rate-limits start mattering.
+
 ### Investigation file partition
 
 Each task has its own investigation file at `.cursor/plans/investigations/asc-<ID>-<slug>-2026-05-01.md` (already stubbed). Agents fill the Root Cause, Impact Map, Fix Spec, Tests, Gate sections of THEIR investigation. No collision because each is a different file.
