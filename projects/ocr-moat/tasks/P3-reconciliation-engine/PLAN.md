@@ -2,9 +2,9 @@
 
 # P3 — Reconciliation engine (absorbs asc-akig Phase 2)
 
-**Status:** [pending]
+**Status:** [in_progress] — **P3.1 ONLY** this cycle (slice-shape per cycle-1777867383 lesson). P3.1 = `Reconciler` pure-function module + `ReconcilerTests`. P3.2 (delete-or-shim ReceiptItemsFixer), P3.3 (CloudKit migration), P3.4 (UI chip + sheet + 9-language CopyTokens), P3.5 (visual proof) deferred to follow-up slices. **CRITICAL DISCOVERY:** P3.2 must be **Option B (shim)**, NOT Option A (delete) — `ReceiptItemsFixer` is still actively wired in production at `ResplitCore/ReceiptDetail/Managers/ReceiptSnapshotApplying.swift:328` (V3 path; comment in `ResplitCoreTests/ReceiptSnapshotApplyingTests.swift:371` confirms "V4 applier does not run ReceiptItemsFixer today"). Spec said "Pick Option A unless P1's grep finds active v3 callers" — grep found one, so Option A is off the table; future P3.2 cycle should ship Option B.
 **Priority:** P0 within ocr-moat
-**Claim:** `claimed_by:` `claimed_at:`
+**Claim:** `claimed_by: claude-opus-4-7-rios-loop-c1777879945` `claimed_at: 2026-05-04T07:38:00Z`
 **Depends on:** P1 [completed], P2 [completed]
 **Blocks:** P5 (dev-app surface depends on Reconciler being available to display)
 **ETA:** 6h
