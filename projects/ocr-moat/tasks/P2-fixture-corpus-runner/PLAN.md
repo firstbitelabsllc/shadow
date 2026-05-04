@@ -2,9 +2,9 @@
 
 # P2 — Fixture corpus + replay provider + corpus runner
 
-**Status:** [in_progress] P2.0 only
+**Status:** [in_progress] — **P2.0 SHIPPED 2026-05-04T02:30Z via PR #576 squash `ed40c7ae`** by subagent `claude-opus-4-7-rios-subagent-a1cc8dfcf78a8438e` (8 unit tests + CLI script + corpus README + .gitkeep dirs + .swiftlint.yml exclude; importer no-ops until Leo populates `Resplit OCR Fixtures` Photos album). Graphite mergeability_check + AI Reviews SUCCESS + Seer skipped (small infrastructure-only diff). P2.1-P2.5 pending pickup; next claimant should pick P2.1 (corpus directory + JSONL schema). KEY INSTALLATION NOTE for next claimant: Apple's Photos framework only exposes `PHAccessLevel.addOnly` and `.readWrite` (NOT `.readOnly` as the original spec said). The shipped script uses `.readWrite` and never writes — do NOT "fix" this back to `.readOnly` in future PRs; it doesn't exist on `PHAccessLevel`.
 **Priority:** P0 within ocr-moat
-**Claim:** `claimed_by: claude-opus-4-7-rios-subagent-a1cc8dfcf78a8438e` `claimed_at: 2026-05-04T02:08:29Z` `partial: P2.0`
+**Claim:** `claimed_by:` `claimed_at:` (P2.0 partial completed; P2.1+ available for fresh claim)
 **Depends on:** P1 [completed]
 **Blocks:** P3, P5
 **ETA:** 6h
