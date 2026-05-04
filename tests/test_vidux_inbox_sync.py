@@ -480,6 +480,149 @@ class InboxSyncTests(unittest.TestCase):
         self.assertEqual(adapter.field_pushes, [])
         self.assertEqual(summary["errors"], [])
 
+    def write_plan_multiline(self, plan_dir: Path, task_lines: list[str]) -> None:
+        """Like write_plan_at but accepts a list of pre-formatted task lines.
+
+        write_plan_at uses textwrap.dedent, which only strips the COMMON
+        leading whitespace; passing a multi-line `tasks` string with embedded
+        newlines breaks the common prefix and leaks indentation into the
+        rendered PLAN.md. This helper sidesteps that by composing the file
+        directly.
+        """
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        body = "\n".join(task_lines)
+        (plan_dir / "PLAN.md").write_text(
+            f"# Test Plan\n\n## Purpose\nTest fixture.\n\n"
+            f"## Tasks\n{body}\n\n"
+            f"## Decision Log\n- [DIRECTION] fixture.\n\n"
+            f"## Progress\n- fixture.\n",
+            encoding="utf-8",
+        )
+
+    def test_push_task_persists_external_id_to_state_file(self):
+        """Ship-critical contract: after push_task() returns successfully, the
+        new task_id → external_id mapping MUST land in the on-disk
+        `.external-state.json` so subsequent cycles know the task is already
+        synced and do not duplicate-create the external issue.
+
+        Regression for the 2026-05-03 ocr-moat 5-task push report. The bug
+        report's premise (state not written) turned out to be a misread of the
+        nested `adapters.linear.task_to_external` shape — but no existing test
+        actually reads the file back after push. This locks the contract in.
+        """
+        self.write_plan_multiline(
+            self.plan_dir,
+            [
+                "- [pending] T1: First fresh task",
+                "- [pending] T2: Second fresh task",
+                "- [pending] T3: Third fresh task",
+            ],
+        )
+        adapter = FakeLinearAdapter([])
+
+        summary = sync.sync_plan_with_adapter(
+            self.plan_dir,
+            adapter,
+            direction="push",
+            dry_run=False,
+        )
+
+        self.assertEqual(summary["pushed"], 3)
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(len(adapter.pushed), 3)
+
+        # Read the state file from disk (not from memory) to prove durability.
+        state_path = self.plan_dir / sync.STATE_FILENAME
+        self.assertTrue(
+            state_path.exists(),
+            f"{sync.STATE_FILENAME} must be written after push_task succeeds",
+        )
+        on_disk = json.loads(state_path.read_text(encoding="utf-8"))
+        mapping = (
+            on_disk.get("adapters", {})
+            .get("linear", {})
+            .get("task_to_external", {})
+        )
+        self.assertEqual(
+            mapping,
+            {"T1": "new-1", "T2": "new-2", "T3": "new-3"},
+            "Every successful push_task return value must be persisted under "
+            "adapters.<name>.task_to_external so the next cycle is idempotent.",
+        )
+
+    def test_push_task_persistence_survives_reconcile_failure(self):
+        """When push_task succeeds but the immediately-following push_status /
+        push_fields reconcile call raises (e.g. transient Linear 500 mid-loop),
+        the new mapping must STILL land on disk. Otherwise the next cycle
+        re-pushes the same task and creates a duplicate external issue.
+
+        Mirrors the fleet-cron scenario where a push run partially fails — the
+        mapping for already-created issues must survive errors on later steps.
+        """
+
+        class FlakyReconcileAdapter(FakeLinearAdapter):
+            def push_status(self, external_id, status):
+                # Simulate a transient remote error on the immediate
+                # post-push reconcile call.
+                raise RuntimeError("transient 500 from external API")
+
+        self.write_plan("- [in_progress] T1: Task that pushes then reconciles")
+        adapter = FlakyReconcileAdapter([])
+
+        summary = sync.sync_plan_with_adapter(
+            self.plan_dir,
+            adapter,
+            direction="push",
+            dry_run=False,
+        )
+
+        self.assertEqual(summary["pushed"], 1)
+        self.assertEqual(len(adapter.pushed), 1)
+        # Reconcile failure recorded as error but not fatal.
+        self.assertTrue(
+            any("push_status" in e for e in summary["errors"]),
+            f"reconcile failure should surface in summary['errors']: {summary['errors']}",
+        )
+
+        # Critical: the mapping must STILL be on disk despite the reconcile error.
+        state_path = self.plan_dir / sync.STATE_FILENAME
+        self.assertTrue(state_path.exists())
+        on_disk = json.loads(state_path.read_text(encoding="utf-8"))
+        mapping = (
+            on_disk.get("adapters", {})
+            .get("linear", {})
+            .get("task_to_external", {})
+        )
+        self.assertEqual(
+            mapping,
+            {"T1": "new-1"},
+            "Mapping must persist even when post-push reconcile raises — "
+            "otherwise the next cycle creates a duplicate external issue.",
+        )
+
+    def test_push_task_dry_run_does_not_persist_state(self):
+        """Dry-run mode must not write the state file. Confirms the dry-run
+        gate around save_state() actually fires."""
+        self.write_plan("- [pending] T1: Dry-run task")
+        adapter = FakeLinearAdapter([])
+
+        summary = sync.sync_plan_with_adapter(
+            self.plan_dir,
+            adapter,
+            direction="push",
+            dry_run=True,
+        )
+
+        # push_task is NOT called in dry-run mode (line 1006-1007 short-circuits)
+        self.assertEqual(adapter.pushed, [])
+        self.assertEqual(summary["pushed"], 1)  # accounted as "would push"
+
+        state_path = self.plan_dir / sync.STATE_FILENAME
+        self.assertFalse(
+            state_path.exists(),
+            "dry_run=True must not write .external-state.json",
+        )
+
     def test_both_pull_completed_does_not_push_stale_local_status(self):
         self.write_plan(
             "- [in_review] BD-1: PR landed remotely [Source: linear:lin_1]"
