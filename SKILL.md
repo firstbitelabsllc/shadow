@@ -516,6 +516,10 @@ Vidux does NOT activate for:
 - Single-file changes with obvious cause
 - Anything that takes less than 30 minutes with a clear root cause
 
+### Output formats — one-shot HTML decision briefs
+
+For one-shot HTML decision briefs (not ongoing PLAN.md / repo work), use `/editorial-brief` — it ships a single-file editorial-magazine HTML artifact to vidux-browse on Moussey LAN, and follows /vidux plan-first discipline for the research/write phases but lands as a self-contained HTML file instead of a tracked-in-repo .md plan.
+
 ---
 
 ## Browser
