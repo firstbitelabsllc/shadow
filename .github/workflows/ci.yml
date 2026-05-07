@@ -128,6 +128,22 @@ jobs:
         run: python -m unittest tests.test_linear_audit
         timeout-minutes: 3
 
+  lane-closeout-tests:
+    name: lane-closeout tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run lane-closeout tests
+        run: python -m unittest tests.test_lane_closeout
+        timeout-minutes: 3
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
