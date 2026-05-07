@@ -59,14 +59,14 @@ One deterministic priority order. "First match wins" so two agents running the s
 ### 6. Act
 Worktree discipline + verification commands + commit/push/merge procedure. Every command literal — don't paraphrase.
 
-Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must pass; never `git add -A`; UI change needs a screenshot, not a green test.
+Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must pass; never `git add -A`; UI change needs a screenshot, not a green test. Before `gh pr create`, build the body with `scripts/vidux-pr-body.py` so every PR carries `Lane:`, `Plan task:`, `Resume point:`, and optional `Linear: EVE-N`.
 
 ### 7. Authority
 Explicit owned paths + explicit forbidden paths with reasons. The authority block is the lane's immune system. **Mandatory push-tier line** for any code-writing lane.
 
 > Owns: `app/**`, `next.config.ts`, `vidux/PLAN.md`, `vidux/INBOX.md`.
 > Never: `content/posts/**/*.mdx` body (the user's historical prose), `.env*`, other lanes' `memory.md`.
-> Push tier: operational PRs only; open ready-for-review by default. No direct-to-main, no destructive ops.
+> Push tier: operational PRs only; open ready-for-review by default with the canonical vidux PR body. No direct-to-main, no destructive ops.
 
 ### 8. Checkpoint
 One-line `memory.md` append, always tagged. Future agents scan the last 3 entries.

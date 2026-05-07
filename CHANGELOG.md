@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.2] - 2026-05-07
+
+Linear-ready PR handoff templates now have one canonical body builder, so
+automation lanes consistently expose the lane, plan task, resume point, and
+optional public Linear issue id before opening ready-for-review PRs.
+
+### Added
+
+- **Canonical automation PR body helper.** `scripts/vidux-pr-body.py` prints the
+  reusable PR body shape for `gh pr create --body-file`, including optional
+  `Linear: EVE-N` when the issue id is already known.
+- **CI coverage for PR body generation.** `tests/test_pr_body.py` is included in
+  `npm test` and in a dedicated GitHub Actions job.
+
+### Changed
+
+- **Ready-PR and lane prompt templates use the helper.** The ready-PR flow,
+  prompt template reference, lane prompt pattern guide, fleet ops handoff rule,
+  scripts reference, and Linear extension docs now point at the canonical body
+  builder instead of ad hoc body strings.
+
+### Verified
+
+- `python3 -m unittest tests.test_pr_body tests.test_vidux_inbox_sync`
+- `python3 -m py_compile scripts/vidux-pr-body.py scripts/vidux-inbox-sync.py`
+- `npm test`
+- `npm run docs:build`
+- `git diff --check`
+
+---
+
 ## [2.26.1] - 2026-05-01
 
 Patch on the same-day 2.26.0 left-panel rework. Walks the parent chain instead of stopping at one level, then bulk-connects 51 orphan plans across 6 repos so the new traversal has something to walk.
