@@ -38,6 +38,11 @@ projects/*
 # activated AFTER 2.0 ships. Brand-frozen items unfreeze here. Net-new feature
 # pump turns ON here. Tracked so all agents converge on the same dormant plan.
 !projects/resplit-2-0-1/
+# Exception: ui-test-sweep-2026-05-07 is the post-build-2429 P0 iOS UI sweep
+# (Leo verbatim 2026-05-07: "10000% clarity on ui testing"). Sibling of
+# resplit-2-0-1 punch-list. Tracked so sim-walker subagents converge on the
+# same walk plan.
+!projects/ui-test-sweep-2026-05-07/
 
 # Temp files from checkpoint script
 tmp*.md
