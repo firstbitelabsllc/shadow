@@ -6,6 +6,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.6] - 2026-05-07
+
+A standalone closeout helper codifies the three completion gates a lane must
+satisfy before the lane harness can be retired or paused: every PLAN.md task
+is terminal (`completed`/`cancelled`) modulo the closeout task itself,
+`scripts/vidux-linear-audit.py` overall is not `red`, and Linear sync
+dry-runs report zero pushed / zero inbox-appended / zero errors per fleet
+repo. Closes the LI-7 gap that previously required eyeballing PLAN.md +
+running two scripts by hand to know whether the linear-integration-hardening
+lane was ready to wind down.
+
+### Added
+
+- **`scripts/vidux-lane-closeout.py`** — runs three independent gates
+  (`tasks_terminal`, `audit_overall`, `sync_drift`) and emits a JSON
+  envelope of shape:
+
+  ```json
+  {
+    "closeout_at": "<ISO8601>",
+    "plan": "<path>",
+    "self_task": "LI-7" | null,
+    "status": "CLOSED | OPEN",
+    "gates": {
+      "tasks_terminal": {"ok": bool, "blockers": [...]},
+      "audit_overall":  {"ok": bool, "overall": "green|yellow|red|skipped"},
+      "sync_drift":     {"ok": bool, "drift": [...], "errors": [...]}
+    }
+  }
+  ```
+
+  Pure check functions (`assess_tasks_terminal`, `assess_audit`,
+  `assess_sync`) take injected fetchers so the gates are unit-testable
+  without touching Linear or `gh`. Live runners shell out to
+  `scripts/vidux-linear-audit.py` and `scripts/vidux-inbox-sync.py
+  --dry-run --direction=both --only-adapter linear --json` per repo. CLI
+  flags: `--plan` (required), `--self <task-id>` (excuse one task from the
+  terminal gate — typically the closeout task itself), `--repo` (scope
+  sync_drift; repeatable), `--no-network` (skip live calls; the audit and
+  sync gates return `ok=true` with `skipped` reason), `--audit-script`,
+  `--inbox-sync` (path overrides for tests / non-default checkouts). Exit
+  0 on `CLOSED`, 1 on `OPEN`, 2 if `--plan` is missing.
+
+- **`tests/test_lane_closeout.py`** — 32 unit tests covering plan
+  parsing (only `## Tasks` lines, indentation tolerance,
+  blocked/cancelled states), each gate's pass/block branches, the
+  `--self` task-id excuse, drift vs error vs auto_promote handling, the
+  closeout orchestrator, and CLI exit codes (missing plan = 2, closed =
+  0, pending non-self task = 1).
+
+- **`.github/workflows/ci.yml`** — new `lane-closeout-tests` job
+  mirroring the `linear-audit-tests` shape so the helper has CI
+  coverage on every PR.
+
+### Notes
+
+- The helper is read-only; it never edits PLAN.md, never closes Linear
+  issues, and never pauses LaunchAgents. Closeout *decisions* (mark
+  LI-7 completed, pause cron) remain operational and are gated on the
+  helper exiting 0.
+- The helper does not invoke Linear's GraphQL API directly; it shells
+  out to `vidux-linear-audit.py` which already encapsulates the
+  network surface.
+
+---
+
 ## [2.26.5] - 2026-05-07
 
 A standalone audit script reports Linear coverage health across the vidux
