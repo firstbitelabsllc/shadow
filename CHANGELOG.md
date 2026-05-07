@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.3] - 2026-05-07
+
+Automation lanes can replace `gh pr merge --auto` with a poll-loop helper
+that explicitly verifies Graphite, Seer, and CI are green on the *latest*
+commit SHA before merging. Closes the LI-9 gap surfaced after PR #81's
+auto-merge bypassed the latest-SHA review-gate (rebase-only that time, but
+unsafe as a default for any patch with content drift).
+
+### Added
+
+- **`scripts/vidux-gh-merge-when-ready.py`** — polls `gh pr view --json
+  headRefOid,statusCheckRollup,reviews` until every required check on the
+  PR's latest commit is green and every required bot (default
+  `graphite-app`) has weighed in on that exact SHA, then runs `gh pr merge
+  --squash --delete-branch`. Caps the wait (default 15 min) and exits with
+  `ACK-PENDING` so the next cron cycle can pick up.
+- **Silent-pass CheckRun fallback** for required bots that ack via a
+  CheckRun rather than a review entry. Graphite only submits a review when
+  it has something to flag; otherwise it acks via the `Graphite / AI
+  Reviews` CheckRun going `SUCCESS`. The helper now treats that signal as
+  a stand-in for a missing `graphite-app` review on the latest SHA, and
+  treats a `FAILURE` on that CheckRun as a hard blocker. Mapping lives in
+  `CHECKRUN_FALLBACK_FOR_BOT` and is extensible to other bots that follow
+  the same pattern.
+- **CI coverage** for the new helper via `tests/test_gh_merge_when_ready.py`
+  (16 tests covering pure `assess()` parsing including the silent-pass
+  fallback, CheckRun-failure-as-blocker, CheckRun-pending-keeps-bot-pending,
+  and review-overrides-CheckRun-failure branches, plus the poll loop with
+  injected fetch/sleep/clock).
+
 ## [2.26.2] - 2026-05-07
 
 Linear-ready PR handoff templates now have one canonical body builder, so
