@@ -34,6 +34,10 @@ projects/*
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
 # the same plan across machines.
 !projects/resplit-2-0-localized-screenshots/
+# Exception: resplit-2-0-1 is the post-launch punch-list — Tier-2 backlog
+# activated AFTER 2.0 ships. Brand-frozen items unfreeze here. Net-new feature
+# pump turns ON here. Tracked so all agents converge on the same dormant plan.
+!projects/resplit-2-0-1/
 
 # Temp files from checkpoint script
 tmp*.md
