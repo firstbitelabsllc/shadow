@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.5] - 2026-05-07
+
+A standalone audit script reports Linear coverage health across the vidux
+fleet — repo-config guardrails, no-project issues, label taxonomy coverage,
+PR↔Linear linkage, automation-draft staleness, malformed Linear descriptions,
+and per-repo sync drift — and emits one JSON envelope. Closes the LI-6 gap
+that previously required ad hoc Linear GraphQL + `gh pr list` queries across
+four repos to assess coverage health.
+
+### Added
+
+- **`scripts/vidux-linear-audit.py`** — runs 7 independent checks
+  (`repo_config`, `no_project_issues`, `label_taxonomy`, `pr_linear_links`,
+  `draft_age`, `description_format`, `sync_deltas`) and emits a JSON
+  envelope of shape:
+
+  ```json
+  {
+    "audit_at": "<ISO8601>",
+    "overall": "green | yellow | red",
+    "summary": {"green": N, "yellow": N, "red": N, "skipped": N},
+    "checks": [{"name": "...", "status": "...", "details": "...", "evidence": [...]}, ...]
+  }
+  ```
+
+  Each check is a pure function that takes injected fetchers (for
+  unit-testability) and returns a `CheckResult`. Worst-of semantic across
+  non-skipped results: red beats yellow beats green; skipped is neutral.
+  Exit 0 on green or yellow; exit 1 on red. CLI flags: `--check <name>`
+  (repeatable), `--repo <name>` (repeatable), `--no-network` (skip
+  Linear/gh calls — those checks return SKIPPED).
+
+  This script is for on-demand use by Leo or CI; it is not invoked by the
+  `linear-health-watch` cron lane (which honors Hard NEVER #6 — no Linear
+  MCP cold-path calls from that lane).
+
+- **`tests/test_linear_audit.py`** — 37 unit tests covering each check's
+  green/yellow/red branches via injected fetchers, the worst-of overall
+  semantic, JSON envelope shape, `--check` filter, `--repo` filter,
+  `--no-network` SKIPPED handling, and full-run dispatch. CI job
+  `linear-audit-tests` mirrors the LI-5 / LI-9 / LI-8 test-job shape.
+
+---
+
 ## [2.26.4] - 2026-05-07
 
 Launchd cron wrappers can guard against parallel-cycle races by acquiring a
