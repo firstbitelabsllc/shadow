@@ -112,7 +112,7 @@ Every automation that uses `execution_environment = "worktree"` MUST hand off du
 **The rule (add to block 7 -- Execution in the prompt):**
 ```
 WORKTREE RULE: Before stopping, push the branch and open/update the PR.
-- If work is complete and tests pass: push branch, open a ready PR, record resume point in the PR body.
+- If work is complete and tests pass: push branch, build the PR body with `scripts/vidux-pr-body.py`, open a ready PR, and record the resume point in the PR body.
 - If work is incomplete or a gate is still missing: push branch, open/update PR as draft, record the exact next step.
 - If work conflicts or is unsafe: record why in memory/PLAN.md and keep the branch name visible.
 - NEVER push directly to the default branch from an automation worktree.

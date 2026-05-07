@@ -91,6 +91,11 @@ comment with PR number, branch, status, review gate, and URL. The PR body is
 updated with `Linear: EVE-N` so humans and audits can see the issue link
 without reading `.external-state.json`.
 
+New automation PRs should use `scripts/vidux-pr-body.py --linear EVE-N` when
+the public Linear issue id is already known. If only the `[Source:
+linear:<uuid>]` marker is known, the PR body can omit `Linear:`; the PR sweep
+will add the public issue id after it resolves the matching plan task.
+
 ## Linear Labels
 
 Label taxonomy is also an extension-level concern. The Linear adapter supports

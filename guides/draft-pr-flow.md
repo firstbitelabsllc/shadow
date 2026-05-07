@@ -18,18 +18,20 @@ Every automation lane that ships code follows this after a green local build + t
 # 1. Push the worktree branch to origin.
 git push origin HEAD:claude/<lane-name>-<task-id>
 
-# 2. Open a ready-for-review PR by default.
+# 2. Build the canonical PR body. Add --linear EVE-123 when known.
+python3 scripts/vidux-pr-body.py \
+  --lane "<lane-name>" \
+  --task "<task-id>" \
+  --resume "<what the next cycle should do if this PR stalls>" \
+  --change "<1-3 bullet summary>" \
+  > /tmp/vidux-pr-body.md
+
+# 3. Open a ready-for-review PR by default.
 gh pr create \
   --base main \
   --head "claude/<lane-name>-<task-id>" \
   --title "[<lane-name>] <task summary>" \
-  --body "## Automation
-Lane: <lane-name>
-Plan task: <task-id>
-Resume point: <what the next cycle should do if this PR stalls>
-
-## Changes
-<1-3 bullet summary>"
+  --body-file /tmp/vidux-pr-body.md
 ```
 
 Use `gh pr create --draft` only when the PR is true WIP or a required gate is missing. As soon as the gate passes, run:
@@ -58,12 +60,13 @@ Examples:
 
 ## PR Body Template
 
-The body MUST carry three fields so any agent or human can resume:
+The body MUST carry these fields so any agent or human can resume:
 
 | Field | Purpose |
 |---|---|
 | **Lane** | Which automation created this PR |
 | **Plan task** | Which `PLAN.md` task this addresses |
+| **Linear** | Optional public Linear issue id (`EVE-123`) when the task source is already known |
 | **Resume point** | What the next cycle should do if this PR stalls |
 
 ## Recovery Via `gh pr list`
@@ -110,10 +113,11 @@ Replace any existing push policy with:
 **PUSH POLICY (ready-PR-first per vidux):**
 After green build + test in the worktree:
 1. Push branch: `git push origin HEAD:claude/<lane>-<task-id>`
-2. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body "..."`
-3. Draft only for true WIP or a missing gate; run `gh pr ready <N>` as soon as the gate passes.
-4. NEVER push directly to origin/main.
-5. Fallback: if `gh pr create` fails, push branch only, log failure. Never push main.
+2. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --resume "<resume point>" --change "<summary>" [--linear EVE-123] > /tmp/vidux-pr-body.md`
+3. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body-file /tmp/vidux-pr-body.md`
+4. Draft only for true WIP or a missing gate; run `gh pr ready <N>` as soon as the gate passes.
+5. NEVER push directly to origin/main.
+6. Fallback: if `gh pr create` fails, push branch only, log failure. Never push main.
 ```
 
 Replace any "stop after branch push" instruction with "push branch + create ready PR." Replace any blanket "draft PR only" instruction with "ready PR by default; draft only for WIP/missing gate."
