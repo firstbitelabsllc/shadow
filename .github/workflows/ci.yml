@@ -96,6 +96,22 @@ jobs:
         run: python -m unittest tests.test_gh_merge_when_ready
         timeout-minutes: 3
 
+  cycle-lock-tests:
+    name: cycle-lock tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run cycle-lock tests
+        run: python -m unittest tests.test_acquire_cycle_lock
+        timeout-minutes: 3
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest

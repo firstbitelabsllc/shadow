@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.4] - 2026-05-07
+
+Launchd cron wrappers can guard against parallel-cycle races by acquiring a
+single-instance lock before invoking Claude or any mutator. Closes the LI-8
+collision-guard gap that surfaced when two `linear-health-watch` cycles
+independently rebased LI-5 and opened PRs #81 and #94 within ~5 seconds of
+each other on 2026-05-07.
+
+### Added
+
+- **`scripts/launchd-helpers/acquire-cycle-lock.sh`** — atomic file-claim
+  helper with two modes (`--acquire`, `--release`). Lock format is
+  `PID|ISO|EPOCH`; a lock is "fresh" while the recorded PID is alive AND
+  age is below `--max-age-seconds` (default 1500 = 25 min). Stale locks
+  (dead PID OR age >= max) are swept on the next acquire. Acquire returns
+  exit 0 (claimed), 1 (held by fresh process — `LOCKED` token on stderr),
+  or 2 (bad args / IO error). Release is idempotent.
+
+  Caller pattern:
+
+  ```bash
+  LOCK_FILE="$AUTOMATION_DIR/locks/cycle.lock"
+  if ! "$VIDUX/scripts/launchd-helpers/acquire-cycle-lock.sh" \
+       --acquire --lock-file "$LOCK_FILE"; then
+    log "[LOCKED] another cycle in flight; exiting"
+    exit 0
+  fi
+  trap '"$VIDUX/scripts/launchd-helpers/acquire-cycle-lock.sh" \
+       --release --lock-file "$LOCK_FILE" || true' EXIT
+  ```
+
+- **`tests/test_acquire_cycle_lock.py`** — 14 integration tests covering
+  fresh-acquire, held-by-live-recent (LOCKED), held-by-live-but-stale
+  (sweep), held-by-dead-pid (sweep), corrupt-lock (sweep), max-age
+  override, release-existing, release-absent (idempotent), full
+  acquire→release→acquire round-trip, and four argument-validation cases.
+  CI job `cycle-lock-tests` mirrors the LI-5 / LI-9 test-job shape.
+
+### Changed
+
+- ShellCheck CI workflow already scans `scripts/`; the new
+  `scripts/launchd-helpers/` directory is automatically covered.
+
+---
+
 ## [2.26.3] - 2026-05-07
 
 Automation lanes can replace `gh pr merge --auto` with a poll-loop helper
