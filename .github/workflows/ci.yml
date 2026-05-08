@@ -144,6 +144,22 @@ jobs:
         run: python -m unittest tests.test_lane_closeout
         timeout-minutes: 3
 
+  asc-bridge-tests:
+    name: asc-bridge tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run asc-bridge tests
+        run: python -m unittest tests.test_asc_bridge
+        timeout-minutes: 3
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
