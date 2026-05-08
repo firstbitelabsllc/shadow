@@ -6,6 +6,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.7] - 2026-05-08
+
+A standalone bridge script lifts resplit-ios `[asc-XXX]` PR titles into
+Linear EVE issues. Resplit ASC bug fixes routinely shipped without a
+matching Linear card, so the `/resplit-watch` user-feedback loop went
+silent for ~10 days even while ASC IDs landed on `main` daily. The
+`/linear-health-watch` Section 4 sweep was added to *detect* this gap;
+this release closes it.
+
+### Added
+
+- **`scripts/vidux-asc-bridge.py`** — standalone Python helper that:
+  1. Enumerates merged PRs on a target repo via
+     `gh pr list --state merged --search "merged:>..."`.
+  2. For each PR matching the ASC title regex `\[asc-([A-Za-z0-9]+)\]`,
+     queries Linear (`searchableContent` filter) to see whether an issue
+     already mentions the ASC ID anywhere — title, description, or any
+     comment body.
+  3. If no match, creates a Linear issue with title=PR title, description
+     containing ASC ID + PR URL + merged-at, project=`resplit-ios`,
+     state=Done (resolved via Linear `state.type == "completed"`),
+     label=`pr-merged`.
+
+  Idempotent on re-run: a second invocation finds the issue created on
+  the first pass and skips it. CLI: `--repo`, `--since-hours`,
+  `--dry-run`, `--token-file`, `--project-name`, `--label-name`,
+  `--no-network`. Output is a JSON envelope with `bridge_at`, counts,
+  and per-PR `created` / `skipped` / `would_create` / `errors` lists.
+  Pure stdlib (no third-party deps).
+
+- **`tests/test_asc_bridge.py`** — 25 unit tests covering the regex
+  parser (5), `merged_at_iso` (2), `render_description` (2), the
+  orchestrator (8 — empty/no-asc-prs, missing-EVE-creates,
+  existing-EVE-skips, dry-run, idempotency-on-re-run, dedupe-within-run,
+  create-failure-as-error, envelope-metadata), CLI (3 — `--no-network`
+  envelope, missing-token-file rc=2, default args), and live-fetcher
+  seams (5 — gh subprocess success/failure/JSON branches, Linear
+  finder's match/no-match branches, full create-flow project/state/label
+  resolution).
+
+- **CI** — `asc-bridge-tests` job in `.github/workflows/ci.yml`,
+  mirroring `lane-closeout-tests` / `linear-audit-tests` shape.
+
+### Why
+
+The ten-day Linear silence between resplit-ios merges and Linear
+visibility was the exact failure mode that motivated codifying
+`/linear-health-watch` Section 4. Section 4 is detection; the bridge is
+remediation. Together they make ASC silence a 30-minute window, not a
+ten-day one.
+
+### Notes
+
+- Hard NEVER #6 of the linear-health-watch lane (no Linear MCP cold-path
+  calls *from the cron lane*) is preserved: this script is invoked by
+  Leo or by a separate bridge cron, never inline by
+  `linear-health-watch`. The lane records observations and can spawn
+  this script via PLAN.md tasks; it does not call Linear directly.
+
+---
+
 ## [2.26.6] - 2026-05-07
 
 A standalone closeout helper codifies the three completion gates a lane must
