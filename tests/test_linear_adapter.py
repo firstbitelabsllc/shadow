@@ -457,6 +457,264 @@ class BodyRendering(unittest.TestCase):
         self.assertFalse(changed)
 
 
+class EnrichmentFields(unittest.TestCase):
+    """MT-5 regression for the 2026-05-08 "vague bullshit" Linear push.
+
+    push_task() must populate four enrichment fields beyond title +
+    description: priority, estimate, auto-derived labels (priority / surface),
+    and a vidux-trace footer in the description body. sync_task_metadata()
+    must reconcile priority + estimate on already-mapped issues without
+    requiring a remint.
+    """
+
+    @staticmethod
+    def _create_payload() -> dict[str, Any]:
+        return {"issueCreate": {"success": True, "issue": {"id": "lin-issue-1"}}}
+
+    @staticmethod
+    def _label_payload(label_id: str, name: str) -> dict[str, Any]:
+        return {"issueLabels": {"nodes": [{"id": label_id, "name": name}]}}
+
+    def test_priority_extracted_from_priority_tag(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder([
+            self._label_payload("label-priority-p0", "priority:P0"),
+            self._label_payload("label-surface-receipt-detail",
+                                "surface:receipt-detail"),
+            self._create_payload(),
+        ])
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="Fix receipt-detail crash",
+            status=VidxStatus.PENDING,
+            tags={"Priority": "P0", "Surface": "receipt-detail"},
+            eta_hours=0.5,
+            plan_path="/tmp/PLAN.md",
+            line_number=12,
+        )
+
+        adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertEqual(issue_input["priority"], 1, "P0 → Linear Urgent=1")
+
+    def test_priority_extracted_from_title_token(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder([
+            self._label_payload("label-priority-p1", "priority:P1"),
+            self._create_payload(),
+        ])
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="P1 — Wire Live-Split add-people gate",
+            status=VidxStatus.PENDING,
+        )
+
+        adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertEqual(issue_input["priority"], 2, "P1 → Linear High=2")
+
+    def test_priority_omitted_when_unknown(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder(self._create_payload())
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="Plain task with no priority hint",
+            status=VidxStatus.PENDING,
+        )
+
+        adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertNotIn("priority", issue_input,
+                         "vague task → no priority guess")
+
+    def test_estimate_mapped_from_eta_hours_xs(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder(self._create_payload())
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="Quick lint fix",
+            status=VidxStatus.PENDING,
+            eta_hours=0.5,
+        )
+
+        adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertEqual(issue_input["estimate"], 1, "0.5h → XS=1")
+
+    def test_estimate_mapped_from_eta_hours_xl(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder(self._create_payload())
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="Multi-day platform migration",
+            status=VidxStatus.PENDING,
+            eta_hours=16,
+        )
+
+        adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertEqual(issue_input["estimate"], 8, "16h → XL=8")
+
+    def test_estimate_omitted_when_eta_missing(self):
+        adapter = _make_adapter(allow_team_wide=True)
+        recorder = GraphQLRecorder(self._create_payload())
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="Vague task without ETA",
+            status=VidxStatus.PENDING,
+        )
+
+        adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertNotIn("estimate", issue_input,
+                         "missing ETA → no estimate guess")
+
+    def test_auto_derived_priority_and_surface_labels(self):
+        adapter = _make_adapter(
+            allow_team_wide=True,
+            label_names=["fleet"],
+        )
+        recorder = GraphQLRecorder([
+            self._label_payload("label-fleet", "fleet"),
+            self._label_payload("label-priority-p0", "priority:P0"),
+            self._label_payload("label-surface-receipt-detail",
+                                "surface:receipt-detail"),
+            self._create_payload(),
+        ])
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="Fix receipt-detail crash",
+            status=VidxStatus.PENDING,
+            tags={"Priority": "P0", "Surface": "Receipt Detail"},
+        )
+
+        adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+        self.assertIn("label-fleet", issue_input["labelIds"])
+        self.assertIn("label-priority-p0", issue_input["labelIds"])
+        self.assertIn("label-surface-receipt-detail", issue_input["labelIds"])
+
+    def test_render_body_includes_vidux_trace_footer(self):
+        task = PlanTask(
+            id="T1",
+            title="Fix the thing",
+            status=VidxStatus.PENDING,
+            plan_path="/Users/leokwan/Development/resplit-ios/.cursor/plans/foo.plan.md",
+            line_number=42,
+        )
+
+        body = LinearAdapter._render_body(task)
+
+        self.assertIn("vidux-trace", body)
+        self.assertIn(
+            "/Users/leokwan/Development/resplit-ios/.cursor/plans/foo.plan.md:42",
+            body,
+        )
+        self.assertIn("task `T1`", body)
+
+    def test_render_body_omits_trace_footer_when_no_plan_path(self):
+        task = PlanTask(
+            id="T1",
+            title="Synthetic task",
+            status=VidxStatus.PENDING,
+        )
+
+        body = LinearAdapter._render_body(task)
+
+        self.assertNotIn("vidux-trace", body)
+
+    def test_full_enrichment_round_trip_payload(self):
+        """End-to-end: a fully-tagged PlanTask produces a Linear card with
+        every enrichment field populated. This is the canonical "no more
+        vague bullshit" assertion — if it fails, Leo's complaint resurfaces.
+        """
+        adapter = _make_adapter(
+            allow_team_wide=True,
+            label_names=["vidux", "vidux:resplit-ios"],
+        )
+        recorder = GraphQLRecorder([
+            self._label_payload("label-vidux", "vidux"),
+            self._label_payload("label-vidux-ios", "vidux:resplit-ios"),
+            self._label_payload("label-priority-p0", "priority:P0"),
+            self._label_payload("label-surface-pinpad", "surface:pinpad"),
+            self._create_payload(),
+        ])
+        adapter._graphql = recorder  # type: ignore[assignment]
+        task = PlanTask(
+            id="T1",
+            title="P0 — Pinpad popover cut off on right edge",
+            status=VidxStatus.PENDING,
+            details=(
+                "Repro: open receipt detail → tap amount → popover renders "
+                "outside frame. Fix: clamp x to safeArea.maxX - popover.width."
+            ),
+            evidence=(
+                "ResplitCore/UI/Components/EditAmountPopoverField.swift:142;"
+                "docs/autobot-evidence/2026-04-19-pinpad-popover/before.jpg"
+            ),
+            investigation=(
+                ".cursor/plans/investigations/pinpad-popover-cut-off-2026-04-19.md"
+            ),
+            eta_hours=2,
+            source="asc:ACHQtix2QbIYfdzFwO6tifU",
+            tags={
+                "Priority": "P0",
+                "Surface": "pinpad",
+                "Evidence": "...",
+                "Investigation": "...",
+                "ETA": "2h",
+                "Source": "...",
+            },
+            plan_path="/Users/leokwan/Development/resplit-ios/.cursor/plans/app-store-feedback.plan.md",
+            line_number=87,
+        )
+
+        external_id = adapter.push_task(task)
+
+        issue_input = recorder.calls[-1][1]["input"]
+
+        # Title — full row, not slug.
+        self.assertEqual(
+            issue_input["title"],
+            "P0 — Pinpad popover cut off on right edge",
+        )
+        # Description — every section present.
+        desc = issue_input["description"]
+        for section in ("## Purpose", "## Details", "## Evidence",
+                        "## Investigation", "## Plan", "## ETA",
+                        "vidux-trace"):
+            self.assertIn(section, desc, f"missing {section} in description")
+        # Priority + estimate as Linear Ints.
+        self.assertEqual(issue_input["priority"], 1)
+        self.assertEqual(issue_input["estimate"], 3,
+                         "2h ETA → M=3 estimate bucket")
+        # Labels — base + auto-derived.
+        self.assertEqual(
+            issue_input["labelIds"],
+            [
+                "label-vidux",
+                "label-vidux-ios",
+                "label-priority-p0",
+                "label-surface-pinpad",
+            ],
+        )
+        self.assertEqual(external_id, "lin-issue-1")
+
+
 class PullRequestLinking(unittest.TestCase):
     def _pr(self) -> dict[str, Any]:
         return {

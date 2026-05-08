@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -87,7 +88,35 @@ class LinearAdapter(AdapterBase):
         "pr_state": "#F2C94C",
         "review_state": "#9B51E0",
         "blocked": "#EB5757",
+        "priority": "#EB5757",
+        "surface": "#26A69A",
     }
+    # Linear's priority field is a small Int enum: 0=No priority, 1=Urgent,
+    # 2=High, 3=Medium, 4=Low. Vidux PLAN.md rows commonly tag priority as
+    # `[Priority: P0]` or embed a `P0`/`P1` token in the title. Mapping per
+    # `/vidux-leo` § Linear binding (read direction): 1=P0, 2=P1, 3=P2, 4=P3+.
+    _PRIORITY_BY_TOKEN: ClassVar[dict[str, int]] = {
+        "P0": 1,
+        "URGENT": 1,
+        "P1": 2,
+        "HIGH": 2,
+        "P2": 3,
+        "MEDIUM": 3,
+        "P3": 4,
+        "P4": 4,
+        "LOW": 4,
+        "POLISH": 4,
+    }
+    # Linear's `estimate` is also a small Int, conventionally a Fibonacci
+    # t-shirt scale (1=XS, 2=S, 3=M, 5=L, 8=XL). Map ETA hours to estimate
+    # so a `[ETA: 0.5h]` row lands as XS instead of nothing.
+    _ESTIMATE_BUCKETS: ClassVar[tuple[tuple[float, int], ...]] = (
+        (0.5, 1),   # ≤ 30 min  → XS
+        (1.0, 2),   # ≤ 1h      → S
+        (4.0, 3),   # ≤ 4h      → M
+        (8.0, 5),   # ≤ 8h      → L
+    )
+    _ESTIMATE_XL: ClassVar[int] = 8  # > 8h → XL
     PAGE_SIZE = 250  # Linear's max per `first:`
     HTTP_TIMEOUT = 30.0
 
@@ -386,7 +415,25 @@ class LinearAdapter(AdapterBase):
         if gaps:
             sections.append("## Intake Gaps\n" + "\n".join(f"- {gap}" for gap in gaps))
 
+        trace = cls._render_trace_footer(task)
+        if trace:
+            sections.append(trace)
+
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _render_trace_footer(task: PlanTask) -> str:
+        """Append a stable `vidux-trace:` line so every Linear card surfaces
+        its source PLAN.md location verbatim. The footer doubles as a grep
+        target for cross-fleet audit ("which Linear cards came from
+        plan X?").
+        """
+        if not task.plan_path:
+            return ""
+        location = task.plan_path
+        if task.line_number is not None:
+            location = f"{location}:{task.line_number}"
+        return f"---\n_vidux-trace: `{location}` · task `{task.id}`_"
 
     @staticmethod
     def _format_plan_lines(task: PlanTask) -> list[str]:
@@ -427,6 +474,112 @@ class LinearAdapter(AdapterBase):
         if task.eta_hours is None:
             gaps.append("Missing `[ETA: Xh]` estimate in PLAN.md.")
         return gaps
+
+    # -- Priority + Estimate + Surface derivation ----------------------------
+    #
+    # These four enrichment fields come from PlanTask in three places:
+    #   1. Explicit tags ([Priority: P0], [Surface: receipt-detail])
+    #   2. Token in the title or details (e.g. `T1 P0:` or `[P1]`)
+    #   3. ETA hours mapped to Fibonacci buckets
+    # When the row gives no signal, we omit the field — never guess.
+
+    _PRIORITY_TOKEN_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r"\b(P[0-4]|Urgent|High|Medium|Low|Polish)\b", re.IGNORECASE,
+    )
+
+    @classmethod
+    def _priority_for(cls, task: PlanTask) -> int | None:
+        """Return Linear priority Int for the task, or None when unknown.
+
+        Linear's priority enum: 0=No priority, 1=Urgent, 2=High, 3=Medium,
+        4=Low. Vidux maps `P0=1, P1=2, P2=3, P3+=4` (per /vidux-leo §
+        Linear binding). We accept either an explicit `[Priority: …]` tag
+        or a P0/P1/P2/P3/P4 token in the title or tags dict.
+        """
+        # 1. Explicit tag dict — case-insensitive lookup.
+        for key, raw in task.tags.items():
+            if key.strip().lower() != "priority":
+                continue
+            mapped = cls._priority_from_text(raw)
+            if mapped is not None:
+                return mapped
+        # 2. Title scan — common shorthand `T1 P0: …` or `[P0] …`.
+        mapped = cls._priority_from_text(task.title or "")
+        if mapped is not None:
+            return mapped
+        # 3. Details scan — same shorthand allowed in the prose.
+        if task.details:
+            mapped = cls._priority_from_text(task.details)
+            if mapped is not None:
+                return mapped
+        return None
+
+    @classmethod
+    def _priority_from_text(cls, text: str) -> int | None:
+        if not text:
+            return None
+        # Word-boundary match keeps "P0/P1/P2/P3/P4" + "Urgent/High/Medium/Low"
+        # from leaking into unrelated tokens like "polished" or "P05".
+        for match in cls._PRIORITY_TOKEN_RE.finditer(text):
+            token = match.group(1).upper()
+            if token in cls._PRIORITY_BY_TOKEN:
+                return cls._PRIORITY_BY_TOKEN[token]
+        return None
+
+    @classmethod
+    def _estimate_for(cls, task: PlanTask) -> int | None:
+        """Map task.eta_hours to a Linear estimate Int (Fibonacci t-shirt).
+
+        Buckets: ≤0.5h=XS=1, ≤1h=S=2, ≤4h=M=3, ≤8h=L=5, >8h=XL=8.
+
+        Returns None when ETA is missing — callers should NOT default to a
+        bucket; vague ETA is information.
+        """
+        if task.eta_hours is None:
+            return None
+        try:
+            hours = float(task.eta_hours)
+        except (TypeError, ValueError):
+            return None
+        if hours <= 0:
+            return None
+        for upper, bucket in cls._ESTIMATE_BUCKETS:
+            if hours <= upper:
+                return bucket
+        return cls._ESTIMATE_XL
+
+    @classmethod
+    def _surface_for(cls, task: PlanTask) -> str | None:
+        """Return a `surface:<area>` slug if the task tags one explicitly."""
+        for key, raw in task.tags.items():
+            if key.strip().lower() != "surface":
+                continue
+            slug = (raw or "").strip().lower().replace(" ", "-")
+            slug = "".join(ch for ch in slug if ch.isalnum() or ch in "-_")
+            if slug:
+                return slug
+        return None
+
+    @classmethod
+    def _enrichment_label_pairs(cls, task: PlanTask) -> list[tuple[str, str]]:
+        """Auto-derived label pairs (name, kind) from PlanTask metadata.
+
+        Currently surfaces:
+          - `priority:P0` … `priority:P4` when priority is known
+          - `surface:<slug>` when the row tags a surface
+        """
+        pairs: list[tuple[str, str]] = []
+        prio = cls._priority_for(task)
+        if prio is not None:
+            # Reverse the enum back to the canonical P0..P4 token.
+            inverse = {1: "P0", 2: "P1", 3: "P2", 4: "P3"}
+            label_token = inverse.get(prio)
+            if label_token:
+                pairs.append((f"priority:{label_token}", "priority"))
+        surface = cls._surface_for(task)
+        if surface:
+            pairs.append((f"surface:{surface}", "surface"))
+        return pairs
 
     @staticmethod
     def _split_evidence(raw: str) -> list[str]:
@@ -834,10 +987,23 @@ class LinearAdapter(AdapterBase):
     def push_task(self, task: PlanTask) -> str:
         """Create a Linear issue from a PlanTask. Returns Linear issue UUID.
 
-        Description is clean human-readable markdown (Purpose / Evidence /
-        Investigation / Tags / Plan / ETA sections, with empty sections elided).
-        VidxId / VidxPlan + the typed metadata round-trip via the per-plan
-        `.external-state.json` sidecar — see `adapters/README.md`.
+        Populates four enrichment fields beyond title + description:
+
+          - `priority` (Linear Int 0–4): derived from `[Priority: Px]` tag,
+            an explicit `P0..P4` token in the title/details, or
+            `Urgent/High/Medium/Low/Polish` keywords.
+          - `estimate` (Linear Int t-shirt): mapped from `task.eta_hours`
+            via the Fibonacci buckets in `_ESTIMATE_BUCKETS`.
+          - Auto-derived labels: `priority:Px` (when known) and
+            `surface:<slug>` (when the row has `[Surface: …]`). These join
+            the configured `label_names` and `managed_labels.{repo,source}`.
+          - Description includes a `vidux-trace:` footer pointing back to
+            `<plan_path>:<line_number>` so every Linear card surfaces the
+            exact PLAN.md location it came from.
+
+        VidxId / VidxPlan round-trip via the per-plan `.external-state.json`
+        sidecar (see `adapters/README.md`). The enrichment fields above
+        live ONLY on the Linear card — they are not authoritative locally.
         """
         self._ensure_project_identity()
 
@@ -851,9 +1017,21 @@ class LinearAdapter(AdapterBase):
         }
         if self.project_id:
             input_obj["projectId"] = self.project_id
+
+        priority = self._priority_for(task)
+        if priority is not None:
+            input_obj["priority"] = priority
+
+        estimate = self._estimate_for(task)
+        if estimate is not None:
+            input_obj["estimate"] = estimate
+
         if self.default_label_ids:
             input_obj["labelIds"] = list(self.default_label_ids)
-        label_ids = self._label_ids_for_pairs(self._configured_base_label_names())
+        base_pairs = self._configured_base_label_names()
+        enrichment_pairs = self._enrichment_label_pairs(task)
+        all_pairs = self._dedupe_label_pairs(base_pairs + enrichment_pairs)
+        label_ids = self._label_ids_for_pairs(all_pairs)
         if label_ids:
             input_obj.setdefault("labelIds", []).extend(label_ids)
         if task.blocked:
@@ -881,7 +1059,15 @@ class LinearAdapter(AdapterBase):
         `push_task()` fixes newly-created issues. This extension method fixes
         already-mapped issues on subsequent sync cycles, so old title-only
         Linear cards get the richer Details / Tags / Plan / Intake Gaps body
-        without reminting issues.
+        AND the priority + estimate enrichment without reminting issues.
+
+        Title + description: dirty-checked against the remote ExternalItem.
+
+        Priority + estimate: best-effort write. We don't fetch the issue to
+        compare (would burn an extra GraphQL call per sync cycle); Linear's
+        IssueUpdate is idempotent, so re-writing the same Int is a no-op
+        on their side. We only include the field in the input when the
+        local PLAN.md row provides a derivable value.
         """
         self._ensure_project_identity()
         desired_description = self._render_body(task)
@@ -895,7 +1081,20 @@ class LinearAdapter(AdapterBase):
         if remote is None or remote_description != desired_description:
             update_input["description"] = desired_description
 
-        if not update_input:
+        priority = self._priority_for(task)
+        if priority is not None:
+            update_input["priority"] = priority
+        estimate = self._estimate_for(task)
+        if estimate is not None:
+            update_input["estimate"] = estimate
+
+        # Skip the GraphQL round-trip when the only fields we'd send are
+        # priority + estimate AND the description+title are clean. We don't
+        # know the remote priority/estimate (would require another query),
+        # so this branch chooses idempotency over perfect reconciliation —
+        # we still touch the issue when title or description drift, which
+        # is the common case.
+        if "title" not in update_input and "description" not in update_input:
             return False
 
         data = self._graphql(
