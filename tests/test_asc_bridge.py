@@ -272,6 +272,34 @@ class TestCli(unittest.TestCase):
             rc, _ = self._run_main(["--token-file", "/nope"])
         self.assertEqual(rc, 2)
 
+    def test_dry_run_with_missing_token_warns_and_treats_all_as_would_create(self):
+        prs = [_pr(623, "fix [asc-K72ZM] crash"), _pr(622, "fix [asc-AB1] split")]
+        with patch.object(bridge, "_load_token") as mock_load, \
+             patch.object(bridge, "_live_fetch_merged_prs", return_value=prs):
+            mock_load.side_effect = RuntimeError("token file not found: /nope")
+            rc, out = self._run_main(["--dry-run", "--token-file", "/nope"])
+        self.assertEqual(rc, 0)
+        envelope = json.loads(out)
+        self.assertIn("warnings", envelope)
+        self.assertEqual(len(envelope["warnings"]), 1)
+        self.assertIn("/nope", envelope["warnings"][0])
+        self.assertIn("no-Linear-lookup", envelope["warnings"][0])
+        self.assertEqual(len(envelope["would_create"]), 2)
+        self.assertEqual(envelope["created"], [])
+
+    def test_dry_run_with_valid_token_emits_empty_warnings(self):
+        prs = [_pr(623, "fix [asc-K72ZM] crash")]
+        with patch.object(bridge, "_load_token", return_value="t"), \
+             patch.object(bridge, "_live_fetch_merged_prs", return_value=prs), \
+             patch.object(bridge, "make_live_find_existing_eve",
+                          return_value=lambda _asc: {"id": "I1", "identifier": "EVE-9", "title": "x"}):
+            rc, out = self._run_main(["--dry-run", "--token-file", "/whatever"])
+        self.assertEqual(rc, 0)
+        envelope = json.loads(out)
+        self.assertEqual(envelope["warnings"], [])
+        self.assertEqual(envelope["would_create"], [])
+        self.assertEqual(len(envelope["skipped"]), 1)
+
     def test_default_repo_and_project(self):
         ns = bridge._parse_args([])
         self.assertEqual(ns.repo, bridge.DEFAULT_REPO)
@@ -279,6 +307,17 @@ class TestCli(unittest.TestCase):
         self.assertEqual(ns.since_hours, bridge.DEFAULT_SINCE_HOURS)
         self.assertFalse(ns.dry_run)
         self.assertFalse(ns.no_network)
+
+    def test_envelope_shape_includes_warnings_field(self):
+        result = bridge.BridgeResult(
+            bridge_at="2026-05-09T00:00:00Z",
+            repo="x/y",
+            since_hours=24,
+            dry_run=True,
+        )
+        env = result.as_dict()
+        self.assertIn("warnings", env)
+        self.assertEqual(env["warnings"], [])
 
 
 # ---------------------------------------------------------------------------

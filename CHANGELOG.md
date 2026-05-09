@@ -6,6 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.8] - 2026-05-09
+
+A small but real safety fix to `vidux-asc-bridge.py`. In dry-run mode, if
+the `--token-file` path is missing the script silently fell back to
+`find_existing_eve = lambda _asc: None`, which made every ASC PR appear
+as `would_create` even though matching Linear issues existed. A
+linear-health-watch cycle hit this on 2026-05-09 (`--token-file
+~/.config/linear/leokwan.token` did not exist; bridge reported 3
+would-create rows that were actually all linked to EVE-313/315/316). Same
+class of false-positive as LI-12, different mechanism.
+
+### Changed
+
+- **`scripts/vidux-asc-bridge.py`** — JSON envelope now always carries a
+  `warnings: []` field. When a dry-run is invoked with a `--token-file`
+  that does not exist, the script populates `warnings` with a single
+  message naming the missing path and noting that `would_create` reflects
+  no-Linear-lookup state. Live mode (no `--dry-run`) still exits 2 on
+  missing token, unchanged. Consumers can gate on
+  `len(envelope["warnings"]) == 0` before treating `would_create` rows
+  as actionable.
+
+### Tests
+
+- `tests/test_asc_bridge.py` adds 3 cases:
+  (a) dry-run + missing token → warning emitted, all ASC PRs appear as
+  would_create;
+  (b) dry-run + valid token → warnings empty, lookup honored;
+  (c) `BridgeResult.as_dict()` includes `warnings` field by default.
+- 28 helper tests total now (was 25).
+
+---
+
 ## [2.26.7] - 2026-05-08
 
 A standalone bridge script lifts resplit-ios `[asc-XXX]` PR titles into
