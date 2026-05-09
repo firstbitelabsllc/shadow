@@ -390,6 +390,17 @@ Workspace-specific bindings (project UUIDs, state UUIDs, token paths) are LOCAL 
 
 **Why this lives in CORE (not in a per-user overlay).** Linear is one of the supported PM tools alongside `gh_projects`, `asana`, `jira`, `trello`. The closeout pattern (fix PR → status flip → external system update) is the SAME shape for all of them. Documenting it in core lets other vidux users adopt Linear (or any adapter) without re-inventing the round-trip.
 
+**Cross-workspace caveat.** A Linear adapter token (`token_file:` in the adapter config) is scoped to ONE Linear workspace. PUSH, PULL, and CLOSEOUT all run against THAT workspace's API only. If a different system — Jam.dev's Linear bridge, a separately-installed GitHub Linear sync, manual hand-create from a teammate — routes Linear issues into a DIFFERENT workspace, the configured adapter cannot see them: PULL never surfaces them as INBOX or auto-promote candidates, and PUSH never duplicates (those issues already exist somewhere, just not in the watched workspace).
+
+When triaging a finding that mentions a Linear identifier (e.g. `EVE-317`), do not assume the prefix maps to the workspace your adapter token watches. Verify the workspace component of the Linear URL (`linear.app/<workspace-slug>/issue/<id>`) before deciding whether the cron should have caught it. Misreading the workspace as "ours" leads to wasted retries and false-negative reports about adapter health.
+
+Two mitigations when work routes across workspaces:
+
+1. **Consolidate sources** so every issue-creating system writes into the configured workspace.
+2. **Configure multiple `inbox_sources` entries** with the `linear` adapter, each pointing at a different `token_file:` for a different workspace. Each entry maintains its own per-plan `.external-state.json` map; idempotency is per-adapter-instance, not per-adapter-class.
+
+When Linear is unreachable for any reason — wrong workspace, expired OAuth, MCP disconnected, token rotated — the originating system's metadata is still authoritative. Jam recordings keep their console / network / repro detail; GitHub PR comments keep their thread; Sentry events keep their stack. Don't gate a fix lane on Linear being queryable; treat the originating system as the source of truth and let Linear catch up via CLOSEOUT or the next sync cycle.
+
 ### Inbox
 
 `INBOX.md` is where humans or external tools drop findings for agents to act on:
