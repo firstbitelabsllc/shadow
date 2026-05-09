@@ -101,6 +101,7 @@ class BridgeResult:
     created: list[dict] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -114,6 +115,7 @@ class BridgeResult:
             "created": list(self.created),
             "skipped": list(self.skipped),
             "errors": list(self.errors),
+            "warnings": list(self.warnings),
         }
 
 
@@ -521,6 +523,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     token_path = Path(os.path.expanduser(args.token_file))
+    token_fallback_warning: str | None = None
     if not args.dry_run:
         try:
             token = _load_token(token_path)
@@ -530,11 +533,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         # Dry-run still needs Linear search to know what would be skipped
         # vs created. If token missing, fall back to empty find_existing_eve
-        # so every ASC PR appears as `would_create`.
+        # so every ASC PR appears as `would_create` — but record a warning
+        # so consumers (lane harness, future cycles) can distinguish a real
+        # gap from a token-misconfiguration false-positive. LI-12 hit this
+        # class of false-positive via a different path; LI-14 closes the
+        # silent-fallback variant.
         try:
             token = _load_token(token_path)
         except RuntimeError:
             token = ""
+            token_fallback_warning = (
+                f"token-file not found at {token_path}; would_create reflects "
+                "no-Linear-lookup state — re-run with a valid --token-file for "
+                "ground truth before treating these rows as actionable"
+            )
 
     if token:
         find = make_live_find_existing_eve(token=token, project_name=args.project_name)
@@ -561,6 +573,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         create_eve=create,
         now=now,
     )
+    if token_fallback_warning is not None:
+        result.warnings.append(token_fallback_warning)
     print(json.dumps(result.as_dict(), indent=2))
     return 1 if result.errors else 0
 
