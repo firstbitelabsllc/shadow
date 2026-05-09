@@ -43,11 +43,13 @@ projects/*
 # resplit-2-0-1 punch-list. Tracked so sim-walker subagents converge on the
 # same walk plan.
 !projects/ui-test-sweep-2026-05-07/
-# Exception: sentry-rum-correlation is the multi-PR expedition adding
-# Datadog-RUM-style passive observability to Resplit iOS (3 IDs + dynamic
-# surface tag + cron-side ASC enricher). Tracked so multi-agent lanes
+# Exception: observability-bus is the multi-PR expedition adding a
+# vendor-agnostic ObservabilityBus + N pluggable EventSink adapters
+# (Sentry, PostHog, Console, future vendors) to Resplit iOS. Pivoted
+# from sentry-rum-correlation 2026-05-09 per Leo "tie sessions across
+# all external vendors now and future". Tracked so multi-agent lanes
 # (A/B/C/D) converge on the same plan.
-!projects/sentry-rum-correlation/
+!projects/observability-bus/
 
 # Temp files from checkpoint script
 tmp*.md
