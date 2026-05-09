@@ -80,8 +80,13 @@ LINEAR_ENDPOINT = "https://api.linear.app/graphql"
 LINEAR_USER_AGENT = "vidux-asc-bridge/1.0"
 HTTP_TIMEOUT = 30
 
-# Title regex: case-insensitive `[asc-<id>]` where <id> is 1+ alphanumerics.
-ASC_ID_RE = re.compile(r"\[asc-([A-Za-z0-9]+)\]", re.IGNORECASE)
+# Title regex: case-insensitive `[asc-<id>]` where <id> is 1+ chars from
+# `[A-Za-z0-9-]`. After the ID, a single optional whitespace-prefixed trailing
+# segment (e.g. `[asc-AOgQxkJ7 Leo P0]`) is tolerated and discarded — only the
+# bare ID token before the first space is captured. This matches real-world
+# resplit-ios PR title shapes observed in the wild (PR #627 used a hyphen
+# inside the ID, PR #628 carried a Leo annotation after the ID).
+ASC_ID_RE = re.compile(r"\[asc-([A-Za-z0-9-]+)(?:\s[^\]]*)?\]", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
