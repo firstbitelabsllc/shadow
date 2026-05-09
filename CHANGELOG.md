@@ -6,6 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.9] - 2026-05-09
+
+A focused parser fix for `vidux-asc-bridge.py`. The original ASC ID
+regex was `\[asc-([A-Za-z0-9]+)\]` — which silently rejected real-world
+resplit-ios PR title shapes:
+
+- PR #627 used a hyphen *inside* the ID: `[asc-ANPm-HS30l]`.
+- PR #628 carried a Leo annotation after the ID: `[asc-AOgQxkJ7 Leo P0]`.
+
+Both PRs merged on 2026-05-09 and silently fell out of the
+linear-health-watch Section 4 sweep across 5 consecutive cycles
+(18:34Z → 20:42Z), because the bridge's parser saw zero `asc_prs`
+for them. No EVE issue was filed; the /resplit-watch user-feedback
+loop had no Linear visibility for either ASC ID. Same class of
+silent-loss as LI-12 and LI-14 (different mechanism each time).
+
+### Changed
+
+- **`scripts/vidux-asc-bridge.py`** — `ASC_ID_RE` widened to
+  `\[asc-([A-Za-z0-9-]+)(?:\s[^\]]*)?\]`. The captured ID now allows
+  hyphens (`A-Z`, `a-z`, `0-9`, `-`), and a single optional
+  whitespace-prefixed trailing segment inside the bracket is tolerated
+  and discarded. Match remains greedy on the ID; the optional trailing
+  group does not slurp into the captured ID. `parse_asc_id` continues
+  to lowercase the captured ID so re-runs hit the same Linear card.
+
+### Tests
+
+- 3 new cases in `tests/test_asc_bridge.py::TestParseAscId`:
+  `test_id_may_contain_hyphens`,
+  `test_trailing_space_text_inside_bracket_is_discarded`,
+  `test_hyphenated_id_with_trailing_annotation`. All 31 asc-bridge
+  tests pass; full suite green.
+
+---
+
 ## [2.26.8] - 2026-05-09
 
 A small but real safety fix to `vidux-asc-bridge.py`. In dry-run mode, if

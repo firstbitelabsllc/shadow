@@ -87,6 +87,31 @@ class TestParseAscId(unittest.TestCase):
             bridge.parse_asc_id("[asc-aaa] then [asc-bbb] later"), "aaa"
         )
 
+    def test_id_may_contain_hyphens(self):
+        # Real-world: resplit-ios PR #627 used `[asc-ANPm-HS30l]`.
+        self.assertEqual(
+            bridge.parse_asc_id(
+                "fix(folder-detail): SwiftUI loading-state flicker [asc-ANPm-HS30l]"
+            ),
+            "anpm-hs30l",
+        )
+
+    def test_trailing_space_text_inside_bracket_is_discarded(self):
+        # Real-world: resplit-ios PR #628 carried `[asc-AOgQxkJ7 Leo P0]`.
+        self.assertEqual(
+            bridge.parse_asc_id(
+                "fix(guest-flow): dedup duplicate Nicole [asc-AOgQxkJ7 Leo P0]"
+            ),
+            "aogqxkj7",
+        )
+
+    def test_hyphenated_id_with_trailing_annotation(self):
+        # Defensive: hyphen-bearing ID followed by a space-prefixed annotation.
+        self.assertEqual(
+            bridge.parse_asc_id("fix(x) [asc-FOO-BAR Leo P1]"),
+            "foo-bar",
+        )
+
 
 # ---------------------------------------------------------------------------
 # merged_at_iso + render_description
