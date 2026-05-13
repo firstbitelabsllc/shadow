@@ -380,7 +380,7 @@ class BodyRendering(unittest.TestCase):
                 "Evidence": "projects/ocr-moat/PLAN.md:53",
                 "Source": "linear:lin_1",
             },
-            plan_path="/Users/leokwan/Development/vidux/projects/ocr-moat/PLAN.md",
+            plan_path="/Users/example/Development/vidux/projects/ocr-moat/PLAN.md",
             line_number=53,
         )
 
@@ -613,7 +613,7 @@ class EnrichmentFields(unittest.TestCase):
             id="T1",
             title="Fix the thing",
             status=VidxStatus.PENDING,
-            plan_path="/Users/leokwan/Development/resplit-ios/.cursor/plans/foo.plan.md",
+            plan_path="/Users/example/Development/resplit-ios/.cursor/plans/foo.plan.md",
             line_number=42,
         )
 
@@ -621,7 +621,7 @@ class EnrichmentFields(unittest.TestCase):
 
         self.assertIn("vidux-trace", body)
         self.assertIn(
-            "/Users/leokwan/Development/resplit-ios/.cursor/plans/foo.plan.md:42",
+            "/Users/example/Development/resplit-ios/.cursor/plans/foo.plan.md:42",
             body,
         )
         self.assertIn("task `T1`", body)
@@ -679,7 +679,7 @@ class EnrichmentFields(unittest.TestCase):
                 "ETA": "2h",
                 "Source": "...",
             },
-            plan_path="/Users/leokwan/Development/resplit-ios/.cursor/plans/app-store-feedback.plan.md",
+            plan_path="/Users/example/Development/resplit-ios/.cursor/plans/app-store-feedback.plan.md",
             line_number=87,
         )
 

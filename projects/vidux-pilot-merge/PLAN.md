@@ -27,7 +27,7 @@ Outcome: one entry point. `/vidux loop` and `/vidux nurse` replace `/pilot loop`
 
 Ordered, with status tags and evidence citations.
 
-- [pending] Task 1: Audit live cron prompts for literal `/pilot` invocations. Check `CronList` output, `~/Library/LaunchAgents/com.leokwan.*.plist`, and `~/.codex/automations/`. Report findings. [Evidence: 7 active crons per CLAUDE.md fleet section — none confirmed clean yet] [ETA: 0.5h]
+- [completed] Task 1: Audit live cron prompts for literal `/pilot` invocations. Check `CronList` output, `~/Library/LaunchAgents/*.plist`, and `~/.codex/automations/`. Report findings. [Evidence: cron-audit agent 2026-05-13 — ZERO automation risk, all clean] [ETA: 0.5h]
 - [pending] Task 2 [Depends: Task 1]: Rewrite `/pilot` → `/vidux` in 10 sibling skill SKILL.md files (auto, ralph, creator, captain, ledger, clipdiff, amp, disk-clean, jam, vidux-leo). Also update `vidux/guides/fleet-ops.md` L423 and `vidux/guides/harness.md` L27 to drop `$pilot` from SKILLS-load examples. Single commit titled `skills: prepare for /vidux merge — rewrite /pilot references`. [Evidence: cross-skill grep, 23 total references] [ETA: 1.5h]
 - [pending] Task 3 [Depends: Task 2]: Merge pilot SKILL.md content into vidux SKILL.md per the 22-section outline below. Target ~720 lines (vidux today 657 + 70 net new from pilot after dedup). Single commit titled `vidux: absorb /pilot routing + loop + nurse + orchestration content`. [Evidence: merge plan §2 outline below] [ETA: 3h]
 - [pending] Task 4 [Depends: Task 3]: Wait 24h after Task 3 ships. Verify no `[in_progress]` lanes cite `/pilot`. Verify no cron has fired against unrewritten prompt. [Evidence: stage-gate per Decision Log] [ETA: 24h elapsed]

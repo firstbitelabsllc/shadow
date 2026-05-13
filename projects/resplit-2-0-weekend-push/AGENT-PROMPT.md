@@ -141,7 +141,7 @@ Scan in this order; first non-empty source = your queue for this cycle:
 
 1. **ASC reporter feedback / TestFlight beta** — `.cursor/plans/app-store-feedback.plan.md` (master PLAN T1–T7 are seeded from here)
 2. **Sentry unresolved errors** — last 7d, `resplit-ios` + `resplit-web` projects (use `/sentry-triage` Seer AI)
-3. **Linear EVE issues** — `resplit-ios` codebase project UUID `e73259aa-9870-4b5e-b80f-e31e517755a4` (state `Backlog` or `Todo`)
+3. **Linear EVE issues** — `resplit-ios` codebase project (UUID kept in local `vidux.config.json`, not committed) (state `Backlog` or `Todo`)
 4. **Jam.dev recordings** — `mcp__Jam__listJams` filtered to URL `resplit.app`
 5. **Vercel preview-toolbar comments** (`resplit-web` only) — per `/comments` skill
 6. **PostHog iOS funnel / event-taxonomy regressions** — last 24h. *TODO: posthog-analytics skill currently scoped to strongyes-web; resplit-ios PostHog binding not yet plumbed. Until plumbed, skip source 6.*
