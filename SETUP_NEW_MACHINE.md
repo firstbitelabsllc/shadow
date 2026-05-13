@@ -51,13 +51,7 @@ Verify or add:
 
 The status line shows context headroom at a glance: `45% until compact · Claude Sonnet 4.6`.
 
-```bash
-# Install the script (adjust source path to wherever you cloned vidux)
-cp /path/to/vidux/scripts/statusline.sh ~/.claude/statusline.sh
-chmod +x ~/.claude/statusline.sh
-```
-
-Then add to `~/.claude/settings.json` (use your actual username — no tilde):
+vidux does not ship a `statusline.sh` script. Configure your own per the Claude Code docs (`/config` → status line), or point `statusLine.command` at an existing script in your fleet. The settings shape:
 
 ```json
 {

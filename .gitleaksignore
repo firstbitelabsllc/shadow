@@ -1,0 +1,7 @@
+# gitleaks false positives — verified harmless.
+# Format: <path>:<rule-id>:<line>  (one per line)
+
+# Feature-flag identifier string "live_split_enabled" matched generic-api-key
+# rule on PLAN narrative quoting FeatureFlagManager.swift. Not a credential.
+# (Path is post-archive — autobot-resplit moved to projects/_archive/ 2026-05-13.)
+projects/_archive/autobot-resplit/PLAN.md:generic-api-key:513

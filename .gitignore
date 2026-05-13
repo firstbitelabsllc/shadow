@@ -50,6 +50,10 @@ projects/*
 # all external vendors now and future". Tracked so multi-agent lanes
 # (A/B/C/D) converge on the same plan.
 !projects/observability-bus/
+# Exception: vidux-pilot-merge is a 3-commit expedition to consolidate /pilot
+# and /vidux into a single skill (Leo 2026-05-13). Tracked so the M4 can
+# resume the merge across machines.
+!projects/vidux-pilot-merge/
 
 # Temp files from checkpoint script
 tmp*.md

@@ -260,6 +260,18 @@ One optional config file at the repo root controls plan discovery:
 - `mode: "local"` — plans live at the configured `path` (one subdir per project). Useful when you want plans tracked in a separate git repo synced across machines.
 - `mode: "external"` — same as local but path may point outside `~/Development`.
 
+Other top-level fields (see `vidux.config.example.json` for the canonical schema):
+
+- `version` — config schema version. `"1.0"` is current. Reserved for future schema migrations.
+- `external_plan_roots` — optional list of additional absolute paths to scan for `PLAN.md` files. Default `[]`. Useful when plans live in sibling repos outside `plan_store.path`.
+- `inbox_sources` — array of adapter configs (see "External boards" below).
+
+Per-adapter optional fields:
+
+- `auto_promote_target` — relative or absolute plan_dir path. Novel external cards land directly there instead of `INBOX.md` (see "External boards").
+- `auto_promote_max_new` — cap on novel cards promoted per sync run. Default `25`. Prevents a misconfigured query from flooding a plan with hundreds of issues in one cycle.
+- `push_only_for_plans` — optional list of plan_dir paths that opt INTO PUSH for brand-new external issues even when `auto_promote_target` is set. Default empty (all plans suppressed).
+
 Agents read `vidux.config.json` at session start and resolve the authority PLAN.md from the config before anything else.
 
 ### External boards (adapter plugins)
@@ -372,15 +384,23 @@ mcp__plugin_linear_linear__create_comment issueId=<issue-id> body="Fixed in <com
     "adapter": "linear",
     "enabled": true,
     "config": {
-      "project_uuid": "<your-linear-project-uuid>",
-      "project_name": "<project-display-name>",
       "token_file": "~/.config/vidux/linear.token",
+      "team_id": "<your-linear-team-uuid>",
+      "project_id": "<your-linear-project-uuid>",
+      "project_name": "<project-display-name>",
       "state_mapping": {
         "pending": "<backlog-state-uuid>",
         "in_progress": "<in-progress-state-uuid>",
+        "in_review": "<review-state-uuid>",
         "completed": "<done-state-uuid>"
       },
-      "auto_promote_target": "vidux/PLAN.md"
+      "blocked_label": "blocked",
+      "managed_labels": {
+        "repo": "repo:<repo-name>",
+        "source": "source:vidux"
+      },
+      "auto_promote_target": "<plan-dir>",
+      "auto_promote_max_new": 25
     }
   }]
 }
