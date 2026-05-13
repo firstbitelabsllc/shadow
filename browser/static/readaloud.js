@@ -347,7 +347,7 @@ async function readaloudOnCloneFile(ev) {
       if (resp.status === 404) {
         throw new Error(
           "Upload endpoint missing — restart vidux-browse so M8 server changes take effect:\n" +
-          "  launchctl kickstart -k gui/$(id -u)/com.leokwan.vidux-browser",
+          "  launchctl kickstart -k gui/$(id -u)/<your-vidux-browser-label>",
         );
       }
       throw new Error(`HTTP ${resp.status} ${resp.statusText}${detail ? ` — ${detail.slice(0, 120)}` : ""}`);

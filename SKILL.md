@@ -1,11 +1,48 @@
 ---
 name: vidux
-description: "Plan-first discipline for AI agents. Write down what you're going to build before you build it. Plans live in markdown files in git. Any agent can pick up where the last one left off."
+description: "Plan-first discipline and universal project router for AI agents. Detects stack, stage, and scale, then either executes directly or shifts into plan-first multi-session work. Write down what you're going to build before you build it. Plans live in markdown files in git. Any agent can pick up where the last one left off."
 ---
 
 # Vidux
 
 Vidux is a discipline for AI agents: write down what you're going to build before you build it. Plans live in markdown files in git. Agents read the plan, do one piece of work, update the plan, and checkpoint. Any agent can pick up where the last one left off because the plan file is the only state that matters.
+
+---
+
+## Activation & Triage
+
+Vidux is the universal entrypoint. Drop into any repo. Read the room. Run the right lifecycle. At expedition scale, shift into plan-first multi-session work; at smaller scales, execute the stage playbook directly.
+
+### Fast-exit triage (trivial requests stop here)
+
+Before any detection, check if the request is trivially answerable inline. If ANY of these apply, respond with 2-3 options directly in conversation and STOP — do NOT invoke brainstorming, TaskCreate, planning skills, or heavy routing:
+
+- Request is ≤50 words AND names copy/wording/naming work. Keyword triggers: `tagline`, `hero`, `CTA`, `copy`, `wording`, `name`, `naming`, `rename`, `headline`, `subtitle`, `blurb`, `caption`, `alt text`, `commit message`, `title`.
+- Request is a single factual question ("what's the flag for X?", "how does Y work?", "where does Z live?").
+- Request is a quick refinement on prior output ("make that shorter", "try a different angle", "punchier").
+
+**Why this exists:** routing layers fire before CLAUDE.md "respond directly with 2-3 options" rules. This is the routing-layer enforcement so brainstorming/TaskCreate chains do not spin up for hero-copy or one-line wording asks.
+
+**Who this is NOT for:** expedition-scale work, multi-file changes, anything that would edit production code, or anything framed as "plan first" / "think through" / "design." Those bypass triage and load full vidux.
+
+### When vidux activates
+
+Full vidux loads when:
+
+- User says `/vidux`, `vidux`, `plan first`, `quarter project`, `big project`, or describes work spanning multiple sessions.
+- An existing `PLAN.md` (inline, in `vidux.config.json` plan store, or via an enabled adapter) already governs the work.
+- User asks to create or manage a lane / automation / cron (load `guides/automation.md` alongside).
+- Work touches 5+ files, needs phases, or is multi-session.
+
+### When vidux does NOT activate
+
+- Single-file changes with obvious cause.
+- Anything that takes less than 30 minutes with a clear root cause.
+- Trivial requests that passed fast-exit triage above.
+
+For requests in between (substantive but small), the stage playbook handles it directly without spinning up a PLAN.md — see `## Stack & Stage Routing` below.
+
+If an automation is being created from Codex, default it to Chat execution unless the user explicitly asks for Worktree or Local.
 
 ---
 
@@ -49,6 +86,54 @@ After a failure, produce two artifacts: a code fix (the immediate repair) and a 
 
 ---
 
+## Working Defaults
+
+Tactical defaults extracted from 30+ plan files across 5 repos. They apply everywhere, regardless of stack or stage.
+
+### Flow with the water
+
+- Read existing code before writing new code.
+- Match the repo's patterns, naming, DI approach, test style.
+- Don't impose architecture — discover it and extend it.
+- If the repo uses Factory DI, use Factory. If it uses manual injection, use that.
+
+### Testability from the start
+
+- Design for test seams before writing implementation.
+- Protocol-backed dependencies so mocks are trivial.
+- State machines as enums — compiler-enforced, exhaustively testable.
+- In-memory containers / mock APIs for isolation.
+- Name tests before writing them (TDD slice ordering).
+
+### Close the feedback loop
+
+- Every change must be verifiable by a command you can run.
+- Track test counts across sessions (did coverage go up or down?).
+- Plans are living documents — update in-place with `[DONE]`, `[NEW]`, dates.
+- If a gate is blocked, log: exact command, blocker point, what passed, what's pending.
+
+### Smallest vertical slice
+
+- Model → Service → View → Test, wired end-to-end.
+- Ship one slice before starting the next.
+- Each slice must compile and pass tests independently.
+
+### DELETE before MODIFY
+
+- When refactoring, remove the old thing first.
+- Grep dead-code gates confirm removed symbols are gone.
+- Superseded plans get a banner, not silent deletion.
+- Deprecated skills redirect to canonical, not deleted.
+
+### No re-ask
+
+- When the user says "do it," execute the full connected scope.
+- A11y IDs, tests, docs, lifecycle checks are one deliverable.
+- Don't ask permission for obvious follow-through tasks.
+- Ship code + tests + verification together.
+
+---
+
 ## The Cycle
 
 Every work session follows this loop:
@@ -57,6 +142,7 @@ Every work session follows this loop:
 READ       -> git fetch --prune (kill stale tracking refs first),
               PLAN.md, INBOX.md, git log, git diff (uncommitted work?),
               vidux-worktree-gc.py --base origin/main before new worktrees.
+              Then read the room (checklist below).
 ASSESS     -> Resume [in_progress] first, else pick highest-impact unblocked task.
              No evidence? Gather it locally before coding. Empty plan? Research first.
 ACT        -> Execute tasks until queue empty, blocker, or context budget.
@@ -68,13 +154,47 @@ CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
 COMPLETE   -> Close the local worktree lifecycle or record why it remains.
 ```
 
+### Read the Room (READ-phase checklist)
+
+Before touching code, always check these eight surfaces in order:
+
+1. **`AGENTS.md`, `CLAUDE.md`, or equivalent repo instructions** — repo-level instructions override everything.
+2. **`ai/skills/hooks/`** — repo-specific build/test/lint commands.
+3. **`.cursor/plans/`** — existing plans for this feature or related work.
+4. **`RALPH.md`** — repo-owned queue contract for recurring loops and nurse passes.
+5. **The ledger** (`.agent-ledger/activity.jsonl`) — recent entries from other agents, active lanes, handoffs waiting.
+6. **Memory files** — ownership boundaries, lane assignments.
+7. **Neighboring files** — match existing patterns, don't impose new ones.
+8. **`vidux.config.json`** — resolve the authority `PLAN.md` and any enabled adapters before anything else.
+
+Ad hoc scratch files (e.g. `<repo>-loop-state.md`) are optional helpers only. They do not override the repo's queue, ledger, or checkpoint files unless the repo explicitly says they are canonical. Never read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
+
 **Crash recovery:** If `git diff` shows uncommitted work from a dead session, commit it first: `vidux: recover uncommitted work from crashed session`.
 
 **Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Force a surface switch — move to the next unblocked task and mark the stuck one `[blocked]` with a one-line Decision Log entry explaining what was tried. No human hand-off required; the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced. Polish is fractal — the brake is what prevents forever-loops, not a human approval gate.
 
 **Push authorization:** Operational PRs are always safe to push without asking. Open them ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization. A lane prompt that says "NEVER push" without qualification still allows a normal PR push; parking on a local branch wastes cycles.
 
+### Trunk-First Rule
+
+Vidux defaults to trunk-first:
+
+- Start from the current trunk branch in the canonical repo checkout. Prefer `main`.
+- If a repo has not renamed its trunk, detect and use the actual trunk branch instead of forcing a broken assumption.
+- Create short-lived branches or worktrees from the current trunk head only when isolation is useful.
+- Treat lane branches/worktrees as disposable integration helpers, not as the source of truth.
+- Before a job is done, every intended change must be merged or cherry-picked back into trunk in the canonical tree.
+- Run the final proof, release gates, and any ship/deploy command from that merged trunk state.
+- Do not end a job with required work stranded in a side branch or worktree unless a real external blocker prevents merge-back; if so, record the exact blocker and the exact unmerged branch.
+
 **Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only automatic cleanup bucket. `open_pr` is durable handoff and must be nursed or recorded. `dirty`, `closed_unmerged`, and `unmerged_no_pr` are not cleanup; they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
+
+**Build/test ownership in multi-agent repos:**
+
+- Treat real build/test execution as a serial lane unless the repo explicitly documents a safe parallel workflow.
+- When the ledger shows active parallel lanes, nominate one build owner before starting verification churn.
+- If multiple isolated proofs are unavoidable, give each lane its own `-derivedDataPath` and avoid shared package/bootstrap churn.
+- If `.mise.toml`, `.tool-versions`, installed CLIs, and skill docs disagree, resolve version authority before trusting command examples.
 
 ### Queue order
 
@@ -88,7 +208,7 @@ Tasks are processed with these rules:
 
 ## PLAN.md Template
 
-**Every project has exactly ONE PLAN.md.** Course corrections — even dramatic pivots — update the existing plan's Decision Log. They do NOT spawn a sibling plan store. If you catch yourself justifying a new plan with phrases like "clean slate," "emotional separation," or "this rewrite deserves its own home," stop: that's fabricated reasoning. The correct move is to open the existing PLAN.md, add a `[DIRECTION]` entry to the Decision Log, mark now-obsolete tasks `[blocked]` with a pointer to the new direction, and append the new direction as fresh `[pending]` tasks in the same queue. New plan stores are for new PROJECTS (different codebase, different product, different problem surface), not for new OPINIONS about how the same project should look. "Rewrite resplit-web from scratch" and "polish resplit-web" are the same project — one plan. "Build a new iOS app for Resplit 2.0" and "ship resplit-web" are different projects — different plans.
+**Every project has exactly ONE PLAN.md.** Course corrections — even dramatic pivots — update the existing plan's Decision Log. They do NOT spawn a sibling plan store. If you catch yourself justifying a new plan with phrases like "clean slate," "emotional separation," or "this rewrite deserves its own home," stop: that's fabricated reasoning. The correct move is to open the existing PLAN.md, add a `[DIRECTION]` entry to the Decision Log, mark now-obsolete tasks `[blocked]` with a pointer to the new direction, and append the new direction as fresh `[pending]` tasks in the same queue. New plan stores are for new PROJECTS (different codebase, different product, different problem surface), not for new OPINIONS about how the same project should look. "Rewrite project-X from scratch" and "polish project-X" are the same project — one plan. "Build a new iOS app" and "ship the web app" are different projects — different plans.
 
 Planning itself can happen in the agent's main thread. What matters is WHERE the output lands: the existing PLAN.md for the project, always.
 
@@ -331,7 +451,7 @@ See `vidux.config.example.json` at the repo root for a live block you can copy.
 - **PULL** — novel external items append to `INBOX.md` as `- [live-feedback] <title> [Source: <adapter>:<id>]` entries (idempotent — marker-based dedupe). External items whose status lands in `completed` auto-flip the corresponding PLAN.md task to `[completed]`.
 - **PUSH** — unmapped `[pending]` / `[in_progress]` tasks create via `push_task`; mapped tasks receive `push_status` (column move) + `push_fields({'_blocked': ...})` for the orthogonal blocked flag.
 - **AUTO-PROMOTE** — opt-in via `auto_promote_target` (relative or absolute path) on each `inbox_sources[]` entry. When set, novel cards skip INBOX and land directly in the named plan_dir's PLAN.md as `- [pending] BD-<seq>: <title> [Source: <adapter>:<id>]` tasks. `BD` = "board-dropped" (per-plan namespace, sequence minted from `_next_bd_seq`). Idempotency uses BOTH the state file mapping AND in-text `[Source:]` marker scan, so a state-file loss during git races (rebase + stash drop) cannot cause re-promotion. Missing targets fail closed; vidux refuses to fall back to INBOX because that would route work to the wrong lane. Auto-promote suppresses creation of brand-new external issues from local-only plan rows, but still pushes status for tasks already linked by `[Source:]`. Linear title-only cards are the exception: they land as `[blocked]` with a blocker asking for description, evidence/source, acceptance or repro, and estimate before any agent can claim them.
-  - **Per-plan PUSH opt-in via `push_only_for_plans`** — optional list of plan-dir paths (relative to the config file's parent dir, or absolute) that opt INTO PUSH for brand-new external issues even when `auto_promote_target` is set. Listed plan_dirs get `create_missing_external_tasks=True`; every other plan stays suppressed by the global auto-promote. Canonical use case: iOS-lane plans (e.g. `projects/resplit-2-0-weekend-push`, `projects/ocr-moat`) opt into PUSH so their tasks become Linear issues, while the rest of the fleet (~250 other plan rows) stays in PULL-only mode and doesn't flood the external board. Default unset = empty list = unchanged behavior (every plan still suppressed by auto-promote).
+  - **Per-plan PUSH opt-in via `push_only_for_plans`** — optional list of plan-dir paths (relative to the config file's parent dir, or absolute) that opt INTO PUSH for brand-new external issues even when `auto_promote_target` is set. Listed plan_dirs get `create_missing_external_tasks=True`; every other plan stays suppressed by the global auto-promote. Canonical use case: specific lane plans opt into PUSH so their tasks become external issues, while the rest of the fleet stays in PULL-only mode and doesn't flood the external board. Default unset = empty list = unchanged behavior (every plan still suppressed by auto-promote).
 - **PR sweep** — opt-in via `--include-prs`. Sweeps `gh pr list` open + recently-merged PRs from the repo containing the config and adds open PRs to the bound GH Project as items linked via `addProjectV2ItemById`. Status follows PR state: open-draft→Dev, open-ready→QA-Review, merged→Prod-Shipped. Already-tracked PRs reconcile status. Merged PRs that were never on the board are NOT backfilled (avoids flooding Backlog with shipped history).
 - Flags: `--dry-run` skips writes; `--direction={push,pull,both}` gates the halves; `--include-prs` enables PR sweep; `--repo-dir` overrides repo for PR list source; `--json` emits machine-readable summary; exit codes `0/2/3` for success / config-error / adapter-error.
 
@@ -494,18 +614,257 @@ If the Fix Spec is missing, notes stay local. The investigation ships with the f
 
 ---
 
-## Beyond Core — Automation and Recipes
+## Persistent Loop Mode
 
-Everything above is **core vidux** — the five principles, the cycle, the PLAN.md template, investigations, course correction. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. A human following core alone is doing vidux correctly.
+If the user says `/vidux loop`, `loop`, `don't stop until done`, `keep going`, `finish the queue`, or `finish the spec`, enter a persistent outer loop instead of stopping after one normal slice.
 
-If your work needs more, two companion surfaces carry the rest:
+Loop body:
 
-- **[`guides/automation.md`](guides/automation.md)** — the 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load this when you run lanes on a schedule.
-- **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and patterns. CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements, and more. Load a specific recipe on demand.
+1. Read the queue source (`RALPH.md`, active plans, or inline spec).
+2. Pick the next highest-leverage unblocked step inside the currently owned lane.
+3. Execute it directly or delegate it.
+4. Run targeted gates for the touched area.
+5. Run the first viable UI/E2E/manual smoke path for the touched surface.
+6. Absorb obvious same-slice follow-on fixes uncovered by that smoke.
+7. Mark the item done in the queue source.
+8. Update the active plan.
+9. Checkpoint with commit + push.
+10. Write breadcrumb context (ledger + plan/queue note).
+11. Repeat until the queue/spec is actually done.
 
-**Codex automation default:** when creating a new automation from Codex, assume `Run in: Chat`. Do not default to `Worktree` or `Local` unless the user explicitly asks for repo-bound execution or the task cannot be done from chat.
+Persistent loop mode is **lane-persistent, not checkbox-persistent**: once vidux owns a feature, surface, or queue lane, keep driving connected follow-on work there until it reaches a verified boundary or a real blocker. Do not bounce to a second mission just because one checkbox landed if the same surface still has obvious connected work.
 
-Neither surface overrides core vidux. Core is opinionated machinery; automation and recipes are opt-in layers.
+**Queue-source rule:** `RALPH.md` and `ralph.config.json` are repo-level queue contracts. Execute that contract directly in `/vidux loop` and `/vidux nurse`. Do not replace a repo's queue contract with an ad hoc shared-state file unless the repo explicitly documents that file as canonical.
+
+**Blocking rule:** user-visible work is not done when unit tests or build gates pass. It is only done after the first viable UI/E2E/manual smoke path passes, or a real blocker is recorded with the exact attempted command/flow. If a screenshot, simulator, browser, preview, or your own eyes reveal visible breakage, interrupt the loop and act on that defect before continuing status/proof narration. Green identifier tests do not override clipped controls, overlap, illegible text, or off-brand/product-fiction UI.
+
+Persistent loop mode only stops for: an external blocker or missing credential; a real product decision that changes implementation; conflicting repo state that would sweep another agent's work; an explicit user redirect. It does NOT stop just because one item landed, one test suite passed, a queue checkbox flipped, a connected regression remains, or only unit/build gates passed without UI/E2E smoke proof.
+
+### Anti-Loop Discipline
+
+These rules apply to `/vidux loop`, `/vidux nurse`, and any ORCHESTRATED tracking cycle. They are part of the core loop contract, not optional overlays.
+
+1. **3-strike escalation.** Before picking the next slice, check whether the same blocker, failing command, or surface appeared in the last 3 checkpoints (ledger entries, plan logs, or memory). If it did: do NOT retry it. Write a one-paragraph escalation into the repo plan or nurse log (what is stuck, what was tried, what the human needs to do). Move to the next-highest-value unblocked lane.
+
+2. **Diminishing-returns circuit breaker.** If the last 3 loop iterations produced zero shipped code (only coordination, proof attempts, or status updates), say so explicitly and either identify the structural reason and escalate, or pick a genuinely different surface. Do not pad a stuck run with busywork.
+
+3. **Same-command ban.** Never re-execute the exact same command that failed in the previous iteration unless the environment visibly changed (disk freed, process cleared, credential restored). "Visibly changed" means a concrete observable difference, not hope.
+
+4. **All-blocked early exit.** If every lane is blocked by the same root cause, say so in one sentence and stop. A blocked run that admits it in 30 seconds is better than one that burns 15 minutes restating the blockage from 10 angles.
+
+5. **Compaction survival.** Auto-compact fires at ~50% context usage (configured via `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`). Compaction is lossy — granular conversation details are replaced with summaries. Therefore:
+   - **Before each checkpoint:** write iteration state to repo files (PLAN.md progress, RALPH.md queue, `.agent-ledger/`). The filesystem survives compaction; conversation memory does not.
+   - **After compaction fires:** rehydrate from repo files. Read PLAN.md, RALPH.md, CLAUDE.md, and the last ledger entry. Do not trust pre-compaction conversation details.
+   - **Put durable loop instructions in CLAUDE.md**, not in the loop prompt. CLAUDE.md is re-read from disk after every compaction. Loop prompts are summarized away.
+   - **Use subagents for heavy work inside loops.** Each subagent gets a fresh context window. The parent loop stays light and survives more iterations before compaction.
+   - **Run `/context` periodically** to check remaining capacity. If below 30% after compaction, the session is overloaded — consider starting fresh.
+   - **PreCompact and PostCompact hooks** are installed globally. PreCompact reminds you to checkpoint; PostCompact reminds you to rehydrate.
+
+### Cron + interactive interleave
+
+When an autonomous cron lane is firing on a project AND the user interactively redirects mid-cycle ("revamp X next", "kill that pattern", "switch to Y"), UPDATE the cron prompt in-place rather than waiting for prior tasks to drain. The pattern is small and fast — ~2 seconds for a `CronDelete` + `CronCreate` rewrite vs a full cron-interval drain (15-20 min) that would otherwise flush the redirect.
+
+Two re-arm shapes:
+
+- **Soft re-arm** (layered scope) — when the redirect EXTENDS the current cron's scope. Edit the existing prompt's priority order; preserve in-flight task list. The next tick picks up the new priority without wasting current tasks.
+- **Hard re-arm** (replaced scope) — when the redirect REPLACES the current cron's scope. `CronDelete` + `CronCreate` with a fresh prompt. The prior cron's working notes stay in PLAN.md as decision trail.
+
+Cost asymmetry: 2-second re-arm vs 15-min full drain. Generalizes to any cron + interactive overlap (release babysitters, watcher loops, autonomous polish loops).
+
+---
+
+## Nursing Mode
+
+If the user asks you to nurse, watch, or keep an eye on active work — `/vidux nurse`, "keep an eye on it", "watch the hot lanes" — switch into a **supervisory cadence** instead of a normal execute-once loop.
+
+Nursing means:
+
+- Read the ledger on a cadence.
+- Read the active plan/queue on the same cadence.
+- Keep track of hot lanes, owners, blockers, and fresh completions.
+- Intervene only when a lane drifts, blocks, conflicts, or unlocks the next queued slice.
+- Drive queue items directly when the next slice is unblocked and unowned.
+
+Vidux owns the full nursing loop: supervision, coordination, queue advancement, build-owner discipline, and plan updates. Ralph remains the repo-level queue contract (`RALPH.md` / `ralph.config.json`); vidux reads that contract, picks the next item, executes or delegates it, marks completion, and checks the ledger before deciding what's next.
+
+**Repo-level state rule:** nursing state must live in repo-local artifacts, not an ad hoc global handoff file. Preferred sources: `RALPH.md`, repo plan docs, repo nurse logs, and `.agent-ledger/activity.jsonl`. Do not invent or depend on a one-off `<repo>-loop-state.md` file unless the repo already committed it as a canonical contract. If an automation needs durable handled-state for external signals (for example App Store feedback IDs), keep that state in a repo plan/tracker file next to the rest of the queue. Never read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
+
+Read `pilot/orchestration/nursing.md` when the user asks for any timed or repeated supervision.
+
+**Cadence selection:**
+
+- **Claude Routines** (cloud-native, always-on) are the production path for recurring nursing — they survive laptop close and support scheduled + GitHub event + API triggers.
+- **CronCreate** or Claude Code `/loop` are suitable for session-scoped or experimental nursing.
+- If the user wants **every 5 minutes** or other sub-hourly cadence, use an external scheduler (`launchd`, `cron`, `systemd`) to invoke a narrow nurse task.
+- Do not fake timed nursing by spinning a blind idle loop in chat.
+- Use `pilot/orchestration/nursing.md` and `pilot/scripts/nurse_pulse.sh` as the default concrete nurse mechanism.
+
+---
+
+## Orchestration Mode
+
+After detecting stack and stage, determine scale:
+
+| Scale | Signals | Mode |
+|-------|---------|------|
+| **SOLO** | Quick hit, kickoff, or mid-flight. < 8 files, single concern, serial by nature. | Execute directly — vidux is the worker. Follow the stage playbook. |
+| **ORCHESTRATED** | Expedition-scale. 8+ files, multiple independent concerns, multi-session, cross-tool. | Vidux orchestrates — decompose, delegate, track. |
+
+**ORCHESTRATED triggers** (any two = orchestrate):
+
+- Multiple file sets with zero overlap.
+- Work naturally splits into independent API + UI + test concerns.
+- User mentions multiple agents, Routines, Cursor, or parallel work.
+- Existing ledger entries show active lanes from other agents.
+- PLAN.md has a lane table or multi-phase dependency graph.
+- **Multi-prototype gallery / variant fan-out** — PLAN.md has ≥3 prototypes/variants AND user issues a surface-wide directive ("revamp all", "polish every", "team agents split up", "audit each one"). Pre-route to multi-agent fan-out: spawn one Plan agent per prototype/variant, each reads its own surface, returns task list with `file:line` citations, parent integrates into the single PLAN.md. Wall-clock 3-5x savings vs serial. Surface-disjoint precondition holds because each prototype is its own file and no agent edits another's file.
+
+### Default Discipline Swarm
+
+For product/UI work that spans multiple concerns, default to a discipline swarm even in an unfamiliar repo:
+
+- UX / surface behavior
+- copy / localization
+- persistence / data correctness
+- Dev App or preview/manual QA
+- automation / E2E
+
+This is project-agnostic — the decomposition pattern, not a specific repo's structure.
+
+### Release Swarm (10 roles)
+
+When the user asks for release readiness, a nurse loop, or a last-mile ship push across multiple surfaces, default to a 10-role release swarm:
+
+1. Localization + Copy Sentinel
+2. App Store Connect Feedback Triage
+3. Sentry + Seer Error Hunter
+4. UX Feedback Triage Lead
+5. Code Review + Clipdiff Auditor
+6. UX Uniformity + Canonical Surface Mayor
+7. Dead Code + Drift Analyzer
+8. Architecture + Test Discipline Guardian
+9. Screenshot + Snapshot + UI Test Sheriff
+10. App Store SEO + Metadata God
+
+### Heat scan before spawn
+
+Before spawning agents, spend 60 seconds on a heat scan: which roles have open items in the queue/plan/ledger? Which had activity in the last 2 runs? Which are blocked by known persistent blockers?
+
+- **Hot** (2-4 roles): open items, recent activity, unblocked. Full inspection and dedicated agent lanes.
+- **Warm** (2-3 roles): no open items but could have drifted. 30-second scan with a one-line verdict.
+- **Cold** (remaining roles): confirmed stable in last 2 runs. Single line: "Role N: cold since [date], skipping."
+
+Spawn agents for hot roles only. Do not spawn 6 agents when 2 lanes are hot and 4 would idle. Minimum spawn 1 (single deep lane while coordinator coordinates). Maximum 4-6 for genuinely parallel independent work. A cold role becomes warm when a new queue item touches its surface, a user mentions it, or 5+ runs pass since last inspection. Preserve the 10-role checklist for completeness; cold roles get one line in memory, not a full inspection pass.
+
+### Orchestration loop
+
+When ORCHESTRATED, follow this loop (see `pilot/orchestration/mayor.md` for the long form):
+
+1. Select molecule from `pilot/orchestration/molecules.md` (Feature, Cleanup, Migration, Research, or composed).
+2. Decompose into lanes per `pilot/orchestration/lanes.md`.
+3. Write PLAN.md with lane table and dependency graph.
+4. Spawn agents for independent lanes (Agent tool, background, worktrees).
+5. Track via the ledger and completion notifications.
+6. Intervene on blockers, drift, or discoveries.
+7. Integrate when lanes complete — merge, cross-test, full gates.
+8. Handoff per `pilot/orchestration/handoff.md` if work continues.
+
+### First-class end-to-end proof
+
+For any user-visible change, treat end-to-end proof as a blocking gate, not a polish task. Preferred order: (1) existing UI/E2E automation for the touched surface; (2) add or tighten focused UI/E2E coverage if the gap is small and the path is stable; (3) manual smoke path when no automation exists yet. Do not declare "done" on build + unit coverage alone. Record the exact smoke command or manual path you ran. If smoke reveals more bugs, reopen the queue and continue the loop.
+
+---
+
+## Stack & Stage Routing
+
+Run `pilot/scripts/detect_stack.sh` or check signal files manually:
+
+| Signal | Stack ID | Routing |
+|--------|----------|---------|
+| `Project.swift` or `*.xcodeproj` | `ios-tuist` | See `pilot/stacks/ios-tuist.md` |
+| `next.config.*` | `nextjs-vercel` | See `pilot/stacks/nextjs-vercel.md` |
+| `vite.config.*` (no next.config) | `vite-react` | See `pilot/stacks/vite-react.md` |
+| `shopify/` or `*.liquid` | `shopify` | See `pilot/stacks/shopify.md` |
+| `Cargo.toml` | `rust` | Inline (no skill yet) |
+| `package.json` only | `node-generic` | playwright if e2e exists |
+
+After stack, detect stage from repo state:
+
+| Stage | Signals | Playbook |
+|-------|---------|----------|
+| **KICKOFF** | No plan file for this feature, user says "build X" / "add X" | `pilot/stages/kickoff.md` |
+| **MID-FLIGHT** | Existing plan with pending items, branch with changes | `pilot/stages/mid-flight.md` |
+| **LAST MILE** | Most plan items done, user says "ship" / "finish" / "polish" | `pilot/stages/last-mile.md` |
+| **QUICK HIT** | Single-screen change, one-sentence description, < 3 files | `pilot/stages/quick-hit.md` |
+| **EXPEDITION** | Touches 5+ files, needs phases, multi-session | `pilot/stages/expedition.md` (integrates orchestration for ORCHESTRATED scale) |
+
+Every stage ends with verification gates from `pilot/patterns/gate-checklist.md`. Universal engineering patterns (DI, state machines, in-memory test seams, lifecycle gates) live in `pilot/patterns/leos-patterns.md`.
+
+For Figma-driven work, prefer repo-local MCP rules over global defaults and preserve them in the repo's `ai/skills/` folder when they are durable project knowledge.
+
+---
+
+## Skill Composition
+
+Vidux delegates. It never duplicates. See `pilot/stacks/*.md` for per-stack routing tables.
+
+Universal skills available in any stack:
+
+- `clipdiff` — PR-ready diffs.
+- `captain` — meta/skill maintenance (skill audit, symlink discipline). If older prompts say `skill-manager`, route to `captain`.
+- `maily` — email cross-referencing.
+- `ledger` — cross-tool coordination (critical for ORCHESTRATED mode).
+- `nia` — external doc / package source lookup (check before WebFetch).
+- `amp` — prompt amplification for vague tasks (GATHER → steer → fire).
+
+Local skills do not usually need a manual "on" switch if the `~/.claude/skills` or repo-local skills symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
+
+When a repo already has one active feature-reset plan and multiple agents are working in parallel: reuse the existing plan instead of creating a competing plan doc; add a claim line before editing canonical sections or cross-cutting files; append discoveries to the shared coordination log before rewriting product-contract text; treat chat guidance as non-canonical until it is written back into the active plan.
+
+### Claude Routines vs CronCreate vs `/loop`
+
+Codex fleet is deprecated — use **Claude Routines** (cloud-native, always-on, survives laptop close, configured at [claude.ai/code/routines](https://claude.ai/code/routines)) for production recurring automation. CronCreate is for session-scoped experiments. `/loop` is for in-session iteration.
+
+| Trigger type | Fires when | Create via |
+|---|---|---|
+| **Scheduled** | Cron expression (min 1h, presets: hourly/daily/weekdays/weekly) | CLI (`/schedule`) or web |
+| **GitHub event** | PR, push, issues, workflow runs, releases, etc. | Web UI only |
+| **API** | `POST /fire` with bearer token + optional payload | Web UI only |
+
+**Heuristic:**
+
+- **Routines** — anything that must survive laptop close, GitHub event triggers, fleet watchers, lifecycle managers (always-on).
+- **CronCreate** — session-scoped experiments, rapid recipe iteration, local-only resources (Xcode, simulators).
+- A single routine can combine multiple triggers (e.g., nightly schedule + PR webhook).
+
+When wiring fleet work, reference the 8 automation recipes from `guides/recipes.md`:
+
+| # | Recipe | Role | Trigger |
+|---|--------|------|---------|
+| 1 | **Fleet Watcher** | Coordinator (read-only) | Scheduled 2h |
+| 2 | **PR Reviewer** | Reviewer (read-only) | GitHub event (PR) |
+| 3 | **Draft-PR Lifecycle** | Tracker (read-only) | Scheduled 1h |
+| 4 | **Observer Pair** | Observer (read-only) | Scheduled 2h offset |
+| 5 | **Deploy Watcher** | Verifier (time-bounded) | GitHub event (push) |
+| 6 | **Trunk Health** | Infra monitor (read-only) | Scheduled 4h |
+| 7 | **Skill Refiner** | Quality auditor | Scheduled 6h |
+| 8 | **Self-Improvement** | Meta-writer | Scheduled 24h |
+
+Start with Fleet Watcher + PR Reviewer (highest ROI), add more as daily budget supports them. A typical fleet combines 3-5 recipes.
+
+---
+
+## Checkpoint Breadcrumbs
+
+After every meaningful completed slice, leave all three breadcrumbs:
+
+1. **Git** — commit and push the owned slice.
+2. **Ledger** — summarize what shipped, what remains, and the current branch/SHA.
+3. **Plan / queue** — mark progress in the active plan, `RALPH.md`, or queue source.
+
+Checkpoint at these moments: after a meaningful slice completes; before handoff; before changing lanes or worktrees; after an integration fix that creates a new stable base for other agents.
+
+Commit everything the active agent owns, but do NOT sweep unrelated dirty files from other agents by default.
 
 ---
 
@@ -518,38 +877,24 @@ The Anthropic `superpowers` plugin used to provide 14 process-discipline subskil
 | `brainstorming` (before any creative work) | Vidux Principle 1: plan first. Brainstorm in main thread, then write the PLAN.md before code. Quick brainstorms can stay in chat — only formalize when the work spans 30+ minutes. |
 | `writing-plans` | Vidux core — `## PLAN.md Template` section above |
 | `executing-plans` | Vidux Cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT) |
-| `subagent-driven-development` | `guides/automation.md` § subagent dispatch + `/auto` § auto-dispatch protocol |
-| `dispatching-parallel-agents` | `guides/automation.md` § parallel agents (surface-disjoint precondition) + `/auto` § fan-out rule |
-| `test-driven-development` | Vidux Principle 5: prove it mechanically. Write the assertion before the implementation when the surface needs regression protection (per `/auto` E-row "visual proof merge gate") |
+| `subagent-driven-development` | `guides/automation.md` § subagent dispatch + your overlay skill's auto-dispatch protocol |
+| `dispatching-parallel-agents` | `guides/automation.md` § parallel agents (surface-disjoint precondition) + your overlay skill's fan-out rule |
+| `test-driven-development` | Vidux Principle 5: prove it mechanically. Write the assertion before the implementation when the surface needs regression protection (visual-proof merge gate) |
 | `systematic-debugging` | Vidux Principle 3: investigate before fixing. Use the `## Investigation Template` for any bug touching 2+ tickets or unclear root cause |
-| `requesting-code-review` / `receiving-code-review` | `/vidux-leo` § review-bot ack discipline (Graphite / Greptile / Cursor / Seer yay-or-nay before merge) |
-| `verification-before-completion` | Vidux Principle 5: prove it mechanically. UI work definition-of-done = visual proof per `/auto` E-row |
-| `using-git-worktrees` | `/vidux-leo` § worktree isolation + `/bigapple` § per-lane DerivedData |
-| `finishing-a-development-branch` | `/vidux-leo` § merge-timing rubric (ready-PR auto-merge once review-bots ack) |
-| `writing-skills` | Use `/captain` — owns skill creation, registry, and symlink hygiene |
-| `using-superpowers` (meta loader) | Removed — vidux loads when you say `/vidux` or describe expedition-scale work; `/auto` loads when you're tempted to ask Leo something operational |
+| `requesting-code-review` / `receiving-code-review` | Your overlay skill's review-bot ack discipline (Graphite / Greptile / Cursor / Seer yay-or-nay before merge) |
+| `verification-before-completion` | Vidux Principle 5: prove it mechanically. UI work definition-of-done = visual proof |
+| `using-git-worktrees` | Your overlay skill's worktree isolation + per-lane DerivedData guidance |
+| `finishing-a-development-branch` | Your overlay skill's merge-timing rubric (ready-PR auto-merge once review-bots ack) |
+| `writing-skills` | Use `captain` — owns skill creation, registry, and symlink hygiene |
+| `using-superpowers` (meta loader) | Removed — vidux loads when you say `/vidux` or describe expedition-scale work |
 
 **Rule of thumb:** if you'd reach for a `/superpowers:*` skill, you're already inside `/vidux`'s domain. Read the relevant principle / cycle step / guide instead of summoning a separate plugin.
 
 ---
 
-## Activation
+## Output formats — one-shot HTML decision briefs
 
-Vidux activates when:
-- User says `/vidux` or describes work spanning multiple sessions
-- An existing PLAN.md governs the work
-- Pilot routes into it after detecting expedition-scale work
-- User asks to create or manage a lane/automation/cron (load `guides/automation.md` alongside)
-
-If the automation is being created from Codex, default it to Chat execution unless the user explicitly asks for Worktree or Local.
-
-Vidux does NOT activate for:
-- Single-file changes with obvious cause
-- Anything that takes less than 30 minutes with a clear root cause
-
-### Output formats — one-shot HTML decision briefs
-
-For one-shot HTML decision briefs (not ongoing PLAN.md / repo work), use `/editorial-brief` — it ships a single-file editorial-magazine HTML artifact to vidux-browse on Moussey LAN, and follows /vidux plan-first discipline for the research/write phases but lands as a self-contained HTML file instead of a tracked-in-repo .md plan.
+For one-shot HTML decision briefs (not ongoing PLAN.md / repo work), use `/editorial-brief` — it ships a single-file editorial-magazine HTML artifact to vidux-browse on a trusted-LAN host, and follows /vidux plan-first discipline for the research/write phases but lands as a self-contained HTML file instead of a tracked-in-repo .md plan.
 
 ---
 
@@ -636,7 +981,7 @@ When an agent needs to leave a constrained note for the current Mac's vidux plan
 ```bash
 curl -X POST http://127.0.0.1:7191/api/local-plan-note \
   -H "Content-Type: application/json" \
-  -d '{"plan_path":"/Users/me/Development/project/PLAN.md","source":"codex/local","agent":"codex/local","note":"Short note for the next local agent."}'
+  -d '{"plan_path":"~/Development/project/PLAN.md","source":"codex/local","agent":"codex/local","note":"Short note for the next local agent."}'
 ```
 
 This endpoint rejects non-loopback clients. Even when vidux-browse is bound to `0.0.0.0` for home-LAN reading, `POST /api/local-plan-note` must be called through `127.0.0.1` or `::1`; other Wi-Fi devices can read but cannot write plan notes.
@@ -653,7 +998,7 @@ vidux-browse can ship a 🔊 "Read aloud" button that reads the active artifact 
 vidux-browse (127.0.0.1:7191)            mlx-audio.server (127.0.0.1:8000)
   static/readaloud.js (HTTP client)  ──▶  POST /v1/audio/speech
                                           loads weights lazily, returns WAV
-                                          launchd: com.leokwan.mlx-audio
+                                          launchd: com.<user>.mlx-audio
 ```
 
 **Stack:**
@@ -664,14 +1009,74 @@ vidux-browse (127.0.0.1:7191)            mlx-audio.server (127.0.0.1:8000)
 - **Hardware:** Apple Silicon (verified M4 Pro). 16 GB Macs likely OK with caveats; 8 GB Macs not recommended (peak 9.3 GB).
 - **Browser fallback:** `browser/static/readaloud-kokoro.js` ships alongside as the offline / Apache-2.0 alternative (Kokoro 82M via WebGPU). Operators on machines without mlx-audio swap the `<script src>` in `index.html`.
 
-**License — IMPORTANT:** Voxtral weights are **CC-BY-NC-4.0** (non-commercial). Personal vidux use is fine. Commercial Leo properties (Snowcubes / Resplit / StrongYes) MUST NOT call this endpoint with Voxtral — substitute Apple Premium voices via Web Speech API, or the Apache-2.0 Kokoro fallback.
+**License — IMPORTANT:** Voxtral weights are **CC-BY-NC-4.0** (non-commercial). Personal vidux use is fine. Commercial properties MUST NOT call this endpoint with Voxtral — substitute Apple Premium voices via Web Speech API, or the Apache-2.0 Kokoro fallback.
 
 **CORS:** mlx-audio.server's `--allowed-origins` allowlist must include both `http://localhost:7191` and `http://127.0.0.1:7191` for vidux-browse to call it from the browser. Loopback-only by default; LAN reading from another device requires adding that device's origin.
 
-**Install:** see the **/moussey** skill, "Voxtral Reader add-on" section. The full install command, plist install, and `launchctl bootstrap` step live there because they're per-Mac (Studio + M4 Pro both need their own).
+**Install:** see your machine-management skill's "Voxtral Reader add-on" section. The full install command, plist install, and `launchctl bootstrap` step live there because they're per-Mac.
 
 **Reference plan + architecture:**
 
 - `~/Development/vidux/projects/voxtral-reader-addon/PLAN.md` — task breakdown M1-M10 + Decision Log + Two-Agent Coordination protocol.
 - `~/Development/vidux/projects/voxtral-reader-addon/evidence/2026-05-01-architecture.md` — port + endpoint + CORS + LaunchAgent decisions, with the canonical `uv tool install` command including the seven `--with` extras mlx-audio's PyPI metadata is missing.
-- `~/Development/vidux/scripts/launchd/com.leokwan.mlx-audio.plist` — the in-repo source-of-truth plist for cross-Mac install.
+- `~/Development/vidux/scripts/launchd/com.<user>.mlx-audio.plist` — the in-repo source-of-truth plist for cross-Mac install.
+
+---
+
+## Voice & Tone
+
+Output should sound like a sharp teammate briefing the user, not a CI pipeline writing a report.
+
+- **Lead with what matters.** What shipped, what is blocked, what you need from the user. Not role labels, not file lists, not generic summaries.
+- **One warm paragraph beats a 10-row table.** Save structured role breakdowns for ledger entries and memory files. The human-facing output should read like a message from someone who cares about the project.
+- **Name things by product meaning.** "Built and uploaded build 622 to TestFlight" beats "iOS Release Lane: shipped." "Screenshots stuck on CoreSimulator" beats "Screenshot + Snapshot + UI Test Sheriff: blocked."
+- **Be honest about nothing happening.** If a run produced no shipped code, say that in one sentence. Do not inflate coordination work into apparent progress.
+- **Blockers are requests, not complaints.** "The FX pipeline needs a fresh credential — can you rotate it?" beats "FX Lane: blocked (credential expired)."
+- **Ledger, plans, and memory can stay structured** — those are for machines and future agents. The final message to the human is for a human.
+
+Default to: terse, concrete, evidence-cited; one decision per paragraph; named files+lines for citations; no hedging language; no marketing tone.
+
+---
+
+## Reference Files
+
+The `pilot/` subfiles remain on disk and are referenced by name from this SKILL.md. They contain the long-form detail for routing, orchestration, patterns, and stage playbooks.
+
+| File | What It Contains |
+|------|-----------------|
+| **Orchestration** | |
+| `pilot/orchestration/mayor.md` | Orchestration loop: decompose → plan → spawn → track → intervene → integrate → handoff |
+| `pilot/orchestration/nursing.md` | Supervisory cadence for hot lanes, timed ledger polling, and queue driving |
+| `pilot/orchestration/lanes.md` | Lane anatomy, rules, decomposition patterns, conflict resolution |
+| `pilot/orchestration/handoff.md` | Handoff protocol: ledger entries, 5-suggestion pattern, receiving handoffs |
+| `pilot/orchestration/molecules.md` | Composable workflow templates: Feature, Cleanup, Migration, Research, Integration |
+| **Patterns** | |
+| `pilot/patterns/leos-patterns.md` | 20+ universal engineering patterns with examples |
+| `pilot/patterns/plan-template.md` | Skeleton plan: locked decisions, TDD slices, gates, kill list |
+| `pilot/patterns/gate-checklist.md` | Per-stack verification commands |
+| **Stage Playbooks** | |
+| `pilot/stages/kickoff.md` | New feature playbook |
+| `pilot/stages/mid-flight.md` | Resume/continue playbook |
+| `pilot/stages/last-mile.md` | Polish/ship playbook |
+| `pilot/stages/quick-hit.md` | Small feature playbook |
+| `pilot/stages/expedition.md` | Multi-phase playbook (integrates orchestration for ORCHESTRATED scale) |
+| **Stack Routing** | |
+| `pilot/stacks/ios-tuist.md` | iOS skill routing |
+| `pilot/stacks/nextjs-vercel.md` | Next.js skill routing |
+| `pilot/stacks/shopify.md` | Shopify skill routing |
+| `pilot/stacks/vite-react.md` | Vite/React skill routing |
+
+---
+
+## Beyond Core — Automation and Recipes
+
+Everything above is **core vidux** — the five principles, the cycle, the PLAN.md template, investigations, course correction, routing, orchestration. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. A human following core alone is doing vidux correctly.
+
+If your work needs more, two companion surfaces carry the rest:
+
+- **[`guides/automation.md`](guides/automation.md)** — the 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load this when you run lanes on a schedule.
+- **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and patterns. CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements, and more. Load a specific recipe on demand.
+
+**Codex automation default:** when creating a new automation from Codex, assume `Run in: Chat`. Do not default to `Worktree` or `Local` unless the user explicitly asks for repo-bound execution or the task cannot be done from chat.
+
+Neither surface overrides core vidux. Core is opinionated machinery; automation and recipes are opt-in layers.

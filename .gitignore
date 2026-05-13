@@ -76,3 +76,4 @@ secrets/
 browser/artifacts/*
 !browser/artifacts/.gitkeep
 .playwright-cli/
+vidux.config.json
