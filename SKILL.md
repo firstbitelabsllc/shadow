@@ -600,6 +600,29 @@ Artifacts render via direct `innerHTML` into the same pane that renders markdown
 
 For lanes consuming this surface: drop the artifact, log the URL to memory if you want to reference it later (`http://127.0.0.1:7191/` then click into the slug in the sidebar). The artifact survives across sessions; the slug is the stable handle.
 
+#### Symlinks vs hard links in `artifacts/`
+
+When you want an artifact file to share content with a canonical source elsewhere (e.g., the `.html` lives next to a `.md` source in some other repo and you want a single inode), use a **hard link, not a symlink**. The browser server enforces this mechanically; symlinks pointing outside `ARTIFACTS_DIR` fail closed.
+
+**Why.** `browser/server.py`'s `safe_resolve_any()` validates request paths with `Path.resolve()`, which follows symlinks. If an artifact file is a symlink whose target resolves OUTSIDE `ARTIFACTS_DIR` (e.g., to a canonical source in another repo), the subsequent `Path.relative_to(ARTIFACTS_DIR.resolve())` raises `ValueError` — the server returns **403 forbidden** on `/api/file` and `/api/comments`.
+
+**Symptom.** Artifact metadata shows in the sidebar (vidux-browse globs the dir for index purposes and that's directory iteration, not path resolution), but the body never loads. Browser console shows `failed to load comments: forbidden` plus a 403 on the file request. The H1 from the index may render but everything below is empty.
+
+**Fix — hard link, no `-s`:**
+
+```bash
+rm ~/Development/vidux/browser/artifacts/<slug>.html
+ln <canonical-path>.html ~/Development/vidux/browser/artifacts/<slug>.html   # no -s
+```
+
+**Constraints + verification:**
+- Same filesystem only. Any path under the user's home volume is fine (`~/Development/...`, `~/Snapchat/Dev/...`, `~/.claude/...` all share one volume on a stock macOS install). Cross-volume hard links fail at `ln` time.
+- `Path.resolve()` does NOT cross hard links — the artifact path stays inside `ARTIFACTS_DIR`, security check passes.
+- Updates to the canonical file reflect instantly at the artifact path; it's one inode with two names.
+- Verify with `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove they share data.
+
+**Real-world incident (2026-05-12).** `music-semantic-backend-mvp.html` was dropped into `artifacts/` as a symlink to its canonical source in another repo. vidux-browse sidebar showed it; clicking it rendered only the H1 plus `403: forbidden` in the body. Replacing the symlink with a hard link fixed it the same minute. Memory: `reference_vidux_artifacts_hardlink_rule.md`.
+
 ### Named comments / annotations
 
 vidux-browse comments are lightweight annotations on the current view. They can target either an allowed markdown file (`PLAN.md`, `INBOX.md`, `investigations/*.md`, `evidence/*.md`, etc.) or an HTML artifact.
