@@ -19,6 +19,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+# Receipt corpus lab handlers (math-fortress T9). Sibling package; server.py
+# runs with its own dir on sys.path[0] so `from receipts ...` resolves.
+from receipts import handler as _receipts_handler
+
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
 HOST = os.environ.get("VIDUX_BROWSER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("VIDUX_BROWSER_PORT", "7191"))
@@ -729,6 +733,9 @@ class Handler(BaseHTTPRequestHandler):
             ctype = ("text/html; charset=utf-8" if p.suffix.lower() == ".html"
                      else "text/markdown; charset=utf-8")
             self._send_with_type(p.read_bytes(), ctype)
+        elif route == "/api/receipts/list":
+            status, body = _receipts_handler.handle_list()
+            self._send(status, "") if status >= 400 else self._json(body)
         else:
             self._send(404, "not found")
 
@@ -890,6 +897,44 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, str(result))
                 return
             self._json({"ok": True, "comment": result})
+        elif url.path == "/api/receipts/upload":
+            if not self._require_json_write():
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            # Cap matches handler.MAX_IMAGE_BYTES (15 MB) + base64 overhead (~33%) + JSON wrapper.
+            if length <= 0 or length > 22 * 1024 * 1024:
+                self._send(400, "missing or oversized body (22 MB cap for base64-wrapped JSON)")
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._send(400, f"bad json: {e}")
+                return
+            status, body = _receipts_handler.handle_upload(payload)
+            self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
+        elif url.path.startswith("/api/receipts/") and url.path.endswith("/tag"):
+            if not self._require_json_write():
+                return
+            row_id = url.path[len("/api/receipts/"):-len("/tag")]
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 16 * 1024:
+                self._send(400, "missing or oversized body (16 KB cap for tag payload)")
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._send(400, f"bad json: {e}")
+                return
+            status, body = _receipts_handler.handle_tag(row_id, payload)
+            self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
+        elif url.path.startswith("/api/receipts/") and url.path.endswith("/ocr"):
+            if not self._require_json_write():
+                return
+            row_id = url.path[len("/api/receipts/"):-len("/ocr")]
+            status, body = _receipts_handler.handle_ocr(row_id)
+            self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
         else:
             self._send(404, "not found")
 
