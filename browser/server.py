@@ -701,6 +701,8 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(url.query)
         if route == "/" or route == "/index.html":
             self._serve_static("index.html", "text/html; charset=utf-8")
+        elif route == "/receipts" or route == "/receipts/":
+            self._serve_static("receipts.html", "text/html; charset=utf-8")
         elif route.startswith("/static/"):
             name = route[len("/static/"):]
             self._serve_static(name)

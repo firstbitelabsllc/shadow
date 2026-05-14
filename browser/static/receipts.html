@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>receipts — vidux corpus lab</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* Receipt lab — extends paper-and-ink palette from style.css */
+  main { padding: 16px clamp(16px, 2vw, 32px); max-width: 1200px; margin: 0 auto; }
+  h2 { font-family: var(--serif); margin: 24px 0 8px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .row label { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+  input[type="text"], input[type="file"], textarea {
+    background: var(--paper); border: 1px solid var(--rule); color: var(--ink);
+    padding: 6px 10px; font-family: var(--sans); font-size: 14px; border-radius: 3px;
+  }
+  input[type="text"] { min-width: 240px; }
+  button {
+    background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink);
+    padding: 6px 14px; cursor: pointer; font-family: var(--sans); font-size: 14px;
+    border-radius: 3px;
+  }
+  button:hover { background: var(--select); }
+  button.primary { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  button.primary:hover { background: #244e30; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .card {
+    background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px;
+    padding: 12px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .card .id { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+  .card .name { font-family: var(--serif); font-size: 16px; }
+  .card .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag {
+    background: var(--select); color: var(--ink); border: 1px solid var(--rule);
+    padding: 1px 6px; border-radius: 2px; font-family: var(--mono); font-size: 11px;
+  }
+  .tag-input { font-family: var(--mono); font-size: 12px; width: 100%; }
+  .status { font-family: var(--mono); font-size: 12px; color: var(--ink-2); min-height: 18px; }
+  .status.error { color: var(--hot); }
+  .status.ok { color: var(--task-completed); }
+  .private { color: var(--hot); font-family: var(--mono); font-size: 11px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>receipts — vidux corpus lab</h1>
+  <span style="font-family: var(--mono); font-size: 12px; color: var(--ink-2);">
+    math fortress T9.1
+  </span>
+</header>
+
+<main>
+  <h2>Drop a receipt</h2>
+  <div class="row">
+    <label>name <input type="text" id="upload-name" placeholder="lunch at cafe"></label>
+    <label>tags <input type="text" id="upload-tags" placeholder="thermal,USD,short"></label>
+    <label><input type="checkbox" id="upload-private"> private (no image saved)</label>
+  </div>
+  <div class="row">
+    <input type="file" id="upload-file" accept="image/jpeg,image/png">
+    <button class="primary" id="upload-btn">upload + ingest</button>
+    <span class="status" id="upload-status"></span>
+  </div>
+
+  <h2>Corpus <span id="count" style="font-family: var(--mono); font-size: 13px; color: var(--ink-2);"></span></h2>
+  <div class="row">
+    <button id="refresh-btn">refresh</button>
+    <span class="status" id="list-status"></span>
+  </div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function refreshList() {
+  const status = $("list-status");
+  status.className = "status";
+  status.textContent = "loading…";
+  try {
+    const r = await fetch("/api/receipts/list");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    $("count").textContent = `(${data.count})`;
+    renderGrid(data.rows || []);
+    status.className = "status ok";
+    status.textContent = `loaded ${data.count}`;
+  } catch (e) {
+    status.className = "status error";
+    status.textContent = `error: ${e.message}`;
+  }
+}
+
+function renderGrid(rows) {
+  const grid = $("grid");
+  grid.innerHTML = "";
+  for (const row of rows) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="id">${row.id}${row.private ? ' <span class="private">PRIVATE</span>' : ''}</div>
+      <div class="name">${escapeHtml(row.name || "(unnamed)")}</div>
+      <div class="tags">
+        ${(row.annotations?.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}
+      </div>
+      <input class="tag-input" type="text"
+             data-id="${row.id}"
+             value="${escapeHtml((row.annotations?.tags || []).join(","))}"
+             placeholder="comma,separated,tags">
+    `;
+    const input = card.querySelector(".tag-input");
+    input.addEventListener("change", () => updateTags(row.id, input.value));
+    grid.appendChild(card);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+async function updateTags(id, tagString) {
+  const tags = tagString.split(",").map(t => t.trim()).filter(Boolean);
+  try {
+    const r = await fetch(`/api/receipts/${id}/tag`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tags }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    refreshList();
+  } catch (e) {
+    $("list-status").className = "status error";
+    $("list-status").textContent = `tag update failed: ${e.message}`;
+  }
+}
+
+async function upload() {
+  const status = $("upload-status");
+  const fileInput = $("upload-file");
+  const file = fileInput.files[0];
+  if (!file) {
+    status.className = "status error";
+    status.textContent = "pick a file first";
+    return;
+  }
+  status.className = "status";
+  status.textContent = "reading…";
+
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  // Convert to base64 via chunked btoa (avoids call-stack limit on large files).
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  const b64 = btoa(binary);
+
+  const tags = $("upload-tags").value.split(",").map(t => t.trim()).filter(Boolean);
+  const payload = {
+    name: $("upload-name").value.trim() || file.name,
+    image_base64: b64,
+    tags,
+    private: $("upload-private").checked,
+    source: "vidux-browse:web-ui",
+  };
+
+  status.textContent = "uploading…";
+  try {
+    const r = await fetch("/api/receipts/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    status.className = "status ok";
+    status.textContent = data.duplicate
+      ? `already in corpus: ${data.id}`
+      : `ingested: ${data.id}`;
+    $("upload-name").value = "";
+    $("upload-tags").value = "";
+    fileInput.value = "";
+    refreshList();
+  } catch (e) {
+    status.className = "status error";
+    status.textContent = `error: ${e.message}`;
+  }
+}
+
+$("upload-btn").addEventListener("click", upload);
+$("refresh-btn").addEventListener("click", refreshList);
+
+refreshList();
+</script>
+
+</body>
+</html>
