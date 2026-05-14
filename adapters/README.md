@@ -8,13 +8,98 @@ trips status + custom fields; the sync script reconciles.
 
 Adapters shipped today:
 
-| adapter       | status  | file                 |
-|---------------|---------|----------------------|
-| `gh_projects` | live    | `gh_projects.py`     |
-| `linear`      | live    | `linear.py`          |
-| `asana`       | stub    | `asana.py`           |
-| `jira`        | stub    | `jira.py`            |
-| `trello`      | stub    | `trello.py`          |
+| adapter       | status            | file                 |
+|---------------|-------------------|----------------------|
+| `gh_projects` | live              | `gh_projects.py`     |
+| `linear`      | live              | `linear.py`          |
+| `apple_asc`   | live (READ-only)  | `apple_asc.py`       |
+| `asana`       | stub              | `asana.py`           |
+| `jira`        | stub              | `jira.py`            |
+| `trello`      | stub              | `trello.py`          |
+
+## Apple ASC adapter — read-only feedback-tracker shape
+
+`apple_asc` is the first feedback-tracker-shaped adapter (as opposed
+to a PM-board adapter like `linear` / `gh_projects`). Apple does NOT
+publish a public API for marking TestFlight / ASC beta feedback
+handled, so the source of truth is a repo-local tracker file —
+typically `<repo>/.cursor/plans/app-store-feedback.plan.md` —
+maintained out-of-band by `ruby scripts/asc_beta_feedback.rb sync-plan`.
+
+The adapter is READ-only:
+
+- `fetch_inbox()` parses every `- id: ...` row inside the file's
+  `## Open` section and returns one `ExternalItem` per row.
+- `pull_status` returns `None` — the sync script treats this as
+  "leave the PLAN.md status unchanged"; the tracker file is the
+  authoritative status mutation, not the agent.
+- `pull_fields` returns `{}`.
+- `push_task` / `push_status` / `push_fields` raise
+  `NotImplementedError("Apple ASC has no public API for marking
+  TestFlight / beta feedback handled; the tracker file is one-way
+  READ-only.")`.
+
+Once configured, the standard `vidux-inbox-sync.py --direction=both`
+pipeline lifts ASC feedback into PLAN.md and (via the same sync's
+PUSH leg, when paired with the `linear` adapter's `push_only_for_plans`
+mechanism) creates a Linear EVE issue for each row. This retires the
+tactical `scripts/vidux-asc-bridge.py` one-shot script.
+
+### Config
+
+```json
+{
+  "adapter": "apple_asc",
+  "enabled": true,
+  "config": {
+    "tracker_file": "~/Development/resplit-ios/.cursor/plans/app-store-feedback.plan.md",
+    "status_filter": ["new", "triaged", "claimed"]
+  }
+}
+```
+
+- `tracker_file` (required) — absolute or `~`-expanded path to the
+  ASC tracker file. Missing file returns `[]` cleanly (fail-safe;
+  mid-rename or fresh-clone won't crash the cron).
+- `status_filter` (optional, defaults to `["new", "triaged",
+  "claimed"]`) — only rows whose `status:` field matches one of
+  these values are returned. Terminal states (`fixed`, `verified`,
+  `archived`) are ALWAYS dropped regardless of the filter, since
+  they have no actionable agent value.
+
+### Tracker file format (YAML-ish, NOT strict YAML)
+
+```text
+## Open
+
+- id: ABUGCGWL18gG13e5Tajjzek
+  type: screenshot
+  status: new
+  first_seen: 2026-05-07
+  submitted_at: 2026-05-07T15:37:17.563Z
+  comment: <free-form text, may span multiple lines>
+  surface: <free-form text>
+  owner: resplit-watch/1778218936
+```
+
+The parser tolerates:
+
+- Multi-line continuation values (indented past the `- id:`
+  column, not matching `^key:`).
+- Git-conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) so a
+  mid-merge tracker doesn't crash the cron.
+- Free-form prose between rows in `## Open` (e.g. section header
+  notes).
+- Sections other than `## Open` are ignored — `## Verified` and
+  `## Archived` rows never enter the inbox.
+
+### Idempotency
+
+`external_id = "asc:<id>"` is namespaced and stable across re-runs.
+The same tracker file parsed at two different times yields the same
+external_id for the same row, so the sync script's per-plan
+`.external-state.json` sidecar reconciles correctly without
+duplicates.
 
 ## Linear adapter — description is human-only (2026-04-25 migration)
 

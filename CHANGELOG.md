@@ -6,6 +6,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.11] - 2026-05-14
+
+Added `apple_asc` adapter — generic read-only feedback-tracker adapter
+that parses ASC-style YAML and returns `ExternalItem` markers for the
+standard `vidux-inbox-sync.py` PULL → auto-promote pipeline. Closes T-4
+of the `asc-eve-autobridge` goal.
+
+The adapter parses the `## Open` section of a repo-local tracker file
+(typically `<repo>/.cursor/plans/app-store-feedback.plan.md`,
+maintained out-of-band by `ruby scripts/asc_beta_feedback.rb
+sync-plan`) and returns one `ExternalItem` per row with `external_id
+= "asc:<id>"`. `pull_status` returns `None` and `pull_fields` returns
+`{}` so the sync script treats ASC rows as PENDING without trying to
+write back. `push_task` / `push_status` / `push_fields` all raise
+`NotImplementedError("Apple ASC has no public API for marking
+TestFlight / beta feedback handled; the tracker file is one-way
+READ-only.")` because Apple does not publish a feedback-handling API.
+
+Once paired with the `linear` adapter's `push_only_for_plans`
+mechanism in `vidux.config.json`, every new ASC feedback row flows
+end-to-end from the tracker file → PLAN.md → Linear EVE issue with
+zero manual bridging. This retires the tactical
+`scripts/vidux-asc-bridge.py` one-shot script, which is kept in-tree
+for now during migration — it will be deleted in 2.27.0 once at
+least one cron cycle proves the adapter handles all ASC sources.
+
+### Added
+
+- **`adapters/apple_asc.py`** — `AppleAscAdapter` class registered
+  under `name = "apple_asc"`. Config schema: `tracker_file`
+  (required, `~`-expanded path) + `status_filter` (optional list,
+  defaults to `["new", "triaged", "claimed"]`). Terminal states
+  (`fixed`, `verified`, `archived`) are always dropped regardless
+  of filter.
+- **`tests/test_apple_asc.py`** — 22 unit tests covering multi-row
+  parsing, status_filter behavior, terminal-state rejection, empty
+  `## Open` section, multi-line continuation values, git-conflict
+  marker tolerance, write-path `NotImplementedError`, registry
+  resolution, idempotent `external_id` namespacing, missing-file
+  fail-safe, and config validation.
+- **`adapters/__init__.py`** — adds `from adapters import apple_asc`
+  side-effect import so the `@register` decorator populates the
+  registry.
+- **`adapters/README.md`** — apple_asc section documenting the
+  feedback-tracker shape, config schema, tracker file format,
+  parser tolerances, and idempotency guarantees.
+- **`SKILL.md`** — adapter list updated to mention `apple_asc` as
+  live READ-only, with the full config + retire-of-bridge-script
+  plan inline.
+
+### Deferred
+
+- `scripts/vidux-asc-bridge.py` retire-and-delete — kept for now;
+  removal scheduled for 2.27.0 after one cron cycle of overlap to
+  confirm the adapter path handles every real-world ASC tracker
+  shape we hit in production.
+
+---
+
 ## [2.26.10] - 2026-05-14
 
 ### Security

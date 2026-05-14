@@ -23,6 +23,7 @@ from adapters import linear  # noqa: F401
 from adapters import asana  # noqa: F401
 from adapters import jira  # noqa: F401
 from adapters import trello  # noqa: F401
+from adapters import apple_asc  # noqa: F401
 
 __all__ = [
     "AdapterBase",
