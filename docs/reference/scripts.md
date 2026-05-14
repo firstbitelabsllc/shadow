@@ -57,7 +57,6 @@ If you wire it into an app-level `afterTask` event, wrap it with the task-specif
 | Script | Purpose |
 |---|---|
 | `scripts/vidux-linear-reconcile.py` | One-shot reconcile for auto-promoted Linear tasks. Removes local `PLAN.md` task lines and `.external-state.json` mappings only when the remote Linear issue state is canceled (including duplicate-style canceled states). |
-| `scripts/strip-linear-codec-markers.py` | Clean old vidux metadata markers out of Linear issue descriptions and persist metadata to sidecar state. |
 
 ## How to navigate the directory
 

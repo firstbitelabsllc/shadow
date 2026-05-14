@@ -59,6 +59,7 @@ from typing import Callable, Sequence
 TERMINAL_STATES = frozenset({"completed", "cancelled"})
 NON_TERMINAL_STATES = frozenset({"pending", "in_progress", "blocked"})
 
+# Leo's fleet — override with --repo flag for portability.
 DEFAULT_REPOS = (
     "vidux",
     "strongyes-web",
@@ -202,7 +203,12 @@ def closeout_status(
 
 
 def _vidux_root() -> Path:
-    return Path(os.path.expanduser("~/Development/vidux"))
+    return Path(
+        os.environ.get(
+            "VIDUX_ROOT",
+            str(Path.home() / "Development" / "vidux"),
+        )
+    ).expanduser()
 
 
 def _live_run_audit(audit_script: Path) -> dict | None:
@@ -225,7 +231,12 @@ def _live_run_sync(
     repos: Sequence[str],
 ) -> list[dict]:
     out: list[dict] = []
-    dev = Path(os.path.expanduser("~/Development"))
+    dev = Path(
+        os.environ.get(
+            "VIDUX_DEV_ROOT",
+            str(Path.home() / "Development"),
+        )
+    ).expanduser()
     for repo in repos:
         repo_dir = dev / repo
         if not repo_dir.exists() or not inbox_sync.exists():

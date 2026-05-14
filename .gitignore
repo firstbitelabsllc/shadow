@@ -68,6 +68,17 @@ tmp*.md
 *.pem
 secrets/
 
+# Tokens / credentials — never commit
+*.token
+*-state.json
+.netrc
+*.netrc
+.linear-state.json
+.gh-project-state.json
+
+# Leo's local vidux config — must stay local, never tracked
+vidux.config.json
+
 # Browser runtime artifacts (user-generated HTML, not source)
 browser/artifacts/*
 !browser/artifacts/.gitkeep

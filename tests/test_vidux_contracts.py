@@ -542,8 +542,13 @@ class ViduxContractTests(unittest.TestCase):
     REPO_ROOT = ROOT.parent.parent
 
     def test_config_exists_and_valid(self):
-        """vidux.config.json must exist and have required keys."""
-        config_path = ROOT / "vidux.config.json"
+        """vidux.config.example.json must exist and have required keys.
+
+        Test migrated from vidux.config.json to vidux.config.example.json on
+        2026-05-14 — the live config file is now gitignored (user-local, not
+        source). The example file is the durable schema artifact.
+        """
+        config_path = ROOT / "vidux.config.example.json"
         self.assertTrue(config_path.exists())
         data = json.loads(config_path.read_text(encoding="utf-8"))
         for key in ("version", "plan_store", "defaults"):
@@ -2057,8 +2062,11 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("afterTask", events, "Missing afterTask hook")
 
     def test_config_has_backpressure_section(self):
-        """vidux.config.json must have backpressure section with bimodal thresholds."""
-        config = json.loads((ROOT / "vidux.config.json").read_text())
+        """vidux.config.example.json must have backpressure section with bimodal thresholds.
+
+        Migrated from vidux.config.json on 2026-05-14 (config is now gitignored).
+        """
+        config = json.loads((ROOT / "vidux.config.example.json").read_text())
         self.assertIn("backpressure", config)
         bp = config["backpressure"]
         self.assertIn("bimodal_critical_threshold", bp)
@@ -2066,8 +2074,11 @@ class ViduxContractTests(unittest.TestCase):
         self.assertGreater(bp["bimodal_warning_threshold"], bp["bimodal_critical_threshold"])
 
     def test_config_has_pruning_section(self):
-        """vidux.config.json must have pruning section."""
-        config = json.loads((ROOT / "vidux.config.json").read_text())
+        """vidux.config.example.json must have pruning section.
+
+        Migrated from vidux.config.json on 2026-05-14 (config is now gitignored).
+        """
+        config = json.loads((ROOT / "vidux.config.example.json").read_text())
         self.assertIn("pruning", config)
         self.assertIn("stale_blocked_days", config["pruning"])
         self.assertIn("max_concurrent_worktrees", config["pruning"])

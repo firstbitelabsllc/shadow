@@ -32,10 +32,12 @@ estimate. Round-trip metadata moves into the per-plan
 `adapters.linear.task_metadata`, keyed by VidxId. The sync script reads / writes
 the sidecar; the adapter never inspects descriptions for codec markers.
 
-Migration: `scripts/strip-linear-codec-markers.py` rewrote all 92 in-flight
-EVE-team issues + populated their plan sidecars from the extracted block data.
-Idempotent. The codec is fully deprecated; `_parse_body` and the `_DELIM_*`
-constants are gone from `adapters/linear.py`.
+Migration (2026-04-25, complete): a one-off script rewrote all 92 in-flight
+EVE-team issues and populated their plan sidecars from the extracted block
+data. The script (`scripts/strip-linear-codec-markers.py`) was removed in
+2026-05-08's open-source-readiness sweep — see `CHANGELOG.md`. The codec is
+fully deprecated; `_parse_body` and the `_DELIM_*` constants are gone from
+`adapters/linear.py`.
 
 ## What Linear gives you that GH Projects doesn't
 
