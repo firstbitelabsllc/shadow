@@ -37,6 +37,28 @@ cp hooks/post-commit-checkpoint.sh /path/to/your/project/.git/hooks/post-commit
 cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 ```
 
+## Security posture
+
+vidux runs with two credentials per user, both stored locally (NEVER in repo):
+
+- **Linear personal API key:** `~/.config/vidux/linear.token` (chmod 600). Used by `adapters/linear.py`.
+- **GitHub Personal Access Token:** `~/.config/vidux/gh-project.token` (chmod 600). Used by `adapters/gh_projects.py`.
+
+Both files are in the user's home directory, NOT in the repo. Commit hooks
+(`gitleaks`, see `.gitleaks.toml`) catch accidental commits of these files.
+
+For multi-machine sync (e.g. across two Macs): copy the token files manually
+out-of-band; do NOT include them in any repo sync.
+
+## Multi-platform notes
+
+vidux is developed on macOS but core scripts are POSIX-compatible:
+- All Python scripts use `python3` shebangs and stdlib only
+- `vidux-browse` is `http.server` + plain HTML/JS — runs anywhere Python runs
+- Cron integration: macOS uses launchd plists; Linux users should adapt to systemd timers or cron
+
+`scripts/launchd/` contains macOS-specific plists; use as templates.
+
 ## Vidux Browse
 
 Vidux also ships a local browser surface for reading plans, reviewing HTML artifacts, and leaving comments without editing the source files:

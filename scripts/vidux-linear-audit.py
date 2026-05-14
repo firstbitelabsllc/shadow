@@ -54,6 +54,7 @@ SKIPPED = "skipped"
 # Worst-of semantics: red beats yellow beats green; skipped is neutral.
 STATUS_RANK = {GREEN: 0, YELLOW: 1, RED: 2, SKIPPED: -1}
 
+# Leo's fleet — override with --repo flag for portability.
 DEFAULT_REPOS = (
     "vidux",
     "strongyes-web",
@@ -61,6 +62,9 @@ DEFAULT_REPOS = (
     "resplit-ios",
     "fcp-workflow",
 )
+
+# GitHub owner — override with VIDUX_GH_OWNER env or --owner flag.
+DEFAULT_GH_OWNER = "leojkwan"
 
 # LI-4 managed labels — the Linear adapter creates/maintains these.
 MANAGED_LABELS = (
@@ -533,7 +537,16 @@ def build_envelope(results: Sequence[CheckResult]) -> dict:
 
 
 def _dev_root() -> Path:
-    return Path(os.path.expanduser("~/Development"))
+    return Path(
+        os.environ.get(
+            "VIDUX_DEV_ROOT",
+            str(Path.home() / "Development"),
+        )
+    ).expanduser()
+
+
+def _gh_owner() -> str:
+    return os.environ.get("VIDUX_GH_OWNER", DEFAULT_GH_OWNER)
 
 
 def _live_load_config(repo: str) -> dict | None:
@@ -552,7 +565,7 @@ def _live_fetch_open_prs(repo: str) -> list[dict]:
         "pr",
         "list",
         "--repo",
-        f"leojkwan/{repo}",
+        f"{_gh_owner()}/{repo}",
         "--state",
         "open",
         "--json",
@@ -573,7 +586,7 @@ def _live_fetch_open_drafts(repo: str) -> list[dict]:
         "pr",
         "list",
         "--repo",
-        f"leojkwan/{repo}",
+        f"{_gh_owner()}/{repo}",
         "--state",
         "open",
         "--draft",
@@ -732,6 +745,11 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help="scope repo-level checks to one repo (repeatable)",
     )
     p.add_argument(
+        "--owner",
+        default=None,
+        help="GitHub owner for PR lookups (default: $VIDUX_GH_OWNER or 'leojkwan')",
+    )
+    p.add_argument(
         "--no-network",
         action="store_true",
         help="skip Linear/gh calls; useful for unit tests and offline smoke",
@@ -741,6 +759,8 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
+    if args.owner:
+        os.environ["VIDUX_GH_OWNER"] = args.owner
     envelope = run_audit(
         selected=args.check,
         repos=args.repo,
