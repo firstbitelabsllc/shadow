@@ -155,6 +155,7 @@ def attach_children(plans: list[dict]) -> list[dict]:
     existence-only rather than presence checks.
     """
     by_rel: dict[str, dict] = {p["rel"]: p for p in plans}
+    by_path: dict[Path, dict] = {Path(p["path"]).resolve(): p for p in plans}
     # Repo-scoped index: ('<repo>', '<repo-relative-rel>') → plan. The
     # repo-relative rel strips the leading `<repo>/` so a child's
     # `vidux/foo/PLAN.md` backlink finds `<repo>/vidux/foo/PLAN.md`.
@@ -171,6 +172,8 @@ def attach_children(plans: list[dict]) -> list[dict]:
             continue
         parent = by_rel.get(parent_rel)
         if parent is None:
+            parent = resolve_relative_parent(plan, parent_rel, by_path)
+        if parent is None:
             # Backlink wasn't a full DEV_ROOT-rel — try repo-scoped resolution.
             parent = by_repo_rel.get((plan["repo"], parent_rel))
         if parent is None:
@@ -184,6 +187,18 @@ def attach_children(plans: list[dict]) -> list[dict]:
     for plan in plans:
         plan["children"].sort(key=lambda c: c["rel"])
     return plans
+
+
+def resolve_relative_parent(plan: dict, parent_ref: str, by_path: dict[Path, dict]) -> dict | None:
+    """Resolve `Parent: ../../PLAN.md` style refs from the child plan's directory."""
+    if not parent_ref.startswith(("./", "../")):
+        return None
+    try:
+        candidate = (Path(plan["path"]).resolve().parent / parent_ref).resolve()
+        candidate.relative_to(DEV_ROOT)
+    except (OSError, ValueError):
+        return None
+    return by_path.get(candidate)
 
 
 def aggregate_stats(plan: dict, _visited: set[str] | None = None) -> dict:
