@@ -38,6 +38,10 @@ projects/*
 # activated AFTER 2.0 ships. Brand-frozen items unfreeze here. Net-new feature
 # pump turns ON here. Tracked so all agents converge on the same dormant plan.
 !projects/resplit-2-0-1/
+# Exception: resplit-2-0-readiness is the CC /goal authority store for driving
+# Resplit 2.0 launch readiness to done-done (2026-05-14). Tracked so both Macs
+# see the same plan and the /goal session can resume across machines.
+!projects/resplit-2-0-readiness/
 # Exception: ui-test-sweep-2026-05-07 is the post-build-2429 P0 iOS UI sweep
 # (Leo verbatim 2026-05-07: "10000% clarity on ui testing"). Sibling of
 # resplit-2-0-1 punch-list. Tracked so sim-walker subagents converge on the
