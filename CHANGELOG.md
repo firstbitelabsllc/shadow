@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Vidux u
 
 ---
 
+## [2.26.10] - 2026-05-14
+
+### Security
+- Untracked `vidux.config.json` — local-config-not-source, properly gitignored now
+- Added `gitleaks` config + GitHub Actions workflow to catch future leaks pre-merge
+- Beefed up `.gitignore` with `*.token`, `*-state.json`, `.netrc` patterns
+
+### Open-source readiness
+- Parameterized hardcoded paths in `vidux-lane-closeout.py` and `vidux-linear-audit.py` via `VIDUX_ROOT` / `VIDUX_DEV_ROOT` env vars
+- Parameterized GitHub owner in `vidux-linear-audit.py` via `VIDUX_GH_OWNER` env or `--owner` flag
+- Removed `scripts/strip-linear-codec-markers.py` (Leo-specific one-off migration script that already completed its EVE-team rewrite in 2026-04-25; kept locally under `/vidux-leo` skill scope)
+
+### Docs
+- Added `## Security posture` section to README explaining token storage convention
+- Added `## Multi-platform notes` for non-macOS users
+- Updated `adapters/README.md` and `docs/reference/scripts.md` to remove dangling references to the deleted migration script
+
+---
+
 ## [2.26.9] - 2026-05-09
 
 A focused parser fix for `vidux-asc-bridge.py`. The original ASC ID
