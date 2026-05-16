@@ -25,19 +25,42 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/leojkwan/vidux.git
-ln -sfn /path/to/vidux ~/.claude/skills/vidux
+git clone https://github.com/leojkwan/vidux.git ~/Development/vidux
+ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
+vidux dev
 ```
 
-Then run `/vidux "your project description"` in Claude Code. The first cycle gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready.
+Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/` changes. Use `vidux help` for the full command list.
 
-Optional enforcement hooks for a target repo (copy from `hooks/`):
+## Install
+
+### Option A — symlink into PATH (recommended)
 
 ```bash
+ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
+```
+
+### Option B — add `bin/` to PATH
+
+```bash
+echo 'export PATH="$HOME/Development/vidux/bin:$PATH"' >> ~/.zshrc
+exec zsh
+```
+
+Verify with `vidux --version`.
+
+### Claude Code skill (optional)
+
+To use the `/vidux` slash-command discipline inside Claude Code, symlink this repo as a skill and copy optional enforcement hooks into a target repo:
+
+```bash
+ln -sfn ~/Development/vidux ~/.claude/skills/vidux
 cp hooks/pre-commit-plan-check.sh /path/to/your/project/.git/hooks/pre-commit
 cp hooks/post-commit-checkpoint.sh /path/to/your/project/.git/hooks/post-commit
 cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 ```
+
+Then run `/vidux "your project description"` in Claude Code. The first cycle gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready.
 
 ## Security posture
 
