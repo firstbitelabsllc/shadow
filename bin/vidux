@@ -22,7 +22,7 @@ commands:
   status [args]     Print active-plan status across projects/*/PLAN.md
   init <slug>       Bootstrap a new plan's PLAN.md from template        [stub: T-5]
   doctor            Diagnose local toolchain + auth                     [stub: T-4]
-  build             Run docs:build + contract tests as release gate     [stub: T-19]
+  build             Run docs:build + contract tests as release gate
   release           Bump VERSION, tag, push                             [stub: T-15]
   help [<cmd>]      Show this help, or help for a specific subcommand
 
@@ -103,10 +103,14 @@ EOF
       cat <<EOF
 vidux build — sanity gate before release.
 
-usage: vidux build
+usage: vidux build [--help|-h]
 
-status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-19.
-       Will run 'npm run docs:build' + the contract test suite.
+Runs two steps in order; aborts on first failure:
+  1. npm run docs:build   — vitepress build of docs/
+  2. npm test             — python contract test suite
+
+Exits 0 only when both pass. On failure, prints which step failed
+and the tail of its captured output.
 EOF
       ;;
     release)
@@ -197,7 +201,7 @@ main() {
       stub_exit "doctor" "T-4"
       ;;
     build)
-      stub_exit "build" "T-19"
+      exec bash "${VIDUX_ROOT}/scripts/vidux-build.sh" "$@"
       ;;
     release)
       stub_exit "release" "T-15"
