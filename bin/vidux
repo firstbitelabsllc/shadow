@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# vidux — top-level CLI dispatcher.
+#
+# Routes subcommands to existing helpers in scripts/ and bin/. Stubs
+# unimplemented subcommands with a pointer to the PLAN.md row that will
+# land them.
+#
+# Implements PLAN.md row T-1 of projects/vidux-oss-niceties.
+set -euo pipefail
+
+VIDUX_ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"
+
+print_top_help() {
+  cat <<EOF
+vidux — plan-first expedition orchestration for AI agents
+
+usage: vidux <command> [args...]
+
+commands:
+  dev               Start the local dev browser (foreground)            [stub: T-2]
+  browse [args]     Launch the plan browser at :7191
+  status [args]     Print active-plan status across projects/*/PLAN.md
+  init <slug>       Bootstrap a new plan's PLAN.md from template        [stub: T-5]
+  doctor            Diagnose local toolchain + auth                     [stub: T-4]
+  build             Run docs:build + contract tests as release gate     [stub: T-19]
+  release           Bump VERSION, tag, push                             [stub: T-15]
+  help [<cmd>]      Show this help, or help for a specific subcommand
+
+options:
+  --version, -v     Print vidux version
+  --help, -h        Show this help
+
+See projects/vidux-oss-niceties/PLAN.md for the roadmap of unimplemented
+subcommands.
+EOF
+}
+
+print_subcommand_help() {
+  local cmd="${1:-}"
+  case "${cmd}" in
+    dev)
+      cat <<EOF
+vidux dev — start the local dev browser in the foreground.
+
+usage: vidux dev
+
+status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-2.
+       Will foreground-tail bin/vidux-browse with auto-restart on
+       changes under browser/. Use 'vidux browse' today.
+EOF
+      ;;
+    browse)
+      cat <<EOF
+vidux browse — launch the plan browser at :7191.
+
+usage: vidux browse [--no-open] [--foreground|-f] [--help|-h]
+
+Proxies all arguments to bin/vidux-browse. See 'vidux browse --help'
+for the full flag list.
+EOF
+      ;;
+    status)
+      cat <<EOF
+vidux status — print active-plan status.
+
+usage: vidux status [args...]
+
+Runs scripts/vidux-status.py. All arguments are passed through.
+EOF
+      ;;
+    init)
+      cat <<EOF
+vidux init — bootstrap a new plan.
+
+usage: vidux init <slug>
+
+status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-5.
+       Will scaffold projects/<slug>/PLAN.md from the canonical
+       Purpose/Evidence/Constraints/Tasks/Decision Log/Progress template.
+EOF
+      ;;
+    doctor)
+      cat <<EOF
+vidux doctor — diagnose local toolchain + auth.
+
+usage: vidux doctor
+
+status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-4.
+       Will check python3 >= 3.10, gh auth, token chmod 600,
+       stale pidfiles, and contract-test suite pass.
+EOF
+      ;;
+    build)
+      cat <<EOF
+vidux build — sanity gate before release.
+
+usage: vidux build
+
+status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-19.
+       Will run 'npm run docs:build' + the contract test suite.
+EOF
+      ;;
+    release)
+      cat <<EOF
+vidux release — bump VERSION, tag, push.
+
+usage: vidux release
+
+status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-15.
+       Will bump VERSION, append CHANGELOG from [Unreleased], tag,
+       and push. Dry-run by default.
+EOF
+      ;;
+    help|"")
+      print_top_help
+      ;;
+    *)
+      echo "vidux: unknown command for help: ${cmd}" >&2
+      print_top_help >&2
+      return 2
+      ;;
+  esac
+}
+
+print_version() {
+  # VERSION file may contain trailing notes; the first non-empty,
+  # non-comment line is the version string.
+  awk 'NF && $1 !~ /^#/ { print; exit }' "${VIDUX_ROOT}/VERSION"
+}
+
+stub_exit() {
+  local cmd="$1"
+  local row="$2"
+  echo "vidux ${cmd}: not implemented yet — pending PLAN.md row ${row}" >&2
+  echo "see projects/vidux-oss-niceties/PLAN.md row ${row}" >&2
+  exit 1
+}
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    print_top_help
+    exit 0
+  fi
+
+  local cmd="$1"
+  shift || true
+
+  case "${cmd}" in
+    --version|-v)
+      print_version
+      ;;
+    --help|-h|help)
+      if [[ $# -gt 0 ]]; then
+        print_subcommand_help "$1"
+      else
+        print_top_help
+      fi
+      ;;
+    dev)
+      stub_exit "dev" "T-2"
+      ;;
+    browse)
+      exec "${VIDUX_ROOT}/bin/vidux-browse" "$@"
+      ;;
+    status)
+      exec python3 "${VIDUX_ROOT}/scripts/vidux-status.py" "$@"
+      ;;
+    init)
+      stub_exit "init" "T-5"
+      ;;
+    doctor)
+      stub_exit "doctor" "T-4"
+      ;;
+    build)
+      stub_exit "build" "T-19"
+      ;;
+    release)
+      stub_exit "release" "T-15"
+      ;;
+    *)
+      echo "vidux: unknown command: ${cmd}" >&2
+      echo >&2
+      print_top_help >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
