@@ -23,7 +23,7 @@ commands:
   init <slug>       Bootstrap a new plan's PLAN.md from template
   doctor            Diagnose local toolchain + auth                     [stub: T-4]
   build             Run docs:build + contract tests as release gate
-  release           Bump VERSION, tag, push                             [stub: T-15]
+  release           Bump VERSION + cut CHANGELOG + tag + push (dry-run by default)
   completion <shell>  Emit completion script for bash|zsh|fish
   help [<cmd>]      Show this help, or help for a specific subcommand
 
@@ -124,13 +124,22 @@ EOF
       ;;
     release)
       cat <<EOF
-vidux release — bump VERSION, tag, push.
+vidux release — bump VERSION, cut CHANGELOG, tag, push.
 
-usage: vidux release
+usage: vidux release [--apply] [--bump <major|minor|patch>] [--allow-dirty]
 
-status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-15.
-       Will bump VERSION, append CHANGELOG from [Unreleased], tag,
-       and push. Dry-run by default.
+Dry-run by default — prints every mutation it would perform but touches
+nothing. Pass --apply to actually cut the release.
+
+flags:
+  --apply           Actually run. Without this, dry-run is the default.
+  --bump <part>     Which semver part to bump: major | minor | patch.
+                    Defaults to patch.
+  --allow-dirty     Skip the clean-working-tree precheck.
+  --help, -h        Show this help.
+
+Refuses to run on any branch other than 'main', or when the working tree
+is dirty (unless --allow-dirty).
 EOF
       ;;
     completion)
@@ -236,7 +245,7 @@ main() {
       exec bash "${VIDUX_ROOT}/scripts/vidux-build.sh" "$@"
       ;;
     release)
-      stub_exit "release" "T-15"
+      exec bash "${VIDUX_ROOT}/scripts/vidux-release.sh" "$@"
       ;;
     completion)
       if [[ $# -eq 0 ]]; then
