@@ -1,0 +1,63 @@
+# Lint workflow — ruff (python) + shellcheck (bash) on PR.
+#
+# Soft-fail v1: both jobs use `continue-on-error: true` so findings surface as
+# warnings (annotations on the PR diff) rather than required-check failures.
+# Strict-after-1-green plan: once both jobs have shipped one fully-green run on
+# main, flip `continue-on-error` to `false` and (optionally) add `push` to the
+# trigger so main is gated. Tracked alongside vidux-oss-niceties PLAN.md T-10.
+
+name: Lint
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: ruff (python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check .
+
+  shellcheck:
+    name: shellcheck (bash)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on bin/ and scripts/
+        # Globs are quoted to fail loudly if a directory disappears rather than
+        # silently lint nothing. `-f gcc` keeps annotations parseable.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          targets=(bin/* scripts/*.sh)
+          if [ ${#targets[@]} -eq 0 ]; then
+            echo "no shell targets found under bin/ or scripts/*.sh — skipping"
+            exit 0
+          fi
+          shellcheck -f gcc "${targets[@]}"
