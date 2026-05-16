@@ -24,6 +24,7 @@ commands:
   doctor            Diagnose local toolchain + auth                     [stub: T-4]
   build             Run docs:build + contract tests as release gate
   release           Bump VERSION, tag, push                             [stub: T-15]
+  completion <shell>  Emit completion script for bash|zsh|fish
   help [<cmd>]      Show this help, or help for a specific subcommand
 
 options:
@@ -132,6 +133,29 @@ status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-15.
        and push. Dry-run by default.
 EOF
       ;;
+    completion)
+      cat <<EOF
+vidux completion — emit a shell completion script to stdout.
+
+usage: vidux completion <bash|zsh|fish>
+
+Emits a self-contained completion script for the requested shell.
+Pipe into your shell's rc file to enable TAB completion for vidux
+subcommands and flags.
+
+install (bash):
+  echo 'source <(vidux completion bash)' >> ~/.bashrc
+
+install (zsh):
+  echo 'source <(vidux completion zsh)' >> ~/.zshrc
+
+install (fish):
+  vidux completion fish > ~/.config/fish/completions/vidux.fish
+
+flags:
+  --help, -h        Show this help.
+EOF
+      ;;
     help|"")
       print_top_help
       ;;
@@ -213,6 +237,18 @@ main() {
       ;;
     release)
       stub_exit "release" "T-15"
+      ;;
+    completion)
+      if [[ $# -eq 0 ]]; then
+        echo "vidux completion: missing shell argument" >&2
+        print_subcommand_help "completion" >&2
+        exit 2
+      fi
+      case "$1" in
+        --help|-h)
+          print_subcommand_help "completion"; exit 0 ;;
+      esac
+      exec "${VIDUX_ROOT}/scripts/vidux-completion.sh" "$@"
       ;;
     *)
       echo "vidux: unknown command: ${cmd}" >&2
