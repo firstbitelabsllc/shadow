@@ -20,7 +20,7 @@ commands:
   dev [--bg]        Start the local dev browser (foreground; auto-restart)
   browse [args]     Launch the plan browser at :7191
   status [args]     Print active-plan status across projects/*/PLAN.md
-  init <slug>       Bootstrap a new plan's PLAN.md from template        [stub: T-5]
+  init <slug>       Bootstrap a new plan's PLAN.md from template
   doctor            Diagnose local toolchain + auth                     [stub: T-4]
   build             Run docs:build + contract tests as release gate
   release           Bump VERSION, tag, push                             [stub: T-15]
@@ -83,9 +83,17 @@ vidux init — bootstrap a new plan.
 
 usage: vidux init <slug>
 
-status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-5.
-       Will scaffold projects/<slug>/PLAN.md from the canonical
-       Purpose/Evidence/Constraints/Tasks/Decision Log/Progress template.
+Creates projects/<slug>/PLAN.md from the canonical template. The slug
+must be lowercase letters, digits, and hyphens (matching ^[a-z0-9-]+\$).
+Refuses to overwrite an existing PLAN.md.
+
+The template ships with the six canonical sections:
+  Purpose · Evidence · Constraints · Tasks · Decision Log · Progress
+
+exit codes:
+  0   plan created
+  1   target PLAN.md already exists
+  2   invalid usage (no slug, bad slug, unknown flag)
 EOF
       ;;
     doctor)
@@ -195,7 +203,7 @@ main() {
       exec python3 "${VIDUX_ROOT}/scripts/vidux-status.py" "$@"
       ;;
     init)
-      stub_exit "init" "T-5"
+      exec bash "${VIDUX_ROOT}/scripts/vidux-init.sh" "$@"
       ;;
     doctor)
       stub_exit "doctor" "T-4"
