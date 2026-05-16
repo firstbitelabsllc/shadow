@@ -1,13 +1,19 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
 If you discover a security issue in vidux, please report it responsibly:
 
 1. **Do not open a public GitHub issue.** Security issues should be reported privately.
-2. Email **leojkwan@gmail.com** with the subject line `[vidux security]`.
+2. Email **trysnowcubes@gmail.com** with the subject line `[vidux security]`.
 3. Include: what you found, steps to reproduce, and potential impact.
-4. You'll receive an acknowledgment within 48 hours.
+4. You'll receive an acknowledgment per the [Response SLA](#response-sla) below.
+
+## Response SLA
+
+We aim to acknowledge security reports within 5 business days. Critical issues
+will be addressed as quickly as possible; non-critical fixes follow the next
+release cycle.
 
 ## Scope
 
@@ -28,6 +34,15 @@ The primary security surface is:
 - Prompt injection vectors in plan/evidence files that could alter agent behavior
 - Credential leakage in git history (audited clean as of 2026-04-12)
 
-## Supported Versions
+## Supported versions
 
-Only the latest version on the `main` branch is supported. There are no stable releases yet.
+Vidux is unversioned — only the latest commit on `main` is supported. There are
+no tagged releases yet.
+
+| Version          | Status              |
+| ---------------- | ------------------- |
+| `main` (latest)  | ✅ supported        |
+| Older commits    | ❌ unsupported      |
+
+Once tagged releases land, this table will be expanded to track the active
+minor line(s) and any explicitly unsupported branches.
