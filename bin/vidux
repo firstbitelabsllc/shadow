@@ -21,7 +21,7 @@ commands:
   browse [args]     Launch the plan browser at :7191
   status [args]     Print active-plan status across projects/*/PLAN.md
   init <slug>       Bootstrap a new plan's PLAN.md from template        [stub: T-5]
-  doctor            Diagnose local toolchain + auth                     [stub: T-4]
+  doctor            Diagnose local toolchain + auth
   build             Run docs:build + contract tests as release gate     [stub: T-19]
   release           Bump VERSION, tag, push                             [stub: T-15]
   help [<cmd>]      Show this help, or help for a specific subcommand
@@ -92,11 +92,20 @@ EOF
       cat <<EOF
 vidux doctor — diagnose local toolchain + auth.
 
-usage: vidux doctor
+usage: vidux doctor [--help|-h]
 
-status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-4.
-       Will check python3 >= 3.10, gh auth, token chmod 600,
-       stale pidfiles, and contract-test suite pass.
+Runs these checks in order, printing [PASS] / [FAIL] for each:
+  1. python3 >= 3.10
+  2. gh installed + 'gh auth status' shows logged in
+  3. ~/.config/vidux/*.token files have chmod 600 (if any exist)
+  4. \$HOME/Development directory exists
+  5. No stale browser pidfile at \${TMPDIR:-/tmp}/vidux-browser.pid
+  6. 'npm test' passes (contract suite — 182 tests)
+
+Exits 0 if all checks pass, exits 1 if any fail.
+
+environment:
+  VIDUX_DOCTOR_SKIP_NPM_TEST=1     Skip the npm-test gate (check 6)
 EOF
       ;;
     build)
@@ -194,7 +203,7 @@ main() {
       stub_exit "init" "T-5"
       ;;
     doctor)
-      stub_exit "doctor" "T-4"
+      exec bash "${VIDUX_ROOT}/scripts/vidux-doctor-cli.sh" "$@"
       ;;
     build)
       stub_exit "build" "T-19"
