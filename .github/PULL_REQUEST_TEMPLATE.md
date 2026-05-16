@@ -1,9 +1,21 @@
-This repo is feedback-first right now.
+## Summary
 
-External pull requests are not being accepted at this stage. Please open an Issue instead with:
+- <1-3 bullets explaining what + why>
 
-- the change you wanted
-- the problem it solves
-- any example files or screenshots
+## Plan row
 
-Unsolicited PRs may be closed without review.
+<Cite the PLAN.md row this PR closes, e.g. `projects/<slug>/PLAN.md row T-N`. Use "N/A" only for true one-off ops PRs (security backports, etc.) — every feature/refactor/docs PR should point at a plan row per `/vidux` discipline.>
+
+## Test plan
+
+- [ ] `npm test` green
+- [ ] <any additional verification commands you ran>
+- [ ] <surface-specific checks: `bash -n`, `yamllint`, `actionlint`, browser smoke, etc.>
+
+## Breaking changes
+
+None.
+
+## Screenshots / output
+
+<Optional — paste relevant CLI output, screenshot links, or `evidence/` file paths.>
