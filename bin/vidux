@@ -17,7 +17,7 @@ vidux — plan-first expedition orchestration for AI agents
 usage: vidux <command> [args...]
 
 commands:
-  dev               Start the local dev browser (foreground)            [stub: T-2]
+  dev [--bg]        Start the local dev browser (foreground; auto-restart)
   browse [args]     Launch the plan browser at :7191
   status [args]     Print active-plan status across projects/*/PLAN.md
   init <slug>       Bootstrap a new plan's PLAN.md from template        [stub: T-5]
@@ -40,13 +40,22 @@ print_subcommand_help() {
   case "${cmd}" in
     dev)
       cat <<EOF
-vidux dev — start the local dev browser in the foreground.
+vidux dev — start the local dev browser with auto-restart on file changes.
 
-usage: vidux dev
+usage: vidux dev [--bg] [--help|-h]
 
-status: STUB — see projects/vidux-oss-niceties/PLAN.md row T-2.
-       Will foreground-tail bin/vidux-browse with auto-restart on
-       changes under browser/. Use 'vidux browse' today.
+By default, runs bin/vidux-browse in the foreground (ctrl-c stops it).
+Watches browser/ via stdlib os.stat polling — on any change to a file
+under browser/, SIGTERMs the running server and restarts it. Mental
+model: same as 'npm run dev' for a Node app.
+
+flags:
+  --bg              Background mode (delegate to bin/vidux-browse default
+                    background launcher; survives terminal close).
+  --help, -h        Show this help.
+
+environment:
+  VIDUX_DEV_POLL_INTERVAL   Poll interval in seconds (default 0.5)
 EOF
       ;;
     browse)
@@ -157,7 +166,23 @@ main() {
       fi
       ;;
     dev)
-      stub_exit "dev" "T-2"
+      local dev_bg=0
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --bg)
+            dev_bg=1; shift ;;
+          --help|-h)
+            print_subcommand_help "dev"; exit 0 ;;
+          *)
+            echo "vidux dev: unknown flag: $1" >&2
+            print_subcommand_help "dev" >&2
+            exit 2 ;;
+        esac
+      done
+      if [[ "${dev_bg}" -eq 1 ]]; then
+        exec "${VIDUX_ROOT}/bin/vidux-browse"
+      fi
+      exec python3 "${VIDUX_ROOT}/scripts/vidux-dev.py"
       ;;
     browse)
       exec "${VIDUX_ROOT}/bin/vidux-browse" "$@"
