@@ -19,8 +19,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-# Receipt corpus lab handlers (math-fortress T9). Sibling package; server.py
-# runs with its own dir on sys.path[0] so `from receipts ...` resolves.
+# Receipt corpus lab handlers (math-fortress T9). Sibling package — server.py
+# is callable both as __main__ (sys.path[0] = browser/) and via importlib spec
+# from tests (sys.path[0] = caller CWD). Insert browser/ explicitly so the
+# import resolves regardless of caller.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from receipts import handler as _receipts_handler
 
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
