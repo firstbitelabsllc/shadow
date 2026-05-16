@@ -10,6 +10,8 @@
 
 # Vidux
 
+![CI](https://github.com/leojkwan/vidux/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/leojkwan/vidux?label=version)
+
 **Plan first, code second.** Vidux is a lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.
 
 - **One source of truth** — every project has a single `PLAN.md`. All decisions, pivots, and progress live there.
