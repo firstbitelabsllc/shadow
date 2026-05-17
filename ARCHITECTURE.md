@@ -173,7 +173,14 @@ Optional git hooks enforce plan discipline:
 | `post-commit-checkpoint.sh` | Checkpoint format is correct |
 | `three-strike-gate.sh` | Same task stuck 3+ cycles = blocked |
 
-Install with `bash scripts/install-hooks.sh /path/to/project`.
+Install by copying the hook scripts directly into the target repo:
+
+```bash
+cp hooks/pre-commit-plan-check.sh /path/to/project/.git/hooks/pre-commit
+cp hooks/post-commit-checkpoint.sh /path/to/project/.git/hooks/post-commit
+cp hooks/three-strike-gate.sh /path/to/project/.git/hooks/
+chmod +x /path/to/project/.git/hooks/{pre-commit,post-commit,three-strike-gate.sh}
+```
 
 ## Design Decisions
 

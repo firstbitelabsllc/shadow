@@ -82,7 +82,7 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
     def test_loopback_guard(self):
         self.assertTrue(browser_server.is_loopback_host("127.0.0.1"))
         self.assertTrue(browser_server.is_loopback_host("::1"))
-        self.assertFalse(browser_server.is_loopback_host("192.168.4.55"))
+        self.assertFalse(browser_server.is_loopback_host("192.0.2.55"))
 
 
 class BrowserWriteEndpointHTTPTests(unittest.TestCase):
@@ -156,7 +156,7 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
     def test_artifact_post_rejects_lan_client(self):
         sent = []
         handler = object.__new__(browser_server.Handler)
-        handler.client_address = ("192.168.4.55", 49152)
+        handler.client_address = ("192.0.2.55", 49152)
         handler.headers = {
             "Content-Type": "application/json",
             "Host": f"127.0.0.1:{self.port}",
@@ -314,7 +314,7 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
     def test_comments_browser_json_guard_allows_lan_same_origin(self):
         sent = []
         handler = object.__new__(browser_server.Handler)
-        handler.client_address = ("192.168.4.55", 49152)
+        handler.client_address = ("192.0.2.55", 49152)
         handler.headers = {
             "Content-Type": "application/json",
             "Host": f"127.0.0.1:{self.port}",
