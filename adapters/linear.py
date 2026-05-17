@@ -906,7 +906,7 @@ class LinearAdapter(AdapterBase):
         state = node.get("state") or {}
         state_id = state.get("id")
         labels = ((node.get("labels") or {}).get("nodes")) or []
-        label_names = {l["name"] for l in labels}
+        label_names = {lbl["name"] for lbl in labels}
         is_blocked = self.blocked_label in label_names
         # Description is treated as opaque human markdown — vidux metadata
         # round-trips via the per-plan .external-state.json sidecar, not the
@@ -1115,7 +1115,7 @@ class LinearAdapter(AdapterBase):
             raise LinearError(f"issue {external_id} not found")
         state_id = (issue.get("state") or {}).get("id")
         labels = ((issue.get("labels") or {}).get("nodes")) or []
-        is_blocked = any(l["name"] == self.blocked_label for l in labels)
+        is_blocked = any(lbl["name"] == self.blocked_label for lbl in labels)
         if is_blocked:
             return VidxStatus.BLOCKED
         return self._status_from_state_id(state_id)
@@ -1148,7 +1148,7 @@ class LinearAdapter(AdapterBase):
             raise LinearError(f"issue {external_id} not found")
         labels = ((issue.get("labels") or {}).get("nodes")) or []
         return {
-            "_blocked": any(l["name"] == self.blocked_label for l in labels),
+            "_blocked": any(lbl["name"] == self.blocked_label for lbl in labels),
             "_identifier": issue.get("identifier", ""),
         }
 
@@ -1180,8 +1180,8 @@ class LinearAdapter(AdapterBase):
         blocked_id = self._get_or_create_blocked_label_id()
         current_labels = ((issue.get("labels") or {}).get("nodes")) or []
         currently_blocked = any(
-            l["id"] == blocked_id or l["name"] == self.blocked_label
-            for l in current_labels
+            lbl["id"] == blocked_id or lbl["name"] == self.blocked_label
+            for lbl in current_labels
         )
         if blocked_change and not currently_blocked:
             update_input["addedLabelIds"] = [blocked_id]

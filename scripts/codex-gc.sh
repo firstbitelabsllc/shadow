@@ -51,7 +51,10 @@ fi
 # --- 2. archived_sessions (JSONL > 14 days, keep newest 50) ---
 ARCH="$CODEX/archived_sessions"
 if [[ -d "$ARCH" ]]; then
-  # Build list of files older than 14 days, excluding the 50 most recent
+  # Build list of files older than 14 days, excluding the 50 most recent.
+  # ls -t is used for mtime ordering; archive files are timestamp-named so
+  # the SC2012 non-alphanumeric concern does not apply.
+  # shellcheck disable=SC2012
   keep50=$(ls -1t "$ARCH"/*.jsonl 2>/dev/null | head -n 50 | sort)
   old_files=$(find "$ARCH" -name '*.jsonl' -mtime +14 -type f 2>/dev/null | sort)
   # Subtract keep50 from old_files

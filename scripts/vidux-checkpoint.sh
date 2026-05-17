@@ -40,7 +40,7 @@ REPO_ROOT="$(git -C "$(dirname "$PLAN")" rev-parse --show-toplevel)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 _LEDGER_LIB="$SCRIPT_DIR/lib/ledger-emit.sh"
 if [ -f "$_LEDGER_LIB" ]; then
-  # shellcheck source=lib/ledger-emit.sh
+  # shellcheck source=lib/ledger-emit.sh disable=SC1091
   source "$_LEDGER_LIB" 2>/dev/null || true
 fi
 
@@ -124,6 +124,9 @@ if [[ "${2:-}" == "--archive" ]]; then
   fi
 
   # --- Build the text block to append to ARCHIVE.md ---
+  # Per-line anchored regex strip ("digits:" prefix) is not expressible with
+  # ${var//search/replace}, which has no per-line ^ anchor — sed is correct here.
+  # shellcheck disable=SC2001
   ARCHIVE_BLOCK=$(echo "$LINES_TO_ARCHIVE" | sed 's/^[0-9]*://')
 
   # --- Append to ARCHIVE.md (create if needed) ---

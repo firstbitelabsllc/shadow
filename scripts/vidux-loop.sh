@@ -24,7 +24,7 @@ fi
 # --- ledger integration (optional) ----------------------------------------- #
 _LEDGER_LIB="$SCRIPT_DIR/lib/ledger-emit.sh"
 if [ -f "$_LEDGER_LIB" ]; then
-  # shellcheck source=./scripts/lib/ledger-emit.sh
+  # shellcheck source=./scripts/lib/ledger-emit.sh disable=SC1091
   source "$_LEDGER_LIB" 2>/dev/null || true
 fi
 
@@ -446,7 +446,7 @@ if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
       LAST_PROG_ESCAPED="$(json_escape "${LAST_PROG:-no progress entry found}")"
 
       # Flip [in_progress] -> [blocked] on the task line
-      sedi -E "${LINE_NUM}s/^- \[in_progress\] /- [blocked] /" "$PLAN" 2>/dev/null && AUTO_BLOCKED=true || true
+      if sedi -E "${LINE_NUM}s/^- \[in_progress\] /- [blocked] /" "$PLAN" 2>/dev/null; then AUTO_BLOCKED=true; fi
 
       if [ "$AUTO_BLOCKED" = true ]; then
         # Append to Decision Log (create section if missing)
@@ -501,8 +501,8 @@ LEDGER_CONFLICT_COUNT=0
 if type ledger_conflict_check &>/dev/null 2>&1; then
   # Source query lib (emit already sourced config)
   _QUERY_LIB="$SCRIPT_DIR/lib/ledger-query.sh"
-  # shellcheck source=./scripts/lib/ledger-query.sh disable=SC1090
-  [ -f "$_QUERY_LIB" ] && source "$_QUERY_LIB" 2>/dev/null || true
+  # shellcheck source=./scripts/lib/ledger-query.sh disable=SC1090,SC1091
+  if [ -f "$_QUERY_LIB" ]; then source "$_QUERY_LIB" 2>/dev/null || true; fi
   if type ledger_conflict_check &>/dev/null 2>&1; then
     _REPO_NAME="$(basename "$(git -C "$PLAN_DIR" rev-parse --show-toplevel 2>/dev/null || echo "$PLAN_DIR")")"
     _CONFLICT_JSON=$(ledger_conflict_check "$_REPO_NAME" "[\"$PLAN\"]" 2 2>/dev/null || echo '[]')
