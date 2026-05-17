@@ -590,7 +590,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_decision_log_parsed_from_plan(self):
         """decision_log_count must equal the number of tagged entries when Decision Log section exists."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_with_dl = textwrap.dedent("""\
             # Test Plan
             ## Decision Log
@@ -621,7 +622,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_decision_log_zero_when_absent(self):
         """decision_log_count must be 0 and warning false when no Decision Log section exists."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_no_dl = textwrap.dedent("""\
             # Test Plan
             ## Tasks
@@ -646,7 +648,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_stuck_when_progress_has_3_entries(self):
         """stuck must be true when Progress section has 3+ entries for the task."""
-        import tempfile, os
+        import tempfile
+        import os
         # Progress entries must include the full TASK_DESC (with [Evidence:]) because
         # the checkpoint script writes TASK_DESC verbatim — that's what TASK_SHORT matches.
         plan_stuck = textwrap.dedent("""\
@@ -676,7 +679,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_not_stuck_when_progress_has_2_entries(self):
         """stuck must be false when Progress section has only 2 entries for the task."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_two = textwrap.dedent("""\
             # Test Plan
             ## Tasks
@@ -701,7 +705,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_not_stuck_when_no_progress_section(self):
         """stuck must be false when plan has no Progress section."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_no_prog = textwrap.dedent("""\
             # Test Plan
             ## Tasks
@@ -904,7 +909,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_is_resuming_true_for_in_progress(self):
         """vidux-loop.sh must set is_resuming=true when an [in_progress] task exists."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_ip = textwrap.dedent("""\
             # Test Plan
             ## Tasks
@@ -928,7 +934,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_q_gating_blocks_task_with_open_qref(self):
         """action must be 'refine' when task desc cites an open Q-ref."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_q = textwrap.dedent("""\
             # Test Plan
             ## Tasks
@@ -955,7 +962,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_q_gating_does_not_block_unrelated_qs(self):
         """action must be 'execute' when open Qs exist but are NOT cited in the task desc."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_unrelated = textwrap.dedent("""\
             # Test Plan
             ## Tasks
@@ -982,7 +990,9 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_vidux_loop_malformed_config_uses_defaults(self):
         """vidux-loop.sh must produce valid JSON and warn on stderr when config is malformed."""
-        import tempfile, shutil, os
+        import tempfile
+        import shutil
+        import os
         with tempfile.TemporaryDirectory() as tmpdir:
             scripts_subdir = os.path.join(tmpdir, "scripts")
             os.makedirs(scripts_subdir)
@@ -1007,7 +1017,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_checkpoint_archive_idempotent(self):
         """Running --archive twice must not double-archive or corrupt PLAN.md."""
-        import tempfile, os
+        import tempfile
+        import os
         tasks = "\n".join([
             f"- [completed] Task {i}: something [Done: 2026-01-{i:02d}]"
             for i in range(1, 36)
@@ -1043,7 +1054,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_checkpoint_archive_counts_v2_completed_tasks(self):
         """archive mode must include [completed] (v2) tasks in archive count, not just [x] (v1)."""
-        import tempfile, os
+        import tempfile
+        import os
         tasks = "\n".join([
             f"- [completed] Task {i}: something [Done: 2026-01-{i:02d}]"
             for i in range(1, 36)
@@ -1105,7 +1117,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def _run_loop_on(self, plan_text):
         """Helper: write plan_text to a temp file, run vidux-loop.sh, return parsed JSON."""
-        import tempfile, os
+        import tempfile
+        import os
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
             f.write(textwrap.dedent(plan_text))
             tmp = f.name
@@ -2153,7 +2166,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_loop_empty_tasks_produces_valid_json(self):
         """vidux-loop.sh with empty Tasks section must produce valid JSON."""
-        import tempfile, os
+        import tempfile
+        import os
         plan_text = textwrap.dedent("""\
             # Test Plan
             ## Tasks
@@ -2246,7 +2260,8 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_loop_circuit_breaker_blocks_dispatch_when_open(self):
         """vidux-loop.sh must block dispatch when circuit breaker is open."""
-        import tempfile, os
+        import tempfile
+        import os
         # Plan with idle progress entries (no shipping signals)
         plan_text = textwrap.dedent("""\
             # Test Plan
@@ -2288,8 +2303,8 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("mid-zone kill", text.lower())
         self.assertIn("3+ minutes", text)
 
-    def test_midzone_kill_in_doctrine(self):
-        """DOCTRINE.md must include mid-zone kill guidance."""
+    def test_midzone_deep_work_in_doctrine(self):
+        """DOCTRINE.md must tie mid-zone guidance to deep work."""
         text = _read(DOCTRINE)
         self.assertIn("mid-zone", text.lower())
         self.assertIn("deep work", text.lower())
