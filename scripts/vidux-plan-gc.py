@@ -193,7 +193,7 @@ def trim_inbox(plan_dir, dry_run):
                 f.writelines(g)
             f.write("\n")
 
-        new_text = "".join(preamble) + "".join(l for g in kept for l in g)
+        new_text = "".join(preamble) + "".join(line for g in kept for line in g)
         inbox.write_text(new_text)
 
     return {"target": "inbox", "trimmed": to_remove, "entry_count_after": INBOX_CAP}

@@ -53,7 +53,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Sequence
 
 
 TERMINAL_STATES = frozenset({"completed", "cancelled"})

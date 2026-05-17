@@ -69,7 +69,7 @@ print(c.get('min_system_memory_free_pct',15))
   [[ "$STALE_DAYS" -eq 3 ]] && STALE_DAYS="$STALE_DAYS_CFG"
 fi
 
-VERSION="$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | head -1 || echo "unknown")"
+VERSION="$(head -1 "$(dirname "$0")/../VERSION" 2>/dev/null || echo "unknown")"
 HOST="$(hostname -s 2>/dev/null || echo unknown)"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -85,9 +85,9 @@ else
   BOLD=""; GREEN=""; YELLOW=""; RED=""; RESET=""
 fi
 
-_ok()   { [[ "$JSON_MODE" = false ]] && echo -e "  ${GREEN}ok${RESET} $1" || true; }
-_warn() { [[ "$JSON_MODE" = false ]] && echo -e "  ${YELLOW}!${RESET}  $1" || true; }
-_fail() { [[ "$JSON_MODE" = false ]] && echo -e "  ${RED}BLOCK${RESET} $1" || true; }
+_ok()   { if [[ "$JSON_MODE" = false ]]; then echo -e "  ${GREEN}ok${RESET} $1"; fi; }
+_warn() { if [[ "$JSON_MODE" = false ]]; then echo -e "  ${YELLOW}!${RESET}  $1"; fi; }
+_fail() { if [[ "$JSON_MODE" = false ]]; then echo -e "  ${RED}BLOCK${RESET} $1"; fi; }
 
 # Append a check result (one JSON object per line) to temp file
 _add_check() {
