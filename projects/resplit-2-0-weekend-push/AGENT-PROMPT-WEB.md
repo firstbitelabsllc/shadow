@@ -3,7 +3,7 @@
 > Paste this verbatim into a fresh Claude / Codex session targeting `resplit-web` (or `resplit-ios` for share-related work — see §K).
 > One agent per session. Up to **4 agents simultaneously** (PW_PORT budget = 3110–3119).
 > Multi-agent assumption: many parallel sessions may run this same prompt — atomic claim (§C) is what keeps you from stepping on each other.
-> **Cron cadence: 15 min** (`com.leokwan.resplit-watch` + `com.leokwan.resplit-2-0-loop`, both `StartInterval=900`). Standing indefinitely; no time-window expiration. Runs through MVP launch and post-launch.
+> **Cron cadence: 15 min** (both LaunchAgents run on `StartInterval=900`). Standing indefinitely; no time-window expiration. Runs through MVP launch and post-launch.
 
 ---
 
@@ -182,7 +182,7 @@ Per `/auto`:
 - Kill a chat-session process (`cmux`, `claude` CLI, `codex` app-server). OK to kill stuck `next dev` / `next build` / `playwright`.
 - **Touch any FROZEN-zone work** (Bold/Gradient parity, new Storybook UX stories, brand-resplit gradient/token, hero CTA/headline)
 - Delete a worktree without confirming its PR is merged via `gh pr view <N> --json mergedAt`
-- **Suggest `blueclaws` as a recovery** — that system was deprecated 2026-05-01 (commit `03f95b5`). Cron auth is `CLAUDE_CONFIG_DIR=/Users/leokwan/.claude-leojkwan` baked into LaunchAgent `EnvironmentVariables`. If a cron 401s, that's the first thing to verify. There is no profile rotation.
+- **Suggest `blueclaws` as a recovery** — that system was deprecated 2026-05-01 (commit `03f95b5`). Cron auth uses a per-user `CLAUDE_CONFIG_DIR=$HOME/.claude-<profile>` baked into the LaunchAgent's `EnvironmentVariables`. If a cron 401s, that's the first thing to verify. There is no profile rotation.
 
 Banned phrasings: "Want me to…?", "Should I…?", "Which option do you prefer?", any A/B menu. STATE the call, SHIP.
 
@@ -221,7 +221,7 @@ Each cycle starts with a 30-second scan; any P0 here interrupts the FA.x queue:
 1. **Sentry resplit-web** — `curl -H "Authorization: Bearer $SENTRY_TOKEN" "https://sentry.io/api/0/projects/firstbite-labs/resplit-web/issues/?query=is%3Aunresolved+age%3A-1d"` — any new unresolved is P0
 2. **Vercel preview-toolbar comments** — `mcp__claude_ai_Vercel__list_toolbar_threads` — Leo's primary feedback channel
 3. **Jam.dev** — `mcp__Jam__listJams url=resplit.app`
-4. **Linear EVE-resplit-web** — project UUID `87181bb4-379d-4254-ae5b-4f652cf66755`, `priority=1` rows are P0. **Linear sync ACTIVE as of 2026-05-03 14:23 EDT** — `com.leokwan.vidux-linear-sync` LaunchAgent loaded (Leo upped to business tier, unblocked the cron). Bidirectional round-trip live: new Linear cards auto-promote into PLAN.md as `BD-N`; PLAN row flips push back to Linear `stateId`. Manual real-time push: `python3 ~/Development/vidux/scripts/vidux-inbox-sync.py --config vidux.config.json --direction=push --only-adapter linear --json`.
+4. **Linear EVE-resplit-web** — project UUID kept in local `vidux.config.json` (not committed), `priority=1` rows are P0. **Linear sync ACTIVE as of 2026-05-03 14:23 EDT** — the `vidux-linear-sync` LaunchAgent runs the bidirectional round-trip: new Linear cards auto-promote into PLAN.md as `BD-N`; PLAN row flips push back to Linear `stateId`. Manual real-time push: `python3 ~/Development/vidux/scripts/vidux-inbox-sync.py --config vidux.config.json --direction=push --only-adapter linear --json`.
 
 If any P0 lands: switch from FA.x to the P0 fix lane same-cycle. After P0 closes, resume FA.x. Linear-sourced fixes get a `Closes EVE-<N>` line in the PR body so Linear auto-closes on merge.
 

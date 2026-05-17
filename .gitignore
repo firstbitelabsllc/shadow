@@ -43,6 +43,11 @@ projects/*
 # resplit-2-0-1 punch-list. Tracked so sim-walker subagents converge on the
 # same walk plan.
 !projects/ui-test-sweep-2026-05-07/
+# Exception: team-agent-coordination is the cross-skill coordination expedition
+# (cron-registry, claim bus, /auto gate, /nia preflight, phase-shift). Authority
+# Store for the fire-and-forget /goal that drives the fleet to operate as a team
+# rather than as siloed crons. Tracked so all crons + machines see the same plan.
+!projects/team-agent-coordination/
 # Exception: observability-bus is the multi-PR expedition adding a
 # vendor-agnostic ObservabilityBus + N pluggable EventSink adapters
 # (Sentry, PostHog, Console, future vendors) to Resplit iOS. Pivoted
@@ -50,6 +55,10 @@ projects/*
 # all external vendors now and future". Tracked so multi-agent lanes
 # (A/B/C/D) converge on the same plan.
 !projects/observability-bus/
+# Exception: vidux-pilot-merge is a 3-commit expedition to consolidate /pilot
+# and /vidux into a single skill (Leo 2026-05-13). Tracked so the M4 can
+# resume the merge across machines.
+!projects/vidux-pilot-merge/
 
 # Temp files from checkpoint script
 tmp*.md
@@ -83,3 +92,4 @@ vidux.config.json
 browser/artifacts/*
 !browser/artifacts/.gitkeep
 .playwright-cli/
+vidux.config.json
