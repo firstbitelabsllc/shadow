@@ -1,9 +1,17 @@
 # M1 Max Onboarding — Recommission to Leo Personal Fleet
 
-Status: in_progress
+Status: completed
 Created: 2026-05-20
 Owner: Leo
 Host: Leos-MacBook-Pro-5 (Apple M1 Max MacBook Pro, MacBookPro18,2, 64 GB)
+
+CYCLE_COMPLETE: completed @ 2026-05-20T18:30:00Z
+
+The in-scope plan (Phases A–J) is fully shipped and verified.
+Phase I is intentionally **deferred follow-up** — operational hygiene
+that requires sudo, GUI work, Leo decisions, or external services not
+yet on this Mac. Phase K is **fleet propagation** dependent on other
+Macs running `chezmoi apply` on their own cadence.
 
 ## Purpose
 
@@ -275,8 +283,57 @@ inside one session.
 - [pending] I10 Manual: revoke any stale SSH keys at
   `https://github.com/settings/keys` whose fingerprints predate today
   (only the new ed25519 should remain).
-- [pending] I11 Clean up `~/Downloads/SquareTeamDirectory*` (5 zip copies
-  + 1 dir, ~2.6 MB) after confirming personal-only content.
+- [completed] I11 Cleaned up `~/Downloads/SquareTeamDirectory*` —
+  `SquareTeamDirectory/` moved to `~/Development/personal-archive/
+  SquareTeamDirectory-2023/`. 5 `.zip` duplicates deleted. Random
+  Square-named JPG moved to archive. `~/Downloads` has zero
+  block/square/cash hits remaining.
+
+### Phase L — Sign-Off (THIS PLAN COMPLETE)
+
+Final verification table — re-run at sign-off:
+
+| Check | Source of truth | Result |
+|---|---|---|
+| `profiles status -type enrollment` | macOS | `Enrolled via DEP: No / MDM enrollment: No` |
+| `nvram supervised` | macOS | `false` |
+| iBridge `DEP Approved Privileged MDM Operations` | macOS Secure Enclave | `No` |
+| `.cloudConfigRecordNotFound` exists | Apple cloud-config | yes |
+| `Activation Lock Status` | System Information | `Disabled` |
+| Captain audit | `~/Development/ai/skills/captain/scripts/audit_skills.sh` | green, 71 skills |
+| `chezmoi status` | chezmoi v2.70.4 | clean (empty output) |
+| `chezmoi doctor` | chezmoi | all `ok`/`info` |
+| Tool-root symlinks | `ls -la ~/.{claude,codex,cursor}/skills` | all → `~/.ai/skills-active` |
+| 71 active skills present | `wc -l ~/.ai/skills-active` | 71 |
+| Spot-check vidux/captain/leo/auto/creator SKILL.md | filesystem | all present |
+| yolo alias | `alias yolo` after `source ~/.zshrc` | `claude --dangerously-skip-permissions --teammate-mode tmux` |
+| SSH fetch on ai/ai-leo/vidux/moussey | `git fetch --dry-run` | all succeed |
+| moussey-server dashboard | `curl /api/health` | 200 OK (localhost + LAN host) |
+| vidux-browse | `curl /api/health` | 200 OK (localhost + LAN host) |
+| moussey-server LaunchAgent | `launchctl list` | PID 39971, ec=0 |
+| moussey-ping-watch LaunchAgent | `launchctl list` | PID 43158, ec=0 |
+| AI-to-AI conduit (outbound M1 → Studio) | `curl POST /api/pings` (3×) | all received with UUIDs |
+| AI-to-AI conduit (inbound Studio → M1) | inbox.md | 1 entry (`Leos-Mac-Studio` welcome) |
+| inbox integration | inbox.md count | 2 entries after self-test (chronological) |
+| ping-watch state | `~/.moussey/ping-watch-state.json` | `last_seen_id=c8b0ce04…` |
+| `~/Downloads` Square residue | `ls ~/Downloads | egrep 'square|block|cash'` | none |
+
+**Open follow-ups** (NOT blocking this plan's completion — surfaced
+through Studio's welcome ping, owned outside this onboarding scope):
+
+- Studio Q1: Substrate plan + README link. Studio mentioned it landed
+  today, gitignored from public mirror. New M1 cycle will request the
+  internal path when needed.
+- Studio Q2: RTR-2 per-Mac model loadout for 64 GB M1. Leo decision.
+  Tracked in a separate plan when Leo picks role.
+- Q3 (originally asked Studio): RESOLVED — committed canonical
+  `com.leokwan.moussey-ping-watch.plist` to chezmoi source
+  (`ai-leo b471bae`). Studio + M4 Pro + Nicole MBA will pick it up
+  on their next `chezmoi apply`, then `launchctl bootstrap`.
+
+This plan exits cleanly. M1 Max is at full parity, the AI-to-AI
+conduit is operational, and any future cross-fleet work proceeds
+through the live conduit on the existing cron cadence.
 
 ## Decision Log
 
