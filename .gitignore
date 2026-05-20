@@ -59,6 +59,11 @@ projects/*
 # and /vidux into a single skill (Leo 2026-05-13). Tracked so the M4 can
 # resume the merge across machines.
 !projects/vidux-pilot-merge/
+# Exception: m1-max-onboarding is the Square M1 Max recommission plan —
+# tracked so Studio + M4 Pro + Nicole MBA can see the parity verification
+# evidence (MDM gate verdict, smoke test, parity F1–F10, iteration log).
+!projects/m1-max-onboarding/
+!projects/m1-max-onboarding/**
 
 # Temp files from checkpoint script
 tmp*.md
