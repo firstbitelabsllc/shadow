@@ -256,8 +256,10 @@ inside one session.
   the local inbox; identical-by-content.
 
 ### Phase I — Deferred (NOT this session)
-- [pending] I1 Enable FileVault (System Settings → Privacy & Security
-  → FileVault → On) — needs admin password.
+- [deferred-by-leo] I1 FileVault — Leo confirmed 2026-05-20 that
+  FileVault stays Off intentionally on this machine. Leo's choice;
+  not blocked, not pending. Status moved from `[pending]` to
+  `[deferred-by-leo]` to retire the parity nag.
 - [pending] I2 Re-enable SIP via Recovery Mode (currently `disabled` —
   unrelated to MDM; restore for hygiene). Requires reboot to Recovery.
 - [pending] I3 Rename host to `Leos-MacBook-M1-Max` per runbook Phase 8
