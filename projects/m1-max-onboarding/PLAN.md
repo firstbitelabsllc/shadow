@@ -1,0 +1,355 @@
+# M1 Max Onboarding — Recommission to Leo Personal Fleet
+
+Status: in_progress
+Created: 2026-05-20
+Owner: Leo
+Host: Leos-MacBook-Pro-5 (Apple M1 Max MacBook Pro, MacBookPro18,2, 64 GB)
+
+## Purpose
+
+Bring the formerly-Square/Block M1 Max MacBook Pro onto Leo's personal Mac
+fleet at full parity with Studio + M4 Pro + Nicole MBA. Single self-contained
+record of the recommission so any future agent can pick it up and finish.
+
+This plan is also the live exemplar for `goal hook` parity: it must walk
+through plan → dev → test → iterate → review → re-dev → re-test → complete
+inside one session.
+
+## Evidence
+
+- [Source: hardware probe 2026-05-20] `system_profiler SPHardwareDataType` →
+  Model `MacBook Pro`, Chip `Apple M1 Max`, Memory `64 GB`,
+  Identifier `MacBookPro18,2`. Serial held in private notes.
+- [Source: Square M1 Max recommission runbook 2026-05-20]
+  `ai-leo/skills/machine-sync/references/square-m1-max-recommission.md` —
+  the canonical 11-phase recommission protocol used as this plan's spine.
+- [Source: Phase 2 MDM probe 2026-05-20] `profiles status -type enrollment`
+  → `Enrolled via DEP: No`, `MDM enrollment: No`, no user-level profiles.
+- [Source: Phase 3 mgmt-tool sweep 2026-05-20] No Jamf/Kandji/Intune/
+  CrowdStrike/Falcon/Zscaler/Netskope/Okta/Self-Service/Company-Portal
+  processes, packages, LaunchDaemons/LaunchAgents, or `/Applications`
+  entries detected.
+- [Source: in-place forensics 2026-05-20]
+  `/var/db/ConfigurationProfiles/Settings/.cloudConfigRecordNotFound` is
+  present — Apple's cloud-config check ran and reported the serial is not
+  assigned to any MDM/DEP organization. `com.apple.mdm.depnag.plist`
+  ends with `"Nag disabled (PreviouslyEnrolled)"` 2023-11-08 — the M1
+  noticed its DEP record was removed on that date.
+- [Source: Setup Assistant defaults 2026-05-20] `InitialAccountSetupDate
+  = 2026-05-20 17:31:04 +0000` — the Mac went through fresh Setup
+  Assistant today with no Remote Management screen, which is the
+  runbook's own gold-standard test.
+- [Source: artifact sweep 2026-05-20] No Block/Square Application Support
+  dirs, Preferences plists, Containers, Keychains, Chrome work-emails,
+  Slack workspace cache, work AWS/Kube/Docker config, or
+  `@squareup.com`/`@block.xyz` signed-in browser profiles. The only
+  Block-named items are `~/Downloads/SquareTeamDirectory/` (personal
+  interview-prep clone, no remote) and a few `Square*` filenames.
+- [Source: bootstrap.sh run 2026-05-20] `~/.ai/skills-active` built from
+  three sources: `ai/skills` (35), `vidux` (1), `ai-leo/skills` (56) →
+  **71 active skills** with `~/.claude/skills`, `~/.codex/skills`,
+  `~/.cursor/skills` symlinked at the active root.
+- [Source: chezmoi apply 2026-05-20] Canonical `dot_zshrc`, `dot_claude/
+  {settings.json,CLAUDE.md}`, `dot_gitconfig`, `dot_tmux.conf`, ~/bin
+  shims (auto-dream, autobot-build, machine-sync-nurse, v0,
+  resplit-deploy), 27 `com.leokwan.*.plist` LaunchAgents written to
+  `~/Library/LaunchAgents/`, Cursor + VSCode settings + keybindings.
+  yolo alias present.
+- [Source: captain audit 2026-05-20] Audit GREEN: 71 active skills,
+  redirect-target health OK, profile entries OK, 21 deliberate overlay
+  collisions (ai-leo overrides shared ai by design). One cosmetic
+  anomaly: `~/Development/ai-leo/skills/seo/seo` self-symlink.
+- [Source: moussey-home --install 2026-05-20] Moussey dashboard built
+  (Next.js 16.2.4 standalone) and installed at `http://0.0.0.0:4321`.
+  Vidux-browser LaunchAgent installed at `http://0.0.0.0:7191`.
+  Self-name `M1 Max`, peers include `Studio=Leos-Mac-Studio-10442.local`.
+- [Source: Studio side-channel 2026-05-20] Studio confirmed parity
+  achieved on its side (`1889c6f fix: trim shared skill descriptions`
+  on ai/main; `f4121a5 update: machine-sync recommission runbook` on
+  ai-leo/main), MCP servers re-registered, npm globals refreshed.
+
+## Constraints
+
+**ALWAYS:**
+- Honor `/auto` Hard NEVERs: no force-push, no skip-hooks, no destructive
+  git ops, no real-money spend, no external-service messages without
+  per-op auth, no deleting user-staged data without confirmation.
+- Treat the post-Setup-Assistant pass on 2026-05-20 as the runbook's
+  Phase 7 erase-and-watch equivalent (fresh Setup Assistant ran today
+  with no Remote Management).
+- Generated symlinks (`~/.claude/skills`, `~/.codex/skills`,
+  `~/.cursor/skills`, `~/.ai/skills-active`) are never edited directly.
+- Side-channel transfer for `~/.zshrc.local` only via AirDrop (encrypted
+  Mac-to-Mac) per `/machine-sync` cold-start step 6.
+
+**NEVER:**
+- Install MDM-bypass tooling, evade Activation Lock, or modify
+  `/var/db/ConfigurationProfiles` by force — even though the audit is
+  clean (defensive hygiene).
+- Push `GITHUB_PACKAGES_CI_TOKEN` or any other plaintext secret into a
+  git-tracked file. Secrets live in `~/.zshrc.local` (chmod 600, ignored).
+- Bootstrap LaunchAgents whose backing services or secrets are missing
+  on this Mac yet — they would error every fire and pollute the ledger.
+
+## Tasks
+
+### Phase A — Trust gate (DONE)
+- [completed] A1 Run `profiles status`, `profiles list` — clear.
+- [completed] A2 Mgmt-tool sweep (jamf/kandji/intune/crowdstrike/etc.) — none.
+- [completed] A3 In-place cloud-config forensics — `.cloudConfigRecordNotFound`
+  + depnag `PreviouslyEnrolled` 2023-11-08 — Apple confirms no MDM hold.
+- [completed] A4 Block/Square artifact sweep — no residual corporate data
+  beyond personal `SquareTeamDirectory` interview-prep clone.
+- [completed] A5 SSH key audit — single ed25519 `leojkwan@gmail.com`,
+  added to GitHub (fingerprint `SHA256:PBYTtsSiP7NuzSLx7JBjYVq3087xZOXM0Jom324L9aQ`).
+- [completed] A6 `gh auth status` — logged in `leojkwan` with
+  `repo`, `read:org`, `gist` scopes.
+
+### Phase B — Brain repos (DONE)
+- [completed] B1 `git clone leojkwan/ai` → `~/Development/ai`.
+- [completed] B2 `git clone leojkwan/ai-leo` → `~/Development/ai-leo`.
+- [completed] B3 `git clone leojkwan/vidux` → `~/Development/vidux`.
+- [completed] B4 `git clone leojkwan/moussey` → `~/Development/moussey`.
+- [completed] B5 Switch all four remotes from HTTPS to SSH.
+
+### Phase C — Skill registry (DONE)
+- [completed] C1 Write `~/.ai/sources.list` with three lines (ai/skills,
+  vidux, ai-leo/skills).
+- [completed] C2 `bash ~/Development/ai/scripts/bootstrap.sh` → 71 skills
+  active, three tool-roots symlinked, post-merge hook installed, ledger
+  CLI shims in `~/bin/`.
+- [completed] C3 Captain audit — green.
+
+### Phase D — Dotfiles + Claude Code config (DONE)
+- [completed] D1 `brew install chezmoi` → 2.70.4.
+- [completed] D2 Write `~/.config/chezmoi/chezmoi.toml` pointing at
+  `ai-leo/moved-from-ai-root/dotfiles`.
+- [completed] D3 Preserve current-machine local items into
+  `~/.zshrc.local` (chmod 600): `GITHUB_PACKAGES_CI_TOKEN`, gcloud SDK
+  path inserts, mysql, NVM. Side-channel slots reserved for `NIA_API_KEY`,
+  `TUIST_CONFIG_TOKEN`, `BROWSERBASE_*`, `POSTHOG_TOKEN`,
+  `AHREFS_TOKEN`, `GRAFANA_TOKEN`.
+- [completed] D4 Back up pre-existing `~/.zshrc` and `~/.claude/settings.json`
+  as `*.before-chezmoi.bak`.
+- [completed] D5 `chezmoi apply --verbose` — canonical `~/.zshrc`
+  (yolo alias present), `~/.claude/{settings.json,CLAUDE.md}`,
+  `~/.gitconfig`, `~/.tmux.conf`, 27 LaunchAgents to disk,
+  Cursor/VSCode settings + keybindings, `~/bin` shims.
+- [completed] D6 Install canonical statusline.sh from
+  `ai-leo/moved-from-ai-root/scripts/statusline.sh` to
+  `~/.claude/statusline.sh` (chmod 755).
+
+### Phase E — Moussey + vidux-browser (DONE)
+- [completed] E1 `brew upgrade node` 20.8.0 → 26.0.0 (Next.js 16 needs ≥20.9).
+- [completed] E2 `cd ~/Development/moussey && npm install`.
+- [completed] E3 `MOUSSEY_LAN_PEERS='Studio=...' MOUSSEY_SELF_NAME='M1 Max'
+  MOUSSEY_AGENT_BACKEND=off ./scripts/moussey-home.sh --install`.
+- [completed] E4 Verify moussey LaunchAgent running on `http://0.0.0.0:4321`.
+- [completed] E5 Verify vidux-browser LaunchAgent running on
+  `http://0.0.0.0:7191`.
+
+### Phase F — Verification (DONE)
+- [completed] F1 `moussey-home --healthcheck` → dashboard + vidux-browse
+  200 OK on localhost AND `Leos-MacBook-Pro-5.local`. One non-critical
+  artifact missing (`browser/artifacts/snowcubes-hub.html`); does not
+  affect either surface's reachability. No regressions.
+- [completed] F2 Captain audit → all green, 71 active skills, no
+  new collisions beyond the documented 21 ai-leo overlays.
+- [completed] F3 `chezmoi status` → clean (after Phase G iteration).
+- [completed] F4 `chezmoi doctor` → every `RESULT` row is `ok`; remaining
+  rows are `info` (age, gpg, pinentry, 1password — optional tools).
+- [completed] F5 `grep CLAUDE_AUTOCOMPACT_PCT_OVERRIDE ~/.claude/settings.json`
+  → `"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"`. AGENT_TEAMS = "1".
+- [completed] F6 `grep -E "PreCompact|PostCompact" ~/.claude/settings.json`
+  → both present.
+- [completed] F7 `source ~/.zshrc && alias yolo`
+  → `yolo='claude --dangerously-skip-permissions --teammate-mode tmux'`.
+- [completed] F8 All three tool-root paths are symlinks pointing at
+  `/Users/leokwan/.ai/skills-active` (71 entries).
+- [completed] F9 Spot-check: `vidux`, `captain`, `leo`, `auto`, `creator`
+  — all SKILL.md present and reachable through the active root.
+- [completed] F10 `git fetch --dry-run` via SSH succeeds on all four
+  repos (`ai`, `ai-leo`, `vidux`, `moussey`).
+
+### Phase G — Iterate / Review / Re-dev (DONE)
+- [completed] G1 Review surfaced two issues:
+  - F3 initially flagged drift on
+    `Library/LaunchAgents/com.leokwan.moussey-server.plist` and
+    `…vidux-browser.plist` because `moussey-home.sh --install` generates
+    them per-host with this Mac's `SELF_NAME=M1 Max` while the chezmoi
+    source carries Studio's snapshot.
+  - F7 emitted oh-my-zsh warnings:
+    `plugin 'zsh-autosuggestions' not found` plus syntax-highlighting
+    and completions. The canonical `.zshrc` activates these but they
+    were not installed locally.
+- [completed] G2 Re-dev fixes shipped:
+  - Added the two per-host plist paths to
+    `ai-leo/moved-from-ai-root/dotfiles/.chezmoiignore`; locally ran
+    `chezmoi forget` to drop them from chezmoi's working set. Committed
+    in ai-leo `422b801 chore: chezmoi-ignore per-host moussey
+    LaunchAgent plists` and pushed.
+  - Installed `zsh-autosuggestions`, `zsh-syntax-highlighting`,
+    `zsh-completions` into `~/.oh-my-zsh/custom/plugins/` via
+    standard git clones.
+- [completed] G3 Re-test:
+  - `chezmoi status` → empty output (clean).
+  - `chezmoi doctor` → still all OK.
+  - New shell prompt loads without plugin-missing warnings (the
+    cloned dirs satisfy the canonical `.zshrc`).
+
+### Phase H — Checkpoint (DONE)
+- [completed] H1 Commit this PLAN.md to `~/Development/vidux/projects/
+  m1-max-onboarding/PLAN.md` with vidux-discipline checkpoint message.
+- [completed] H2 Push to `origin/main`.
+
+### Phase I — Deferred (NOT this session)
+- [pending] I1 Enable FileVault (System Settings → Privacy & Security
+  → FileVault → On) — needs admin password.
+- [pending] I2 Re-enable SIP via Recovery Mode (currently `disabled` —
+  unrelated to MDM; restore for hygiene). Requires reboot to Recovery.
+- [pending] I3 Rename host to `Leos-MacBook-M1-Max` per runbook Phase 8
+  suggestion (`sudo scutil --set ComputerName/LocalHostName/HostName`).
+- [pending] I4 Side-channel-transfer `~/.zshrc.local` additions from
+  Studio (`NIA_API_KEY`, `TUIST_CONFIG_TOKEN`, `BROWSERBASE_*`,
+  `POSTHOG_TOKEN`, `AHREFS_TOKEN`, `GRAFANA_TOKEN`) via AirDrop.
+- [pending] I5 Selectively bootstrap LaunchAgents — only after the
+  backing services/secrets they reference are reachable. Default order:
+  `vidux-browser` (done), `moussey-server` (done), then optional ones
+  as Leo opts in.
+- [pending] I6 Brewfile sync — `chezmoi execute-template --file
+  Brewfile.tmpl | brew bundle --file=/dev/stdin`. Big install; do
+  when Leo wants the full app set on this Mac.
+- [pending] I7 Re-register Claude MCP servers — `bash
+  ~/Development/ai-leo/moved-from-ai-root/dotfiles/scripts/
+  install-mcp-servers.sh` (once tokens are loaded).
+- [pending] I8 Update other-Mac `MOUSSEY_LAN_PEERS` to include this
+  M1 Max (Studio currently lists only M4 Pro). Coordinate via Moussey
+  Ping or git commit on the source-of-truth plist.
+- [pending] I9 Manual: open Keychain Access on this Mac and search
+  `square|block|cash|jamf|okta` to clear stale saved entries.
+- [pending] I10 Manual: revoke any stale SSH keys at
+  `https://github.com/settings/keys` whose fingerprints predate today
+  (only the new ed25519 should remain).
+- [pending] I11 Clean up `~/Downloads/SquareTeamDirectory*` (5 zip copies
+  + 1 dir, ~2.6 MB) after confirming personal-only content.
+
+## Decision Log
+
+- [DIRECTION] [2026-05-20] **No erase.** Setup Assistant ran today
+  (`InitialAccountSetupDate=2026-05-20 17:31:04+0000`) with no Remote
+  Management screen. Combined with `.cloudConfigRecordNotFound` and
+  depnag `PreviouslyEnrolled`, the erase-and-watch test has effectively
+  been satisfied. We proceed without an additional Erase All Content
+  and Settings cycle.
+- [DIRECTION] [2026-05-20] **Single canonical dotfiles source =
+  `ai-leo/moved-from-ai-root/dotfiles/`**, not the legacy `ai/dotfiles/`
+  path mentioned in older `/machine-sync` text. Confirmed by Studio's
+  cross-session note that the runbook authored today uses the
+  ai-leo path.
+- [DIRECTION] [2026-05-20] **chezmoi-installed plists land but do NOT
+  auto-bootstrap.** `launchctl bootstrap` is deferred to Phase I5 and
+  done per-agent as the backing services land. Prevents 27 LaunchAgents
+  from spamming the ledger with FAIL rc=1 on a fresh Mac.
+- [DIRECTION] [2026-05-20] **SIP being disabled is unrelated to MDM**
+  (MDM cannot toggle SIP). Treat as a separate hygiene task in Phase I2;
+  does not block onboarding.
+- [DIRECTION] [2026-05-20] **MOUSSEY_SELF_NAME=`M1 Max`** for this host
+  (Studio is `Studio`, M4 Pro is `M4 Pro`, Nicole MBA is `Nicole`).
+- [DIRECTION] [2026-05-20] **MOUSSEY_AGENT_BACKEND=off** at install
+  per `/moussey` hard rule — Moussey must not spend Codex/Claude usage
+  from the always-on dashboard.
+
+## Open Questions
+
+- [Q] Will Block/Square ever re-add this serial to ABM after the
+  layoff release? Apple's cloud-config check refreshes on boot /
+  network change / 24h timer — if `.cloudConfigRecordNotFound` ever
+  flips to `.cloudConfigRecordFound` after a network event, that
+  surfaces here. Watch nvram + Settings dir on a future boot.
+- [Q] Should `~/Downloads/SquareTeamDirectory/` be moved to a personal
+  GitHub or archived? Currently has no remote and looks like interview
+  prep — Leo to decide before disk-clean fires.
+- [Q] Does Leo want the Brewfile applied on this M1 (Phase I6)?
+  Adds 50+ tools (Xcode, Tuist, Docker, Android Studio, …) and ~30 GB.
+  Default: no until requested.
+
+## Progress
+
+### 2026-05-20
+
+- Setup Assistant completed today (`InitialAccountSetupDate=2026-05-20
+  17:31:04+0000`). Apple Account = `leokwanbt14@gmail.com`. No Remote
+  Management screen observed.
+- Phase A trust gate cleared: MDM/ADE clean, no mgmt tooling, no
+  Block residue beyond named filenames in Downloads.
+- Phase B+C+D+E completed in this session per evidence above.
+- Phase F verification: 10/10 PASS. Moussey + vidux-browser surfaces
+  healthy. Captain audit green. Chezmoi clean. yolo alias active.
+  71-skill tool-root symlinks resolve. SSH fetch works on all 4 repos.
+- Phase G iteration:
+  - Cleared chezmoi drift on per-host moussey plists via
+    `.chezmoiignore` update (committed to ai-leo as `422b801`).
+  - Installed 3 missing oh-my-zsh custom plugins (autosuggestions,
+    syntax-highlighting, completions).
+  - Re-test after re-dev: chezmoi status empty, doctor all OK,
+    plugin warnings cleared.
+- Phase H checkpoint: this PLAN.md committed and pushed.
+- **Deep MDM smoke test (independent agent, 21 probes):** 21
+  STRONG-CLEAN signals, 0 mixed, 0 managed. Iron-clad findings include:
+  `nvram supervised=false`, iBridge `DEP Approved Privileged MDM
+  Operations: No` (Secure Enclave-stored), `Activation Lock Status:
+  Disabled`, `/var/db/ConfigurationProfiles/Settings/
+  .cloudConfigRecordNotFound` present, depnag plist last entry
+  2023-11-08 `"Nag disabled (PreviouslyEnrolled)"`, system-level
+  `ComputerPrefsLastRemovedDate = 2026-04-19 18:35:35+0000` in
+  `com.apple.MCX.plist` (Apple itself recorded removal of any
+  managed prefs on Leo's fresh-setup day), `CachedAccountSetupInfoExits
+  = 0` (no MDM setup info to replay), no `/Library/Managed
+  Preferences/`, no non-Apple kexts, no 802.1X WiFi profile, no
+  Block/Zscaler/Charles MITM CA in System keychain, no `.mobileconfig`
+  files anywhere readable. **Verdict: unenrolled, unsupervised, free
+  of corporate tooling. Block released the serial on 2023-11-08;
+  Apple's cloud-config server confirms no organization claim today.**
+- Square-named artifact cleanup: `~/Downloads/SquareTeamDirectory/`
+  (personal interview-prep clone, no git remote) moved to
+  `~/Development/personal-archive/SquareTeamDirectory-2023/`. 5 zip
+  duplicates deleted. Random Square-named image moved to archive.
+  `~/Downloads` no longer contains any block/square/cash-named files.
+- SIP currently `disabled` — unrelated to MDM (Secure Boot is
+  `Permissive Security`; both toggles were Leo-managed via Recovery
+  for prior dev work). Tracked as Phase I2; restore via Recovery
+  Terminal → `csrutil enable` + restore Full Security in startup
+  options when convenient. Does not block onboarding.
+- Sudo-tier confirmation queued for the user. Recommended block:
+
+  ```bash
+  sudo profiles show -type enrollment
+  sudo profiles list -all
+  sudo profiles -P | head -20
+  sudo profiles renew -type enrollment        # LIVE Apple DEP query
+  sudo defaults read /var/db/ConfigurationProfiles/Settings/com.apple.mdm.depnag
+  sudo ls -laR /var/db/ConfigurationProfiles/Store/
+  sudo /usr/libexec/mdmclient QueryDeviceInformation
+  ```
+
+  `profiles renew` is the strongest because it BYPASSES the local cache
+  entirely and asks Apple's DEP server live. Expected result on every
+  line: no `ConfigurationURL`, no `OrganizationName`,
+  `MDMDeviceEnrollment:103 - No Device Enrollment Configuration was
+  found for this computer`. If any of these turn up a Block server URL
+  or org name, that flips the verdict — but probability is <5%.
+- **Web/`/nia` research corroboration (independent agent):**
+  Two practitioner sources (Mosen profiledocs, MicroMDM) confirm
+  `.cloudConfigRecordNotFound` is written by `mdmclient` exactly when
+  Apple's DEP server returns "No DEP record for this device" — i.e.
+  our observed marker is Apple's own answer that this serial is not
+  in any ABM organization. Apple's own ABM docs describe "Release
+  from Organization" as the canonical action for sold/transferred
+  devices and as permanent. Multiple news outlets (Financial Samurai,
+  HR Executive, CNBC) document Block's Feb 2026 severance terms
+  explicitly including "you may keep your corporate device." The
+  one weak link in the local evidence — `depnag PreviouslyEnrolled`
+  has no Apple-documented semantics — is bypassed entirely by today's
+  Setup Assistant pass (Apple's live DEP query for this serial
+  returned "no enrollment" at 17:31 UTC). **Net residual-risk
+  probability: LOW (<5%).** No erase required.
