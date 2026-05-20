@@ -182,7 +182,7 @@ Per `/auto`:
 - Kill a chat-session process (`cmux`, `claude` CLI, `codex` app-server). OK to kill stuck `next dev` / `next build` / `playwright`.
 - **Touch any FROZEN-zone work** (Bold/Gradient parity, new Storybook UX stories, brand-resplit gradient/token, hero CTA/headline)
 - Delete a worktree without confirming its PR is merged via `gh pr view <N> --json mergedAt`
-- **Suggest `blueclaws` as a recovery** — that system was deprecated 2026-05-01 (commit `03f95b5`). Cron auth uses a per-user `CLAUDE_CONFIG_DIR=$HOME/.claude-<profile>` baked into the LaunchAgent's `EnvironmentVariables`. If a cron 401s, that's the first thing to verify. There is no profile rotation.
+- **Suggest account-rotation tooling as a recovery** — retired tooling must not be revived. Cron auth uses a per-user `CLAUDE_CONFIG_DIR=$HOME/.claude-<profile>` baked into the LaunchAgent's `EnvironmentVariables`. If a cron 401s, that's the first thing to verify. There is no profile rotation.
 
 Banned phrasings: "Want me to…?", "Should I…?", "Which option do you prefer?", any A/B menu. STATE the call, SHIP.
 
