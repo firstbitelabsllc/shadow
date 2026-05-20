@@ -291,6 +291,67 @@ inside one session.
   Square-named JPG moved to archive. `~/Downloads` has zero
   block/square/cash hits remaining.
 
+### Phase M — Post-Sign-Off Activity (2026-05-20T18:30Z → 19:02Z)
+
+After Phase L sign-off, Leo extended the session with new directives:
+parity push beyond M1 plan scope + disk cleanup + open AI-to-AI
+dialog with Studio. These are tracked here for full session
+provenance.
+
+- [completed] M1 Parity push: H3 npm globals (full canonical),
+  H7 Claude plugins (stripe + superpowers @ user scope), H6 safe
+  LaunchAgents bootstrapped (machine-sync-nurse, vidux-fleet-sync
+  PID 49666, moussey-studio-watch PID 49668), L4 gitlens duplicates
+  removed, chezmoi `host_id = "mac-m1"` set.
+- [completed] M2 Brewfile install — `chezmoi execute-template <
+  Brewfile.tmpl | brew bundle` completed clean. 35 formulae + 18
+  casks installed: docker, ollama, python@3.12, ripgrep, fswatch,
+  tmux, swiftformat, swiftlint, periphery, sentry-cli, stripe-cli,
+  xcodegen, poppler, dust, exiftool, czkawka, etc.
+- [partial] M3 VS Code extensions: 3/4 (anthropic.claude-code,
+  openai.chatgpt, eamodio.gitlens). github.copilot blocked by
+  built-in copilot-chat version lock — cosmetic, not blocking.
+- [completed] M4 Disk-clean 3-wave 247 GB freed (789 → 542 GB,
+  88% → 60%, 362 GB free):
+  - Wave 1 (172 GB): iOS DeviceSupport 126G, CoreSimulator devices
+    43G, Xcode DerivedData 3.9G, npm cache 1.9G.
+  - Wave 2 (64 GB): CoreSimulator/Caches 39G, watchOS DeviceSupport
+    4.5G, DocumentationCache 1.5G, XCPGDevices 8.2G, Homebrew
+    cleanup --prune=all ~5G, SwiftPM cache 4.2G, Chrome cache 2.1G.
+  - Wave 3 (~11 GB): brctl evict iCloud Mobile Docs (11GB→384KB),
+    .android 3.8G, .gradle 3.3G, .cache 447M.
+- [pending-leo] M5 Personal-data cleanup to reach <400 GB target:
+  Photos library 121G, Library/Messages 76G, Library/Containers
+  com.apple.podcasts 48G, Downloads 20G, iCloud bird MMCS cache
+  16G (needs Leo to toggle iCloud Drive off first). Surfaced to
+  Leo via Studio ping; awaiting per-category decision.
+- [blocked-by-xcode] M6 Tuist install blocked. `brew install
+  tuist@4.176.4` reports needs Xcode 26.3 CLT; M1 has Xcode 16.1.
+  Defer to Leo for Xcode upgrade via Xcodes.app or App Store.
+- [pending-sudo] M7 Tailscale.app install requires sudo password
+  (interactive); deferred for Leo to run with `! brew install
+  --cask tailscale`.
+- [completed] M8 AI-to-AI dialog with Studio. 9 outbound + 7 inbound
+  cross-Mac pings end-to-end this session. **Studio explicitly
+  acknowledged session closure at 19:02:24Z (ping
+  `8ecaf3da-95d1-4d21-824a-b72bebbfefbf`, topic
+  `m1-max-session-closure`, `meta.type=ack`,
+  `correlation_id=31f0057a…`, `payload.work_complete=true`,
+  `payload.session_can_close=true`).** Studio's verbatim
+  recommendation: *"Close active autonomous-execution loop now.
+  Your 10-min ping-watch cron (PID 43158) keeps you pingable.
+  Studio will ping you when (a) Leo answers Q1/Q2, (b) Leo
+  greenlights personal-data cleanup, (c) substrate phases ship
+  work that needs your participation."* M1 sent final closure
+  ack and exited the autonomous loop.
+
+CYCLE_COMPLETE (Phase M extension): completed @ 2026-05-20T19:03Z
+
+Studio-side acknowledged. M1 plan + parity push + disk cleanup
++ AI-to-AI conduit are all closed-loop. Future cross-Mac
+communication continues via the 10-min ping-watch cron without
+requiring an active Claude session on M1.
+
 ### Phase L — Sign-Off (THIS PLAN COMPLETE)
 
 Final verification table — re-run at sign-off:
