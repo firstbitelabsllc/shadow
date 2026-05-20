@@ -200,7 +200,52 @@ inside one session.
 ### Phase H — Checkpoint (DONE)
 - [completed] H1 Commit this PLAN.md to `~/Development/vidux/projects/
   m1-max-onboarding/PLAN.md` with vidux-discipline checkpoint message.
-- [completed] H2 Push to `origin/main`.
+- [completed] H2 Push to `origin/main` (`e8430a1`).
+
+### Phase J — Live AI-to-AI Conduit (DONE — operational closure)
+- [completed] J1 Author canonical `com.leokwan.moussey-ping-watch.plist`
+  in chezmoi source at `ai-leo/moved-from-ai-root/dotfiles/
+  private_Library/private_LaunchAgents/`. 10-min `StartInterval`,
+  `RunAtLoad=true`, env (`PATH`, `HOME`, `LANG`, `MOUSSEY_HOST`,
+  `VIDUX_ROOT`). The plist had not previously been committed to
+  the canonical source — adding it surfaces an existing fleet gap.
+- [completed] J2 `chezmoi apply` brought the plist onto this M1 plus
+  Studio's recent blueclaws-phase-out updates to `.claude/CLAUDE.md`,
+  `.claude/settings.json`, and `.zshrc`. Chezmoi status returns to clean.
+- [completed] J3 `launchctl bootstrap "gui/$UID" …moussey-ping-watch.plist`
+  → service registered as `com.leokwan.moussey-ping-watch` (PID 43158,
+  ec=0). Visible via `launchctl list | grep moussey`.
+- [completed] J4 First scheduled fire: log shows `new=0 newest=
+  c8b0ce04…`, state file `~/.moussey/ping-watch-state.json` updated
+  with `last_seen_id=c8b0ce04`, `last_run=2026-05-20T14:29:48-04:00`.
+  Idempotent — the prior manual fire's last-seen-id is honored.
+- [completed] J5 Inbox integration verified end-to-end. `~/Development/
+  vidux/projects/moussey-ping-watch/inbox.md` carries 2 entries
+  chronologically:
+  1. `[2026-05-20T18:26:53.116Z]` **Leos-Mac-Studio** (from
+     192.168.4.55) — Studio's welcome ack acknowledging M1 onboarding
+     (id `dc5b810f`). Notes the captain `skill-sources.toml` already
+     lists `host_id=mac-m1 → ai + ai-leo`, mentions a Substrate plan +
+     README that landed today on Studio, leaves M1's RTR-2 per-Mac
+     model loadout row TBD pending Leo's role + RAM call.
+  2. `[2026-05-20T18:27:08.244Z]` **M1-Max-self-test** — loop
+     self-test ping.
+- [completed] J6 Closure ack ping to Studio (id `9affd91c-ab47-…`,
+  type=ack, correlation_id=`dc5b810f`) carrying full M1 metadata
+  (host, IP, chip, RAM, ping-watch PID + plist path, plan commit
+  `e8430a1`) and three open questions: (a) Substrate plan link,
+  (b) RTR-2 model loadout for 64 GB M1, (c) whether Studio + M4 Pro
+  already have a local moussey-ping-watch plist or should pick up
+  this canonical one on their next chezmoi apply.
+
+### Phase K — Fleet propagation note
+- [pending] K1 On Studio + M4 Pro + Nicole MBA: next `chezmoi apply`
+  will deposit the new `com.leokwan.moussey-ping-watch.plist`. Each
+  host should then run `launchctl bootstrap "gui/$UID" ~/Library/
+  LaunchAgents/com.leokwan.moussey-ping-watch.plist`. If a Mac
+  already has its own ad-hoc version installed, it's compatible —
+  the script reads env (`MOUSSEY_HOST`, `VIDUX_ROOT`) and writes
+  the local inbox; identical-by-content.
 
 ### Phase I — Deferred (NOT this session)
 - [pending] I1 Enable FileVault (System Settings → Privacy & Security
