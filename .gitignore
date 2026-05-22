@@ -47,6 +47,10 @@ projects/*
 # alongside brain-dispatcher v1 so every input modality has a stable
 # routing interface from day one.
 !projects/intent-router-shared/
+# Exception: agentic-text-chat is the Phase 2 sibling of voice-agent —
+# browser chat at :4321/chat sharing the same brain-dispatcher + intent-router.
+# Fastest UI to ship; validates Phase 0 abstraction via a second consumer.
+!projects/agentic-text-chat/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
