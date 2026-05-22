@@ -196,6 +196,10 @@ Vidux defaults to trunk-first:
 - If multiple isolated proofs are unavoidable, give each lane its own `-derivedDataPath` and avoid shared package/bootstrap churn.
 - If `.mise.toml`, `.tool-versions`, installed CLIs, and skill docs disagree, resolve version authority before trusting command examples.
 
+**Plan discovery before plan creation:** Before opening a new PLAN.md (or kicking off heavy research that would produce one) for any cross-repo lane, `grep -ri <topic-keyword>` across the known plan stores: `~/Development/vidux/projects/`, `~/REDACTED-EMPLOYER-PATH/Dev/<repo>/ai/plans/`, `~/REDACTED-EMPLOYER-PATH/Dev/<repo>/.cursor/plans/`, plus any memory entries referencing existing plans for that surface. Glob hits in `vidux-browse` (sidebar filter box) cover the same ground from the UI. If a same-surface plan exists, append to it; never create a sibling. The 2026-05-22 GetCTRecommendations duplication (a second session rebuilt 5 weeks of receipts and shipped two duplicate placeholder PRs because it skipped this check) is the canonical failure this rule prevents.
+
+**Cross-session collision detection:** When multiple Claude / Codex sessions could be running concurrently against the same repo, check `~/.agent-ledger/activity.jsonl` for recent entries (last ~72h) keyed on the same lane keyword before kicking off heavy research. A second session walking in cold is the highest-risk path to a duplicate plan; a 30-second ledger grep is cheaper than re-discovering the prior session's receipts.
+
 ### Queue order
 
 Tasks are processed with these rules:
@@ -593,6 +597,14 @@ When something breaks or changes:
 1. **Update the plan FIRST** -- what changed, why, what's the new direction
 2. **Then update the code** -- derived from the new plan state
 3. **Every failure produces a process fix** -- not just a code fix
+
+### Placeholder draft PRs over blocked exits
+
+When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle should **not** exit "drained" while there is agent-doable surface. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in and documented in the PR body, so the conversation moves forward on concrete artifacts instead of speculative chat. Defaults: every flag default-off / zero, isolated worktree off `origin/master`, `gh pr create --draft`, no assigned reviewers, no `@`-mentions in the body. Per-organization-overlay placeholder discipline (review-bot acks, fleet wiring, person-specific routing) lives in `/vidux-leo § Placeholder draft PRs over blocking` (codified 2026-05-21); core vidux owns the principle, overlays own the local taste.
+
+### Plan archival pattern (parallel-session reconciliation)
+
+When two plans for the same surface are discovered post-hoc (the discovery rule above failed and a duplicate exists), fold the smaller / newer / less-receipt-dense one INTO the canonical older one. Append an H2 section to the canonical plan titled `## YYYY-MM-DD — Parallel-Session Reconciliation` that lists what the other plan covered, which receipts merged in, and which tasks transferred. Then move the duplicate plan directory into `_archived/<plan-slug>/` next to the canonical, and prepend a SUPERSEDED banner to its top-level file pointing at the canonical PLAN.md. Don't delete; archival preserves the receipts and the conversation trail for future agents. Close any duplicate placeholder PRs the second session opened with a comment linking the canonical plan. The 2026-05-22 GetCTRecommendations reconciliation at `~/Development/vidux/projects/semantic-music-understanding/PLAN.md` is the worked example.
 
 ---
 
