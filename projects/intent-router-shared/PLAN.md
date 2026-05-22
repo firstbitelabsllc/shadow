@@ -85,7 +85,7 @@ Synchronous + pure for v1. v2 may need async (e.g. probe fleet liveness mid-call
 | Task | Status | Owner | Blocking | Depends on | Updated |
 |---|---|---|---|---|---|
 | R1: v1 stub + types | [completed] | claude | every downstream sub-project | brain-dispatcher B1 | 2026-05-22 |
-| R2: Unit tests | [pending] | — | quality gate | R1 | 2026-05-22 |
+| R2: Unit tests | [completed] | claude | quality gate | R1 | 2026-05-22 |
 | R3: README | [completed] | claude | onboarding | R1 | 2026-05-22 |
 | R4: v2 MCP detection heuristics | [pending] | — | non-claude brain MCP work | R1 | 2026-05-22 |
 | R5: Mac picker heuristics | [pending] | — | cross-Mac dispatch routing | R1 | 2026-05-22 |
