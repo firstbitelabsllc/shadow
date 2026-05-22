@@ -51,6 +51,10 @@ projects/*
 # browser chat at :4321/chat sharing the same brain-dispatcher + intent-router.
 # Fastest UI to ship; validates Phase 0 abstraction via a second consumer.
 !projects/agentic-text-chat/
+# Exception: vidux-browse-action is the Phase 3 modality — turns anchored
+# vidux-browse comments into agent triggers via @agent/@claude/@codex prefixes.
+# Loopback hook from :7191 to moussey :4321; replies as child comment threads.
+!projects/vidux-browse-action/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
