@@ -199,8 +199,8 @@ Without these, every sibling re-implements the same provider abstraction badly.
 
 | Sub-project | Phase | Status | Owner | Updated |
 |---|---|---|---|---|
-| brain-dispatcher-shared | 0 | active (B1 [completed]; B2-B7 [pending]) | claude → ? | 2026-05-22 |
-| intent-router-shared | 0 | active (R1 [completed]; R2-R7 [pending]) | claude → ? | 2026-05-22 |
+| brain-dispatcher-shared | 0 | **DONE** (B1/B2/B3/B4/B5/B6/B7 [completed]; only B2.0 stream-json refactor remains for true mid-stream text) | claude | 2026-05-22 |
+| intent-router-shared | 0 | **DONE for v1** (R1/R2/R3 [completed]; R4-R7 deferred to v2/v3 heuristics + LLM classifier — not blocking any downstream sub-project) | claude | 2026-05-22 |
 | moussey-voice-agent | 1 | active (has own claims board; V4 unblocked by B1+R1) | mixed | 2026-05-22 |
 | agentic-text-chat | 2 | active (PLAN.md scaffolded; T1 + T2 claimable in parallel) | — | 2026-05-22 |
 | vidux-browse-action | 3 | active (PLAN.md scaffolded; VA1+VA3 claimable in parallel) | — | 2026-05-22 |
@@ -210,7 +210,13 @@ Without these, every sibling re-implements the same provider abstraction badly.
 | autonomous-trigger-bus | 4 | [pending] | — | 2026-05-22 |
 | moussey-gui-tabs | 5 | [pending] | — | 2026-05-22 |
 
-**Phase 0 status (2026-05-22):** Both keystone TYPE CONTRACTS shipped as `moussey/lib/brain-dispatcher.ts` + `intent-router.ts` (moussey `e30b930`, vidux `95a4d52`). Stubs throw `NotImplemented` pointing to B2/B3/B4 task atoms. `B2` (claude provider) is the next-most-valuable claim — it's the only fully-MCP-capable brain today, so shipping it unblocks moussey-voice-agent V4 + agentic-text-chat V4 + every Phase 3 modality.
+**Phase 0 status (2026-05-22, END OF DAY):** ALL PROVIDERS SHIPPED end-to-end.
+- `claude` (B2, moussey `d123f14`) — verified live via smoke: `✓ Hi 4441ms $0.20`. Uses loopback HMAC → `/api/lan/trigger-claude` → buffered text. Subscription billing (`apiKeySource: "none"`).
+- `codex` (B3, moussey `e7874a3`) — spawns `codex exec` subprocess. KNOWN GAP: codex requires trusted-git-repo cwd; needs argv-passing followup tick to bypass via flag.
+- `local` (B4, moussey `2cb8abc`) — POSTs Ollama `:11434/api/generate` JSONL stream. Verified: yields error chunk correctly when ollama unreachable, no false-positive ✓.
+- 5 helpers in `moussey/lib/` (`brain-dispatcher.ts` + `intent-router.ts` + `brain-audit.ts` + `loopback-sign.ts` + `sse-parse.ts`) + 29 passing unit tests via `npm run test:brain-dispatcher` + tri-provider smoke at `scripts/brain-dispatch-smoke.ts`.
+- Voice-agent V4 + agentic-text-chat T2 fully unblocked. They import `dispatch()` directly.
+- B2.0 stream-json refactor remains as the single Phase 0 followup for true mid-stream text (currently buffered for claude).
 
 ## Two-agent coordination (across all sub-projects)
 
