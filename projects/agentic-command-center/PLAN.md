@@ -207,7 +207,7 @@ Without these, every sibling re-implements the same provider abstraction badly.
 | imessage-bridge | 3 | active (PLAN.md scaffolded; V1 read-only with GUI, V2 write path = research first) | — | 2026-05-22 |
 | gmail-bridge | 3 | active (PLAN.md scaffolded; label-triggered, always-draft-never-send) | — | 2026-05-22 |
 | screen-action-bridge | 4 | [pending] | — | 2026-05-22 |
-| autonomous-trigger-bus | 4 | [pending] | — | 2026-05-22 |
+| autonomous-trigger-bus | 4 | active (PLAN.md scaffolded; config-driven trigger registry + 3 sink types; gates on brain-dispatcher B2 [shipped]) | — | 2026-05-22 |
 | moussey-gui-tabs | 5 | [pending] | — | 2026-05-22 |
 
 **Phase 0 status (2026-05-22, END OF DAY):** ALL PROVIDERS SHIPPED end-to-end.
