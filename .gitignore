@@ -59,6 +59,11 @@ projects/*
 # 5-min polling cron reads inbound, dispatches via brain, drafts reply (never
 # auto-sends, Leo retains send authority).
 !projects/gmail-bridge/
+# Exception: imessage-bridge is the Phase 3 modality — body-prefix `@agent`
+# 5-min cron reads inbound, dispatches via brain. V1 = read-only with GUI
+# surface at :4321/imessage-bridge. V2 = AppleScript/Shortcuts write path
+# (allowlisted, prefixed 🤖, no quiet-hours autoreplies).
+!projects/imessage-bridge/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
