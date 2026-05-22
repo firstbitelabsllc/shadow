@@ -33,6 +33,11 @@ projects/*
 # (mic → Whisper → Claude trigger → Voxtral TTS, ChatGPT-voice-mode parity).
 # Shared with Codex for two-agent execution.
 !projects/moussey-voice-agent/
+# Exception: agentic-command-center is the MEGA-plan parent for moussey-voice-agent
+# + sibling input modalities (text chat, vidux-browse-action, imessage-bridge,
+# gmail-bridge, screen-action, autonomous-trigger-bus). Hosts the goal prompt
+# Codex + Claude paste into every session.
+!projects/agentic-command-center/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
