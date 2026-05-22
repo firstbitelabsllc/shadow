@@ -29,6 +29,10 @@ projects/*
 # add-on plan (Mistral Voxtral 4B WebGPU, browser-local, personal use only).
 # Replaces higgs-reader-poc as the active reader project.
 !projects/voxtral-reader-addon/
+# Exception: moussey-voice-agent is the live-voice agentic command-center plan
+# (mic → Whisper → Claude trigger → Voxtral TTS, ChatGPT-voice-mode parity).
+# Shared with Codex for two-agent execution.
+!projects/moussey-voice-agent/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
