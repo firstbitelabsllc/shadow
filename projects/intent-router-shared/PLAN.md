@@ -84,7 +84,7 @@ Synchronous + pure for v1. v2 may need async (e.g. probe fleet liveness mid-call
 
 | Task | Status | Owner | Blocking | Depends on | Updated |
 |---|---|---|---|---|---|
-| R1: v1 stub + types | [pending] | — | every downstream sub-project | brain-dispatcher B1 | 2026-05-22 |
+| R1: v1 stub + types | [completed] | claude | every downstream sub-project | brain-dispatcher B1 | 2026-05-22 |
 | R2: Unit tests | [pending] | — | quality gate | R1 | 2026-05-22 |
 | R3: README | [pending] | — | onboarding | R1 | 2026-05-22 |
 | R4: v2 MCP detection heuristics | [pending] | — | non-claude brain MCP work | R1 | 2026-05-22 |
@@ -103,3 +103,4 @@ R1 → R2 → R3 ships v1 end-to-end in one short session. R4-R7 are deferred un
 ## Progress
 
 - [2026-05-22] Plan created as Phase 0 keystone #2. Interface contract locked. v1 stub strategy committed (default-to-claude, caller-override-wins). Pairs naturally with brain-dispatcher B1 for a single-session ship.
+- [2026-05-22] R1 [completed]. `moussey/lib/intent-router.ts` shipped: `RouterInput`, `RouterOutput` type exports + `route()` pure function returning `{provider, targetMac, reason}`. Caller hints always win; reason string describes the routing decision for audit. v2 heuristics (R4-R6) and v3 LLM classifier (R7) remain `[pending]`. Phase 0 keystone PAIR complete — voice-agent V4 + every input-modality sub-project can now wire the dispatcher into their pipeline against the stable interface.
