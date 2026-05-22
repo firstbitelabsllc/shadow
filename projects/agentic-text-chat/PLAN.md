@@ -75,7 +75,7 @@ It's also the right surface for tasks where voice is awkward — pasting a long 
 | Task | Status | Owner | Blocking | Depends on | Updated |
 |---|---|---|---|---|---|
 | T1: /chat page UI | [pending] | — | T3, T4 | nothing | 2026-05-22 |
-| T2: /api/chat/ask SSE route | [pending] | — | T3 | brain-dispatcher B2 (for claude provider) | 2026-05-22 |
+| T2: /api/chat/ask SSE route | [pending] | — | T3 | **brain-dispatcher B2 SHIPPED + verified live (`✓ Hi 4441ms $0.20`)** — just wire `dispatch({prompt, provider, metadata:{sourceModality:"text"}})` into the route + stream BrainChunks as SSE. Use intent-router `route()` to pick provider when UI doesn't override. | 2026-05-22 |
 | T3: Client SSE parser + bubble append | [pending] | — | GATE 1 | T1, T2 | 2026-05-22 |
 | T4: Markdown rendering | [pending] | — | (polish) | T3 | 2026-05-22 |
 | T5: Session JSONL persistence | [pending] | — | T6 | T2 | 2026-05-22 |
