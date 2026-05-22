@@ -106,7 +106,7 @@ This finding moves a sub-task **B2.0 (refactor trigger-claude to stream-json)** 
 | B1: Type definitions + stubs | [completed] | claude | every other B-task | — | 2026-05-22 |
 | B2.0: Refactor trigger-claude to `--output-format stream-json` (per-event SSE) | [pending] | — | unblocks B2 streaming semantics | nothing | 2026-05-22 |
 | B2: claude provider | [completed] | claude | voice-agent V4, text-chat V4 | B1, loopback-sign, sse-parse, brain-audit | 2026-05-22 (buffered semantics; B2.0 stream-json refactor remains for true mid-stream text) |
-| B3: codex provider | [pending] | — | (alternate brain for voice/text) | B1, codex CLI installed | 2026-05-22 |
+| B3: codex provider | [completed] | claude | (alternate brain for voice/text) | B1, codex CLI installed | 2026-05-22 (spawn `codex exec -m <model> -`, accumulate stdout, yield text+complete; no MCP support) |
 | B4: local provider | [pending] | — | (alternate brain for voice/text) | B1, Ollama installed | 2026-05-22 |
 | B5: Unit tests | [completed] | claude | (quality gate) | B2, B3, B4 | 2026-05-22 |
 | B6: README | [completed] | claude | onboarding | B2-B4 | 2026-05-22 |
