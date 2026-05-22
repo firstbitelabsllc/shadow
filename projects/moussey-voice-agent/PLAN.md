@@ -175,8 +175,8 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 | V1: mlx-whisper install + smoke (M4 Pro) | [pending] | — | nothing | 2026-05-22 |
 | V2: Browser /voice mic UI | [pending] | — | nothing | 2026-05-22 |
 | V3: /api/voice/transcribe route | [pending] | — | V1 (Whisper bin must exist) | 2026-05-22 |
-| V4: Brain dispatcher (3 providers) | [pending] | — | nothing | 2026-05-22 |
-| V5: /api/voice/ask SSE route | [pending] | — | V4 | 2026-05-22 |
+| V4: Brain dispatcher (3 providers) | [pending] | — | brain-dispatcher B2/B3/B4 (interface available — see `moussey/lib/brain-dispatcher.ts`) | 2026-05-22 |
+| V5: /api/voice/ask SSE route | [pending] | — | V4, intent-router R1 [completed] | 2026-05-22 |
 | V6: /voice page wires V2→V5 | [pending] | — | V2, V5 | 2026-05-22 |
 | V7: Sentence chunker | [pending] | — | nothing (port from readaloud.js) | 2026-05-22 |
 | V8: TTS playback queue | [pending] | — | V7 | 2026-05-22 |
@@ -200,3 +200,4 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 ## Progress
 
 - [2026-05-22] Plan created. Architecture locked. Phase 1 unblocked. Cross-Mac Claude trigger + Voxtral TTS already proven and live, so the surface area to ship is just the audio I/O glue (V1-V3), brain dispatcher (V4-V5), UI wiring (V6), TTS playback (V7-V9), barge-in (V10-V12). Phases 1-3 are MVP (push-to-talk voice agent). Phase 4 brings ChatGPT-voice-mode parity. Phase 5 is polish.
+- [2026-05-22] V4 interface NOW AVAILABLE — brain-dispatcher-shared Phase 0 stubs shipped (B1/B5/B6 [completed]) at `moussey/lib/brain-dispatcher.ts` + README + 6 passing tests. intent-router (R1/R2/R3 [completed]) at `moussey/lib/intent-router.ts`. V4 work can begin against the stable interface — wire `dispatch()` into the WebSocket relay; the three provider implementations (B2/B3/B4) ship as drop-in replacements for the `NotImplemented`-throwing stubs without changing the call site.
