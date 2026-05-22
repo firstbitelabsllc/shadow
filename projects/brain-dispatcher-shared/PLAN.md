@@ -74,12 +74,38 @@ Every consumer awaits `for-await-of dispatch(req)` and emits the chunks to which
 - [HARD-NEVER] No `eval`-style dynamic provider loading. Three known providers, named explicitly. Adding a fourth is a code change with a PR.
 - [HARD-NEVER] No persistence of `BrainRequest.prompt` beyond the audit log. The prompt is the user's intent and stays as-is; the library does not transform it.
 
+### Finding [2026-05-22] — B2 streaming-vs-buffered tradeoff
+
+Discovery during B2 prep: `app/api/lan/trigger-claude/route.ts:126` spawns `claude -p --model <m> --output-format json --permission-mode bypassPermissions`. The `json` format buffers all events into a single JSON array emitted at the END of the run. trigger-claude's SSE `{chunk: text}` frames carry partial JSON bytes — they are NOT mid-stream text events.
+
+**What this means for B2:**
+
+The `dispatch()` interface promises `AsyncIterable<BrainChunk>` with `{type: "text"}` chunks streamed as they arrive. With the current trigger-claude wire format, B2 can only:
+
+- Yield ONE `system_init` chunk from the first SSE frame (`{requestId, startedAt, model, yolo, from}`)
+- BUFFER all `{chunk: text}` SSE frames into a byte accumulator
+- On the terminal `{exit, stderr}` SSE frame: parse the buffered JSON array, extract the `result` event's `result` string, yield ONE `text` chunk with the full response
+- Yield `complete` with `costCents`, `durationMs`, `exitCode`
+
+That means **text arrives all at once**, not character-by-character. For voice-agent V8 (streaming TTS) this is a regression — the TTS pipeline can't start synthesizing sentence-by-sentence until the whole response lands.
+
+**Two paths to fix:**
+
+1. **B2 ships buffered.** Voice agent picks up streaming text in V7-V8 by chunking the buffered text into sentences then queueing TTS. Latency penalty: full response time before first audio. Acceptable for v1 voice-agent MVP since trigger-claude responses are typically 2-5s.
+
+2. **Refactor trigger-claude to `--output-format stream-json`.** Each SSE frame becomes one parsed claude SDK event (system_init / assistant message_delta / tool_use / result). B2 yields chunks mid-stream. Cleaner long-term; small moussey-side change.
+
+**Recommended pick:** path 2. The receiver-side change to trigger-claude is ~10 lines (swap arg + flip JSON parser to per-line). All current trigger-claude callers (CLI, GUI form, send proxy) continue to work because the SSE wire format stays `data: {...}\n\n` — just with different inner JSON shapes per frame. The B2 implementation then maps each frame type to the right BrainChunk without buffering.
+
+This finding moves a sub-task **B2.0 (refactor trigger-claude to stream-json)** ahead of **B2 itself**. The trigger-claude refactor is its own claim, ideally before B2 starts.
+
 ## Claims board
 
 | Task | Status | Owner | Blocking | Depends on | Updated |
 |---|---|---|---|---|---|
 | B1: Type definitions + stubs | [completed] | claude | every other B-task | — | 2026-05-22 |
-| B2: claude provider | [pending] | — | voice-agent V4, text-chat V4 | B1, trigger-claude (shipped) | 2026-05-22 |
+| B2.0: Refactor trigger-claude to `--output-format stream-json` (per-event SSE) | [pending] | — | unblocks B2 streaming semantics | nothing | 2026-05-22 |
+| B2: claude provider | [pending] | — | voice-agent V4, text-chat V4 | B1, B2.0 (recommended), loopback-sign, sse-parse, brain-audit | 2026-05-22 |
 | B3: codex provider | [pending] | — | (alternate brain for voice/text) | B1, codex CLI installed | 2026-05-22 |
 | B4: local provider | [pending] | — | (alternate brain for voice/text) | B1, Ollama installed | 2026-05-22 |
 | B5: Unit tests | [completed] | claude | (quality gate) | B2, B3, B4 | 2026-05-22 |
