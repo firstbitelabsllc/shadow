@@ -42,6 +42,11 @@ projects/*
 # the agentic-command-center mega-goal — defines the AsyncIterable<BrainChunk>
 # contract every input modality (voice/text/iMessage/Gmail/etc) imports.
 !projects/brain-dispatcher-shared/
+# Exception: intent-router-shared is the Phase 0 sibling library plan — pure
+# decision function (free-text intent → provider+Mac pick). v1 stub ships
+# alongside brain-dispatcher v1 so every input modality has a stable
+# routing interface from day one.
+!projects/intent-router-shared/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
