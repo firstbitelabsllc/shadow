@@ -1,6 +1,8 @@
 # Moussey Voice Agent — Live Agentic Voice Chat for Leo's Fleet
 
-## Mega-goal
+> **Parent plan:** `~/Development/vidux/projects/agentic-command-center/PLAN.md` — this is **Phase 1 / sub-project #3** of the mega-goal. Voice is ONE input modality alongside text chat, vidux-browse-action, iMessage-bridge, Gmail-bridge, etc. All siblings share the brain dispatcher + intent router from Phase 0.
+
+## Sub-project mega-goal
 
 **Speak to one Mac. Command the whole fleet with full agentic capability (every skill, every MCP). Hear streamed audio back. Interrupt at any time.**
 
