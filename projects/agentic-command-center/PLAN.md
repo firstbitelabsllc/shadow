@@ -204,7 +204,7 @@ Without these, every sibling re-implements the same provider abstraction badly.
 | moussey-voice-agent | 1 | active (has own claims board; V4 unblocked by B1+R1) | mixed | 2026-05-22 |
 | agentic-text-chat | 2 | active (PLAN.md scaffolded; T1 + T2 claimable in parallel) | — | 2026-05-22 |
 | vidux-browse-action | 3 | active (PLAN.md scaffolded; VA1+VA3 claimable in parallel) | — | 2026-05-22 |
-| imessage-bridge | 3 | [pending] | — | 2026-05-22 |
+| imessage-bridge | 3 | active (PLAN.md scaffolded; V1 read-only with GUI, V2 write path = research first) | — | 2026-05-22 |
 | gmail-bridge | 3 | active (PLAN.md scaffolded; label-triggered, always-draft-never-send) | — | 2026-05-22 |
 | screen-action-bridge | 4 | [pending] | — | 2026-05-22 |
 | autonomous-trigger-bus | 4 | [pending] | — | 2026-05-22 |
