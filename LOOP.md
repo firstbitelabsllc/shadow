@@ -193,6 +193,8 @@ Blocker: [if any, or "none"]
 
 Push when ready — not required per-cycle. Git commit is the checkpoint, not git push.
 
+**Reconcile planned vs actual:** Compare what the plan said with what the git diff shows. If they diverge, run `vidux drift <PLAN.md> --task ... --planned ... --actual ... --why ... --plan-update ... --next ...` or call `scripts/vidux-drift-log.py` directly. The helper writes `## Drift Log`, appends Progress, and can explicitly block stale tasks, add follow-up tasks, or mirror the drift into subplans. The plan always reflects truth.
+
 **Checkpoint script (`vidux-checkpoint.sh`):** handles both v1 checkboxes and v2 FSM states.
 Use `--status` to distinguish outcomes:
 - `--status done` (default) — task verified; marks `[completed]`

@@ -21,6 +21,7 @@ commands:
   browse [args]     Launch the plan browser at :7191
   status [args]     Print active-plan status across projects/*/PLAN.md
   init <slug>       Bootstrap a new plan's PLAN.md from template
+  drift <PLAN.md>   Record planned-vs-actual drift and optional subplan updates
   doctor            Diagnose local toolchain + auth
   build             Run docs:build + contract tests as release gate
   release           Bump VERSION + cut CHANGELOG + tag + push (dry-run by default)
@@ -95,6 +96,19 @@ exit codes:
   0   plan created
   1   target PLAN.md already exists
   2   invalid usage (no slug, bad slug, unknown flag)
+EOF
+      ;;
+    drift)
+      cat <<EOF
+vidux drift — record planned-vs-actual drift in a PLAN.md.
+
+usage: vidux drift <PLAN.md> --task <id> --planned <text> --actual <text> \\
+  --why <text> --plan-update <text> --next <text> [--block-task <id>] \\
+  [--add-task <task>] [--subplan <path>]
+
+Writes a structured ## Drift Log entry, appends a Progress note, and can
+explicitly block a stale task, add follow-up tasks, or mirror the drift into
+named subplans. The helper never mutates unrelated tasks silently.
 EOF
       ;;
     doctor)
@@ -238,6 +252,9 @@ main() {
       ;;
     init)
       exec bash "${VIDUX_ROOT}/scripts/vidux-init.sh" "$@"
+      ;;
+    drift)
+      exec python3 "${VIDUX_ROOT}/scripts/vidux-drift-log.py" "$@"
       ;;
     doctor)
       exec bash "${VIDUX_ROOT}/scripts/vidux-doctor-cli.sh" "$@"

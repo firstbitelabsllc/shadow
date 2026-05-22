@@ -14,7 +14,8 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 | 4 | `## Constraints` | ✔ | ALWAYS / NEVER rules |
 | 5 | `## Tasks` | ✔ | Ordered task queue with status tags |
 | 6 | `## Decision Log` | ✔ | Intentional choices future agents must not undo |
-| 7 | `## Progress` | ✔ | Living per-cycle log (unexpected findings + reorder notes live here) |
+| 7 | `## Drift Log` |  | Optional structured planned-vs-actual deviation log, inserted before Progress by `vidux drift` |
+| 8 | `## Progress` | ✔ | Living per-cycle log (unexpected findings + reorder notes live here) |
 
 ## Task Status FSM
 
@@ -51,6 +52,7 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 | `[Depends: Task N]` | Blocks until task N is `[completed]` | `[Depends: Task 3]` |
 | `[Investigation: path]` | Compound task — read sub-plan before coding | `[Investigation: investigations/payment-flow.md]` |
 | `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs production analytics credentials]` |
+| `[Drift: ...]` | Drift Log entry that explains why a stale task was blocked or replaced | `[Drift: D-20260522-01]` |
 | `[Fix: file:line]` | Where the fix landed, on `[completed]` tasks | `[Fix: src/auth.ts:42]` |
 | `[Shipped: <sha>]` | Commit sha the fix landed in | `[Shipped: a1b2c3d]` |
 
@@ -86,6 +88,25 @@ One line per cycle. Leaner than a checkpoint commit — the diff tells the story
 - Summarize the diff — that's what `git log` is for
 - Write "everything fine" lines — if there's nothing to report, don't add an entry
 - Paraphrase the plan — reference it by task number instead
+
+## Drift Entry Format
+
+Use `vidux drift` when implementation had to diverge from the plan. The helper
+creates `## Drift Log` if needed and writes:
+
+```
+- [YYYY-MM-DD] D-YYYYMMDD-NN — Task N
+  - Planned: ...
+  - Actual: ...
+  - Why: ...
+  - Plan update: ...
+  - Next: ...
+  - Subplans: ...
+```
+
+If the drift invalidates an existing task, pass `--block-task` so the task gets
+`[blocked] ... [Drift: D-...]`. If it creates new work, pass `--add-task`.
+Named `--subplan` paths receive a mirrored drift entry with the same id.
 
 ## Evidence Source Tags
 

@@ -510,6 +510,23 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 [ETA: 0.5h]
 [Done: 2026-04-27. Kept the VitePress IA and config intact after a fresh config-link audit passed 27/27. Updated only source-grounded docs drift: `docs/guide/quickstart.md` and `docs/guide/installation.md` now match the shipped `/vidux` startup contract instead of the older amplify/steer/fire flow or an undocumented `/vidux --plan` flag, while `docs/reference/scripts.md` and `docs/reference/config.md` now reflect the current `vidux-checkpoint.sh --outcome` surface and `vidux-doctor.sh` config usage. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, `git diff --check` PASS, config-link audit PASS (27/27). Tool note: local `claudux --help` now points users to `claudux update` as the merged docs entry point; this vidux pass did not need any public claudux command copy changes.]
 
+### Phase 17: Drift Log helper for adaptive plans [completed]
+
+**Goal:** Make planned-vs-actual deviation a first-class vidux artifact instead of relying only on prompt reminders. Agents should be able to record what changed, why it changed, what the plan now says, and which parent/subplans were patched, so future cycles adapt instead of replaying stale intent.
+
+**Evidence:**
+- [Source: ENFORCEMENT.md:99-135] The existing drift detector is prompt-only; it tells agents to reconcile planned vs actual but provides no durable helper.
+- [Source: docs/concepts/plan-structure.md:95-106] Course corrections currently require manual Decision Log, task, and code updates.
+- [Source: LOOP.md:136-161] Checkpoint requires reconciling planned vs actual, but the script surface is still `vidux-checkpoint.sh` and does not capture structured drift details or subplan propagation.
+- [Source: `find scripts -name '*drift*'`, 2026-05-22] No drift-specific script exists in core vidux before this phase.
+
+#### 17.1 — Ship structured drift logging [completed]
+1. Add a `vidux drift` CLI path backed by a Python helper that writes a `## Drift Log` entry with planned, actual, reason, plan-update, next, and optional task/subplan propagation.
+2. Patch parent task status or append follow-up tasks only when explicitly requested by flags; never silently mutate unrelated work.
+3. Mirror a short parent-drift entry into named subplans so L2 investigations do not drift from the parent plan.
+4. Document the helper in `SKILL.md`, `LOOP.md`, README, and the scripts/plan-structure references.
+5. Cover parser/update behavior with unit tests and run the standard vidux gates.
+
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
 - [DIRECTION] [2026-04-09] vidux-loop.sh is NOT deleted — it still works and vidux-loop.sh stays as optional tooling. But automation prompts no longer require it. The gate is now inline in the prompt.
@@ -563,6 +580,7 @@ Historical mentions stay allowed only in `PLAN.md`, `CHANGELOG.md`, `evidence/`,
 - [2026-04-09] Claude Desktop v1.1062.0 migrated from local-agent-mode-sessions/ to claude-code-sessions/. Local scheduled tasks JSON not carried over. Local task creation is UI-only — no programmatic API exists (anthropics/claude-code#41364).
 
 ## Progress
+- [2026-05-22 19:57 EDT] 17.1 completed. Shipped a first-class `vidux drift` CLI backed by `scripts/vidux-drift-log.py`, with parent Drift Log creation, explicit stale-task blocking, follow-up task insertion, and named subplan mirroring. Docs now teach `## Drift Log` as an optional structured section before `## Progress`, and the shell completions/scripts reference include the new command. Gate: `PATH=/opt/homebrew/bin:$PATH npm test` PASS (188/188), `PATH=/opt/homebrew/bin:$PATH npm run docs:build` PASS, `PATH=/opt/homebrew/bin:$PATH python3 -m py_compile scripts/vidux-drift-log.py` PASS, `git diff --check` PASS. Tool note: plain macOS `/usr/bin/python3` is 3.9.6 and cannot parse this repo's existing modern type-union tests, so gates use Homebrew Python.
 - [2026-04-27 07:50 EDT] 16.1 completed. The merged-CLI dogfood pass found the public IA stable, so the refresh stayed narrow: the getting-started docs no longer promise the older amplify/steer/fire interaction or a `/vidux --plan` flag, and the config/script references now match the shipped `vidux-checkpoint.sh --outcome` and `vidux-doctor.sh` surfaces. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, config-link audit PASS (27/27), `git diff --check` PASS. Tool note: local `claudux --help` points to `claudux update` for the merged CLI.
 - [2026-04-27 07:30 EDT] 14.2 completed. Local browser discovery now dedupes historical repo aliases so a stale `mobiledevcombine-web/vidux/game-plan/PLAN.md` cannot appear ahead of canonical `strongyes-web/vidux/game-plan/PLAN.md` in the sidebar. Bumped release to 2.23.0 with CHANGELOG coverage. Gate: `python3 -m unittest tests.test_browser_server` PASS, `python3 -m unittest discover -s tests` PASS (178/178), `npm run docs:build` PASS, `git diff --check` PASS, live `/api/plans` check returns only `strongyes-web/vidux/game-plan/PLAN.md` for `game-plan`.
 - [2026-04-27 05:46 EDT] 15.1 completed. Static-analysis docs dogfood stayed narrow and left the VitePress IA intact: `SKILL.md` and `docs/concepts/extensions.md` now stick to repo-shipped adapter facts (`vidux-inbox-sync.py`, `--only-adapter`, checked-in `gh_projects` + `linear` config) instead of implying untracked `vidux-fleet-sync` / `vidux-linear-sync` wrappers or stale board-specific wiring. Gate: `npm ci` PASS, `npm test` PASS (156/156), `npm run docs:build` PASS, config-link audit PASS (32/32), `git diff --check` PASS.
