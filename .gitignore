@@ -55,6 +55,10 @@ projects/*
 # vidux-browse comments into agent triggers via @agent/@claude/@codex prefixes.
 # Loopback hook from :7191 to moussey :4321; replies as child comment threads.
 !projects/vidux-browse-action/
+# Exception: gmail-bridge is the Phase 3 modality — label-triggered (@agent)
+# 5-min polling cron reads inbound, dispatches via brain, drafts reply (never
+# auto-sends, Leo retains send authority).
+!projects/gmail-bridge/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
