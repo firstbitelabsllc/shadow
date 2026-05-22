@@ -64,6 +64,11 @@ projects/*
 # surface at :4321/imessage-bridge. V2 = AppleScript/Shortcuts write path
 # (allowlisted, prefixed 🤖, no quiet-hours autoreplies).
 !projects/imessage-bridge/
+# Exception: autonomous-trigger-bus is the Phase 4 modality — config-driven
+# registry routing cron/file-drop/Sentry-webhook events through the same
+# brain dispatcher every other modality uses. Sinks: file / vidux-inbox /
+# follow-up-trigger-claude.
+!projects/autonomous-trigger-bus/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
