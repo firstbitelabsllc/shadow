@@ -84,7 +84,7 @@ Every consumer awaits `for-await-of dispatch(req)` and emits the chunks to which
 | B4: local provider | [pending] | — | (alternate brain for voice/text) | B1, Ollama installed | 2026-05-22 |
 | B5: Unit tests | [completed] | claude | (quality gate) | B2, B3, B4 | 2026-05-22 |
 | B6: README | [completed] | claude | onboarding | B2-B4 | 2026-05-22 |
-| B7: Tri-provider smoke script | [pending] | — | GATE 0 | B2, B3, B4 | 2026-05-22 |
+| B7: Tri-provider smoke script | [completed] | claude | GATE 0 | B2, B3, B4 | 2026-05-22 |
 
 ## Two-agent coordination
 
