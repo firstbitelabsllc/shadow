@@ -199,16 +199,18 @@ Without these, every sibling re-implements the same provider abstraction badly.
 
 | Sub-project | Phase | Status | Owner | Updated |
 |---|---|---|---|---|
-| brain-dispatcher-shared | 0 | [pending] | — | 2026-05-22 |
-| intent-router-shared | 0 | [pending] | — | 2026-05-22 |
-| moussey-voice-agent | 1 | active (has own claims board) | mixed | 2026-05-22 |
-| agentic-text-chat | 2 | [pending] | — | 2026-05-22 |
+| brain-dispatcher-shared | 0 | active (B1 [completed]; B2-B7 [pending]) | claude → ? | 2026-05-22 |
+| intent-router-shared | 0 | active (R1 [completed]; R2-R7 [pending]) | claude → ? | 2026-05-22 |
+| moussey-voice-agent | 1 | active (has own claims board; V4 unblocked by B1+R1) | mixed | 2026-05-22 |
+| agentic-text-chat | 2 | [pending] (unblocked by B1+R1, needs PLAN.md) | — | 2026-05-22 |
 | vidux-browse-action | 3 | [pending] | — | 2026-05-22 |
 | imessage-bridge | 3 | [pending] | — | 2026-05-22 |
 | gmail-bridge | 3 | [pending] | — | 2026-05-22 |
 | screen-action-bridge | 4 | [pending] | — | 2026-05-22 |
 | autonomous-trigger-bus | 4 | [pending] | — | 2026-05-22 |
 | moussey-gui-tabs | 5 | [pending] | — | 2026-05-22 |
+
+**Phase 0 status (2026-05-22):** Both keystone TYPE CONTRACTS shipped as `moussey/lib/brain-dispatcher.ts` + `intent-router.ts` (moussey `e30b930`, vidux `95a4d52`). Stubs throw `NotImplemented` pointing to B2/B3/B4 task atoms. `B2` (claude provider) is the next-most-valuable claim — it's the only fully-MCP-capable brain today, so shipping it unblocks moussey-voice-agent V4 + agentic-text-chat V4 + every Phase 3 modality.
 
 ## Two-agent coordination (across all sub-projects)
 
