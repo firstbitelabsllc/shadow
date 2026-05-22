@@ -78,7 +78,7 @@ Every consumer awaits `for-await-of dispatch(req)` and emits the chunks to which
 
 | Task | Status | Owner | Blocking | Depends on | Updated |
 |---|---|---|---|---|---|
-| B1: Type definitions + stubs | [pending] | — | every other B-task | — | 2026-05-22 |
+| B1: Type definitions + stubs | [completed] | claude | every other B-task | — | 2026-05-22 |
 | B2: claude provider | [pending] | — | voice-agent V4, text-chat V4 | B1, trigger-claude (shipped) | 2026-05-22 |
 | B3: codex provider | [pending] | — | (alternate brain for voice/text) | B1, codex CLI installed | 2026-05-22 |
 | B4: local provider | [pending] | — | (alternate brain for voice/text) | B1, Ollama installed | 2026-05-22 |
@@ -98,3 +98,4 @@ If B1 lands before B2-B4, the three providers can ship in parallel (B2/B3/B4 ind
 ## Progress
 
 - [2026-05-22] Plan created as Phase 0 keystone. Interface contract locked. Library home decided (moussey/lib). B1 is the unblocking task — all other B-tasks depend on its type exports.
+- [2026-05-22] B1 [completed]. `moussey/lib/brain-dispatcher.ts` shipped: `BrainProvider`, `BrainSourceModality`, `BrainRequest`, `BrainChunk` type exports + `dispatch()` async-generator entry point + three provider stubs (`dispatchClaude`, `dispatchCodex`, `dispatchLocal`) that throw `NotImplemented` with pointers to B2/B3/B4. Exhaustive switch with `never` check on `provider` for compile-time safety. B2-B4 unblocked — three providers can ship in parallel now.
