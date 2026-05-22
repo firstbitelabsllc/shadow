@@ -175,8 +175,8 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 | V1: mlx-whisper install + smoke (M4 Pro) | [pending] | — | nothing | 2026-05-22 |
 | V2: Browser /voice mic UI | [pending] | — | nothing | 2026-05-22 |
 | V3: /api/voice/transcribe route | [pending] | — | V1 (Whisper bin must exist) | 2026-05-22 |
-| V4: Brain dispatcher (3 providers) | [pending] | — | brain-dispatcher B2/B3/B4 (interface available — see `moussey/lib/brain-dispatcher.ts`) | 2026-05-22 |
-| V5: /api/voice/ask SSE route | [pending] | — | V4, intent-router R1 [completed] | 2026-05-22 |
+| V4: Brain dispatcher (3 providers) | [pending] | — | **ALL THREE PROVIDERS SHIPPED** — `moussey/lib/brain-dispatcher.ts` `dispatch()` is real. claude verified live (`✓ Hi 4441ms $0.20`). V4 = wire `dispatch({provider, sourceModality:"voice"})` into the WebSocket relay + map BrainChunks to SSE frames. No more abstraction work needed. | 2026-05-22 |
+| V5: /api/voice/ask SSE route | [pending] | — | V4, intent-router R1 [completed] (use `route()` to pick provider when UI doesn't override) | 2026-05-22 |
 | V6: /voice page wires V2→V5 | [pending] | — | V2, V5 | 2026-05-22 |
 | V7: Sentence chunker | [pending] | — | nothing (port from readaloud.js) | 2026-05-22 |
 | V8: TTS playback queue | [pending] | — | V7 | 2026-05-22 |
