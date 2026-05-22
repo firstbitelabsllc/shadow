@@ -1,6 +1,22 @@
-# vidux + pilot merge
+# vidux + pilot merge — [SUPERSEDED 2026-05-22]
 
-## Purpose
+> **STATUS: SUPERSEDED.** Direction reversed 2026-05-22. Leo's instruction was the opposite of this plan — keep `/pilot` as the mega orchestrator entry point, keep `/vidux` as the pure dev-execution mechanic called by `/pilot`, and create `/pilot-leo` (in ai-leo) as the personal overlay absorbing the former `/vidux-leo`. `/captain` continues to own skill OS work.
+>
+> **What actually shipped (2026-05-22):**
+> - `/pilot-leo` created at `ai-leo/skills/pilot-leo/SKILL.md` (873 lines, absorbed all `/vidux-leo` content + new Section 0 PR macro-shape)
+> - `/vidux-leo` → SUPERSEDED stub redirecting to `/pilot-leo`
+> - `/pilot` shipped Specialist Fan-out Molecule + cross-tool hooks/skills/plugins section (ct-ai-skills commits `a03c9ea`, `f339e3a`, `5d7540b`)
+> - `/captain` shipped Snap Mode section (ct-ai-skills commit `b2b8c7a`)
+>
+> **Why this plan didn't ship:** Tasks 2-6 below were never executed. The 2026-05-22 session that Leo drove went the other direction (consolidate at /pilot, not /vidux). This file kept for historical context only.
+>
+> **If you're picking up vidux/pilot work**, the canonical current state lives at:
+> - `~/Snapchat/Dev/ct-ai-skills/skills/pilot/SKILL.md` (shared, Snap-internal)
+> - `~/Snapchat/Dev/ai-leo/skills/pilot-leo/SKILL.md` (personal overlay)
+
+---
+
+## Original Purpose (historical)
 
 Consolidate `/vidux` and `/pilot` into a single skill at `~/Development/ai/skills/vidux/SKILL.md`. Today `/pilot` is the universal router that detects stack/stage/scale, then delegates expedition-scale work into `/vidux`. Leo asked to merge them on 2026-05-13 — they overlap enough that two skills create friction.
 
