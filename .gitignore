@@ -38,6 +38,10 @@ projects/*
 # gmail-bridge, screen-action, autonomous-trigger-bus). Hosts the goal prompt
 # Codex + Claude paste into every session.
 !projects/agentic-command-center/
+# Exception: brain-dispatcher-shared is the Phase 0 keystone library plan for
+# the agentic-command-center mega-goal — defines the AsyncIterable<BrainChunk>
+# contract every input modality (voice/text/iMessage/Gmail/etc) imports.
+!projects/brain-dispatcher-shared/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
