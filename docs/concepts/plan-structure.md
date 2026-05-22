@@ -32,6 +32,12 @@ Intentional choices that future agents must not undo.
 - [DELETION] [date] Removed X. Reason: Y. Do not re-add.
 - [DIRECTION] [date] Chose X over Y. Reason: Z.
 
+## Drift Log
+Optional structured record of implementation-time deviations. Use `vidux drift`
+when the plan said one thing but the verified implementation had to do another.
+Each entry records planned, actual, why, plan update, next move, and subplans
+that were mirrored.
+
 ## Progress
 Living log updated each cycle. Unexpected findings, concerns, and reorder
 notes all live here — no separate Surprises or Open Questions section. If a
@@ -101,15 +107,31 @@ Entry types:
 - `[BLOCKED]` — a task that can't proceed without human intervention
 - `[PIVOT]` — major direction change; marks obsolete tasks
 
+## Drift Log
+
+`## Drift Log` is optional but first-class. It is for unavoidable implementation
+drift, not random notes. A good drift entry says:
+
+- what the plan said would happen
+- what actually changed
+- why the deviation was necessary
+- how the parent plan now adapts
+- which subplans were mirrored
+
+Use `vidux drift <PLAN.md> ...` so the parent plan and any named subplans get
+the same drift id. If the old task is now stale, pass `--block-task`; if the
+drift creates follow-up work, pass one or more `--add-task`.
+
 ## Course Correction
 
 When evidence changes, the plan changes. The correct procedure:
 
 1. **Update the plan FIRST** — what changed, why, what's the new direction
-2. **Add a Decision Log entry** — `[DIRECTION]` or `[PIVOT]` with the reason
-3. **Mark obsolete tasks** — `[blocked]` with a pointer to the new direction
-4. **Add new tasks** — fresh `[pending]` tasks in the queue
-5. **Then update the code** — derived from the new plan state
+2. **Record drift when implementation diverged** — `vidux drift` writes the structured log and mirrors subplans
+3. **Add a Decision Log entry** — `[DIRECTION]` or `[PIVOT]` with the reason
+4. **Mark obsolete tasks** — `[blocked]` with a pointer to the new direction
+5. **Add new tasks** — fresh `[pending]` tasks in the queue
+6. **Then update the code** — derived from the new plan state
 
 **Never spawn a sibling plan.** If you catch yourself justifying a new PLAN.md with phrases like "clean slate" or "this rewrite deserves its own home," stop: that's fabricated reasoning. Update the existing plan.
 

@@ -8,6 +8,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 |---|---|
 | `scripts/vidux-loop.sh` | Stateless cycle helper that reads a plan and emits machine-readable next-action state. |
 | `scripts/vidux-checkpoint.sh` | Structured checkpoint helper for marking work done, blocked, or archived. Its two entry shapes are `vidux-checkpoint.sh <plan> <task> <summary> ...` and `vidux-checkpoint.sh <plan> --archive`. |
+| `scripts/vidux-drift-log.py` | Records planned-vs-actual implementation drift in `## Drift Log`, appends Progress, and can explicitly block stale tasks, add follow-up tasks, or mirror the drift into named subplans. Exposed as `vidux drift`. |
 | `scripts/vidux-status.py` | Read-only status board for every `PLAN.md` under the configured roots. |
 | `scripts/vidux-plan-gc.py` | Mechanical plan garbage collection for completed tasks, old investigations, and oversized inboxes. |
 | `scripts/vidux-plan-gc-cron.sh` | Scheduled wrapper around `vidux-plan-gc.py`. |

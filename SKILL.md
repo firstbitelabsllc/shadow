@@ -72,7 +72,7 @@ Agents add tasks they discover. When you fix a bug, log the related bugs you saw
 
 But a shipped surface that works is done -- stop polishing and move to the next gap. If overall mission has gaps elsewhere, polish on a done surface is procrastination. Only re-extend plans when investigation reveals new surfaces, not when you find one more thing to tweak on a surface you already finished.
 
-**If evidence changes mid-cycle, the queue re-sorts.** Observed user behavior, a failing deploy, a new PR comment — any of these can reorder what's next. You don't need permission to reorder. Note the reorder in the next Progress entry so future agents see the why.
+**If evidence changes mid-cycle, the queue re-sorts.** Observed user behavior, a failing deploy, a new PR comment — any of these can reorder what's next. You don't need permission to reorder. Note the reorder in the next Progress entry so future agents see the why. When implementation deviates from the plan, run `vidux drift` (or `scripts/vidux-drift-log.py`) to record planned, actual, why, the plan update, and any subplan mirrors before continuing.
 
 ### 5. Prove it mechanically
 
@@ -150,7 +150,7 @@ ACT        -> Execute tasks until queue empty, blocker, or context budget.
              found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit.
 VERIFY     -> Build, test, gate
 CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
-             Reconcile planned vs actual; update plan if they diverge.
+             Reconcile planned vs actual; use `vidux drift` if they diverge.
 COMPLETE   -> Close the local worktree lifecycle or record why it remains.
 ```
 

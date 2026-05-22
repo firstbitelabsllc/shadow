@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # Canonical subcommand list. Order matches print_top_help() in bin/vidux.
-VIDUX_SUBCOMMANDS="dev browse status init doctor build release completion help"
+VIDUX_SUBCOMMANDS="dev browse status init drift doctor build release completion help"
 VIDUX_FLAGS="--help -h --version -v"
 
 print_usage() {
@@ -78,6 +78,7 @@ _vidux() {
     'browse:Launch the plan browser at :7191'
     'status:Print active-plan status across projects/*/PLAN.md'
     'init:Bootstrap a new plan PLAN.md from template'
+    'drift:Record planned-vs-actual drift in PLAN.md'
     'doctor:Diagnose local toolchain + auth'
     'build:Run docs:build + contract tests as release gate'
     'release:Bump VERSION, tag, push'
@@ -140,6 +141,7 @@ complete -c vidux -n '__vidux_no_subcommand' -a dev        -d 'Start the local d
 complete -c vidux -n '__vidux_no_subcommand' -a browse     -d 'Launch the plan browser at :7191'
 complete -c vidux -n '__vidux_no_subcommand' -a status     -d 'Print active-plan status across projects/*/PLAN.md'
 complete -c vidux -n '__vidux_no_subcommand' -a init       -d 'Bootstrap a new plan PLAN.md from template'
+complete -c vidux -n '__vidux_no_subcommand' -a drift      -d 'Record planned-vs-actual drift in PLAN.md'
 complete -c vidux -n '__vidux_no_subcommand' -a doctor     -d 'Diagnose local toolchain + auth'
 complete -c vidux -n '__vidux_no_subcommand' -a build      -d 'Run docs:build + contract tests as release gate'
 complete -c vidux -n '__vidux_no_subcommand' -a release    -d 'Bump VERSION, tag, push'
@@ -154,7 +156,7 @@ complete -c vidux -n '__fish_seen_subcommand_from dev' -l help    -s h          
 
 complete -c vidux -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'   -d 'Target shell'
 
-complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status init doctor build release completion'
+complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status init drift doctor build release completion'
 EOF
 }
 

@@ -55,6 +55,13 @@ It also defines a 10-cell progress bar and rules for hiding stale, inactive plan
 - `commands/vidux.md`
 - `commands/vidux-status.md`
 
+## Shell CLI note
+
+The executable `bin/vidux` also exposes helper subcommands that back the
+discipline. `vidux drift <PLAN.md> ...` records planned-vs-actual deviation in
+`## Drift Log`, appends Progress, and can explicitly block stale tasks, add
+follow-up tasks, or mirror the drift into subplans.
+
 ## Related references
 
 - Read [PLAN.md Field Reference](/reference/plan-fields) for the state that `/vidux` consumes.
