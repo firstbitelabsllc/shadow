@@ -406,9 +406,9 @@ Agents read `vidux.config.json` at session start and resolve the authority PLAN.
 
 ### External boards (adapter plugins)
 
-vidux supports external kanban boards (GitHub Projects, Linear, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the source of truth; the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
+vidux supports external kanban boards (GitHub Projects, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the source of truth; the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
 
-The checked-in example config (`vidux.config.example.json`) demonstrates a single `gh_projects` inbox source. The live repo config (`vidux.config.json`) enables both `gh_projects` and `linear`, each with its own token file and optional `auto_promote_target`.
+The checked-in example config (`vidux.config.example.json`) demonstrates a single `gh_projects` inbox source. Live repo configs keep each inbox source opt-in, with its own token file and optional `auto_promote_target`.
 
 When a repo opts into external boards, agents should:
 1. Read `PLAN.md` first — it stays canonical even when a board is enabled.
@@ -460,7 +460,7 @@ See `vidux.config.example.json` at the repo root for a live block you can copy.
 
 - **PULL** — novel external items append to `INBOX.md` as `- [live-feedback] <title> [Source: <adapter>:<id>]` entries (idempotent — marker-based dedupe). External items whose status lands in `completed` auto-flip the corresponding PLAN.md task to `[completed]`.
 - **PUSH** — unmapped `[pending]` / `[in_progress]` tasks create via `push_task`; mapped tasks receive `push_status` (column move) + `push_fields({'_blocked': ...})` for the orthogonal blocked flag.
-- **AUTO-PROMOTE** — opt-in via `auto_promote_target` (relative or absolute path) on each `inbox_sources[]` entry. When set, novel cards skip INBOX and land directly in the named plan_dir's PLAN.md as `- [pending] BD-<seq>: <title> [Source: <adapter>:<id>]` tasks. `BD` = "board-dropped" (per-plan namespace, sequence minted from `_next_bd_seq`). Idempotency uses BOTH the state file mapping AND in-text `[Source:]` marker scan, so a state-file loss during git races (rebase + stash drop) cannot cause re-promotion. Missing targets fail closed; vidux refuses to fall back to INBOX because that would route work to the wrong lane. Auto-promote suppresses creation of brand-new external issues from local-only plan rows, but still pushes status for tasks already linked by `[Source:]`. Linear title-only cards are the exception: they land as `[blocked]` with a blocker asking for description, evidence/source, acceptance or repro, and estimate before any agent can claim them.
+- **AUTO-PROMOTE** — opt-in via `auto_promote_target` (relative or absolute path) on each `inbox_sources[]` entry. When set, novel cards skip INBOX and land directly in the named plan_dir's PLAN.md as `- [pending] BD-<seq>: <title> [Source: <adapter>:<id>]` tasks. `BD` = "board-dropped" (per-plan namespace, sequence minted from `_next_bd_seq`). Idempotency uses BOTH the state file mapping AND in-text `[Source:]` marker scan, so a state-file loss during git races (rebase + stash drop) cannot cause re-promotion. Missing targets fail closed; vidux refuses to fall back to INBOX because that would route work to the wrong lane. Auto-promote suppresses creation of brand-new external issues from local-only plan rows, but still pushes status for tasks already linked by `[Source:]`.
   - **Per-plan PUSH opt-in via `push_only_for_plans`** — optional list of plan-dir paths (relative to the config file's parent dir, or absolute) that opt INTO PUSH for brand-new external issues even when `auto_promote_target` is set. Listed plan_dirs get `create_missing_external_tasks=True`; every other plan stays suppressed by the global auto-promote. Canonical use case: specific lane plans opt into PUSH so their tasks become external issues, while the rest of the fleet stays in PULL-only mode and doesn't flood the external board. Default unset = empty list = unchanged behavior (every plan still suppressed by auto-promote).
 - **PR sweep** — opt-in via `--include-prs`. Sweeps `gh pr list` open + recently-merged PRs from the repo containing the config and adds open PRs to the bound GH Project as items linked via `addProjectV2ItemById`. Status follows PR state: open-draft→Dev, open-ready→QA-Review, merged→Prod-Shipped. Already-tracked PRs reconcile status. Merged PRs that were never on the board are NOT backfilled (avoids flooding Backlog with shipped history).
 - Flags: `--dry-run` skips writes; `--direction={push,pull,both}` gates the halves; `--include-prs` enables PR sweep; `--repo-dir` overrides repo for PR list source; `--json` emits machine-readable summary; exit codes `0/2/3` for success / config-error / adapter-error.
@@ -469,89 +469,9 @@ Per-plan sidecar `.external-state.json` stores the `task_id ↔ external_id` map
 
 **Blocked is orthogonal.** Status column represents pipeline state; the `Blocked` field is a separate flag. An item can be `[in_progress]` AND blocked simultaneously without losing pipeline position. Adapters MUST reject `push_status(BLOCKED)` — callers write `Blocked=Yes` via `push_fields({'_blocked': True})`.
 
-**Writing a new adapter.** See `~/Development/vidux/adapters/README.md` for the 6-step authors guide + 5-step round-trip rubric (push seed, pull status change, custom-field round-trip, blocked orthogonality check, idempotency). Current fleet: `gh_projects` and `linear` are live full-round-trip PM adapters; `apple_asc` is live READ-only (parses ASC-style YAML tracker files — see below); `asana` / `jira` / `trello` ship as stubs (`NotImplementedError`) with per-platform auth + API docstrings — subclass-ready when a real integration is needed.
+**Writing a new adapter.** See `~/Development/vidux/adapters/README.md` for the 6-step authors guide + 5-step round-trip rubric (push seed, pull status change, custom-field round-trip, blocked orthogonality check, idempotency). Current documented fleet: `gh_projects` is a live full-round-trip PM adapter; `apple_asc` is live READ-only (parses ASC-style YAML tracker files — see below); `asana` / `jira` / `trello` ship as stubs (`NotImplementedError`) with per-platform auth + API docstrings — subclass-ready when a real integration is needed.
 
-**Apple ASC adapter (read-only feedback-tracker shape).** Apple does not publish a public API for marking TestFlight / ASC beta feedback handled, so the `apple_asc` adapter parses a repo-local tracker file (typically `<repo>/.cursor/plans/app-store-feedback.plan.md`, maintained by `ruby scripts/asc_beta_feedback.rb sync-plan`) and returns each `## Open` row as an `ExternalItem` with `external_id = "asc:<id>"`. The standard `vidux-inbox-sync.py` PULL leg then auto-promotes those items to PLAN.md; pairing with `linear`'s `push_only_for_plans` mechanism gets the same row into a Linear EVE issue end-to-end. `push_task` / `push_status` / `push_fields` raise `NotImplementedError` ("Apple ASC has no public API for marking TestFlight / beta feedback handled; the tracker file is one-way READ-only."). Config schema: `tracker_file` (required path) + `status_filter` (optional list, defaults to `["new", "triaged", "claimed"]`; terminal states `fixed` / `verified` / `archived` are always dropped). See `~/Development/vidux/adapters/README.md` for the full tracker file format + parser tolerances (multi-line continuations, git-conflict markers, missing-file fail-safe).
-
-### Linear extension — full round-trip (PULL + PUSH + CLOSEOUT)
-
-The `linear` adapter (`~/Development/vidux/adapters/linear.py`) supports a complete project-management round-trip: external Linear cards become PLAN.md tasks via PULL; new local tasks become Linear issues via PUSH; status changes flow both directions; agents close issues from PLAN status flips. This is the canonical worked example for the broader adapter contract — Asana / Jira / Trello adapters should follow the same shape.
-
-**PULL** — Linear → PLAN.md:
-
-- New Linear issues in the configured project become `[pending] BD-<seq>: <title> [Source: linear:<issue-id>]` rows in INBOX.md (or auto-promoted to a target plan via `auto_promote_target` in `vidux.config.json`). If the Linear issue has no description, auto-promote writes `[blocked]` instead of `[pending]` and adds a blocker requiring real intake details before claim.
-- Status changes on tracked issues flow back: a Linear issue moved to "Done" auto-flips its mapped PLAN.md row to `[completed]`.
-- Idempotency: per-plan `.external-state.json` sidecar maps `task_id ↔ linear_issue_id`. The in-text `[Source:]` marker is the safety net if the sidecar is lost (see `### External boards` race-recovery rule).
-
-**PUSH** — PLAN.md → Linear:
-
-- Unmapped `[pending]` / `[in_progress]` PLAN tasks create Linear issues via `mcp__plugin_linear_linear__create_issue` (or the adapter's REST equivalent).
-- Linear descriptions must not be title-only. The adapter renders Details, Evidence, non-core tags (`Sub-plan`, `Depends`, `Blocker`, etc.), plan location, ETA, and explicit Intake Gaps. If a PLAN row has no prose beyond the title, no `[Evidence:]`, or no `[ETA:]`, the Linear card says so instead of pretending the issue is specified. Existing mapped issues get the same treatment through `sync_task_metadata()`; the next sync updates stale titles/descriptions instead of only fixing future cards.
-- Status flips on PLAN rows push to Linear via `update_issue` mutation:
-  - `[pending]` → Backlog
-  - `[in_progress]` → In Progress
-  - `[in_review]` → In Review (if configured) or "Ready for QA"
-  - `[completed]` → Done
-- The `_blocked` flag pushes via `push_fields({'_blocked': True})` and sets the Blocked field separately (does NOT change pipeline status — Blocked is orthogonal per the adapter contract).
-
-**CLOSEOUT** — when a fix PR merges:
-
-- The agent that shipped the fix flips the PLAN row to `[completed]`. The next inbox-sync cycle pushes that to Linear automatically.
-- For real-time closeout (don't wait for the next cron tick), call directly:
-
-```bash
-# Find the issue's stateId for the project's "Done" state via:
-mcp__plugin_linear_linear__get_workflow_states project="<project-name>"
-# Then update:
-mcp__plugin_linear_linear__update_issue id=<issue-id> stateId=<done-state-uuid>
-# Add the fix-commit SHA as context:
-mcp__plugin_linear_linear__create_comment issueId=<issue-id> body="Fixed in <commit-sha> (PR #<N>)."
-```
-
-**Configuration** — each user / org configures their own Linear binding in `vidux.config.json`:
-
-```json
-{
-  "inbox_sources": [{
-    "adapter": "linear",
-    "enabled": true,
-    "config": {
-      "token_file": "~/.config/vidux/linear.token",
-      "team_id": "<your-linear-team-uuid>",
-      "project_id": "<your-linear-project-uuid>",
-      "project_name": "<project-display-name>",
-      "state_mapping": {
-        "pending": "<backlog-state-uuid>",
-        "in_progress": "<in-progress-state-uuid>",
-        "in_review": "<review-state-uuid>",
-        "completed": "<done-state-uuid>"
-      },
-      "blocked_label": "blocked",
-      "managed_labels": {
-        "repo": "repo:<repo-name>",
-        "source": "source:vidux"
-      },
-      "auto_promote_target": "<plan-dir>",
-      "auto_promote_max_new": 25
-    }
-  }]
-}
-```
-
-Workspace-specific bindings (project UUIDs, state UUIDs, token paths) are LOCAL to each user's `vidux.config.json` — core vidux ships only the adapter contract.
-
-**Why this lives in CORE (not in a per-user overlay).** Linear is one of the supported PM tools alongside `gh_projects`, `asana`, `jira`, `trello`. The closeout pattern (fix PR → status flip → external system update) is the SAME shape for all of them. Documenting it in core lets other vidux users adopt Linear (or any adapter) without re-inventing the round-trip.
-
-**Cross-workspace caveat.** A Linear adapter token (`token_file:` in the adapter config) is scoped to ONE Linear workspace. PUSH, PULL, and CLOSEOUT all run against THAT workspace's API only. If a different system — Jam.dev's Linear bridge, a separately-installed GitHub Linear sync, manual hand-create from a teammate — routes Linear issues into a DIFFERENT workspace, the configured adapter cannot see them: PULL never surfaces them as INBOX or auto-promote candidates, and PUSH never duplicates (those issues already exist somewhere, just not in the watched workspace).
-
-When triaging a finding that mentions a Linear identifier (e.g. `EVE-317`), do not assume the prefix maps to the workspace your adapter token watches. Verify the workspace component of the Linear URL (`linear.app/<workspace-slug>/issue/<id>`) before deciding whether the cron should have caught it. Misreading the workspace as "ours" leads to wasted retries and false-negative reports about adapter health.
-
-Two mitigations when work routes across workspaces:
-
-1. **Consolidate sources** so every issue-creating system writes into the configured workspace.
-2. **Configure multiple `inbox_sources` entries** with the `linear` adapter, each pointing at a different `token_file:` for a different workspace. Each entry maintains its own per-plan `.external-state.json` map; idempotency is per-adapter-instance, not per-adapter-class.
-
-When Linear is unreachable for any reason — wrong workspace, expired OAuth, MCP disconnected, token rotated — the originating system's metadata is still authoritative. Jam recordings keep their console / network / repro detail; GitHub PR comments keep their thread; Sentry events keep their stack. Don't gate a fix lane on Linear being queryable; treat the originating system as the source of truth and let Linear catch up via CLOSEOUT or the next sync cycle.
+**Apple ASC adapter (read-only feedback-tracker shape).** Apple does not publish a public API for marking TestFlight / ASC beta feedback handled, so the `apple_asc` adapter parses a repo-local tracker file (typically `<repo>/.cursor/plans/app-store-feedback.plan.md`, maintained by `ruby scripts/asc_beta_feedback.rb sync-plan`) and returns each `## Open` row as an `ExternalItem` with `external_id = "asc:<id>"`. The standard `vidux-inbox-sync.py` PULL leg then auto-promotes those items to PLAN.md. `push_task` / `push_status` / `push_fields` raise `NotImplementedError` ("Apple ASC has no public API for marking TestFlight / beta feedback handled; the tracker file is one-way READ-only."). Config schema: `tracker_file` (required path) + `status_filter` (optional list, defaults to `["new", "triaged", "claimed"]`; terminal states `fixed` / `verified` / `archived` are always dropped). See `~/Development/vidux/adapters/README.md` for the full tracker file format + parser tolerances (multi-line continuations, git-conflict markers, missing-file fail-safe).
 
 ### Inbox
 

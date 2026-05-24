@@ -58,31 +58,6 @@
           "Source":        { "project_field": "Source",        "type": "TEXT"   }
         }
       }
-    },
-    {
-      "adapter": "linear",
-      "enabled": false,
-      "config": {
-        "token_file": "~/.config/vidux/linear.token",
-        "team_id": "team-uuid",
-        "project_id": "linear-project-uuid",
-        "project_name": "repo-name",
-        "state_mapping": {
-          "pending": "state-backlog",
-          "in_progress": "state-started",
-          "in_review": "state-review",
-          "completed": "state-done"
-        },
-        "blocked_label": "blocked",
-        "managed_labels": {
-          "repo": "repo:repo-name",
-          "source": "source:vidux",
-          "pr_state_prefix": "pr-state:",
-          "review_state_prefix": "review-state:"
-        },
-        "auto_promote_target": "vidux",
-        "auto_promote_max_new": 25
-      }
     }
   ]
 }

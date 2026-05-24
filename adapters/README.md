@@ -11,7 +11,6 @@ Adapters shipped today:
 | adapter       | status            | file                 |
 |---------------|-------------------|----------------------|
 | `gh_projects` | live              | `gh_projects.py`     |
-| `linear`      | live              | `linear.py`          |
 | `apple_asc`   | live (READ-only)  | `apple_asc.py`       |
 | `asana`       | stub              | `asana.py`           |
 | `jira`        | stub              | `jira.py`            |
@@ -20,7 +19,7 @@ Adapters shipped today:
 ## Apple ASC adapter — read-only feedback-tracker shape
 
 `apple_asc` is the first feedback-tracker-shaped adapter (as opposed
-to a PM-board adapter like `linear` / `gh_projects`). Apple does NOT
+to a PM-board adapter like `gh_projects`). Apple does NOT
 publish a public API for marking TestFlight / ASC beta feedback
 handled, so the source of truth is a repo-local tracker file —
 typically `<repo>/.cursor/plans/app-store-feedback.plan.md` —
@@ -40,10 +39,9 @@ The adapter is READ-only:
   READ-only.")`.
 
 Once configured, the standard `vidux-inbox-sync.py --direction=both`
-pipeline lifts ASC feedback into PLAN.md and (via the same sync's
-PUSH leg, when paired with the `linear` adapter's `push_only_for_plans`
-mechanism) creates a Linear EVE issue for each row. This retires the
-tactical `scripts/vidux-asc-bridge.py` one-shot script.
+pipeline lifts ASC feedback into PLAN.md. Outbound issue creation can be
+handled by any configured board adapter that opts into PUSH for the target
+plan. This retires the tactical `scripts/vidux-asc-bridge.py` one-shot script.
 
 ### Config
 
@@ -101,53 +99,6 @@ external_id for the same row, so the sync script's per-plan
 `.external-state.json` sidecar reconciles correctly without
 duplicates.
 
-## Linear adapter — description is human-only (2026-04-25 migration)
-
-Earlier versions of `linear.py` round-tripped `Evidence` / `Investigation` /
-`Source` / `ETA` / `VidxId` / `VidxPlan` inside the issue `description` using
-HTML-comment delimiters: `<!-- vidux:Evidence -->...<!-- /vidux:Evidence -->`.
-Linear renders HTML comments as visible text in its description UI, so the
-markers were leaking into the rendered view and breaking human readability.
-
-The adapter now writes **clean human-facing markdown only** — Purpose /
-Details / Evidence / Investigation / Tags / Plan / ETA sections, plus an
-`Intake Gaps` section when the PLAN row is missing details, evidence, or an
-estimate. Round-trip metadata moves into the per-plan
-`.external-state.json` sidecar under
-`adapters.linear.task_metadata`, keyed by VidxId. The sync script reads / writes
-the sidecar; the adapter never inspects descriptions for codec markers.
-
-Migration (2026-04-25, complete): a one-off script rewrote all 92 in-flight
-EVE-team issues and populated their plan sidecars from the extracted block
-data. The script (`scripts/strip-linear-codec-markers.py`) was removed in
-2026-05-08's open-source-readiness sweep — see `CHANGELOG.md`. The codec is
-fully deprecated; `_parse_body` and the `_DELIM_*` constants are gone from
-`adapters/linear.py`.
-
-## What Linear gives you that GH Projects doesn't
-
-GH Projects V2 is "issues + a kanban with custom fields." Linear is a full
-productivity suite. The adapter (above) handles Issues — the rest of Linear's
-surface area can layer on without breaking the 6-method contract:
-
-| Linear concept   | Maps to                                            | Status            |
-|------------------|----------------------------------------------------|-------------------|
-| **Issue**        | vidux task in PLAN.md                              | shipped (this adapter) |
-| **Sub-issue**    | bullet under a task — set `parentId` on issueCreate | configurable via `parent_id` field |
-| **Project**      | one codebase-owned repo intake queue by default (e.g. `<repo-name>`) | configurable via `project_id`; add `project_name` to fail closed on wrong bindings |
-| **Initiative**   | top-level cross-cutting goal (workspace-wide)      | M:M via `InitiativeToProject` join — extension API |
-| **Cycle**        | sprint window (orthogonal to projects)             | optional — set `cycleId` in `push_fields` |
-| **Project milestone** | phase marker inside one project (Phase 0 → 1) | set `projectMilestoneId` |
-| **Attachment**   | GitHub PR URL linked to an issue                   | `sync_pull_request_link` extension method |
-| **Comment**      | discussion thread on an issue                      | `sync_pull_request_link` extension method |
-| **Label**        | tag (workspace OR team scoped)                     | `label_ids` / `label_names`, `managed_labels`, and auto-managed `blocked` label |
-| **Webhook**      | push notification for issue/comment changes        | future extension — would replace polling fetch_inbox |
-
-The 6-method contract stays unchanged. New capabilities ride on top via
-adapter-specific config (e.g. `project_id`, `cycle_id`) or out-of-band
-extension methods (e.g. `sync_pull_request_link`, `register_webhook`) that
-core vidux discovers by capability rather than hardcoding into the contract.
-
 ## Contract
 
 Every adapter subclasses `AdapterBase` from `base.py` and implements six
@@ -167,127 +118,6 @@ to pipeline state. Callers write `Blocked=Yes` via
 `push_fields({'_blocked': True})` so the item's pipeline column stays
 whatever it was (`Dev` / `QA/Testing/Review` / etc.) and the blocked flag
 composes on top. See `gh_projects.py` for the reference implementation.
-
-## Linear codebase-project guardrail
-
-Linear `project_id` values are opaque UUIDs, so a repo config can look right
-while silently pointing at the wrong product bucket. To make repo intake
-auditable, set `project_name` beside `project_id` whenever a Linear project is
-meant to feed one codebase:
-
-```json
-{
-  "adapter": "linear",
-  "enabled": true,
-  "config": {
-    "token_file": "~/.config/vidux/linear.token",
-    "team_id": "team-uuid",
-    "project_id": "project-uuid",
-    "project_name": "repo-name",
-    "state_mapping": {
-      "pending": "state-backlog",
-      "in_progress": "state-started",
-      "in_review": "state-review",
-      "completed": "state-done"
-    },
-    "managed_labels": {
-      "repo": "repo:repo-name",
-      "source": "source:vidux",
-      "pr_state_prefix": "pr-state:",
-      "review_state_prefix": "review-state:"
-    },
-    "auto_promote_target": "vidux",
-    "auto_promote_max_new": 25
-  }
-}
-```
-
-When `project_name` is present, the adapter looks up the Linear project and
-requires the remote name to match before reading or mutating issues. This is
-the supported shape for codebase-owned repo queues.
-
-The Linear adapter also validates its extension-specific intake policy before
-any PLAN.md or INBOX.md mutation:
-
-- `project_id` without `project_name` fails unless
-  `allow_unguarded_project: true` is set for an intentional product/planning
-  bucket.
-- No `project_id` means team-wide intake and fails unless
-  `allow_team_wide: true` is set.
-
-Those allowlist flags should be rare. They exist for deliberate planning
-lanes, not repo-owned codebase intake.
-
-`auto_promote_max_new` protects clean worktrees whose gitignored sidecars are
-missing. If a source would append more than the cap as fresh `BD-*` tasks, the
-sync fails closed before mutating `PLAN.md`.
-
-With `auto_promote_target`, sync does not create new external issues from
-local-only PLAN rows. It still reconciles status for tasks already linked by a
-`[Source: <adapter>:<id>]` marker so imported cards can move to completed on
-the external board.
-
-For Linear specifically, title-only cards are not claimable work. If a novel
-Linear issue has no description, auto-promote writes it as `[blocked]` with a
-`[Blocker: needs Linear intake details ...]` tag so agents see the card but do
-not burn a cycle guessing. If the Linear description exists, vidux preserves a
-short excerpt in `[Evidence: Linear ...]` and stores the full description in the
-sidecar metadata. Already-mapped Linear issues are also refreshed on sync:
-`sync_task_metadata()` updates stale titles/descriptions when PLAN.md now has
-richer Details, Tags, Plan, ETA, or Intake Gaps.
-
-## Linear labels
-
-Linear label automation is opt-in and extension-owned. Core vidux does not
-define a global taxonomy; the Linear adapter reads label rules from the
-adapter config and creates team-scoped labels by name when needed.
-
-Static defaults:
-
-- `label_ids`: existing Linear label UUIDs to apply to every pushed issue.
-- `label_names`: Linear label names to look up or create and apply to every
-  pushed issue.
-
-Managed taxonomy:
-
-```json
-"managed_labels": {
-  "repo": "repo:vidux",
-  "source": "source:vidux",
-  "pr_state_prefix": "pr-state:",
-  "review_state_prefix": "review-state:"
-}
-```
-
-`repo` and `source` are applied to new issues and to issues touched by PR
-linkage. During PR linkage, the adapter also applies exactly one
-`pr_state_prefix` label (`pr-state:open`, `pr-state:merged`, or
-`pr-state:closed`) and one `review_state_prefix` label
-(`review-state:draft`, `review-state:ready-for-review`, or
-`review-state:merged`). Labels with those configured prefixes are
-auto-managed: stale values are removed when a PR's state changes. All other
-Linear labels remain human-owned. The existing `blocked_label` stays
-auto-managed through `push_fields({"_blocked": true})`.
-
-## Linear PR linkage
-
-`scripts/vidux-inbox-sync.py --include-prs --only-adapter linear` links PRs to
-Linear when the PR body names a plan task and that task has a Linear source
-marker:
-
-```text
-Lane: codex/example | Plan task: BD-1 | Implements the fix
-```
-
-```markdown
-- [in_review] BD-1: Implements the fix [Source: linear:<issue-id>]
-```
-
-For each match, the Linear adapter idempotently creates a GitHub PR attachment
-on the issue and posts a comment with PR number, branch, status, review gate,
-and URL. The sync also ensures the GitHub PR body carries `Linear: EVE-N` so
-reviewers and audit scripts can find the Linear issue without reading the
-sidecar.
 
 ## Six steps to write a new adapter
 
@@ -400,7 +230,6 @@ All adapters read credentials from single-line files under
 `~/.config/vidux/`:
 
 - `~/.config/vidux/gh-project.token`
-- `~/.config/vidux/linear.token`
 - `~/.config/vidux/asana.token`
 - `~/.config/vidux/jira.email` + `jira.token`
 - `~/.config/vidux/trello.key` + `trello.token`
