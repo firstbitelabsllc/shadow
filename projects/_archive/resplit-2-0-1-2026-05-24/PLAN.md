@@ -1,3 +1,9 @@
+---
+status: SUPERSEDED-BY [PR #692](https://github.com/firstbitelabsllc/resplit-web/pull/692)
+archived-at: 2026-05-24
+archived-reason: Dormant per activation gate; R1 (ADIQ) absorbed elsewhere — no longer load-bearing for any active lane.
+---
+
 # Resplit 2.0.1 — Post-Launch Punch-List
 
 **Status:** OPEN (project frame only — every task `[pending]`, no `[in_progress]` allowed until 2.0 fastlane ships AND user-reported regressions clear F&F).
