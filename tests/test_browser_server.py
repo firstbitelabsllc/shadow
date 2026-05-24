@@ -344,11 +344,23 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         )
         return path
 
-    def test_legacy_mobiledevcombine_duplicate_prefers_strongyes_checkout(self):
+    def test_repo_aliases_dedup_prefers_canonical_checkout(self):
+        """When env `VIDUX_REPO_ALIASES` maps an old checkout name to a
+        canonical one, discover_plans() should keep only the canonical copy
+        when the same plan path exists in both. This used to be hardcoded
+        to `{"mobiledevcombine-web": "strongyes-web"}` per Leo's fleet;
+        it's now generic — the test injects its own alias map to validate
+        the dedup mechanism."""
         canonical = self.write_plan("strongyes-web", "vidux/game-plan", "Game Plan")
         self.write_plan("mobiledevcombine-web", "vidux/game-plan", "Old Game Plan")
 
-        plans = browser_server.discover_plans()
+        original = browser_server.LEGACY_REPO_ALIASES
+        browser_server.LEGACY_REPO_ALIASES = {"mobiledevcombine-web": "strongyes-web"}
+        try:
+            plans = browser_server.discover_plans()
+        finally:
+            browser_server.LEGACY_REPO_ALIASES = original
+
         game_plans = [
             plan
             for plan in plans
