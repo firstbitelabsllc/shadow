@@ -72,7 +72,7 @@ Agents add tasks they discover. When you fix a bug, log the related bugs you saw
 
 But a shipped surface that works is done -- stop polishing and move to the next gap. If overall mission has gaps elsewhere, polish on a done surface is procrastination. Only re-extend plans when investigation reveals new surfaces, not when you find one more thing to tweak on a surface you already finished.
 
-**If evidence changes mid-cycle, the queue re-sorts.** Observed user behavior, a failing deploy, a new PR comment — any of these can reorder what's next. You don't need permission to reorder. Note the reorder in the next Progress entry so future agents see the why. When implementation deviates from the plan, run `vidux drift` (or `scripts/vidux-drift-log.py`) to record planned, actual, why, the plan update, and any subplan mirrors before continuing.
+**If evidence changes mid-cycle, the queue re-sorts.** Observed user behavior, a failing deploy, a new PR comment — any of these can reorder what's next. You don't need permission to reorder. Note the reorder in the next Progress entry so future agents see the why. When implementation deviates from the plan, run `vidux drift` (or `scripts/vidux-drift-log.py`) to record planned, actual, why, the plan update, prevention hints, and any subplan mirrors before continuing. When a drift has a preventable pattern, include a short prevention hint so future cache suggestions can stop the same miss before code changes.
 
 ### 5. Prove it mechanically
 
@@ -111,6 +111,7 @@ Tactical defaults extracted from 30+ plan files across 5 repos. They apply every
 - Track test counts across sessions (did coverage go up or down?).
 - Plans are living documents — update in-place with `[DONE]`, `[NEW]`, dates.
 - If a gate is blocked, log: exact command, blocker point, what passed, what's pending.
+- Before coding a similar task, apply any cache-backed drift prevention suggestion that matches the current task.
 
 ### Smallest vertical slice
 
@@ -279,6 +280,11 @@ don't need an ETA (they're terminal for this calibration).
 Intentional choices that future agents must not undo.
 - [DELETION] [date] Removed X. Reason: Y. Do not re-add.
 - [DIRECTION] [date] Chose X over Y. Reason: Z.
+
+## Drift Log
+Optional. `vidux drift` records planned/actual/why/plan update/next/subplans
+and optional Prevention hints. Cache suggestions are derived from local drift
+history, not chat memory.
 
 ## Progress
 Living log updated each cycle. Unexpected findings, concerns noted during

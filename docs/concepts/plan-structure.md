@@ -36,7 +36,8 @@ Intentional choices that future agents must not undo.
 Optional structured record of implementation-time deviations. Use `vidux drift`
 when the plan said one thing but the verified implementation had to do another.
 Each entry records planned, actual, why, plan update, next move, and subplans
-that were mirrored.
+that were mirrored. Optional `Prevention:` lines capture what future agents
+should check before repeating the same drift.
 
 ## Progress
 Living log updated each cycle. Unexpected findings, concerns, and reorder
@@ -116,6 +117,7 @@ drift, not random notes. A good drift entry says:
 - what actually changed
 - why the deviation was necessary
 - how the parent plan now adapts
+- what prevention hint should be cached for similar future tasks
 - which subplans were mirrored
 
 Use `vidux drift <PLAN.md> ...` so the parent plan and any named subplans get

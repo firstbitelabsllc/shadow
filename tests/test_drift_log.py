@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -74,6 +75,90 @@ class DriftLogTests(unittest.TestCase):
             self.assertIn("[Drift: D-20260522-01]", text)
             self.assertIn("- [pending] T-2: Wire CLI docs [Source: Drift D-20260522-01]", text)
             self.assertIn("Drift D-20260522-01: Replaced it with a smaller CLI helper.", text)
+
+    def test_records_cache_prevention_hints_and_signpost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "PLAN.md"
+            plan.write_text(base_plan(), encoding="utf-8")
+            cache = root / "drift-cache.jsonl"
+            telemetry = root / "signposts.jsonl"
+
+            drift_id = drift.record_drift(
+                plan,
+                drift.DriftEntry(
+                    task="T-1",
+                    planned="Implement the original API.",
+                    actual="Replaced it with a smaller CLI helper.",
+                    why="The integration point was a script, not an HTTP surface.",
+                    plan_update="Parent plan now tracks the CLI helper.",
+                    next_step="Run the helper tests.",
+                    today="2026-05-22",
+                ),
+                cache_path=cache,
+                telemetry_path=telemetry,
+                prevention_hints=["Name the real integration seam before coding."],
+            )
+
+            self.assertEqual(drift_id, "D-20260522-01")
+            plan_text = plan.read_text(encoding="utf-8")
+            self.assertIn("  - Prevention: Name the real integration seam before coding.", plan_text)
+
+            cache_rows = [json.loads(line) for line in cache.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(cache_rows), 1)
+            self.assertEqual(cache_rows[0]["drift_id"], "D-20260522-01")
+            self.assertEqual(cache_rows[0]["task"], "T-1")
+            self.assertEqual(cache_rows[0]["plan_path"], str(plan.resolve()))
+            self.assertEqual(cache_rows[0]["prevention_hints"], ["Name the real integration seam before coding."])
+            self.assertEqual(cache_rows[0]["added_tasks"], [])
+            self.assertEqual(cache_rows[0]["blocked_task"], None)
+
+            telemetry_rows = [
+                json.loads(line) for line in telemetry.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(telemetry_rows[0]["feature"], "drift")
+            self.assertEqual(telemetry_rows[0]["action"], "record")
+            self.assertEqual(telemetry_rows[0]["status"], "ok")
+            self.assertEqual(telemetry_rows[0]["metadata"]["drift_id"], "D-20260522-01")
+
+    def test_suggests_preventions_from_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "drift-cache.jsonl"
+            cache.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "drift_id": "D-20260522-01",
+                        "date": "2026-05-22",
+                        "plan_path": "/tmp/PLAN.md",
+                        "task": "T-1",
+                        "planned": "Build an HTTP API for the local command.",
+                        "actual": "Built a CLI helper instead.",
+                        "why": "The integration seam was a local script.",
+                        "plan_update": "Plan now names the CLI seam.",
+                        "next": "Document CLI usage.",
+                        "prevention_hints": ["Name the integration seam and caller before implementation."],
+                        "subplans": [],
+                        "added_tasks": [],
+                        "blocked_task": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            suggestions = drift.suggest_preventions(
+                "## Tasks\n- [pending] T-9: Build local CLI command for script integration\n",
+                cache_path=cache,
+                limit=2,
+            )
+
+            self.assertEqual(len(suggestions), 1)
+            self.assertEqual(
+                suggestions[0]["prevention"],
+                "Name the integration seam and caller before implementation.",
+            )
+            self.assertEqual(suggestions[0]["source_drift_id"], "D-20260522-01")
 
     def test_mirrors_drift_to_subplan(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,6 +262,8 @@ class DriftLogTests(unittest.TestCase):
                     "Run tests.",
                     "--today",
                     "2026-05-22",
+                    "--no-cache",
+                    "--no-telemetry",
                 ],
                 capture_output=True,
                 text=True,

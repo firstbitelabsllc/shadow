@@ -43,15 +43,16 @@ Read these files in order. Stop if any is missing — that's your first task.
 
 1. `PLAN.md` — the source of truth. First look for any `[in_progress]` task (resume priority — a prior session may have died mid-task). If none found, find the first `[pending]` task (or unchecked `[ ]` in v1 plans).
 2. **Decision Log** — read the `## Decision Log` section before doing anything else. If `vidux-loop.sh` output has `decision_log_warning: true`, review every entry. You MUST NOT contradict a logged direction. If your next action would, skip that action and move on.
-3. `git log --oneline -10` — what happened recently? Any commits since last checkpoint?
-4. `git diff --stat` — any uncommitted work from a crashed session?
-5. Worktree classifier — before creating a new worktree or leaving an old branch behind:
+3. Drift feedback cache, if configured: check whether the current task matches prior drift and apply any prevention hint before editing.
+4. `git log --oneline -10` — what happened recently? Any commits since last checkpoint?
+5. `git diff --stat` — any uncommitted work from a crashed session?
+6. Worktree classifier — before creating a new worktree or leaving an old branch behind:
    `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`.
    Resume or record lane-owned `dirty`, `closed_unmerged`, or `unmerged_no_pr`
    rows before minting another branch. `open_pr` rows are durable handoff;
    nurse them or leave them recorded. Only `merged_clean` rows are automatic
    local cleanup candidates.
-6. Ledger (if available): `tail -5 ~/.agent-ledger/activity.jsonl | jq '.summary'`
+7. Ledger (if available): `tail -5 ~/.agent-ledger/activity.jsonl | jq '.summary'`
 
 If uncommitted work exists from a crash, commit it first with message `vidux: recover uncommitted work from crashed session`.
 
@@ -193,7 +194,7 @@ Blocker: [if any, or "none"]
 
 Push when ready — not required per-cycle. Git commit is the checkpoint, not git push.
 
-**Reconcile planned vs actual:** Compare what the plan said with what the git diff shows. If they diverge, run `vidux drift <PLAN.md> --task ... --planned ... --actual ... --why ... --plan-update ... --next ...` or call `scripts/vidux-drift-log.py` directly. The helper writes `## Drift Log`, appends Progress, and can explicitly block stale tasks, add follow-up tasks, or mirror the drift into subplans. The plan always reflects truth.
+**Reconcile planned vs actual:** Compare what the plan said with what the git diff shows. If they diverge, run `vidux drift <PLAN.md> --task ... --planned ... --actual ... --why ... --plan-update ... --next ...` or call `scripts/vidux-drift-log.py` directly. The helper writes `## Drift Log`, appends Progress, and can explicitly block stale tasks, add follow-up tasks, or mirror the drift into subplans. When the drift exposes a reusable prevention, record it with `--prevention`; when telemetry is enabled, emit a local signpost for `drift.record` / `cache.suggest`. The plan always reflects truth.
 
 **Checkpoint script (`vidux-checkpoint.sh`):** handles both v1 checkboxes and v2 FSM states.
 Use `--status` to distinguish outcomes:

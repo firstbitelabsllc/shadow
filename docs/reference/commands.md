@@ -60,7 +60,10 @@ It also defines a 10-cell progress bar and rules for hiding stale, inactive plan
 The executable `bin/vidux` also exposes helper subcommands that back the
 discipline. `vidux drift <PLAN.md> ...` records planned-vs-actual deviation in
 `## Drift Log`, appends Progress, and can explicitly block stale tasks, add
-follow-up tasks, or mirror the drift into subplans.
+follow-up tasks, or mirror the drift into subplans. The drift helper can also
+write local feedback-cache rows and emit signposts when those paths are
+supplied. Use signpost summaries to verify deep smoke runs without treating
+them as product analytics.
 
 ## Related references
 
