@@ -506,7 +506,19 @@ body {
   color: var(--ink-2);
   display: flex; gap: 10px;
   font-family: var(--mono);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.plan-row .plan-row-meta > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.plan-row .plan-row-meta > span:not(:first-child) {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* ---- Completion bar ----
@@ -1386,4 +1398,8 @@ body.is-annotation-mode #filter {
   .root-readaloud-engine:hover,
   .readaloud-cache-clear:hover,
   .root-readaloud-speed:hover { background: var(--select); }
+  /* In dark mode, var(--paper) IS the base background — so the default
+   * .plan-row:hover produces no visible feedback. Override with --paper-2
+   * (the next surface tier) so hover stays distinguishable. */
+  .plan-row:hover { background: var(--paper-2); }
 }
