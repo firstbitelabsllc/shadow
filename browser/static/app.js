@@ -933,24 +933,30 @@ function openAnnotationPopover(anchor, targetEl) {
 
   const author = getStoredCommentAuthor();
   const label = anchor.label || anchor.excerpt || "Selected target";
+  // Remember which element had focus before the popover opened so we can
+  // restore it on close (WCAG focus-management best practice for dialogs).
+  const previouslyFocused = document.activeElement;
   const popover = document.createElement("aside");
   popover.id = "annotation-popover";
   popover.className = "annotation-popover";
   popover.setAttribute("role", "dialog");
-  popover.setAttribute("aria-label", "Add annotation");
+  popover.setAttribute("aria-modal", "true");
+  popover.setAttribute("aria-labelledby", "annotation-popover-title");
   popover.innerHTML = `
     <div class="annotation-popover-head">
       <div>
-        <span class="annotation-popover-kicker">Annotating</span>
+        <span class="annotation-popover-kicker" id="annotation-popover-title">Annotating</span>
         <strong>${escapeText(label)}</strong>
       </div>
-      <button type="button" class="annotation-popover-close" aria-label="Close">&times;</button>
+      <button type="button" class="annotation-popover-close" aria-label="Close annotation">&times;</button>
     </div>
     <form id="annotation-popover-form" class="annotation-popover-form">
-      <input id="annotation-popover-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name">
-      <textarea id="annotation-popover-body" name="body" rows="3" maxlength="8192" placeholder="Add a comment"></textarea>
+      <label for="annotation-popover-author" class="visually-hidden">Your name</label>
+      <input id="annotation-popover-author" name="author" maxlength="80" placeholder="Name" value="${escapeAttr(author)}" autocomplete="name" aria-label="Your name">
+      <label for="annotation-popover-body" class="visually-hidden">Comment body</label>
+      <textarea id="annotation-popover-body" name="body" rows="3" maxlength="8192" placeholder="Add a comment" aria-label="Comment body"></textarea>
       <div class="annotation-popover-actions">
-        <span id="annotation-popover-status" class="annotation-popover-status"></span>
+        <span id="annotation-popover-status" class="annotation-popover-status" role="status" aria-live="polite"></span>
         <button type="button" class="annotation-popover-cancel">Cancel</button>
         <button type="submit">Add comment</button>
       </div>
@@ -964,8 +970,42 @@ function openAnnotationPopover(anchor, targetEl) {
   const bodyInput = popover.querySelector("#annotation-popover-body");
   const status = popover.querySelector("#annotation-popover-status");
 
-  closeButton.addEventListener("click", clearAnnotationState);
-  cancelButton.addEventListener("click", clearAnnotationState);
+  // Close-and-restore-focus helper, used by Escape, Close button, and Cancel.
+  const closeAndRestore = () => {
+    clearAnnotationState();
+    if (previouslyFocused && document.body.contains(previouslyFocused)) {
+      try { previouslyFocused.focus(); } catch (e) { /* element no longer focusable */ }
+    }
+  };
+
+  // Focus trap: keep Tab/Shift+Tab cycling within the popover's focusable
+  // descendants. Escape closes. Both are WCAG 2.1.2 (No Keyboard Trap) and
+  // WCAG 2.4.3 (Focus Order). Bound on the popover itself, not document, so
+  // it dies cleanly when the popover is removed.
+  popover.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeAndRestore();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusables = popover.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
+
+  closeButton.addEventListener("click", closeAndRestore);
+  cancelButton.addEventListener("click", closeAndRestore);
   authorInput.addEventListener("input", () => setStoredCommentAuthor(authorInput.value.trim()));
   form.addEventListener("submit", async e => {
     e.preventDefault();
