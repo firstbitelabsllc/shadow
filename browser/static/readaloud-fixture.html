@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>vidux read-aloud fixture</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="alternate" type="application/json" href="/static/readaloud-fixture-manifest.json" />
+</head>
+<body class="readaloud-fixture-body">
+  <header class="topbar">
+    <h1>vidux reader fixture</h1>
+    <div class="topbar-meta">
+      <span>vanilla fixture snapshots - no React/Storybook for PR #87</span>
+      <a class="readaloud-fixture-link" href="/">back to browser</a>
+    </div>
+  </header>
+
+  <main class="readaloud-fixture-page">
+    <section class="readaloud-fixture-case" data-fixture-state="server-offline">
+      <h2>server-offline</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read" type="button" aria-label="Read or stop read-aloud">Retry</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Server offline. Run from the vidux repo root: browser/scripts/start-voxtral-mlx-server.sh</div>
+          <button class="readaloud-server-command" type="button" aria-label="Copy local Voxtral MLX server command">browser/scripts/start-voxtral-mlx-server.sh</button>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
+        </div>
+        <span class="readaloud-player-time">0:00 / 0:00</span>
+        <button class="root-readaloud-engine is-offline" type="button" aria-label="Copy local Voxtral MLX server command">MLX off</button>
+        <button class="readaloud-cache-clear" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
+        <button class="root-readaloud-speed" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="server-waiting">
+      <h2>server-waiting</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read" type="button" aria-label="Read or stop read-aloud">Retry</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Waiting for local server... browser/scripts/start-voxtral-mlx-server.sh</div>
+          <button class="readaloud-server-command" type="button" aria-label="Copy local Voxtral MLX server command">browser/scripts/start-voxtral-mlx-server.sh</button>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
+        </div>
+        <span class="readaloud-player-time">0:00 / 0:00</span>
+        <button class="root-readaloud-engine is-offline" type="button" aria-label="Copy local Voxtral MLX server command">MLX off</button>
+        <button class="readaloud-cache-clear" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
+        <button class="root-readaloud-speed" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="first-load">
+      <h2>first-load</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Preparing...</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Checking local MLX server...</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
+        </div>
+        <span class="readaloud-player-time">0:00 / 0:00</span>
+        <button class="root-readaloud-engine" type="button" aria-label="Copy local Voxtral MLX server command">MLX</button>
+        <button class="readaloud-cache-clear" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
+        <button class="root-readaloud-speed" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="server-command-copied">
+      <h2>server-command-copied</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read" type="button" aria-label="Read or stop read-aloud">Retry</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Copied server command: browser/scripts/start-voxtral-mlx-server.sh</div>
+          <button class="readaloud-server-command" type="button" aria-label="Copy local Voxtral MLX server command">browser/scripts/start-voxtral-mlx-server.sh</button>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
+        </div>
+        <span class="readaloud-player-time">0:00 / 0:00</span>
+        <button class="root-readaloud-engine is-offline" type="button" aria-label="Copy local Voxtral MLX server command">MLX off</button>
+        <button class="readaloud-cache-clear" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
+        <button class="root-readaloud-speed" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="synth-queue">
+      <h2>synth-queue</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Synth 2/5</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">2 cached, 3 synthesizing: segment title with enough text to truncate</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="180" />
+        </div>
+        <span class="readaloud-player-time">0:07 / 0:38</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear is-mixed" type="button" aria-label="Clear current read-aloud cache">Mixed</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="cache-hit">
+      <h2>cache-hit</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-active" type="button" aria-label="Read or stop read-aloud">Stop</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">Ⅱ</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Playing cached audio</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="420" />
+        </div>
+        <span class="readaloud-player-time">0:23 / 0:55</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear is-cached" type="button" aria-label="Clear current read-aloud cache">Cached</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="cache-clear">
+      <h2>cache-clear</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read" type="button" aria-label="Read or stop read-aloud">Read</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Cleared 3 cached segments</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
+        </div>
+        <span class="readaloud-player-time">0:00 / 0:55</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear is-cleared" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cleared</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="cache-pruned">
+      <h2>cache-pruned</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-active" type="button" aria-label="Read or stop read-aloud">Stop</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">Ⅱ</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Playing cached/generated segments. Pruned 6 old cached segments (96.0 MB)</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="220" />
+        </div>
+        <span class="readaloud-player-time">0:18 / 1:22</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear is-mixed" type="button" aria-label="Clear current read-aloud cache">Mixed</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="playing">
+      <h2>playing</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-active" type="button" aria-label="Read or stop read-aloud">Stop</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">Ⅱ</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Playing generated audio</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="620" />
+        </div>
+        <span class="readaloud-player-time">1:12 / 1:56</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear is-generated" type="button" aria-label="Clear current read-aloud cache">Fresh</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="paused">
+      <h2>paused</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-active" type="button" aria-label="Read or stop read-aloud">Stop</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Paused</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="355" />
+        </div>
+        <span class="readaloud-player-time">0:31 / 1:27</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear is-cached" type="button" aria-label="Clear current read-aloud cache">Cached</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="seek-hover">
+      <h2>seek-hover</h2>
+      <div class="readaloud-player readaloud-player-fixture readaloud-fixture-seek-hover" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-active" type="button" aria-label="Read or stop read-aloud">Stop</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">Ⅱ</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Playing cached/generated segments</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="505" />
+        </div>
+        <span class="readaloud-player-time">0:44 / 1:27</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear is-mixed" type="button" aria-label="Clear current read-aloud cache">Mixed</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="segment-failure">
+      <h2>segment-failure</h2>
+      <div class="readaloud-player readaloud-player-fixture is-error" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read" type="button" aria-label="Read or stop read-aloud">Retry</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Voxtral synthesis failed: segment 3</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
+        </div>
+        <span class="readaloud-player-time">0:00 / 0:00</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="long-title">
+      <h2>long-title</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Synth 1/1</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Synthesizing: a very long PLAN.md section heading with nested task metadata, evidence paths, owner tags, and enough detail to prove truncation</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="80" />
+        </div>
+        <span class="readaloud-player-time">0:02 / 0:29</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="mobile-width">
+      <h2>mobile-width</h2>
+      <div class="readaloud-fixture-mobile">
+        <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+          <button class="root-readaloud-toggle readaloud-player-read is-active" type="button" aria-label="Read or stop read-aloud">Stop</button>
+          <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">Ⅱ</button>
+          <div class="readaloud-player-main">
+            <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Playing generated audio on narrow width</div>
+            <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="660" />
+          </div>
+          <span class="readaloud-player-time">0:59 / 1:29</span>
+          <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+          <button class="readaloud-cache-clear is-generated" type="button" aria-label="Clear current read-aloud cache">Fresh</button>
+          <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="annotation-fab-coexistence">
+      <h2>annotation-fab-coexistence</h2>
+      <div class="readaloud-fixture-coexistence">
+        <button class="annotation-fab readaloud-fixture-fab" type="button">Annotate</button>
+        <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+          <button class="root-readaloud-toggle readaloud-player-read is-active" type="button" aria-label="Read or stop read-aloud">Stop</button>
+          <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">Ⅱ</button>
+          <div class="readaloud-player-main">
+            <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">FAB stays above player without overlap</div>
+            <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="500" />
+          </div>
+          <span class="readaloud-player-time">0:31 / 1:02</span>
+          <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+          <button class="readaloud-cache-clear is-mixed" type="button" aria-label="Clear current read-aloud cache">Mixed</button>
+          <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

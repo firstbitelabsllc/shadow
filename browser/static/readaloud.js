@@ -1,432 +1,151 @@
 /**
- * Voxtral Read-aloud HTTP client for vidux-browse
+ * Read-aloud add-on for vidux-browse.
  *
- * Thin client that POSTs the active artifact's text to a local
- * mlx-audio.server (Mistral Voxtral 4B-TTS on Apple Silicon) and
- * streams the resulting WAV chunks through the Web Audio API.
+ * Preferred engine: local Voxtral 4B TTS over MLX, served from
+ * http://127.0.0.1:8765 by browser/scripts/voxtral_mlx_server.py.
  *
- * No model state in the browser — all inference happens in the
- * mlx_audio.server process listening on http://127.0.0.1:8000.
- *
- *   Architecture: vidux/projects/voxtral-reader-addon/evidence/2026-05-01-architecture.md
- *   Plan:         vidux/projects/voxtral-reader-addon/PLAN.md (M3)
- *   Server install: see /moussey skill, "Voxtral Reader add-on" section.
- *
- * Offline fallback: see `readaloud-kokoro.js` (kokoro-js + WebGPU,
- * Apache-2.0, ~80 MB Q8 weights). Swap the <script src> in index.html.
+ * Voxtral's HF weights are public and ungated, but they are not a
+ * Transformers.js/WebGPU browser model. The browser talks to a local
+ * Apple-Silicon MLX process instead. Generated WAVs are cached in IndexedDB
+ * by text/model/voice so unchanged documents replay without re-synthesis.
  */
 
 const READALOUD = {
   button: null,
-  voiceSelect: null,
-  previewButton: null,
-  previewAbort: null,
-  previewContext: null,
-  cloneButton: null,
-  cloneFileInput: null,
-  state: "idle", // idle | loading | playing | error
+  engineBadge: null,
+  cacheButton: null,
+  speedButton: null,
+  player: null,
+  playerToggle: null,
+  playerSeek: null,
+  playerStatus: null,
+  serverCommandButton: null,
+  playerTime: null,
+  audio: null,
   abortController: null,
-  audioContext: null,
+  activeSpan: null,
   highlightedSpans: [],
-  // M19: per-section playback. Independent of main read-aloud — clicking a
-  // section button aborts main playback (and any other section) and plays
-  // ONLY that section's text. Reuses readaloudFetchChunkAudio so M16 cache
-  // makes re-clicks instant.
-  sectionPlayback: null, // { abort, context, button } | null
+  objectUrl: null,
+  currentCacheKey: null,
+  currentCacheSource: null,
+  currentSegments: [],
+  currentSegmentDurations: [],
+  currentSegmentCacheKeys: [],
+  currentCachePrune: null,
   sectionObserver: null,
+  sectionRefreshTimer: null,
+  sectionRefreshInProgress: false,
+  engineProbeTimer: null,
+  engineProbeDeadline: 0,
+  cacheDbPromise: null,
+  state: "idle", // idle | loading | playing | paused | error
+  voxtralBaseUrl: "http://127.0.0.1:8765",
+  modelId: "redseaplume/Voxtral-4B-TTS-2603-MLX-4bit",
+  defaultVoice: "cheerful_female",
+  speedIndex: 1,
+  speeds: [1, 1.12, 1.25],
 };
 
-const ENDPOINT = "http://127.0.0.1:8000/v1/audio/speech";
-const UPLOAD_ENDPOINT = "/api/upload-ref-audio"; // same-origin (vidux-browse)
-const MODEL = "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16";
-const DEFAULT_VOICE = "casual_male";
-const VOICE_STORAGE_KEY = "vidux.readaloud.voice";
-const CLONE_PATH_KEY = "vidux.readaloud.cloneRefPath";
-const CLONE_TEXT_KEY = "vidux.readaloud.cloneRefText";
-const PREVIEW_TEXT = "This is a sample of the selected voice.";
-const MAX_INPUT_CHARS = 5000;
-const TARGET_CHUNK_CHARS = 320;
-// M12: Voxtral default cadence is conversational; Leo's morning M5 verdict
-// flagged "talks a bit slow." mlx-audio's OpenAI-compatible endpoint accepts
-// `speed` (server-side resample, NOT a client-side playbackRate chipmunk hack).
-// Verified 2026-05-02: speed=1.25 returns ~72% of the bytes for the same text.
-const SPEED = 1.25;
+const READALOUD_SECTION_CONTROL_KINDS = new Set([
+  "paragraph",
+  "list-item",
+  "quote",
+  "artifact-block",
+]);
 
-function readaloudCloneState() {
-  let path = null, text = null;
-  try {
-    path = localStorage.getItem(CLONE_PATH_KEY) || null;
-    text = localStorage.getItem(CLONE_TEXT_KEY) || null;
-  } catch (_) { /* private mode */ }
-  return { path, text };
-}
-
-function readaloudCurrentVoice() {
-  if (READALOUD.voiceSelect && READALOUD.voiceSelect.value) {
-    return READALOUD.voiceSelect.value;
-  }
-  return DEFAULT_VOICE;
-}
+const READALOUD_SERVER_COMMAND = "browser/scripts/start-voxtral-mlx-server.sh";
+const READALOUD_OFFLINE_REPROBE_INTERVAL_MS = 3000;
+const READALOUD_OFFLINE_REPROBE_WINDOW_MS = 90000;
+const READALOUD_CACHE_MAX_BYTES = 160 * 1024 * 1024;
+const READALOUD_CACHE_MAX_ENTRIES = 120;
 
 function readaloudInit() {
   READALOUD.button = document.getElementById("root-readaloud-toggle");
   if (!READALOUD.button) return;
+  READALOUD.engineBadge = document.getElementById("root-readaloud-engine");
+  READALOUD.cacheButton = document.getElementById("readaloud-cache-clear");
+  READALOUD.speedButton = document.getElementById("root-readaloud-speed");
+  READALOUD.player = document.getElementById("readaloud-player");
+  READALOUD.playerToggle = document.getElementById("readaloud-player-toggle");
+  READALOUD.playerSeek = document.getElementById("readaloud-player-seek");
+  READALOUD.playerStatus = document.getElementById("readaloud-player-status");
+  READALOUD.serverCommandButton = document.getElementById("readaloud-server-command");
+  READALOUD.playerTime = document.getElementById("readaloud-player-time");
+
   READALOUD.button.addEventListener("click", readaloudOnClick);
-  READALOUD.button.title = "Read aloud (Voxtral via local mlx-audio.server)";
-
-  READALOUD.voiceSelect = document.getElementById("root-readaloud-voice");
-  if (READALOUD.voiceSelect) {
-    let saved = null;
-    try { saved = localStorage.getItem(VOICE_STORAGE_KEY); } catch (_) { /* private mode */ }
-    if (saved) {
-      const valid = Array.from(READALOUD.voiceSelect.options).some(o => o.value === saved);
-      if (valid) READALOUD.voiceSelect.value = saved;
-      // M17 — drop stale localStorage if the saved voice was removed (e.g. multilingual
-      // options dropped). Without this, the picker silently falls back to default but
-      // the stale value lingers in storage forever.
-      else { try { localStorage.removeItem(VOICE_STORAGE_KEY); } catch (_) { /* ignore */ } }
-    }
-    READALOUD.voiceSelect.addEventListener("change", () => {
-      try { localStorage.setItem(VOICE_STORAGE_KEY, READALOUD.voiceSelect.value); } catch (_) { /* ignore */ }
-    });
+  if (READALOUD.playerToggle) {
+    READALOUD.playerToggle.addEventListener("click", readaloudTogglePlayer);
+  }
+  if (READALOUD.playerSeek) {
+    READALOUD.playerSeek.addEventListener("input", readaloudSeekFromPlayer);
+  }
+  if (READALOUD.engineBadge) {
+    READALOUD.engineBadge.addEventListener("click", readaloudCopyServerCommand);
+  }
+  if (READALOUD.serverCommandButton) {
+    READALOUD.serverCommandButton.addEventListener("click", readaloudCopyServerCommand);
   }
 
-  READALOUD.previewButton = document.getElementById("root-readaloud-preview");
-  if (READALOUD.previewButton) {
-    READALOUD.previewButton.addEventListener("click", readaloudOnPreviewClick);
-    readaloudUpdatePreviewButton();
+  readaloudSetEngineStatus("unknown");
+  readaloudProbeEngine();
+  if (READALOUD.speedButton) {
+    readaloudRestoreSpeed();
+    READALOUD.speedButton.addEventListener("click", readaloudCycleSpeed);
   }
-
-  READALOUD.cloneButton = document.getElementById("root-readaloud-clone");
-  READALOUD.cloneFileInput = document.getElementById("root-readaloud-clone-file");
-  if (READALOUD.cloneButton) {
-    READALOUD.cloneButton.addEventListener("click", readaloudOnCloneClick);
+  if (READALOUD.cacheButton) {
+    READALOUD.cacheButton.addEventListener("click", readaloudClearCurrentCache);
   }
-  if (READALOUD.cloneFileInput) {
-    READALOUD.cloneFileInput.addEventListener("change", readaloudOnCloneFile);
-  }
-  readaloudUpdateCloneButton();
-
+  readaloudShowPlayer(true);
   readaloudSetState("idle");
-  readaloudWatchMarkdownBody();
-  console.log("[readaloud] initialized (mlx-audio HTTP client, voice =", readaloudCurrentVoice(), ")");
+  readaloudUpdatePlayerProgress();
+  readaloudUpdateCacheButton();
+  readaloudInstallSectionObserver();
+  console.log("[readaloud] initialized (local Voxtral MLX)");
 }
 
-// M19: per-section playback. Inject a small ▶ button before each
-// <p>/<h*>/<li> in #md-body. Click → synth + play that section only.
-// Re-injection is idempotent (checks for an existing direct-child button).
-function readaloudInjectSectionButtons() {
-  const body = document.getElementById("md-body");
-  if (!body) return;
-  const sections = body.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li");
-  for (const section of sections) {
-    if (section.querySelector(":scope > .ra-section-play")) continue;
-    const text = (section.innerText || section.textContent || "").trim();
-    if (!text || text.length < 4) continue; // skip empty / trivial
-    const btn = document.createElement("button");
-    btn.className = "ra-section-play";
-    btn.type = "button";
-    btn.textContent = "▶";
-    btn.title = "Read this section aloud";
-    btn.setAttribute("aria-label", "Read this section aloud");
-    btn.addEventListener("click", readaloudOnSectionPlay);
-    section.classList.add("ra-section-host");
-    section.insertBefore(btn, section.firstChild);
-  }
-}
-
-function readaloudExtractSectionText(section) {
-  // Clone so we can strip the button + any active word/highlight spans
-  // without mutating the live DOM.
-  const clone = section.cloneNode(true);
-  clone.querySelectorAll(".ra-section-play").forEach(b => b.remove());
-  clone.querySelectorAll(".ra-word").forEach(w => {
-    w.replaceWith(document.createTextNode(w.textContent || ""));
-  });
-  return (clone.innerText || clone.textContent || "").trim();
-}
-
-function readaloudStopSectionPlayback() {
-  const sp = READALOUD.sectionPlayback;
-  if (!sp) return;
-  try { if (sp.abort) sp.abort.abort(); } catch (_) { /* ignore */ }
-  if (sp.context) {
-    try { sp.context.close(); } catch (_) { /* ignore */ }
-  }
-  if (sp.button) {
-    sp.button.classList.remove("is-loading", "is-playing");
-    sp.button.textContent = "▶";
-    sp.button.title = "Read this section aloud";
-  }
-  READALOUD.sectionPlayback = null;
-}
-
-async function readaloudOnSectionPlay(ev) {
-  ev.stopPropagation();
-  ev.preventDefault();
-  const btn = ev.currentTarget;
-  const section = btn.parentElement;
-  if (!section) return;
-
-  // Toggle off if THIS section is already playing.
-  if (READALOUD.sectionPlayback && READALOUD.sectionPlayback.button === btn) {
-    readaloudStopSectionPlayback();
-    return;
-  }
-
-  // Abort any other playback (main or other section) so we never have two
-  // streams competing for the user's ears.
-  if (READALOUD.abortController) {
-    try { READALOUD.abortController.abort(); } catch (_) { /* ignore */ }
-    if (READALOUD.audioContext) {
-      try { await READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
-      READALOUD.audioContext = null;
-    }
-    readaloudClearHighlights();
-    readaloudSetState("idle");
-  }
-  if (READALOUD.sectionPlayback) {
-    readaloudStopSectionPlayback();
-  }
-
-  const text = readaloudExtractSectionText(section);
-  if (!text) return;
-
-  const voice = readaloudCurrentVoice();
-  const abort = new AbortController();
-  const context = new AudioContext({ sampleRate: 24000 });
-  READALOUD.sectionPlayback = { abort, context, button: btn };
-
-  btn.classList.add("is-loading");
-  btn.textContent = "…";
-  btn.title = "Synthesizing…";
-
-  try {
-    const arrayBuf = await readaloudFetchChunkAudio(text, voice, abort.signal);
-    if (abort.signal.aborted) return;
-    const audioBuf = await context.decodeAudioData(arrayBuf);
-    if (abort.signal.aborted) return;
-    const source = context.createBufferSource();
-    source.buffer = audioBuf;
-    source.connect(context.destination);
-    btn.classList.remove("is-loading");
-    btn.classList.add("is-playing");
-    btn.textContent = "■";
-    btn.title = "Stop section playback";
-    source.onended = () => {
-      if (READALOUD.sectionPlayback && READALOUD.sectionPlayback.button === btn) {
-        readaloudStopSectionPlayback();
-      }
-    };
-    source.start();
-  } catch (err) {
-    if (err.name !== "AbortError") {
-      console.error("[readaloud] section play", err);
-      btn.title = err.message || "Section playback failed";
-    }
-    readaloudStopSectionPlayback();
-  }
-}
-
-function readaloudWatchMarkdownBody() {
-  // #md-body is sometimes replaced wholesale (when the pane re-renders for
-  // a new plan) and sometimes its innerHTML is updated in place. Observe
-  // the #pane subtree so we catch both cases. Injection is idempotent so
-  // re-firing on every mutation is safe.
-  const pane = document.getElementById("pane");
-  if (!pane) return;
-  if (READALOUD.sectionObserver) {
-    try { READALOUD.sectionObserver.disconnect(); } catch (_) { /* ignore */ }
-  }
-  let raId = 0;
-  const observer = new MutationObserver(() => {
-    if (raId) cancelAnimationFrame(raId);
-    raId = requestAnimationFrame(() => {
-      raId = 0;
-      // Stop any section playback if the body changed under us.
-      const body = document.getElementById("md-body");
-      if (!body) return;
-      if (READALOUD.sectionPlayback && !body.contains(READALOUD.sectionPlayback.button)) {
-        readaloudStopSectionPlayback();
-      }
-      readaloudInjectSectionButtons();
-    });
-  });
-  observer.observe(pane, { childList: true, subtree: true });
-  READALOUD.sectionObserver = observer;
-  // Initial pass in case content is already rendered.
-  readaloudInjectSectionButtons();
-}
-
-function readaloudUpdateCloneButton() {
-  const btn = READALOUD.cloneButton;
-  if (!btn) return;
-  const { path } = readaloudCloneState();
-  if (path) {
-    const fname = path.split("/").pop();
-    btn.textContent = "🎤 Cloned";
-    btn.title = `Voice clone active: ${fname} — click to clear and revert to picker voice`;
-    btn.classList.add("is-active");
-  } else {
-    btn.textContent = "🎤 Clone";
-    btn.title = "Upload a 5-30s audio sample + transcript to clone the voice";
-    btn.classList.remove("is-active");
-  }
-  // Keep preview button title in sync — clone state determines whether ▶
-  // hears the picker voice or the cloned timbre.
-  readaloudUpdatePreviewButton();
-}
-
-function readaloudUpdatePreviewButton() {
-  const btn = READALOUD.previewButton;
-  if (!btn) return;
-  // Don't clobber transient labels (…/■) mid-preview.
-  if (btn.textContent !== "▶") return;
-  const { path } = readaloudCloneState();
-  if (path) {
-    btn.title = "Preview cloned voice (sample sentence)";
-  } else {
-    btn.title = "Preview selected voice with a sample sentence";
-  }
-}
-
-function readaloudOnCloneClick() {
-  const { path } = readaloudCloneState();
-  if (path) {
-    const fname = path.split("/").pop();
-    if (!confirm(`Clear cloned voice (${fname})?`)) return;
-    try {
-      localStorage.removeItem(CLONE_PATH_KEY);
-      localStorage.removeItem(CLONE_TEXT_KEY);
-    } catch (_) { /* ignore */ }
-    readaloudUpdateCloneButton();
-    return;
-  }
-  const inp = READALOUD.cloneFileInput;
-  if (!inp) return;
-  inp.value = ""; // reset so the change event fires even if same file picked twice
-  inp.click();
-}
-
-async function readaloudOnCloneFile(ev) {
-  const file = ev.target.files && ev.target.files[0];
-  if (!file) return;
-  const transcript = window.prompt(
-    "Transcript of the audio clip (5-30s recommended). Used as ref_text so Voxtral knows what was said:",
-    "",
+function readaloudSetEngineStatus(status, detail) {
+  const badge = READALOUD.engineBadge;
+  if (!badge) return;
+  badge.classList.toggle("is-online", status === "online");
+  badge.classList.toggle("is-offline", status === "offline");
+  badge.textContent = status === "online" ? "MLX on" : status === "offline" ? "MLX off" : "MLX";
+  const suffix = detail ? ` (${detail})` : "";
+  badge.title =
+    `Audio source: local Voxtral MLX server at ${READALOUD.voxtralBaseUrl}${suffix}. ` +
+    `Click to copy: ${READALOUD_SERVER_COMMAND}`;
+  badge.setAttribute(
+    "aria-label",
+    `Audio source: local Voxtral MLX server ${badge.textContent}${suffix}. ` +
+      `Click to copy launch command.`,
   );
-  if (transcript === null) return; // cancelled
-  const trimmed = transcript.trim();
-  if (!trimmed) {
-    alert("Transcript is required for voice cloning — Voxtral needs to know what the audio says.");
-    return;
-  }
-  const btn = READALOUD.cloneButton;
-  const prevText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "🎤 Uploading…";
-  try {
-    const arrayBuf = await file.arrayBuffer();
-    const u8 = new Uint8Array(arrayBuf);
-    // Chunked btoa to avoid call-stack overflow on large files
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < u8.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+  if (status === "offline" && (READALOUD.state === "idle" || READALOUD.state === "error")) {
+    if (!READALOUD.engineProbeDeadline) {
+      readaloudSetPlayerStatus(
+        `Server offline. Run from the vidux repo root: ${READALOUD_SERVER_COMMAND}`,
+      );
     }
-    const b64 = btoa(bin);
-    const ext = (file.name.split(".").pop() || "wav").toLowerCase();
-    const resp = await fetch(UPLOAD_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audio_base64: b64, ext }),
-    });
-    if (!resp.ok) {
-      let detail = "";
-      try { detail = await resp.text(); } catch (_) { /* ignore */ }
-      if (resp.status === 404) {
-        throw new Error(
-          "Upload endpoint missing — restart vidux-browse so M8 server changes take effect:\n" +
-          "  launchctl kickstart -k gui/$(id -u)/<your-vidux-browser-label>",
-        );
-      }
-      throw new Error(`HTTP ${resp.status} ${resp.statusText}${detail ? ` — ${detail.slice(0, 120)}` : ""}`);
+    readaloudShowServerCommand(true);
+    readaloudStartOfflineReprobe();
+  } else if (status === "online") {
+    readaloudStopOfflineReprobe();
+    if (READALOUD.state === "idle" || READALOUD.state === "error") {
+      readaloudSetState("idle");
+      readaloudSetPlayerStatus("Ready");
+      readaloudShowServerCommand(false);
     }
-    const data = await resp.json();
-    if (!data.ok || !data.path) throw new Error("upload returned no path");
-    try {
-      localStorage.setItem(CLONE_PATH_KEY, data.path);
-      localStorage.setItem(CLONE_TEXT_KEY, trimmed);
-    } catch (_) { /* ignore */ }
-  } catch (err) {
-    console.error("[readaloud] clone upload", err);
-    alert(`Voice clone upload failed:\n${err.message || err}`);
-    btn.textContent = prevText;
-  } finally {
-    btn.disabled = false;
-    readaloudUpdateCloneButton();
   }
 }
 
-async function readaloudOnPreviewClick() {
-  const btn = READALOUD.previewButton;
-  if (!btn) return;
-  // If already previewing, abort + reset.
-  if (READALOUD.previewAbort) {
-    READALOUD.previewAbort.abort();
-    READALOUD.previewAbort = null;
-    if (READALOUD.previewContext) {
-      try { await READALOUD.previewContext.close(); } catch (_) { /* ignore */ }
-      READALOUD.previewContext = null;
-    }
-    btn.textContent = "▶";
-    btn.disabled = false;
-    btn.title = "Preview selected voice with a sample sentence";
-    return;
-  }
-
-  const voice = readaloudCurrentVoice();
-  READALOUD.previewAbort = new AbortController();
-  const signal = READALOUD.previewAbort.signal;
-
-  btn.textContent = "…";
-  btn.disabled = true;
-  btn.title = `Synthesizing preview (${voice})…`;
-
+async function readaloudProbeEngine() {
   try {
-    const arrayBuf = await readaloudFetchChunkAudio(PREVIEW_TEXT, voice, signal);
-    if (signal.aborted) return;
-    READALOUD.previewContext = new AudioContext({ sampleRate: 24000 });
-    const audioBuf = await READALOUD.previewContext.decodeAudioData(arrayBuf);
-    if (signal.aborted) return;
-    const source = READALOUD.previewContext.createBufferSource();
-    source.buffer = audioBuf;
-    source.connect(READALOUD.previewContext.destination);
-    btn.textContent = "■";
-    btn.disabled = false;
-    btn.title = "Stop preview";
-    source.onended = async () => {
-      btn.textContent = "▶";
-      btn.disabled = false;
-      readaloudUpdatePreviewButton();
-      if (READALOUD.previewContext) {
-        try { await READALOUD.previewContext.close(); } catch (_) { /* ignore */ }
-        READALOUD.previewContext = null;
-      }
-      READALOUD.previewAbort = null;
-    };
-    source.start();
-  } catch (err) {
-    if (err.name === "AbortError") return;
-    console.error("[readaloud] preview", err);
-    btn.textContent = "▶";
-    btn.disabled = false;
-    btn.title = err.message || "Preview failed";
-    READALOUD.previewAbort = null;
-    if (READALOUD.previewContext) {
-      try { await READALOUD.previewContext.close(); } catch (_) { /* ignore */ }
-      READALOUD.previewContext = null;
-    }
+    const response = await readaloudFetchWithTimeout(
+      `${READALOUD.voxtralBaseUrl}/health`,
+      { method: "GET" },
+      800,
+    );
+    readaloudSetEngineStatus(response.ok ? "online" : "offline", `HTTP ${response.status}`);
+  } catch (_) {
+    readaloudSetEngineStatus("offline", "server not reachable");
   }
 }
 
@@ -434,473 +153,1579 @@ function readaloudSetState(state, label) {
   READALOUD.state = state;
   const b = READALOUD.button;
   if (!b) return;
-  b.classList.toggle("is-active", state === "playing");
+  b.classList.toggle("is-active", state === "playing" || state === "paused");
   b.classList.toggle("is-loading", state === "loading");
+  b.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+  if (READALOUD.player) {
+    READALOUD.player.dataset.state = state;
+    READALOUD.player.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+  }
   switch (state) {
     case "idle":
-      b.textContent = "🔊 Read";
+      b.textContent = "Read";
       b.disabled = false;
-      b.title = "Read aloud (Voxtral via local mlx-audio.server)";
-      b.style.removeProperty("--ra-progress");
+      b.title = "Read selected text or current pane with local Voxtral MLX";
+      b.setAttribute("aria-label", "Read current selection or pane aloud");
       break;
     case "loading":
-      b.textContent = label || "🔊 Synthesizing…";
+      b.textContent = label || "Loading...";
       b.disabled = false;
-      b.title = label || "Synthesizing…";
+      b.title = "Click to cancel";
+      b.setAttribute("aria-label", "Cancel read-aloud loading");
       break;
     case "playing":
-      b.textContent = "■ Stop";
+    case "paused":
+      b.textContent = "Stop";
       b.disabled = false;
       b.title = "Stop playback";
+      b.setAttribute("aria-label", "Stop read-aloud playback");
       break;
     case "error":
-      b.textContent = "🔊 Retry";
+      b.textContent = "Retry";
       b.disabled = false;
-      b.title = label || "Error";
+      b.title = label || "Read-aloud failed";
+      b.setAttribute("aria-label", "Retry read-aloud");
       break;
   }
+  readaloudUpdatePlayerProgress();
 }
 
-function readaloudClearHighlights() {
-  for (const span of READALOUD.highlightedSpans) {
-    if (span.parentNode) {
-      const parent = span.parentNode;
-      // First flatten any .ra-word children to plain text so we don't leave
-      // orphaned per-word spans floating in the DOM.
-      const wordSpans = span.querySelectorAll(".ra-word");
-      for (const ws of wordSpans) {
-        if (ws.parentNode) {
-          ws.parentNode.replaceChild(document.createTextNode(ws.textContent || ""), ws);
-        }
-      }
-      // Then unwrap the .ra-active wrapper itself.
-      while (span.firstChild) parent.insertBefore(span.firstChild, span);
-      parent.removeChild(span);
-      // Coalesce adjacent text nodes so subsequent walks see one node again.
-      parent.normalize();
-    } else {
-      span.classList.remove("ra-active");
+function readaloudShowPlayer(show) {
+  if (!READALOUD.player) return;
+  READALOUD.player.hidden = false;
+  document.body.classList.add("is-readaloud-player-visible");
+}
+
+function readaloudSetPlayerStatus(text) {
+  if (!READALOUD.playerStatus) return;
+  READALOUD.playerStatus.textContent = text || "";
+  READALOUD.playerStatus.title = text || "";
+}
+
+function readaloudStartOfflineReprobe() {
+  if (READALOUD.engineProbeTimer) return;
+  const now = Date.now();
+  if (!READALOUD.engineProbeDeadline || now > READALOUD.engineProbeDeadline) {
+    READALOUD.engineProbeDeadline = now + READALOUD_OFFLINE_REPROBE_WINDOW_MS;
+  }
+  readaloudShowServerCommand(true);
+  if (READALOUD.state === "idle" || READALOUD.state === "error") {
+    readaloudSetPlayerStatus(
+      `Waiting for local server... ${READALOUD_SERVER_COMMAND}`,
+    );
+  }
+  READALOUD.engineProbeTimer = window.setTimeout(
+    readaloudRunOfflineReprobe,
+    READALOUD_OFFLINE_REPROBE_INTERVAL_MS,
+  );
+}
+
+async function readaloudRunOfflineReprobe() {
+  READALOUD.engineProbeTimer = null;
+  if (Date.now() > READALOUD.engineProbeDeadline) {
+    READALOUD.engineProbeDeadline = 0;
+    if (READALOUD.state === "idle" || READALOUD.state === "error") {
+      readaloudSetPlayerStatus(
+        `Server still offline. Run from the vidux repo root: ${READALOUD_SERVER_COMMAND}`,
+      );
+      readaloudShowServerCommand(true);
     }
+    return;
   }
-  READALOUD.highlightedSpans = [];
+  await readaloudProbeEngine();
 }
 
-function readaloudHighlightChunk(chunkText, body) {
-  // Legacy chunk-level highlight (no per-word migration). Kept as fallback for
-  // chunks that span multiple text nodes (rich-text in markdown body).
-  if (!chunkText || !body) return false;
-  readaloudClearHighlights();
-  const needle = chunkText.trim();
-  if (!needle) return false;
-  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-  let node;
-  while ((node = walker.nextNode())) {
-    const idx = node.nodeValue.indexOf(needle);
-    if (idx === -1) continue;
-    try {
-      const range = document.createRange();
-      range.setStart(node, idx);
-      range.setEnd(node, idx + needle.length);
-      const span = document.createElement("span");
-      span.className = "ra-active";
-      range.surroundContents(span);
-      READALOUD.highlightedSpans.push(span);
-      try { span.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (_) {}
-      return true;
-    } catch (e) {
-      console.debug("[readaloud] highlight range skipped:", e.message);
-      return false;
-    }
+function readaloudStopOfflineReprobe() {
+  if (READALOUD.engineProbeTimer) {
+    window.clearTimeout(READALOUD.engineProbeTimer);
+    READALOUD.engineProbeTimer = null;
   }
-  return false;
+  READALOUD.engineProbeDeadline = 0;
 }
 
-// M13: per-word highlight via heuristic even-distribution across the chunk's
-// audio duration. setTimeout per word at audioDur/wordCount intervals migrates
-// the .ra-word-active class. Inaccurate when speech rate varies WITHIN a chunk
-// (which is rare for Voxtral at conversational cadence) but free + zero-latency.
-//
-// Real markdown bodies split text across paragraphs/headings/list items, so
-// the FULL chunk text (e.g., 320 chars spanning 3 paragraphs) is never found
-// in a single DOM text node. We shorten the needle progressively until one
-// fits: first sentence → first 60 chars → first 30 chars. The wrapper still
-// represents "where this chunk's audio is currently anchored visually," even
-// if it covers only the chunk's first sentence.
-function readaloudFindChunkRange(chunkText, body) {
-  const trimmed = chunkText.trim();
-  if (!trimmed) return null;
-  // Candidate needles, longest first (most informative match wins).
-  const candidates = [];
-  candidates.push(trimmed);
-  // First sentence (split on . ! ? followed by space or end).
-  const firstSentMatch = trimmed.match(/^[^.!?\n]+[.!?]/);
-  if (firstSentMatch && firstSentMatch[0].length < trimmed.length) {
-    candidates.push(firstSentMatch[0]);
-  }
-  // Up to first newline.
-  const firstLine = trimmed.split(/\n/)[0];
-  if (firstLine && firstLine.length < trimmed.length) candidates.push(firstLine);
-  // Hard fallbacks.
-  if (trimmed.length > 80) candidates.push(trimmed.slice(0, 80).replace(/\s\S*$/, ""));
-  if (trimmed.length > 30) candidates.push(trimmed.slice(0, 30).replace(/\s\S*$/, ""));
-  for (const needle of candidates) {
-    if (!needle) continue;
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode())) {
-      const idx = node.nodeValue.indexOf(needle);
-      if (idx === -1) continue;
-      const range = document.createRange();
-      try {
-        range.setStart(node, idx);
-        range.setEnd(node, idx + needle.length);
-        return { range, matched: needle };
-      } catch (_) { continue; }
-    }
-  }
-  return null;
+function readaloudShowServerCommand(show) {
+  const b = READALOUD.serverCommandButton;
+  if (!b) return;
+  b.hidden = !show;
+  b.textContent = READALOUD_SERVER_COMMAND;
+  b.title = `Copy: ${READALOUD_SERVER_COMMAND}`;
+  b.setAttribute("aria-label", `Copy local Voxtral MLX server command: ${READALOUD_SERVER_COMMAND}`);
 }
 
-function readaloudHighlightChunkWords(chunkText, audioDur, body, signal) {
-  if (!chunkText || !body) return false;
-  readaloudClearHighlights();
-  const found = readaloudFindChunkRange(chunkText, body);
-  if (!found) return false;
-  const { range, matched } = found;
+async function readaloudCopyServerCommand(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const command = READALOUD_SERVER_COMMAND;
   try {
-    const wrapper = document.createElement("span");
-    wrapper.className = "ra-active";
-    const tokens = matched.split(/(\s+)/);
-    const wordSpans = [];
-    for (const t of tokens) {
-      if (!t) continue;
-      if (/^\s+$/.test(t)) {
-        wrapper.appendChild(document.createTextNode(t));
-      } else {
-        const ws = document.createElement("span");
-        ws.className = "ra-word";
-        ws.textContent = t;
-        wrapper.appendChild(ws);
-        wordSpans.push(ws);
-      }
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      throw new Error("Clipboard unavailable");
     }
-    range.deleteContents();
-    range.insertNode(wrapper);
-    READALOUD.highlightedSpans.push(wrapper);
-    try { wrapper.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (_) {}
-    if (wordSpans.length > 0 && audioDur > 0) {
-      const ms = (audioDur * 1000) / wordSpans.length;
-      for (let i = 0; i < wordSpans.length; i++) {
-        setTimeout(() => {
-          if (signal && signal.aborted) return;
-          for (const w of wordSpans) w.classList.remove("ra-word-active");
-          wordSpans[i].classList.add("ra-word-active");
-        }, i * ms);
-      }
-    }
-    return true;
-  } catch (e) {
-    console.debug("[readaloud] word-highlight skipped:", e.message);
-    return false;
+    await navigator.clipboard.writeText(command);
+    readaloudSetPlayerStatus(`Copied server command: ${command}`);
+    readaloudShowServerCommand(true);
+    if (readaloudShouldReprobeOffline()) readaloudStartOfflineReprobe();
+  } catch (_) {
+    readaloudSetPlayerStatus(`Run from the vidux repo root: ${command}`);
+    readaloudShowServerCommand(true);
+    if (readaloudShouldReprobeOffline()) readaloudStartOfflineReprobe();
   }
 }
 
-// M14: keep the button label informative through playback. After chunk 1 starts
-// playing the button used to freeze on "■ Stop" for ~95s on a 19-chunk plan.
-// Now it shows the current chunk index and a fill on the bottom CSS bar.
-function readaloudUpdatePlayingLabel(idx, total) {
-  const b = READALOUD.button;
-  if (!b || READALOUD.state !== "playing") return;
-  b.textContent = `■ ${idx}/${total}`;
-  b.title = `Playing chunk ${idx} of ${total} — click to stop`;
-  b.style.setProperty("--ra-progress", `${(idx / total) * 100}%`);
+function readaloudShouldReprobeOffline() {
+  return (
+    READALOUD.state === "error" ||
+    !READALOUD.engineBadge ||
+    READALOUD.engineBadge.classList.contains("is-offline")
+  );
 }
 
-// Split text into ~TARGET_CHUNK_CHARS-sized chunks at sentence boundaries.
-// Falls back to paragraph splits, then to fixed-width slices for content
-// without sentence terminators (code blocks, lists). Each chunk is sent as
-// one /v1/audio/speech request.
-function readaloudSplitText(text) {
-  const sentenceRegex = /[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+(?=\n|$)/g;
-  const sentences = text.match(sentenceRegex) || [text];
-  const chunks = [];
-  let buffer = "";
-  for (const s of sentences) {
-    const trimmed = s.trim();
-    if (!trimmed) continue;
-    if (!buffer) {
-      buffer = trimmed;
-    } else if ((buffer + " " + trimmed).length <= TARGET_CHUNK_CHARS) {
-      buffer += " " + trimmed;
-    } else {
-      chunks.push(buffer);
-      buffer = trimmed;
-    }
+function readaloudUpdatePlayerProgress() {
+  const audio = READALOUD.audio;
+  const hasDuration = audio && Number.isFinite(audio.duration) && audio.duration > 0;
+
+  if (READALOUD.playerSeek) {
+    const progress = hasDuration ? audio.currentTime / audio.duration : 0;
+    READALOUD.playerSeek.value = String(Math.round(progress * 1000));
+    READALOUD.playerSeek.disabled = !hasDuration;
+    READALOUD.playerSeek.setAttribute(
+      "aria-valuetext",
+      `${readaloudFormatTime(hasDuration ? audio.currentTime : 0)} of ${readaloudFormatTime(hasDuration ? audio.duration : 0)}`,
+    );
   }
-  if (buffer) chunks.push(buffer);
-  // Ultra-long single-sentence pathological case: hard-split.
-  const safe = [];
-  for (const c of chunks) {
-    if (c.length <= TARGET_CHUNK_CHARS * 2) {
-      safe.push(c);
-    } else {
-      for (let i = 0; i < c.length; i += TARGET_CHUNK_CHARS) {
-        safe.push(c.slice(i, i + TARGET_CHUNK_CHARS));
-      }
-    }
+
+  if (READALOUD.playerTime) {
+    const current = hasDuration ? audio.currentTime : 0;
+    const duration = hasDuration ? audio.duration : 0;
+    READALOUD.playerTime.textContent =
+      `${readaloudFormatTime(current)} / ${readaloudFormatTime(duration)}`;
   }
-  return safe;
+
+  if (READALOUD.playerToggle) {
+    const canPlay = Boolean(audio);
+    const isPlaying = Boolean(audio && !audio.paused && !audio.ended);
+    READALOUD.playerToggle.disabled = !canPlay;
+    READALOUD.playerToggle.textContent =
+      isPlaying ? "Ⅱ" : audio && audio.ended ? "↺" : "▶";
+    READALOUD.playerToggle.title =
+      isPlaying ? "Pause" : audio && audio.ended ? "Replay" : "Play";
+    READALOUD.playerToggle.setAttribute(
+      "aria-label",
+      isPlaying ? "Pause read-aloud" : audio && audio.ended ? "Replay read-aloud" : "Play read-aloud",
+    );
+    READALOUD.playerToggle.setAttribute("aria-pressed", isPlaying ? "true" : "false");
+  }
+  readaloudUpdateCacheButton();
 }
 
-// M16 — localStorage audio cache. Keyed by sha256(text+voice+speed+clone state)
-// so any change forces a fresh synth, but unchanged content replays instantly
-// instead of paying the ~5–10 s/chunk Voxtral synthesis cost. localStorage cap
-// is ~5 MB per origin in Chrome; the cache LRU-evicts oldest when the index
-// total exceeds CACHE_MAX_BYTES. base64 encoding adds ~33% overhead vs raw
-// bytes, so 4 MB of base64 ≈ 3 MB of WAV ≈ ~80–150 chunks at speed 1.25.
-const CACHE_INDEX_KEY = "vidux.readaloud.cache.index";
-const CACHE_VALUE_PREFIX = "vidux.readaloud.cache.v.";
-const CACHE_MAX_BYTES = 4 * 1024 * 1024; // 4 MB of base64 (Chrome quota leeway)
+function readaloudUpdateCacheButton(source = READALOUD.currentCacheSource) {
+  const b = READALOUD.cacheButton;
+  if (!b) return;
 
-async function readaloudCacheKey(text, voice, speed, clonePath, cloneText) {
-  const enc = new TextEncoder();
-  const data = enc.encode(JSON.stringify({ text, voice, speed, clonePath, cloneText }));
-  const hashBuf = await crypto.subtle.digest("SHA-256", data);
-  const hashArr = Array.from(new Uint8Array(hashBuf));
-  return hashArr.map(b => b.toString(16).padStart(2, "0")).join("");
+  const keys = (READALOUD.currentSegmentCacheKeys || []).filter(Boolean);
+  const hasKeys = keys.length > 0;
+  const sourceLabel =
+    source === "cached" ? "Cached" :
+    source === "mixed" ? "Mixed" :
+    source === "generated" ? "Fresh" :
+    source === "cleared" ? "Cleared" :
+    "Cache";
+  const disabled = !hasKeys || READALOUD.state === "loading";
+
+  b.textContent = sourceLabel;
+  b.disabled = disabled;
+  b.classList.toggle("is-cached", source === "cached");
+  b.classList.toggle("is-mixed", source === "mixed");
+  b.classList.toggle("is-generated", source === "generated");
+  b.classList.toggle("is-cleared", source === "cleared");
+
+  if (hasKeys) {
+    b.title = `${sourceLabel} playback. Clear ${keys.length} cached segment${keys.length === 1 ? "" : "s"} so the next read regenerates this document.`;
+    b.setAttribute(
+      "aria-label",
+      `${sourceLabel} playback. Clear cached read-aloud audio for the current document.`,
+    );
+  } else {
+    b.title = "No cached read-aloud segments for the current playback";
+    b.setAttribute("aria-label", "No cached read-aloud segments to clear");
+  }
 }
 
-function readaloudCacheGetIndex() {
-  try { return JSON.parse(localStorage.getItem(CACHE_INDEX_KEY) || "[]"); }
-  catch (_) { return []; }
+function readaloudFormatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const total = Math.floor(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = String(total % 60).padStart(2, "0");
+  return `${mins}:${secs}`;
 }
 
-function readaloudCacheSetIndex(idx) {
-  try { localStorage.setItem(CACHE_INDEX_KEY, JSON.stringify(idx)); } catch (_) { /* ignore */ }
-}
-
-function readaloudCacheGet(key) {
+async function readaloudTogglePlayer() {
+  const audio = READALOUD.audio;
+  if (!audio) return;
   try {
-    const b64 = localStorage.getItem(CACHE_VALUE_PREFIX + key);
-    if (!b64) return null;
-    const bin = atob(b64);
-    const u8 = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    // Bump LRU timestamp on hit
-    const idx = readaloudCacheGetIndex();
-    const found = idx.find(e => e.k === key);
-    if (found) { found.t = Date.now(); readaloudCacheSetIndex(idx); }
-    return u8.buffer;
-  } catch (_) { return null; }
+    if (audio.paused || audio.ended) {
+      if (audio.ended) audio.currentTime = 0;
+      await audio.play();
+    } else {
+      audio.pause();
+    }
+  } catch (err) {
+    console.error("[readaloud]", err);
+    readaloudSetState("error", err.message || "Playback failed");
+    readaloudSetPlayerStatus("Playback failed");
+  }
+  readaloudUpdatePlayerProgress();
 }
 
-function readaloudCacheSet(key, arrayBuf) {
-  try {
-    const u8 = new Uint8Array(arrayBuf);
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < u8.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
-    }
-    const b64 = btoa(bin);
-    const size = b64.length;
-
-    let idx = readaloudCacheGetIndex();
-    const existing = idx.find(e => e.k === key);
-    if (existing) { existing.t = Date.now(); existing.s = size; }
-    else { idx.push({ k: key, t: Date.now(), s: size }); }
-
-    // LRU evict until under cap
-    let total = idx.reduce((a, e) => a + e.s, 0);
-    if (total > CACHE_MAX_BYTES) {
-      idx.sort((a, b) => a.t - b.t);
-      while (total > CACHE_MAX_BYTES && idx.length > 1) {
-        const ev = idx.shift();
-        try { localStorage.removeItem(CACHE_VALUE_PREFIX + ev.k); } catch (_) { /* ignore */ }
-        total -= ev.s;
-      }
-    }
-
-    localStorage.setItem(CACHE_VALUE_PREFIX + key, b64);
-    readaloudCacheSetIndex(idx);
-  } catch (e) {
-    // QuotaExceededError: drop oldest half + skip caching this chunk.
-    console.warn("[readaloud] cache.set failed (likely quota):", e.message);
-    try {
-      const idx = readaloudCacheGetIndex();
-      idx.sort((a, b) => a.t - b.t);
-      const half = Math.ceil(idx.length / 2);
-      for (let i = 0; i < half; i++) {
-        try { localStorage.removeItem(CACHE_VALUE_PREFIX + idx[i].k); } catch (_) { /* ignore */ }
-      }
-      readaloudCacheSetIndex(idx.slice(half));
-    } catch (_) { /* ignore */ }
-  }
+function readaloudSeekFromPlayer() {
+  const audio = READALOUD.audio;
+  if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+  const raw = Number(READALOUD.playerSeek && READALOUD.playerSeek.value);
+  const progress = Number.isFinite(raw) ? Math.max(0, Math.min(1000, raw)) / 1000 : 0;
+  audio.currentTime = readaloudTimelineTimeForProgress(progress, audio.duration);
+  readaloudUpdateWordHighlight();
+  readaloudUpdatePlayerProgress();
 }
 
-async function readaloudFetchChunkAudio(chunkText, voice, signal) {
-  const clone = readaloudCloneState();
-  // Cache key includes ALL inputs that influence the audio. Hand-test by
-  // changing any of them — the cache miss + re-synth proves the boundary.
-  const cacheKey = await readaloudCacheKey(chunkText, voice, SPEED, clone.path, clone.text);
-  const cached = readaloudCacheGet(cacheKey);
-  if (cached) {
-    console.log("[readaloud] cache HIT", cacheKey.slice(0, 8), `${cached.byteLength}B`);
-    return cached;
-  }
+function readaloudRestoreSpeed() {
+  const saved = Number(localStorage.getItem("vidux.readaloud.speed") || "");
+  const idx = READALOUD.speeds.findIndex((speed) => Math.abs(speed - saved) < 0.001);
+  READALOUD.speedIndex = idx >= 0 ? idx : 1;
+  readaloudUpdateSpeedButton();
+}
 
-  const body = {
-    model: MODEL,
-    input: chunkText,
-    voice,
-    response_format: "wav",
-    speed: SPEED,
-  };
-  // When voice clone is set, include the server-local ref_audio path + transcript.
-  // Voxtral requires BOTH `voice` and `ref_audio` set (verified 2026-05-02 — passing
-  // ref_audio alone yields "Either ref_audio or voice must be defined" assertion).
-  if (clone.path && clone.text) {
-    body.ref_audio = clone.path;
-    body.ref_text = clone.text;
-  }
-  const resp = await fetch(ENDPOINT, {
-    method: "POST",
-    signal,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    let detail = "";
-    try {
-      const text = await resp.text();
-      detail = text.slice(0, 200);
-    } catch (_) { /* ignore */ }
-    throw new Error(`HTTP ${resp.status} ${resp.statusText}${detail ? ` — ${detail}` : ""}`);
-  }
-  const arrayBuf = await resp.arrayBuffer();
-  // Cache the synthesized audio so the next play of the same content is instant.
-  readaloudCacheSet(cacheKey, arrayBuf);
-  return arrayBuf;
+function readaloudCycleSpeed() {
+  READALOUD.speedIndex = (READALOUD.speedIndex + 1) % READALOUD.speeds.length;
+  localStorage.setItem("vidux.readaloud.speed", String(readaloudPlaybackRate()));
+  if (READALOUD.audio) READALOUD.audio.playbackRate = readaloudPlaybackRate();
+  readaloudUpdateSpeedButton();
+}
+
+function readaloudPlaybackRate() {
+  return READALOUD.speeds[READALOUD.speedIndex] || 1.12;
+}
+
+function readaloudSpeedLabel(speed) {
+  return speed === 1 ? "1x" : `${speed.toFixed(2)}x`;
+}
+
+function readaloudUpdateSpeedButton() {
+  const b = READALOUD.speedButton;
+  if (!b) return;
+  const speed = readaloudPlaybackRate();
+  b.textContent = readaloudSpeedLabel(speed);
+  b.title = `Read-aloud speed: ${readaloudSpeedLabel(speed)}. Click to cycle.`;
+  b.setAttribute("aria-label", b.title);
+  b.classList.toggle("is-default", Math.abs(speed - 1.12) < 0.001);
 }
 
 async function readaloudOnClick() {
-  if (READALOUD.state === "playing" || READALOUD.state === "loading") {
-    if (READALOUD.abortController) READALOUD.abortController.abort();
-    if (READALOUD.audioContext) {
-      try { await READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
-      READALOUD.audioContext = null;
-    }
-    readaloudClearHighlights();
-    readaloudSetState("idle");
+  if (READALOUD.state === "playing" || READALOUD.state === "loading" || READALOUD.state === "paused") {
+    readaloudStop();
     return;
   }
 
   const body =
     document.getElementById("md-body") ||
     document.querySelector(".pane > div:not(.pane-empty)");
-  const text = (body && body.innerText ? body.innerText : "").trim();
-  if (!text) {
+  const source = readaloudGetSource(body);
+  if (!source.text) {
     readaloudSetState("error", "No content to read");
     return;
   }
-  const capped = text.length > MAX_INPUT_CHARS ? text.slice(0, MAX_INPUT_CHARS) + "…" : text;
-  const chunks = readaloudSplitText(capped);
-  if (chunks.length === 0) {
+
+  try {
+    await readaloudPlaySource(body, source);
+  } catch (err) {
+    readaloudHandlePlaybackError(err);
+  }
+}
+
+async function readaloudPlaySource(body, source) {
+  const playbackSource = readaloudPreparePlaybackSource(source, 3000);
+  const text = playbackSource.text;
+  if (!text) {
     readaloudSetState("error", "No content to read");
     return;
   }
 
   READALOUD.abortController = new AbortController();
-  const signal = READALOUD.abortController.signal;
-  // Snapshot voice at click-time so mid-playback voice changes don't desync chunks.
-  const voice = readaloudCurrentVoice();
+  readaloudShowPlayer(true);
 
-  try {
-    readaloudSetState("loading", `🔊 Synthesizing 1/${chunks.length}…`);
-    READALOUD.audioContext = new AudioContext({ sampleRate: 24000 });
+  readaloudSetState("loading", "Preparing...");
+  readaloudSetPlayerStatus("Preparing text...");
+  const cacheKey = await readaloudSegmentsPlaybackKey(playbackSource.segments);
 
-    let nextStartTime = READALOUD.audioContext.currentTime + 0.1;
-    let lastEndTime = nextStartTime;
-    let firstChunkScheduled = false;
+  if (READALOUD.audio && READALOUD.currentCacheKey === cacheKey) {
+    readaloudSetPlayerStatus("Replaying cached audio");
+    READALOUD.audio.currentTime = 0;
+    await READALOUD.audio.play();
+    return;
+  }
 
-    for (let i = 0; i < chunks.length; i++) {
-      if (signal.aborted) break;
-      readaloudSetState(
-        firstChunkScheduled ? "playing" : "loading",
-        firstChunkScheduled ? undefined : `🔊 Synthesizing ${i + 1}/${chunks.length}…`,
-      );
+  const result = await readaloudGetSegmentAudio(
+    playbackSource.segments,
+    READALOUD.abortController.signal,
+  );
+  await readaloudPlayBlob(result.blob, body, text, source.range, {
+    cacheKey,
+    cacheSource: result.source,
+    segments: playbackSource.segments,
+    segmentDurations: result.segmentDurations,
+    segmentCacheKeys: result.segmentCacheKeys,
+  });
+}
 
-      const arrayBuf = await readaloudFetchChunkAudio(chunks[i], voice, signal);
-      if (signal.aborted) break;
-
-      let audioBuf;
-      try {
-        audioBuf = await READALOUD.audioContext.decodeAudioData(arrayBuf);
-      } catch (decodeErr) {
-        console.warn("[readaloud] decode failed for chunk", i, decodeErr);
-        continue;
-      }
-
-      const source = READALOUD.audioContext.createBufferSource();
-      source.buffer = audioBuf;
-      source.connect(READALOUD.audioContext.destination);
-      source.start(nextStartTime);
-
-      const startsInMs = Math.max(
-        0,
-        (nextStartTime - READALOUD.audioContext.currentTime) * 1000,
-      );
-      const chunkText = chunks[i];
-      const chunkIdx = i + 1;
-      const chunkDur = audioBuf.duration;
-      setTimeout(() => {
-        if (signal.aborted) return;
-        readaloudUpdatePlayingLabel(chunkIdx, chunks.length);
-        readaloudHighlightChunkWords(chunkText, chunkDur, body, signal);
-      }, startsInMs);
-
-      if (!firstChunkScheduled) {
-        readaloudSetState("playing");
-        readaloudUpdatePlayingLabel(chunkIdx, chunks.length);
-        firstChunkScheduled = true;
-      }
-
-      nextStartTime += audioBuf.duration;
-      lastEndTime = nextStartTime;
-    }
-
-    const totalWaitMs = Math.max(
-      0,
-      (lastEndTime - READALOUD.audioContext.currentTime) * 1000 + 200,
+function readaloudHandlePlaybackError(err) {
+  if (err.name === "AbortError") return;
+  console.error("[readaloud]", err);
+  const msg = String(err.message || err);
+  if (msg.includes("fetch") || msg.includes("NetworkError") || msg.includes("Voxtral server")) {
+    readaloudSetState("error", "Start Voxtral server");
+    readaloudSetPlayerStatus(
+      `Start local Voxtral MLX server: ${READALOUD_SERVER_COMMAND}`,
     );
-    setTimeout(() => {
-      if (signal.aborted) return;
-      readaloudClearHighlights();
-      readaloudSetState("idle");
-      if (READALOUD.audioContext) {
-        try { READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
-        READALOUD.audioContext = null;
-      }
-    }, totalWaitMs);
-  } catch (err) {
-    if (err.name === "AbortError") return;
-    console.error("[readaloud]", err);
-    let msg = err.message || "Failed";
-    const networkish =
-      err.message &&
-      (err.message.includes("Failed to fetch") ||
-        err.message.includes("NetworkError") ||
-        err.message.includes("ECONNREFUSED") ||
-        err.message.includes("Load failed"));
-    if (networkish) {
-      msg = "🔊 Server offline — start mlx-audio LaunchAgent (see /moussey)";
+    readaloudShowServerCommand(true);
+    readaloudStartOfflineReprobe();
+    READALOUD.button.title =
+      `Run: ${READALOUD_SERVER_COMMAND}, then retry`;
+    return;
+  }
+  readaloudSetState("error", msg);
+  readaloudSetPlayerStatus(msg);
+}
+
+function readaloudGetSource(body) {
+  if (!body) return { text: "", range: null, segments: [] };
+
+  const selectionSource = readaloudGetSelectionSource(body);
+  if (selectionSource) return selectionSource;
+
+  const segments = readaloudCollectSegments(body);
+  const text = readaloudSegmentsToText(segments) || (body.innerText || "").trim();
+  return {
+    text,
+    range: null,
+    segments,
+  };
+}
+
+function readaloudGetSelectionSource(body) {
+  const selection = window.getSelection && window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!readaloudNodeInside(body, range.commonAncestorContainer)) return null;
+
+  const text = selection.toString().trim();
+  if (!text) return null;
+
+  return {
+    text,
+    range: range.cloneRange(),
+    segments: readaloudCollectSegments(body, range),
+  };
+}
+
+function readaloudNodeInside(root, node) {
+  if (!root || !node) return false;
+  const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  return element === root || (element ? root.contains(element) : false);
+}
+
+function readaloudPreparePlaybackSource(source, maxChars) {
+  const rawSegments =
+    source && source.segments && source.segments.length
+      ? source.segments
+      : [readaloudCreateSegment("block", source ? source.text : "", null, source ? source.range : null, 0)];
+  const segments = [];
+  let usedChars = 0;
+  for (const rawSegment of rawSegments) {
+    const normalized = readaloudNormalizeSegmentText(rawSegment.text);
+    if (!normalized) continue;
+    const separatorChars = segments.length ? 2 : 0;
+    const remaining = maxChars - usedChars - separatorChars;
+    if (remaining <= 0) break;
+
+    let text = normalized;
+    if (text.length > remaining) {
+      const sliceLength = Math.max(1, remaining - 3);
+      text = `${text.slice(0, sliceLength).trim()}...`;
     }
-    readaloudSetState("error", msg);
-    if (READALOUD.audioContext) {
-      try { await READALOUD.audioContext.close(); } catch (_) { /* ignore */ }
-      READALOUD.audioContext = null;
+    if (!text) continue;
+
+    segments.push(readaloudCloneSegment(rawSegment, text, segments.length));
+    usedChars += separatorChars + text.length;
+  }
+
+  return {
+    text: readaloudSegmentsToText(segments),
+    segments,
+  };
+}
+
+function readaloudCloneSegment(segment, text, index) {
+  const kind = segment.kind || "block";
+  const hash = readaloudStableHash(`${kind}\n${text}`);
+  return {
+    ...segment,
+    id: `ra-seg-${index}-${kind}-${hash.slice(0, 8)}`,
+    kind,
+    text,
+    hash,
+  };
+}
+
+function readaloudInstallSectionObserver() {
+  const pane = document.getElementById("pane");
+  if (!pane) return;
+
+  if (READALOUD.sectionObserver) READALOUD.sectionObserver.disconnect();
+  READALOUD.sectionObserver = new MutationObserver((mutations) => {
+    if (READALOUD.sectionRefreshInProgress) return;
+    if (readaloudMutationsAreReadaloudUiOnly(mutations)) return;
+    readaloudQueueSectionRefresh();
+  });
+  READALOUD.sectionObserver.observe(pane, { childList: true, subtree: true });
+  readaloudQueueSectionRefresh();
+}
+
+function readaloudQueueSectionRefresh() {
+  if (READALOUD.state === "loading" || READALOUD.state === "playing" || READALOUD.state === "paused") {
+    return;
+  }
+  if (READALOUD.sectionRefreshTimer) window.clearTimeout(READALOUD.sectionRefreshTimer);
+  READALOUD.sectionRefreshTimer = window.setTimeout(readaloudRefreshSectionControls, 60);
+}
+
+function readaloudMutationsAreReadaloudUiOnly(mutations) {
+  let sawMutationNode = false;
+  for (const mutation of mutations || []) {
+    const nodes = [...Array.from(mutation.addedNodes || []), ...Array.from(mutation.removedNodes || [])];
+    if (!nodes.length) return false;
+    sawMutationNode = true;
+    if (!nodes.every(readaloudNodeIsReadaloudUi)) return false;
+  }
+  return sawMutationNode;
+}
+
+function readaloudNodeIsReadaloudUi(node) {
+  if (!node) return false;
+  if (node.nodeType === Node.TEXT_NODE) {
+    return Boolean(node.parentElement && node.parentElement.closest(".ra-word,.ra-section-play"));
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+  return Boolean(
+    node.matches(".ra-word,.ra-section-play") ||
+      node.querySelector(".ra-word,.ra-section-play"),
+  );
+}
+
+function readaloudRefreshSectionControls() {
+  const body = document.getElementById("md-body");
+  if (!body) return;
+  if (READALOUD.state === "loading" || READALOUD.state === "playing" || READALOUD.state === "paused") {
+    return;
+  }
+
+  READALOUD.sectionRefreshInProgress = true;
+  try {
+    for (const button of body.querySelectorAll(".ra-section-play")) button.remove();
+    for (const host of body.querySelectorAll(".ra-section-play-host")) {
+      host.classList.remove("ra-section-play-host");
+    }
+
+    const segments = readaloudCollectSegments(body).filter(readaloudSegmentCanUseSectionControl);
+    for (const segment of segments.slice(0, 80)) {
+      readaloudAddSectionControl(segment);
+    }
+  } finally {
+    READALOUD.sectionRefreshInProgress = false;
+  }
+}
+
+function readaloudSegmentCanUseSectionControl(segment) {
+  const element = segment && segment.element;
+  if (!element || !READALOUD_SECTION_CONTROL_KINDS.has(segment.kind)) return false;
+  if (element.closest("pre,code,button,input,textarea,select,.topbar,.sidebar,.readaloud-player")) {
+    return false;
+  }
+  const text = readaloudNormalizeSegmentText(segment.text);
+  return text.length >= 36;
+}
+
+function readaloudAddSectionControl(segment) {
+  const element = segment.element;
+  if (!element || element.querySelector(":scope > .ra-section-play")) return;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ra-section-play";
+  button.dataset.raSegmentId = segment.id;
+  button.textContent = "Read";
+  button.title = `Read this section: ${readaloudSegmentTitle(segment)}`;
+  button.setAttribute("aria-label", `Read this section: ${readaloudSegmentTitle(segment)}`);
+  button.addEventListener("click", readaloudPlaySection);
+
+  element.classList.add("ra-section-play-host");
+  element.insertBefore(button, element.firstChild);
+}
+
+async function readaloudPlaySection(event) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const button = event.currentTarget;
+  const body = document.getElementById("md-body");
+  if (!button || !body) return;
+
+  if (READALOUD.state === "playing" || READALOUD.state === "loading" || READALOUD.state === "paused") {
+    readaloudStop();
+  }
+
+  const segment = readaloudFindSectionSegment(body, button);
+  if (!segment) {
+    readaloudSetState("error", "Section unavailable");
+    readaloudSetPlayerStatus("Section unavailable");
+    return;
+  }
+
+  const originalText = button.textContent;
+  button.textContent = "Loading";
+  button.classList.add("is-loading");
+  button.setAttribute("aria-busy", "true");
+  button.disabled = true;
+  try {
+    await readaloudPlaySource(body, {
+      text: segment.text,
+      range: readaloudSegmentRange(segment),
+      segments: [segment],
+    });
+  } catch (err) {
+    readaloudHandlePlaybackError(err);
+  } finally {
+    button.textContent = originalText || "Read";
+    button.classList.remove("is-loading");
+    button.setAttribute("aria-busy", "false");
+    button.disabled = false;
+  }
+}
+
+function readaloudFindSectionSegment(body, button) {
+  const id = button.dataset.raSegmentId;
+  const host = button.closest(".ra-section-play-host");
+  const segments = readaloudCollectSegments(body);
+  return (
+    segments.find((segment) => segment.id === id) ||
+    segments.find((segment) => segment.element === host) ||
+    null
+  );
+}
+
+function readaloudSegmentRange(segment) {
+  if (segment && segment.range) return segment.range.cloneRange();
+  if (!segment || !segment.element) return null;
+  const range = document.createRange();
+  range.selectNodeContents(segment.element);
+  return range;
+}
+
+export function readaloudCollectSegments(body, sourceRange = null) {
+  if (!body) return [];
+
+  if (sourceRange) {
+    const text = readaloudNormalizeSegmentText(sourceRange.toString());
+    if (!text) return [];
+    const node =
+      sourceRange.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? sourceRange.commonAncestorContainer
+        : sourceRange.commonAncestorContainer.parentElement;
+    return [readaloudCreateSegment("selection", text, node || body, sourceRange.cloneRange(), 0)];
+  }
+
+  const primarySelector = [
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "li",
+    "pre",
+    "blockquote",
+    "td",
+    "th",
+    "figcaption",
+    "summary",
+  ].join(",");
+  const containerSelector = [
+    ".contact-card",
+    ".lead-row",
+    "article",
+    "section",
+  ].join(",");
+
+  const candidates = [];
+  for (const element of body.querySelectorAll(primarySelector)) {
+    if (element.closest("li,pre,blockquote") !== element) {
+      const parentBlock = element.parentElement && element.parentElement.closest("li,pre,blockquote");
+      if (parentBlock && body.contains(parentBlock)) continue;
+    }
+    candidates.push(element);
+  }
+
+  for (const element of body.querySelectorAll(containerSelector)) {
+    if (element.querySelector(primarySelector)) continue;
+    candidates.push(element);
+  }
+
+  for (const element of Array.from(body.children || [])) {
+    if (candidates.some((candidate) => candidate === element || element.contains(candidate))) continue;
+    if (!readaloudLooksLikeFallbackSegment(element)) continue;
+    candidates.push(element);
+  }
+
+  candidates.sort((a, b) => {
+    if (a === b) return 0;
+    return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+  });
+
+  const segments = [];
+  for (const element of candidates) {
+    if (!readaloudElementIsReadable(element)) continue;
+    const text = readaloudNormalizeSegmentText(readaloudElementText(element));
+    if (!text) continue;
+    const kind = readaloudSegmentKind(element);
+    segments.push(readaloudCreateSegment(kind, text, element, null, segments.length));
+  }
+  return segments;
+}
+
+function readaloudSegmentsToText(segments) {
+  return (segments || [])
+    .map((segment) => segment.text)
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function readaloudCreateSegment(kind, text, element, range, index) {
+  const hash = readaloudStableHash(`${kind}\n${text}`);
+  return {
+    id: `ra-seg-${index}-${kind}-${hash.slice(0, 8)}`,
+    kind,
+    text,
+    hash,
+    element,
+    range,
+  };
+}
+
+function readaloudStableHash(value) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function readaloudNormalizeSegmentText(text) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readaloudElementText(element) {
+  if (!element) return "";
+  const clone = element.cloneNode(true);
+  for (const word of clone.querySelectorAll(".ra-word")) {
+    word.replaceWith(document.createTextNode(word.textContent || ""));
+  }
+  clone
+    .querySelectorAll(
+      ".ra-section-play,.readaloud-player,.annotation-fab,button,input,textarea,select,script,style",
+    )
+    .forEach((node) => node.remove());
+  return clone.innerText || clone.textContent || "";
+}
+
+function readaloudSegmentKind(element) {
+  if (!element || !element.tagName) return "block";
+  const tag = element.tagName.toLowerCase();
+  if (/^h[1-6]$/.test(tag)) return "heading";
+  if (tag === "li") return "list-item";
+  if (tag === "pre") return "code-block";
+  if (tag === "blockquote") return "quote";
+  if (tag === "td" || tag === "th") return "table-cell";
+  if (element.matches && element.matches(".contact-card,.lead-row,article,section")) {
+    return "artifact-block";
+  }
+  return tag === "p" ? "paragraph" : "block";
+}
+
+function readaloudElementIsReadable(element) {
+  if (!element || !element.isConnected) return false;
+  if (
+    element.closest(
+      "button,input,textarea,select,script,style,.ra-word,.ra-section-play,.readaloud-player,.annotation-fab,.topbar,.sidebar,[hidden],[aria-hidden='true']",
+    )
+  ) {
+    return false;
+  }
+  const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+  if (style && (style.display === "none" || style.visibility === "hidden")) return false;
+  return Boolean(readaloudNormalizeSegmentText(readaloudElementText(element)));
+}
+
+function readaloudLooksLikeFallbackSegment(element) {
+  if (!element || !element.tagName) return false;
+  const tag = element.tagName.toLowerCase();
+  if (!["div", "article", "section", "main"].includes(tag)) return false;
+  if (element.children && element.children.length > 8) return false;
+  return readaloudNormalizeSegmentText(readaloudElementText(element)).length >= 2;
+}
+
+async function readaloudGetSegmentAudio(segments, outerSignal) {
+  if (!segments || !segments.length) {
+    throw new Error("No readable segments found");
+  }
+
+  readaloudSetState("loading", "Checking MLX...");
+  readaloudSetPlayerStatus("Checking local MLX server...");
+  await readaloudEnsureVoxtralHealthy(outerSignal);
+
+  const ordered = new Array(segments.length);
+  const misses = [];
+  let cachedCount = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const cacheKey = await readaloudSegmentCacheKey(segment);
+    readaloudSetState("loading", "Cache...");
+    readaloudSetPlayerStatus(
+      `Checking segment ${i + 1}/${segments.length}: ${readaloudSegmentTitle(segment)}`,
+    );
+    const cached = await readaloudCacheGet(cacheKey);
+    if (cached) {
+      cachedCount += 1;
+      ordered[i] = { segment, blob: cached, cacheKey, source: "cached" };
+    } else {
+      misses.push({ index: i, segment, cacheKey });
     }
   }
+
+  if (misses.length) {
+    readaloudSetPlayerStatus(`${cachedCount} cached, ${misses.length} synthesizing`);
+  } else {
+    readaloudSetPlayerStatus(`${cachedCount} cached, 0 synthesizing`);
+  }
+
+  for (let i = 0; i < misses.length; i++) {
+    const miss = misses[i];
+    readaloudSetState("loading", `Synth ${i + 1}/${misses.length}`);
+    readaloudSetPlayerStatus(
+      `${cachedCount} cached, ${i + 1}/${misses.length} synthesizing: ${readaloudSegmentTitle(miss.segment)}`,
+    );
+    const blob = await readaloudFetchVoxtral(miss.segment.text, outerSignal);
+    await readaloudCachePut(miss.cacheKey, blob, {
+      type: "segment",
+      model: READALOUD.modelId,
+      voice: READALOUD.defaultVoice,
+      segment_id: miss.segment.id,
+      segment_kind: miss.segment.kind,
+      segment_hash: miss.segment.hash,
+      text: miss.segment.text,
+    });
+    ordered[miss.index] = {
+      segment: miss.segment,
+      blob,
+      cacheKey: miss.cacheKey,
+      source: "generated",
+    };
+  }
+
+  const protectedKeys = ordered.map((item) => item && item.cacheKey).filter(Boolean);
+  const cachePrune = await readaloudCachePrune({ protectedKeys });
+  readaloudReportCachePrune(cachePrune);
+
+  readaloudSetState("loading", "Merging...");
+  readaloudSetPlayerStatus("Merging segment audio...");
+  const merged = await readaloudMergeSegmentAudio(ordered);
+  const source =
+    misses.length === 0 ? "cached" : cachedCount > 0 ? "mixed" : "generated";
+  return {
+    blob: merged.blob,
+    source,
+    segmentDurations: merged.segmentDurations,
+    segmentCacheKeys: protectedKeys,
+    cachePrune,
+  };
+}
+
+async function readaloudEnsureVoxtralHealthy(outerSignal) {
+  const health = await readaloudFetchWithTimeout(
+    `${READALOUD.voxtralBaseUrl}/health`,
+    { method: "GET", signal: outerSignal },
+    1200,
+  );
+  if (!health.ok) {
+    readaloudSetEngineStatus("offline", `HTTP ${health.status}`);
+    throw new Error(`Voxtral server unhealthy: ${health.status}`);
+  }
+  readaloudSetEngineStatus("online");
+  readaloudShowServerCommand(false);
+}
+
+async function readaloudSegmentsPlaybackKey(segments) {
+  const fingerprint = (segments || [])
+    .map((segment) => `${segment.kind}:${segment.hash}`)
+    .join("|");
+  return readaloudCacheKey(`segments:${fingerprint}`);
+}
+
+async function readaloudSegmentCacheKey(segment) {
+  return readaloudCacheKey(`segment:${segment.kind}:${segment.hash}:${segment.text}`);
+}
+
+function readaloudSegmentTitle(segment) {
+  const text = readaloudNormalizeSegmentText(segment && segment.text);
+  if (!text) return "empty segment";
+  return text.length > 56 ? `${text.slice(0, 53)}...` : text;
+}
+
+async function readaloudMergeSegmentAudio(items) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) throw new Error("AudioContext unavailable");
+  const context = new AudioCtx();
+  const decoded = [];
+  try {
+    for (const item of items) {
+      const arrayBuffer = await item.blob.arrayBuffer();
+      const buffer = await context.decodeAudioData(arrayBuffer.slice(0));
+      decoded.push({ ...item, buffer });
+    }
+  } finally {
+    if (context.close) context.close().catch(() => {});
+  }
+
+  if (!decoded.length) throw new Error("No segment audio decoded");
+  const sampleRate = decoded[0].buffer.sampleRate || 24000;
+  const segmentDurations = decoded.map((item) => item.buffer.duration);
+  const totalLength = decoded.reduce((sum, item) => {
+    if (item.buffer.sampleRate !== sampleRate) {
+      throw new Error("Segment audio sample-rate mismatch");
+    }
+    return sum + item.buffer.length;
+  }, 0);
+  const samples = new Float32Array(totalLength);
+  let offset = 0;
+  for (const item of decoded) {
+    samples.set(item.buffer.getChannelData(0), offset);
+    offset += item.buffer.length;
+  }
+  return {
+    blob: readaloudFloatToWavBlob(samples, sampleRate),
+    segmentDurations,
+  };
+}
+
+function readaloudFloatToWavBlob(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  readaloudWriteAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  readaloudWriteAscii(view, 8, "WAVE");
+  readaloudWriteAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  readaloudWriteAscii(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const sample = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function readaloudWriteAscii(view, offset, value) {
+  for (let i = 0; i < value.length; i++) {
+    view.setUint8(offset + i, value.charCodeAt(i));
+  }
+}
+
+async function readaloudFetchVoxtral(text, outerSignal) {
+  const response = await fetch(`${READALOUD.voxtralBaseUrl}/v1/audio/speech`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      input: text,
+      model: READALOUD.modelId,
+      response_format: "wav",
+      voice: READALOUD.defaultVoice,
+    }),
+    signal: outerSignal,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Voxtral synthesis failed: ${response.status} ${detail}`);
+  }
+  return response.blob();
+}
+
+async function readaloudFetchWithTimeout(url, options, timeoutMs) {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), timeoutMs);
+  const outerSignal = options && options.signal;
+  const abortFromOuter = () => timeout.abort();
+  if (outerSignal) outerSignal.addEventListener("abort", abortFromOuter, { once: true });
+  try {
+    return await fetch(url, { ...options, signal: timeout.signal });
+  } finally {
+    clearTimeout(timer);
+    if (outerSignal) outerSignal.removeEventListener("abort", abortFromOuter);
+  }
+}
+
+async function readaloudCacheKey(text) {
+  const payload = JSON.stringify({
+    model: READALOUD.modelId,
+    voice: READALOUD.defaultVoice,
+    text,
+  });
+  if (window.crypto && window.crypto.subtle && window.TextEncoder) {
+    const data = new TextEncoder().encode(payload);
+    const digest = await window.crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  let hash = 0;
+  for (let i = 0; i < payload.length; i++) {
+    hash = (Math.imul(31, hash) + payload.charCodeAt(i)) | 0;
+  }
+  return `fallback-${Math.abs(hash)}`;
+}
+
+function readaloudOpenCacheDb() {
+  if (READALOUD.cacheDbPromise) return READALOUD.cacheDbPromise;
+  READALOUD.cacheDbPromise = new Promise((resolve) => {
+    if (!window.indexedDB) {
+      resolve(null);
+      return;
+    }
+    const request = window.indexedDB.open("vidux-readaloud-cache", 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("audio")) {
+        db.createObjectStore("audio", { keyPath: "key" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      console.warn("[readaloud] IndexedDB unavailable", request.error);
+      resolve(null);
+    };
+  });
+  return READALOUD.cacheDbPromise;
+}
+
+async function readaloudCacheGet(key) {
+  const db = await readaloudOpenCacheDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    let blob = null;
+    const tx = db.transaction("audio", "readwrite");
+    tx.oncomplete = () => resolve(blob);
+    tx.onerror = () => resolve(blob);
+    const request = tx.objectStore("audio").get(key);
+    request.onsuccess = () => {
+      const record = request.result;
+      if (!record) return;
+      blob = record.blob || null;
+      record.last_used_at = readaloudCacheNow();
+      record.bytes = readaloudCacheRecordBytes(record);
+      tx.objectStore("audio").put(record);
+    };
+    request.onerror = () => resolve(null);
+  });
+}
+
+async function readaloudCachePut(key, blob, metadata = {}) {
+  const db = await readaloudOpenCacheDb();
+  if (!db) return;
+  const now = readaloudCacheNow();
+  return new Promise((resolve) => {
+    const tx = db.transaction("audio", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+    tx.objectStore("audio").put({
+      key,
+      blob,
+      bytes: blob.size,
+      type: metadata.type || null,
+      model: metadata.model || READALOUD.modelId,
+      voice: metadata.voice || READALOUD.defaultVoice,
+      metadata,
+      created_at: now,
+      last_used_at: now,
+    });
+  });
+}
+
+async function readaloudCachePrune(options = {}) {
+  const db = await readaloudOpenCacheDb();
+  const protectedKeys = new Set((options.protectedKeys || []).filter(Boolean));
+  const maxBytes = options.maxBytes || READALOUD_CACHE_MAX_BYTES;
+  const maxEntries = options.maxEntries || READALOUD_CACHE_MAX_ENTRIES;
+  if (!db) return { deleted: 0, bytes: 0, totalEntries: 0, totalBytes: 0 };
+
+  return new Promise((resolve) => {
+    const records = [];
+    let result = { deleted: 0, bytes: 0, totalEntries: 0, totalBytes: 0 };
+    const tx = db.transaction("audio", "readwrite");
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => resolve(result);
+    const store = tx.objectStore("audio");
+    const cursorRequest = store.openCursor();
+    cursorRequest.onerror = () => {};
+    cursorRequest.onsuccess = (event) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        const record = cursor.value;
+        if (readaloudCacheRecordPrunable(record)) {
+          records.push({
+            key: cursor.key,
+            bytes: readaloudCacheRecordBytes(record),
+            lastUsedMs: readaloudCacheRecordLastUsedMs(record),
+          });
+        }
+        cursor.continue();
+        return;
+      }
+
+      result.totalEntries = records.length;
+      result.totalBytes = records.reduce((sum, record) => sum + record.bytes, 0);
+      let remainingEntries = result.totalEntries;
+      let remainingBytes = result.totalBytes;
+      const sorted = records
+        .filter((record) => !protectedKeys.has(record.key))
+        .sort((a, b) => a.lastUsedMs - b.lastUsedMs);
+      for (const record of sorted) {
+        if (remainingEntries <= maxEntries && remainingBytes <= maxBytes) break;
+        store.delete(record.key);
+        remainingEntries -= 1;
+        remainingBytes -= record.bytes;
+        result.deleted += 1;
+        result.bytes += record.bytes;
+      }
+    };
+  });
+}
+
+function readaloudCacheRecordPrunable(record) {
+  if (!record) return false;
+  const metadata = record.metadata || {};
+  const type = record.type || metadata.type;
+  const model = record.model || metadata.model;
+  return type === "segment" && model === READALOUD.modelId;
+}
+
+function readaloudCacheRecordBytes(record) {
+  if (!record) return 0;
+  if (Number.isFinite(record.bytes)) return Math.max(0, record.bytes);
+  if (record.blob && Number.isFinite(record.blob.size)) return Math.max(0, record.blob.size);
+  return 0;
+}
+
+function readaloudCacheRecordLastUsedMs(record) {
+  const raw = record && (record.last_used_at || record.created_at);
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function readaloudCacheNow() {
+  return new Date().toISOString();
+}
+
+function readaloudReportCachePrune(result) {
+  if (!result || !result.deleted) return;
+  console.info("[readaloud]", readaloudCachePruneMessage(result));
+}
+
+function readaloudCachePruneMessage(result) {
+  return `Pruned ${result.deleted} old cached segment${result.deleted === 1 ? "" : "s"} (${readaloudFormatBytes(result.bytes)})`;
+}
+
+function readaloudFormatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${Math.round(value)} B`;
+}
+
+async function readaloudCacheDeleteMany(keys) {
+  const db = await readaloudOpenCacheDb();
+  const uniqueKeys = [...new Set((keys || []).filter(Boolean))];
+  if (!db || !uniqueKeys.length) return 0;
+  return new Promise((resolve) => {
+    let deleted = 0;
+    const tx = db.transaction("audio", "readwrite");
+    tx.oncomplete = () => resolve(deleted);
+    tx.onerror = () => resolve(deleted);
+    const store = tx.objectStore("audio");
+    for (const key of uniqueKeys) {
+      store.delete(key);
+      deleted += 1;
+    }
+  });
+}
+
+async function readaloudClearCurrentCache(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (READALOUD.state === "loading") {
+    readaloudSetPlayerStatus("Wait for synthesis to finish before clearing cache");
+    return;
+  }
+
+  const keys = (READALOUD.currentSegmentCacheKeys || []).filter(Boolean);
+  if (!keys.length) {
+    READALOUD.currentCacheSource = null;
+    readaloudUpdateCacheButton();
+    readaloudSetPlayerStatus("No cached segments to clear");
+    return;
+  }
+
+  readaloudSetPlayerStatus("Clearing cached segments...");
+  const deleted = await readaloudCacheDeleteMany(keys);
+  READALOUD.currentCacheKey = null;
+  READALOUD.currentSegmentCacheKeys = [];
+  READALOUD.currentCacheSource = "cleared";
+  readaloudUpdateCacheButton("cleared");
+  readaloudSetPlayerStatus(
+    `Cleared ${deleted} cached segment${deleted === 1 ? "" : "s"}`,
+  );
+}
+
+async function readaloudPlayBlob(blob, body, text, sourceRange, meta = {}) {
+  readaloudClearAudio();
+  READALOUD.currentSegments = meta.segments || [];
+  READALOUD.currentSegmentDurations = meta.segmentDurations || [];
+  readaloudBuildWordHighlights(body, text, sourceRange);
+  readaloudAssignWordSegments();
+  readaloudShowPlayer(true);
+
+  READALOUD.objectUrl = URL.createObjectURL(blob);
+  READALOUD.currentCacheKey = meta.cacheKey || null;
+  READALOUD.currentCacheSource = meta.cacheSource || "generated";
+  READALOUD.currentSegmentCacheKeys = meta.segmentCacheKeys || [];
+  READALOUD.currentCachePrune = meta.cachePrune || null;
+  readaloudUpdateCacheButton();
+
+  const audio = new Audio(READALOUD.objectUrl);
+  READALOUD.audio = audio;
+  audio.playbackRate = readaloudPlaybackRate();
+
+  audio.addEventListener("timeupdate", () => {
+    readaloudUpdateWordHighlight();
+    readaloudUpdatePlayerProgress();
+  });
+  audio.addEventListener("loadedmetadata", () => {
+    readaloudUpdateWordHighlight();
+    readaloudUpdatePlayerProgress();
+  });
+  audio.addEventListener("play", () => {
+    readaloudSetState("playing");
+    readaloudSetPlayerStatus(
+      readaloudPlaybackStatusLabel(
+        READALOUD.currentCacheSource,
+        READALOUD.currentCachePrune,
+      ),
+    );
+  });
+  audio.addEventListener("pause", () => {
+    if (audio.ended || READALOUD.audio !== audio) return;
+    readaloudSetState("paused");
+    readaloudSetPlayerStatus("Paused");
+  });
+  audio.addEventListener("ended", () => {
+    readaloudSetState("idle");
+    readaloudSetPlayerStatus("Finished");
+    readaloudUpdatePlayerProgress();
+    readaloudQueueSectionRefresh();
+  });
+  audio.addEventListener("error", () => {
+    readaloudClearHighlights();
+    readaloudClearAudio();
+    readaloudSetState("error", "Playback failed");
+    readaloudSetPlayerStatus("Playback failed");
+  });
+
+  readaloudSetState("loading", "Starting...");
+  readaloudSetPlayerStatus(
+    readaloudPlaybackStatusWithPrune(
+      readaloudStartingStatusLabel(meta.cacheSource),
+      meta.cachePrune,
+    ),
+  );
+  try {
+    await audio.play();
+  } catch (err) {
+    readaloudClearHighlights();
+    readaloudClearAudio();
+    throw err;
+  }
+}
+
+function readaloudStop() {
+  if (READALOUD.abortController) {
+    READALOUD.abortController.abort();
+    READALOUD.abortController = null;
+  }
+  if (READALOUD.audio) {
+    READALOUD.audio.pause();
+    READALOUD.audio.currentTime = 0;
+  }
+  readaloudClearHighlights();
+  readaloudClearAudio();
+  readaloudSetPlayerStatus("Stopped");
+  readaloudSetState("idle");
+  readaloudQueueSectionRefresh();
+}
+
+function readaloudClearAudio() {
+  if (READALOUD.audio) {
+    READALOUD.audio.removeAttribute("src");
+    READALOUD.audio.load();
+    READALOUD.audio = null;
+  }
+  if (READALOUD.objectUrl) {
+    URL.revokeObjectURL(READALOUD.objectUrl);
+    READALOUD.objectUrl = null;
+  }
+  READALOUD.currentCacheKey = null;
+  READALOUD.currentCacheSource = null;
+  READALOUD.currentSegments = [];
+  READALOUD.currentSegmentDurations = [];
+  READALOUD.currentSegmentCacheKeys = [];
+  READALOUD.currentCachePrune = null;
+  readaloudUpdatePlayerProgress();
+}
+
+function readaloudPlaybackStatusLabel(source, prune) {
+  const base =
+    source === "cached" ? "Playing cached audio" :
+    source === "mixed" ? "Playing cached/generated segments" :
+    "Playing generated audio";
+  return readaloudPlaybackStatusWithPrune(base, prune);
+}
+
+function readaloudStartingStatusLabel(source) {
+  if (source === "cached") return "Starting cached audio...";
+  if (source === "mixed") return "Starting cached/generated segments...";
+  return "Starting generated audio...";
+}
+
+function readaloudPlaybackStatusWithPrune(base, prune) {
+  if (!prune || !prune.deleted) return base;
+  return `${base}. ${readaloudCachePruneMessage(prune)}`;
+}
+
+function readaloudSegmentTimeline() {
+  const segments = READALOUD.currentSegments || [];
+  const durations = READALOUD.currentSegmentDurations || [];
+  if (!segments.length || segments.length !== durations.length) return null;
+
+  const timeline = [];
+  let start = 0;
+  for (let i = 0; i < segments.length; i++) {
+    const duration = Number(durations[i]);
+    if (!Number.isFinite(duration) || duration <= 0) return null;
+    timeline.push({
+      index: i,
+      segment: segments[i],
+      start,
+      end: start + duration,
+      duration,
+    });
+    start += duration;
+  }
+  return timeline.length ? timeline : null;
+}
+
+function readaloudFindSegmentAtTime(time, timeline = readaloudSegmentTimeline()) {
+  if (!timeline || !timeline.length || !Number.isFinite(time)) return null;
+  const clamped = Math.max(0, time);
+  for (const entry of timeline) {
+    if (clamped >= entry.start && clamped < entry.end) return entry;
+  }
+  return timeline[timeline.length - 1];
+}
+
+function readaloudTimelineTimeForProgress(progress, fallbackDuration) {
+  const timeline = readaloudSegmentTimeline();
+  if (!timeline) return progress * fallbackDuration;
+  const totalDuration = timeline[timeline.length - 1].end;
+  return Math.max(0, Math.min(totalDuration, progress * totalDuration));
+}
+
+function readaloudAssignWordSegments() {
+  const spans = READALOUD.highlightedSpans || [];
+  const segments = READALOUD.currentSegments || [];
+  if (!spans.length || !segments.length) return;
+
+  let spanIndex = 0;
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+    const words = readaloudSegmentWords(segments[segmentIndex]);
+    for (let wordIndex = 0; wordIndex < words.length && spanIndex < spans.length; wordIndex++) {
+      const span = spans[spanIndex++];
+      span.dataset.raSegmentIndex = String(segmentIndex);
+      span.dataset.raSegmentWordIndex = String(wordIndex);
+      span.dataset.raSegmentWordCount = String(words.length);
+      span.dataset.raSegmentId = segments[segmentIndex].id || "";
+    }
+  }
+}
+
+function readaloudSegmentWords(segment) {
+  return (readaloudNormalizeSegmentText(segment && segment.text).match(/\S+/g) || []);
+}
+
+function readaloudTimeForWordSpan(span, fallbackDuration, fallbackIndex, fallbackCount) {
+  const timeline = readaloudSegmentTimeline();
+  const segmentIndex = Number(span && span.dataset.raSegmentIndex);
+  const wordIndex = Number(span && span.dataset.raSegmentWordIndex);
+  const wordCount = Number(span && span.dataset.raSegmentWordCount);
+
+  if (
+    timeline &&
+    Number.isFinite(segmentIndex) &&
+    Number.isFinite(wordIndex) &&
+    Number.isFinite(wordCount) &&
+    timeline[segmentIndex]
+  ) {
+    const entry = timeline[segmentIndex];
+    const localProgress = wordCount <= 1 ? 0 : Math.max(0, Math.min(1, wordIndex / (wordCount - 1)));
+    return entry.start + localProgress * entry.duration;
+  }
+
+  const fallbackProgress = fallbackCount <= 1 ? 0 : fallbackIndex / (fallbackCount - 1);
+  return Math.max(0, Math.min(fallbackDuration, fallbackProgress * fallbackDuration));
+}
+
+function readaloudWordForCurrentTime(audio, spans) {
+  const timeline = readaloudSegmentTimeline();
+  if (!timeline) {
+    const idx = Math.min(
+      spans.length - 1,
+      Math.max(0, Math.floor((audio.currentTime / audio.duration) * spans.length)),
+    );
+    return spans[idx];
+  }
+
+  const entry = readaloudFindSegmentAtTime(audio.currentTime, timeline);
+  if (!entry) return null;
+  const segmentSpans = spans.filter(
+    (span) => Number(span.dataset.raSegmentIndex) === entry.index,
+  );
+  if (!segmentSpans.length) return null;
+  const localProgress =
+    entry.duration <= 0 ? 0 : Math.max(0, Math.min(1, (audio.currentTime - entry.start) / entry.duration));
+  const idx = Math.min(segmentSpans.length - 1, Math.floor(localProgress * segmentSpans.length));
+  return segmentSpans[idx];
+}
+
+function readaloudBuildWordHighlights(body, text, sourceRange) {
+  readaloudClearHighlights();
+  if (!body || !text) return;
+
+  if (sourceRange) {
+    readaloudBuildRangeWordHighlights(body, text, sourceRange);
+    return;
+  }
+
+  let remainingChars = text.length;
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      if (parent.closest("button,input,textarea,select,script,style,.ra-word,.ra-section-play,.readaloud-player")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const nodes = [];
+  let node;
+  while ((node = walker.nextNode()) && remainingChars > 0) {
+    nodes.push(node);
+    remainingChars -= node.nodeValue.length;
+  }
+
+  remainingChars = text.length;
+  for (const textNode of nodes) {
+    if (remainingChars <= 0) break;
+    const raw = textNode.nodeValue;
+    const fragment = document.createDocumentFragment();
+    remainingChars = readaloudAppendHighlightedWords(fragment, raw, remainingChars);
+    textNode.replaceWith(fragment);
+  }
+}
+
+function readaloudBuildRangeWordHighlights(body, text, sourceRange) {
+  let remainingChars = text.length;
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      if (parent.closest("button,input,textarea,select,script,style,.ra-word,.ra-section-play,.readaloud-player")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      try {
+        return sourceRange.intersectsNode(node)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT;
+      } catch (_) {
+        return NodeFilter.FILTER_REJECT;
+      }
+    },
+  });
+
+  const nodes = [];
+  let node;
+  while ((node = walker.nextNode()) && remainingChars > 0) nodes.push(node);
+
+  for (const textNode of nodes) {
+    if (remainingChars <= 0) break;
+    const raw = textNode.nodeValue;
+    const start = textNode === sourceRange.startContainer ? sourceRange.startOffset : 0;
+    const end = textNode === sourceRange.endContainer ? sourceRange.endOffset : raw.length;
+    if (end <= start) continue;
+
+    const fragment = document.createDocumentFragment();
+    if (start > 0) fragment.appendChild(document.createTextNode(raw.slice(0, start)));
+
+    const target = raw.slice(start, end);
+    remainingChars = readaloudAppendHighlightedWords(fragment, target, remainingChars);
+
+    if (end < raw.length) fragment.appendChild(document.createTextNode(raw.slice(end)));
+    textNode.replaceWith(fragment);
+  }
+}
+
+function readaloudAppendHighlightedWords(fragment, raw, remainingChars) {
+  const parts = raw.match(/\s+|\S+/g) || [];
+  for (const part of parts) {
+    if (!part.trim()) {
+      fragment.appendChild(document.createTextNode(part));
+      remainingChars -= part.length;
+      continue;
+    }
+    if (remainingChars <= 0) {
+      fragment.appendChild(document.createTextNode(part));
+      continue;
+    }
+    const span = document.createElement("span");
+    const index = READALOUD.highlightedSpans.length;
+    span.className = "ra-word";
+    span.dataset.raIndex = String(index);
+    span.textContent = part;
+    span.title = "Jump playback here";
+    span.tabIndex = 0;
+    span.setAttribute("role", "button");
+    span.setAttribute("aria-label", `Jump playback to word ${index + 1}: ${part}`);
+    span.addEventListener("click", readaloudSeekFromWord);
+    span.addEventListener("keydown", readaloudSeekFromWordKeydown);
+    fragment.appendChild(span);
+    READALOUD.highlightedSpans.push(span);
+    remainingChars -= part.length;
+  }
+  return remainingChars;
+}
+
+function readaloudSeekFromWordKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  readaloudSeekFromWord(event);
+}
+
+async function readaloudSeekFromWord(event) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const audio = READALOUD.audio;
+  const spans = READALOUD.highlightedSpans;
+  const index = Number(event.currentTarget && event.currentTarget.dataset.raIndex);
+  if (
+    !audio ||
+    !spans.length ||
+    !Number.isFinite(audio.duration) ||
+    audio.duration <= 0 ||
+    !Number.isFinite(index)
+  ) {
+    return;
+  }
+
+  audio.currentTime = readaloudTimeForWordSpan(
+    event.currentTarget,
+    audio.duration,
+    index,
+    spans.length,
+  );
+  readaloudUpdateWordHighlight();
+  readaloudUpdatePlayerProgress();
+  if (audio.paused) {
+    try {
+      await audio.play();
+    } catch (err) {
+      console.error("[readaloud]", err);
+    }
+  }
+}
+
+function readaloudUpdateWordHighlight() {
+  const audio = READALOUD.audio;
+  const spans = READALOUD.highlightedSpans;
+  if (!audio || !spans.length || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+    return;
+  }
+
+  const next = readaloudWordForCurrentTime(audio, spans);
+  if (!next || next === READALOUD.activeSpan) return;
+  if (READALOUD.activeSpan) READALOUD.activeSpan.classList.remove("ra-active");
+  READALOUD.activeSpan = next;
+  next.classList.add("ra-active");
+  next.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function readaloudClearHighlights() {
+  if (READALOUD.activeSpan) {
+    READALOUD.activeSpan.classList.remove("ra-active");
+    READALOUD.activeSpan = null;
+  }
+  const parents = new Set();
+  for (const span of READALOUD.highlightedSpans) {
+    const parent = span.parentNode;
+    if (!parent) continue;
+    parents.add(parent);
+    span.replaceWith(document.createTextNode(span.textContent || ""));
+  }
+  for (const parent of parents) parent.normalize();
+  READALOUD.highlightedSpans = [];
 }
 
 if (document.readyState === "loading") {

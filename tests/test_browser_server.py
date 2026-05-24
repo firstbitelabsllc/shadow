@@ -478,5 +478,337 @@ class BrowserSubplanRollupTests(unittest.TestCase):
         self.assertEqual(child_a["parent_rel"], self.parent_rel)
 
 
+class BrowserReadaloudStaticContractTests(unittest.TestCase):
+    def test_readaloud_visual_fixture_covers_player_states(self):
+        fixture = (ROOT / "browser" / "static" / "readaloud-fixture.html").read_text(
+            encoding="utf-8",
+        )
+        manifest = json.loads(
+            (
+                ROOT / "browser" / "static" / "readaloud-fixture-manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn("/static/style.css", fixture)
+        self.assertIn("/static/readaloud-fixture-manifest.json", fixture)
+        self.assertEqual(manifest["decision"], "keep-vanilla-fixture-snapshots")
+        self.assertEqual(manifest["storyRunner"], "browser/static/readaloud-fixture.html")
+        self.assertIn("plain HTML", manifest["renderer"])
+        self.assertIn("no React/Storybook for PR #87", fixture)
+        self.assertIn("readaloud-player-fixture", fixture)
+        self.assertIn('role="region" aria-label="Read-aloud player"', fixture)
+        self.assertIn('role="status" aria-live="polite" aria-atomic="true"', fixture)
+        self.assertIn('aria-label="Read-aloud position"', fixture)
+        self.assertIn('aria-label="Play or pause read-aloud" aria-pressed="false"', fixture)
+        states = [state["id"] for state in manifest["states"]]
+        self.assertEqual(len(states), 15)
+        self.assertEqual(len(states), len(set(states)))
+        for state in states:
+            self.assertIn(f'data-fixture-state="{state}"', fixture)
+
+        self.assertIn("Server offline. Run from the vidux repo root", fixture)
+        self.assertIn("Waiting for local server", fixture)
+        self.assertIn("browser/scripts/start-voxtral-mlx-server.sh", fixture)
+        self.assertIn("Copied server command", fixture)
+        self.assertIn("readaloud-server-command", fixture)
+        self.assertIn('aria-label="Copy local Voxtral MLX server command"', fixture)
+        self.assertIn("Playing cached audio", fixture)
+        self.assertIn("Playing cached/generated segments", fixture)
+        self.assertIn("Cleared 3 cached segments", fixture)
+        self.assertIn("Pruned 6 old cached segments", fixture)
+        self.assertIn("readaloud-cache-clear", fixture)
+        self.assertIn("Voxtral synthesis failed: segment 3", fixture)
+        self.assertIn("readaloud-fixture-mobile", fixture)
+        self.assertIn("readaloud-fixture-fab", fixture)
+
+        for klass in [
+            "readaloud-fixture-page",
+            "readaloud-fixture-case",
+            "readaloud-player-fixture",
+            "readaloud-fixture-seek-hover",
+            "readaloud-fixture-mobile",
+            "readaloud-fixture-coexistence",
+        ]:
+            self.assertIn(klass, style)
+
+    def test_readaloud_storybook_decision_does_not_add_browser_build_stack(self):
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        deps = {
+            **package.get("dependencies", {}),
+            **package.get("devDependencies", {}),
+        }
+        scripts = package.get("scripts", {})
+
+        self.assertNotIn("react", deps)
+        self.assertNotIn("react-dom", deps)
+        self.assertFalse(any(key.startswith("@storybook/") for key in deps))
+        self.assertNotIn("storybook", scripts)
+
+    def test_readaloud_footer_controls_and_annotation_fab_are_annotation_safe(self):
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        topbar_meta = index.split('<div class="topbar-meta">', 1)[1].split("</div>", 1)[0]
+        self.assertIn('id="meta-count"', topbar_meta)
+        self.assertIn('id="refresh"', topbar_meta)
+        self.assertNotIn("root-readaloud", topbar_meta)
+        self.assertNotIn("root-annotation-toggle", topbar_meta)
+
+        player_idx = index.index('id="readaloud-player" class="readaloud-player"')
+        self.assertNotIn('id="readaloud-player" class="readaloud-player" hidden', index)
+        self.assertIn('role="region" aria-label="Read-aloud player"', index)
+        self.assertIn('aria-describedby="readaloud-player-status"', index)
+        self.assertIn('role="status" aria-live="polite" aria-atomic="true"', index)
+        self.assertIn('aria-label="Read current selection or pane aloud"', index)
+        self.assertIn('aria-label="Play read-aloud" aria-pressed="false"', index)
+        self.assertIn('aria-label="Read-aloud speed: 1.12x. Click to cycle."', index)
+        self.assertIn('id="root-readaloud-engine" class="root-readaloud-engine" type="button"', index)
+        self.assertIn("Click to copy the server command", index)
+        self.assertIn('id="readaloud-server-command"', index)
+        self.assertIn('hidden>browser/scripts/start-voxtral-mlx-server.sh</button>', index)
+        self.assertIn('id="readaloud-cache-clear"', index)
+        self.assertIn('aria-label="No cached read-aloud segments to clear"', index)
+        self.assertGreater(index.index('id="root-readaloud-toggle"'), player_idx)
+        self.assertGreater(index.index('id="root-readaloud-engine"'), player_idx)
+        self.assertGreater(index.index('id="readaloud-cache-clear"'), player_idx)
+        self.assertGreater(index.index('id="root-readaloud-speed"'), player_idx)
+        self.assertIn('class="annotation-fab"', index)
+
+        ids = [
+            "root-annotation-toggle",
+            "root-readaloud-toggle",
+            "root-readaloud-engine",
+            "readaloud-server-command",
+            "readaloud-cache-clear",
+            "root-readaloud-speed",
+            "readaloud-player",
+            "readaloud-player-toggle",
+            "readaloud-player-seek",
+            "readaloud-player-status",
+            "readaloud-player-time",
+        ]
+        for control_id in ids:
+            self.assertIn(f'id="{control_id}"', index)
+            self.assertIn(f'"#{control_id}"', app)
+
+        for klass in [
+            "annotation-fab",
+            "readaloud-player-read",
+            "root-readaloud-engine",
+            "readaloud-server-command",
+            "readaloud-cache-clear",
+            "root-readaloud-speed",
+            "ra-section-play",
+            "ra-section-play-host",
+            "readaloud-player",
+            "readaloud-player-toggle",
+            "readaloud-player-seek",
+            "readaloud-player-status",
+            "readaloud-player-time",
+        ]:
+            self.assertIn(klass, style)
+
+    def test_readaloud_engine_status_is_health_only_loopback_probe(self):
+        readaloud = (ROOT / "browser" / "static" / "readaloud.js").read_text(
+            encoding="utf-8",
+        )
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('voxtralBaseUrl: "http://127.0.0.1:8765"', readaloud)
+        self.assertIn("function readaloudSetEngineStatus", readaloud)
+        self.assertIn("async function readaloudProbeEngine", readaloud)
+        self.assertIn("MLX on", readaloud)
+        self.assertIn("MLX off", readaloud)
+        self.assertIn('READALOUD_SERVER_COMMAND = "browser/scripts/start-voxtral-mlx-server.sh"', readaloud)
+        self.assertIn("READALOUD_OFFLINE_REPROBE_INTERVAL_MS = 3000", readaloud)
+        self.assertIn("READALOUD_OFFLINE_REPROBE_WINDOW_MS = 90000", readaloud)
+        self.assertIn("READALOUD_CACHE_MAX_BYTES = 160 * 1024 * 1024", readaloud)
+        self.assertIn("READALOUD_CACHE_MAX_ENTRIES = 120", readaloud)
+        self.assertIn("readaloudCopyServerCommand", readaloud)
+        self.assertIn("readaloudStartOfflineReprobe", readaloud)
+        self.assertIn("readaloudRunOfflineReprobe", readaloud)
+        self.assertIn("readaloudStopOfflineReprobe", readaloud)
+        self.assertIn("readaloudShouldReprobeOffline", readaloud)
+        self.assertIn("engineProbeTimer: null", readaloud)
+        self.assertIn("engineProbeDeadline: 0", readaloud)
+        self.assertIn("readaloudShowServerCommand", readaloud)
+        self.assertIn("Copied server command", readaloud)
+        self.assertIn("Waiting for local server", readaloud)
+        self.assertIn("Server still offline", readaloud)
+        self.assertIn("Server offline. Run from the vidux repo root", readaloud)
+        self.assertIn("Start local Voxtral MLX server: ${READALOUD_SERVER_COMMAND}", readaloud)
+        self.assertIn('${READALOUD.voxtralBaseUrl}/health', readaloud)
+        self.assertIn('${READALOUD.voxtralBaseUrl}/v1/audio/speech', readaloud)
+        self.assertIn('defaultVoice: "cheerful_female"', readaloud)
+        self.assertIn("voice: READALOUD.defaultVoice", readaloud)
+        self.assertIn("indexedDB.open", readaloud)
+        self.assertIn("readaloudCacheKey", readaloud)
+        self.assertIn("readaloudGetSegmentAudio", readaloud)
+        self.assertIn("readaloudSegmentCacheKey", readaloud)
+        self.assertIn("readaloudCachePrune", readaloud)
+        self.assertIn("readaloudCacheRecordPrunable", readaloud)
+        self.assertIn("readaloudCacheRecordBytes", readaloud)
+        self.assertIn("readaloudCacheRecordLastUsedMs", readaloud)
+        self.assertIn("readaloudCachePruneMessage", readaloud)
+        self.assertIn("readaloudFormatBytes", readaloud)
+        self.assertIn("readaloudCacheDeleteMany", readaloud)
+        self.assertIn("readaloudClearCurrentCache", readaloud)
+        self.assertIn("readaloudUpdateCacheButton", readaloud)
+        self.assertIn("readaloudSegmentsPlaybackKey", readaloud)
+        self.assertIn("readaloudMergeSegmentAudio", readaloud)
+        self.assertIn("Merging segment audio", readaloud)
+        self.assertIn("cached, ${misses.length} synthesizing", readaloud)
+        self.assertIn('type: "segment"', readaloud)
+        self.assertIn("last_used_at", readaloud)
+        self.assertIn("created_at", readaloud)
+        self.assertIn("protectedKeys", readaloud)
+        self.assertIn("Pruned ${result.deleted} old cached segment", readaloud)
+        self.assertIn("metadata,", readaloud)
+        self.assertIn("currentSegmentDurations: []", readaloud)
+        self.assertIn("currentSegmentCacheKeys: []", readaloud)
+        self.assertIn("segmentCacheKeys: result.segmentCacheKeys", readaloud)
+        self.assertIn("readaloudSegmentTimeline", readaloud)
+        self.assertIn("readaloudAssignWordSegments", readaloud)
+        self.assertIn("readaloudTimeForWordSpan", readaloud)
+        self.assertIn("readaloudTimelineTimeForProgress", readaloud)
+        self.assertIn("dataset.raSegmentIndex", readaloud)
+        self.assertIn("dataset.raSegmentWordIndex", readaloud)
+        self.assertIn("dataset.raSegmentWordCount", readaloud)
+        self.assertIn("READALOUD_SECTION_CONTROL_KINDS", readaloud)
+        self.assertIn("readaloudInstallSectionObserver", readaloud)
+        self.assertIn("readaloudRefreshSectionControls", readaloud)
+        self.assertIn("readaloudPlaySection", readaloud)
+        self.assertIn("readaloudPlaySource", readaloud)
+        self.assertIn("readaloudSegmentRange", readaloud)
+        self.assertIn("readaloudElementText", readaloud)
+        self.assertIn('"code-block"', readaloud)
+        self.assertIn(".ra-section-play", readaloud)
+        self.assertIn("Playing cached audio", readaloud)
+        self.assertIn("Playing cached/generated segments", readaloud)
+        self.assertIn("readaloudSeekFromPlayer", readaloud)
+        self.assertIn('"aria-valuetext"', readaloud)
+        self.assertIn('setAttribute("aria-pressed"', readaloud)
+        self.assertIn('setAttribute("aria-busy"', readaloud)
+        self.assertIn('setAttribute("aria-label", `Read this section:', readaloud)
+        self.assertIn("span.tabIndex = 0", readaloud)
+        self.assertIn('span.setAttribute("role", "button")', readaloud)
+        self.assertIn('span.setAttribute("aria-label", `Jump playback to word', readaloud)
+        self.assertIn("readaloudSeekFromWordKeydown", readaloud)
+        self.assertIn("export function readaloudCollectSegments", readaloud)
+        self.assertIn("readaloudSegmentsToText(segments)", readaloud)
+        self.assertIn("readaloudStableHash", readaloud)
+        self.assertIn('return "heading"', readaloud)
+        self.assertIn('return "list-item"', readaloud)
+        self.assertIn('return "code-block"', readaloud)
+        self.assertIn('return "artifact-block"', readaloud)
+        self.assertIn('element.closest("li,pre,blockquote")', readaloud)
+        self.assertIn(".readaloud-player,.annotation-fab,.topbar,.sidebar", readaloud)
+        self.assertIn(".ra-section-play-host:focus-within", style)
+        self.assertIn(".ra-word:focus-visible", style)
+        self.assertIn(".readaloud-player-seek:focus-visible", style)
+        self.assertIn("currentSegments: []", readaloud)
+        self.assertIn("segments: playbackSource.segments", readaloud)
+        self.assertIn("try {\n    await audio.play();", readaloud)
+        self.assertIn("readaloudClearAudio();\n    throw err;", readaloud)
+
+    def test_readaloud_project_a_acceptance_contract(self):
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        readaloud = (ROOT / "browser" / "static" / "readaloud.js").read_text(
+            encoding="utf-8",
+        )
+        manifest = json.loads(
+            (
+                ROOT / "browser" / "static" / "readaloud-fixture-manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        server = (ROOT / "browser" / "scripts" / "voxtral_mlx_server.py").read_text(
+            encoding="utf-8",
+        )
+        launcher = (
+            ROOT / "browser" / "scripts" / "start-voxtral-mlx-server.sh"
+        ).read_text(encoding="utf-8")
+
+        topbar_meta = index.split('<div class="topbar-meta">', 1)[1].split("</div>", 1)[0]
+        self.assertIn('id="meta-count"', topbar_meta)
+        self.assertIn('id="refresh"', topbar_meta)
+        self.assertNotIn("readaloud", topbar_meta)
+        self.assertNotIn("annotation", topbar_meta)
+
+        for control_id in [
+            "readaloud-player",
+            "root-readaloud-toggle",
+            "readaloud-player-toggle",
+            "readaloud-player-seek",
+            "readaloud-cache-clear",
+            "root-readaloud-engine",
+            "root-readaloud-speed",
+            "root-annotation-toggle",
+        ]:
+            self.assertIn(f'id="{control_id}"', index)
+            self.assertIn(f'"#{control_id}"', app)
+
+        for fn in [
+            "readaloudCollectSegments",
+            "readaloudGetSegmentAudio",
+            "readaloudMergeSegmentAudio",
+            "readaloudSegmentTimeline",
+            "readaloudTimeForWordSpan",
+            "readaloudRefreshSectionControls",
+            "readaloudCachePrune",
+            "readaloudClearCurrentCache",
+            "readaloudStartOfflineReprobe",
+            "readaloudCopyServerCommand",
+        ]:
+            self.assertIn(fn, readaloud)
+
+        for marker in [
+            'READALOUD_CACHE_MAX_BYTES = 160 * 1024 * 1024',
+            'READALOUD_SERVER_COMMAND = "browser/scripts/start-voxtral-mlx-server.sh"',
+            'voxtralBaseUrl: "http://127.0.0.1:8765"',
+            'defaultVoice: "cheerful_female"',
+            'source === "mixed" ? "Playing cached/generated segments"',
+            'span.setAttribute("role", "button")',
+            'setAttribute("aria-busy"',
+        ]:
+            self.assertIn(marker, readaloud)
+
+        states = {state["id"] for state in manifest["states"]}
+        self.assertTrue(
+            {
+                "server-offline",
+                "server-waiting",
+                "first-load",
+                "synth-queue",
+                "cache-hit",
+                "cache-clear",
+                "cache-pruned",
+                "playing",
+                "paused",
+                "seek-hover",
+                "segment-failure",
+                "mobile-width",
+                "annotation-fab-coexistence",
+            }.issubset(states)
+        )
+
+        self.assertIn("supports_word_timestamps", server)
+        self.assertIn("supports_reference_audio", server)
+        self.assertIn("redseaplume/Voxtral-4B-TTS-2603-MLX-4bit", server)
+        self.assertIn("voxtral_mlx_server.py", launcher)
+
+    def test_voxtral_server_sends_success_after_generation_try_block(self):
+        server = (ROOT / "browser" / "scripts" / "voxtral_mlx_server.py").read_text(
+            encoding="utf-8",
+        )
+
+        error_index = server.index("except Exception as exc")
+        success_index = server.index("self.send_response(HTTPStatus.OK)")
+        self.assertLess(error_index, success_index)
+        self.assertIn('self.send_header("Content-Type", "audio/wav")', server)
+
+
 if __name__ == "__main__":
     unittest.main()
