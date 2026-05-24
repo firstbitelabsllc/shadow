@@ -1,6 +1,6 @@
 # Resplit 2.0.1 — Post-Launch Punch-List
 
-**Status:** OPEN (project frame only — every task `[pending]`, no `[in_progress]` allowed until 2.0 fastlane ships AND user-reported regressions clear F&F).
+**Status:** OPEN / DORMANT (project frame only — no `[in_progress]` allowed until 2.0 fastlane ships AND user-reported regressions clear F&F. Rows may be `[completed]` only when a pre-activation absorption is proven with PR/squash evidence.)
 
 **Created:** 2026-05-07 by `claude-opus-4-7-rios` lane subagent. Cron deferred Tier-2.3 work for ~9 cycles citing "project does not exist yet" — this PLAN is the unblock signal.
 
@@ -26,11 +26,11 @@ When 1+2+3 are green, agents may flip rows below from `[pending]` to `[in_progre
 
 All parked-2.0.1 rows discovered 2026-05-07 across resplit-ios + vidux plan files. Each task carries [Source: <plan-path>:<line>] or [Source: ASC <id>] citation.
 
-### Inventory (16 rows total across 6 categories)
+### Inventory (16 rows total across 6 categories; 15 pending + 1 completed absorption as of 2026-05-24)
 
 | # | Row | Category | Source | Size |
 |---|-----|----------|--------|------|
-| 1 | T8 ADIQ — SF Symbol replace icon | ASC partial-positive | `~/Development/vidux/projects/resplit-2-0-weekend-push/PLAN.md:202` ASC ADIQ | XS |
+| 1 | T8 ADIQ — SF Symbol replace icon | ASC partial-positive | `~/Development/vidux/projects/resplit-2-0-weekend-push/PLAN.md:202` ASC ADIQ; completed by PR #629 / squash `33f5d07d` before activation | XS |
 | 2 | Memories-strip surface decision | Brand FROZEN | `.cursor/plans/investigations/memories-strip-concept-2026-04-25.md:5,220,240` | XL |
 | 3 | Gradient v7 token rollout | Brand FROZEN | `~/Development/ai/skills/brand-resplit/_archive/SKILL.md` (v7 doctrine, frozen 2026-05-01) | L |
 | 4 | Bold v6 chrome reconciliation | Brand FROZEN | `.cursor/plans/investigations/memories-strip-concept-2026-04-25.md:63` | M |
@@ -65,11 +65,11 @@ All parked-2.0.1 rows discovered 2026-05-07 across resplit-ios + vidux plan file
 
 ## Tasks
 
-All rows below are `[pending]`. They activate per the §Activation Gate above.
+Rows below stay `[pending]` until the §Activation Gate clears unless a stale carry-over is already absorbed before activation and carries exact PR/squash proof. Absorbed rows remain `[completed]` and must not be claimed again.
 
 ### Category 1 — ASC carry-over from 2.0 weekend push
 
-- `[pending]` **R1 — ADIQ: replace icon with SF Symbol** [Source: ASC ID ADIQ, quote "Love this, i would prefer a SF symbol indicating more trust and less talk, copy cut down get brand Resplit on this"] [Original deferral: `~/Development/vidux/projects/resplit-2-0-weekend-push/PLAN.md:202` (T8 deferred 2026-05-01)] [Sub-plan: `~/Development/vidux/projects/resplit-2-0-weekend-push/tasks/T8-ADIQ-sf-symbol-deferred/PLAN.md`] [ETA: 0.5h–1h] — Partial-positive feedback ("love this" + soft preference). Surface = the icon the reporter referenced (need to confirm via the ASC screenshot before code). Fix = swap to SF Symbol, copy cut, brand-resplit pass on the surrounding text. Visual proof BEFORE/AFTER required (real screenshots — fixture exists post-2.0). MT-5 = snapshot test on the new icon-bearing view.
+- `[completed]` **R1 — ADIQ: replace icon with SF Symbol** [Source: ASC ID ADIQ, quote "Love this, i would prefer a SF symbol indicating more trust and less talk, copy cut down get brand Resplit on this"] [Original deferral: `~/Development/vidux/projects/resplit-2-0-weekend-push/PLAN.md:202` (T8 deferred 2026-05-01)] [Sub-plan: `~/Development/vidux/projects/resplit-2-0-weekend-push/tasks/T8-ADIQ-sf-symbol-deferred/PLAN.md`] [Shipped: PR #629, squash `33f5d07d`, handled_at 2026-05-14 in `resplit-ios/.cursor/plans/app-store-feedback.plan.md`] — Absorbed before 2.0.1 activation; no duplicate 2.0.1 claim.
 
 ### Category 2 — Brand-resplit FROZEN backlog (requires Leo unfreeze ACK)
 
@@ -124,7 +124,7 @@ All rows below are `[pending]`. They activate per the §Activation Gate above.
 
 ## Progress
 
-(empty — plan opened 2026-05-07, dormant until activation gate clears)
+- [2026-05-24] R1 ADIQ flipped `[pending]` → `[completed]` during PM war-room prune. Proof: `resplit-ios/.cursor/plans/app-store-feedback.plan.md` records PR #629 / squash `33f5d07d` / handled_at 2026-05-14 for the SF Symbol + copy-cut fix. No 2.0.1 claim needed.
 
 ## Decision Log
 
@@ -137,3 +137,5 @@ All rows below are `[pending]`. They activate per the §Activation Gate above.
 - **[DIRECTION] 2026-05-07** — **R5 net-new pump must stay silent until activation.** Per Leo verbatim 2026-05-01 (see weekend-push PLAN.md:238). Agents who feel the urge to pitch a net-new idea append a sub-row R5.a bullet on this PLAN, then say nothing in chat. The chat-silence rule is doctrinal — pitching net-new ideas before 2.0 ships clean is the failure mode this row exists to prevent.
 
 - **[DIRECTION] 2026-05-07** — **R16 visual-proof backfill PR justified under MT-1 carve-out.** The fixture gap that forced the 2.0 weekend push into 7/7 esoteric-repro carve-outs is closed by PRs #554/555/557. Backfilling visual proof now produces the durability mechanism that prevents a 22nd-EditAmountPopoverField-style regression on each of the 7 fixed surfaces. Without the BEFORE/AFTER pair, the next agent who hits a related bug has to re-derive what the buggy state looked like — that's the MT-1-carve-out-eligible artifact.
+
+- **[2026-05-24] R1 ADIQ stale carryover pruned.** The activation gate stays dormant, but stale rows that are already proven shipped should not sit in the future queue. R1 closed with squash SHA `33f5d07d`; future agents should reconcile the rest of this plan against the ASC tracker before claiming post-launch work.

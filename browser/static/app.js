@@ -93,6 +93,10 @@ const APP_ANCHOR_SELECTOR = [
   ".pane-header .breadcrumb",
   ".pane-header h2",
   ".pane-header .meta",
+  ".plan-brief",
+  ".plan-brief-task",
+  ".plan-brief-progress",
+  ".plan-brief-decision",
   ".pane-progress",
   ".pane-tabs",
   ".pane-tabs button",
@@ -121,6 +125,8 @@ const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#refresh",
   "#sidebar-toggle",
   "#filter",
+  "#plan-steering-form",
+  "#plan-steering-form *",
   "#annotation-popover",
   "#annotation-popover *",
   ".comment-anchor button",
@@ -358,6 +364,64 @@ function renderPaneAggregateProgress(plan, aggregate) {
       ${renderProgressBar(aggregate)}
       <div class="progress-summary">${summary}</div>
     </div>`;
+}
+
+function renderPlanBrief(plan, stats, aggregate) {
+  const brief = plan.brief || {};
+  const focusTasks = Array.isArray(brief.focus_tasks) ? brief.focus_tasks : [];
+  const progress = Array.isArray(brief.latest_progress) ? brief.latest_progress : [];
+  const total = stats?.total || 0;
+  const done = stats?.counts?.completed || 0;
+  const openCount = Math.max(0, Number(brief.open_count ?? (total - done)) || 0);
+  const stateLabel = brief.state === "shipped"
+    ? "all tasks complete"
+    : (total ? `${openCount} open` : "no task rows");
+  const rollup = planHasChildren(plan) && aggregate?.total
+    ? `<span>${aggregate.counts?.completed || 0}/${aggregate.total} branch</span>`
+    : "";
+  const focusHTML = focusTasks.length
+    ? `<div class="plan-brief-focus">
+        ${focusTasks.map(task => `
+          <div class="plan-brief-task plan-brief-task-${escapeAttr(task.status || "pending")}">
+            <span>${escapeText(PROGRESS_LABELS[task.status] || task.status || "task")}</span>
+            <strong>${escapeText(task.title || "")}</strong>
+          </div>
+        `).join("")}
+      </div>`
+    : `<div class="plan-brief-empty">No active rows yet.</div>`;
+  const progressHTML = progress.length
+    ? `<div class="plan-brief-progress">${progress.map(item => `<p>${escapeText(item)}</p>`).join("")}</div>`
+    : "";
+  const decisionHTML = brief.latest_decision
+    ? `<p class="plan-brief-decision">${escapeText(brief.latest_decision)}</p>`
+    : "";
+  return `
+    <section class="plan-brief" data-plan-path="${escapeAttr(plan.path)}">
+      <div class="plan-brief-main">
+        <div class="plan-brief-head">
+          <div>
+            <div class="label">Now</div>
+            <h3>${escapeText(brief.summary || plan.purpose || "No purpose written yet.")}</h3>
+          </div>
+          <div class="plan-brief-stats">
+            <span>${escapeText(stateLabel)}</span>
+            <span>${done}/${total || 0} done</span>
+            ${rollup}
+          </div>
+        </div>
+        ${focusHTML}
+        ${progressHTML}
+        ${decisionHTML}
+      </div>
+      <form class="plan-steering-form" id="plan-steering-form" data-target-path="${escapeAttr(plan.path)}">
+        <label for="plan-steering-body" class="visually-hidden">Steer this plan</label>
+        <textarea id="plan-steering-body" name="body" rows="3" maxlength="8192" placeholder="Steer this plan"></textarea>
+        <div class="plan-steering-actions">
+          <span id="plan-steering-status" role="status" aria-live="polite"></span>
+          <button type="submit">Send</button>
+        </div>
+      </form>
+    </section>`;
 }
 
 // Render an at-a-glance list of immediate children with their own mini bars.
@@ -866,6 +930,7 @@ async function renderPane() {
         <span class="muted">${escapeText(plan.path)}</span>
       </div>
     </div>
+    ${renderPlanBrief(plan, stats, aggregate)}
     ${renderPaneProgress(stats)}
     ${renderPaneAggregateProgress(plan, aggregate)}
     ${renderPaneSubplans(plan)}
@@ -909,6 +974,7 @@ async function renderPane() {
     });
   });
   setupCommentsPanel(tabPath);
+  setupPlanSteering(plan);
   refreshAnnotationTargets();
 
   try {
@@ -971,6 +1037,52 @@ function setupCommentsPanel(targetPath) {
   if (!panel) return;
   loadComments(targetPath);
   updateAnnotationUI();
+}
+
+function setupPlanSteering(plan) {
+  const form = document.getElementById("plan-steering-form");
+  if (!form || !plan?.path) return;
+  const bodyInput = form.querySelector("#plan-steering-body");
+  const status = form.querySelector("#plan-steering-status");
+  const button = form.querySelector('button[type="submit"]');
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const raw = (bodyInput.value || "").trim();
+    if (!raw) {
+      status.textContent = "write first";
+      bodyInput.focus();
+      return;
+    }
+    const body = /^@pm\b/i.test(raw) ? raw : `@pm ${raw}`;
+    const author = getStoredCommentAuthor() || "Leo";
+    status.textContent = "sending";
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_path: plan.path,
+          author,
+          body,
+          anchor: {
+            kind: "plan-steering",
+            label: "Plan steering",
+            excerpt: plan.rel,
+            tag: "plan",
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      bodyInput.value = "";
+      status.textContent = "sent";
+      await loadComments(plan.path);
+    } catch (err) {
+      status.textContent = `failed: ${String(err.message || err)}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 function clearAnnotationState() {
@@ -1231,6 +1343,10 @@ function annotationLabelForElement(el) {
   if (el.matches(".pane-header .breadcrumb")) return `${region} breadcrumb / ${compactText(el.innerText || el.textContent || "", 120)}`;
   if (el.matches(".pane-header .meta")) return `${region} metadata / ${compactText(el.innerText || el.textContent || "", 120)}`;
   if (el.matches(".pane-header")) return `${region} header / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".plan-brief-task")) return `${region} focus / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".plan-brief-progress")) return `${region} progress / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".plan-brief-decision")) return `${region} decision / ${compactText(el.innerText || el.textContent || "", 120)}`;
+  if (el.matches(".plan-brief")) return `${region} brief / ${compactText(el.innerText || el.textContent || "", 120)}`;
   if (el.matches(".pane-progress")) return `${region} completion / ${compactText(el.innerText || el.textContent || "", 120)}`;
   if (el.matches(".pane-tabs button")) return `${region} tab / ${compactText(el.innerText || el.textContent || "", 80)}`;
   if (el.matches(".pane-tabs")) return `${region} tabs`;
@@ -1341,8 +1457,9 @@ async function loadComments(targetPath) {
 
 function renderComment(comment) {
   const anchorHTML = renderCommentAnchor(comment);
+  const isSteering = /^@pm\b/i.test(comment.body || "");
   return `
-    <article class="comment-item">
+    <article class="comment-item ${isSteering ? "is-steering" : ""}">
       <div class="comment-meta">
         <strong>${escapeText(comment.author || "Anonymous")}</strong>
         <span>${escapeText(formatCommentTime(comment.created_at))}</span>
