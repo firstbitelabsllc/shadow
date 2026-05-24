@@ -4,7 +4,7 @@
 # warnings (annotations on the PR diff) rather than required-check failures.
 # Strict-after-1-green plan: once both jobs have shipped one fully-green run on
 # main, flip `continue-on-error` to `false` and (optionally) add `push` to the
-# trigger so main is gated. Tracked alongside vidux-oss-niceties PLAN.md T-10.
+# trigger so main is gated.
 
 name: Lint
 

@@ -7,10 +7,8 @@ On any file add/change/remove, SIGTERMs the running vidux-browse child and
 restarts it. SIGINT (ctrl-c) and SIGTERM are forwarded to the child for clean
 shutdown.
 
-Stdlib-only per projects/vidux-oss-niceties/PLAN.md Constraints. Mental model
-matches `npm run dev` for a JS app: ctrl-c stops, edits trigger reload.
-
-Implements PLAN.md row T-2.
+Stdlib-only. Mental model matches `npm run dev` for a JS app: ctrl-c stops,
+edits trigger reload.
 """
 
 from __future__ import annotations

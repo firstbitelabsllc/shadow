@@ -3,7 +3,6 @@
 #
 # Usage: vidux-completion.sh <bash|zsh|fish>
 #
-# Implements PLAN.md row T-7 of projects/vidux-oss-niceties.
 #
 # Each completion source completes the same subcommand list maintained
 # in bin/vidux plus the top-level long/short flags. Keep this list in

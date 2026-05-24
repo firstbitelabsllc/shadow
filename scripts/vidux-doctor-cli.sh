@@ -10,13 +10,12 @@
 #   3. ~/.config/vidux/*.token files (if any) are chmod 600
 #   4. $HOME/Development directory exists
 #   5. No stale ${TMPDIR:-/tmp}/vidux-browser.pid pointing to a dead PID
-#   6. `npm test` passes (the 4-suite contract bundle: 182/182)
+#   6. `npm test` passes (contract bundle count is reported dynamically)
 #
 # Each check prints `[PASS] <name>` or `[FAIL] <name>: <reason>`. Exit 0 if all
 # pass, exit 1 if any fail. Pure POSIX bash, stdlib + system tools only — no
 # python startup tax beyond optional version probing.
 #
-# Implements projects/vidux-oss-niceties/PLAN.md row T-4.
 set -euo pipefail
 
 VIDUX_ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"

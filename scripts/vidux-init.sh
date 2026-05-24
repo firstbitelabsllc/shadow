@@ -3,7 +3,6 @@
 # the canonical template (Purpose / Evidence / Constraints / Tasks /
 # Decision Log / Progress).
 #
-# Implements PLAN.md row T-5 of projects/vidux-oss-niceties.
 set -euo pipefail
 
 VIDUX_ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"

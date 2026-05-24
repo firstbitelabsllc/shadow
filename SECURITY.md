@@ -5,7 +5,7 @@
 If you discover a security issue in vidux, please report it responsibly:
 
 1. **Do not open a public GitHub issue.** Security issues should be reported privately.
-2. Email **trysnowcubes@gmail.com** with the subject line `[vidux security]`.
+2. Use GitHub private vulnerability reporting for `firstbitelabsllc/vidux` when available.
 3. Include: what you found, steps to reproduce, and potential impact.
 4. You'll receive an acknowledgment per the [Response SLA](#response-sla) below.
 
@@ -36,13 +36,9 @@ The primary security surface is:
 
 ## Supported versions
 
-Vidux is unversioned — only the latest commit on `main` is supported. There are
-no tagged releases yet.
+Only the latest supported version line receives security fixes.
 
 | Version          | Status              |
 | ---------------- | ------------------- |
-| `main` (latest)  | ✅ supported        |
-| Older commits    | ❌ unsupported      |
-
-Once tagged releases land, this table will be expanded to track the active
-minor line(s) and any explicitly unsupported branches.
+| `2.23.x`         | supported           |
+| Older commits    | unsupported         |

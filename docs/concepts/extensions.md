@@ -23,7 +23,7 @@ The pipeline (`pending` → `in_progress` → `in_review` → `completed`) is th
 
 That full pipeline is real in the adapter layer, but some local shell helpers still operate on the four-state core subset. In practice, `in_review` is most useful when the board or PR workflow needs it; local scripts such as `vidux-status.py` and `vidux-loop.sh` still assume `pending`, `in_progress`, `completed`, and `blocked`.
 
-See [`adapters/README.md`](https://github.com/leojkwan/vidux/blob/main/adapters/README.md) in the repo for the six-step authoring guide and the round-trip test rubric.
+See [`adapters/README.md`](https://github.com/firstbitelabsllc/vidux/blob/main/adapters/README.md) in the repo for the six-step authoring guide and the round-trip test rubric.
 
 ## Adapters shipped today
 
