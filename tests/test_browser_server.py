@@ -579,12 +579,16 @@ class BrowserPlanBriefTests(unittest.TestCase):
         self.assertIn("function renderPlanBrief", app)
         self.assertIn("function setupPlanSteering", app)
         self.assertIn("Steer this plan", app)
+        self.assertIn("function codingWorkbenchUrl", app)
+        self.assertIn("viduxPlan", app)
+        self.assertIn("Code lane", app)
         self.assertIn("@pm", app)
         self.assertIn("plan-steering", app)
         self.assertIn("is-steering", app)
         for klass in [
             "plan-brief",
             "plan-brief-task",
+            "plan-brief-code-link",
             "plan-steering",
             "comment-item.is-steering",
         ]:

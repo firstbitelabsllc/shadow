@@ -390,7 +390,8 @@ function renderPlanBrief(plan, stats, aggregate) {
     ? focusTasks.map(task => `
         <li class="plan-brief-task">
           <span class="plan-brief-status status-${escapeAttr(task.status || "pending")}">${escapeText(task.status || "pending")}</span>
-          <span>${escapeText(task.label || "")}</span>
+          <span class="plan-brief-task-label">${escapeText(task.label || "")}</span>
+          <a class="plan-brief-code-link" href="${escapeAttr(codingWorkbenchUrl(plan, task))}" target="_blank" rel="noreferrer">Code lane</a>
         </li>`).join("")
     : `<li class="plan-brief-task is-empty">No active task rows yet.</li>`;
   const latestHTML = [
@@ -425,6 +426,14 @@ function renderPlanBrief(plan, stats, aggregate) {
         </form>
       </div>
     </section>`;
+}
+
+function codingWorkbenchUrl(plan, task) {
+  const params = new URLSearchParams();
+  params.set("viduxPlan", plan.rel || plan.path || "");
+  params.set("viduxTask", task?.label || "");
+  params.set("viduxTaskStatus", task?.status || "pending");
+  return `http://127.0.0.1:4321/coding?${params.toString()}`;
 }
 
 // Render an at-a-glance list of immediate children with their own mini bars.

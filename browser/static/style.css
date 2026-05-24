@@ -995,16 +995,31 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .plan-brief-task {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
+  grid-template-columns: 78px minmax(0, 1fr) auto;
   gap: 8px;
-  align-items: baseline;
+  align-items: center;
   color: var(--ink);
   font-size: 12px;
 }
-.plan-brief-task > span:last-child {
+.plan-brief-task-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.plan-brief-code-link {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.plan-brief-code-link:hover,
+.plan-brief-code-link:focus {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .plan-brief-task.is-empty {
   display: block;
