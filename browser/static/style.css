@@ -1357,7 +1357,21 @@ body.is-annotation-mode #filter {
  * Sidebar collapses to a slide-in drawer at narrow widths.
  * Touch targets bumped, scrollable list region capped to viewport. */
 
-@media (max-width: 900px) {
+/* iPad portrait (769–1024px) — sidebar stays visible but narrows so content
+ * isn't crushed. Drawer mode kicks in below 769px. */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .layout {
+    grid-template-columns: 240px 1fr;
+  }
+  .sidebar {
+    width: 240px;
+  }
+  .plan-row {
+    padding: 10px 14px;
+  }
+}
+
+@media (max-width: 768px) {
   .layout {
     grid-template-columns: 1fr;
   }
@@ -1380,6 +1394,36 @@ body.is-annotation-mode #filter {
   .plan-row { padding: 10px 14px; }
   .markdown table { display: block; overflow-x: auto; }
   .markdown pre { font-size: 11.5px; }
+  /* WCAG 2.5.5 — touch targets ≥44pt on coarse pointer devices. */
+  .sidebar-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+  .topbar-meta button {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+  .plan-row {
+    min-height: 44px;
+  }
+  .comment-anchor button {
+    min-height: 32px;
+    padding: 6px 12px;
+  }
+}
+
+/* Touch-pointer devices (no hover): make hover-only affordances always visible
+ * so they aren't invisible traps on touch. */
+@media (hover: none) {
+  .ra-section-play {
+    opacity: 0.7;
+  }
+  .ra-section-play:hover,
+  .ra-section-play:focus,
+  .ra-section-play.is-loading {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 540px) {
