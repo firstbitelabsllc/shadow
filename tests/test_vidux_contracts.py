@@ -465,7 +465,8 @@ class ViduxContractTests(unittest.TestCase):
         for field in ["name", "version", "description"]:
             self.assertIn(field, data)
         self.assertEqual(data["name"], "vidux")
-        self.assertEqual(data["version"], "1.0.0")
+        expected_version = (ROOT / "VERSION").read_text().splitlines()[0].strip()
+        self.assertEqual(data["version"], expected_version)
 
     # -----------------------------------------------------------------------
     # Structural integrity

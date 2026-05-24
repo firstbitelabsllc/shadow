@@ -3,14 +3,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/leojkwan/vidux/stargazers"><img src="https://img.shields.io/github/stars/leojkwan/vidux?style=flat&color=3b82f6" alt="GitHub stars" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/leojkwan/vidux?style=flat" alt="License" /></a>
-  <a href="https://github.com/leojkwan/vidux/commits/main"><img src="https://img.shields.io/github/last-commit/leojkwan/vidux?style=flat" alt="Last commit" /></a>
+  <a href="https://github.com/firstbitelabsllc/vidux/stargazers"><img src="https://img.shields.io/github/stars/firstbitelabsllc/vidux?style=flat&color=3b82f6" alt="GitHub stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/firstbitelabsllc/vidux?style=flat" alt="License" /></a>
+  <a href="https://github.com/firstbitelabsllc/vidux/commits/main"><img src="https://img.shields.io/github/last-commit/firstbitelabsllc/vidux?style=flat" alt="Last commit" /></a>
 </p>
 
 # Vidux
 
-![CI](https://github.com/leojkwan/vidux/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/leojkwan/vidux?label=version)
+![CI](https://github.com/firstbitelabsllc/vidux/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/firstbitelabsllc/vidux?label=version)
 
 **Plan first, code second.** Vidux is a lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.
 
@@ -25,7 +25,7 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/leojkwan/vidux.git ~/Development/vidux
+git clone https://github.com/firstbitelabsllc/vidux.git ~/Development/vidux
 ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
 vidux dev
 ```
@@ -287,10 +287,10 @@ Three findings from running 35+ Claude lanes and Codex agents across 5 repos for
 
 ## Sibling Project
 
-**[claudux](https://github.com/leojkwan/claudux)** — documentation generator with multi-backend AI support (Claude + Codex). If vidux is "plan before code," claudux is "docs before code." Same philosophy, different surface: claudux can target multiple generation backends, while vidux runs inside whichever runtime you launch.
+**[claudux](https://github.com/firstbitelabsllc/claudux)** — documentation generator with multi-backend AI support (Claude + Codex). If vidux is "plan before code," claudux is "docs before code." Same philosophy, different surface: claudux can target multiple generation backends, while vidux runs inside whichever runtime you launch.
 
 ## Contributing
 
-This repo is public because the core ideas are meant to be reused and pressure-tested. Feedback is welcome through [GitHub Issues](https://github.com/leojkwan/vidux/issues). The public repo ships the portable Layer 1 core, not private Layer 2 project wiring.
+This repo currently stays private while the portable Layer 1 core is refined. Feedback is tracked through [GitHub Issues](https://github.com/firstbitelabsllc/vidux/issues) for collaborators with access; private Layer 2 project wiring should stay out of the core.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for the vulnerability reporting policy.

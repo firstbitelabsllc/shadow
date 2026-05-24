@@ -5,7 +5,7 @@ This guide walks through your first Vidux cycle from install to checkpoint.
 ## 1. Install Vidux
 
 ```bash
-git clone https://github.com/leojkwan/vidux.git
+git clone https://github.com/firstbitelabsllc/vidux.git
 ln -sfn /path/to/vidux ~/.claude/skills/vidux
 ```
 
