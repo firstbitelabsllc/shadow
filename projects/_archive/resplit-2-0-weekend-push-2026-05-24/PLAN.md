@@ -1,3 +1,9 @@
+---
+status: SUPERSEDED-BY [PR #692](https://github.com/firstbitelabsllc/resplit-web/pull/692)
+archived-at: 2026-05-24
+archived-reason: Declared "shipped evidence" in PM war-room audit; 8 ASC bug rows verified or explicitly deferred.
+---
+
 # Resplit 2.0 — Weekend Ship Push (May 2–3, soft target May 4)
 
 **Soft target:** Monday May 4 morning. **No hard cutoff.** Per Leo verbatim 2026-05-01: *"I really care more about whether we can just keep pushing along and get the bugs fixed. Bug fixing and production-level testability is all they care about."* The metric is **bugs-shipped, not calendar-met**. May 4 is when we'd ideally have a TestFlight build with all 8 ASC bugs verified — slipping a day or two is fine if it means shipping the fixes correctly.
