@@ -857,13 +857,17 @@ body {
  * leak global selectors into the host page (bug shipped 2026-05-23: an
  * artifact's `body { color: #1e2529 }` was overriding the topbar h1
  * color, hiding the title on dark mode). srcdoc + auto-resize keeps the
- * UX seamless. */
+ * UX seamless. Subtle border + paper-2 background delineates the embedded
+ * artifact from host pane chrome — without it, dark host + light-themed
+ * artifact looked like a jarring split rather than a contained embed. */
 .artifact-frame {
   width: 100%;
   min-height: 480px;
-  border: none;
-  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-2);
   display: block;
+  box-shadow: var(--shadow-sm);
 }
 code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; border-radius: 2px; }
 

@@ -210,9 +210,10 @@ function readaloudStartOfflineReprobe() {
   }
   readaloudShowServerCommand(true);
   if (READALOUD.state === "idle" || READALOUD.state === "error") {
-    readaloudSetPlayerStatus(
-      `Waiting for local server... ${READALOUD_SERVER_COMMAND}`,
-    );
+    // Tighter status — the visible command-copy button below already
+    // shows the server command. Don't duplicate it inline; it wastes
+    // ~80px on narrow viewports and reads as noise.
+    readaloudSetPlayerStatus("MLX server offline — copy command to start");
   }
   READALOUD.engineProbeTimer = window.setTimeout(
     readaloudRunOfflineReprobe,

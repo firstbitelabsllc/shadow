@@ -956,7 +956,7 @@ function renderCommentsPanel(targetPath) {
       <div class="comments-head">
         <div>
           <h3>Comments</h3>
-          <p>Use Annotate, then click a target to open the popover composer.</p>
+          <p>Annotate → click element to comment.</p>
         </div>
         <div class="comments-tools">
           <span class="comment-count" id="comment-count">loading</span>
@@ -1319,7 +1319,7 @@ async function loadComments(targetPath) {
     const comments = data.comments || [];
     count.textContent = `${comments.length} ${comments.length === 1 ? "comment" : "comments"}`;
     if (!comments.length) {
-      list.innerHTML = `<div class="comment-empty">No comments yet. Use Annotate for exact placement.</div>`;
+      list.innerHTML = `<div class="comment-empty">No comments yet.</div>`;
       refreshAnnotationTargets();
       return;
     }
