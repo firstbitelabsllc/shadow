@@ -495,6 +495,26 @@ function isOrphanChild(plan, byRel) {
   return byRel.has(parentRel);
 }
 
+function hydratePlanChildren() {
+  const byRel = new Map(state.plans.map(plan => [plan.rel, plan]));
+  for (const plan of state.plans) {
+    const childRels = Array.isArray(plan.child_rels) ? plan.child_rels : [];
+    plan.children = childRels.map(rel => byRel.get(rel)).filter(Boolean);
+  }
+}
+
+function activateSidebarRow(row) {
+  const kind = row.getAttribute("data-kind");
+  const path = row.getAttribute("data-path");
+  if (kind === "artifact") {
+    const a = state.artifacts.find(x => x.path === path);
+    if (a) selectArtifact(a);
+  } else {
+    const plan = state.plans.find(p => p.path === path);
+    if (plan) selectPlan(plan);
+  }
+}
+
 function renderSidebar() {
   const filter = state.filter.toLowerCase();
 
@@ -547,7 +567,7 @@ function renderSidebar() {
           </ul>
         </div>`
       : `<p class="muted" style="padding:12px">no matches for "${escapeText(state.filter)}"</p>`;
-    refreshAnnotationTargets();
+    refreshAnnotationTargetsIfNeeded();
     return;
   }
 
@@ -710,28 +730,23 @@ function renderSidebar() {
     });
   });
 
-  els.list.querySelectorAll(".plan-row").forEach(row => {
-    const activate = () => {
-      const kind = row.getAttribute("data-kind");
-      const path = row.getAttribute("data-path");
-      if (kind === "artifact") {
-        const a = state.artifacts.find(x => x.path === path);
-        if (a) selectArtifact(a);
-      } else {
-        const plan = state.plans.find(p => p.path === path);
-        if (plan) selectPlan(plan);
-      }
-    };
-    row.addEventListener("click", activate);
-    // Keyboard parity (WCAG 2.1.1): Enter or Space activates the row, matching
-    // the click handler. Space is preventDefault'd to stop page scroll.
-    row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        activate();
-      }
+  if (!els.list.dataset.activationBound) {
+    els.list.dataset.activationBound = "1";
+    els.list.addEventListener("click", e => {
+      const row = e.target.closest(".plan-row");
+      if (!row || !els.list.contains(row)) return;
+      activateSidebarRow(row);
     });
-  });
+    // Keyboard parity (WCAG 2.1.1): Enter or Space activates the focused row,
+    // matching click behavior. Space is preventDefault'd to stop page scroll.
+    els.list.addEventListener("keydown", e => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const row = e.target.closest(".plan-row");
+      if (!row || !els.list.contains(row)) return;
+      e.preventDefault();
+      activateSidebarRow(row);
+    });
+  }
 
   // Arrow-key navigation within the sidebar list. Up/Down move focus to the
   // prev/next .plan-row (skipping group headers); Home/End jump to first/last;
@@ -755,7 +770,7 @@ function renderSidebar() {
       if (next) { e.preventDefault(); next.focus(); }
     });
   }
-  refreshAnnotationTargets();
+  refreshAnnotationTargetsIfNeeded();
 }
 
 function currentSelectionSnapshot() {
@@ -847,6 +862,7 @@ async function loadAll(opts = {}) {
     const plansData = await plansRes.json();
     const artifactsData = await artifactsRes.json();
     state.plans = plansData.plans || [];
+    hydratePlanChildren();
     state.artifacts = artifactsData.artifacts || [];
     renderSidebar();
     if (preserveSelection && snapshot) {
@@ -1321,6 +1337,7 @@ function toggleAnnotationCapture(targetPath) {
   state.annotation.capture = true;
   state.annotation.targetPath = targetPath;
   state.annotation.anchor = null;
+  refreshAnnotationTargets();
   updateAnnotationUI();
 }
 
@@ -1523,6 +1540,10 @@ function refreshAnnotationTargets() {
     el.dataset.viduxAnchorKind = el.closest("#md-body") ? "rendered" : "browser";
     el.dataset.viduxAnchorLabel = label || text;
   });
+}
+
+function refreshAnnotationTargetsIfNeeded() {
+  if (state.annotation.capture || state.annotation.anchor) refreshAnnotationTargets();
 }
 
 function isAnnotationCandidate(el) {

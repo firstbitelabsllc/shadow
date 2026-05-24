@@ -30,6 +30,7 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.dev_root
 
     def tearDown(self):
+        browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
     def test_write_plan_note_creates_inbox_under_open(self):
@@ -118,6 +119,7 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.original_dev_root
         browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
         browser_server.COMMENTS_FILE = self.original_comments_file
+        browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
     def origin(self) -> str:
@@ -360,6 +362,7 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.dev_root
 
     def tearDown(self):
+        browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
     def write_plan(self, repo: str, rel: str, title: str = "Demo") -> Path:
@@ -435,6 +438,50 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertTrue(plan["evidence"][0]["is_dated"])
         self.assertFalse(plan["evidence"][2]["is_dated"])
 
+    def test_plan_list_payload_uses_child_rels_without_nested_children(self):
+        parent = self.write_plan("demo-repo", "projects/parent", "Parent")
+        child_dir = parent.parent / "child"
+        child_dir.mkdir()
+        child_rel = "demo-repo/projects/parent/child/PLAN.md"
+        (child_dir / "PLAN.md").write_text(
+            "# Child\n\n"
+            "> Parent: ../PLAN.md\n\n"
+            "## Purpose\nChild plan.\n\n"
+            "## Tasks\n- [completed] child task\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        payload = browser_server.plan_list_payload(plans)
+        parent_item = next(item for item in payload if item["rel"] == "demo-repo/projects/parent/PLAN.md")
+
+        self.assertNotIn("children", parent_item)
+        self.assertEqual(parent_item["child_rels"], [child_rel])
+
+    def test_discover_plans_cached_reuses_recent_scan(self):
+        self.write_plan("demo-repo", "projects/cache", "Cache")
+        original_discover = browser_server.discover_plans
+        original_ttl = browser_server.PLANS_CACHE_TTL_SECONDS
+        calls = []
+
+        def fake_discover():
+            calls.append("scan")
+            return original_discover()
+
+        browser_server.PLANS_CACHE_TTL_SECONDS = 60
+        browser_server.discover_plans = fake_discover
+        browser_server.clear_plans_cache()
+        try:
+            first = browser_server.discover_plans_cached()
+            second = browser_server.discover_plans_cached()
+        finally:
+            browser_server.discover_plans = original_discover
+            browser_server.PLANS_CACHE_TTL_SECONDS = original_ttl
+            browser_server.clear_plans_cache()
+
+        self.assertEqual(first, second)
+        self.assertEqual(calls, ["scan"])
+
 
 class BrowserDecisionLogTests(unittest.TestCase):
     def setUp(self):
@@ -445,6 +492,7 @@ class BrowserDecisionLogTests(unittest.TestCase):
 
     def tearDown(self):
         browser_server.DEV_ROOT = self.original_dev_root
+        browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
     def test_parse_decision_log_zero_when_section_is_missing(self):
@@ -535,6 +583,7 @@ class BrowserPlanBriefTests(unittest.TestCase):
 
     def tearDown(self):
         browser_server.DEV_ROOT = self.original_dev_root
+        browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
     def test_plan_meta_includes_deterministic_brief_for_cockpit_view(self):
@@ -650,6 +699,7 @@ class BrowserSubplanRollupTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
     def _find(self, plans, rel: str) -> dict:

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from glob import glob
@@ -67,6 +68,40 @@ def _parse_repo_aliases():
     except (json.JSONDecodeError, ValueError):
         return {}
 LEGACY_REPO_ALIASES = _parse_repo_aliases()
+
+PLANS_CACHE_TTL_SECONDS = float(os.environ.get("VIDUX_PLANS_CACHE_TTL_SECONDS", "20"))
+_PLANS_CACHE_LOCK = threading.Lock()
+_PLANS_CACHE: dict[str, object] = {
+    "key": None,
+    "expires_at": 0.0,
+    "plans": None,
+}
+
+
+def clear_plans_cache() -> None:
+    with _PLANS_CACHE_LOCK:
+        _PLANS_CACHE["key"] = None
+        _PLANS_CACHE["expires_at"] = 0.0
+        _PLANS_CACHE["plans"] = None
+
+
+def discover_plans_cached() -> list[dict]:
+    """Cache the fleet index briefly so auto-refresh does not rescan every hit."""
+    if PLANS_CACHE_TTL_SECONDS <= 0:
+        return discover_plans()
+
+    key = (str(DEV_ROOT), tuple(PLAN_GLOBS), tuple(sorted(LEGACY_REPO_ALIASES.items())))
+    now = time.monotonic()
+    with _PLANS_CACHE_LOCK:
+        plans = _PLANS_CACHE["plans"]
+        if plans is not None and _PLANS_CACHE["key"] == key and now < _PLANS_CACHE["expires_at"]:
+            return plans  # type: ignore[return-value]
+
+        plans = discover_plans()
+        _PLANS_CACHE["key"] = key
+        _PLANS_CACHE["expires_at"] = time.monotonic() + PLANS_CACHE_TTL_SECONDS
+        _PLANS_CACHE["plans"] = plans
+        return plans
 
 # Files to expose alongside PLAN.md when present.
 # Note: PLAN.md, INBOX.md, investigations/, evidence/ are core /vidux per the
@@ -172,10 +207,27 @@ def discover_plans() -> list[dict]:
             plans.append(plan_meta(path))
     plans = dedupe_legacy_repo_plans(plans)
     plans = attach_children(plans)
+    aggregate_memo: dict[str, dict] = {}
     for plan in plans:
-        plan["aggregate_stats"] = aggregate_stats(plan)
+        plan["aggregate_stats"] = aggregate_stats(plan, _memo=aggregate_memo)
     plans.sort(key=lambda p: (-p["mtime"], p["repo"], p["slug"]))
     return plans
+
+
+def plan_list_payload(plans: list[dict]) -> list[dict]:
+    """Return sidebar-safe plan metadata without recursively embedding children.
+
+    `discover_plans()` keeps full child objects in memory because aggregate
+    stats and tests use that shape. The HTTP list endpoint should not duplicate
+    every child subtree in JSON; the browser can rehydrate child objects from
+    these rels after one pass through the flat list.
+    """
+    payload: list[dict] = []
+    for plan in plans:
+        item = {k: v for k, v in plan.items() if k != "children"}
+        item["child_rels"] = [child["rel"] for child in plan.get("children", [])]
+        payload.append(item)
+    return payload
 
 
 def attach_children(plans: list[dict]) -> list[dict]:
@@ -239,7 +291,11 @@ def resolve_relative_parent(plan: dict, parent_ref: str, by_path: dict[Path, dic
     return by_path.get(candidate)
 
 
-def aggregate_stats(plan: dict, _visited: set[str] | None = None) -> dict:
+def aggregate_stats(
+    plan: dict,
+    _visited: set[str] | None = None,
+    _memo: dict[str, dict] | None = None,
+) -> dict:
     """Recursively roll up task_stats across a plan and all descendants.
 
     Returns the same shape as `task_stats()` (counts/total/eta_total/
@@ -249,7 +305,11 @@ def aggregate_stats(plan: dict, _visited: set[str] | None = None) -> dict:
     """
     if _visited is None:
         _visited = set()
+    if _memo is None:
+        _memo = {}
     rel = plan.get("rel", "")
+    if rel in _memo:
+        return _memo[rel]
     if rel in _visited:
         return {
             "counts": {s: 0 for s in TASK_STATUSES},
@@ -270,7 +330,7 @@ def aggregate_stats(plan: dict, _visited: set[str] | None = None) -> dict:
     descendants = 0
 
     for child in plan.get("children", []) or []:
-        sub = aggregate_stats(child, _visited)
+        sub = aggregate_stats(child, _visited.copy(), _memo)
         for s in TASK_STATUSES:
             counts[s] += int((sub.get("counts") or {}).get(s, 0))
         total += int(sub.get("total", 0))
@@ -279,7 +339,7 @@ def aggregate_stats(plan: dict, _visited: set[str] | None = None) -> dict:
         eta_eligible += int(sub.get("eta_eligible", 0))
         descendants += 1 + int(sub.get("descendants", 0))
 
-    return {
+    result = {
         "counts": counts,
         "total": total,
         "eta_total": round(eta_total, 2),
@@ -287,6 +347,8 @@ def aggregate_stats(plan: dict, _visited: set[str] | None = None) -> dict:
         "eta_eligible": eta_eligible,
         "descendants": descendants,
     }
+    _memo[rel] = result
+    return result
 
 
 def dedupe_legacy_repo_plans(plans: list[dict]) -> list[dict]:
@@ -330,11 +392,11 @@ def plan_meta(path: Path) -> dict:
     else:
         status = "cold"
     siblings = [f for f in SIBLING_FILES if (parent_dir / f).is_file()]
-    purpose = extract_purpose(path)
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         text = ""
+    purpose = extract_purpose_from_text(text)
     stats = task_stats(text)
     decision_log = parse_decision_log(text)
     investigations = discover_investigations(parent_dir, text)
@@ -702,12 +764,8 @@ def discover_evidence(plan_dir: Path) -> list[dict]:
     return items
 
 
-def extract_purpose(path: Path) -> str:
-    """Pull the first non-heading paragraph under '## Purpose' for sidebar preview."""
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
+def extract_purpose_from_text(text: str) -> str:
+    """Pull the first non-heading paragraph under '## Purpose' from plan text."""
     # Strip leading Parent: metadata blockquote / bold line so it doesn't
     # leak into the sidebar purpose preview.
     text = re.sub(
@@ -723,6 +781,15 @@ def extract_purpose(path: Path) -> str:
     if not m:
         return ""
     return re.sub(r"\s+", " ", m.group(1)).strip()[:240]
+
+
+def extract_purpose(path: Path) -> str:
+    """Compatibility wrapper for callers that only have a path."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return extract_purpose_from_text(text)
 
 
 def safe_resolve(raw: str) -> Path | None:
@@ -1013,7 +1080,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "dev_root": str(DEV_ROOT), "port": PORT,
                         "artifacts_dir": str(ARTIFACTS_DIR)})
         elif route == "/api/plans":
-            self._json({"plans": discover_plans(), "dev_root": str(DEV_ROOT)})
+            self._json({
+                "plans": plan_list_payload(discover_plans_cached()),
+                "dev_root": str(DEV_ROOT),
+            })
         elif route == "/api/artifacts":
             self._json({"artifacts": discover_artifacts(),
                         "artifacts_dir": str(ARTIFACTS_DIR)})
