@@ -496,5 +496,47 @@ class RunAuditCliTests(unittest.TestCase):
         self.assertEqual(envelope["overall"], mod.RED)
 
 
+# ---------------------------------------------------------------------------
+# LI-16: per-repo gh-owner resolution
+# ---------------------------------------------------------------------------
+
+
+class GhOwnerResolutionTests(unittest.TestCase):
+    def setUp(self):
+        # Avoid leaking env state between tests; restore on tearDown.
+        self._saved = mod.os.environ.pop("VIDUX_GH_OWNER", None)
+
+    def tearDown(self):
+        if self._saved is None:
+            mod.os.environ.pop("VIDUX_GH_OWNER", None)
+        else:
+            mod.os.environ["VIDUX_GH_OWNER"] = self._saved
+
+    def test_mapped_repo_resolves_to_its_owner(self):
+        self.assertEqual(mod._gh_owner("vidux"), "firstbitelabsllc")
+        self.assertEqual(mod._gh_owner("resplit-ios"), "firstbitelabsllc")
+        self.assertEqual(mod._gh_owner("strongyes-web"), "leojkwan")
+        self.assertEqual(mod._gh_owner("resplit-web"), "leojkwan")
+        self.assertEqual(mod._gh_owner("fcp-workflow"), "leojkwan")
+
+    def test_unknown_repo_falls_back_to_default(self):
+        self.assertEqual(
+            mod._gh_owner("nonexistent-repo"), mod.DEFAULT_GH_OWNER
+        )
+
+    def test_env_override_wins_over_mapping(self):
+        mod.os.environ["VIDUX_GH_OWNER"] = "test-org"
+        # Env override applies to mapped repos too.
+        self.assertEqual(mod._gh_owner("vidux"), "test-org")
+        self.assertEqual(mod._gh_owner("strongyes-web"), "test-org")
+        self.assertEqual(mod._gh_owner("nonexistent-repo"), "test-org")
+
+    def test_env_override_empty_string_does_not_short_circuit(self):
+        # Empty string is falsy; should fall through to REPO_OWNERS mapping.
+        mod.os.environ["VIDUX_GH_OWNER"] = ""
+        self.assertEqual(mod._gh_owner("vidux"), "firstbitelabsllc")
+        self.assertEqual(mod._gh_owner("strongyes-web"), "leojkwan")
+
+
 if __name__ == "__main__":
     unittest.main()
