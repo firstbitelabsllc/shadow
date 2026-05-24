@@ -772,9 +772,37 @@ async function renderArtifactPane() {
       return;
     }
     const html = await res.text();
-    // Artifacts are local files; write endpoints are loopback + same-origin only.
+    // Render artifacts inside a sandboxed iframe so their <style> rules can't
+    // leak global selectors (e.g. `body { color: ... }`) onto the host page
+    // and stomp the topbar/sidebar theme. `srcdoc` keeps everything same-
+    // origin-ish without an extra fetch; the sandbox attr blocks form-submit
+    // and scripts the artifact might inline (defense-in-depth; artifacts are
+    // local files but we still don't want one with a stray <script> running
+    // in the host scope). `allow-same-origin` keeps the artifact able to use
+    // its own relative URLs.
     const body = document.getElementById("md-body");
-    body.innerHTML = html;
+    body.innerHTML = `<iframe class="artifact-frame" sandbox="allow-same-origin allow-popups" srcdoc="${escapeAttr(html)}" title="Artifact: ${escapeAttr(a.title || a.slug)}"></iframe>`;
+    const frame = body.querySelector("iframe.artifact-frame");
+    // Auto-grow iframe to its content height so the host page scrolls, not
+    // the frame. Re-measure on load + when content fonts settle.
+    const resizeFrame = () => {
+      try {
+        const doc = frame.contentDocument;
+        if (!doc) return;
+        const h = Math.max(
+          doc.documentElement.scrollHeight,
+          doc.body ? doc.body.scrollHeight : 0,
+          480
+        );
+        frame.style.height = `${h + 24}px`;
+      } catch (e) { /* cross-origin guard, shouldn't fire for srcdoc */ }
+    };
+    frame.addEventListener("load", () => {
+      resizeFrame();
+      // Fonts/images can change height after first load — re-measure shortly.
+      setTimeout(resizeFrame, 200);
+      setTimeout(resizeFrame, 800);
+    });
     refreshAnnotationTargets();
   } catch (e) {
     document.getElementById("md-body").innerHTML =
