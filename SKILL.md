@@ -311,7 +311,7 @@ The plan LIVES -- it gets updated every cycle, not written once and followed bli
 
 Vidux supports two distinct nesting shapes — pick the one that fits the work:
 
-**1. Investigation (1-level, for compound tasks needing root-cause work)**
+**1. Investigation (1-level, when a task needs an investigation / compound tasks needing root-cause work)**
 
 Some tasks are atomic — one PR, clear diff. Others are messy: unclear root cause, 3+ files in play, you need to think before you touch code. For those, the parent plan task delegates its deep work to a child investigation file:
 
@@ -1029,40 +1029,46 @@ curl -X POST http://127.0.0.1:7191/api/local-plan-note \
 
 This endpoint rejects non-loopback clients. Even when vidux-browse is bound to `0.0.0.0` for home-LAN reading, `POST /api/local-plan-note` must be called through `127.0.0.1` or `::1`; other Wi-Fi devices can read but cannot write plan notes.
 
-### Read-aloud add-on (Voxtral 4B-TTS via mlx-audio, optional)
+### Read-aloud add-on (local Voxtral MLX, optional)
 
-vidux-browse can ship a 🔊 "Read aloud" button that reads the active artifact / `PLAN.md` aloud via **Mistral Voxtral 4B-TTS running locally on Apple Silicon through `mlx-audio.server`**. vidux-browse is a thin HTTP client; the model and GPU state live in a dedicated Python process the operator manages as a LaunchAgent.
+vidux-browse can expose a top-bar `🔊 Read` button that reads the current artifact / PLAN.md aloud. The browser is only the client/player; Mistral Voxtral 4B TTS runs through a loopback Apple-Silicon MLX server.
 
-**Status:** opt-in add-on. Default vidux-browse builds include the client JS but it gracefully shows `🔊 Server offline — start mlx-audio LaunchAgent` until the operator installs the server side.
+**Correct runtime model:**
 
-**Topology**
+- `mistralai/Voxtral-4B-TTS-2603` is public, ungated, and non-private on Hugging Face.
+- It is **not** a Transformers.js/WebGPU browser model. Do not load it with `VoxtralForConditionalGeneration.from_pretrained(...)` in browser JS.
+- Official runtime is vLLM-Omni (`vllm serve mistralai/Voxtral-4B-TTS-2603 --omni`) on NVIDIA-class GPUs.
+- Leo's local path is MLX on Apple Silicon, using the 4-bit community port first: `redseaplume/Voxtral-4B-TTS-2603-MLX-4bit`.
 
+**Local server:**
+
+```bash
+cd ~/Development/vidux
+browser/scripts/start-voxtral-mlx-server.sh
 ```
-vidux-browse (127.0.0.1:7191)            mlx-audio.server (127.0.0.1:8000)
-  static/readaloud.js (HTTP client)  ──▶  POST /v1/audio/speech
-                                          loads weights lazily, returns WAV
-                                          launchd: com.<user>.mlx-audio
-```
 
-**Stack:**
+The server binds to `127.0.0.1:8765` and exposes:
 
-- **Model:** `mlx-community/Voxtral-4B-TTS-2603-mlx-bf16` (Mistral Voxtral 4B TTS, mlx-community bf16 conversion). 9 languages, 20 voice presets, native `ref_audio` voice cloning. RTF ~0.8× on M4 Pro after warm-up; peak ~9.3 GB RAM during synthesis.
-- **Server:** `mlx_audio.server` from [Blaizzy/mlx-audio](https://github.com/Blaizzy/mlx-audio) (MIT). Exposes the OpenAI-compatible `/v1/audio/speech` endpoint over uvicorn/FastAPI.
-- **Client:** plain `fetch` from `browser/static/readaloud.js`. No build step. Sentence-level chunking client-side; per-chunk highlight migrates as audio plays.
-- **Hardware:** Apple Silicon (verified M4 Pro). 16 GB Macs likely OK with caveats; 8 GB Macs not recommended (peak 9.3 GB).
-- **Browser fallback:** `browser/static/readaloud-kokoro.js` ships alongside as the offline / Apache-2.0 alternative (Kokoro 82M via WebGPU). Operators on machines without mlx-audio swap the `<script src>` in `index.html`.
+- `GET /health`
+- `GET /v1/audio/voices`
+- `POST /v1/audio/speech` with `{ "input": "...", "voice": "cheerful_female", "response_format": "wav" }`
 
-**License — IMPORTANT:** Voxtral weights are **CC-BY-NC-4.0** (non-commercial). Personal vidux use is fine. Commercial properties MUST NOT call this endpoint with Voxtral — substitute Apple Premium voices via Web Speech API, or the Apache-2.0 Kokoro fallback.
+First real synthesis downloads the ~3.4GB 4-bit MLX weights into the Hugging Face cache. Subsequent generations reuse the cache.
 
-**CORS:** mlx-audio.server's `--allowed-origins` allowlist must include both `http://localhost:7191` and `http://127.0.0.1:7191` for vidux-browse to call it from the browser. Loopback-only by default; LAN reading from another device requires adding that device's origin.
+**Browser client:**
 
-**Install:** see your machine-management skill's "Voxtral Reader add-on" section. The full install command, plist install, and `launchctl bootstrap` step live there because they're per-Mac.
+- `browser/static/readaloud.js` checks the loopback server, POSTs visible markdown/artifact text, plays the returned WAV blob, and shows a clear retry state if the server is absent.
+- The bottom player owns playback, seek, source, speed, and cache controls.
+- Highlighting is approximate: `.ra-active` advances from local playback state and cached segment metadata. It is not forced alignment and does not claim word-accurate timestamps.
+- If the loopback server is absent, the UI exposes the local launch command instead of failing silently.
 
-**Reference plan + architecture:**
+**License:** Voxtral weights inherit CC BY-NC 4.0. Fine for Leo's personal vidux/leojkwan usage. Do not use this add-on for commercial Snowcubes, Resplit, or StrongYes surfaces without swapping the engine/license.
 
-- `~/Development/vidux/projects/voxtral-reader-addon/PLAN.md` — task breakdown M1-M10 + Decision Log + Two-Agent Coordination protocol.
-- `~/Development/vidux/projects/voxtral-reader-addon/evidence/2026-05-01-architecture.md` — port + endpoint + CORS + LaunchAgent decisions, with the canonical `uv tool install` command including the seven `--with` extras mlx-audio's PyPI metadata is missing.
-- `~/Development/vidux/scripts/launchd/com.<user>.mlx-audio.plist` — the in-repo source-of-truth plist for cross-Mac install.
+**Reference files:**
+
+- `~/Development/vidux/projects/voxtral-reader-addon/PLAN.md` — task breakdown and Decision Log for the read-aloud add-on.
+- `~/Development/vidux/projects/voxtral-reader-addon/evidence/` — browser proof, cache/seek/a11y screenshots, and local synthesis evidence.
+- `browser/scripts/voxtral_mlx_server.py` and `browser/scripts/start-voxtral-mlx-server.sh` — the current local server path.
 
 ---
 
