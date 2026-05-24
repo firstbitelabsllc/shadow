@@ -421,14 +421,15 @@ function renderSidebar() {
   }
   function artifactRow(a) {
     const active = state.active && state.active.kind === "artifact" && state.active.path === a.path ? "is-active" : "";
+    const fullSlug = `${a.slug}.html`;
     return `
-      <div class="plan-row ${active}" data-kind="artifact" data-path="${escapeAttr(a.path)}">
+      <div class="plan-row ${active}" data-kind="artifact" data-path="${escapeAttr(a.path)}" tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Artifact: ${a.title || a.slug}, ${fmtAge(a.age_days)}`)}">
         <div class="plan-row-head">
           <span class="pill pill-artifact" title="artifact · ${fmtAge(a.age_days)}"></span>
           <span>${escapeText(a.title || a.slug)}</span>
         </div>
         <div class="plan-row-meta">
-          <span>${escapeText(a.slug)}.html</span>
+          <span title="${escapeAttr(fullSlug)}">${escapeText(fullSlug)}</span>
           <span>${fmtAge(a.age_days)}</span>
           <span>${(a.size / 1024).toFixed(1)}KB</span>
         </div>
@@ -514,8 +515,9 @@ function renderSidebar() {
               ${renderProgressLabel(agg, 0)}
             </div>` : ""}
           </div>`;
+    const ariaSummary = `${plan.status} plan: ${slug}${plan.purpose ? `, ${plan.purpose.slice(0, 80)}` : ""}, ${fmtAge(plan.age_days)}${hasChildren ? `, ${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}` : ""}`;
     const rowHTML = `
-      <div class="plan-row ${active} ${childModifier}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle}>
+      <div class="plan-row ${active} ${childModifier}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle} tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(ariaSummary)}" title="${escapeAttr(slug)}">
         <div class="plan-row-head">
           <span class="pill pill-${plan.status}" title="${plan.status} · ${fmtAge(plan.age_days)}"></span>
           <span>${escapeText(slug)}</span>
@@ -567,7 +569,7 @@ function renderSidebar() {
   });
 
   els.list.querySelectorAll(".plan-row").forEach(row => {
-    row.addEventListener("click", () => {
+    const activate = () => {
       const kind = row.getAttribute("data-kind");
       const path = row.getAttribute("data-path");
       if (kind === "artifact") {
@@ -577,8 +579,40 @@ function renderSidebar() {
         const plan = state.plans.find(p => p.path === path);
         if (plan) selectPlan(plan);
       }
+    };
+    row.addEventListener("click", activate);
+    // Keyboard parity (WCAG 2.1.1): Enter or Space activates the row, matching
+    // the click handler. Space is preventDefault'd to stop page scroll.
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        activate();
+      }
     });
   });
+
+  // Arrow-key navigation within the sidebar list. Up/Down move focus to the
+  // prev/next .plan-row (skipping group headers); Home/End jump to first/last;
+  // Cmd/Ctrl+Enter focuses the pane after activating. Listener is delegated on
+  // the list (not per-row) so it survives re-renders without re-binding.
+  if (!els.list.dataset.kbdBound) {
+    els.list.dataset.kbdBound = "1";
+    els.list.addEventListener("keydown", (e) => {
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+      const target = e.target.closest(".plan-row");
+      const rows = [...els.list.querySelectorAll(".plan-row")];
+      if (!rows.length) return;
+      let next;
+      if (e.key === "Home") next = rows[0];
+      else if (e.key === "End") next = rows[rows.length - 1];
+      else {
+        const idx = target ? rows.indexOf(target) : -1;
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        next = rows[Math.max(0, Math.min(rows.length - 1, idx + delta))];
+      }
+      if (next) { e.preventDefault(); next.focus(); }
+    });
+  }
   refreshAnnotationTargets();
 }
 
