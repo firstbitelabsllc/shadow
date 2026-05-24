@@ -496,24 +496,23 @@ function renderSidebar() {
     // Parent rows show an own-tasks bar AND an aggregate (with-sub-plans) bar.
     // Plans without children only need one bar — use the existing single-bar
     // treatment so leaf rows look unchanged from the pre-rollup UI.
-    const progressHTML = hasChildren
-      ? `
-          <div class="progress-row progress-row-with-rollup">
+    // Always render the same wrapper structure so leaf and parent plans have
+    // identical inter-item vertical rhythm. The rollup line is conditional;
+    // the wrapper + first .progress-row-line is invariant. This kills the
+    // ~24px height delta that produced visible gutter inconsistency.
+    const progressHTML = `
+          <div class="progress-row${hasChildren ? " progress-row-with-rollup" : ""}">
             <div class="progress-row-line">
-              <span class="progress-row-tag">this plan</span>
-              ${renderProgressBar(stats, "is-self")}
+              ${hasChildren ? `<span class="progress-row-tag">this plan</span>` : ""}
+              ${renderProgressBar(stats, hasChildren ? "is-self" : "")}
               ${renderProgressLabel(stats, invCount)}
             </div>
+            ${hasChildren ? `
             <div class="progress-row-line">
               <span class="progress-row-tag is-rollup">+ sub-plans (${agg.descendants || 0})</span>
               ${renderProgressBar(agg, "is-rollup")}
               ${renderProgressLabel(agg, 0)}
-            </div>
-          </div>`
-      : `
-          <div class="progress-row">
-            ${renderProgressBar(stats)}
-            ${renderProgressLabel(stats, invCount)}
+            </div>` : ""}
           </div>`;
     const rowHTML = `
       <div class="plan-row ${active} ${childModifier}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle}>
