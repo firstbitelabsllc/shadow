@@ -8,7 +8,6 @@
 # Exits 0 only if both pass. On failure, prints which step failed and the
 # tail of its captured output so the caller doesn't have to re-run to see.
 #
-# Implements PLAN.md row T-19 of projects/vidux-oss-niceties.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

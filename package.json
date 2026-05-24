@@ -1,5 +1,18 @@
 {
+  "name": "vidux",
+  "version": "2.23.0",
+  "description": "Plan-first orchestration for long-running AI coding loops.",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/firstbitelabsllc/vidux.git"
+  },
+  "homepage": "https://github.com/firstbitelabsllc/vidux",
+  "bugs": {
+    "url": "https://github.com/firstbitelabsllc/vidux/issues"
+  },
+  "author": "First Bite Labs",
+  "license": "MIT",
   "scripts": {
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",

@@ -5,7 +5,6 @@
 # unimplemented subcommands with a pointer to the PLAN.md row that will
 # land them.
 #
-# Implements PLAN.md row T-1 of projects/vidux-oss-niceties.
 set -euo pipefail
 
 VIDUX_ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"
@@ -32,8 +31,7 @@ options:
   --version, -v     Print vidux version
   --help, -h        Show this help
 
-See projects/vidux-oss-niceties/PLAN.md for the roadmap of unimplemented
-subcommands.
+See README.md and docs/ for the current CLI roadmap and implemented helpers.
 EOF
 }
 
@@ -118,8 +116,8 @@ vidux doctor — diagnose local toolchain + auth.
 usage: vidux doctor [--help|-h]
 
 Runs 6 checks (python3 >= 3.10, gh auth status, ~/.config/vidux/*.token
-chmod 600, ~/Development exists, no stale browser pidfile, npm test
-182/182). Each check prints [PASS] or [FAIL] with reason. Exit 0 if
+chmod 600, ~/Development exists, no stale browser pidfile, npm test).
+Each check prints [PASS] or [FAIL] with reason. Exit 0 if
 all pass, non-zero on any FAIL. Footer with N/6 summary.
 EOF
       ;;
@@ -201,7 +199,7 @@ stub_exit() {
   local cmd="$1"
   local row="$2"
   echo "vidux ${cmd}: not implemented yet — pending PLAN.md row ${row}" >&2
-  echo "see projects/vidux-oss-niceties/PLAN.md row ${row}" >&2
+  echo "see README.md and docs/ for the current CLI roadmap" >&2
   exit 1
 }
 

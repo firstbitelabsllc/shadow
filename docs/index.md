@@ -11,7 +11,7 @@ hero:
       link: /guide/
     - theme: alt
       text: View on GitHub
-      link: https://github.com/leojkwan/vidux
+      link: https://github.com/firstbitelabsllc/vidux
 
 features:
   - icon: 📄

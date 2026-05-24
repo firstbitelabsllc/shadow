@@ -21,7 +21,6 @@
 #   - git status is not clean (override: --allow-dirty)
 #   - current branch is not `main`
 #
-# Implements PLAN.md row T-15 of projects/vidux-oss-niceties.
 set -euo pipefail
 
 # ---------------------------------------------------------------------------

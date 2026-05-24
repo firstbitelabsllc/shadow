@@ -10,7 +10,7 @@ Vidux is installed as a Claude Code skill. It requires no package manager, no bu
 ## Install the Skill
 
 ```bash
-git clone https://github.com/leojkwan/vidux.git
+git clone https://github.com/firstbitelabsllc/vidux.git
 ln -sfn /path/to/vidux ~/.claude/skills/vidux
 ```
 

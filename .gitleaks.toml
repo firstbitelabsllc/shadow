@@ -19,6 +19,7 @@ regex = '''sk-[A-Za-z0-9]{40,}'''
 [allowlist]
 description = "Allowlist for known false positives (docs, function names)"
 paths = [
+    "^\\.git/",       # CI checkout stores its masked GitHub token in .git/config
     "guides/recipes.md",  # contains scrubbed placeholder examples
 ]
 regexes = [

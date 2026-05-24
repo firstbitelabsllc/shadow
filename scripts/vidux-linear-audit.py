@@ -64,7 +64,7 @@ DEFAULT_REPOS = (
 )
 
 # GitHub owner — override with VIDUX_GH_OWNER env or --owner flag.
-DEFAULT_GH_OWNER = "leojkwan"
+DEFAULT_GH_OWNER = "firstbitelabsllc"
 
 # LI-4 managed labels — the Linear adapter creates/maintains these.
 MANAGED_LABELS = (
@@ -747,7 +747,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p.add_argument(
         "--owner",
         default=None,
-        help="GitHub owner for PR lookups (default: $VIDUX_GH_OWNER or 'leojkwan')",
+        help="GitHub owner for PR lookups (default: $VIDUX_GH_OWNER or 'firstbitelabsllc')",
     )
     p.add_argument(
         "--no-network",
