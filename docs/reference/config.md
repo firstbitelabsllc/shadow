@@ -62,21 +62,13 @@ The live config uses several sections to guide scripts and automation behavior:
 - Sources with `auto_promote_target` do not create new external items from
   local-only PLAN rows, but they still push status for tasks already linked by
   a `[Source: <adapter>:<id>]` marker.
-- Linear auto-promote treats an empty issue description as incomplete intake:
-  the row lands as `[blocked]` with a blocker asking for description,
-  evidence/source, acceptance or repro, and estimate.
-- Linear codebase intake should set both `project_id` and `project_name`; the
-  adapter validates the remote project name before reading or writing so a repo
-  cannot silently ingest the wrong Linear product bucket.
-- Linear labels are configured per adapter, not in core vidux. Use `label_ids`
-  for known Linear label UUIDs, `label_names` for static labels that should be
-  looked up or created by name, and `managed_labels` for repo/source plus
-  PR-state/review-state prefix labels.
+- Adapter-specific intake, label, and project-guardrail policy belongs in the
+  adapter docs or in a local overlay, not in core config reference prose.
 
-A real repo may enable one or more shipped adapters, including `gh_projects`
-and `linear`, and may add `auto_promote_target` when external cards should
-land directly in a named plan instead of `INBOX.md`. Treat the example file as
-one minimal shape, not as an exhaustive mirror of every production config.
+A real repo may enable one or more shipped adapters and may add
+`auto_promote_target` when external cards should land directly in a named plan
+instead of `INBOX.md`. Treat the example file as one minimal shape, not as an
+exhaustive mirror of every production config.
 
 ## Where config is used
 

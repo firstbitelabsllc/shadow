@@ -30,14 +30,13 @@ See [`adapters/README.md`](https://github.com/firstbitelabsllc/vidux/blob/main/a
 | Adapter | Status | Notes |
 |---------|--------|-------|
 | `gh_projects` | live | GitHub Projects v2 adapter |
-| `linear`      | live | Linear GraphQL adapter |
 | `asana`       | stub | API + auth scaffolded; subclass-ready |
 | `jira`        | stub | API + auth scaffolded; subclass-ready |
 | `trello`      | stub | API + auth scaffolded; subclass-ready |
 
 ## Composition over migration
 
-Adapters are **additive**. A repo's `vidux.config.json` can list multiple `inbox_sources` entries — `gh_projects` and `linear` coexist. Cards minted on one surface stay on that surface; vidux does not cross-bridge them. Per-adapter quota buckets stay independent: GitHub PAT vs Linear personal-key never share a rate limit.
+Adapters are **additive**. A repo's `vidux.config.json` can list multiple `inbox_sources` entries. Cards minted on one surface stay on that surface; vidux does not cross-bridge them. Per-adapter quota buckets stay independent.
 
 This means migrating from one tracker to another is a no-op — you don't migrate, you just add the new adapter alongside the old one and let teams use whichever surface fits the work.
 
@@ -48,73 +47,35 @@ feeds, such as `<repo-name>` or `<service-name>`. Product buckets such as
 "Launch Queue" or "Infrastructure" can still exist in a planning tool, but
 they are planning buckets, not repo intake queues.
 
-The Linear adapter supports an explicit guardrail:
-
-```json
-{
-  "adapter": "linear",
-  "enabled": true,
-  "config": {
-    "team_id": "linear-team-uuid",
-    "project_id": "linear-project-uuid",
-    "project_name": "repo-name",
-    "managed_labels": {
-      "repo": "repo:repo-name",
-      "source": "source:vidux",
-      "pr_state_prefix": "pr-state:",
-      "review_state_prefix": "review-state:"
-    },
-    "auto_promote_target": "vidux"
-  }
-}
-```
-
-When `project_name` is present, `fetch_inbox`, `push_task`, status sync, and
-field sync all validate the remote Linear project before doing work. A copied
-config that still points at "Launch Queue" fails closed instead of promoting
-product-board cards into the wrong repo plan.
-
-As an extension-level policy, the Linear adapter refuses unsafe sources before
-mutation: team-wide sync with no `project_id` requires
-`allow_team_wide: true`, and project-scoped sync without `project_name`
-requires `allow_unguarded_project: true`. Repo-owned codebase lanes should
-not set either flag.
+Adapters should fail closed before mutating PLAN.md when a config points at a
+surprising project, workspace, team, or board. Adapter-specific guardrails live
+with that adapter's docs and config schema; core keeps the policy shape generic.
 
 ## PR Linkage
 
-Linear PR handling also stays in the extension layer. When
-`scripts/vidux-inbox-sync.py` runs with `--include-prs --only-adapter linear`,
-it looks for PR bodies that include `Plan task: <id>`, finds the matching
-PLAN.md task, and only links the PR if that task has `[Source: linear:<id>]`.
-The Linear adapter then creates an issue attachment for the GitHub PR and a
-comment with PR number, branch, status, review gate, and URL. The PR body is
-updated with `Linear: EVE-N` so humans and audits can see the issue link
-without reading `.external-state.json`.
+PR handling stays in the extension layer. When `scripts/vidux-inbox-sync.py`
+runs with `--include-prs`, an adapter may look for PR bodies that include
+`Plan task: <id>`, find the matching PLAN.md task, and link the PR only if that
+task has a `[Source: <adapter>:<id>]` marker.
 
-New automation PRs should use `scripts/vidux-pr-body.py --linear EVE-N` when
-the public Linear issue id is already known. If only the `[Source:
-linear:<uuid>]` marker is known, the PR body can omit `Linear:`; the PR sweep
-will add the public issue id after it resolves the matching plan task.
+Adapters that support PR linkage should make the operation idempotent, store
+machine-readable linkage in the sidecar, and keep human-facing PR bodies
+readable.
 
-## Linear Labels
+## Labels
 
-Label taxonomy is also an extension-level concern. The Linear adapter supports
-two static defaults, `label_ids` and `label_names`, plus an optional
-`managed_labels` object for repo/source/PR-state/review-state labels. Repo and
-source labels are applied to new issues and linked-PR issues. PR-state and
-review-state labels are prefix-owned: for example, when
-`pr_state_prefix` is `pr-state:`, vidux may replace `pr-state:open` with
-`pr-state:merged`, but it will not touch labels outside that prefix.
-
-`blocked_label` remains separately auto-managed through
-`push_fields({'_blocked': True})`. All other labels are human-owned.
+Label taxonomy is also an extension-level concern. Core vidux does not define a
+global label scheme. Adapters may support static labels, managed prefix-owned
+labels, or blocked-state labels through their own config, but human-owned
+labels should stay human-owned unless the adapter explicitly documents a
+managed prefix.
 
 ## Local policy overlays
 
 Core vidux stays open-source and organization-neutral. If your team needs
-local policy such as "which Linear projects map to which repos", "which review
-bot blocks merge", or "which cron cadence to use overnight", put that in a
-separate overlay skill or runbook rather than hardcoding it into core.
+local policy such as "which external projects map to which repos", "which
+review bot blocks merge", or "which cron cadence to use overnight", put that
+in a separate overlay skill or runbook rather than hardcoding it into core.
 
 A good overlay:
 
@@ -134,7 +95,6 @@ The repo ships one sync entry point: `scripts/vidux-inbox-sync.py`. Operators ca
 | Invocation shape | Scope | Credential bucket |
 |------|-------|-------|
 | `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter gh_projects --direction=both` | GitHub Projects only | GitHub token file |
-| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter linear --direction=both` | Linear only | Linear token file |
 | `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --direction=both` | All enabled adapters for that repo | All configured token files |
 
 Separating scheduler entries is optional, but the `--only-adapter` split is the repo-supported way to scope a run to one external surface.
@@ -144,7 +104,7 @@ Separating scheduler entries is optional, but the `--only-adapter` split is the 
 Per plan, `<plan_dir>/.external-state.json` stores:
 
 - `task_id ↔ external_id` mapping per adapter
-- Adapter-specific metadata (e.g. Linear's `task_metadata` sidecar after the 2026-04-25 description-codec drop)
+- Adapter-specific metadata needed to make future sync runs idempotent
 
 The sidecar is **gitignored** because plans live under `projects/*` which is itself gitignored on private fleets. **Never `git stash drop` a sidecar that was captured by `stash push -u`** — that permanently breaks the dedup story and the next sync sees every tracked item as novel. Always `git stash pop`.
 

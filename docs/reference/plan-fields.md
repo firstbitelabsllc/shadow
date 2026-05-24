@@ -127,7 +127,7 @@ Every item in the Evidence section cites a source. Standard tags:
 | `[Source: observed]` | A directly observed runtime behavior or repro |
 | `[Source: Sentry <id>]` | A Sentry issue with occurrences + user impact |
 | `[Source: design doc]` | An architecture or product doc (inline quote preferred) |
-| `[Source: team chat]` | A Slack / Linear / email decision (screenshot or quote) |
+| `[Source: team chat]` | A Slack / email / issue-tracker decision (screenshot or quote) |
 | `[Source: measurement]` | A benchmark, perf measurement, or experiment result |
 
 **Rule:** a plan entry without a source is a guess. Guesses cause rework (SKILL.md Principle 1).
