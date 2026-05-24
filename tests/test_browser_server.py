@@ -281,6 +281,33 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertIn("Artifact comment.", text)
 
+    def test_comments_post_accepts_evidence_markdown_target(self):
+        evidence_dir = self.plan_dir / "evidence"
+        evidence_dir.mkdir()
+        evidence = evidence_dir / "2026-05-24-browser-proof.md"
+        evidence.write_text("# Browser proof\n\nLooks good.\n", encoding="utf-8")
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(evidence),
+                "author": "Viewer",
+                "body": "Evidence annotation.",
+                "anchor": {"selector": '[data-vidux-anchor="a1"]', "label": "Content / Browser proof"},
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 200, text)
+        payload = json.loads(text)
+        self.assertEqual(payload["comment"]["target_kind"], "plan")
+        self.assertEqual(payload["comment"]["target_path"], str(evidence.resolve()))
+        status, text = self.get(f"/api/comments?path={evidence}")
+        self.assertEqual(status, 200, text)
+        payload = json.loads(text)
+        self.assertEqual(payload["comments"][0]["body"], "Evidence annotation.")
+        self.assertEqual(payload["comments"][0]["anchor"]["label"], "Content / Browser proof")
+
     def test_comments_post_rejects_cross_origin(self):
         status, text = self.post(
             "/api/comments",
@@ -370,6 +397,198 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(game_plans), 1)
         self.assertEqual(game_plans[0]["repo"], "strongyes-web")
         self.assertEqual(Path(game_plans[0]["path"]), canonical.resolve())
+
+    def test_discover_plans_handles_missing_evidence_directory(self):
+        plan_path = self.write_plan("demo-repo", "projects/no-evidence", "No Evidence")
+
+        plans = browser_server.discover_plans()
+        plan = next(p for p in plans if Path(p["path"]) == plan_path.resolve())
+
+        self.assertEqual(plan["evidence"], [])
+
+    def test_discover_evidence_sorts_dated_files_and_keeps_odd_markdown_names(self):
+        plan_path = self.write_plan("demo-repo", "projects/receipts", "Receipts")
+        evidence_dir = plan_path.parent / "evidence"
+        evidence_dir.mkdir()
+        (evidence_dir / "notes without date.md").write_text("# Notes\n", encoding="utf-8")
+        (evidence_dir / "2026-05-24-browser-proof.md").write_text("# Latest\n", encoding="utf-8")
+        (evidence_dir / "2026-05-01-research.md").write_text("# Research\n", encoding="utf-8")
+        (evidence_dir / "2026-05-02-screenshot.png").write_text("not markdown", encoding="utf-8")
+        (evidence_dir / "nested.md").mkdir()
+
+        plans = browser_server.discover_plans()
+        plan = next(p for p in plans if Path(p["path"]) == plan_path.resolve())
+
+        names = [item["name"] for item in plan["evidence"]]
+        self.assertEqual(
+            names,
+            [
+                "2026-05-01-research.md",
+                "2026-05-24-browser-proof.md",
+                "notes without date.md",
+            ],
+        )
+        labels = [item["label"] for item in plan["evidence"]]
+        self.assertEqual(labels[0], "2026-05-01 - research")
+        self.assertEqual(labels[1], "2026-05-24 - browser proof")
+        self.assertEqual(labels[2], "notes without date")
+        self.assertTrue(plan["evidence"][0]["is_dated"])
+        self.assertFalse(plan["evidence"][2]["is_dated"])
+
+
+class BrowserDecisionLogTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dev_root = Path(self.tmp.name).resolve()
+        self.original_dev_root = browser_server.DEV_ROOT
+        browser_server.DEV_ROOT = self.dev_root
+
+    def tearDown(self):
+        browser_server.DEV_ROOT = self.original_dev_root
+        self.tmp.cleanup()
+
+    def test_parse_decision_log_zero_when_section_is_missing(self):
+        result = browser_server.parse_decision_log(
+            "# Demo\n\n## Purpose\nNo decisions yet.\n\n## Tasks\n- [pending] one\n"
+        )
+
+        self.assertFalse(result["present"])
+        self.assertIsNone(result["heading_line"])
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["entries"], [])
+        self.assertEqual(result["recent_directions"], [])
+
+    def test_parse_decision_log_handles_messy_markdown_and_wrapped_bullets(self):
+        result = browser_server.parse_decision_log(
+            "# Demo\n\n"
+            "### Decision Log\n"
+            "Intro text should not become an entry.\n"
+            "- [DIRECTION] [2026-05-01] Keep browser read-only.\n"
+            "  Reason: PLAN.md remains canonical.\n"
+            "* [REFRAME] 2026-05-02 Promote decisions instead of scanning full markdown.\n"
+            "1. Plain note without a tag still renders.\n"
+            "#### Nested notes\n"
+            "- [PIVOT] [2026-05-03 app chrome] Keep large modes out of the topbar.\n"
+            "## Tasks\n"
+            "- [pending] next task\n"
+        )
+
+        self.assertTrue(result["present"])
+        self.assertEqual(result["heading_line"], 3)
+        self.assertEqual(result["count"], 4)
+        first = result["entries"][0]
+        self.assertEqual(first["kind"], "DIRECTION")
+        self.assertEqual(first["date"], "2026-05-01")
+        self.assertIn("Reason: PLAN.md remains canonical.", first["body"])
+        self.assertFalse(first["is_recent"])
+        self.assertTrue(result["entries"][1]["is_recent"])
+        self.assertEqual(result["entries"][2]["kind"], "NOTE")
+        self.assertEqual(result["entries"][3]["date"], "2026-05-03 app chrome")
+        self.assertEqual(
+            [entry["kind"] for entry in result["recent_directions"]],
+            ["DIRECTION", "REFRAME", "PIVOT"],
+        )
+
+    def test_discover_plans_exposes_decision_log_metadata(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "demo"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "PLAN.md").write_text(
+            "# Demo\n\n"
+            "## Decision Log\n"
+            "- [DIRECTION] [2026-05-01] Keep it visible.\n\n"
+            "## Tasks\n"
+            "- [pending] ship pane\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+
+        self.assertEqual(len(plans), 1)
+        decision_log = plans[0]["decision_log"]
+        self.assertTrue(decision_log["present"])
+        self.assertEqual(decision_log["count"], 1)
+        self.assertEqual(decision_log["entries"][0]["kind"], "DIRECTION")
+
+    def test_decision_log_pane_static_contract(self):
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('const DECISION_LOG_TAB = "Decision Log"', app)
+        self.assertIn("function renderDecisionLogPane", app)
+        self.assertIn("recent_directions", app)
+        self.assertIn("No Decision Log section", app)
+        for klass in [
+            "decision-log-summary",
+            "decision-log-recent",
+            "decision-entry",
+            "decision-recent",
+        ]:
+            self.assertIn(klass, style)
+
+
+class BrowserPlanBriefTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dev_root = Path(self.tmp.name).resolve()
+        self.original_dev_root = browser_server.DEV_ROOT
+        browser_server.DEV_ROOT = self.dev_root
+
+    def tearDown(self):
+        browser_server.DEV_ROOT = self.original_dev_root
+        self.tmp.cleanup()
+
+    def test_plan_meta_includes_deterministic_brief_for_cockpit_view(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "pm"
+        plan_dir.mkdir(parents=True)
+        plan_path = plan_dir / "PLAN.md"
+        plan_path.write_text(
+            "# PM\n\n"
+            "## Purpose\n"
+            "Replace external PM surfaces with Vidux-native steering.\n\n"
+            "## Tasks\n"
+            "- [pending] PM-2 Later thing [ETA: 1h]\n"
+            "- [completed] PM-0 Done thing\n"
+            "- [in_progress] PM-1 Build `Now` strip [Evidence: user asked]\n"
+            "- [blocked] PM-3 Waiting on browser proof [Blocker: screenshot]\n\n"
+            "## Decision Log\n"
+            "- [DIRECTION] [2026-05-24] Keep PLAN.md canonical and use comments for steering.\n\n"
+            "## Progress\n"
+            "- [completed] malformed task-shaped bullet should not win\n"
+            "- [2026-05-24] Shipped the first cockpit slice.\n",
+            encoding="utf-8",
+        )
+
+        plan = browser_server.plan_meta(plan_path)
+        brief = plan["brief"]
+
+        self.assertEqual(brief["state"], "blocked")
+        self.assertEqual(brief["open_count"], 3)
+        self.assertEqual(brief["summary"], "Replace external PM surfaces with Vidux-native steering.")
+        self.assertEqual(
+            [item["status"] for item in brief["focus_tasks"]],
+            ["in_progress", "blocked", "pending"],
+        )
+        self.assertIn("Build Now strip", brief["focus_tasks"][0]["label"])
+        self.assertEqual(brief["latest_progress"], "[2026-05-24] Shipped the first cockpit slice.")
+        self.assertIn("Keep PLAN.md canonical", brief["latest_decision"])
+
+    def test_plan_brief_and_steering_static_contract(self):
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn("function renderPlanBrief", app)
+        self.assertIn("function setupPlanSteering", app)
+        self.assertIn("Steer this plan", app)
+        self.assertIn("@pm", app)
+        self.assertIn("plan-steering", app)
+        self.assertIn("is-steering", app)
+        for klass in [
+            "plan-brief",
+            "plan-brief-task",
+            "plan-steering",
+            "comment-item.is-steering",
+        ]:
+            self.assertIn(klass, style)
 
 
 class BrowserSubplanRollupTests(unittest.TestCase):
@@ -647,7 +866,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("engineProbeDeadline: 0", readaloud)
         self.assertIn("readaloudShowServerCommand", readaloud)
         self.assertIn("Copied server command", readaloud)
-        self.assertIn("Waiting for local server", readaloud)
+        self.assertIn("MLX server offline", readaloud)
         self.assertIn("Server still offline", readaloud)
         self.assertIn("Server offline. Run from the vidux repo root", readaloud)
         self.assertIn("Start local Voxtral MLX server: ${READALOUD_SERVER_COMMAND}", readaloud)
