@@ -34,25 +34,39 @@ BROWSER_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BROWSER_DIR / "static"
 ARTIFACTS_DIR = BROWSER_DIR / "artifacts"
 
-# Plan-layout conventions in Leo's fleet. The two-segment vidux/projects/ai
-# patterns catch parent plans (e.g., `vidux/design-overhaul/PLAN.md`); the
-# `**` recursive forms pick up sub-plans nested under those parents (e.g.,
-# `vidux/design-overhaul/<child>/PLAN.md`). Recursive globs land MORE files
-# but `discover_plans()` dedupes by resolved path so we never count twice.
-PLAN_GLOBS = [
-    "*/ai/plans/*/PLAN.md",
-    "*/vidux/*/PLAN.md",
-    "*/vidux/**/PLAN.md",
-    "*/projects/*/PLAN.md",
-    "*/projects/**/PLAN.md",
-    "*/PLAN.md",
-]
+# Plan-layout conventions. The two-segment vidux/projects/ai patterns catch
+# parent plans (e.g., `vidux/design-overhaul/PLAN.md`); the `**` recursive forms
+# pick up sub-plans nested under those parents (e.g.,
+# `vidux/design-overhaul/<child>/PLAN.md`). Recursive globs land MORE files but
+# `discover_plans()` dedupes by resolved path so we never count twice. Override
+# via env `VIDUX_PLAN_GLOBS` (colon-separated) for non-standard fleets.
+PLAN_GLOBS = (
+    os.environ.get("VIDUX_PLAN_GLOBS", "").split(":")
+    if os.environ.get("VIDUX_PLAN_GLOBS")
+    else [
+        "*/ai/plans/*/PLAN.md",
+        "*/vidux/*/PLAN.md",
+        "*/vidux/**/PLAN.md",
+        "*/projects/*/PLAN.md",
+        "*/projects/**/PLAN.md",
+        "*/PLAN.md",
+    ]
+)
 
-# Leo's fleet has a few historical checkout names that can still contain copied
-# vidux plans. Prefer the canonical checkout when the same plan exists in both.
-LEGACY_REPO_ALIASES = {
-    "mobiledevcombine-web": "strongyes-web",
-}
+# Aliases for historical checkout names that can still contain copied vidux
+# plans (e.g., a repo was renamed but old clones still exist). When the same
+# plan resolves under both names, prefer the canonical checkout. Override via
+# env `VIDUX_REPO_ALIASES` as JSON (e.g. '{"oldname": "newname"}').
+def _parse_repo_aliases():
+    raw = os.environ.get("VIDUX_REPO_ALIASES", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return {str(k): str(v) for k, v in parsed.items()} if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, ValueError):
+        return {}
+LEGACY_REPO_ALIASES = _parse_repo_aliases()
 
 # Files to expose alongside PLAN.md when present.
 # Note: PLAN.md, INBOX.md, investigations/, evidence/ are core /vidux per the
@@ -95,7 +109,7 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 JSON_CONTENT_TYPE = "application/json"
 
 # /vidux task-FSM markers. Used by task_stats() to compute completion-bar.
-# Per Leo 2026-04-25: completion (X/Y tasks) is the headline; ETA is parsed
+# Per /vidux doctrine: completion (X/Y tasks) is the headline; ETA is parsed
 # but does not drive the UI (tasks vary in difficulty, ETA is fiction).
 TASKS_SECTION_RE = re.compile(r"^##\s+Tasks\s*\n(.*?)(?=^##\s|\Z)", re.M | re.S)
 TASK_LINE_RE = re.compile(r"^-\s+\[(pending|in_progress|in_review|completed|blocked)\]", re.M)
@@ -1060,7 +1074,56 @@ def guess_content_type(name: str) -> str:
     return "application/octet-stream"
 
 
-def main():
+def main(argv=None):
+    """Entry point. CLI flags override env defaults so test harnesses and
+    Playwright `webServer` can launch the server hermetically against a
+    fixture root + ephemeral port without mutating the user's shell env."""
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="vidux browser",
+        description="Plan + artifact viewer for /vidux fleets. LAN-safe (loopback default).",
+    )
+    parser.add_argument(
+        "--root",
+        type=str,
+        default=None,
+        help="Dev-root directory to scan for PLAN.md files. Defaults to env "
+             "VIDUX_DEV_ROOT or ~/Development.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind. Defaults to env VIDUX_BROWSER_PORT or 7191.",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Host to bind. Defaults to env VIDUX_BROWSER_HOST or 127.0.0.1. "
+             "Use 0.0.0.0 to expose on LAN.",
+    )
+    parser.add_argument(
+        "--comments-path",
+        type=str,
+        default=None,
+        help="Path to comments JSONL file. Defaults to env "
+             "VIDUX_BROWSER_COMMENTS_FILE or ~/.vidux-browser/comments.jsonl.",
+    )
+    args = parser.parse_args(argv)
+
+    # CLI overrides module-level globals. Re-resolve so the server uses the
+    # passed values rather than the env defaults captured at import time.
+    global HOST, PORT, DEV_ROOT, COMMENTS_FILE
+    if args.host is not None:
+        HOST = args.host
+    if args.port is not None:
+        PORT = args.port
+    if args.root is not None:
+        DEV_ROOT = Path(args.root).expanduser().resolve()
+    if args.comments_path is not None:
+        COMMENTS_FILE = Path(args.comments_path).expanduser()
+
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     sys.stderr.write(f"vidux browser → {url}  (dev_root={DEV_ROOT})\n")
