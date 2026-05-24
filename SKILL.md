@@ -1,7 +1,13 @@
 ---
 name: vidux
-description: "Plan-first discipline and universal project router for AI agents. Detects stack, stage, and scale, then either executes directly or shifts into plan-first multi-session work. Write down what you're going to build before you build it. Plans live in markdown files in git. Any agent can pick up where the last one left off."
+description: "Plan-first AI operations discipline for multi-session work: map stack/stage/scale, pick direct execution vs PLAN.md workflows, and keep handoff state in git."
 ---
+
+## First-Time Setup
+
+- Run the setup steps for this skill's toolchain before first use.
+- Confirm CLI auth/permissions and a dry-run check before any mutating action.
+
 
 # Vidux
 
