@@ -1,6 +1,12 @@
 # Agentic Text Chat — Browser-Based Chat for Leo's Fleet
 
 > **Parent plan:** `~/Development/vidux/projects/agentic-command-center/PLAN.md` — this is **Phase 2 / sub-project #4**. Sibling of moussey-voice-agent. Same brain dispatcher + intent router, no audio I/O — just text in / text out / markdown rendering.
+>
+> **Related plans (R-46 reciprocal cross-links, established 2026-05-24):**
+> - **Parent**: `~/Development/vidux/projects/agentic-command-center/PLAN.md` sub-project #4
+> - **Substrate dependency**: `~/Development/vidux/projects/ai-substrate-1000x/PLAN.md` (Tailscale NET Phase 3, PWA VOX-10, voice pipeline, chat-auth)
+> - **Home dashboard**: `~/Development/vidux/projects/moussey/PLAN.md`
+> - **Mobile-operator UX layer**: this plan **absorbs** the former `moussey-mobile-operator/PLAN.md` as Phases 3-8 + Phase R rework gate per M-R3 merge decision (`~/Development/vidux/projects/moussey-mobile-operator/evidence/2026-05-24-M-R3-merge-decision.md`). [NOTE: until M-R3b execution lands the migration, the mobile-operator tasks live at `~/Development/vidux/projects/moussey-mobile-operator/PLAN.md`; post-M-R3b they migrate into THIS file as T-A*..T-F* + T-R*.]
 
 ## Purpose
 
@@ -42,24 +48,29 @@ It's also the right surface for tasks where voice is awkward — pasting a long 
 
 ### Phase 1 — Single-turn MVP
 
-- [pending] **T1**: `/chat` page in moussey/app/chat/page.tsx. Textarea + provider dropdown (claude / codex / local) + submit button + chat-bubble container. Reuse the dark code-block style from /triggers page.
-- [pending] **T2**: `POST /api/chat/ask` route. Body: `{prompt, provider}`. Calls `route()` then `dispatch()` from brain-dispatcher. Streams chunks as SSE.
-- [pending] **T3**: Client-side SSE parser. Appends `text` chunks to the active bubble character-by-character. `tool_use` chunks render as a small "🛠 using <tool>" indicator. `complete` event shows total cost + duration. `error` shows red with retry button.
-- [pending] **T4**: Markdown rendering via the existing renderer used in vidux-browse (port the relevant CSS + parser if not already shared). Code blocks get syntax highlighting (existing `highlight.js` is fine).
-- **GATE 1**: Type "what's 47 × 23" → submit → see "1081" stream in. Switch provider, same prompt, compare responses. Cost shown.
+- [completed] **T1**: `/chat` page in moussey/app/chat/page.tsx. Textarea + provider dropdown (claude / codex / local) + submit button + chat-bubble container. Reuse the dark code-block style from /triggers page.
+- [completed] **T2**: `POST /api/chat/ask` route. Body: `{prompt, provider}`. Calls `route()` then `dispatch()` from brain-dispatcher. Streams chunks as SSE.
+- [completed] **T3**: Client-side SSE parser. Appends `text` chunks to the active bubble character-by-character. `tool_use` chunks render as a small "🛠 using <tool>" indicator. `complete` event shows total cost + duration. `error` shows red with retry button.
+- [completed] **T4**: Markdown rendering via the existing renderer used in vidux-browse (port the relevant CSS + parser if not already shared). Code blocks get syntax highlighting (existing `highlight.js` is fine).
+- **GATE 1**: Shipped. Type/send works through `/api/chat/ask` SSE; live local proof returned `OK local chat proof`, showed duration, and rendered in `/chat`.
 
 ### Phase 2 — Multi-turn + history
 
-- [pending] **T5**: Conversation history persisted per session to `~/.moussey/chat-sessions/<sessionId>.jsonl`. Each turn = `{ts, role, content, provider, costCents}`.
-- [pending] **T6**: Continuation: send prior 3 turns as context when the user replies in the same thread. Stable session ID via cookie/localStorage.
-- [pending] **T7**: Session list sidebar — `GET /api/chat/sessions` returns recent sessions. Click loads `GET /api/chat/sessions/:id`.
-- **GATE 2**: Multi-turn conversation works; closing tab + reopening restores history.
+- [completed] **T5**: Conversation history persisted per session to `~/.moussey/chat-sessions/<sessionId>.jsonl`. Each turn = `{ts, role, content, provider, costCents}`.
+- [completed] **T6**: Continuation: send prior 3 turns as context when the user replies in the same thread. Stable session ID via cookie/localStorage.
+- [completed] **T7**: Session list sidebar — `GET /api/chat/sessions` returns recent sessions. Click loads `GET /api/chat/sessions/:id`.
+- **GATE 2**: Shipped. Route tests prove persistence/list/load/context injection; browser proof shows reopened session in sidebar and loaded conversation.
 
 ### Phase 3 — Power features (deferred)
 
-- [pending] **T8**: File drop into the textarea — attach a code snippet / image / PDF. Passes through to claude via MCP (read_file / vision).
-- [pending] **T9**: Forked turns — "regenerate with different provider" without losing history.
-- [pending] **T10**: Sharing — generate a read-only LAN URL for a specific session that Nicole MBA can open from her browser.
+- [completed] **T8**: File drop into the textarea — attach a code snippet / image / PDF. Passes through to claude via MCP (read_file / vision).
+- [completed] **T9**: Forked turns — "regenerate with different provider" without losing history.
+- [completed] **T10**: Sharing — generate a read-only LAN URL for a specific session that Nicole MBA can open from her browser.
+
+### Phase 2.5 — Base-station command controls
+
+- [completed] **T11**: Provider readiness + local reasoning controls. `/chat` shows local/claude/codex readiness, defaults to a working provider, and lets Leo choose fast/steady/deep for local models without pretending every model supports thinking tokens.
+- [completed] **T12**: Coding-lane handoff from chat. A user turn can stage a local coding handoff that opens the `/coding` workbench with session/turn context instead of requiring Leo to copy/paste the prompt.
 
 ## Decision Log
 
@@ -77,13 +88,15 @@ It's also the right surface for tasks where voice is awkward — pasting a long 
 | T1: /chat page UI | [completed] | studio | T3, T4 | nothing | 2026-05-23 (shipped at moussey `fe70bc1` — 314-line app/chat/page.tsx with provider dropdown, prompt textarea, Cmd+Enter send, session ID. Verified rendering HTTP 200 on M1 + Studio.) |
 | T2: /api/chat/ask SSE route | [completed] | studio | T3 | — | 2026-05-23 (shipped at moussey `fe70bc1` — 154-line app/api/chat/ask/route.ts. Wires `dispatch({prompt, provider, metadata:{sourceModality:"text"}})` into SSE stream. Verified M1 end-to-end with `provider=claude` returns `meta → system_init → text → complete → [DONE]` in 1968ms, $0.15. Studio's verification ping cf781db7 confirmed Studio's /chat works after moussey `4820d05` Self-loopback fix.) |
 | T3: Client SSE parser + bubble append | [completed] | studio | GATE 1 | T1, T2 | 2026-05-23 (shipped at moussey `fe70bc1` — page.tsx uses fetch + getReader + TextDecoder + per-line `data:` prefix parser to append response chunks to UI.) |
-| T4: Markdown rendering | [pending] | — | (polish) | T3 | 2026-05-22 |
-| T5: Session JSONL persistence | [pending] | — | T6 | T2 | 2026-05-22 |
-| T6: Multi-turn continuation | [pending] | — | GATE 2 | T5 | 2026-05-22 |
-| T7: Session list sidebar | [pending] | — | (polish) | T5 | 2026-05-22 |
-| T8: File drop | [pending] | — | (Phase 3) | T1 | 2026-05-22 |
-| T9: Provider re-fork | [pending] | — | (Phase 3) | T5 | 2026-05-22 |
-| T10: LAN session sharing | [pending] | — | (Phase 3) | T7 | 2026-05-22 |
+| T4: Markdown rendering | [completed] | codex | — | T3 | 2026-05-24 (`/chat` renders markdown/code/link blocks; build + browser proof `/tmp/moussey-chat-proof-final.png`.) |
+| T5: Session JSONL persistence | [completed] | codex | — | T2 | 2026-05-24 (`app/api/chat/ask/route.test.ts` + live session `codex-proof-20260524T052320Z` persisted 2 turns.) |
+| T6: Multi-turn continuation | [completed] | codex | — | T5 | 2026-05-24 (`POST /api/chat/ask injects recent session context...` regression proves actual dispatch prompt contains prior turns.) |
+| T7: Session list sidebar | [completed] | codex | — | T5 | 2026-05-24 (`app/api/chat/sessions/route.test.ts`, `[sessionId]/route.test.ts`, and browser proof show selected session in sidebar after direct `?session=` load.) |
+| T8: File drop | [completed] | codex | — | T1 | 2026-05-24 (`lib/chat-attachments.test.ts` + `/api/chat/ask` attachment regression prove local file write + prompt excerpt injection.) |
+| T9: Provider re-fork | [completed] | codex | — | T5 | 2026-05-24 (browser proof shows assistant `Rerun` route selector on persisted session.) |
+| T10: LAN session sharing | [completed] | codex | — | T7 | 2026-05-24 (`share-route.test.ts` + browser proof `/tmp/moussey-chat-proof-final.png` show `leos-mac-studio-10442.local:4321/chat?session=...&readonly=1`.) |
+| T11: Provider readiness + local reasoning controls | [completed] | codex | — | T2 | 2026-05-24 (`/api/chat/providers` reports local ready, codex ready, claude auth warning; browser proof shows Fast/Steady/Deep controls.) |
+| T12: Coding-lane handoff from chat | [completed] | codex | — | T1, agentic-coding-workbench C4 | 2026-05-24 (`POST /api/coding/handoffs` test + live handoff `b446c42d-dc7d-4128-9db8-0cba0fedf47c` opened `/coding` with Run Local Smoke controls; proof `/tmp/moussey-chat-coding-handoff-loaded-proof.png`.) |
 
 ## Two-agent coordination
 
@@ -103,3 +116,5 @@ The two surfaces are intentionally siblings, not phases of the same product:
 ## Progress
 
 - [2026-05-22] Plan created. Architecture locked. Phase 0 stubs already shipped (brain-dispatcher B1+R1 [completed], 12 tests passing) so T2 is interface-ready as soon as brain-dispatcher B2 (claude provider) lands. T1 (page UI) is unblocked NOW since it only needs the textarea + SSE consumer pattern.
+- [2026-05-24] Reconciled the plan with current Moussey code before continuing: `/chat` already contains markdown/code rendering, session persistence/listing, history continuation, file attachments, read-only LAN sharing, provider readiness, local reasoning controls, peer target routing, and a coding-lane handoff button. Holding T4-T12 in `[in_progress]` until this cycle adds the missing route regressions plus local browser/API proof.
+- [2026-05-24] Closed T4-T12 for `/chat` and `/api/chat/ask`. Added regressions for session continuation prompt injection, assistant persistence, session list route, and single-session load route. Fixed direct `?session=` loads so the sidebar refreshes instead of showing "No saved sessions." Verification: `npm run test:brain-dispatcher` (80/80), `npx tsc --noEmit`, `npm run build` (passes with known Turbopack NFT warning on `trigger-send`), `scripts/moussey-trigger-doctor --brief` accepting, `bin/vidux-browse health`, live local SSE session `codex-proof-20260524T052320Z`, browser proof `/tmp/moussey-chat-proof-final.png`, share proof embedded there, and coding handoff proof `/tmp/moussey-chat-coding-handoff-loaded-proof.png`.

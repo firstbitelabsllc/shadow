@@ -920,6 +920,158 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .pane-header .meta .pill { vertical-align: middle; margin-right: 4px; }
 
+/* ---- Plan brief ---- */
+
+.plan-brief {
+  margin: 0 0 12px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-2);
+}
+.plan-brief-kicker,
+.plan-brief-side-label,
+.plan-steering label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.plan-brief-summary {
+  margin: 4px 0 10px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.plan-brief-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plan-brief-stats span {
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.plan-brief-latest {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.plan-brief-latest p {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.plan-brief-latest span {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+.plan-brief-side {
+  display: grid;
+  gap: 12px;
+}
+.plan-brief-focus ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+}
+.plan-brief-task {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  color: var(--ink);
+  font-size: 12px;
+}
+.plan-brief-task > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-brief-task.is-empty {
+  display: block;
+  color: var(--ink-2);
+  font-style: italic;
+}
+.plan-brief-status {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.plan-brief-status.status-in_progress,
+.plan-brief-status.status-in_review {
+  color: var(--accent);
+}
+.plan-brief-status.status-blocked {
+  color: var(--task-blocked);
+}
+.plan-steering {
+  display: grid;
+  gap: 7px;
+}
+.plan-steering textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  padding: 8px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+.plan-steering textarea:focus {
+  border-color: var(--accent);
+}
+.plan-steering-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.plan-steering-status {
+  margin-right: auto;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.plan-steering button {
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--paper);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 10px;
+}
+.plan-steering button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 /* ---- Pane progress block (the "moving target" headline) ----
  * Sits above the markdown body. Bar + counts legend + completion %.
  * Designed to make completion a visually celebrated, key-of-vidux concept. */
@@ -1134,12 +1286,13 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- Investigations strip ----
+/* ---- Investigation / evidence strips ----
  * Secondary tab strip below PLAN/PROGRESS/INBOX. Only renders when the
- * plan has investigation files. Answers "do plans have subplans?" — yes,
- * canonical /vidux nesting via [Investigation: investigations/<slug>.md]. */
+ * plan has investigation or evidence files. Answers "do plans have subplans?"
+ * and "what receipts back this plan?" without leaving the reader pane. */
 
-.pane-investigations-strip {
+.pane-investigations-strip,
+.pane-evidence-strip {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 6px 0 0;
   margin-top: -16px;
@@ -1148,13 +1301,18 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   font-size: 11.5px;
   color: var(--ink-2);
 }
-.pane-investigations-strip .label {
+.pane-evidence-strip {
+  margin-top: -8px;
+}
+.pane-investigations-strip .label,
+.pane-evidence-strip .label {
   text-transform: uppercase;
   font-size: 10px;
   letter-spacing: 0.08em;
   margin-right: 4px;
 }
-.pane-investigations-strip button {
+.pane-investigations-strip button,
+.pane-evidence-strip button {
   background: var(--paper);
   border: 1px solid var(--rule);
   color: var(--ink);
@@ -1164,8 +1322,10 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   font-family: var(--mono);
   font-size: 11px;
 }
-.pane-investigations-strip button:hover { background: var(--select); }
-.pane-investigations-strip button.is-active {
+.pane-investigations-strip button:hover,
+.pane-evidence-strip button:hover { background: var(--select); }
+.pane-investigations-strip button.is-active,
+.pane-evidence-strip button.is-active {
   background: var(--accent);
   color: var(--paper);
   border-color: var(--accent);
@@ -1189,6 +1349,99 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .pane-tabs button.is-active { color: var(--ink); border-bottom-color: var(--accent); }
 .pane-tabs button:hover { color: var(--ink); }
+
+.decision-log {
+  display: grid;
+  gap: 18px;
+}
+.decision-log-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-2);
+}
+.decision-log-summary .label {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.decision-log-summary h3 {
+  margin: 2px 0 0;
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+}
+.decision-log-count {
+  flex-shrink: 0;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.decision-log h4 {
+  margin: 0 0 10px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.decision-log-recent,
+.decision-log-all {
+  min-width: 0;
+}
+.decision-entry-list {
+  display: grid;
+  gap: 8px;
+}
+.decision-entry {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  padding: 11px 12px;
+}
+.decision-entry.is-direction {
+  border-left: 4px solid var(--accent);
+}
+.decision-entry.is-recent {
+  background: var(--select);
+}
+.decision-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.decision-kind,
+.decision-recent {
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.decision-kind {
+  color: var(--accent);
+}
+.decision-recent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.decision-meta {
+  color: var(--ink-2);
+}
+.decision-entry p {
+  margin: 0;
+}
 
 .comments-panel {
   margin: 0 0 22px;
@@ -1242,6 +1495,10 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   border-radius: 4px;
   background: var(--paper);
   padding: 9px 10px;
+}
+.comment-item.is-steering {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 5%, var(--paper));
 }
 .comment-meta {
   display: flex;
@@ -1525,6 +1782,7 @@ body.is-annotation-mode #filter {
   .sidebar.is-open { transform: translateX(0); }
   .pane { padding: 18px clamp(16px, 4vw, 28px) 126px; }
   .pane-header h2 { font-size: 20px; }
+  .plan-brief { grid-template-columns: 1fr; }
   .plan-row { padding: 10px 14px; }
   .markdown table { display: block; overflow-x: auto; }
   .markdown pre { font-size: 11.5px; }

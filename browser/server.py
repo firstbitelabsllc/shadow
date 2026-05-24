@@ -115,6 +115,27 @@ TASKS_SECTION_RE = re.compile(r"^##\s+Tasks\s*\n(.*?)(?=^##\s|\Z)", re.M | re.S)
 TASK_LINE_RE = re.compile(r"^-\s+\[(pending|in_progress|in_review|completed|blocked)\]", re.M)
 ETA_RE = re.compile(r"\[ETA:\s*([\d.]+)h\]")
 INVESTIGATION_RE = re.compile(r"\[Investigation:\s*([^\]]+?)\]")
+PLAN_BRIEF_TASK_RE = re.compile(
+    r"^-\s+\[(?P<status>pending|in_progress|in_review|completed|blocked)\]\s+(?P<body>.+?)\s*$",
+    re.M,
+)
+PLAN_BRIEF_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<body>.+?)\s*$")
+PLAN_BRIEF_TAG_RE = re.compile(r"\s*\[[A-Za-z][A-Za-z0-9 _/-]*:\s*[^\]]+\]")
+PLAN_BRIEF_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+EVIDENCE_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[-_].*)?\.md$")
+DECISION_LOG_HEADING_RE = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marks>#{2,6})\s+decision\s+log\s*#*\s*$", re.I)
+MARKDOWN_HEADING_RE = re.compile(r"^[ \t]{0,3}(#{1,6})\s+\S")
+DECISION_ENTRY_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<body>.+?)\s*$")
+DECISION_KIND_RE = re.compile(r"^\[(?P<kind>[A-Z][A-Z0-9_-]{1,31})\]\s*(?P<rest>.*)$")
+DECISION_DATE_RE = re.compile(r"^\[?(?P<date>\d{4}-\d{2}-\d{2}(?:[^\]]{0,60})?)\]?\s*(?P<rest>.*)$")
+DECISION_DIRECTION_KINDS = frozenset({
+    "DIRECTION",
+    "PIVOT",
+    "REFRAME",
+    "DELETION",
+    "MERGE",
+    "STUCK",
+})
 # Sub-plan backlink: child plans declare their parent on a line near the top
 # matching either `> Parent: <relpath>` or `**Parent:** <relpath>`. The relpath
 # is taken verbatim and normalized to a string later.
@@ -315,7 +336,9 @@ def plan_meta(path: Path) -> dict:
     except OSError:
         text = ""
     stats = task_stats(text)
+    decision_log = parse_decision_log(text)
     investigations = discover_investigations(parent_dir, text)
+    evidence = discover_evidence(parent_dir)
     parent_rel = extract_parent_rel(text)
     return {
         "repo": repo,
@@ -329,7 +352,10 @@ def plan_meta(path: Path) -> dict:
         "siblings": siblings,
         "purpose": purpose,
         "task_stats": stats,
+        "brief": plan_brief(text, purpose, stats, decision_log),
+        "decision_log": decision_log,
         "investigations": investigations,
+        "evidence": evidence,
         "parent_rel": parent_rel,
     }
 
@@ -404,6 +430,206 @@ def task_stats(text: str) -> dict:
     }
 
 
+def section_body(text: str, heading: str) -> str:
+    """Return a markdown section body by heading text."""
+    lines = text.splitlines()
+    start_index = None
+    start_level = None
+    heading_re = re.compile(
+        rf"^[ \t]{{0,3}}(?P<marks>##{{1,6}})\s+{re.escape(heading)}\s*#*\s*$",
+        re.I,
+    )
+    for i, line in enumerate(lines):
+        m = heading_re.match(line)
+        if not m:
+            continue
+        start_index = i
+        start_level = len(m.group("marks"))
+        break
+    if start_index is None or start_level is None:
+        return ""
+    body_lines: list[str] = []
+    for line in lines[start_index + 1:]:
+        hm = MARKDOWN_HEADING_RE.match(line)
+        if hm and len(hm.group(1)) <= start_level:
+            break
+        body_lines.append(line)
+    return "\n".join(body_lines).strip()
+
+
+def clean_plan_brief_text(value: str, limit: int = 180) -> str:
+    """Compact markdown-ish plan text into a one-line UI summary."""
+    text = PLAN_BRIEF_LINK_RE.sub(r"\1", value or "")
+    text = PLAN_BRIEF_TAG_RE.sub("", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"[*_#>]+", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    if len(text) <= limit:
+        return text
+    clipped = text[: max(0, limit - 3)].rsplit(" ", 1)[0].strip()
+    return f"{clipped or text[: max(0, limit - 3)].strip()}..."
+
+
+def extract_focus_tasks(text: str, limit: int = 3) -> list[dict]:
+    body = section_body(text, "Tasks")
+    if not body:
+        return []
+    tasks: list[dict] = []
+    for m in PLAN_BRIEF_TASK_RE.finditer(body):
+        label = clean_plan_brief_text(m.group("body"), 170)
+        if not label:
+            continue
+        tasks.append({"status": m.group("status"), "label": label})
+    order = {"in_progress": 0, "in_review": 1, "blocked": 2, "pending": 3, "completed": 4}
+    tasks.sort(key=lambda item: order.get(item["status"], 9))
+    return tasks[:limit]
+
+
+def extract_latest_bullets(text: str, heading: str, limit: int = 1) -> list[str]:
+    body = section_body(text, heading)
+    if not body:
+        return []
+    bullets: list[str] = []
+    current: list[str] = []
+    for line in body.splitlines():
+        if PLAN_BRIEF_TASK_RE.match(line):
+            continue
+        m = PLAN_BRIEF_BULLET_RE.match(line)
+        if m:
+            if current:
+                bullets.append(clean_plan_brief_text(" ".join(current), 220))
+            current = [m.group("body")]
+        elif current and line.strip():
+            current.append(line.strip())
+    if current:
+        bullets.append(clean_plan_brief_text(" ".join(current), 220))
+    return [b for b in bullets if b][-limit:]
+
+
+def plan_state_label(stats: dict) -> str:
+    counts = stats.get("counts") or {}
+    total = int(stats.get("total") or 0)
+    completed = int(counts.get("completed") or 0)
+    if total and completed == total:
+        return "shipped"
+    if int(counts.get("blocked") or 0):
+        return "blocked"
+    if int(counts.get("in_review") or 0):
+        return "in review"
+    if int(counts.get("in_progress") or 0):
+        return "in flight"
+    if int(counts.get("pending") or 0):
+        return "queued"
+    return "no tasks"
+
+
+def plan_brief(text: str, purpose: str, stats: dict, decision_log: dict) -> dict:
+    counts = stats.get("counts") or {}
+    total = int(stats.get("total") or 0)
+    completed = int(counts.get("completed") or 0)
+    latest_decision = ""
+    recent_directions = decision_log.get("recent_directions") or []
+    if recent_directions:
+        latest = recent_directions[-1]
+        latest_decision = clean_plan_brief_text(latest.get("body") or latest.get("raw") or "", 220)
+    latest_progress = extract_latest_bullets(text, "Progress", 1)
+    return {
+        "summary": clean_plan_brief_text(purpose or "", 220),
+        "state": plan_state_label(stats),
+        "open_count": max(total - completed, 0),
+        "focus_tasks": extract_focus_tasks(text, 3),
+        "latest_progress": latest_progress[0] if latest_progress else "",
+        "latest_decision": latest_decision,
+    }
+
+
+def decision_log_body(text: str) -> tuple[str, int | None]:
+    """Return the Decision Log section body plus its 1-based heading line."""
+    lines = text.splitlines()
+    start_index = None
+    start_level = None
+    for i, line in enumerate(lines):
+        m = DECISION_LOG_HEADING_RE.match(line)
+        if not m:
+            continue
+        start_index = i
+        start_level = len(m.group("marks"))
+        break
+    if start_index is None or start_level is None:
+        return "", None
+
+    body_lines: list[str] = []
+    for line in lines[start_index + 1:]:
+        hm = MARKDOWN_HEADING_RE.match(line)
+        if hm and len(hm.group(1)) <= start_level:
+            break
+        body_lines.append(line)
+    return "\n".join(body_lines).strip(), start_index + 1
+
+
+def normalize_decision_entry(raw: str, index: int, line_number: int | None) -> dict:
+    """Parse one Decision Log bullet into UI-friendly fields."""
+    text = re.sub(r"\s+", " ", raw).strip()
+    kind = "NOTE"
+    m = DECISION_KIND_RE.match(text)
+    if m:
+        kind = m.group("kind").upper()
+        text = m.group("rest").strip()
+
+    date = ""
+    dm = DECISION_DATE_RE.match(text)
+    if dm:
+        date = dm.group("date").strip()
+        text = dm.group("rest").strip()
+
+    body = text or raw.strip()
+    return {
+        "index": index,
+        "line": line_number,
+        "kind": kind,
+        "date": date,
+        "body": body,
+        "raw": raw.strip(),
+        "is_direction": kind in DECISION_DIRECTION_KINDS,
+        "is_recent": False,
+    }
+
+
+def parse_decision_log(text: str) -> dict:
+    """Extract Decision Log bullets as first-class read-only plan metadata."""
+    body, heading_line = decision_log_body(text)
+    entries: list[dict] = []
+    if body:
+        current: list[str] = []
+        current_line: int | None = None
+        base_line = (heading_line or 0) + 1
+        for offset, line in enumerate(body.splitlines(), start=base_line):
+            m = DECISION_ENTRY_RE.match(line)
+            if m:
+                if current:
+                    entries.append(normalize_decision_entry(" ".join(current), len(entries), current_line))
+                current = [m.group("body").strip()]
+                current_line = offset
+                continue
+            if current and line.strip():
+                current.append(line.strip())
+        if current:
+            entries.append(normalize_decision_entry(" ".join(current), len(entries), current_line))
+
+    recent_indexes = {entry["index"] for entry in entries[-3:]}
+    for entry in entries:
+        entry["is_recent"] = entry["index"] in recent_indexes
+
+    recent_directions = [entry for entry in entries if entry["is_direction"]][-3:]
+    return {
+        "present": heading_line is not None,
+        "heading_line": heading_line,
+        "count": len(entries),
+        "entries": entries,
+        "recent_directions": recent_directions,
+    }
+
+
 def discover_investigations(plan_dir: Path, plan_text: str) -> list[str]:
     """Auto-discover .md files under plan_dir/investigations/ + explicit refs.
 
@@ -429,6 +655,51 @@ def discover_investigations(plan_dir: Path, plan_text: str) -> list[str]:
         if candidate.is_file() and candidate.suffix == ".md":
             found.add(str(candidate))
     return sorted(found)
+
+
+def evidence_label(path: Path) -> str:
+    stem = path.stem.strip()
+    if not stem:
+        return path.name
+    dated = re.match(r"^(\d{4}-\d{2}-\d{2})[-_](.+)$", stem)
+    if dated:
+        slug = re.sub(r"[-_]+", " ", dated.group(2)).strip()
+        return f"{dated.group(1)} - {slug}" if slug else dated.group(1)
+    return re.sub(r"[-_]+", " ", stem)
+
+
+def discover_evidence(plan_dir: Path) -> list[dict]:
+    """Discover markdown evidence files in chronological order.
+
+    Canonical evidence names are `YYYY-MM-DD-<slug>.md`, but real plans
+    accumulate hand-written receipts. Non-markdown files and nested directories
+    are ignored; oddly named markdown is still surfaced after dated evidence
+    with a readable label so the browser fails open for receipts, not the page.
+    """
+    evidence_dir = plan_dir / "evidence"
+    if not evidence_dir.is_dir():
+        return []
+    items: list[dict] = []
+    for path in evidence_dir.iterdir():
+        if not path.is_file() or path.suffix.lower() != ".md":
+            continue
+        st = path.stat()
+        date_match = EVIDENCE_DATE_RE.match(path.name)
+        items.append({
+            "path": str(path.resolve()),
+            "name": path.name,
+            "label": evidence_label(path),
+            "date": date_match.group(1) if date_match else "",
+            "mtime": st.st_mtime,
+            "size": st.st_size,
+            "is_dated": bool(date_match),
+        })
+    items.sort(key=lambda item: (
+        0 if item["is_dated"] else 1,
+        item["date"] or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(item["mtime"])),
+        item["name"].lower(),
+    ))
+    return items
 
 
 def extract_purpose(path: Path) -> str:
