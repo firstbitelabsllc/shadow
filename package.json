@@ -16,10 +16,21 @@
   "scripts": {
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "test": "python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc tests.test_browser_server tests.test_pr_body tests.test_drift_log tests.test_signpost tests.test_drift_smoke"
+    "test": "npm run test:js && npm run test:py",
+    "test:all": "npm run test:js && npm run test:py && npm run test:e2e",
+    "test:js": "vitest run",
+    "test:js:watch": "vitest",
+    "test:py": "python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc tests.test_browser_server tests.test_pr_body tests.test_drift_log tests.test_signpost tests.test_drift_smoke",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:visual:update": "playwright test --update-snapshots browser/tests/e2e/visual.spec.ts",
+    "playwright:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "happy-dom": "^15.7.0",
     "vitepress": "1.6.4",
+    "vitest": "^2.1.0",
     "vue": "3.5.13"
   }
 }
