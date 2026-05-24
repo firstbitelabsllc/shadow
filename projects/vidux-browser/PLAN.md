@@ -35,6 +35,9 @@ This is a **generic /vidux user tool**. Default schema = canonical /vidux only (
 - [Source: vidux SKILL.md] PLAN.md is canonical state; browser must respect that (read-only)
 - [Source: /auto Architecture row] Monolith-first → extend `~/Development/vidux/`, no new repo
 - [Source: /auto "create a new repo?" → No until Sept 2026] Lives inside `vidux/browser/`, not standalone
+- [Source: browser diff comment 2026-05-03] Annotate is no longer a small top-bar button; Leo called it "a large overall feature per page" that probably belongs as a floating action / page-level mode.
+- [Source: browser diff comment 2026-05-03] Read-aloud is also too large for the top bar and now lives in a sticky footer player. The annotation surface must coexist with that footer instead of competing for header chrome.
+- [Source: Leo request 2026-05-03] "two huge projects ... please plan yourself" after reviewing read-aloud and Annotate. Interpretation: keep reader transcript/player work in `projects/voxtral-reader-addon/PLAN.md`; plan annotation/app-action work here as vidux-browser core.
 
 ## Constraints
 
@@ -46,6 +49,8 @@ This is a **generic /vidux user tool**. Default schema = canonical /vidux only (
 - One stable URL Leo can bookmark
 - Survives PLAN.md schema drift (renders any markdown gracefully even if structure varies)
 - Comments are separate app data (`~/.vidux-browser/comments.jsonl` by default), never mutations to plan or artifact source files
+- Top bar stays status/navigation chrome. Large page-level features (read-aloud, annotate, future app modes) get dedicated footer/FAB/drawer surfaces with explicit z-index and mobile coexistence rules.
+- If React/Storybook enters vidux-browse, it starts as an isolated visual-state harness or mounted component island; no wholesale rewrite until the vanilla app proves the boundaries and the maintenance win is explicit.
 
 **NEVER:**
 - New repo (extend vidux core)
@@ -53,6 +58,7 @@ This is a **generic /vidux user tool**. Default schema = canonical /vidux only (
 - Editing plan files from the browser (read-only contract is load-bearing)
 - Treat LAN comments as plan writes, task claims, repo writes, or inbox mutation
 - Heavy framework (Leo asked for simple)
+- Re-hide Annotate inside the comments card or top bar. It is a page action with its own mode, composer, and review/readback surface.
 
 ## Decision table
 
@@ -145,6 +151,15 @@ Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made ar
 - [completed] VB-COM-4 App-wide annotation targets — make the root Annotate mode decorate and capture the whole vidux-browse shell (header, sidebar rows, pane header, tabs, comments, and rendered plan/artifact content) without requiring hardcoded artifact HTML hooks. [Done: 2026-04-29; verified `node --check browser/static/app.js`, `python3 -m unittest tests.test_browser_server`, `npm test`, `npm run docs:build`, and Playwright smoke on `127.0.0.1:7193` covering header, sidebar row, pane header, generic artifact span, artifact button, and textarea shortcut immunity] [Evidence: Leo 2026-04-29: "everything in browser should be annotatable with commments dont bake it into every html hardcoded it should be in the header as a core feature"]
 - [completed] VB-COM-5 Popover annotation composer — replace the always-visible comment form with an inline popover composer that opens at the selected annotation target, while keeping the comments list/readback separate and lightweight. [Done: 2026-04-29; verified `node --check browser/static/app.js`, `python3 -m unittest tests.test_browser_server`, `npm test`, `npm run docs:build`, `git diff --check`, and Playwright smoke on `127.0.0.1:7193` covering no baked form, target popover, submit, comment list refresh, Target jump, and shortcut guard inside the popover textarea] [Evidence: Leo 2026-04-29: "please work on a popover annotation instead of having a baked comment box up top this is a p0 feature"]
 
+Phase 6: Project B — annotation workbench + app-action layer (added 2026-05-03)
+- [pending] VB-ACT-1 App-action zoning contract — formalize the vidux-browse chrome map: header = status/filter/refresh only, bottom footer = read-aloud player, floating action layer = page modes like Annotate, right/inline drawer = mode detail. Add CSS variables / z-index constants and static tests so reader footer, annotation FAB, popovers, comments, and mobile layout do not collide. [Evidence: browser diff comments 2026-05-03; PR #87 V17.1 footer/FAB proof] [ETA: 0.75h]
+- [pending] VB-COM-6 Annotation FAB state machine — graduate the current floating Annotate button from relocated top-bar control to real page-mode entry. States: unavailable, idle, capture-active, target-picked, composer-open, saving, saved, error. Keep `Cmd/Ctrl+Shift+C`, Escape, outside-click, and textarea shortcut immunity. [Evidence: browser diff comment 2026-05-03; VB-COM-2/VB-COM-5 shipped behavior] [Depends: VB-ACT-1] [ETA: 1.5h]
+- [pending] VB-COM-7 Annotation drawer / review rail — add a compact page-level readback surface for comments independent of the inline composer. Must support current-view comments, target jump, empty state, comment count, and future filters without editing PLAN.md/artifact source. [Evidence: Leo 2026-05-03 "large overall feature per page"; named comments append-only contract] [Depends: VB-COM-6] [ETA: 2h]
+- [pending] VB-COM-8 Anchor markers and target map — render unobtrusive markers/counts for existing anchored comments on the current view, with hover/click-to-jump behavior and a way to hide markers while reading. Must work for plan markdown, generic artifact HTML, sidebar rows, and browser chrome targets already covered by VB-COM-4. [Evidence: VB-COM-4 app-wide target coverage; browser diff comment 2026-05-03] [Depends: VB-COM-7] [ETA: 2h]
+- [pending] VB-COM-9 Thread lifecycle event model investigation — decide whether reply/resolve belongs in v1. If yes, preserve append-only storage by writing lifecycle events (`reply`, `resolve`, `reopen`) instead of mutating prior comments. Investigation must map JSONL schema, UI affordances, server validation, and migration behavior before code. [Evidence: comments are app data and append-only; annotation is becoming an official workbench] [Depends: VB-COM-7] [ETA: 1h]
+- [pending] VB-COM-10 Annotation visual-state harness / Storybook spike — capture annotation states before a framework commitment: FAB idle/active/error, composer beside target, drawer open/closed, markers visible/hidden, mobile viewport, and coexistence with read-aloud footer. Outcome may be a lightweight static fixture or a React+Storybook island proposal; do not rewrite vidux-browse wholesale. [Evidence: Leo 2026-05-03 "we may need to start introducing react storybook this is getting official"] [Depends: VB-ACT-1] [ETA: 2h]
+- [pending] VB-COM-11 End-to-end annotation proof gate — Playwright/browser proof for the official annotation workbench: activate FAB, pick target, submit comment, see marker/drawer update, jump back to target, verify textarea shortcut immunity, verify read-aloud footer coexistence, and capture desktop + mobile screenshots. [Evidence: vidux Principle 5 visual proof; browser diff comments 2026-05-03] [Depends: VB-COM-8] [ETA: 1h]
+
 ## UI sketch (MVP)
 
 ```
@@ -185,6 +200,8 @@ Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made ar
 - [DIRECTION] [2026-04-29] Named LAN comments are app data, not plan/artifact writes. Reason: LAN viewers need annotation-style feedback without reopening cross-machine write holes.
 - [DIRECTION] [2026-04-29] Annotation comments should support precise anchors. Reason: Leo wants command-key capture mode that records the exact rendered place being commented on, while still keeping comments outside `PLAN.md`, `INBOX.md`, repo files, and artifact HTML.
 - [DIRECTION] [2026-04-29] Annotation composition should be contextual, not a persistent top-of-view form. Reason: comments are annotations on specific browser surfaces; the composer belongs next to the selected target.
+- [DIRECTION] [2026-05-03 two-project split] Annotate is now **Project B: annotation workbench + app-action layer** in this plan. The reader footer/transcript engine remains in `projects/voxtral-reader-addon/PLAN.md`. Shared browser chrome decisions land here because vidux-browser owns header/footer/FAB/drawer zoning.
+- [DIRECTION] [2026-05-03 app chrome] Topbar is not a feature dock. After PR #87 V17.1, header controls should stay status/navigation-level; large modes get footer/FAB/drawer surfaces with tests preventing regression.
 
 ## Open Questions
 
@@ -227,6 +244,7 @@ Phase 5: LAN-share + dark-mode (added 2026-04-26 — Moussey integration made ar
 - [2026-04-29] Started VB-COM-3 after Leo asked for root-level annotation control and text-box-safe shortcuts. Scope: topbar annotate button, comments card UX cleanup, and keyboard guard for editable targets. Next: verify JS/tests/docs and live-browser smoke. Blocker: none.
 - [2026-04-29] Completed VB-COM-4 on branch `codex/vidux-appwide-annotation-20260429`. Root Annotate now decorates the shared browser shell plus generic rendered HTML targets, not just markdown/body-specific selectors: header, sidebar rows, pane title/meta/progress/tabs, comments, arbitrary artifact spans/buttons, and plan/artifact content all capture anchor metadata from the same topbar mode. Verification: `node --check browser/static/app.js`, `python3 -m unittest tests.test_browser_server`, `npm test` (174 tests), `PATH=/Users/leokwan/Development/vidux/node_modules/.bin:$PATH npm run docs:build`, `git diff --check`, and Playwright smoke on `127.0.0.1:7193` with screenshot `/tmp/vidux-appwide-annotation-smoke.png`. Next: merge and restart live `:7191`. Blocker: none.
 - [2026-04-29] Completed VB-COM-5 on branch `codex/vidux-popover-annotations-20260429`. Removed the persistent comments form from the comments panel and replaced it with a fixed-position popover composer that opens beside the selected annotation target. The popover carries name/body fields, posts the same append-only `/api/comments` payload, refreshes the comment list, closes on submit/cancel/outside click/Esc, and keeps annotation shortcuts ignored while typing. Verification: `node --check browser/static/app.js`, `python3 -m unittest tests.test_browser_server`, `npm test` (174 tests), `PATH=/Users/leokwan/Development/vidux/node_modules/.bin:$PATH npm run docs:build`, `git diff --check`, and Playwright smoke on `127.0.0.1:7193` with screenshot `/tmp/vidux-popover-annotation-smoke.png`. Next: merge and restart live `:7191`. Blocker: none.
+- [2026-05-03] Planning cycle: Leo flagged Annotate as another huge page-level feature after PR #87 moved it into a FAB. Added Phase 6 Project B: app-action zoning, annotation FAB state machine, review drawer, anchor markers, lifecycle investigation, visual-state harness / Storybook spike, and e2e proof gate. No code shipped and no commit opened because `/vidux` prohibits plan-only PRs; these notes ride with the next code-bearing annotation/browser PR.
 
 Phase 6: Left-panel rework (added 2026-05-01 per Leo "the most annoying fucking thing" + "redo the whole left panel")
 - [completed] VB-LP-1 localStorage state shim (`vidux:ui-state` key — collapsed Set + recents array, RECENTS_MAX=5, JSON-encoded). saveUiState debounce-implicit (called only on toggle/track). [Done: 2026-05-01]
@@ -234,4 +252,3 @@ Phase 6: Left-panel rework (added 2026-05-01 per Leo "the most annoying fucking 
 - [completed] VB-LP-3 "← Parent: <name>" backlink in pane header for child plans — uses findParentPlan() to walk state.plans for any plan that lists this one in its children array; navigates in-app via selectPlan, href present for cmd-click open-in-new-tab. [Done: 2026-05-01]
 - [completed] VB-LP-4 Sort change: alphabetical-by-repo replaced with mtime descending. Repos sort by their freshest plan's mtime; within each repo, plans sort by mtime descending. The prior alphabetical default surfaced cold long-tail repos above active ones — the chronic friction Leo flagged. [Done: 2026-05-01]
 - [completed] VB-LP-5 Collapsible group headers — recents, artifacts, and each repo. Click h2 → toggleCollapsed(key) → renderSidebar(). State persists across reloads via localStorage. Caret visual (`▾` open, `▸` collapsed). [Done: 2026-05-01]
-
