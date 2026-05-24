@@ -371,6 +371,51 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(game_plans[0]["repo"], "strongyes-web")
         self.assertEqual(Path(game_plans[0]["path"]), canonical.resolve())
 
+    def test_plan_meta_includes_deterministic_brief_for_cockpit_view(self):
+        plan_path = self.write_plan("demo-repo", "projects/pm-cockpit", "PM Cockpit")
+        plan_path.write_text(
+            "# PM Cockpit\n\n"
+            "## Purpose\nVidux is a batteries-included ops cockpit for solo dev teams.\n\n"
+            "## Tasks\n"
+            "- [completed] Ship older browse foundation\n"
+            "- [in_progress] Add plan brief and steering box [ETA: 1h]\n"
+            "- [blocked] Cancel Linear billing [Depends: manual confirmation]\n"
+            "- [pending] Add GitHub mirror guardrail [Evidence: audit]\n\n"
+            "## Decision Log\n"
+            "- [DIRECTION] PLAN.md stays canonical while external boards are views.\n\n"
+            "## Progress\n"
+            "- [2026-05-23] Older progress note.\n"
+            "- [2026-05-24] Latest PM cockpit note.\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        plan = next(p for p in plans if p["rel"] == "demo-repo/projects/pm-cockpit/PLAN.md")
+        brief = plan["brief"]
+
+        self.assertEqual(
+            brief["summary"],
+            "Vidux is a batteries-included ops cockpit for solo dev teams.",
+        )
+        self.assertEqual(brief["state"], "active")
+        self.assertEqual(brief["open_count"], 3)
+        self.assertEqual(
+            [(task["status"], task["title"]) for task in brief["focus_tasks"]],
+            [
+                ("in_progress", "Add plan brief and steering box"),
+                ("blocked", "Cancel Linear billing"),
+                ("pending", "Add GitHub mirror guardrail"),
+            ],
+        )
+        self.assertEqual(
+            brief["latest_progress"],
+            ["2026-05-23 Older progress note.", "2026-05-24 Latest PM cockpit note."],
+        )
+        self.assertEqual(
+            brief["latest_decision"],
+            "DIRECTION PLAN.md stays canonical while external boards are views.",
+        )
+
 
 class BrowserSubplanRollupTests(unittest.TestCase):
     """Recursive parent→child task-stat rollup via `> Parent:` backlinks.
@@ -491,6 +536,22 @@ class BrowserSubplanRollupTests(unittest.TestCase):
 
 
 class BrowserReadaloudStaticContractTests(unittest.TestCase):
+    def test_plan_brief_and_steering_surface_contract(self):
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn("function renderPlanBrief", app)
+        self.assertIn('class="plan-brief"', app)
+        self.assertIn('id="plan-steering-form"', app)
+        self.assertIn('placeholder="Steer this plan"', app)
+        self.assertIn("/api/comments", app)
+        self.assertIn("target_path: plan.path", app)
+        self.assertIn("@pm ${raw}", app)
+        self.assertIn('kind: "plan-steering"', app)
+        self.assertIn(".plan-brief", style)
+        self.assertIn(".plan-steering-form", style)
+        self.assertIn(".comment-item.is-steering", style)
+
     def test_readaloud_visual_fixture_covers_player_states(self):
         fixture = (ROOT / "browser" / "static" / "readaloud-fixture.html").read_text(
             encoding="utf-8",

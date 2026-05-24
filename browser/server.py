@@ -113,8 +113,17 @@ JSON_CONTENT_TYPE = "application/json"
 # but does not drive the UI (tasks vary in difficulty, ETA is fiction).
 TASKS_SECTION_RE = re.compile(r"^##\s+Tasks\s*\n(.*?)(?=^##\s|\Z)", re.M | re.S)
 TASK_LINE_RE = re.compile(r"^-\s+\[(pending|in_progress|in_review|completed|blocked)\]", re.M)
+TASK_DETAIL_RE = re.compile(
+    r"^-\s+\[(pending|in_progress|in_review|completed|blocked)\]\s+(.+)$",
+    re.M,
+)
 ETA_RE = re.compile(r"\[ETA:\s*([\d.]+)h\]")
 INVESTIGATION_RE = re.compile(r"\[Investigation:\s*([^\]]+?)\]")
+PLAN_METADATA_TAG_RE = re.compile(
+    r"\s+\[(?:ETA|Evidence|Done|Depends|Investigation|Source|Owner|PR|Checks|"
+    r"Blocked|Agent|agent_id|spawns|P):[^\]]*\]",
+    re.I,
+)
 # Sub-plan backlink: child plans declare their parent on a line near the top
 # matching either `> Parent: <relpath>` or `**Parent:** <relpath>`. The relpath
 # is taken verbatim and normalized to a string later.
@@ -317,6 +326,7 @@ def plan_meta(path: Path) -> dict:
     stats = task_stats(text)
     investigations = discover_investigations(parent_dir, text)
     parent_rel = extract_parent_rel(text)
+    brief = plan_brief(text, purpose, stats)
     return {
         "repo": repo,
         "slug": slug,
@@ -329,6 +339,7 @@ def plan_meta(path: Path) -> dict:
         "siblings": siblings,
         "purpose": purpose,
         "task_stats": stats,
+        "brief": brief,
         "investigations": investigations,
         "parent_rel": parent_rel,
     }
@@ -401,6 +412,89 @@ def task_stats(text: str) -> dict:
         "eta_total": round(eta_total, 2),
         "eta_tagged": eta_tagged,
         "eta_eligible": eta_eligible,
+    }
+
+
+def section_body(text: str, heading: str) -> str:
+    m = re.search(
+        rf"^##\s+{re.escape(heading)}\s*\n(.*?)(?=^##\s|\Z)",
+        text,
+        re.M | re.S,
+    )
+    return m.group(1).strip() if m else ""
+
+
+def clean_plan_brief_text(raw: str, limit: int = 180) -> str:
+    text = raw.strip()
+    text = re.sub(r"^\[([0-9]{4}-[0-9]{2}-[0-9]{2})\]\s*", r"\1 ", text)
+    text = re.sub(r"\[([A-Z][A-Z0-9_-]{1,24})\]", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    while True:
+        cleaned = PLAN_METADATA_TAG_RE.sub("", text)
+        if cleaned == text:
+            break
+        text = cleaned
+    text = text.replace("**", "").replace("__", "").replace("`", "")
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    if len(text) <= limit:
+        return text
+    trimmed = text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:-")
+    return f"{trimmed or text[:limit].rstrip()}..."
+
+
+def extract_focus_tasks(text: str, limit: int = 4) -> list[dict[str, str]]:
+    tasks = [
+        {"status": match.group(1), "title": clean_plan_brief_text(match.group(2))}
+        for match in TASK_DETAIL_RE.finditer(section_body(text, "Tasks"))
+    ]
+    tasks = [task for task in tasks if task["title"]]
+    by_status = {status: [task for task in tasks if task["status"] == status] for status in TASK_STATUSES}
+    focus = (
+        by_status["in_progress"]
+        + by_status["in_review"]
+        + by_status["blocked"]
+        + by_status["pending"]
+    )
+    if not focus:
+        focus = by_status["completed"][-limit:]
+    return focus[:limit]
+
+
+def extract_latest_bullets(text: str, heading: str, limit: int = 2) -> list[str]:
+    body = section_body(text, heading)
+    bullets = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        raw_item = stripped[2:].strip()
+        if re.match(r"\[(?:pending|in_progress|in_review|completed|blocked)\]\s+", raw_item):
+            continue
+        item = clean_plan_brief_text(raw_item, limit=220)
+        if item:
+            bullets.append(item)
+    return bullets[-limit:]
+
+
+def plan_brief(text: str, purpose: str, stats: dict) -> dict:
+    counts = stats.get("counts") or {}
+    total = int(stats.get("total", 0))
+    done = int(counts.get("completed", 0))
+    open_count = total - done
+    if total and open_count == 0:
+        state = "shipped"
+    elif open_count:
+        state = "active"
+    else:
+        state = "empty"
+    return {
+        "summary": clean_plan_brief_text(purpose, limit=240),
+        "state": state,
+        "open_count": open_count,
+        "focus_tasks": extract_focus_tasks(text),
+        "latest_progress": extract_latest_bullets(text, "Progress"),
+        "latest_decision": (extract_latest_bullets(text, "Decision Log", limit=1) or [""])[-1],
     }
 
 

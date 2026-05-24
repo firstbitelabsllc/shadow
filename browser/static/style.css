@@ -916,6 +916,162 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .pane-header .meta .pill { vertical-align: middle; margin-right: 4px; }
 
+.plan-brief {
+  margin: 16px 0 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.75fr);
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--paper-2) 86%, var(--paper));
+}
+.plan-brief-main {
+  min-width: 0;
+}
+.plan-brief-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.plan-brief .label {
+  margin-bottom: 3px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.plan-brief h3 {
+  margin: 0;
+  max-width: 70ch;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.28;
+}
+.plan-brief-stats {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 148px;
+}
+.plan-brief-stats span {
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plan-brief-focus {
+  display: grid;
+  gap: 7px;
+}
+.plan-brief-task {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+.plan-brief-task span {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+.plan-brief-task strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.plan-brief-task-in_progress span { color: var(--task-in-progress); }
+.plan-brief-task-in_review span { color: var(--task-in-review); }
+.plan-brief-task-blocked span { color: var(--task-blocked); }
+.plan-brief-task-completed span { color: var(--task-completed); }
+.plan-brief-empty,
+.plan-brief-progress,
+.plan-brief-decision {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.plan-brief-progress {
+  margin-top: 10px;
+  display: grid;
+  gap: 4px;
+}
+.plan-brief-progress p,
+.plan-brief-decision {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.plan-brief-decision {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+}
+.plan-steering-form {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.plan-steering-form textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 9px 10px;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+}
+.plan-steering-form textarea:focus {
+  border-color: var(--accent);
+  background: var(--paper);
+}
+.plan-steering-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.plan-steering-actions span {
+  min-width: 64px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+}
+.plan-steering-actions button {
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--paper);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 7px 12px;
+}
+.plan-steering-actions button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
 /* ---- Pane progress block (the "moving target" headline) ----
  * Sits above the markdown body. Bar + counts legend + completion %.
  * Designed to make completion a visually celebrated, key-of-vidux concept. */
@@ -1239,6 +1395,10 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   background: var(--paper);
   padding: 9px 10px;
 }
+.comment-item.is-steering {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--rule));
+  background: color-mix(in srgb, var(--select) 36%, var(--paper));
+}
 .comment-meta {
   display: flex;
   align-items: baseline;
@@ -1521,6 +1681,15 @@ body.is-annotation-mode #filter {
   .sidebar.is-open { transform: translateX(0); }
   .pane { padding: 18px clamp(16px, 4vw, 28px) 126px; }
   .pane-header h2 { font-size: 20px; }
+  .plan-brief {
+    grid-template-columns: 1fr;
+  }
+  .plan-brief-head {
+    display: grid;
+  }
+  .plan-brief-stats {
+    justify-content: flex-start;
+  }
   .plan-row { padding: 10px 14px; }
   .markdown table { display: block; overflow-x: auto; }
   .markdown pre { font-size: 11.5px; }
@@ -1559,6 +1728,16 @@ body.is-annotation-mode #filter {
 @media (max-width: 540px) {
   .topbar h1 { font-size: 16px; }
   .topbar-meta { font-size: 11px; gap: 8px; }
+  .plan-brief {
+    padding: 12px;
+  }
+  .plan-brief h3 {
+    font-size: 16px;
+  }
+  .plan-brief-task {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
   .readaloud-player {
     left: 10px;
     right: 10px;
