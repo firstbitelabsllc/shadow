@@ -37,6 +37,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
@@ -101,6 +102,36 @@ CHECK_NAMES = (
     "description_format",
     "sync_deltas",
 )
+
+LINEAR_ENDPOINT = "https://api.linear.app/graphql"
+DEFAULT_LINEAR_TOKEN_FILE = Path.home() / ".config" / "vidux" / "linear.token"
+LINEAR_USER_AGENT = "vidux-linear-audit/1.0"
+HTTP_TIMEOUT = 30
+
+_NO_PROJECT_ISSUES_QUERY = """
+query {
+  issues(
+    filter: {
+      project: { null: true }
+      state: { type: { nin: ["completed", "canceled"] } }
+    }
+    first: 50
+    orderBy: updatedAt
+  ) {
+    nodes {
+      id
+      identifier
+      title
+      url
+      priority
+      updatedAt
+      state { name type }
+      team { key name }
+      project { name }
+    }
+  }
+}
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +680,54 @@ def _live_run_dry_sync(repo: str) -> dict:
         return {"results": []}
 
 
+def _load_linear_token() -> str:
+    token = os.environ.get("LINEAR_TOKEN")
+    if token:
+        return token.strip()
+    token_file = Path(
+        os.environ.get("VIDUX_LINEAR_TOKEN_FILE", str(DEFAULT_LINEAR_TOKEN_FILE))
+    ).expanduser()
+    if not token_file.exists():
+        raise RuntimeError(f"Linear token file not found: {token_file}")
+    token = token_file.read_text(encoding="utf-8").strip()
+    if not token:
+        raise RuntimeError(f"Linear token file is empty: {token_file}")
+    return token
+
+
+def _post_linear_graphql(query: str, variables: dict | None = None) -> dict:
+    body = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
+    req = urllib.request.Request(
+        LINEAR_ENDPOINT,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": _load_linear_token(),
+            "Content-Type": "application/json",
+            "User-Agent": LINEAR_USER_AGENT,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    if payload.get("errors"):
+        raise RuntimeError(f"Linear GraphQL errors: {payload['errors']}")
+    return payload.get("data") or {}
+
+
+def _live_fetch_no_project_issues() -> list[dict]:
+    try:
+        data = _post_linear_graphql(_NO_PROJECT_ISSUES_QUERY)
+        return list(((data.get("issues") or {}).get("nodes")) or [])
+    except Exception as exc:  # fail closed; a skipped Linear read is not green
+        return [
+            {
+                "identifier": "LINEAR-ACCESS",
+                "title": f"Linear no-project audit failed: {exc}",
+                "state": {"name": "access-alert", "type": "access-alert"},
+            }
+        ]
+
+
 def _network_unavailable_result(name: str) -> CheckResult:
     return _result(
         name,
@@ -689,8 +768,7 @@ def run_audit(
                 results.append(_network_unavailable_result(name))
                 continue
             if fetch is None:
-                results.append(_network_unavailable_result(name))
-                continue
+                fetch = _live_fetch_no_project_issues
             results.append(assess_no_project_issues(fetch_no_project_issues=fetch))
             continue
         if name == "label_taxonomy":
