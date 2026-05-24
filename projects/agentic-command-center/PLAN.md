@@ -212,7 +212,7 @@ Without these, every sibling re-implements the same provider abstraction badly.
 | screen-action-bridge | 4 | [pending] | — | 2026-05-22 |
 | autonomous-trigger-bus | 4 | active (PLAN.md scaffolded; config-driven trigger registry + 3 sink types; gates on brain-dispatcher B2 [shipped]) | — | 2026-05-22 |
 | moussey-gui-tabs | 5 | [pending] | — | 2026-05-22 |
-| agentic-coding-workbench | 2 | active (C1-C7 + C6d shipped; live local-smoke reaches build/start/Playwright and now reports target `resplit-web` smoke failure `#globe` missing) | Studio Codex | 2026-05-24 |
+| agentic-coding-workbench | 2 | active (C1-C7 + C6d + C11 shipped; live local-smoke reaches build/start/Playwright and now reports target `resplit-web` smoke failure `#globe` missing; `/coding` also inventories skills/MCP capability substrate) | Studio Codex | 2026-05-24 |
 
 **Phase 0 status (2026-05-22, END OF DAY):** ALL PROVIDERS SHIPPED end-to-end.
 - `claude` (B2, moussey `d123f14`) — verified live via smoke: `✓ Hi 4441ms $0.20`. Uses loopback HMAC → `/api/lan/trigger-claude` → buffered text. Subscription billing (`apiKeySource: "none"`).
@@ -248,6 +248,7 @@ Same atomic-claim protocol everywhere. Each sub-project has its own PLAN.md with
 
 - [2026-05-22] Mega-plan created. Phase 0 + Phase 1 unblocked. moussey-voice-agent already has its own active claims board. Phase 0 brain-dispatcher-shared and intent-router-shared still need their own PLAN.md files — next claimable work after this one is "write brain-dispatcher-shared/PLAN.md" since voice-agent V4 depends on it.
 - [2026-05-24] Added `agentic-coding-workbench` as the coding/test execution child plan for Leo's clarified MVP. Moussey now has `/coding` local-smoke lane mode: fetches `origin/main`, creates a `resplit-web` worktree, claims `PW_PORT`, runs isolated `npm ci --include=dev`, builds Next, starts Next, runs targeted Playwright, and tears down server/worktree/branch/lock. Verification passed in Moussey unit/build/UI proof; live run `5eae7ddc-5afd-496a-b355-c9159df0097f` reached Playwright on `resplit-web` `a7aa458`, surfaced `#globe` missing from landing smoke, and cleaned up with `teardownOk:true`.
+- [2026-05-24] Added coding capability substrate proof. Moussey `/coding` now shows a read-only catalog for active skill symlinks, owned skill source paths, and Codex MCP server config names/commands/env-key names only. Live proof found 8/8 target skills (`autobot-resplit-web`, `vidux`, `pilot-leo`, `amp`, `auto`, `captain`, `nia`, `moussey`) and 5 MCP servers (`everything`, `figma`, `nia`, `node_repl`, `openaiDeveloperDocs`); Playwright saw the panel and `nia-mcp-server` at `http://127.0.0.1:4321/coding` with zero console/page errors.
 - [2026-05-24] `agentic-text-chat` is done for the local MVP: `/chat` streams `/api/chat/ask`, persists/reopens sessions, injects recent context, handles attachments, produces LAN read-only share links, surfaces provider health/local reasoning, and stages chat turns into `/coding` handoffs. Verification in child plan: 80 brain-dispatcher/chat/coding tests, Moussey build, health, Vidux health, live local SSE, and Playwright screenshots.
 
 ## Where things live
