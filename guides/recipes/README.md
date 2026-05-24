@@ -31,6 +31,8 @@ Load a specific recipe on demand. Don't load them all upfront.
 - [proactive-surfacing.md](proactive-surfacing.md) — Scan for work before declaring idle; surface stale intents
 - [lightweight-first.md](lightweight-first.md) — Direct answers for simple creative asks
 - [visual-proof-required.md](visual-proof-required.md) — UI work needs a screenshot, not a green test
+- [the-rip-pattern.md](the-rip-pattern.md) — When a surface gets bloated, rip the default route and re-promote features only when they are actually requested
+- [lane-prompt-mirror.md](lane-prompt-mirror.md) — Mirror live `~/.vidux/lanes/<lane>/prompt.md` directives into the consuming repo so they survive rebuilds and cross-machine installs
 
 ## Adding a recipe
 
