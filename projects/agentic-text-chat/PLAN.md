@@ -74,9 +74,9 @@ It's also the right surface for tasks where voice is awkward — pasting a long 
 
 | Task | Status | Owner | Blocking | Depends on | Updated |
 |---|---|---|---|---|---|
-| T1: /chat page UI | [pending] | — | T3, T4 | nothing | 2026-05-22 |
-| T2: /api/chat/ask SSE route | [pending] | — | T3 | **brain-dispatcher B2 SHIPPED + verified live (`✓ Hi 4441ms $0.20`)** — just wire `dispatch({prompt, provider, metadata:{sourceModality:"text"}})` into the route + stream BrainChunks as SSE. Use intent-router `route()` to pick provider when UI doesn't override. | 2026-05-22 |
-| T3: Client SSE parser + bubble append | [pending] | — | GATE 1 | T1, T2 | 2026-05-22 |
+| T1: /chat page UI | [completed] | studio | T3, T4 | nothing | 2026-05-23 (shipped at moussey `fe70bc1` — 314-line app/chat/page.tsx with provider dropdown, prompt textarea, Cmd+Enter send, session ID. Verified rendering HTTP 200 on M1 + Studio.) |
+| T2: /api/chat/ask SSE route | [completed] | studio | T3 | — | 2026-05-23 (shipped at moussey `fe70bc1` — 154-line app/api/chat/ask/route.ts. Wires `dispatch({prompt, provider, metadata:{sourceModality:"text"}})` into SSE stream. Verified M1 end-to-end with `provider=claude` returns `meta → system_init → text → complete → [DONE]` in 1968ms, $0.15. Studio's verification ping cf781db7 confirmed Studio's /chat works after moussey `4820d05` Self-loopback fix.) |
+| T3: Client SSE parser + bubble append | [completed] | studio | GATE 1 | T1, T2 | 2026-05-23 (shipped at moussey `fe70bc1` — page.tsx uses fetch + getReader + TextDecoder + per-line `data:` prefix parser to append response chunks to UI.) |
 | T4: Markdown rendering | [pending] | — | (polish) | T3 | 2026-05-22 |
 | T5: Session JSONL persistence | [pending] | — | T6 | T2 | 2026-05-22 |
 | T6: Multi-turn continuation | [pending] | — | GATE 2 | T5 | 2026-05-22 |
