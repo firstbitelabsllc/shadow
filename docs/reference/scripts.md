@@ -14,7 +14,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 | `scripts/vidux-plan-gc.py` | Mechanical plan garbage collection for completed tasks, old investigations, and oversized inboxes. |
 | `scripts/vidux-plan-gc-cron.sh` | Scheduled wrapper around `vidux-plan-gc.py`. |
 | `scripts/vidux-inbox-sync.py` | Round-trip sync between `PLAN.md` state and external kanban adapters. |
-| `scripts/vidux-pr-body.py` | Builds the canonical ready-PR body with `Lane:`, `Plan task:`, `Resume point:`, optional `Linear: EVE-N`, and change bullets. |
+| `scripts/vidux-pr-body.py` | Builds the canonical ready-PR body with `Lane:`, `Plan task:`, `Resume point:`, and change bullets. |
 
 ## Checkpoint script contract
 
@@ -53,12 +53,6 @@ If you wire it into an app-level `afterTask` event, wrap it with the task-specif
 | `ledger-query.sh` | Fleet analysis queries over ledger data. |
 | `queue-jsonl.sh` | Experimental derived JSONL queue helpers alongside `PLAN.md`. |
 | `resolve-plan-store.sh` | Resolve the configured plan store path. |
-
-## One-off and migration helpers
-
-| Script | Purpose |
-|---|---|
-| `scripts/vidux-linear-reconcile.py` | One-shot reconcile for auto-promoted Linear tasks. Removes local `PLAN.md` task lines and `.external-state.json` mappings only when the remote Linear issue state is canceled (including duplicate-style canceled states). |
 
 ## How to navigate the directory
 

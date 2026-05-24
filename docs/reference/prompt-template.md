@@ -145,7 +145,7 @@ How to actually do the work. This block holds the heavy rules — worktree disci
 - `git add {specific files}` — never `-A`
 - Commit message: `{verb}({scope}): {what}`
 - After commit, `git branch --show-current` must match intended branch
-- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --resume "{resume point}" --change "{summary}" [--linear EVE-123] > /tmp/vidux-pr-body.md`
+- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
 - Open a ready PR with `gh pr create --base main --head "{branch}" --title "{title}" --body-file /tmp/vidux-pr-body.md`
 
 ### Merge (only when gate allows)
@@ -185,7 +185,7 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 ### Push authorization
 - Operational PRs: push branch + open ready-for-review by default; no approval needed.
 - Draft PRs: only for true WIP or a missing gate; flip ready as soon as the gate passes.
-- PR body must carry `Lane:`, `Plan task:`, `Resume point:`, and `Linear:` when the public Linear id is known.
+- PR body must carry `Lane:`, `Plan task:`, and `Resume point:`.
 - Direct-to-main or destructive operations (force-push, branch delete, `git reset --hard`): forbidden for this lane.
 ```
 
@@ -266,7 +266,7 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 - Fresh worktree per code change
 - Verify: lint + build + (UI) screenshot
 - Commit: `{verb}({scope}): {what}`; never `git add -A`
-- PR body: `scripts/vidux-pr-body.py` with Lane / Plan task / Resume point / optional Linear
+- PR body: `scripts/vidux-pr-body.py` with Lane / Plan task / Resume point
 - Merge: gh pr merge --squash --auto; only if CI green + push-age ≥1h
 - Delegate via native Mode A / Mode B subagents when the task is large enough
 

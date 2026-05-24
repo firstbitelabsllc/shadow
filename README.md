@@ -64,9 +64,8 @@ Then run `/vidux "your project description"` in Claude Code. The first cycle gat
 
 ## Security posture
 
-vidux runs with two credentials per user, both stored locally (NEVER in repo):
+vidux credentials are stored locally (NEVER in repo):
 
-- **Linear personal API key:** `~/.config/vidux/linear.token` (chmod 600). Used by `adapters/linear.py`.
 - **GitHub Personal Access Token:** `~/.config/vidux/gh-project.token` (chmod 600). Used by `adapters/gh_projects.py`.
 
 Both files are in the user's home directory, NOT in the repo. Commit hooks
@@ -222,7 +221,7 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
 | `commands/` | `/vidux` (single entry point — Part 1 inline, Part 2 + recipes on demand) |
 | `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
-| `scripts/` | Cycle, status, drift log, drift feedback cache, signposting, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-drift-log.py`, `vidux_signpost.py`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, `vidux-linear-reconcile.py`, and `vidux-test-all.sh` |
+| `scripts/` | Cycle, status, drift log, drift feedback cache, signposting, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-drift-log.py`, `vidux_signpost.py`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, and `vidux-test-all.sh` |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
