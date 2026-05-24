@@ -174,6 +174,57 @@ function toggleCollapsed(key) {
 }
 function isCollapsed(key) { return uiState.collapsed.has(key); }
 
+// ─── Theme toggle (light/dark) ──────────────────────────────────────────────
+// Three states: "system" (follow OS preference, default), "light", "dark".
+// Persists to localStorage so the choice survives reloads + new tabs. Applied
+// as a class on the html element (`:root.theme-light` / `:root.theme-dark`)
+// which beats both `:root` defaults and the `@media (prefers-color-scheme:
+// dark)` fallback by specificity. The fallback @media stays in style.css so
+// pre-JS paint also respects OS preference.
+const THEME_KEY = "vidux:theme";
+function getStoredTheme() {
+  try { return localStorage.getItem(THEME_KEY) || "system"; }
+  catch (e) { return "system"; }
+}
+function resolveTheme(stored) {
+  if (stored === "light" || stored === "dark") return stored;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+function applyTheme(stored) {
+  const resolved = resolveTheme(stored);
+  const root = document.documentElement;
+  root.classList.toggle("theme-dark", resolved === "dark");
+  root.classList.toggle("theme-light", resolved === "light");
+  // Update button label/aria — moon for light (clicks to dark), sun for dark.
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.textContent = resolved === "dark" ? "☀" : "☾";
+    const nextLabel = resolved === "dark" ? "Switch to light theme" : "Switch to dark theme";
+    btn.setAttribute("aria-label", nextLabel);
+    btn.setAttribute("title", nextLabel);
+  }
+}
+function cycleTheme() {
+  // 2-step toggle: light → dark → light. (System default is the unset state;
+  // explicit click takes ownership.) If you want a "back to system" affordance
+  // later, expand to a 3-state cycle.
+  const current = resolveTheme(getStoredTheme());
+  const next = current === "dark" ? "light" : "dark";
+  try { localStorage.setItem(THEME_KEY, next); }
+  catch (e) { /* localStorage full or disabled */ }
+  applyTheme(next);
+}
+// Apply on script load (before render) to avoid FOUC.
+applyTheme(getStoredTheme());
+// Track OS preference changes when no explicit override is set.
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (getStoredTheme() === "system") applyTheme("system");
+  });
+}
+
 // Find the plan that lists `child` in its children array. O(n) per lookup but
 // n=70 in practice, fine. Returns null if no parent indexed (parent_rel pointed
 // at a path the discovery sweep didn't pick up, or there's no parent_rel).
@@ -1349,6 +1400,11 @@ if (sidebarToggleBtn && sidebarEl) {
     if (sidebarEl.classList.contains("is-open")) sidebarEl.classList.remove("is-open");
   });
 }
+
+// Theme toggle wiring — applyTheme() was already called at script load; this
+// just hooks the button. The button's label updates via applyTheme().
+const themeToggleBtn = document.getElementById("theme-toggle");
+if (themeToggleBtn) themeToggleBtn.addEventListener("click", cycleTheme);
 
 document.addEventListener("click", e => {
   if (!state.annotation.capture) return;
