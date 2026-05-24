@@ -455,7 +455,22 @@ function renderSidebar() {
     `${state.plans.length} plans · ${groups.size} repos · ${state.artifacts.length} artifacts${fleetCompletionStat(state.plans)}`;
 
   if (filteredPlans.length === 0 && filteredArtifacts.length === 0) {
-    els.list.innerHTML = `<p class="muted" style="padding:12px">no matches</p>`;
+    // Differentiate "no filter match" from "nothing indexed at all". The
+    // latter is a first-run / wrong-VIDUX_DEV_ROOT signal that deserves
+    // a hint, not a one-word "no matches".
+    const noResults = state.plans.length === 0 && state.artifacts.length === 0;
+    els.list.innerHTML = noResults
+      ? `<div class="empty-state">
+          <p><strong>No plans or artifacts found.</strong></p>
+          <p>vidux-browse looks for <code>PLAN.md</code> files under the dev-root directory.</p>
+          <p>Try:</p>
+          <ul>
+            <li>Add a <code>PLAN.md</code> to a project inside your dev-root</li>
+            <li>Set <code>VIDUX_DEV_ROOT</code> or pass <code>--root &lt;path&gt;</code> when launching</li>
+            <li>Click <strong>↻ refresh</strong> after adding plans</li>
+          </ul>
+        </div>`
+      : `<p class="muted" style="padding:12px">no matches for "${escapeText(state.filter)}"</p>`;
     refreshAnnotationTargets();
     return;
   }

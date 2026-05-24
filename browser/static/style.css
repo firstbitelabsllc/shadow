@@ -802,6 +802,25 @@ body {
 }
 .pane-empty { padding-top: 80px; text-align: center; }
 .muted { color: var(--ink-2); }
+
+.empty-state {
+  padding: 24px 18px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.empty-state p { margin: 0 0 12px; }
+.empty-state strong { color: var(--ink); }
+.empty-state code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+.empty-state ul { margin: 0; padding-left: 18px; }
+.empty-state li { margin-bottom: 4px; }
 code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; border-radius: 2px; }
 
 .pane-header {
@@ -928,7 +947,15 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
  * palette, no glow / shadow). */
 
 .plan-row.is-child {
-  margin-left: calc(6px + var(--child-depth, 1) * 18px);
+  /* Depth-driven indent. min() with sidebar-relative cap prevents
+   * deep nesting from pushing content off the right edge on narrow
+   * sidebars (e.g., iPhone drawer or iPad 240px sidebar). The 18px
+   * step yields a clear visual hierarchy; capping at 30% of the
+   * sidebar leaves room for the row content. */
+  margin-left: min(
+    calc(6px + var(--child-depth, 1) * 18px),
+    30%
+  );
   border-left-color: var(--rule);
   padding-left: 14px;
   background-image: linear-gradient(180deg, var(--rule) 0, var(--rule) 100%);
