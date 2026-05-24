@@ -12,6 +12,35 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 
 ---
 
+## [2.26.12] - 2026-05-24
+
+Fixed `scripts/vidux-linear-audit.py` silent false-green when fleet repos
+span multiple GitHub orgs. `chore: align vidux first bite metadata`
+(`474eb1d`, 2026-05-23) flipped `DEFAULT_GH_OWNER` from `leojkwan` to
+`firstbitelabsllc`. Three of the five `DEFAULT_REPOS` (`strongyes-web`,
+`resplit-web`, `fcp-workflow`) still live under `leojkwan`, so
+`_live_fetch_open_prs` / `_live_fetch_open_drafts` started 404-ing
+silently against `firstbitelabsllc/<repo>` and the `except` returned
+`[]` — `pr_linear_links` and `draft_age` then false-greened for those
+repos.
+
+Replaced the single `_gh_owner()` default with a per-repo
+`REPO_OWNERS` mapping. Resolution order: `VIDUX_GH_OWNER` env var
+(global override, useful in CI) → `REPO_OWNERS` (per-repo) →
+`DEFAULT_GH_OWNER` (fallback for unknown repos). `--owner` CLI flag
+still works by writing the env override. Added 4 unit tests
+(`tests/test_linear_audit.py::GhOwnerResolutionTests`): mapped repos
+resolve to their owner; unknown repo falls back; env override beats
+mapping; empty-string env does not short-circuit (continues to
+mapping).
+
+Same silent-loss class as LI-12 (hallucinated flag), LI-14 (silent
+token fallback), LI-15 (parser silent-loss in `vidux-asc-bridge.py`)
+— fourth instance. Detected by `linear-health-watch` cycle 162
+on the 30-min sweep after PR #135 merged.
+
+---
+
 ## [2.26.11] - 2026-05-14
 
 Added `apple_asc` adapter — generic read-only feedback-tracker adapter

@@ -63,7 +63,18 @@ DEFAULT_REPOS = (
     "fcp-workflow",
 )
 
-# GitHub owner — override with VIDUX_GH_OWNER env or --owner flag.
+# GitHub owner — per-repo mapping wins; falls back to VIDUX_GH_OWNER env,
+# then DEFAULT_GH_OWNER for unknown repos. Multi-org fleets need this
+# because Leo's repos live under both `firstbitelabsllc` (vidux,
+# resplit-ios) and `leojkwan` (strongyes-web, resplit-web, fcp-workflow).
+REPO_OWNERS: dict[str, str] = {
+    "vidux": "firstbitelabsllc",
+    "resplit-ios": "firstbitelabsllc",
+    "strongyes-web": "leojkwan",
+    "resplit-web": "leojkwan",
+    "fcp-workflow": "leojkwan",
+}
+
 DEFAULT_GH_OWNER = "firstbitelabsllc"
 
 # LI-4 managed labels — the Linear adapter creates/maintains these.
@@ -545,8 +556,18 @@ def _dev_root() -> Path:
     ).expanduser()
 
 
-def _gh_owner() -> str:
-    return os.environ.get("VIDUX_GH_OWNER", DEFAULT_GH_OWNER)
+def _gh_owner(repo: str) -> str:
+    """Resolve GitHub owner for ``repo``.
+
+    Precedence: ``VIDUX_GH_OWNER`` env var (global override, useful in CI)
+    → ``REPO_OWNERS`` mapping (per-repo) → ``DEFAULT_GH_OWNER`` fallback
+    (unknown repos).
+    """
+
+    env = os.environ.get("VIDUX_GH_OWNER")
+    if env:
+        return env
+    return REPO_OWNERS.get(repo, DEFAULT_GH_OWNER)
 
 
 def _live_load_config(repo: str) -> dict | None:
@@ -565,7 +586,7 @@ def _live_fetch_open_prs(repo: str) -> list[dict]:
         "pr",
         "list",
         "--repo",
-        f"{_gh_owner()}/{repo}",
+        f"{_gh_owner(repo)}/{repo}",
         "--state",
         "open",
         "--json",
@@ -586,7 +607,7 @@ def _live_fetch_open_drafts(repo: str) -> list[dict]:
         "pr",
         "list",
         "--repo",
-        f"{_gh_owner()}/{repo}",
+        f"{_gh_owner(repo)}/{repo}",
         "--state",
         "open",
         "--draft",
@@ -747,7 +768,11 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p.add_argument(
         "--owner",
         default=None,
-        help="GitHub owner for PR lookups (default: $VIDUX_GH_OWNER or 'firstbitelabsllc')",
+        help=(
+            "GitHub owner override for PR lookups (sets $VIDUX_GH_OWNER for "
+            "the run). Without override, per-repo REPO_OWNERS mapping wins; "
+            "unknown repos fall back to DEFAULT_GH_OWNER ('firstbitelabsllc')."
+        ),
     )
     p.add_argument(
         "--no-network",
