@@ -7,7 +7,14 @@
 #
 set -euo pipefail
 
-VIDUX_ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"
+VIDUX_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "${VIDUX_SOURCE}" ]]; do
+  VIDUX_SOURCE_DIR="$(cd -P "$(dirname "${VIDUX_SOURCE}")" && pwd)"
+  VIDUX_SOURCE="$(readlink "${VIDUX_SOURCE}")"
+  [[ "${VIDUX_SOURCE}" != /* ]] && VIDUX_SOURCE="${VIDUX_SOURCE_DIR}/${VIDUX_SOURCE}"
+done
+VIDUX_BIN_DIR="$(cd -P "$(dirname "${VIDUX_SOURCE}")" && pwd)"
+VIDUX_ROOT="${VIDUX_ROOT:-$(cd "${VIDUX_BIN_DIR}/.." && pwd)}"
 
 print_top_help() {
   cat <<EOF
@@ -21,6 +28,7 @@ commands:
   status [args]     Print active-plan status across projects/*/PLAN.md
   init <slug>       Bootstrap a new plan's PLAN.md from template
   drift <PLAN.md>   Record planned-vs-actual drift and optional subplan updates
+  signpost <cmd>    Emit or summarize local Vidux feature signposts
   doctor            Diagnose local toolchain + auth
   build             Run docs:build + contract tests as release gate
   release           Bump VERSION + cut CHANGELOG + tag + push (dry-run by default)
@@ -102,11 +110,28 @@ vidux drift — record planned-vs-actual drift in a PLAN.md.
 
 usage: vidux drift <PLAN.md> --task <id> --planned <text> --actual <text> \\
   --why <text> --plan-update <text> --next <text> [--block-task <id>] \\
-  [--add-task <task>] [--subplan <path>]
+  [--add-task <task>] [--subplan <path>] [--prevention <text>] \\
+  [--cache <path>] [--telemetry <path>]
+
+usage: vidux drift suggest <PLAN.md> [--cache <path>] [--limit N]
 
 Writes a structured ## Drift Log entry, appends a Progress note, and can
 explicitly block a stale task, add follow-up tasks, or mirror the drift into
-named subplans. The helper never mutates unrelated tasks silently.
+named subplans. The helper never mutates unrelated tasks silently. Cache rows
+and signposts are local JSONL helpers for future-plan feedback and profiling.
+EOF
+      ;;
+    signpost)
+      cat <<EOF
+vidux signpost — emit or summarize local feature signposts.
+
+usage:
+  vidux signpost emit --feature <name> --action <name> [--status ok] [--meta k=v]
+  vidux signpost summary [--json]
+
+Signposts are local JSONL profiler events for helper calls, not product
+analytics. Use them to verify that vidux features ran, how often, and with
+what status/duration.
 EOF
       ;;
     doctor)
@@ -253,6 +278,9 @@ main() {
       ;;
     drift)
       exec python3 "${VIDUX_ROOT}/scripts/vidux-drift-log.py" "$@"
+      ;;
+    signpost)
+      exec python3 "${VIDUX_ROOT}/scripts/vidux_signpost.py" "$@"
       ;;
     doctor)
       exec bash "${VIDUX_ROOT}/scripts/vidux-doctor-cli.sh" "$@"
