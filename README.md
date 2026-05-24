@@ -178,7 +178,7 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 **Compound tasks link to an investigation file** — messy surfaces get a compound task pointing at `investigations/<slug>.md` with seven sections (Reporter Says / Evidence / Root Cause / Impact Map / Fix Spec / Tests / Gate). The investigation IS the work until the Fix Spec is filled; then the fix and the investigation ship together as one commit. One parent plan, one child investigation per compound task — no deeper nesting.
 
-**Append-only logs** — the `## Progress` section, optional `## Drift Log`, and each lane's `memory.md` are append-only. Corrections go in new entries, not rewrites. Use `vidux drift` when implementation diverges from the plan so planned, actual, why, next, and subplan mirrors stay durable. Some overlays also keep a separate `PROGRESS.md`, but core vidux does not require it.
+**Append-only logs** — the `## Progress` section, optional `## Drift Log`, and each lane's `memory.md` are append-only. Corrections go in new entries, not rewrites. Use `vidux drift` when implementation diverges from the plan so planned, actual, why, plan update, next, prevention hints, feedback-cache rows, and subplan mirrors stay durable. Some overlays also keep a separate `PROGRESS.md`, but core vidux does not require it.
 
 **3x stuck rule** — same task in 3+ consecutive progress entries while in-progress = auto-exit. Brake, not kill.
 
@@ -222,12 +222,12 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
 | `commands/` | `/vidux` (single entry point — Part 1 inline, Part 2 + recipes on demand) |
 | `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
-| `scripts/` | Cycle, status, drift log, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-drift-log.py`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, `vidux-linear-reconcile.py`, and `vidux-test-all.sh` |
+| `scripts/` | Cycle, status, drift log, drift feedback cache, signposting, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-drift-log.py`, `vidux_signpost.py`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, `vidux-linear-reconcile.py`, and `vidux-test-all.sh` |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
 | `tests/` | Contract and lifecycle tests (scripts, commands, doctrine, worktree lifecycle, SKILL.md structure) |
-| `examples/` | Worked examples (bug fix lifecycle, fleet reference) |
+| `examples/` | Worked examples (bug fix lifecycle, fleet reference, drift feedback cache smoke, signpost telemetry smoke) |
 
 ## Ecosystem
 

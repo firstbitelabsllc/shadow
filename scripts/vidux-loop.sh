@@ -84,7 +84,7 @@ fi
 EXIT_CRITERIA_MET=true; EXIT_CRITERIA_PENDING=0
 EC_LINE_START=0; EC_LINE_END=0
 if grep -q '^## Exit Criteria' "$PLAN" 2>/dev/null; then
-  EC_LINE_START="$(grep -n '^## Exit Criteria' "$PLAN" | head -1 | cut -d: -f1 || true)"
+  EC_LINE_START="$(awk '/^## Exit Criteria/{print NR; exit}' "$PLAN")"
   # End = next ## heading after EC, or EOF+1
   EC_LINE_END="$(awk -v start="$EC_LINE_START" 'NR>start && /^## /{print NR; exit}' "$PLAN")"
   [ -z "$EC_LINE_END" ] && EC_LINE_END="$(( $(wc -l < "$PLAN" | tr -d ' ') + 1 ))"
@@ -108,6 +108,33 @@ _exclude_ec_lines() {
   else
     cat
   fi
+}
+
+_first_in_progress_task_line() {
+  awk -v ec_start="$EC_LINE_START" -v ec_end="$EC_LINE_END" '
+    ec_start > 0 && NR >= ec_start && NR < ec_end { next }
+    /^- \[in_progress\] / { print NR ":" $0; exit }
+  ' "$PLAN"
+}
+
+_first_pending_task_line() {
+  awk -v ec_start="$EC_LINE_START" -v ec_end="$EC_LINE_END" '
+    ec_start > 0 && NR >= ec_start && NR < ec_end { next }
+    /^- (\[ \]|\[pending\]) / { print NR ":" $0; exit }
+  ' "$PLAN"
+}
+
+_progress_entries_head() {
+  local limit="${1:-3}"
+  awk -v limit="$limit" '
+    /^## Progress/ { found = 1; next }
+    found && /^## / { exit }
+    found && /^- \[/ {
+      print
+      count += 1
+      if (count >= limit) { exit }
+    }
+  ' "$PLAN"
 }
 
 # --- hot/cold window (read-only context budget awareness) ----------------- #
@@ -165,8 +192,7 @@ if [ -f "$CONFIG" ]; then
   CB_THRESHOLD=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('backpressure',{}).get('circuit_breaker_threshold',3))" "$CONFIG" 2>/dev/null || echo 3)
 fi
 if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
-  _cb_prog_block="$(awk '/^## Progress/{found=1; next} found && /^## /{found=0} found{print}' "$PLAN")"
-  _recent_progress=$(printf '%s\n' "$_cb_prog_block" | { grep -E '^\- \[' || true; } | head -"$CB_THRESHOLD")
+  _recent_progress="$(_progress_entries_head "$CB_THRESHOLD")"
   _shipping_signals=0
   while IFS= read -r line; do
     if echo "$line" | grep -qiE 'shipped|commit|fixed|merged|created|built|added|wrote|pushed|branch:|origin/codex/|cherry-picked|worktree'; then
@@ -185,8 +211,7 @@ fi
 # Auto-pause: if most recent 3 Progress entries are unproductive, recommend pausing.
 # Uses head -3 (not tail -3) because Progress entries are newest-first.
 if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
-  _AP_PROG_BLOCK="$(awk '/^## Progress/{found=1; next} found && /^## /{found=0} found{print}' "$PLAN")"
-  _AP_LAST_3="$(printf '%s\n' "$_AP_PROG_BLOCK" | { grep -E '^\- \[' || true; } | head -3)"
+  _AP_LAST_3="$(_progress_entries_head 3)"
   if [ -n "$_AP_LAST_3" ]; then
     _AP_UNPRODUCTIVE=0; _AP_TOTAL=0
     while IFS= read -r pline; do
@@ -209,7 +234,7 @@ fi
 
 # --- read: find first actionable task ------------------------------------- #
 # Priority 1: resume an in_progress task (session may have died mid-task)
-TASK_LINE="$(grep -nE '^\- \[in_progress\] ' "$PLAN" | _exclude_ec_lines | head -1 || true)"
+TASK_LINE="$(_first_in_progress_task_line)"
 IS_RESUMING=false
 if [ -n "$TASK_LINE" ]; then
   IS_RESUMING=true
@@ -217,7 +242,7 @@ fi
 
 # Priority 2: first pending task (v2 FSM or v1 checkbox)
 if [ -z "$TASK_LINE" ]; then
-  TASK_LINE="$(grep -nE '^\- (\[ \]|\[pending\]) ' "$PLAN" | _exclude_ec_lines | head -1 || true)"
+  TASK_LINE="$(_first_pending_task_line)"
 fi
 
 if [ -z "$TASK_LINE" ]; then
@@ -379,10 +404,9 @@ if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
 
   if [ "$_BD_IS_BLOCKED" = true ]; then
     _BD_KEY="${BLOCKER_NOTE:-$TASK_DESC}"
-    _BD_KEY="$(printf '%s' "$_BD_KEY" | cut -c1-40)"
+      _BD_KEY="$(printf '%s' "$_BD_KEY" | cut -c1-40)"
     if [ -n "$_BD_KEY" ]; then
-      _BD_PROG_BLOCK="$(awk '/^## Progress/{found=1; next} found && /^## /{found=0} found{print}' "$PLAN")"
-      _BD_LAST_3="$(printf '%s\n' "$_BD_PROG_BLOCK" | { grep -E '^\- \[' || true; } | head -3)"
+      _BD_LAST_3="$(_progress_entries_head 3)"
       _BD_HITS=0
       while IFS= read -r _bd_line; do
         [ -z "$_bd_line" ] && continue

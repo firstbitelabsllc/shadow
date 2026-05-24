@@ -96,7 +96,7 @@ Agent self-corrects: Updates PLAN.md with new task, THEN edits the test file.
 
 **Trigger:** After any `Write` or `Edit` tool call completes.
 
-**What it does:** Reminds the agent to check whether the change it just made aligns with the task description in PLAN.md. If the actual change diverged from what the plan specified, the agent should run `vidux drift` or `scripts/vidux-drift-log.py` to update the plan (UNIFY step from LOOP.md).
+**What it does:** Reminds the agent to check whether the change it just made aligns with the task description in PLAN.md. If the actual change diverged from what the plan specified, the agent should run `vidux drift` or `scripts/vidux-drift-log.py` to update the plan and include any prevention hint that would have stopped this drift earlier (UNIFY step from LOOP.md).
 
 ### Configuration
 
@@ -109,7 +109,7 @@ Agent self-corrects: Updates PLAN.md with new task, THEN edits the test file.
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX DRIFT CHECK: You just modified a file. Reconcile planned vs actual:\n\n1. What did the task in PLAN.md say you would do?\n2. What did you actually change?\n3. If they diverge: run `vidux drift` / `scripts/vidux-drift-log.py` to record planned, actual, why, plan update, next, and any subplans.\n\nDo NOT silently drift from the plan. The plan must always reflect the true state of the work."
+            "prompt": "VIDUX DRIFT CHECK: You just modified a file. Reconcile planned vs actual:\n\n1. What did the task in PLAN.md say you would do?\n2. What did you actually change?\n3. If they diverge: run `vidux drift` / `scripts/vidux-drift-log.py` to record planned, actual, why, plan update, next, prevention hints, and any subplans.\n\nDo NOT silently drift from the plan. The plan must always reflect the true state of the work."
           }
         ]
       }
@@ -126,7 +126,7 @@ After every `Write` or `Edit`, the agent sees:
 >
 > 1. What did the task in PLAN.md say you would do?
 > 2. What did you actually change?
-> 3. If they diverge: run `vidux drift` / `scripts/vidux-drift-log.py` to record planned, actual, why, plan update, next, and any subplans.
+> 3. If they diverge: run `vidux drift` / `scripts/vidux-drift-log.py` to record planned, actual, why, plan update, next, prevention hints, and any subplans.
 
 ### Why this matters
 
@@ -321,7 +321,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX DRIFT CHECK: You just modified a file. Reconcile planned vs actual:\n\n1. What did the task in PLAN.md say you would do?\n2. What did you actually change?\n3. If they diverge: run `vidux drift` / `scripts/vidux-drift-log.py` to record planned, actual, why, plan update, next, and any subplans.\n\nDo NOT silently drift from the plan. The plan must always reflect the true state of the work."
+            "prompt": "VIDUX DRIFT CHECK: You just modified a file. Reconcile planned vs actual:\n\n1. What did the task in PLAN.md say you would do?\n2. What did you actually change?\n3. If they diverge: run `vidux drift` / `scripts/vidux-drift-log.py` to record planned, actual, why, plan update, next, prevention hints, and any subplans.\n\nDo NOT silently drift from the plan. The plan must always reflect the true state of the work."
           }
         ]
       }
