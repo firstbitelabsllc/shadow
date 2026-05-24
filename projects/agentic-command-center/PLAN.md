@@ -131,13 +131,14 @@ Each row is its own project with its own PLAN.md. They all import the shared `br
 | 1 | **brain-dispatcher-shared** | [pending] | The 3-provider AsyncIterable abstraction — claude/codex/local. Used by every other sub-project. Foundational. | needs creation |
 | 2 | **intent-router-shared** | [pending] | Classifier that maps free-text intent → required skills/MCP → brain pick → Mac pick. | needs creation |
 | 3 | **moussey-voice-agent** | active | Voice in/out — mic → Whisper → brain → Voxtral → audio. Push-to-talk first, barge-in next. | `~/Development/vidux/projects/moussey-voice-agent/PLAN.md` |
-| 4 | **agentic-text-chat** | [pending] | Browser text chat at `:4321/chat` — same brain dispatcher, no audio I/O. Fastest UI to ship. | needs creation |
+| 4 | **agentic-text-chat** | [pending] | Browser text chat at `:4321/chat` — same brain dispatcher, no audio I/O. Fastest UI to ship. **Absorbs the mobile-operator UX layer** (formerly `moussey-mobile-operator/PLAN.md`; merged 2026-05-24 per M-R3 decision) as Phases 3-8 + Phase R rework gate. | `~/Development/vidux/projects/agentic-text-chat/PLAN.md` [NOTE: post-M-R3b execution, mobile-operator content lives here] |
 | 5 | **vidux-browse-action** | [pending] | Turn vidux-browse anchored comments into agent triggers. "Pick up this comment and act on it." | needs creation |
 | 6 | **imessage-bridge** | [pending] | iMessage to a known contact routes to agent. Reply via iMessage MCP (read-only currently — write needs investigation). | needs creation |
 | 7 | **gmail-bridge** | [pending] | Forward an email to a known address → agent reads + drafts reply with full context, leaves in Drafts for review. | needs creation |
 | 8 | **screen-action-bridge** | [pending] | vidux-browse annotation + computer-use MCP → agent takes screen action ("click this button", "fill this form"). | needs creation |
 | 9 | **autonomous-trigger-bus** | [pending] | LaunchAgent file-drop / cron-tick / Sentry-webhook routes through the same dispatcher. Already partial: moussey-ping-watch cron. | needs creation |
 | 10 | **moussey-gui-tabs** | [pending] | Unified moussey GUI: tabs for /triggers /voice /chat /annotations /imessage /gmail /sessions /audit. Tiles per surface on the home grid. | needs creation |
+| 11 | **agentic-coding-workbench** | active | Local coding/test harness execution from Moussey: worktree/port-isolated Resplit Web Autobot lanes first, then Codex/Claude/local-agent lanes. | `~/Development/vidux/projects/agentic-coding-workbench/PLAN.md` |
 
 **Already shipped (do not rebuild):**
 
@@ -165,6 +166,7 @@ Without these, every sibling re-implements the same provider abstraction badly.
 ### Phase 2 — Fastest UI to ship (do this in parallel with Phase 1 if Codex has bandwidth)
 
 - Sub-project #4: agentic-text-chat (text → brain → text). Same dispatcher as voice but no audio I/O complexity. Useful to validate brain abstraction works without the STT/TTS bottleneck.
+- Sub-project #11: agentic-coding-workbench (text/chat/plan → isolated coding lane). Useful to validate Leo's actual dev loop: run build/test/autobot locally, stream output, then route the next action to Codex/Claude/local models.
 
 ### Phase 3 — Existing-surface integrations
 
@@ -194,6 +196,7 @@ Without these, every sibling re-implements the same provider abstraction badly.
 - [HARD-NEVER] No always-on remote-mic listening with `bypassPermissions` Claude active. Hold-to-talk OR explicit wake-word with visible state ONLY.
 - [HARD-NEVER] No cross-Mac write endpoints beyond `/api/lan/trigger-claude` (which is a sanctioned exception — spawns a LOCAL Claude session on receiver, receiver retains authority).
 - [HARD-NEVER] No real-money / production-credential / force-push actions via voice/text/iMessage/Gmail input. Same allowlist that gates trigger-claude.
+- [DIRECTION] [2026-05-24] Coding/test harness control is part of the command-center MVP, not a later polish layer. Reason: Leo clarified the #1 goal is to run `/autobot-resplit-web` and grow toward multiplexed coding agents/IDE controls from Moussey.
 
 ## Claims board (mega-level)
 
@@ -202,13 +205,14 @@ Without these, every sibling re-implements the same provider abstraction badly.
 | brain-dispatcher-shared | 0 | **DONE** (B1/B2/B3/B4/B5/B6/B7 [completed]; only B2.0 stream-json refactor remains for true mid-stream text) | claude | 2026-05-22 |
 | intent-router-shared | 0 | **DONE for v1** (R1/R2/R3 [completed]; R4-R7 deferred to v2/v3 heuristics + LLM classifier — not blocking any downstream sub-project) | claude | 2026-05-22 |
 | moussey-voice-agent | 1 | active (has own claims board; V4 unblocked by B1+R1) | mixed | 2026-05-22 |
-| agentic-text-chat | 2 | active (PLAN.md scaffolded; T1 + T2 claimable in parallel) | — | 2026-05-22 |
+| agentic-text-chat | 2 | **DONE for MVP** (T1-T12 completed: `/chat`, `/api/chat/ask`, sessions, share, local reasoning, coding handoff; future work starts from new rows) | Codex | 2026-05-24 |
 | vidux-browse-action | 3 | active (PLAN.md scaffolded; VA1+VA3 claimable in parallel) | — | 2026-05-22 |
 | imessage-bridge | 3 | active (PLAN.md scaffolded; V1 read-only with GUI, V2 write path = research first) | — | 2026-05-22 |
 | gmail-bridge | 3 | active (PLAN.md scaffolded; label-triggered, always-draft-never-send) | — | 2026-05-22 |
 | screen-action-bridge | 4 | [pending] | — | 2026-05-22 |
 | autonomous-trigger-bus | 4 | active (PLAN.md scaffolded; config-driven trigger registry + 3 sink types; gates on brain-dispatcher B2 [shipped]) | — | 2026-05-22 |
 | moussey-gui-tabs | 5 | [pending] | — | 2026-05-22 |
+| agentic-coding-workbench | 2 | active (C1-C7 + C6d shipped; live local-smoke reaches build/start/Playwright and now reports target `resplit-web` smoke failure `#globe` missing) | Studio Codex | 2026-05-24 |
 
 **Phase 0 status (2026-05-22, END OF DAY):** ALL PROVIDERS SHIPPED end-to-end.
 - `claude` (B2, moussey `d123f14`) — verified live via smoke: `✓ Hi 4441ms $0.20`. Uses loopback HMAC → `/api/lan/trigger-claude` → buffered text. Subscription billing (`apiKeySource: "none"`).
@@ -243,6 +247,8 @@ Same atomic-claim protocol everywhere. Each sub-project has its own PLAN.md with
 ## Progress
 
 - [2026-05-22] Mega-plan created. Phase 0 + Phase 1 unblocked. moussey-voice-agent already has its own active claims board. Phase 0 brain-dispatcher-shared and intent-router-shared still need their own PLAN.md files — next claimable work after this one is "write brain-dispatcher-shared/PLAN.md" since voice-agent V4 depends on it.
+- [2026-05-24] Added `agentic-coding-workbench` as the coding/test execution child plan for Leo's clarified MVP. Moussey now has `/coding` local-smoke lane mode: fetches `origin/main`, creates a `resplit-web` worktree, claims `PW_PORT`, runs isolated `npm ci --include=dev`, builds Next, starts Next, runs targeted Playwright, and tears down server/worktree/branch/lock. Verification passed in Moussey unit/build/UI proof; live run `5eae7ddc-5afd-496a-b355-c9159df0097f` reached Playwright on `resplit-web` `a7aa458`, surfaced `#globe` missing from landing smoke, and cleaned up with `teardownOk:true`.
+- [2026-05-24] `agentic-text-chat` is done for the local MVP: `/chat` streams `/api/chat/ask`, persists/reopens sessions, injects recent context, handles attachments, produces LAN read-only share links, surfaces provider health/local reasoning, and stages chat turns into `/coding` handoffs. Verification in child plan: 80 brain-dispatcher/chat/coding tests, Moussey build, health, Vidux health, live local SSE, and Playwright screenshots.
 
 ## Where things live
 

@@ -52,6 +52,10 @@ projects/*
 # browser chat at :4321/chat sharing the same brain-dispatcher + intent-router.
 # Fastest UI to ship; validates Phase 0 abstraction via a second consumer.
 !projects/agentic-text-chat/
+# Exception: agentic-coding-workbench is the Phase 2 coding/test harness child
+# for the command-center MVP. It owns Moussey /coding lane execution,
+# worktree/port isolation, and chat-to-coding handoff acceptance.
+!projects/agentic-coding-workbench/
 # Exception: vidux-browse-action is the Phase 3 modality — turns anchored
 # vidux-browse comments into agent triggers via @agent/@claude/@codex prefixes.
 # Loopback hook from :7191 to moussey :4321; replies as child comment threads.

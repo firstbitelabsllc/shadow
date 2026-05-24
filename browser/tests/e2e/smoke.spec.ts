@@ -96,3 +96,114 @@ test.describe('keyboard navigation', () => {
     expect(homeAria).toBe(firstAria);
   });
 });
+
+test.describe('auto-refresh polling', () => {
+  test('polls comments, task stats, and artifact content without losing selection', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as any).__VIDUX_AUTO_REFRESH_INTERVAL_MS = 200;
+    });
+
+    let completedTasks = 0;
+    let artifactBody = '<!doctype html><html><body><main>artifact version A</main></body></html>';
+    let comments: Array<Record<string, unknown>> = [];
+
+    const planPath = '/tmp/vidux-auto-refresh/PLAN.md';
+    const inboxPath = '/tmp/vidux-auto-refresh/INBOX.md';
+    const artifactPath = '/tmp/vidux-auto-refresh/artifact.html';
+
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [{
+            repo: 'fixture',
+            slug: 'auto-refresh',
+            rel: 'fixture/auto-refresh/PLAN.md',
+            path: planPath,
+            status: 'active',
+            age_days: 0,
+            size: 512,
+            siblings: ['INBOX.md'],
+            investigations: [],
+            children: [],
+            task_stats: {
+              total: 2,
+              counts: { completed: completedTasks, pending: 2 - completedTasks },
+            },
+            aggregate_stats: {
+              total: 2,
+              descendants: 0,
+              counts: { completed: completedTasks, pending: 2 - completedTasks },
+            },
+          }],
+        }),
+      });
+    });
+
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          artifacts: [{
+            slug: 'live-artifact',
+            title: 'Live Artifact',
+            path: artifactPath,
+            age_days: 0,
+            size: artifactBody.length,
+          }],
+          artifacts_dir: '/tmp/vidux-auto-refresh',
+        }),
+      });
+    });
+
+    await page.route('**/api/file**', async route => {
+      const url = new URL(route.request().url());
+      const target = url.searchParams.get('path');
+      if (target === artifactPath) {
+        await route.fulfill({ contentType: 'text/html', body: artifactBody });
+        return;
+      }
+      if (target === inboxPath) {
+        await route.fulfill({ contentType: 'text/plain', body: '# Inbox\n\nAuto-refresh tab fixture.' });
+        return;
+      }
+      await route.fulfill({
+        contentType: 'text/plain',
+        body: `# Auto Refresh\n\n## Tasks\n- [completed] Done ${completedTasks}\n- [pending] Pending\n`,
+      });
+    });
+
+    await page.route('**/api/comments**', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ comments }),
+      });
+    });
+
+    await page.goto('/?plan=fixture%2Fauto-refresh%2FPLAN.md&tab=INBOX.md');
+    await expect(page.locator('.pane-tabs button.is-active')).toHaveText('INBOX.md');
+    await expect(page.locator('.pane-progress .ratio')).toHaveText('0 of 2 tasks');
+
+    completedTasks = 1;
+    comments = [{
+      id: 'c1',
+      author: 'Test',
+      body: 'poll-loaded comment',
+      created_at: '2026-05-24T12:00:00Z',
+      anchor: { label: 'Inbox heading' },
+    }];
+
+    await expect(page.locator('.pane-progress .ratio')).toHaveText('1 of 2 tasks', { timeout: 3_000 });
+    await expect(page.locator('#comment-count')).toHaveText('1 comment');
+    await expect(page.locator('#comment-list')).toContainText('poll-loaded comment');
+    await expect(page.locator('.pane-tabs button.is-active')).toHaveText('INBOX.md');
+
+    await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
+    await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version A');
+
+    artifactBody = '<!doctype html><html><body><main>artifact version B</main></body></html>';
+
+    await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version B', { timeout: 3_000 });
+    await expect(page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first()).toBeVisible();
+  });
+});

@@ -14,6 +14,16 @@ const state = {
 };
 let activePopoverTarget = null;
 
+const DECISION_LOG_TAB = "Decision Log";
+const DEFAULT_AUTO_REFRESH_INTERVAL_MS = 5000;
+const AUTO_REFRESH_INTERVAL_MS = (() => {
+  const configured = Number(window.__VIDUX_AUTO_REFRESH_INTERVAL_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_AUTO_REFRESH_INTERVAL_MS;
+})();
+let autoRefreshInFlight = false;
+
 // ─── URL deep-linking ─────────────────────────────────────────────────────
 // Selection is reflected in the URL via query params so any view is bookmarkable
 // and back/forward navigation works:
@@ -21,6 +31,7 @@ let activePopoverTarget = null;
 //   ?plan=<rel-path>                 → load that plan (PLAN.md tab by default)
 //   ?plan=<rel-path>&tab=PROGRESS.md → load plan + open a sibling tab
 //   ?plan=<rel-path>&tab=INV:<path>  → load plan + open an investigation
+//   ?plan=<rel-path>&tab=EVD:<path>  → load plan + open an evidence file
 // `rel` is the plan's path relative to DEV_ROOT (stable, readable, comes from
 // /api/plans). Selection updates use pushState so each navigation lands in the
 // browser's history; popstate restores state on back/forward.
@@ -121,6 +132,8 @@ const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#refresh",
   "#sidebar-toggle",
   "#filter",
+  ".plan-steering",
+  ".plan-steering *",
   "#annotation-popover",
   "#annotation-popover *",
   ".comment-anchor button",
@@ -358,6 +371,60 @@ function renderPaneAggregateProgress(plan, aggregate) {
       ${renderProgressBar(aggregate)}
       <div class="progress-summary">${summary}</div>
     </div>`;
+}
+
+function renderPlanBrief(plan, stats, aggregate) {
+  const brief = plan.brief || {};
+  const counts = stats?.counts || {};
+  const total = stats?.total || 0;
+  const done = counts.completed || 0;
+  const openCount = Number.isFinite(Number(brief.open_count))
+    ? Number(brief.open_count)
+    : Math.max(total - done, 0);
+  const stateLabel = brief.state || (total ? `${pct(done, total)}%` : plan.status);
+  const rollupText = planHasChildren(plan) && aggregate?.total
+    ? `${aggregate.counts?.completed || 0}/${aggregate.total} with sub-plans`
+    : "";
+  const focusTasks = Array.isArray(brief.focus_tasks) ? brief.focus_tasks : [];
+  const focusHTML = focusTasks.length
+    ? focusTasks.map(task => `
+        <li class="plan-brief-task">
+          <span class="plan-brief-status status-${escapeAttr(task.status || "pending")}">${escapeText(task.status || "pending")}</span>
+          <span>${escapeText(task.label || "")}</span>
+        </li>`).join("")
+    : `<li class="plan-brief-task is-empty">No active task rows yet.</li>`;
+  const latestHTML = [
+    brief.latest_progress ? `<p><span>Progress</span>${escapeText(brief.latest_progress)}</p>` : "",
+    brief.latest_decision ? `<p><span>Decision</span>${escapeText(brief.latest_decision)}</p>` : "",
+  ].filter(Boolean).join("");
+  return `
+    <section class="plan-brief" aria-label="Plan now">
+      <div class="plan-brief-main">
+        <div class="plan-brief-kicker">Now</div>
+        <p class="plan-brief-summary">${escapeText(brief.summary || plan.purpose || "No purpose summary yet.")}</p>
+        <div class="plan-brief-stats">
+          <span>${escapeText(stateLabel)}</span>
+          <span>${openCount} open</span>
+          <span>${done}/${total} done</span>
+          ${rollupText ? `<span>${escapeText(rollupText)}</span>` : ""}
+        </div>
+        ${latestHTML ? `<div class="plan-brief-latest">${latestHTML}</div>` : ""}
+      </div>
+      <div class="plan-brief-side">
+        <div class="plan-brief-focus">
+          <div class="plan-brief-side-label">Focus</div>
+          <ul>${focusHTML}</ul>
+        </div>
+        <form class="plan-steering" data-plan-path="${escapeAttr(plan.path)}">
+          <label for="plan-steering-body">Steer this plan</label>
+          <textarea id="plan-steering-body" name="body" rows="3" maxlength="8192" placeholder="Drop direction here"></textarea>
+          <div class="plan-steering-actions">
+            <span class="plan-steering-status" role="status" aria-live="polite"></span>
+            <button type="submit">Send</button>
+          </div>
+        </form>
+      </div>
+    </section>`;
 }
 
 // Render an at-a-glance list of immediate children with their own mini bars.
@@ -682,8 +749,87 @@ function renderSidebar() {
   refreshAnnotationTargets();
 }
 
-async function loadAll() {
-  els.count.textContent = "loading…";
+function currentSelectionSnapshot() {
+  if (!state.active) return null;
+  if (state.active.kind === "plan") {
+    return {
+      kind: "plan",
+      rel: state.active.rel,
+      path: state.active.path,
+      tab: state.activeTab || "PLAN.md",
+    };
+  }
+  if (state.active.kind === "artifact") {
+    return {
+      kind: "artifact",
+      slug: state.active.slug,
+      path: state.active.path,
+    };
+  }
+  return null;
+}
+
+function annotationIsBusy() {
+  return Boolean(state.annotation.capture || state.annotation.anchor || document.getElementById("annotation-popover"));
+}
+
+async function restoreSelection(snapshot, opts = {}) {
+  if (!snapshot) return false;
+  if (snapshot.kind === "plan") {
+    const plan = state.plans.find(p => p.rel === snapshot.rel || p.path === snapshot.path);
+    if (!plan) return false;
+    await selectPlan(plan, {
+      skipUrl: true,
+      skipRecent: true,
+      tab: snapshot.tab || "PLAN.md",
+      preserveScroll: opts.preserveScroll,
+      preserveAnnotation: opts.preserveAnnotation,
+    });
+    return true;
+  }
+  if (snapshot.kind === "artifact") {
+    const artifact = state.artifacts.find(a => a.slug === snapshot.slug || a.path === snapshot.path);
+    if (!artifact) return false;
+    await selectArtifact(artifact, {
+      skipUrl: true,
+      skipRecent: true,
+      preserveScroll: opts.preserveScroll,
+      preserveAnnotation: opts.preserveAnnotation,
+    });
+    return true;
+  }
+  return false;
+}
+
+function refreshActiveMetadata(snapshot) {
+  if (!snapshot) return false;
+  if (snapshot.kind === "plan") {
+    const plan = state.plans.find(p => p.rel === snapshot.rel || p.path === snapshot.path);
+    if (!plan) return false;
+    state.active = { kind: "plan", ...plan };
+    state.activeTab = snapshot.tab || state.activeTab || "PLAN.md";
+    return true;
+  }
+  if (snapshot.kind === "artifact") {
+    const artifact = state.artifacts.find(a => a.slug === snapshot.slug || a.path === snapshot.path);
+    if (!artifact) return false;
+    state.active = { kind: "artifact", ...artifact };
+    state.activeTab = null;
+    return true;
+  }
+  return false;
+}
+
+async function refreshVisibleComments() {
+  const targetPath = currentCommentTargetPath();
+  if (targetPath) await loadComments(targetPath);
+}
+
+async function loadAll(opts = {}) {
+  const preserveSelection = Boolean(opts.preserveSelection);
+  const snapshot = preserveSelection ? currentSelectionSnapshot() : null;
+  const busy = annotationIsBusy();
+  if (!opts.quiet) els.count.textContent = "loading…";
   try {
     const [plansRes, artifactsRes] = await Promise.all([
       fetch("/api/plans"),
@@ -694,8 +840,29 @@ async function loadAll() {
     state.plans = plansData.plans || [];
     state.artifacts = artifactsData.artifacts || [];
     renderSidebar();
-    // Restore selection from URL on initial load (and after refresh).
-    applyUrlSelection();
+    if (preserveSelection && snapshot) {
+      if (busy) {
+        refreshActiveMetadata(snapshot);
+        renderSidebar();
+      } else {
+        const restored = await restoreSelection(snapshot, {
+          preserveScroll: opts.preserveScroll,
+          preserveAnnotation: false,
+        });
+        if (!restored) {
+          state.active = null;
+          state.activeTab = "PLAN.md";
+          els.pane.innerHTML = `
+            <div class="pane-empty muted">
+              <p>The selected item disappeared during refresh.</p>
+              <p>Pick another plan or artifact from the sidebar.</p>
+            </div>`;
+        }
+      }
+    } else {
+      // Restore selection from URL on initial load.
+      applyUrlSelection();
+    }
   } catch (e) {
     els.count.textContent = "error";
     els.list.innerHTML = `<div class="error">failed to load: ${escapeText(String(e))}</div>`;
@@ -705,7 +872,7 @@ async function loadAll() {
 async function selectPlan(plan, opts = {}) {
   state.active = { kind: "plan", ...plan };
   state.activeTab = opts.tab || "PLAN.md";
-  trackRecent("plan", plan.rel);
+  if (!opts.skipRecent) trackRecent("plan", plan.rel);
   if (!opts.skipUrl) {
     const p = new URLSearchParams();
     p.set("plan", plan.rel);
@@ -714,13 +881,13 @@ async function selectPlan(plan, opts = {}) {
   }
   renderSidebar();
   if (opts.scrollIntoView) scrollActiveRowIntoView();
-  await renderPane();
+  await renderPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation });
 }
 
 async function selectArtifact(a, opts = {}) {
   state.active = { kind: "artifact", ...a };
   state.activeTab = null;
-  trackRecent("artifact", a.slug);
+  if (!opts.skipRecent) trackRecent("artifact", a.slug);
   if (!opts.skipUrl) {
     const p = new URLSearchParams();
     p.set("artifact", a.slug);
@@ -728,7 +895,7 @@ async function selectArtifact(a, opts = {}) {
   }
   renderSidebar();
   if (opts.scrollIntoView) scrollActiveRowIntoView();
-  await renderArtifactPane();
+  await renderArtifactPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation });
 }
 
 function setActiveTab(tab) {
@@ -742,11 +909,11 @@ function setActiveTab(tab) {
   renderPane();
 }
 
-async function renderArtifactPane() {
+async function renderArtifactPane(opts = {}) {
   const a = state.active;
   if (!a || a.kind !== "artifact") return;
-  els.pane.scrollTop = 0;
-  clearAnnotationState();
+  const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
+  if (!opts.preserveAnnotation) clearAnnotationState();
   els.pane.innerHTML = `
     <div class="pane-header">
       <div class="breadcrumb">artifact · ${escapeText(a.slug)}.html</div>
@@ -761,6 +928,7 @@ async function renderArtifactPane() {
     ${renderCommentsPanel(a.path)}
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
+  if (!opts.preserveScroll) els.pane.scrollTop = 0;
   setupCommentsPanel(a.path);
   refreshAnnotationTargets();
   try {
@@ -768,6 +936,7 @@ async function renderArtifactPane() {
     if (!res.ok) {
       document.getElementById("md-body").innerHTML =
         `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
+      if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       refreshAnnotationTargets();
       return;
     }
@@ -799,34 +968,48 @@ async function renderArtifactPane() {
     };
     frame.addEventListener("load", () => {
       resizeFrame();
+      if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       // Fonts/images can change height after first load — re-measure shortly.
       setTimeout(resizeFrame, 200);
       setTimeout(resizeFrame, 800);
     });
+    if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   } catch (e) {
     document.getElementById("md-body").innerHTML =
       `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
+    if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   }
 }
 
-async function renderPane() {
+async function renderPane(opts = {}) {
   if (!state.active) return;
-  clearAnnotationState();
+  const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
+  if (!opts.preserveAnnotation) clearAnnotationState();
   const plan = state.active;
-  const tabs = ["PLAN.md", ...plan.siblings];
+  const tabs = ["PLAN.md", DECISION_LOG_TAB, ...plan.siblings];
   const investigations = plan.investigations || [];
-  const isInvActive = state.activeTab.startsWith("INV:");
+  const evidence = plan.evidence || [];
+  const decisionLog = plan.decision_log || { present: false, count: 0, entries: [], recent_directions: [] };
+  const activeTab = state.activeTab || "PLAN.md";
+  const isDecisionLogActive = activeTab === DECISION_LOG_TAB;
+  const isInvActive = activeTab.startsWith("INV:");
+  const isEvidenceActive = activeTab.startsWith("EVD:");
   const activeInvPath = isInvActive ? state.activeTab.slice(4) : null;
+  const activeEvidencePath = isEvidenceActive ? state.activeTab.slice(4) : null;
 
   let tabPath;
-  if (isInvActive) {
+  if (isDecisionLogActive) {
+    tabPath = plan.path;
+  } else if (isInvActive) {
     tabPath = activeInvPath;
-  } else if (state.activeTab === "PLAN.md") {
+  } else if (isEvidenceActive) {
+    tabPath = activeEvidencePath;
+  } else if (activeTab === "PLAN.md") {
     tabPath = plan.path;
   } else {
-    tabPath = plan.path.replace(/\/PLAN\.md$/, `/${state.activeTab}`);
+    tabPath = plan.path.replace(/\/PLAN\.md$/, `/${activeTab}`);
   }
 
   const stats = plan.task_stats || { counts: {}, total: 0 };
@@ -840,8 +1023,17 @@ async function renderPane() {
         return `<button data-inv="${escapeAttr(p)}" class="${isActive}">${escapeText(name)}</button>`;
       }).join("")}
     </div>` : "";
+  const evidenceStripHTML = evidence.length ? `
+    <div class="pane-evidence-strip" aria-label="Evidence timeline">
+      <span class="label">Evidence (${evidence.length}):</span>
+      ${evidence.map(item => {
+        const isActive = activeEvidencePath === item.path ? "is-active" : "";
+        const label = item.label || item.name || item.path.split("/").pop();
+        const title = item.name && item.name !== label ? item.name : label;
+        return `<button data-evidence="${escapeAttr(item.path)}" class="${isActive}" title="${escapeAttr(title)}">${escapeText(label)}</button>`;
+      }).join("")}
+    </div>` : "";
 
-  els.pane.scrollTop = 0;
   // Ancestor breadcrumb — each segment is a clickable link back up the tree.
   // For a leaf C in (root → A → B → C), shows: ← root · A · B
   // Replaces the prior single-parent "← Parent" link (which made you click
@@ -866,19 +1058,22 @@ async function renderPane() {
         <span class="muted">${escapeText(plan.path)}</span>
       </div>
     </div>
+    ${renderPlanBrief(plan, stats, aggregate)}
     ${renderPaneProgress(stats)}
     ${renderPaneAggregateProgress(plan, aggregate)}
     ${renderPaneSubplans(plan)}
     <div class="pane-tabs">
       ${tabs.map(t => `
-        <button data-tab="${escapeAttr(t)}" class="${t === state.activeTab ? "is-active" : ""}">${escapeText(t)}</button>
+        <button data-tab="${escapeAttr(t)}" class="${t === activeTab ? "is-active" : ""}">${escapeText(t)}</button>
       `).join("")}
     </div>
     ${invStripHTML}
+    ${evidenceStripHTML}
     ${renderCommentsPanel(tabPath)}
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
   els.pane.innerHTML = headerHTML;
+  if (!opts.preserveScroll) els.pane.scrollTop = 0;
   refreshAnnotationTargets();
 
   // Parent backlink → navigate to parent plan in-app (preserves SPA flow,
@@ -901,6 +1096,11 @@ async function renderPane() {
       setActiveTab(`INV:${b.getAttribute("data-inv")}`);
     });
   });
+  els.pane.querySelectorAll(".pane-evidence-strip button").forEach(b => {
+    b.addEventListener("click", () => {
+      setActiveTab(`EVD:${b.getAttribute("data-evidence")}`);
+    });
+  });
   els.pane.querySelectorAll(".subplan-row").forEach(row => {
     row.addEventListener("click", () => {
       const rel = row.getAttribute("data-subplan-rel");
@@ -909,7 +1109,15 @@ async function renderPane() {
     });
   });
   setupCommentsPanel(tabPath);
+  setupPlanSteering(plan);
   refreshAnnotationTargets();
+
+  if (isDecisionLogActive) {
+    document.getElementById("md-body").innerHTML = renderDecisionLogPane(decisionLog);
+    if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
+    refreshAnnotationTargets();
+    return;
+  }
 
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(tabPath)}`);
@@ -917,6 +1125,7 @@ async function renderPane() {
       const txt = await res.text();
       document.getElementById("md-body").innerHTML =
         `<div class="error">${res.status}: ${escapeText(txt)}</div>`;
+      if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       refreshAnnotationTargets();
       return;
     }
@@ -926,12 +1135,80 @@ async function renderPane() {
       : naiveMarkdown(md);
     const body = document.getElementById("md-body");
     body.innerHTML = html;
+    if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   } catch (e) {
     document.getElementById("md-body").innerHTML =
       `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
+    if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   }
+}
+
+function renderDecisionLogPane(decisionLog) {
+  const entries = Array.isArray(decisionLog.entries) ? decisionLog.entries : [];
+  const recentDirections = Array.isArray(decisionLog.recent_directions)
+    ? decisionLog.recent_directions
+    : [];
+  if (!decisionLog.present) {
+    return `
+      <section class="decision-log decision-log-empty">
+        <div class="decision-log-summary">
+          <div>
+            <div class="label">Decision Log</div>
+            <h3>No Decision Log section</h3>
+          </div>
+          <span class="decision-log-count">0 entries</span>
+        </div>
+        <p class="muted">This plan does not define a <code>## Decision Log</code> section yet.</p>
+      </section>`;
+  }
+  const recentHTML = recentDirections.length
+    ? recentDirections.map(renderDecisionLogEntry).join("")
+    : `<p class="muted">No recent direction-tagged entries yet.</p>`;
+  const entriesHTML = entries.length
+    ? entries.map(renderDecisionLogEntry).join("")
+    : `<p class="muted">The section exists, but it has no bullet entries yet.</p>`;
+  return `
+    <section class="decision-log">
+      <div class="decision-log-summary">
+        <div>
+          <div class="label">Decision Log</div>
+          <h3>${entries.length} ${entries.length === 1 ? "entry" : "entries"}</h3>
+        </div>
+        <span class="decision-log-count">line ${escapeText(decisionLog.heading_line || "?")}</span>
+      </div>
+      <section class="decision-log-recent">
+        <h4>Recent Directions</h4>
+        <div class="decision-entry-list">${recentHTML}</div>
+      </section>
+      <section class="decision-log-all">
+        <h4>All Entries</h4>
+        <div class="decision-entry-list">${entriesHTML}</div>
+      </section>
+    </section>`;
+}
+
+function renderDecisionLogEntry(entry) {
+  const kind = entry.kind || "NOTE";
+  const cls = [
+    "decision-entry",
+    entry.is_direction ? "is-direction" : "",
+    entry.is_recent ? "is-recent" : "",
+  ].filter(Boolean).join(" ");
+  const meta = [
+    entry.date ? escapeText(entry.date) : "",
+    entry.line ? `line ${escapeText(entry.line)}` : "",
+  ].filter(Boolean).join(" · ");
+  return `
+    <article class="${cls}">
+      <div class="decision-entry-head">
+        <span class="decision-kind">${escapeText(kind)}</span>
+        ${entry.is_recent ? `<span class="decision-recent">recent</span>` : ""}
+        ${meta ? `<span class="decision-meta">${meta}</span>` : ""}
+      </div>
+      <p>${escapeText(entry.body || entry.raw || "")}</p>
+    </article>`;
 }
 
 function getStoredCommentAuthor() {
@@ -964,6 +1241,52 @@ function renderCommentsPanel(targetPath) {
       </div>
       <div class="comment-list" id="comment-list"></div>
     </section>`;
+}
+
+function setupPlanSteering(plan) {
+  const form = document.querySelector(".plan-steering");
+  if (!form || !plan?.path) return;
+  const textarea = form.querySelector("textarea");
+  const status = form.querySelector(".plan-steering-status");
+  const button = form.querySelector("button[type='submit']");
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const raw = textarea.value.trim();
+    if (!raw) {
+      status.textContent = "write direction first";
+      textarea.focus();
+      return;
+    }
+    const author = getStoredCommentAuthor() || "Leo";
+    const body = raw.toLowerCase().startsWith("@pm") ? raw : `@pm ${raw}`;
+    status.textContent = "sending...";
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_path: plan.path,
+          author,
+          body,
+          anchor: {
+            kind: "plan-steering",
+            label: "Plan steering",
+            excerpt: plan.rel,
+            tag: "plan",
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      textarea.value = "";
+      status.textContent = "sent";
+      if (currentCommentTargetPath() === plan.path) await loadComments(plan.path);
+    } catch (err) {
+      status.textContent = `failed: ${String(err.message || err)}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 function setupCommentsPanel(targetPath) {
@@ -1341,8 +1664,9 @@ async function loadComments(targetPath) {
 
 function renderComment(comment) {
   const anchorHTML = renderCommentAnchor(comment);
+  const isSteering = String(comment.body || "").trim().toLowerCase().startsWith("@pm");
   return `
-    <article class="comment-item">
+    <article class="comment-item ${isSteering ? "is-steering" : ""}">
       <div class="comment-meta">
         <strong>${escapeText(comment.author || "Anonymous")}</strong>
         <span>${escapeText(formatCommentTime(comment.created_at))}</span>
@@ -1425,7 +1749,9 @@ els.filter.addEventListener("input", e => {
   state.filter = e.target.value;
   renderSidebar();
 });
-els.refresh.addEventListener("click", loadAll);
+els.refresh.addEventListener("click", () => {
+  loadAll({ preserveSelection: true });
+});
 if (els.annotate) {
   els.annotate.addEventListener("click", () => {
     const targetPath = currentCommentTargetPath();
@@ -1509,5 +1835,25 @@ window.addEventListener("popstate", () => {
   }
 });
 
+async function autoRefreshTick() {
+  if (autoRefreshInFlight) return;
+  autoRefreshInFlight = true;
+  try {
+    await loadAll({
+      preserveSelection: true,
+      preserveScroll: true,
+      quiet: true,
+    });
+    await refreshVisibleComments();
+  } finally {
+    autoRefreshInFlight = false;
+  }
+}
+
+function startAutoRefresh() {
+  if (!AUTO_REFRESH_INTERVAL_MS) return;
+  window.setInterval(autoRefreshTick, AUTO_REFRESH_INTERVAL_MS);
+}
+
 // Initial load.
-loadAll();
+loadAll().then(startAutoRefresh);
