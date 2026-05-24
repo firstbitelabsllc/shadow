@@ -1,24 +1,83 @@
-/* vidux browser — paper-and-ink, no glass, no gradients */
+/* vidux browser — paper-and-ink, no glass, no gradients
+ *
+ * Theming contract: every color in this file should go through a CSS custom
+ * property defined here. Themes (light/dark) override the property values;
+ * components consume them. Contributors who want to fork a theme override
+ * only :root + .theme-dark / .theme-light.
+ *
+ * Tokens grouped by intent: surface > text > line/border > semantic > task. */
 :root {
+  /* Surfaces (base → elevated) */
   --paper: #f8f5ee;
   --paper-2: #f1ece1;
+  /* Text (primary → secondary) */
   --ink: #1c1a16;
   --ink-2: #4a463d;
+  /* Lines + borders */
   --rule: #d8d1bf;
+  /* Selection + accent */
+  --select: #e9e0c8;
+  --accent: #2e5d3d;
+  /* Semantic */
   --hot: #b14a2b;
   --stale: #8a7a3e;
   --cold: #7d7466;
-  --accent: #2e5d3d;
-  --select: #e9e0c8;
+  --error: #b14a2b;
+  --error-bg: #fdf2ec;
+  --error-ink: #5a2515;
+  --warning: #8a7a3e;
+  --warning-bg: #fbf3dc;
+  --warning-ink: #4d3f12;
+  /* Elevation (box-shadow opacity) — small/medium/large */
+  --shadow-sm: 0 2px 6px rgba(28, 26, 22, 0.06);
+  --shadow-md: 0 8px 22px rgba(28, 26, 22, 0.10);
+  --shadow-lg: 0 14px 36px rgba(28, 26, 22, 0.14);
+  /* Task states (vidux FSM) */
   --task-pending: #d2cab2;
   --task-in-progress: #c89548;
   --task-in-review: #5b8d9e;
   --task-completed: #4f8a5a;
   --task-blocked: #b14a2b;
   --task-shipped: #c8a94d;
+  /* Font stacks */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --serif: "Iowan Old Style", "Charter", Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Forced light theme — explicit override of OS preference via theme toggle. */
+:root.theme-light {
+  color-scheme: light;
+}
+
+/* Forced dark theme — explicit override of OS preference via theme toggle. */
+:root.theme-dark {
+  color-scheme: dark;
+  --paper: #1d1a14;
+  --paper-2: #28241c;
+  --ink: #f1ebd9;
+  --ink-2: #b6ad94;
+  --rule: #3d372b;
+  --select: #3a3324;
+  --accent: #6db580;
+  --hot: #d97a4a;
+  --stale: #c8a558;
+  --cold: #9c8d6f;
+  --error: #d97a4a;
+  --error-bg: #3a221a;
+  --error-ink: #f3c1a8;
+  --warning: #c8a558;
+  --warning-bg: #2e260f;
+  --warning-ink: #ead495;
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.20);
+  --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.36);
+  --task-pending: #4a432f;
+  --task-in-progress: #d99c52;
+  --task-in-review: #6fa6b8;
+  --task-completed: #6db580;
+  --task-blocked: #d97a4a;
+  --task-shipped: #d8b558;
 }
 
 * { box-sizing: border-box; }
@@ -1345,9 +1404,9 @@ body.is-annotation-mode #filter {
 
 .error {
   padding: 16px;
-  border: 1px solid var(--hot);
-  background: #fdf2ec;
-  color: #5a2515;
+  border: 1px solid var(--error);
+  background: var(--error-bg);
+  color: var(--error-ink);
   border-radius: 4px;
   font-family: var(--mono);
   font-size: 12px;
@@ -1495,7 +1554,8 @@ body.is-annotation-mode #filter {
   .markdown code,
   .contact-card { background: var(--paper-2); }
   .markdown blockquote { color: var(--ink-2); }
-  .error { background: #3a221a; color: #f3c1a8; border-color: var(--hot); }
+  /* .error already routes through tokens (--error/-bg/-ink); they're remapped
+   * for dark mode by the :root.theme-dark block above. No override needed. */
   .topbar-meta button:hover,
   .sidebar-toggle:hover,
   .annotation-fab:hover,
