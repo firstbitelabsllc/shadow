@@ -1051,6 +1051,7 @@ If your work needs more, two companion surfaces carry the rest:
 
 - **[`guides/automation.md`](guides/automation.md)** — the 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load this when you run lanes on a schedule.
 - **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and patterns. CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements, and more. Load a specific recipe on demand.
+- **[`guides/figma-net-new-project.md`](guides/figma-net-new-project.md)** — Figma MCP onboarding for new vidux projects: install, OAuth, verify, kickoff, and lane-selection table for design→code vs code→design vs library-build. Load this when a vidux project gets its first visual surface.
 
 **Codex automation default:** when creating a new automation from Codex, assume `Run in: Chat`. Do not default to `Worktree` or `Local` unless the user explicitly asks for repo-bound execution or the task cannot be done from chat.
 
