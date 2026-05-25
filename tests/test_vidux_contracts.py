@@ -1740,6 +1740,51 @@ class ViduxContractTests(unittest.TestCase):
         finally:
             os.unlink(ledger_path)
 
+    def test_ledger_fleet_health_marks_zero_run_repo_unknown(self):
+        """Fleet health must not report healthy when the ledger has no automation runs."""
+        data = self._run_ledger_fleet_health([
+            {
+                "ts": "2026-04-07T00:00:00Z",
+                "repo": "vidux",
+                "agent_id": "codex/noise",
+                "event": "live",
+                "summary": "noise without automation id",
+            }
+        ])
+
+        self.assertEqual(data["summary"]["total_runs"], 0)
+        self.assertEqual(data["summary"]["bimodal_score"], 100)
+        self.assertEqual(data["summary"]["bimodal_status"], "unknown")
+
+    def _run_ledger_fleet_health(self, entries):
+        """Helper: run ledger_fleet_health against a temp ledger fixture."""
+        with tempfile.NamedTemporaryFile("w", delete=False) as ledger_file:
+            for entry in entries:
+                ledger_file.write(json.dumps(entry) + "\n")
+            ledger_path = ledger_file.name
+
+        env = os.environ.copy()
+        env["VIDUX_LEDGER_FILE"] = ledger_path
+        try:
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-lc",
+                    (
+                        f"source {self.SCRIPTS_DIR / 'lib' / 'ledger-query.sh'} "
+                        "&& ledger_fleet_health vidux 168"
+                    ),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)
+        finally:
+            os.unlink(ledger_path)
+
 
     # ===== v2.4.0: Exit Criteria Hook (Task 11.4) ===== #
 

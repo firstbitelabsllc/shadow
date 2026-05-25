@@ -285,7 +285,8 @@ ledger_fleet_health() {
         automation_count: ($automations | length),
         bimodal_score: ($bimodal.bimodal_score // 0),
         bimodal_status: (
-          if ($bimodal.bimodal_score // 0) > 85 then "healthy"
+          if ($bimodal.totals.total_runs // 0) == 0 then "unknown"
+          elif ($bimodal.bimodal_score // 0) > 85 then "healthy"
           elif ($bimodal.bimodal_score // 0) > 70 then "warning"
           else "critical"
           end
