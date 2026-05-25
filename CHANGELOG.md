@@ -12,6 +12,63 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 
 ---
 
+## [2.26.13] - 2026-05-25
+
+Fixed `scripts/vidux-asc-bridge.py` silent skip of bare, paren-wrapped,
+and uppercase-space ASC ID formats now in active use on resplit-ios PR
+titles. LI-15 widened the captured-ID character class to allow hyphens
+inside `[asc-XXX]`, but left the enclosing-syntax requirement bracket-
+only. Real-world title conventions have shifted: 6 distinct ASC IDs
+across 8 PRs in the 2026-05-25T09:45Z `linear-health-watch` 24h sweep
+used `asc-AJS0-cES3` (bare), `(asc-AJS0-cES3)` (paren-wrapped),
+`ASC AMdbXda2` (uppercase + space), and `asc-AKZ_nGumMaY` (underscore)
+— all silently skipped by the bracket-only regex. Every one was
+mechanically verified as missing-from-Linear via `make_live_find_existing_eve`
+(positive control `aitzt9rxyxzunschz` → EVE-316 confirmed). Section 4
+of `linear-health-watch` is the canonical caller; it would have failed
+to surface these gaps until manual inspection without this fix.
+
+Replaced the single bracket-bound `ASC_ID_RE` with two case-bounded
+regexes used in order by `parse_asc_id`:
+
+- `_DASH_RE = re.compile(r"(?<![A-Za-z0-9])asc-([A-Za-z0-9_-]{3,})", re.IGNORECASE)`
+  covers `[asc-XXX]`, `[asc-XXX trailing]`, bare `asc-XXX`,
+  `(asc-XXX)`, and `archive asc-XXX foo`. The literal `-` separator
+  plus 3-char minimum eliminates fuzzy collisions.
+- `_SPACE_RE = re.compile(r"(?<![A-Za-z0-9])ASC[\s]+([A-Za-z0-9_-]{3,})")`
+  covers the manually-typed `ASC <id>` shape. **No `IGNORECASE`** —
+  the uppercase `ASC` literal is the disambiguator that blocks
+  lowercase prose like "we should asc up the file" from false-matching.
+
+Both regexes share a `(?<![A-Za-z0-9])` lookbehind so embedded
+sequences like `pasc-foo` cannot match mid-word. The captured ID is
+lowercased before return, matching the LI-15 convention so re-runs
+find the same Linear card. Added 8 unit tests in
+`tests/test_asc_bridge.py::TestParseAscId`: `test_bare_asc_dash_form`
+(PR #753), `test_paren_wrapped_asc_dash_form` (PR #754),
+`test_uppercase_asc_space_form` (PR #749), `test_bare_asc_with_underscore`
+(PR #761), `test_lowercase_space_form_is_not_matched` (prose
+protection), `test_midword_dash_is_not_matched` (lookbehind),
+`test_too_short_id_is_not_matched` (min-length 3), and
+`test_first_match_wins_when_multiple_in_title`. Two pre-existing
+fixtures using `[asc-x]` 1-char IDs (`test_envelope_carries_metadata`,
+`test_returns_parsed_prs_on_success`) were updated to `[asc-xyz]`
+since the new min-length 3 rule correctly rejects them.
+
+Fifth instance of the silent-loss class after LI-12 (hallucinated
+flag), LI-14 (silent token fallback), LI-15 (parser too-strict for
+hyphens), LI-16 (cross-org owner default flip). Detected by
+`linear-health-watch` cycle 211 SOFT-OBS, verified cycle 212, shipped
+cycle 213 per the LI-12 fabrication-prevention discipline of
+claim+ship in separate cycles.
+
+Cap risk: post-merge backfill across the verified-missing IDs would
+exceed Hard NEVER #2 ≤5 cap — this PR ships pure code only; the
+LI-13 (`ASK-LEO-MANDATORY`) dedicated bridge cron and a chunked
+manual backfill handle the live-mutation half separately.
+
+---
+
 ## [2.26.12] - 2026-05-24
 
 Fixed `scripts/vidux-linear-audit.py` silent false-green when fleet repos

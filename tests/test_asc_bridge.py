@@ -112,6 +112,64 @@ class TestParseAscId(unittest.TestCase):
             "foo-bar",
         )
 
+    # ---- LI-17: bare / paren-wrapped / uppercase-space forms ----
+
+    def test_bare_asc_dash_form(self):
+        # Real-world: resplit-ios PR #753 used bare `asc-AJS0-cES3` (no brackets).
+        self.assertEqual(
+            bridge.parse_asc_id(
+                "docs(investigation): asc-AJS0-cES3 — folder loading flicker"
+            ),
+            "ajs0-ces3",
+        )
+
+    def test_paren_wrapped_asc_dash_form(self):
+        # Real-world: resplit-ios PR #754 wrapped the ID in parens.
+        self.assertEqual(
+            bridge.parse_asc_id("fix(folder-detail): retry on launch (asc-AJS0-cES3)"),
+            "ajs0-ces3",
+        )
+
+    def test_uppercase_asc_space_form(self):
+        # Real-world: resplit-ios PR #749 used `ASC AMdbXda2` (space, uppercase).
+        self.assertEqual(
+            bridge.parse_asc_id("docs(investigation): ASC AMdbXda2 Phase A"),
+            "amdbxda2",
+        )
+
+    def test_bare_asc_with_underscore(self):
+        # Real-world: resplit-ios PR #761 used `asc-AKZ_nGumMaY` (underscore inside ID).
+        self.assertEqual(
+            bridge.parse_asc_id("docs(investigation): asc-AKZ_nGumMaY — currency picker"),
+            "akz_ngummay",
+        )
+
+    def test_lowercase_space_form_is_not_matched(self):
+        # Prose protection: lowercase `asc` without a hyphen must not match,
+        # otherwise "we should asc up the file" would false-positive on
+        # "up". The space form requires uppercase `ASC` literally.
+        self.assertIsNone(
+            bridge.parse_asc_id("we should asc up the file before review")
+        )
+
+    def test_midword_dash_is_not_matched(self):
+        # Lookbehind guard: `pasc-foo` is not a valid ASC ID — leading
+        # alphanumeric before `asc-` must disqualify the match.
+        self.assertIsNone(bridge.parse_asc_id("refactor pasc-foo helper"))
+
+    def test_too_short_id_is_not_matched(self):
+        # Min-length 3 chars: noise tokens like `asc-XX` should not trip
+        # the bridge into would-create.
+        self.assertIsNone(bridge.parse_asc_id("note asc-XX placeholder"))
+
+    def test_first_match_wins_when_multiple_in_title(self):
+        # When a title references multiple ASC IDs (e.g. docs + linked fix),
+        # the bridge should pick the first one deterministically.
+        self.assertEqual(
+            bridge.parse_asc_id("docs+fix: asc-AAA111 supersedes asc-BBB222"),
+            "aaa111",
+        )
+
 
 # ---------------------------------------------------------------------------
 # merged_at_iso + render_description
@@ -257,7 +315,7 @@ class TestRunBridge(unittest.TestCase):
         self.assertIn("synthetic failure", result.errors[0]["error"])
 
     def test_envelope_carries_metadata(self):
-        prs = [_pr(1, "[asc-x] y")]
+        prs = [_pr(1, "[asc-xyz] y")]
         result, _ = self._run(prs=prs)
         env = result.as_dict()
         self.assertEqual(env["bridge_at"], "2026-05-08T16:33:56Z")
@@ -374,7 +432,7 @@ class TestLiveFetchMergedPrs(unittest.TestCase):
             )
 
     def test_returns_parsed_prs_on_success(self):
-        prs = [{"number": 623, "title": "[asc-x] y", "url": "u", "mergedAt": "z"}]
+        prs = [{"number": 623, "title": "[asc-xyz] y", "url": "u", "mergedAt": "z"}]
 
         class _P:
             returncode = 0

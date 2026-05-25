@@ -80,13 +80,23 @@ LINEAR_ENDPOINT = "https://api.linear.app/graphql"
 LINEAR_USER_AGENT = "vidux-asc-bridge/1.0"
 HTTP_TIMEOUT = 30
 
-# Title regex: case-insensitive `[asc-<id>]` where <id> is 1+ chars from
-# `[A-Za-z0-9-]`. After the ID, a single optional whitespace-prefixed trailing
-# segment (e.g. `[asc-AOgQxkJ7 Leo P0]`) is tolerated and discarded — only the
-# bare ID token before the first space is captured. This matches real-world
-# resplit-ios PR title shapes observed in the wild (PR #627 used a hyphen
-# inside the ID, PR #628 carried a Leo annotation after the ID).
-ASC_ID_RE = re.compile(r"\[asc-([A-Za-z0-9-]+)(?:\s[^\]]*)?\]", re.IGNORECASE)
+# Title regex split into two case-bounded patterns to cover every
+# resplit-ios PR title shape observed in the wild without false-positives
+# from prose. `_DASH_RE` matches the `asc-<id>` shape case-insensitively
+# (handles `[asc-XXX]`, `[asc-XXX trailing]`, bare `asc-XXX`,
+# `(asc-XXX)`, `archive asc-XXX foo`); the literal hyphen separator and
+# 3-char minimum prevent fuzzy collisions. `_SPACE_RE` matches the
+# `ASC <id>` shape only when `ASC` is uppercase (e.g. `ASC AMdbXda2`),
+# which blocks lowercase prose like "we should asc up the file" while
+# still catching the manually-typed convention. Both apply a lookbehind
+# guard so embedded forms like `pasc-foo` do not match.
+_DASH_RE = re.compile(
+    r"(?<![A-Za-z0-9])asc-([A-Za-z0-9_-]{3,})",
+    re.IGNORECASE,
+)
+_SPACE_RE = re.compile(
+    r"(?<![A-Za-z0-9])ASC[\s]+([A-Za-z0-9_-]{3,})"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -132,12 +142,17 @@ class BridgeResult:
 def parse_asc_id(title: str | None) -> str | None:
     """Return the lowercase ASC ID or None.
 
-    Matching is case-insensitive in the literal `asc-` prefix; the captured
-    ID is normalized to lowercase so re-runs find the same Linear card.
+    Tries the `asc-<id>` dash form first (case-insensitive — covers
+    `[asc-XXX]`, bare `asc-XXX`, `(asc-XXX)`, `archive asc-XXX foo`,
+    and the LI-15 hyphenated-with-trailing-annotation shape). Falls
+    back to the uppercase `ASC <id>` space form to catch the
+    manually-typed convention without triggering on lowercase prose
+    like "we should asc up the file". The captured ID is normalized
+    to lowercase so re-runs find the same Linear card.
     """
     if not title:
         return None
-    m = ASC_ID_RE.search(title)
+    m = _DASH_RE.search(title) or _SPACE_RE.search(title)
     if not m:
         return None
     return m.group(1).lower()
