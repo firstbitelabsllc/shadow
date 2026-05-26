@@ -88,6 +88,8 @@ When an audit or grep produces a count or classification, **spot-check at least 
 
 After a failure, produce two artifacts: a code fix (the immediate repair) and a process fix (a hook, a test, a constraint, a plan update). The process fix is the valuable output -- it makes the system smarter for next time.
 
+When a scaffold PR leaves skipped tests for a "pending" served path, the follow-up PR that wires the path must either activate those tests or delete the placeholder rows. Stale skips are drift wearing a lab coat.
+
 **Progress is code change.** A PR that only touches `PLAN.md`, `investigations/`, `evidence/`, or `INBOX.md` without a source-code change is not progress — it's bookkeeping. Bundle plan updates into the code PR that ships the fix, or keep the notes local until a fix is ready. Standalone "flip row to [completed]", "reconcile Phase N", "audit already-delivered", or "investigation closeout" PRs are prohibited. If a cycle produces no code, it produces no PR and no commit — the notes stay on disk for the next cycle to pick up.
 
 ---
