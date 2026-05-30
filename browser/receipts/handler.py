@@ -136,33 +136,36 @@ def handle_tag(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any
     if not row_id:
         return 400, {"error": "row_id required"}
 
-    existing = storage.find_by_id(DEFAULT_CORPUS_PATH, row_id)
-    if existing is None:
-        return 404, {"error": f"row {row_id} not found"}
-
-    annotations = existing.get("annotations", {})
+    # Validate the payload up front (no row needed), then apply atomically under one lock.
     if "tags" in payload:
-        new_tags = payload["tags"]
-        if not isinstance(new_tags, list) or not all(isinstance(t, str) for t in new_tags):
+        if not isinstance(payload["tags"], list) or not all(isinstance(t, str) for t in payload["tags"]):
             return 400, {"error": "tags must be a list of strings"}
-        annotations["tags"] = new_tags
     if "known_issues" in payload:
-        new_issues = payload["known_issues"]
-        if not isinstance(new_issues, list) or not all(isinstance(t, str) for t in new_issues):
+        if not isinstance(payload["known_issues"], list) or not all(
+            isinstance(t, str) for t in payload["known_issues"]
+        ):
             return 400, {"error": "known_issues must be a list of strings"}
-        annotations["known_issues"] = new_issues
-    if "leo_note" in payload:
-        new_note = payload["leo_note"]
-        if new_note is not None and not isinstance(new_note, str):
-            return 400, {"error": "leo_note must be a string or null"}
-        if new_note is None:
-            annotations.pop("leo_note", None)
-        else:
-            annotations["leo_note"] = new_note
+    if "leo_note" in payload and payload["leo_note"] is not None and not isinstance(payload["leo_note"], str):
+        return 400, {"error": "leo_note must be a string or null"}
 
-    existing["annotations"] = annotations
-    storage.replace_row(DEFAULT_CORPUS_PATH, row_id, existing)
-    return 200, {"ok": True, "row": existing}
+    def _apply(row: dict[str, Any]) -> dict[str, Any]:
+        annotations = row.get("annotations", {})
+        if "tags" in payload:
+            annotations["tags"] = payload["tags"]
+        if "known_issues" in payload:
+            annotations["known_issues"] = payload["known_issues"]
+        if "leo_note" in payload:
+            if payload["leo_note"] is None:
+                annotations.pop("leo_note", None)
+            else:
+                annotations["leo_note"] = payload["leo_note"]
+        row["annotations"] = annotations
+        return row
+
+    updated = storage.update_row(DEFAULT_CORPUS_PATH, row_id, _apply)
+    if updated is None:
+        return 404, {"error": f"row {row_id} not found"}
+    return 200, {"ok": True, "row": updated}
 
 
 @_corpus_safe
@@ -192,12 +195,17 @@ def handle_ocr(row_id: str) -> tuple[int, dict[str, Any]]:
 
     try:
         image_bytes = abs_path.read_bytes()
-        result = ocr.analyze_receipt(image_bytes)
+        result = ocr.analyze_receipt(image_bytes)  # network I/O — deliberately OUTSIDE the corpus lock
     except (ocr.OCRConfigError, ocr.OCRRequestError, ocr.OCRPollTimeout) as exc:
         return 502, {"error": f"OCR failed: {exc}"}
 
-    existing.setdefault("annotations", {})["azure_response"] = result
-    storage.replace_row(DEFAULT_CORPUS_PATH, row_id, existing)
+    def _store(row: dict[str, Any]) -> dict[str, Any]:
+        row.setdefault("annotations", {})["azure_response"] = result
+        return row
+
+    updated = storage.update_row(DEFAULT_CORPUS_PATH, row_id, _store)
+    if updated is None:
+        return 404, {"error": f"row {row_id} deleted during OCR"}
     return 200, {"ok": True, "row_id": row_id, "azure_response_keys": list(result.keys())}
 
 
@@ -215,18 +223,19 @@ def handle_set_expected(row_id: str, payload: dict[str, Any]) -> tuple[int, dict
     if "expected" not in payload:
         return 400, {"error": "payload must include 'expected' (object or null)"}
 
-    existing = storage.find_by_id(DEFAULT_CORPUS_PATH, row_id)
-    if existing is None:
-        return 404, {"error": f"row {row_id} not found"}
-
     expected = payload["expected"]
     if expected is not None:
         problems = contract.validate_expected(expected)
         if problems:
             return 400, {"error": "expected failed the ScannedReceipt contract", "problems": problems}
 
-    existing["expected"] = expected
-    storage.replace_row(DEFAULT_CORPUS_PATH, row_id, existing)
+    def _set(row: dict[str, Any]) -> dict[str, Any]:
+        row["expected"] = expected
+        return row
+
+    existing = storage.update_row(DEFAULT_CORPUS_PATH, row_id, _set)
+    if existing is None:
+        return 404, {"error": f"row {row_id} not found"}
     return 200, {"ok": True, "row": existing}
 
 
