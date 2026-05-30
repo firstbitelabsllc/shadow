@@ -9,9 +9,12 @@ Usage:
     python3 -m receipts.bulk_ingest --folder ~/Receipts/2026-05 --tag thermal --tag USD
     python3 -m receipts.bulk_ingest --folder ~/Receipts --recursive --private
 
-Per math-fortress T9.2. Rate-limiting + Azure pre-OCR are explicitly NOT in this
-slice — the CLI just ingests + tags. OCR runs on-demand later via
-`POST /api/receipts/<id>/ocr`, not at ingest time.
+Rate-limiting + Azure pre-OCR are explicitly NOT in this slice — the CLI just ingests +
+tags. OCR runs on-demand later via `POST /api/receipts/<id>/ocr`, not at ingest time.
+
+Note: HEIC/HEIF (iPhone's default photo format) is NOT ingested — the upload path only
+accepts JPEG/PNG magic bytes. HEIC files in the folder are reported, not silently dropped;
+convert first with `sips -s format jpeg <file>`.
 """
 
 from __future__ import annotations
@@ -57,6 +60,12 @@ def main() -> int:
         return 2
 
     paths = iter_image_paths(folder, args.recursive)
+
+    walker = folder.rglob("*") if args.recursive else folder.iterdir()
+    heic = [p for p in walker if p.is_file() and p.suffix.lower() in {".heic", ".heif"}]
+    if heic:
+        print(f"  ⚠ {len(heic)} .heic/.heif file(s) skipped (unsupported). Convert: sips -s format jpeg <file>")
+
     if not paths:
         print(f"no .jpg/.jpeg/.png files under {folder}")
         return 0
