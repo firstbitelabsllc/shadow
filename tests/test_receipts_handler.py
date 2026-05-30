@@ -271,6 +271,21 @@ class ImageTests(HandlerTestCase):
     def test_404_for_unknown(self):
         self.assertEqual(handler.handle_image("nope")[0], 404)
 
+    def test_404_for_jail_escape_image_path(self):
+        handler.DEFAULT_CORPUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        row = storage.make_row(image_bytes=_jpeg(), name="evil", image_path="../../../../etc/passwd", source="t")
+        storage.append_row(handler.DEFAULT_CORPUS_PATH, row)
+        status, ctype, data = handler.handle_image(row["id"])
+        self.assertEqual(status, 404)
+        self.assertEqual(ctype, "")
+
+    def test_500_on_corrupt_corpus(self):
+        handler.DEFAULT_CORPUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handler.DEFAULT_CORPUS_PATH.write_text('{"id":"a"}\nnot json\n', encoding="utf-8")
+        status, ctype, data = handler.handle_image("a")
+        self.assertEqual(status, 500)
+        self.assertIn("line 2", data["error"])
+
 
 class DeleteTests(HandlerTestCase):
     def test_delete_removes_row_and_image(self):
