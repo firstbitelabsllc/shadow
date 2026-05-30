@@ -135,9 +135,42 @@ class TagTests(HandlerTestCase):
         self.assertEqual(handler.handle_tag(body["id"], {"tags": "x"})[0], 400)
 
 
+class CorruptCorpusTests(HandlerTestCase):
+    def test_corrupt_line_returns_clean_500_not_crash(self):
+        handler.DEFAULT_CORPUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handler.DEFAULT_CORPUS_PATH.write_text(
+            '{"id":"a","name":"ok"}\nnot valid json\n', encoding="utf-8"
+        )
+        for fn in (
+            lambda: handler.handle_list(),
+            lambda: self.upload(),
+            lambda: handler.handle_tag("a", {"tags": []}),
+            lambda: handler.handle_ocr("a"),
+        ):
+            status, body = fn()
+            self.assertEqual(status, 500)
+            self.assertIn("line 2", body["error"])
+
+
 class OcrTests(HandlerTestCase):
     def test_404_unknown_id(self):
         self.assertEqual(handler.handle_ocr("nope")[0], 404)
+
+    def test_400_when_image_path_escapes_jail(self):
+        # Seed a hand-crafted row whose image_path traverses out of the images dir.
+        handler.DEFAULT_CORPUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        row = storage.make_row(
+            image_bytes=_jpeg(), name="evil", image_path="../../../../etc/passwd", source="t"
+        )
+        storage.append_row(handler.DEFAULT_CORPUS_PATH, row)
+        saved = handler.ocr.config_ready
+        handler.ocr.config_ready = lambda: (True, "ok")
+        try:
+            status, body = handler.handle_ocr(row["id"])
+            self.assertEqual(status, 400)
+            self.assertIn("escapes", body["error"])
+        finally:
+            handler.ocr.config_ready = saved
 
     def test_400_private_no_image_path(self):
         _, body = self.upload(private=True)

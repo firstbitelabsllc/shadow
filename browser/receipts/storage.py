@@ -5,15 +5,27 @@ Operations are append-only by default; explicit `replace_row(...)` updates a sin
 
 Idempotency contract: same image bytes always produce same `id` (first 12 hex of SHA-256),
 so re-ingesting an already-stored image is a no-op (storage detects and skips).
+
+Concurrency: append_row / replace_row / delete_row take an exclusive flock on a sidecar
+`.lock` file for the whole read-modify-write, so overlapping writers (bulk_ingest + a UI
+edit, or two threads) never lose updates or race on the temp file.
 """
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import os
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+
+class CorpusError(ValueError):
+    """corpus.jsonl is malformed (e.g. a non-JSON line). Subclasses ValueError for back-compat."""
 
 
 def compute_id(image_bytes: bytes) -> str:
@@ -26,8 +38,21 @@ def iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@contextmanager
+def _corpus_lock(corpus_path: Path) -> Iterator[None]:
+    """Exclusive cross-process + cross-thread lock for a corpus's read-modify-write."""
+    corpus_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = corpus_path.with_suffix(corpus_path.suffix + ".lock")
+    with open(lock_path, "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def read_all(corpus_path: Path) -> list[dict[str, Any]]:
-    """Read every row from corpus.jsonl. Missing file → empty list."""
+    """Read every row from corpus.jsonl. Missing file → empty list. Bad line → CorpusError."""
     if not corpus_path.exists():
         return []
     rows: list[dict[str, Any]] = []
@@ -39,28 +64,13 @@ def read_all(corpus_path: Path) -> list[dict[str, Any]]:
             try:
                 rows.append(json.loads(stripped))
             except json.JSONDecodeError as exc:
-                raise ValueError(f"corpus.jsonl line {line_no} is invalid JSON: {exc}") from exc
+                raise CorpusError(f"corpus.jsonl line {line_no} is invalid JSON: {exc}") from exc
     return rows
-
-
-def iter_rows(corpus_path: Path) -> Iterator[dict[str, Any]]:
-    """Streaming variant of read_all — yields one row at a time without loading the whole file."""
-    if not corpus_path.exists():
-        return
-    with corpus_path.open("r", encoding="utf-8") as handle:
-        for line_no, raw in enumerate(handle, start=1):
-            stripped = raw.strip()
-            if not stripped:
-                continue
-            try:
-                yield json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"corpus.jsonl line {line_no} is invalid JSON: {exc}") from exc
 
 
 def find_by_id(corpus_path: Path, row_id: str) -> dict[str, Any] | None:
     """Return the first row matching `id`, else None."""
-    for row in iter_rows(corpus_path):
+    for row in read_all(corpus_path):
         if row.get("id") == row_id:
             return row
     return None
@@ -71,37 +81,59 @@ def append_row(corpus_path: Path, row: dict[str, Any]) -> bool:
     row_id = row.get("id")
     if not row_id:
         raise ValueError("row must have an 'id' field")
-    if find_by_id(corpus_path, row_id) is not None:
-        return False
-    corpus_path.parent.mkdir(parents=True, exist_ok=True)
-    with corpus_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+    with _corpus_lock(corpus_path):
+        if find_by_id(corpus_path, row_id) is not None:
+            return False
+        with corpus_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
     return True
+
+
+def _rewrite(corpus_path: Path, rows: list[dict[str, Any]]) -> None:
+    """Atomically replace corpus.jsonl with `rows` via a unique temp file + rename.
+
+    Caller must hold _corpus_lock. The temp name is per-process/per-call unique so
+    concurrent writers never consume each other's temp file.
+    """
+    tmp = corpus_path.with_suffix(corpus_path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+    tmp.replace(corpus_path)
 
 
 def replace_row(corpus_path: Path, row_id: str, new_row: dict[str, Any]) -> bool:
     """Update a single row in-place. Returns True if replaced, False if id not found.
 
-    Rewrites the entire file — fine for corpora up to ~10K rows; if we ever
-    grow past that, switch to an indexed format (SQLite or LMDB).
+    Rewrites the entire file — fine for corpora up to ~10K rows.
     """
     if not corpus_path.exists():
         return False
     new_row["id"] = row_id  # defensive — caller must not mutate id
-    rows = read_all(corpus_path)
-    found = False
-    for index, row in enumerate(rows):
-        if row.get("id") == row_id:
-            rows[index] = new_row
-            found = True
-            break
-    if not found:
+    with _corpus_lock(corpus_path):
+        rows = read_all(corpus_path)
+        found = False
+        for index, row in enumerate(rows):
+            if row.get("id") == row_id:
+                rows[index] = new_row
+                found = True
+                break
+        if not found:
+            return False
+        _rewrite(corpus_path, rows)
+    return True
+
+
+def delete_row(corpus_path: Path, row_id: str) -> bool:
+    """Remove a single row by id. Returns True if removed, False if id not found."""
+    if not corpus_path.exists():
         return False
-    tmp = corpus_path.with_suffix(corpus_path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
-    tmp.replace(corpus_path)
+    with _corpus_lock(corpus_path):
+        rows = read_all(corpus_path)
+        kept = [row for row in rows if row.get("id") != row_id]
+        if len(kept) == len(rows):
+            return False
+        _rewrite(corpus_path, kept)
     return True
 
 
@@ -118,7 +150,7 @@ def make_row(
     """Build a fresh corpus row from raw image bytes + metadata.
 
     `expected` starts null — populated once the paired Azure response is captured
-    and a ground-truth ScannedReceipt is human-confirmed.
+    and a ground-truth ScannedReceipt is human-confirmed (see receipts.promote).
     """
     if private and image_path is not None:
         raise ValueError("private=True requires image_path=None (PII guard)")
@@ -139,3 +171,19 @@ def make_row(
     if private:
         row["private"] = True
     return row
+
+
+def safe_image_abs(corpus_parent: Path, images_dir: Path, image_path: str) -> Path | None:
+    """Resolve a row's image_path and return it ONLY if it stays inside the images jail.
+
+    Returns None on any traversal escape ('../', absolute paths, symlink-out). Callers that
+    read or unlink image bytes (handle_ocr, toss) MUST go through this — corpus.jsonl is a
+    plain file multiple tools write, so a hand-edited / round-tripped row is not trusted.
+    """
+    images_root = images_dir.resolve()
+    abs_path = (corpus_parent / image_path).resolve()
+    try:
+        abs_path.relative_to(images_root)
+    except ValueError:
+        return None
+    return abs_path
