@@ -137,11 +137,55 @@ class CorpusIOTests(unittest.TestCase):
         self.assertIsNotNone(storage.find_by_id(self.corpus, row["id"]))
         self.assertIsNone(storage.find_by_id(self.corpus, "missing"))
 
-    def test_corrupt_line_raises_with_line_number(self):
+    def test_corrupt_line_raises_corpus_error_with_line_number(self):
         self.corpus.write_text('{"id":"a","name":"ok"}\nnot valid json\n', encoding="utf-8")
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(storage.CorpusError) as ctx:
             storage.read_all(self.corpus)
         self.assertIn("line 2", str(ctx.exception))
+        self.assertIsInstance(ctx.exception, ValueError)  # back-compat
+
+    def test_concurrent_replace_of_distinct_rows_all_survive(self):
+        import threading
+
+        rows = [self._row(name=f"r{i}", extra_byte=bytes([i])) for i in range(5)]
+        for r in rows:
+            storage.append_row(self.corpus, r)
+        barrier = threading.Barrier(len(rows))
+
+        def worker(row):
+            barrier.wait()
+            updated = dict(row)
+            updated["name"] = row["name"] + "-updated"
+            storage.replace_row(self.corpus, row["id"], updated)
+
+        threads = [threading.Thread(target=worker, args=(r,)) for r in rows]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        names = {r["name"] for r in storage.read_all(self.corpus)}
+        self.assertEqual(names, {f"r{i}-updated" for i in range(5)})
+
+
+class SafeImageAbsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.parent = Path(self.tmp.name)
+        self.images = self.parent / "images"
+        self.images.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_contained_path_resolves(self):
+        (self.images / "abc.jpg").write_bytes(b"x")
+        got = storage.safe_image_abs(self.parent, self.images, "images/abc.jpg")
+        self.assertEqual(got, (self.images / "abc.jpg").resolve())
+
+    def test_traversal_rejected(self):
+        for evil in ("../../etc/passwd", "/etc/passwd", "../server.py", "images/../../secret"):
+            self.assertIsNone(storage.safe_image_abs(self.parent, self.images, evil), evil)
 
 
 if __name__ == "__main__":
