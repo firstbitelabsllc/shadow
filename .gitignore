@@ -144,7 +144,7 @@ browser/artifacts/*
 # image bytes (image_path=null), so nothing under images/ is PII.
 browser/receipts/corpus.jsonl
 browser/receipts/corpus.jsonl.*
-browser/receipts/images/
+browser/receipts/images/*
 !browser/receipts/images/.gitkeep
 .playwright-cli/
 vidux.config.json
