@@ -256,6 +256,22 @@ class SetExpectedTests(HandlerTestCase):
         self.assertEqual(handler.handle_set_expected(body["id"], {})[0], 400)
 
 
+class ImageTests(HandlerTestCase):
+    def test_serves_bytes_for_stored_image(self):
+        _, body = self.upload()
+        status, ctype, data = handler.handle_image(body["id"])
+        self.assertEqual(status, 200)
+        self.assertEqual(ctype, "image/jpeg")
+        self.assertTrue(data.startswith(b"\xff\xd8\xff"))
+
+    def test_404_for_private_row(self):
+        _, body = self.upload(private=True)
+        self.assertEqual(handler.handle_image(body["id"])[0], 404)
+
+    def test_404_for_unknown(self):
+        self.assertEqual(handler.handle_image("nope")[0], 404)
+
+
 class DeleteTests(HandlerTestCase):
     def test_delete_removes_row_and_image(self):
         _, body = self.upload()
