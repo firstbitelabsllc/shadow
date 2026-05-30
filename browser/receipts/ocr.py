@@ -82,7 +82,10 @@ def analyze_receipt(image_bytes: bytes, *, locale: str = "en", query_fields: lis
     )
     if query_fields:
         from urllib.parse import quote
-        analyze_url += f"&features=queryFields&queryFields={quote(','.join(query_fields))}"
+        # Keep the comma delimiter LITERAL — encoding it (%2C) makes Azure read one giant field
+        # name and the queryFields add-on silently returns nothing. Encode each field, join raw.
+        joined = ",".join(quote(f, safe="") for f in query_fields)
+        analyze_url += f"&features=queryFields&queryFields={joined}"
     request = urllib.request.Request(
         analyze_url,
         data=image_bytes,
