@@ -137,5 +137,14 @@ vidux.config.json
 # Browser runtime artifacts (user-generated HTML, not source)
 browser/artifacts/*
 !browser/artifacts/.gitkeep
+
+# Receipt corpus lab — LAN-local staging data. Ignored (not untracked) so
+# `git clean -fd` never wipes captured receipts whose paper copy was already tossed.
+# Durable home is the EXPORTED resplit-ios fixture (committed); private rows carry no
+# image bytes (image_path=null), so nothing under images/ is PII.
+browser/receipts/corpus.jsonl
+browser/receipts/corpus.jsonl.*
+browser/receipts/images/
+!browser/receipts/images/.gitkeep
 .playwright-cli/
 vidux.config.json
