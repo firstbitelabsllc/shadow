@@ -89,7 +89,11 @@ def main() -> int:
     if args.clear:
         expected = None
     elif args.from_json:
-        expected = json.loads(args.from_json.read_text(encoding="utf-8"))
+        try:
+            expected = json.loads(args.from_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: could not read/parse {args.from_json}: {exc}", file=sys.stderr)
+            return 2
     else:
         print("error: pass --from-json <file> or --clear", file=sys.stderr)
         return 2
