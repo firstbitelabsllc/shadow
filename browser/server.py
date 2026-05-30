@@ -1339,6 +1339,21 @@ class Handler(BaseHTTPRequestHandler):
             row_id = url.path[len("/api/receipts/"):-len("/delete")]
             status, body = _receipts_handler.handle_delete(row_id)
             self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
+        elif url.path.startswith("/api/receipts/") and url.path.endswith("/analyze"):
+            if not self._require_json_write():
+                return
+            row_id = url.path[len("/api/receipts/"):-len("/analyze")]
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = {}
+            if 0 < length <= 4 * 1024:
+                try:
+                    payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace"))
+                except json.JSONDecodeError:
+                    payload = {}
+            # Multi-provider extract + compare (claude + qwen + azure). Blocks ~30s; the
+            # ThreadingHTTPServer handles it on its own thread.
+            status, body = _receipts_handler.handle_analyze(row_id, payload)
+            self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
         else:
             self._send(404, "not found")
 
