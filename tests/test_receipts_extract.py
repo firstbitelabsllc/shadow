@@ -76,6 +76,37 @@ class AzureMappingTests(unittest.TestCase):
         self.assertEqual(result["problems"], [])
 
 
+AZURE_TAXDETAILS = {
+    "analyzeResult": {"documents": [{"fields": {
+        "MerchantName": {"valueString": "Shabu House"},
+        "Total": {"valueCurrency": {"amount": 50.0, "currencyCode": "USD"}},
+        "Subtotal": {"valueNumber": 40.0},
+        "TaxDetails": {"valueArray": [
+            {"valueObject": {"Description": {"valueString": "Sales Tax"}, "Amount": {"valueNumber": 3.55}}},
+            {"valueObject": {"Description": {"valueString": "Service Tax"}, "Amount": {"valueNumber": 2.40}}},
+        ]},
+        "Tip": {"valueNumber": 6.0},
+    }}]}
+}
+
+
+class TaxDetailsTests(unittest.TestCase):
+    def test_per_tax_breakdown_emits_multiple_tax_extras(self):
+        # P8.4: real receipts carry sales tax + service tax as distinct lines; V1 collapsed them.
+        scanned = extract.azure_to_scanned(AZURE_TAXDETAILS, 100)
+        tax = [e for e in scanned["extras"] if e["kind"] == "tax"]
+        self.assertEqual(len(tax), 2)
+        self.assertEqual({e["label"] for e in tax}, {"Sales Tax", "Service Tax"})
+        self.assertTrue(any(e["kind"] == "tip" for e in scanned["extras"]))
+        self.assertEqual(contract.validate_expected({**scanned, "provenance": {
+            "providerName": "a", "providerVersion": "4", "scannedAt": "2026-05-30T00:00:00Z",
+            "latencyMs": 0, "retryCount": 0}}), [])
+
+    def test_falls_back_to_totaltax_when_no_taxdetails(self):
+        scanned = extract.azure_to_scanned(AZURE_SAMPLE, 100)  # AZURE_SAMPLE has TotalTax only
+        self.assertEqual(len([e for e in scanned["extras"] if e["kind"] == "tax"]), 1)
+
+
 class ClaudeResultParseTests(unittest.TestCase):
     def test_extracts_result_from_event_array(self):
         events = [

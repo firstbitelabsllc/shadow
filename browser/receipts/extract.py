@@ -165,7 +165,18 @@ def azure_to_scanned(analyze: dict, latency_ms: int) -> dict:
         })
 
     extras = []
-    if _num(fields.get("TotalTax")) is not None:
+    # P8.4 free win: TaxDetails[] is a per-tax breakdown Azure already returns (state + city +
+    # service tax as distinct lines). Prefer it over the collapsed TotalTax so multi-tax receipts
+    # don't lose a tax line. Falls back to TotalTax when TaxDetails is absent.
+    tax_details = (fields.get("TaxDetails", {}) or {}).get("valueArray") or []
+    emitted_tax = False
+    for td in tax_details:
+        f = td.get("valueObject", {})
+        amt = _num(f.get("Amount"))
+        if amt is not None:
+            extras.append({"label": _str(f.get("Description")) or "Tax", "amount": amt, "kind": "tax"})
+            emitted_tax = True
+    if not emitted_tax and _num(fields.get("TotalTax")) is not None:
         extras.append({"label": "Tax", "amount": _num(fields.get("TotalTax")), "kind": "tax"})
     if _num(fields.get("Tip")) is not None:
         extras.append({"label": "Tip", "amount": _num(fields.get("Tip")), "kind": "tip"})
