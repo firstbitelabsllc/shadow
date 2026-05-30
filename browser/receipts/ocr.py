@@ -62,10 +62,11 @@ def analyze_receipt(image_bytes: bytes, *, locale: str = "en") -> dict[str, Any]
     """POST raw JPEG to Azure, poll the operation-location, return the parsed analyzeResults JSON.
 
     Mirrors ReceiptScanner.swift's request shape exactly — same URL, same headers, same body.
-    Synchronous + blocking; OK for the MVP (~50-receipt batches). Async variant TBD if needed.
+    Synchronous + blocking; OK for the MVP (~50-receipt batches).
     """
     endpoint = _resolve_endpoint()
     key = _resolve_key()
+    content_type = "image/png" if image_bytes[:4] == b"\x89PNG" else "image/jpeg"
 
     analyze_url = (
         f"{endpoint}/documentintelligence/documentModels/{MODEL}:analyze"
@@ -76,7 +77,7 @@ def analyze_receipt(image_bytes: bytes, *, locale: str = "en") -> dict[str, Any]
         data=image_bytes,
         method="POST",
         headers={
-            "Content-Type": "image/jpeg",
+            "Content-Type": content_type,
             "Ocp-Apim-Subscription-Key": key,
         },
     )

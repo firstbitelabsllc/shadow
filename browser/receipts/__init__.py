@@ -1,7 +1,8 @@
 """Receipt corpus lab — vidux-browse `/receipts/` sub-route.
 
-Owner: resplit-ios math fortress T9 sub-plan.
-Authority store: ~/Development/resplit-ios/vidux/receipt-math-fortress/T9-receipt-corpus-lab/PLAN.md
+Authority store: ~/Development/vidux/projects/ocr-moat/tasks/P6-receipt-corpus-lab-web/PLAN.md
+(the "Moussey admin scanner that stores all receipt images on the LAN"; web sibling of
+ocr-moat P5's dev-app corpus loop).
 
 Provides:
 - storage: JSONL read/write for the corpus.jsonl format (id, name, image_path, expected, annotations).
