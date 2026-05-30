@@ -55,8 +55,9 @@ Status FSM per /vidux: `pending → in_progress → in_review → completed`. `[
 - `[pending]` **P3 — Reconciliation engine** [Sub-plan: tasks/P3-reconciliation-engine/PLAN.md] [ETA: 6h] [Depends: P1, P2] — Replaces v3-only `ReceiptItemsFixer` with v4-aware `Reconciler`. **Absorbs `asc-akig` Phase 2.** UI warning chip on receipt detail when `severity ≥ .warn`. Visual proof BEFORE/AFTER.
 - `[pending]` **P4 — Telemetry pipeline** [Sub-plan: tasks/P4-telemetry/PLAN.md] [ETA: 4h] [Depends: P1] — PostHog events per scan (`ocr.scan.started/succeeded/failed/field_confidence`). Sentry breadcrumbs structured. PostHog dashboard for OCR p99 latency + unknown-extras alerting.
 - `[pending]` **P5 — Receipt Lab dev-app surface** [Sub-plan: tasks/P5-receipt-lab-devapp/PLAN.md] [ETA: 8h] [Depends: P1, P2, P3] — Dev-app `ReceiptLab` view: drop-image / annotate / save-to-corpus / replay-fixture. Closes the corpus-growth loop.
+- `[in_progress]` **P6 — Receipt Corpus Lab (LAN web surface)** [Sub-plan: tasks/P6-receipt-corpus-lab-web/PLAN.md] [ETA: 15h] — The vidux-browse `/receipts/` "Moussey admin scanner that stores all receipt images on the LAN." Web sibling of P5's dev-app loop; same `corpus.jsonl` schema; exports runnable fixtures to resplit-ios. MVP-completion drive started 2026-05-29 from 20-agent audit `wcu1o3d47` (zero tests, broken export seam, no `expected` promotion, data-fatal durability gap, latent path-traversal). Hosted on `browser/receipts/*.py` + `browser/static/receipts.html`, `server.py` ~1109-1383.
 
-**Total: 32 AI-hours = ~6 calendar weeks at 1-2 phases/week.**
+**Total: 47 AI-hours (P1-P5 32h + P6 15h).**
 
 ## Decision Log
 
