@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from . import ocr, storage
+from . import contract, ocr, storage
 
 
 def _corpus_safe(fn):
@@ -199,3 +199,51 @@ def handle_ocr(row_id: str) -> tuple[int, dict[str, Any]]:
     existing.setdefault("annotations", {})["azure_response"] = result
     storage.replace_row(DEFAULT_CORPUS_PATH, row_id, existing)
     return 200, {"ok": True, "row_id": row_id, "azure_response_keys": list(result.keys())}
+
+
+@_corpus_safe
+def handle_set_expected(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /api/receipts/<id>/expected — set the ground-truth ScannedReceipt.
+
+    A non-null, contract-valid `expected` is what flips a fixture from skipped to
+    load-bearing on the iOS corpus runner. Validates against the ScannedReceipt decode
+    contract so a malformed object can never reach the repo fixture and red the corpus.
+    Pass `{"expected": null}` to clear it back to a stub.
+    """
+    if not row_id:
+        return 400, {"error": "row_id required"}
+    if "expected" not in payload:
+        return 400, {"error": "payload must include 'expected' (object or null)"}
+
+    existing = storage.find_by_id(DEFAULT_CORPUS_PATH, row_id)
+    if existing is None:
+        return 404, {"error": f"row {row_id} not found"}
+
+    expected = payload["expected"]
+    if expected is not None:
+        problems = contract.validate_expected(expected)
+        if problems:
+            return 400, {"error": "expected failed the ScannedReceipt contract", "problems": problems}
+
+    existing["expected"] = expected
+    storage.replace_row(DEFAULT_CORPUS_PATH, row_id, existing)
+    return 200, {"ok": True, "row": existing}
+
+
+@_corpus_safe
+def handle_delete(row_id: str) -> tuple[int, dict[str, Any]]:
+    """DELETE /api/receipts/<id> — remove the row and its (non-private) image from disk."""
+    if not row_id:
+        return 400, {"error": "row_id required"}
+    existing = storage.find_by_id(DEFAULT_CORPUS_PATH, row_id)
+    if existing is None:
+        return 404, {"error": f"row {row_id} not found"}
+
+    image_path = existing.get("image_path")
+    if image_path:
+        abs_path = storage.safe_image_abs(DEFAULT_CORPUS_PATH.parent, DEFAULT_IMAGES_DIR, image_path)
+        if abs_path is not None and abs_path.exists():
+            abs_path.unlink()
+
+    storage.delete_row(DEFAULT_CORPUS_PATH, row_id)
+    return 200, {"ok": True, "deleted": row_id}

@@ -20,7 +20,7 @@
     "test:all": "npm run test:js && npm run test:py && npm run test:e2e",
     "test:js": "vitest run",
     "test:js:watch": "vitest",
-    "test:py": "python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc tests.test_browser_server tests.test_pr_body tests.test_drift_log tests.test_signpost tests.test_drift_smoke tests.test_receipts_storage tests.test_receipts_handler",
+    "test:py": "python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc tests.test_browser_server tests.test_pr_body tests.test_drift_log tests.test_signpost tests.test_drift_smoke tests.test_receipts_storage tests.test_receipts_handler tests.test_receipts_export",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:visual:update": "playwright test --update-snapshots browser/tests/e2e/visual.spec.ts",

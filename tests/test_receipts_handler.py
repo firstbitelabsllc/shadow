@@ -199,5 +199,77 @@ class OcrTests(HandlerTestCase):
             handler.ocr.config_ready, handler.ocr.analyze_receipt = saved_ready, saved_analyze
 
 
+VALID_EXPECTED = {
+    "lineItems": [{"name": "Coffee", "amount": 3.5, "quantity": 1}],
+    "extras": [{"label": "Tax", "amount": 0.3, "kind": "tax"}],
+    "provenance": {
+        "providerName": "azure-di",
+        "providerVersion": "4",
+        "scannedAt": "2026-05-30T00:00:00Z",
+        "latencyMs": 120,
+        "retryCount": 0,
+    },
+    "total": 3.8,
+}
+
+
+class SetExpectedTests(HandlerTestCase):
+    def test_valid_expected_persists(self):
+        _, body = self.upload()
+        s, out = handler.handle_set_expected(body["id"], {"expected": VALID_EXPECTED})
+        self.assertEqual(s, 200)
+        row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, body["id"])
+        self.assertEqual(row["expected"], VALID_EXPECTED)
+
+    def test_missing_provenance_rejected(self):
+        _, body = self.upload()
+        bad = {"lineItems": [], "extras": [], "provenance": {}}
+        s, out = handler.handle_set_expected(body["id"], {"expected": bad})
+        self.assertEqual(s, 400)
+        self.assertTrue(out["problems"])
+
+    def test_numeric_scanned_at_rejected(self):
+        _, body = self.upload()
+        bad = dict(VALID_EXPECTED, provenance=dict(VALID_EXPECTED["provenance"], scannedAt=0))
+        s, _ = handler.handle_set_expected(body["id"], {"expected": bad})
+        self.assertEqual(s, 400)
+
+    def test_bad_extra_kind_rejected(self):
+        _, body = self.upload()
+        bad = dict(VALID_EXPECTED, extras=[{"label": "x", "amount": 1.0, "kind": "gratuity"}])
+        s, _ = handler.handle_set_expected(body["id"], {"expected": bad})
+        self.assertEqual(s, 400)
+
+    def test_null_clears_to_stub(self):
+        _, body = self.upload()
+        handler.handle_set_expected(body["id"], {"expected": VALID_EXPECTED})
+        s, _ = handler.handle_set_expected(body["id"], {"expected": None})
+        self.assertEqual(s, 200)
+        row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, body["id"])
+        self.assertIsNone(row["expected"])
+
+    def test_404_unknown_id(self):
+        self.assertEqual(handler.handle_set_expected("nope", {"expected": None})[0], 404)
+
+    def test_400_missing_expected_key(self):
+        _, body = self.upload()
+        self.assertEqual(handler.handle_set_expected(body["id"], {})[0], 400)
+
+
+class DeleteTests(HandlerTestCase):
+    def test_delete_removes_row_and_image(self):
+        _, body = self.upload()
+        rid = body["id"]
+        img = handler.DEFAULT_IMAGES_DIR / f"{rid}.jpg"
+        self.assertTrue(img.exists())
+        s, out = handler.handle_delete(rid)
+        self.assertEqual(s, 200)
+        self.assertIsNone(storage.find_by_id(handler.DEFAULT_CORPUS_PATH, rid))
+        self.assertFalse(img.exists())
+
+    def test_delete_404_unknown(self):
+        self.assertEqual(handler.handle_delete("nope")[0], 404)
+
+
 if __name__ == "__main__":
     unittest.main()
