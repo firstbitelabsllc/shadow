@@ -94,11 +94,27 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(len(storage.read_all(self.out)), 1)
 
     def test_dry_run_writes_nothing(self):
-        self._add("grounded", expected=VALID_EXPECTED)
+        self._add("grounded", expected=VALID_EXPECTED, azure={"analyzeResult": {}})
         result = export.export_corpus(self.lab, self.out, dry_run=True)
         self.assertEqual(result["appended"], 1)
         self.assertFalse(self.out.exists())
         self.assertFalse((self.out.parent / "images").exists())
+
+    def test_grounded_without_azure_is_skipped(self):
+        # P1: a grounded, replayable row with no azure response would red the iOS corpus.
+        a = self._add("grounded-no-azure", expected=VALID_EXPECTED)  # has image, no azure
+        result = export.export_corpus(self.lab, self.out)
+        self.assertIn(a, result["skipped_missing_azure"])
+        self.assertEqual(result["appended"], 0)
+        self.assertFalse(self.out.exists())
+
+    def test_private_grounded_writes_no_azure(self):
+        # P1: private rows must not leak their azure response (PII) into the repo.
+        self._add("priv-grounded", expected=VALID_EXPECTED, private=True, azure={"analyzeResult": {"pii": 1}})
+        result = export.export_corpus(self.lab, self.out)
+        self.assertEqual(result["appended"], 1)  # appended (iOS skips private), but...
+        self.assertEqual(result["azure_written"], 0)  # ...no azure file written
+        self.assertEqual(list((self.out.parent / "azure-v4-responses").glob("*.json")), [])
 
 
 if __name__ == "__main__":
