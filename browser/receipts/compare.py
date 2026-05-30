@@ -35,8 +35,23 @@ SCALAR_FIELDS = ["merchantName", "currencyCode", "subtotal", "total"]
 
 
 def compare_image(image_path: Path, providers: list[str]) -> dict:
-    """Run each provider on the image. Returns {provider: extract-result-dict}."""
-    return {p: extract.extract(p, image_path) for p in providers}
+    """Run each provider on the image CONCURRENTLY. Returns {provider: extract-result-dict}.
+
+    Cloud (claude) + prebuilt (azure) + local (qwen) run in parallel, so wall-clock is the slowest
+    single provider (~the local model) rather than the sum. A provider that raises is captured as an
+    error result rather than failing the whole comparison.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _run(p: str) -> dict:
+        try:
+            return extract.extract(p, image_path)
+        except Exception as exc:  # noqa: BLE001 — one provider must not sink the comparison
+            return {"provider": p, "latency_ms": 0, "expected": None, "problems": [], "error": str(exc), "raw": ""}
+
+    with ThreadPoolExecutor(max_workers=max(1, len(providers))) as pool:
+        futures = {p: pool.submit(_run, p) for p in providers}
+        return {p: futures[p].result() for p in providers}
 
 
 def _cell(result: dict, field: str) -> str:
@@ -85,7 +100,8 @@ def main() -> int:
     parser.add_argument("--image", type=Path, help="Path to a receipt image.")
     parser.add_argument("--id", help="Corpus row id (reads its stored image instead of --image).")
     parser.add_argument("--corpus", default=DEFAULT_CORPUS, type=Path)
-    parser.add_argument("--providers", default="azure,claude", help="Comma list: azure,claude,codex.")
+    parser.add_argument("--providers", default="azure,claude,qwen",
+                        help="Comma list: azure,claude,qwen,gemma3,codex (codex is quota-gated; gemma3 hallucinates).")
     parser.add_argument("--store", action="store_true", help="Store results into the corpus row's annotations.extractions.")
     parser.add_argument("--json", action="store_true", help="Emit raw JSON instead of the table.")
     args = parser.parse_args()
