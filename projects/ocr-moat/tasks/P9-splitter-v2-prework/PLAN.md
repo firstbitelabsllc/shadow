@@ -1,0 +1,54 @@
+# P9 — Splitter Core V2: Prework, Test Baseline & Edge-Case Catalog
+
+> Parent: ../../PLAN.md  ·  Sibling of: ../P8-receipt-intelligence-v2/PLAN.md
+
+**Status:** [in_progress] — started 2026-05-30. Leo elevated this to an all-night, 20-engineer goal.
+
+## Purpose
+
+We are about to suggest changes to **money-splitting logic** — the `ReceiptSplitEngine` (splitter core) and the OCR→reconcile→split path (last mile). That is dangerous: a wrong change mis-bills real people. So this plan is **prework only — the deliverable is talking + planning + understanding, NOT production Swift code.** We (1) deeply map the current ResplitCore splitter + last-mile code, (2) audit the unit-test safety net and produce a "fix-first" list, and (3) build a living, evidence-backed **edge-case catalog** — international / multi-currency, no-decimal & 3-decimal currencies, tax (multi / inclusive / on-tax), and post-tax extras (service charge / auto-gratuity / surcharge / cover / fee / deposit-credit). The catalog **strengthens as more receipts arrive**; no code lands until Leo says the corpus is rich enough AND the 2.0 freeze lifts.
+
+Leo verbatim 2026-05-30:
+- *"this is dangerous territory as we suggest new updates and changes for splitter core and last mile work."*
+- *"i would strongly recommend we do prework and deeply understand state of our code and any unit test we should fix first."*
+- *"spend all night working on the goal with 20 engineers the dev is the talking and planning ... think international diff currency edge cases tax post tax all that i have more receipts too."*
+- *"i dont want to start dev because more receipts may adjust strengthen all the edge cases."*
+
+## Evidence
+
+- [Source: codebase] Splitter core: `ReceiptSplitter/ReceiptSplitEngine.swift`, `ReceiptSplitCalculator.swift`, `UseCases/SplitItemUseCase.swift`, `DTOs/SplitResult.swift`, `ReceiptItemsFixer.swift`.
+- [Source: codebase] Last mile: `ResplitCore/OCR/Reconciler.swift` (+ `V3ReceiptReconcilerTests`), `ReceiptSplitter/Models/OCRSnapshot.swift`, `ReceiptSplitter/OCRSnapshotMapper.swift`, `ResplitCore/ReceiptDetail/ReconciliationFindingsSheet.swift`, `ResplitCoreTests/OCR/ReceiptSnapshotApplyingReconciliationTests.swift`, `LiveSessionReconcilerTests`.
+- [Source: codebase] Multi-currency / FX ALREADY EXISTS: `FXRateProvider*` (factory-flagged, trend, inverse-rate fallback), `SettlementServiceMultiCurrencyTests`, `Invariants/CurrencyResolutionInvariantsTests`. Part of prework is mapping what V1 already does vs. the real gaps — do NOT assume greenfield.
+- [Source: codebase] Money-math safety net (the crown jewels we plan against): `Invariants/ReceiptSplitEngineInvariantsTests`, `Invariants/PropertyBasedEngineInvariantsTests`, `SplitEngineMoneyLossTests`, `TaxTip/TaxTipEdgeCaseInvariantsTests`, `Settlement/SettlementEdgeCaseInvariantsTests`, `Invariants/LiveSyncSumRoundTripInvariantsTests`, `Invariants/MathInvariants.swift`, `Person/PersonRollupInvariantsTests`, `Folder/FolderAggregationInvariantsTests`.
+- [Source: P8] Real corpus: `~/Development/vidux/browser/receipts/corpus.jsonl` (48 rows, dining). The V1-misses story `../P8-receipt-intelligence-v2/evidence/2026-05-30-what-v1-splitter-misses.md` + Azure audit `../P8-receipt-intelligence-v2/evidence/2026-05-30-azure-v4-gap-report.md`.
+- [Source: recon 2026-05-30] Only `XCTSkip`s in the suite are UI-regression guards (Zigzag/SearchRowThumbnail/ShareHeadingLocale) — no money-math tests are disabled. Test runner: Tuist 4.176.4 (`tuist test <scheme>`).
+
+## Constraints
+
+- **NEVER write or edit production Swift** in this plan. The dev IS the talking and planning. Output = analysis docs + a catalog + a test-fix list. (Leo: "the dev is the talking and planning"; "i dont want to start dev".)
+- ALWAYS cite a real receipt + a code `file:line` for every catalog entry. A proposed direction without both is a guess.
+- ALWAYS adversarially check each proposed direction against: "could this break an existing correct split / mis-bill someone / contradict an existing invariant test?" The invariant suite is the oracle.
+- The catalog is a LIVING doc — structured so a new receipt strengthens an existing entry or adds one. No conclusion is final while receipts are still arriving.
+- NEVER touch the splitter/reconciler code during the 2.0 freeze; even post-freeze, code lands only after Leo signs off on the catalog + a green test baseline.
+
+## Tasks
+
+- [completed] P9.1 — **Code-state map (understand)**: 4 reader agents mapped splitter-core apportionment, last-mile reconciler, currency/FX, and the schema/extras model. → `evidence/2026-05-30-code-state-map.md`. KEY: V1 is `itemSum+tax+tip+customExtras=total` (additive), everything proportional-by-consumption, cents-hardcoded (`ReceiptSplitEngine.swift:73`), `currencyCode:nil` hardcoded (`V3ReceiptReconciler.swift:76`).
+- [completed] P9.2 — **Test-suite audit + fix-first list**: → `evidence/2026-05-30-test-audit.md`. Engine is NOT MVP (property-based 10k-receipt invariant lattice, settlement FX conservation, no disabled money tests). 5 fix-first items (NaN/Inf guard, negative-amount BOUNDED contradiction, post-tax+custom-tip e2e, total-overflow, MathInvariants dedup).
+- [completed] P9.3 — **Edge-case catalog**: 102 cases / 12 dimensions, adversarially verified. → `evidence/2026-05-30-edge-case-catalog.md` + executive `evidence/2026-05-30-SYNTHESIS.md`. 4 silent-money-error P0s confirmed; 5 apportionment calls escalated to Leo.
+- [pending] P9.4 — **Live test baseline**: run `tuist test` on the money-math schemes to confirm green before any future change. Serial build-owner op (no parallel iOS builds). [ASK-LEO before consuming a long build slot]
+- [pending] P9.5 — **Absorb-new-receipts loop**: as Leo drops more receipts, re-run the classifier + fold each into the catalog (strengthen existing entries / add new). Never closes while receipts arrive. Priority gaps to scan: 3-decimal (BHD/KWD), cross-currency settlement trip, real deposit/balance-due receipt, partially-inclusive tax.
+- [pending] P9.6 — **Apportionment decision matrix (FOR LEO)**: the 5 contested calls (mandatory service-charge, flat cover/min, deposit credit-vs-prepayment, comp/voucher, weighted item) written as option-A/B with tradeoff + recommendation + the invariant each preserves. The ONE artifact that unblocks the V2 extra-taxonomy. Planning only.
+- [pending] P9.7 — **Test-spec drafting (given/when/then, no Swift)**: prose specs for the 5 fix-first items + each P0 direction, so when dev starts the tests are pre-written. Planning only.
+
+## Decision Log
+
+- [DIRECTION] 2026-05-30 — Prework, not dev. The deliverable is understanding + a living edge-case catalog + a test-fix list. Production splitter/reconciler code is explicitly out of scope until the corpus is rich (more receipts) AND the freeze lifts AND Leo signs off. Reason: changes to money-splitting mis-bill real people; we plan before we touch.
+- [DIRECTION] 2026-05-30 — Plan against the invariant suite as the oracle. Every proposed direction must name the invariant it preserves or the new invariant it requires. The existing `SplitEngineMoneyLossTests` + `PropertyBasedEngineInvariantsTests` + `CurrencyResolutionInvariantsTests` are the guardrails a V2 change must not violate.
+- [FINDING] 2026-05-30 — ROOT CAUSE (workflow w5o5plp2k): V2 is not 102 patches, it's THREE model changes — (a) typed extra taxonomy with per-kind apportionment mode, (b) currency-aware money type (minor-units + scaled thresholds), (c) inclusive-tax/balance_due-aware total — plus a confidence-gated "verify before split". The 102 cases are the test corpus that proves each. Reason: ~80% of cases derive from the single additive, proportional, currency-blind shape (`ReceiptTotalCalculator.swift:19` + `ReceiptSplitEngine.swift:73`).
+- [ASK-LEO] 2026-05-30 — 5 apportionment rules are PRODUCT decisions, not engineering: mandatory service-charge (proportional?), flat cover/minimum (per-head, incl. proportion=0 diners), deposit (credit-to-payer vs table-wide prepayment), comp/voucher (proportional vs per-head), weighted item. These gate the V2 extra-taxonomy. See SYNTHESIS.md table. Do NOT resolve unilaterally.
+
+## Progress
+
+- [2026-05-30] Created P9. Recon confirmed splitter-core, reconciler (`OCR/Reconciler.swift`), and EXISTING multi-currency/FX infra + a deep money-math invariant suite (no disabled money tests). Firing the prework workflow: parallel code-state readers + test audit (Understand) → per-dimension edge-case catalog with adversarial verification (Catalog+Verify) → synthesize to evidence/. NO Swift edits.
+- [2026-05-30] PREWORK PASS 1 COMPLETE (workflow w5o5plp2k — 29 agents, 2.2M tokens). 4 evidence docs written (code-state-map, test-audit, 102-case edge-catalog, SYNTHESIS). Root cause isolated (3 model changes). 4 silent-money-error P0s confirmed. 5 apportionment calls escalated to Leo as ASK-LEO. P9.1-3 done. Next overnight passes queued: P9.6 (apportionment decision matrix for Leo) + P9.7 (test-spec drafting) — both planning-only, firing now. Absorb-receipts loop (P9.5) stays open for the receipts Leo is scanning. NO Swift touched.
