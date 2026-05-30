@@ -96,10 +96,14 @@ def _rewrite(corpus_path: Path, rows: list[dict[str, Any]]) -> None:
     concurrent writers never consume each other's temp file.
     """
     tmp = corpus_path.with_suffix(corpus_path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
-    tmp.replace(corpus_path)
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+        tmp.replace(corpus_path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # don't orphan the temp file on a write/rename failure
+        raise
 
 
 def replace_row(corpus_path: Path, row_id: str, new_row: dict[str, Any]) -> bool:
