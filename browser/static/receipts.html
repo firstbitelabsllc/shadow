@@ -23,6 +23,13 @@
   button:hover { background: var(--select); }
   button.primary { background: var(--accent); color: var(--paper); border-color: var(--accent); }
   button.primary:hover { background: #244e30; }
+  button.danger:hover { background: var(--hot); color: var(--paper); border-color: var(--hot); }
+  #dropzone {
+    border: 2px dashed var(--rule); border-radius: 6px; padding: 18px;
+    text-align: center; color: var(--ink-2); font-family: var(--mono); font-size: 13px;
+    margin-bottom: 12px; transition: background 0.12s, border-color 0.12s;
+  }
+  #dropzone.drag { background: var(--select); border-color: var(--accent); color: var(--ink); }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -33,6 +40,10 @@
     background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px;
     padding: 12px; display: flex; flex-direction: column; gap: 6px;
   }
+  .card img.thumb {
+    width: 100%; max-height: 200px; object-fit: contain; background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 3px;
+  }
   .card .id { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
   .card .name { font-family: var(--serif); font-size: 16px; }
   .card .tags { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -40,7 +51,14 @@
     background: var(--select); color: var(--ink); border: 1px solid var(--rule);
     padding: 1px 6px; border-radius: 2px; font-family: var(--mono); font-size: 11px;
   }
-  .tag-input { font-family: var(--mono); font-size: 12px; width: 100%; }
+  .tag-input, .ki-input, .note-input { font-family: var(--mono); font-size: 12px; width: 100%; }
+  .note-input { resize: vertical; min-height: 36px; }
+  .cap { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 2px; align-self: flex-start; }
+  .cap.stub { color: var(--ink-2); border: 1px solid var(--rule); }
+  .cap.ocrd { color: #8a5a00; border: 1px solid #d8a23a; background: #fbf3e2; }
+  .cap.grounded { color: var(--task-completed); border: 1px solid var(--task-completed); }
+  .card-actions { gap: 6px; margin: 4px 0 0; }
+  .card-actions button { padding: 4px 9px; font-size: 12px; }
   .status { font-family: var(--mono); font-size: 12px; color: var(--ink-2); min-height: 18px; }
   .status.error { color: var(--hot); }
   .status.ok { color: var(--task-completed); }
@@ -52,12 +70,13 @@
 <header class="topbar">
   <h1>receipts — vidux corpus lab</h1>
   <span style="font-family: var(--mono); font-size: 12px; color: var(--ink-2);">
-    math fortress T9.1
+    LAN scanner → tag → OCR → export to resplit-ios fixtures
   </span>
 </header>
 
 <main>
-  <h2>Drop a receipt</h2>
+  <h2>Add a receipt</h2>
+  <div id="dropzone">drag &amp; drop a receipt photo here, paste an image (⌘V), or use the file picker below</div>
   <div class="row">
     <label>name <input type="text" id="upload-name" placeholder="lunch at cafe"></label>
     <label>tags <input type="text" id="upload-tags" placeholder="thermal,USD,short"></label>
@@ -80,6 +99,16 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
+// A blank ScannedReceipt skeleton — mirrors receipts/promote.py SKELETON so the
+// "Set expected" editor pre-fills a valid shape (provenance required, ISO-8601 scannedAt).
+const EXPECTED_SKELETON = {
+  merchantName: "", currencyCode: "USD", currencySymbol: "$",
+  lineItems: [{ name: "", amount: 0.0, quantity: 1 }],
+  subtotal: 0.0, total: 0.0,
+  extras: [{ label: "Tax", amount: 0.0, kind: "tax" }],
+  provenance: { providerName: "azure-di", providerVersion: "4", scannedAt: "2026-01-01T00:00:00Z", latencyMs: 0, retryCount: 0 },
+};
+
 async function refreshList() {
   const status = $("list-status");
   status.className = "status";
@@ -98,28 +127,52 @@ async function refreshList() {
   }
 }
 
+function captureState(row) {
+  if (row.expected != null) return { cls: "grounded", text: "grounded ✓ (runs a test)" };
+  if (row.annotations && row.annotations.azure_response) return { cls: "ocrd", text: "OCR'd — needs expected" };
+  return { cls: "stub", text: "stub — no OCR yet" };
+}
+
 function renderGrid(rows) {
   const grid = $("grid");
   grid.innerHTML = "";
   for (const row of rows) {
+    const cap = captureState(row);
+    const ann = row.annotations || {};
     const card = document.createElement("div");
     card.className = "card";
+    const showImage = !row.private && row.image_path;
     card.innerHTML = `
       <div class="id">${row.id}${row.private ? ' <span class="private">PRIVATE</span>' : ''}</div>
+      ${showImage ? `<img class="thumb" loading="lazy" src="/api/receipts/${row.id}/image" alt="receipt ${row.id}">` : ''}
       <div class="name">${escapeHtml(row.name || "(unnamed)")}</div>
+      <div class="cap ${cap.cls}">${cap.text}</div>
       <div class="tags">
-        ${(row.annotations?.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}
+        ${(ann.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}
       </div>
-      <input class="tag-input" type="text"
-             data-id="${row.id}"
-             value="${escapeHtml((row.annotations?.tags || []).join(","))}"
-             placeholder="comma,separated,tags">
+      <input class="tag-input" type="text" value="${escapeHtml((ann.tags || []).join(","))}" placeholder="comma,separated,tags">
+      <input class="ki-input" type="text" value="${escapeHtml((ann.known_issues || []).join(","))}" placeholder="known issues (comma)">
+      <textarea class="note-input" placeholder="leo note">${escapeHtml(ann.leo_note || "")}</textarea>
+      <div class="row card-actions">
+        <button data-act="ocr">Run OCR</button>
+        <button data-act="expected">Set expected…</button>
+        <button class="danger" data-act="delete">Delete</button>
+      </div>
     `;
-    const input = card.querySelector(".tag-input");
-    input.addEventListener("change", () => updateTags(row.id, input.value));
+    card.querySelector(".tag-input").addEventListener("change", (e) =>
+      patchTag(row.id, { tags: splitCsv(e.target.value) }));
+    card.querySelector(".ki-input").addEventListener("change", (e) =>
+      patchTag(row.id, { known_issues: splitCsv(e.target.value) }));
+    card.querySelector(".note-input").addEventListener("change", (e) =>
+      patchTag(row.id, { leo_note: e.target.value.trim() || null }));
+    card.querySelector('[data-act="ocr"]').addEventListener("click", () => runOcr(row.id));
+    card.querySelector('[data-act="expected"]').addEventListener("click", () => editExpected(row));
+    card.querySelector('[data-act="delete"]').addEventListener("click", () => deleteRow(row.id, row.name));
     grid.appendChild(card);
   }
 }
+
+function splitCsv(s) { return s.split(",").map(t => t.trim()).filter(Boolean); }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -127,49 +180,88 @@ function escapeHtml(s) {
   }[c]));
 }
 
-async function updateTags(id, tagString) {
-  const tags = tagString.split(",").map(t => t.trim()).filter(Boolean);
+function setStatus(msg, ok) {
+  const s = $("list-status");
+  s.className = "status " + (ok ? "ok" : "error");
+  s.textContent = msg;
+}
+
+async function patchTag(id, body) {
   try {
     const r = await fetch(`/api/receipts/${id}/tag`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tags }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     refreshList();
-  } catch (e) {
-    $("list-status").className = "status error";
-    $("list-status").textContent = `tag update failed: ${e.message}`;
-  }
+  } catch (e) { setStatus(`update failed: ${e.message}`, false); }
 }
 
-async function upload() {
-  const status = $("upload-status");
-  const fileInput = $("upload-file");
-  const file = fileInput.files[0];
-  if (!file) {
-    status.className = "status error";
-    status.textContent = "pick a file first";
-    return;
-  }
-  status.className = "status";
-  status.textContent = "reading…";
+async function runOcr(id) {
+  setStatus(`OCR ${id}…`, true);
+  try {
+    const r = await fetch(`/api/receipts/${id}/ocr`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 503) { setStatus("OCR not configured (set AZURE_OCR_SUBSCRIPTION_KEY)", false); return; }
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    setStatus(`OCR'd ${id} — now set expected`, true);
+    refreshList();
+  } catch (e) { setStatus(`OCR failed: ${e.message}`, false); }
+}
 
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  // Convert to base64 via chunked btoa (avoids call-stack limit on large files).
+async function editExpected(row) {
+  const current = row.expected != null ? row.expected : EXPECTED_SKELETON;
+  const input = prompt(
+    `Ground-truth ScannedReceipt JSON for ${row.id}\n(edit the skeleton, or type "null" to clear):`,
+    JSON.stringify(current, null, 2)
+  );
+  if (input === null) return;
+  let expected;
+  try {
+    expected = input.trim() === "null" ? null : JSON.parse(input);
+  } catch (e) { setStatus(`invalid JSON: ${e.message}`, false); return; }
+  try {
+    const r = await fetch(`/api/receipts/${row.id}/expected`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const probs = (data.problems || []).join("; ");
+      throw new Error((data.error || `HTTP ${r.status}`) + (probs ? ` — ${probs}` : ""));
+    }
+    setStatus(expected === null ? `cleared expected on ${row.id}` : `expected set on ${row.id} ✓`, true);
+    refreshList();
+  } catch (e) { setStatus(`set expected failed: ${e.message}`, false); }
+}
+
+async function deleteRow(id, name) {
+  if (!confirm(`Delete receipt "${name || id}" and its image? This cannot be undone.`)) return;
+  try {
+    const r = await fetch(`/api/receipts/${id}/delete`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    setStatus(`deleted ${id}`, true);
+    refreshList();
+  } catch (e) { setStatus(`delete failed: ${e.message}`, false); }
+}
+
+async function uploadFile(file) {
+  const status = $("upload-status");
+  if (!file) { status.className = "status error"; status.textContent = "pick a file first"; return; }
+  status.className = "status"; status.textContent = "reading…";
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   const chunkSize = 0x8000;
   for (let i = 0; i < bytes.length; i += chunkSize) {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   }
-  const b64 = btoa(binary);
-
-  const tags = $("upload-tags").value.split(",").map(t => t.trim()).filter(Boolean);
   const payload = {
     name: $("upload-name").value.trim() || file.name,
-    image_base64: b64,
-    tags,
+    image_base64: btoa(binary),
+    tags: splitCsv($("upload-tags").value),
     private: $("upload-private").checked,
     source: "vidux-browse:web-ui",
   };
@@ -177,28 +269,34 @@ async function upload() {
   status.textContent = "uploading…";
   try {
     const r = await fetch("/api/receipts/upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
     status.className = "status ok";
-    status.textContent = data.duplicate
-      ? `already in corpus: ${data.id}`
-      : `ingested: ${data.id}`;
-    $("upload-name").value = "";
-    $("upload-tags").value = "";
-    fileInput.value = "";
+    status.textContent = data.duplicate ? `already in corpus: ${data.id}` : `ingested: ${data.id}`;
+    $("upload-name").value = ""; $("upload-tags").value = ""; $("upload-file").value = "";
     refreshList();
-  } catch (e) {
-    status.className = "status error";
-    status.textContent = `error: ${e.message}`;
-  }
+  } catch (e) { status.className = "status error"; status.textContent = `error: ${e.message}`; }
 }
 
-$("upload-btn").addEventListener("click", upload);
+$("upload-btn").addEventListener("click", () => uploadFile($("upload-file").files[0]));
 $("refresh-btn").addEventListener("click", refreshList);
+
+// Drag & drop
+const dz = $("dropzone");
+dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("drag"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
+dz.addEventListener("drop", (e) => {
+  e.preventDefault(); dz.classList.remove("drag");
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+});
+// Clipboard paste (⌘V a screenshot)
+document.addEventListener("paste", (e) => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (item) uploadFile(item.getAsFile());
+});
 
 refreshList();
 </script>
