@@ -1111,6 +1111,13 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/receipts/list":
             status, body = _receipts_handler.handle_list()
             self._send(status, "") if status >= 400 else self._json(body)
+        elif route.startswith("/api/receipts/") and route.endswith("/image"):
+            row_id = route[len("/api/receipts/"):-len("/image")]
+            status, ctype, data = _receipts_handler.handle_image(row_id)
+            if status == 200:
+                self._send_with_type(data, ctype)
+            else:
+                self._send(status, data.get("error", "error") if isinstance(data, dict) else "error")
         else:
             self._send(404, "not found")
 
@@ -1309,6 +1316,28 @@ class Handler(BaseHTTPRequestHandler):
                 return
             row_id = url.path[len("/api/receipts/"):-len("/ocr")]
             status, body = _receipts_handler.handle_ocr(row_id)
+            self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
+        elif url.path.startswith("/api/receipts/") and url.path.endswith("/expected"):
+            if not self._require_json_write():
+                return
+            row_id = url.path[len("/api/receipts/"):-len("/expected")]
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 64 * 1024:
+                self._send(400, "missing or oversized body (64 KB cap for expected payload)")
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._send(400, f"bad json: {e}")
+                return
+            status, body = _receipts_handler.handle_set_expected(row_id, payload)
+            self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
+        elif url.path.startswith("/api/receipts/") and url.path.endswith("/delete"):
+            if not self._require_json_write():
+                return
+            row_id = url.path[len("/api/receipts/"):-len("/delete")]
+            status, body = _receipts_handler.handle_delete(row_id)
             self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
         else:
             self._send(404, "not found")
