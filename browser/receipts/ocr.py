@@ -58,10 +58,18 @@ def _resolve_key() -> str:
     )
 
 
-def analyze_receipt(image_bytes: bytes, *, locale: str = "en") -> dict[str, Any]:
+# P8.4: the v4-supported way to capture "arbitrary key-value post-subtotal" extras on
+# prebuilt-receipt (keyValuePairs is NOT available on this model — queryFields IS). Premium/billed,
+# so pass query_fields explicitly to opt in; default off keeps the bare (free) call.
+DEFAULT_QUERY_FIELDS = ["ServiceCharge", "Gratuity", "Surcharge", "Fee", "Deposit", "DeliveryFee"]
+
+
+def analyze_receipt(image_bytes: bytes, *, locale: str = "en", query_fields: list[str] | None = None) -> dict[str, Any]:
     """POST raw JPEG to Azure, poll the operation-location, return the parsed analyzeResults JSON.
 
-    Mirrors ReceiptScanner.swift's request shape exactly — same URL, same headers, same body.
+    Mirrors ReceiptScanner.swift's request shape. `query_fields` opts into the v4 `queryFields`
+    add-on (premium) to extract named extras (service charge / gratuity / surcharge / fee /
+    deposit) the structured receipt schema otherwise drops; default None = the free bare call.
     Synchronous + blocking; OK for the MVP (~50-receipt batches).
     """
     endpoint = _resolve_endpoint()
@@ -72,6 +80,9 @@ def analyze_receipt(image_bytes: bytes, *, locale: str = "en") -> dict[str, Any]
         f"{endpoint}/documentintelligence/documentModels/{MODEL}:analyze"
         f"?api-version={API_VERSION}&locale={locale}"
     )
+    if query_fields:
+        from urllib.parse import quote
+        analyze_url += f"&features=queryFields&queryFields={quote(','.join(query_fields))}"
     request = urllib.request.Request(
         analyze_url,
         data=image_bytes,
