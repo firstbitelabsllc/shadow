@@ -64,6 +64,7 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
     duplicates = grounded = stubs = 0
     skipped_missing_image: list[str] = []
     skipped_bad_expected: list[str] = []
+    skipped_missing_azure: list[str] = []
 
     for row in storage.read_all(lab_path):
         rid = row.get("id")
@@ -78,18 +79,27 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
         azure = annotations.pop("azure_response", None)  # strip from corpus row
         new_row["annotations"] = annotations
 
+        no_image = bool(new_row.get("private")) or not row.get("image_path")
+
         expected = new_row.get("expected")
         if expected is not None:
             problems = contract.validate_expected(expected)
             if problems:
                 skipped_bad_expected.append(f"{rid}: {problems[0]}")
                 continue
+            # A grounded row that iOS will actually REPLAY (non-private, has an image) MUST ship
+            # a paired azure response — FixtureReplayProvider reads azure-v4-responses/<id>.json and
+            # a missing file throws, reddening the whole corpus. Skip + warn rather than ship broken.
+            if not no_image and azure is None:
+                skipped_missing_azure.append(rid)
+                continue
             grounded += 1
         else:
             stubs += 1
 
-        if new_row.get("private") or not row.get("image_path"):
+        if no_image:
             new_row["image_path"] = None
+            # private rows carry no image bytes AND no azure response (PII); iOS skips them anyway.
         else:
             src = storage.safe_image_abs(lab_path.parent, lab_images, row["image_path"])
             if src is None or not src.exists():
@@ -100,9 +110,8 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
             dest_name = f"{rid}-{date}.{ext}" if date else f"{rid}.{ext}"
             new_row["image_path"] = f"{REPO_IMAGES_PREFIX}/{dest_name}"
             image_copies.append((src, repo_images / dest_name))
-
-        if azure is not None:
-            azure_writes.append((repo_azure / f"{rid}.json", azure))
+            if azure is not None:
+                azure_writes.append((repo_azure / f"{rid}.json", azure))
 
         appended.append(new_row)
 
@@ -126,6 +135,7 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
         "azure_written": len(azure_writes),
         "duplicates": duplicates,
         "skipped_missing_image": skipped_missing_image,
+        "skipped_missing_azure": skipped_missing_azure,
         "skipped_bad_expected": skipped_bad_expected,
         "new_ids": [r["id"] for r in appended],
     }
@@ -146,6 +156,9 @@ def main() -> int:
     if result["skipped_missing_image"]:
         print(f"  ⚠ skipped {len(result['skipped_missing_image'])} non-private row(s) missing an image: "
               f"{result['skipped_missing_image']}")
+    if result.get("skipped_missing_azure"):
+        print(f"  ⚠ skipped {len(result['skipped_missing_azure'])} grounded row(s) with no OCR/azure response "
+              f"(would red the iOS corpus — Run OCR before promoting): {result['skipped_missing_azure']}")
     if result["skipped_bad_expected"]:
         print("  ⚠ skipped row(s) with an invalid `expected` (would red the corpus):")
         for line in result["skipped_bad_expected"]:
