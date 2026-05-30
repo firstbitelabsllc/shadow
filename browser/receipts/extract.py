@@ -211,26 +211,65 @@ def extract_claude(image_path: Path, model: str = "opus") -> dict:
     return _finalize("claude", model, content, latency, text, None if content else "no JSON in claude output")
 
 
+# JSON Schema for codex `--output-schema` (structured output) — the LLM content fields
+# (provenance is injected in code, not extracted). Strict shape: all keys required,
+# additionalProperties false, extras.kind constrained to the 9 ScannedExtraKind rawValues.
+CODEX_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["merchantName", "merchantAddress", "transactionDate", "currencyCode",
+                 "currencySymbol", "lineItems", "subtotal", "total", "extras"],
+    "properties": {
+        "merchantName": {"type": ["string", "null"]},
+        "merchantAddress": {"type": ["string", "null"]},
+        "transactionDate": {"type": ["string", "null"]},
+        "currencyCode": {"type": ["string", "null"]},
+        "currencySymbol": {"type": ["string", "null"]},
+        "subtotal": {"type": ["number", "null"]},
+        "total": {"type": ["number", "null"]},
+        "lineItems": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["name", "amount", "quantity"],
+            "properties": {"name": {"type": "string"}, "amount": {"type": ["number", "null"]},
+                           "quantity": {"type": ["number", "null"]}}}},
+        "extras": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["label", "amount", "kind"],
+            "properties": {"label": {"type": "string"}, "amount": {"type": "number"},
+                           "kind": {"type": "string", "enum": sorted(contract.EXTRA_KINDS)}}}},
+    },
+}
+
+
 def extract_codex(image_path: Path, cwd: Path | None = None) -> dict:
+    import shutil
+    import tempfile
+
+    workspace = cwd or Path.home() / "Development" / "vidux"  # trusted git repo
     prompt = EXTRACT_PROMPT.format(path="the attached receipt image")
-    # `-i` is variadic and would swallow a trailing positional prompt, so attach only the
-    # image via -i and feed the prompt through stdin (codex reads the prompt from stdin when
-    # not given positionally). Read-only sandbox, trusted git repo cwd.
-    argv = ["codex", "exec", "--sandbox", "read-only", "-i", str(image_path)]
     t0 = time.monotonic()
-    stdout, error = _run_cli(argv, cwd=cwd or Path.home() / "Development" / "vidux", input_text=prompt, timeout=180)
-    latency = int((time.monotonic() - t0) * 1000)
-    if error:
-        return _finalize("codex", "codex-cli", None, latency, stdout, error)
-    content = _json_from_text(_last_json_block(stdout))
-    return _finalize("codex", "codex-cli", content, latency, stdout, None if content else "no JSON in codex output")
-
-
-def _last_json_block(text: str) -> str:
-    """Codex exec prints agent reasoning then the final answer; return the tail so _json_from_text
-    picks the final JSON rather than an intermediate one."""
-    idx = text.rfind("{")
-    return text[max(0, idx - 1):] if idx != -1 else text
+    # Schema + answer files must live INSIDE the workspace so the workspace-write sandbox can
+    # write the -o answer (a read-only sandbox can't write; /tmp is outside the writable root).
+    tmp = Path(tempfile.mkdtemp(prefix=".codex-receipt-", dir=workspace))
+    try:
+        schema_file = tmp / "schema.json"
+        out_file = tmp / "answer.json"
+        schema_file.write_text(json.dumps(CODEX_SCHEMA), encoding="utf-8")
+        # Image via -i; prompt via stdin; structured output via --output-schema; final answer
+        # to -o (codex's human log goes to stderr, so stdout is unreliable).
+        argv = [
+            "codex", "exec", "--sandbox", "workspace-write",
+            "--output-schema", str(schema_file), "-o", str(out_file), "-i", str(image_path),
+        ]
+        stdout, error = _run_cli(argv, cwd=workspace, input_text=prompt, timeout=240)
+        latency = int((time.monotonic() - t0) * 1000)
+        answer = out_file.read_text(encoding="utf-8") if out_file.exists() else ""
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    content = _json_from_text(answer) if answer else None
+    if content is None and error:
+        return _finalize("codex", "gpt-5.5", None, latency, answer or stdout, error)
+    return _finalize("codex", "gpt-5.5", content, latency, answer, None if content else "no JSON in codex answer file")
 
 
 PROVIDERS = {"azure": extract_azure, "claude": extract_claude, "codex": extract_codex}
