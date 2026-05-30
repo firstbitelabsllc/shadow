@@ -230,6 +230,27 @@ def handle_set_expected(row_id: str, payload: dict[str, Any]) -> tuple[int, dict
     return 200, {"ok": True, "row": existing}
 
 
+def handle_image(row_id: str) -> tuple[int, str, bytes | dict[str, Any]]:
+    """GET /api/receipts/<id>/image — return raw image bytes for a stored receipt.
+
+    Returns (status, content_type, data). On success data is bytes; on error data is an
+    error dict and content_type is "". Private rows, missing rows, and jail escapes all
+    return 404 (don't leak which rows exist or read outside the images dir).
+    """
+    try:
+        existing = storage.find_by_id(DEFAULT_CORPUS_PATH, row_id)
+    except storage.CorpusError as exc:
+        return 500, "", {"error": str(exc)}
+    if existing is None or existing.get("private") or not existing.get("image_path"):
+        return 404, "", {"error": "no image for this row"}
+    abs_path = storage.safe_image_abs(DEFAULT_CORPUS_PATH.parent, DEFAULT_IMAGES_DIR, existing["image_path"])
+    if abs_path is None or not abs_path.exists():
+        return 404, "", {"error": "image file missing"}
+    data = abs_path.read_bytes()
+    ctype = "image/png" if data[:4] == b"\x89PNG" else "image/jpeg"
+    return 200, ctype, data
+
+
 @_corpus_safe
 def handle_delete(row_id: str) -> tuple[int, dict[str, Any]]:
     """DELETE /api/receipts/<id> — remove the row and its (non-private) image from disk."""
