@@ -241,6 +241,55 @@ def handle_set_expected(row_id: str, payload: dict[str, Any]) -> tuple[int, dict
     return 200, {"ok": True, "row": existing}
 
 
+DEFAULT_ANALYZE_PROVIDERS = ["azure", "claude", "qwen"]
+
+
+@_corpus_safe
+def handle_analyze(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /api/receipts/<id>/analyze — run the multi-provider extractor set on the stored image
+    and store the comparison in `annotations.extractions` ("just take it from there once I upload").
+
+    Spawns the LLM providers (claude cloud + qwen local) — Leo-authorized model spend for this
+    surface, user-triggered per upload (NOT a background cron). ~30s concurrent.
+    """
+    from receipts import compare  # heavy (PIL + subprocess) — only imported on analyze
+
+    if not row_id:
+        return 400, {"error": "row_id required"}
+    existing = storage.find_by_id(DEFAULT_CORPUS_PATH, row_id)
+    if existing is None:
+        return 404, {"error": f"row {row_id} not found"}
+
+    image_path = existing.get("image_path")
+    if not image_path:
+        return 400, {"error": "row has no image (private?); cannot analyze"}
+    abs_path = storage.safe_image_abs(DEFAULT_CORPUS_PATH.parent, DEFAULT_IMAGES_DIR, image_path)
+    if abs_path is None:
+        return 400, {"error": "image_path escapes images dir"}
+    if not abs_path.exists():
+        return 410, {"error": f"image file missing on disk: {image_path}"}
+
+    providers = payload.get("providers") if isinstance(payload, dict) else None
+    if not isinstance(providers, list) or not providers:
+        providers = DEFAULT_ANALYZE_PROVIDERS
+
+    results = compare.compare_image(abs_path, providers)
+    extractions = {
+        p: {"expected": r.get("expected"), "latency_ms": r.get("latency_ms"),
+            "error": r.get("error"), "problems": r.get("problems")}
+        for p, r in results.items()
+    }
+
+    def _store(row: dict[str, Any]) -> dict[str, Any]:
+        row.setdefault("annotations", {})["extractions"] = extractions
+        return row
+
+    updated = storage.update_row(DEFAULT_CORPUS_PATH, row_id, _store)
+    if updated is None:
+        return 404, {"error": f"row {row_id} deleted during analyze"}
+    return 200, {"ok": True, "providers": list(extractions), "extractions": extractions}
+
+
 def handle_image(row_id: str) -> tuple[int, str, bytes | dict[str, Any]]:
     """GET /api/receipts/<id>/image — return raw image bytes for a stored receipt.
 

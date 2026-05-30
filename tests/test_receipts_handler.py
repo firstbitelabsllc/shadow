@@ -287,6 +287,40 @@ class ImageTests(HandlerTestCase):
         self.assertIn("line 2", data["error"])
 
 
+class AnalyzeTests(HandlerTestCase):
+    def _fake_compare(self):
+        from receipts import compare
+        saved = compare.compare_image
+        compare.compare_image = lambda path, providers: {
+            p: {"expected": {"lineItems": [], "extras": [], "total": 9.9}, "latency_ms": 10, "error": None, "problems": []}
+            for p in providers
+        }
+        return compare, saved
+
+    def test_stores_extractions(self):
+        _, body = self.upload()
+        compare, saved = self._fake_compare()
+        try:
+            s, out = handler.handle_analyze(body["id"], {"providers": ["azure", "claude"]})
+            self.assertEqual(s, 200)
+            self.assertEqual(sorted(out["providers"]), ["azure", "claude"])
+            row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, body["id"])
+            self.assertEqual(sorted(row["annotations"]["extractions"]), ["azure", "claude"])
+        finally:
+            compare.compare_image = saved
+
+    def test_404_unknown(self):
+        compare, saved = self._fake_compare()
+        try:
+            self.assertEqual(handler.handle_analyze("nope", {})[0], 404)
+        finally:
+            compare.compare_image = saved
+
+    def test_400_private_no_image(self):
+        _, body = self.upload(private=True)
+        self.assertEqual(handler.handle_analyze(body["id"], {})[0], 400)
+
+
 class DeleteTests(HandlerTestCase):
     def test_delete_removes_row_and_image(self):
         _, body = self.upload()
