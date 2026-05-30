@@ -175,6 +175,8 @@ def handle_ocr(row_id: str) -> tuple[int, dict[str, Any]]:
     Stores the full Azure analyzeResults JSON in `annotations.azure_response`.
     `expected` stays null — human must promote to ground-truth in a tagging step.
     """
+    if not row_id:
+        return 400, {"error": "row_id required"}
     existing = storage.find_by_id(DEFAULT_CORPUS_PATH, row_id)
     if existing is None:
         return 404, {"error": f"row {row_id} not found"}
