@@ -168,6 +168,36 @@ class CorpusIOTests(unittest.TestCase):
         self.assertEqual(names, {f"r{i}-updated" for i in range(5)})
 
 
+    def test_update_row_concurrent_same_row_no_lost_update(self):
+        import threading
+
+        row = self._row(name="base")
+        row.setdefault("annotations", {})["tags"] = []
+        storage.append_row(self.corpus, row)
+        barrier = threading.Barrier(5)
+
+        def add_tag(tag):
+            barrier.wait()
+
+            def mut(r):
+                r.setdefault("annotations", {}).setdefault("tags", []).append(tag)
+                return r
+
+            storage.update_row(self.corpus, row["id"], mut)
+
+        threads = [threading.Thread(target=add_tag, args=(f"t{i}",)) for i in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        got = storage.find_by_id(self.corpus, row["id"])
+        self.assertEqual(sorted(got["annotations"]["tags"]), [f"t{i}" for i in range(5)])
+
+    def test_update_row_missing_returns_none(self):
+        self.assertIsNone(storage.update_row(self.corpus, "nope", lambda r: r))
+
+
 class SafeImageAbsTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
