@@ -99,5 +99,35 @@ class ClaudeResultParseTests(unittest.TestCase):
         self.assertIn("provenance", result["expected"])
 
 
+class DispatchTests(unittest.TestCase):
+    def test_known_providers(self):
+        self.assertEqual(sorted(extract.PROVIDERS), ["azure", "claude", "codex", "gemma3", "qwen"])
+
+    def test_unknown_provider_raises(self):
+        from pathlib import Path
+        with self.assertRaises(ValueError):
+            extract.extract("nope", Path("/tmp/x.jpg"))
+
+
+class ResizeTests(unittest.TestCase):
+    def test_downscales_large_image_keeps_small(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PIL not available")
+        import io
+
+        big = io.BytesIO()
+        Image.new("RGB", (4000, 3000), "white").save(big, "JPEG")
+        out = extract._resize_for_vision(big.getvalue(), max_dim=1568)
+        w, h = Image.open(io.BytesIO(out)).size
+        self.assertEqual(max(w, h), 1568)
+
+        small = io.BytesIO()
+        Image.new("RGB", (800, 600), "white").save(small, "JPEG")
+        # already fits -> returned unchanged
+        self.assertEqual(extract._resize_for_vision(small.getvalue(), max_dim=1568), small.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

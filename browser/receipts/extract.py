@@ -4,26 +4,61 @@ Every provider emits the SAME `ScannedReceipt`-shaped object (see receipts.contr
 prebuilt Azure Document Intelligence can be diffed field-for-field against a flagship
 general-reasoning LLM. Providers:
 
-- `azure`  — Azure DI `prebuilt-receipt` (receipts.ocr) mapped to ScannedReceipt.
-- `claude` — Claude vision via the `claude` CLI (OAuth subscription; no API key needed),
-             restricted to the Read tool.
-- `codex`  — Codex vision via `codex exec` (run from a trusted git repo cwd).
+- `azure`  — Azure DI `prebuilt-receipt` (receipts.ocr) mapped to ScannedReceipt (full-res).
+- `claude` — Claude vision via the `claude` CLI (OAuth, no API key). Default model `sonnet`
+             (accurate; opus timed out on a 12MP photo). Image is resized before the call.
+- `qwen`   — qwen2.5-VL:7b via local ollama (free + private; ~matches the cloud flagship and,
+             like claude, catches surcharge/fee lines Azure's [tax,tip] schema drops).
+- `gemma3` — gemma3:12b via local ollama. KEEP for benchmarking only — it hallucinated
+             merchant + line items on a real receipt; do NOT trust for production.
+- `codex`  — Codex vision via `codex exec` (correct invocation; OpenAI account quota-gated).
 
-Stdlib only. Provenance is injected in code (latency, provider name) — the LLM only extracts
-the content fields. Each extractor returns:
+Benchmark finding (2026-05-30 Marathon Cafe receipt): both claude-sonnet and qwen2.5-VL recovered
+a 3% credit-card processing fee that Azure prebuilt dropped — the aggregate signal P7 feeds back
+into Resplit's reconciliation (Azure under-extracts non-tax/tip extras).
+
+LLM providers resize the image to <=1568px first (a 12MP photo makes them crawl / time out).
+Provenance is injected in code; the LLM only extracts the content fields. Each extractor returns:
     {"provider": str, "latency_ms": int, "expected": <ScannedReceipt|None>, "problems": [...], "error": str|None, "raw": str}
 """
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 from receipts import contract, ocr, storage
+
+VISION_MAX_DIM = 1568  # Claude's optimal long-edge; also right-sizes local vision models.
+OLLAMA_URL = "http://localhost:11434/api/generate"
+
+
+def _resize_for_vision(image_bytes: bytes, max_dim: int = VISION_MAX_DIM, quality: int = 88) -> bytes:
+    """Downscale a large receipt photo for LLM vision. Returns the original bytes if PIL is
+    unavailable or the image already fits. (Azure prebuilt gets the full-res image, not this.)"""
+    try:
+        from PIL import Image
+    except ImportError:
+        return image_bytes
+    try:
+        im = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        return image_bytes
+    w, h = im.size
+    if max(w, h) <= max_dim:
+        return image_bytes
+    scale = max_dim / max(w, h)
+    im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=quality)
+    return out.getvalue()
 
 EXTRACT_PROMPT = (
     "You are a precise receipt-extraction engine. Read the receipt image at {path} and output "
@@ -193,22 +228,68 @@ def _claude_result_text(stdout: str) -> str:
     return stdout
 
 
-def extract_claude(image_path: Path, model: str = "opus") -> dict:
-    prompt = EXTRACT_PROMPT.format(path=str(image_path))
-    # Prompt goes via stdin: `--allowedTools` is variadic and would swallow a trailing
-    # positional prompt, so keep argv flags-only and feed the prompt through stdin.
-    argv = [
-        "claude", "-p", "--model", model, "--output-format", "json",
-        "--permission-mode", "bypassPermissions", "--allowedTools", "Read",
-    ]
-    t0 = time.monotonic()
-    stdout, error = _run_cli(argv, input_text=prompt)
-    latency = int((time.monotonic() - t0) * 1000)
+def extract_claude(image_path: Path, model: str = "sonnet") -> dict:
+    """`claude -p` is an AGENT, not a raw vision call — it sees the image only after invoking the
+    Read tool, so the prompt points at a (resized) file path and we allow only the Read tool.
+    Default `sonnet`: accurate at ~50s; `opus` timed out on a 12MP photo; `haiku` is ~2x faster
+    but hallucinated line items on a real receipt. Prompt via stdin (--allowedTools is variadic)."""
+    import tempfile
+
+    resized = _resize_for_vision(image_path.read_bytes())
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+        tf.write(resized)
+        tmp = Path(tf.name)
+    try:
+        prompt = EXTRACT_PROMPT.format(path=str(tmp))
+        argv = [
+            "claude", "-p", "--model", model, "--output-format", "json",
+            "--permission-mode", "bypassPermissions", "--allowedTools", "Read",
+        ]
+        t0 = time.monotonic()
+        stdout, error = _run_cli(argv, input_text=prompt, timeout=150)
+        latency = int((time.monotonic() - t0) * 1000)
+    finally:
+        tmp.unlink(missing_ok=True)
     if error:
         return _finalize("claude", model, None, latency, stdout, error)
-    text = _claude_result_text(stdout)
+    text = _claude_result_text(stdout)  # event array -> the .result string (often ```json fenced)
     content = _json_from_text(text)
     return _finalize("claude", model, content, latency, text, None if content else "no JSON in claude output")
+
+
+def extract_ollama_vision(image_path: Path, model: str, *, label: str) -> dict:
+    """Local vision via ollama /api/generate with format=json. Free + private. The resized image
+    is base64-attached. qwen2.5-VL matches the cloud flagship; gemma3 hallucinates (benchmark-only)."""
+    import base64
+
+    resized = _resize_for_vision(image_path.read_bytes())
+    body = json.dumps({
+        "model": model,
+        "prompt": EXTRACT_PROMPT.format(path="the attached image"),
+        "images": [base64.b64encode(resized).decode("ascii")],
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0},
+    }).encode()
+    request = urllib.request.Request(OLLAMA_URL, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+        return _finalize(label, model, None, int((time.monotonic() - t0) * 1000), "", f"ollama unreachable/error: {exc}")
+    latency = int((time.monotonic() - t0) * 1000)
+    raw = payload.get("response", "")
+    content = _json_from_text(raw)
+    return _finalize(label, model, content, latency, raw, None if content else "no JSON in ollama response")
+
+
+def extract_qwen(image_path: Path) -> dict:
+    return extract_ollama_vision(image_path, "qwen2.5vl:7b", label="qwen")
+
+
+def extract_gemma3(image_path: Path) -> dict:
+    return extract_ollama_vision(image_path, "gemma3:12b", label="gemma3")
 
 
 # JSON Schema for codex `--output-schema` (structured output) — the LLM content fields
@@ -257,9 +338,15 @@ def extract_codex(image_path: Path, cwd: Path | None = None) -> dict:
         schema_file.write_text(json.dumps(CODEX_SCHEMA), encoding="utf-8")
         # Image via -i; prompt via stdin; structured output via --output-schema; final answer
         # to -o (codex's human log goes to stderr, so stdout is unreliable).
+        # --ignore-user-config drops the MCP-server reconnect spam from config.toml (sentry/figma/
+        # cloudflare) that otherwise floods stderr; it doesn't affect the extraction. Resize the
+        # image like the other LLM providers.
+        resized = _resize_for_vision(image_path.read_bytes())
+        img_file = tmp / "receipt.jpg"
+        img_file.write_bytes(resized)
         argv = [
-            "codex", "exec", "--sandbox", "workspace-write",
-            "--output-schema", str(schema_file), "-o", str(out_file), "-i", str(image_path),
+            "codex", "exec", "--ignore-user-config", "--sandbox", "workspace-write",
+            "--output-schema", str(schema_file), "-o", str(out_file), "-i", str(img_file),
         ]
         stdout, error = _run_cli(argv, cwd=workspace, input_text=prompt, timeout=240)
         latency = int((time.monotonic() - t0) * 1000)
@@ -272,15 +359,19 @@ def extract_codex(image_path: Path, cwd: Path | None = None) -> dict:
     return _finalize("codex", "gpt-5.5", content, latency, answer, None if content else "no JSON in codex answer file")
 
 
-PROVIDERS = {"azure": extract_azure, "claude": extract_claude, "codex": extract_codex}
+# provider name -> callable taking a Path. azure reads bytes; the rest take the image path.
+PROVIDERS = {
+    "azure": lambda p: extract_azure(p.read_bytes()),
+    "claude": extract_claude,
+    "qwen": extract_qwen,
+    "gemma3": extract_gemma3,
+    "codex": extract_codex,
+}
 
 
 def extract(provider: str, image_path: Path) -> dict:
-    """Dispatch one provider. Azure reads bytes; the LLM CLIs read the path directly."""
-    if provider == "azure":
-        return extract_azure(image_path.read_bytes())
-    if provider == "claude":
-        return extract_claude(image_path)
-    if provider == "codex":
-        return extract_codex(image_path)
-    raise ValueError(f"unknown provider: {provider}")
+    """Dispatch one provider by name."""
+    fn = PROVIDERS.get(provider)
+    if fn is None:
+        raise ValueError(f"unknown provider: {provider} (known: {sorted(PROVIDERS)})")
+    return fn(image_path)
