@@ -57,7 +57,9 @@ Status FSM per /vidux: `pending → in_progress → in_review → completed`. `[
 - `[pending]` **P5 — Receipt Lab dev-app surface** [Sub-plan: tasks/P5-receipt-lab-devapp/PLAN.md] [ETA: 8h] [Depends: P1, P2, P3] — Dev-app `ReceiptLab` view: drop-image / annotate / save-to-corpus / replay-fixture. Closes the corpus-growth loop.
 - `[in_progress]` **P6 — Receipt Corpus Lab (LAN web surface)** [Sub-plan: tasks/P6-receipt-corpus-lab-web/PLAN.md] [ETA: 15h] — The vidux-browse `/receipts/` "Moussey admin scanner that stores all receipt images on the LAN." Web sibling of P5's dev-app loop; same `corpus.jsonl` schema; exports runnable fixtures to resplit-ios. MVP-completion drive started 2026-05-29 from 20-agent audit `wcu1o3d47` (zero tests, broken export seam, no `expected` promotion, data-fatal durability gap, latent path-traversal). Hosted on `browser/receipts/*.py` + `browser/static/receipts.html`, `server.py` ~1109-1383.
 
-**Total: 47 AI-hours (P1-P5 32h + P6 15h).**
+- `[in_progress]` **P7 — Multi-Model Receipt-Extraction Benchmark** [Sub-plan: tasks/P7-multi-model-ocr-benchmark/PLAN.md] — Run azure prebuilt + claude + codex + opencode + qwen/gemma3(ollama) on real receipts, same `ScannedReceipt` contract, concurrently; aggregate where prebuilt OCR diverges from the flagship oracle → improve Resplit's on-device scan + last-mile reconciliation. Started 2026-05-30 from Leo's multi-model directive + the first real receipt (Marathon Cafe; claude timed out on the raw 12MP image → resize-before-LLM).
+
+**Total: 47 AI-hours (P1-P5 32h + P6 15h) + P7 ongoing.**
 
 ## Decision Log
 
