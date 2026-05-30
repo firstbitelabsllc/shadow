@@ -1274,8 +1274,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             row_id = url.path[len("/api/receipts/"):-len("/analyze")]
             length = int(self.headers.get("Content-Length", "0"))
+            if length > 4 * 1024:  # reject oversized — don't silently treat it as an empty body
+                self._send(413, "analyze body too large")
+                return
             payload = {}
-            if 0 < length <= 4 * 1024:
+            if length > 0:  # empty body is allowed (argless analyze uses provider defaults)
                 try:
                     payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace"))
                 except json.JSONDecodeError:

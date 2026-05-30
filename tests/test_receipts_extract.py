@@ -156,8 +156,27 @@ class ResizeTests(unittest.TestCase):
 
         small = io.BytesIO()
         Image.new("RGB", (800, 600), "white").save(small, "JPEG")
-        # already fits -> returned unchanged
+        # already fits + upright -> returned unchanged
         self.assertEqual(extract._resize_for_vision(small.getvalue(), max_dim=1568), small.getvalue())
+
+    def test_bakes_in_exif_orientation_even_when_small(self):
+        # P1 regression: a small phone photo with a rotation tag must be uprighted before it
+        # reaches the vision LLMs (Azure honors EXIF server-side; claude/qwen do not).
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PIL not available")
+        import io
+
+        exif = Image.Exif()
+        exif[0x0112] = 6  # Orientation 6 -> rotate, swapping W/H on transpose
+        buf = io.BytesIO()
+        Image.new("RGB", (100, 50), "white").save(buf, "JPEG", exif=exif)
+        out = extract._resize_for_vision(buf.getvalue(), max_dim=1568)
+        # bytes were re-encoded (not the short-circuit original) and dimensions are now uprighted
+        self.assertNotEqual(out, buf.getvalue())
+        w, h = Image.open(io.BytesIO(out)).size
+        self.assertEqual((w, h), (50, 100))
 
 
 if __name__ == "__main__":
