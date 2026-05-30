@@ -124,6 +124,27 @@ def replace_row(corpus_path: Path, row_id: str, new_row: dict[str, Any]) -> bool
     return True
 
 
+def update_row(corpus_path: Path, row_id: str, mutator) -> dict[str, Any] | None:
+    """Atomically read-modify-write one row under a SINGLE lock. `mutator(row) -> row`.
+
+    Returns the new row, or None if id not found. Use this instead of find_by_id() + replace_row()
+    when a handler reads, mutates, and writes the same row — the two-call pattern releases the lock
+    between read and write, so two concurrent edits to the same row lose one update.
+    """
+    if not corpus_path.exists():
+        return None
+    with _corpus_lock(corpus_path):
+        rows = read_all(corpus_path)
+        for index, row in enumerate(rows):
+            if row.get("id") == row_id:
+                new_row = mutator(dict(row))
+                new_row["id"] = row_id
+                rows[index] = new_row
+                _rewrite(corpus_path, rows)
+                return new_row
+    return None
+
+
 def delete_row(corpus_path: Path, row_id: str) -> bool:
     """Remove a single row by id. Returns True if removed, False if id not found."""
     if not corpus_path.exists():
