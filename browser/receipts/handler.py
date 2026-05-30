@@ -287,6 +287,15 @@ def handle_analyze(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str,
     updated = storage.update_row(DEFAULT_CORPUS_PATH, row_id, _store)
     if updated is None:
         return 404, {"error": f"row {row_id} deleted during analyze"}
+
+    # P8.5: fire OCR observability events (per-provider scan + prebuilt-vs-flagship divergence).
+    # Best-effort — defaults to LAN-local jsonl (no key, no spend); never breaks the response.
+    try:
+        from receipts import telemetry
+        telemetry.emit_scan(results, row_id=row_id)
+    except Exception:  # noqa: BLE001 — telemetry is fire-and-forget
+        pass
+
     return 200, {"ok": True, "providers": list(extractions), "extractions": extractions}
 
 
