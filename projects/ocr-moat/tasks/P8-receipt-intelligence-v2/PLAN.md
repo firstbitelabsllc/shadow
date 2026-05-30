@@ -27,12 +27,41 @@ Leo verbatim 2026-05-30: *"have cloud models like CC create and build the tags a
 
 ## Tasks (subplans — each gets actual work + tests + code review)
 
-- [in_progress] P8.1 — **Classification hardening (100% sure)**: promote the Vision classifier to a real module (`receipts/classify.py`) with a dining/retail/invoice contract; LLM second-pass the 32 UNSURE to recover real food (Qing Shu, Auntea Jenny, Al Ustad, shoshaku) and reject retail/gas/parking; finalize the confirmed-dining set. Tests pin the dining-vs-retail boundary. [Workflow team: classify]
-- [pending] P8.2 — **Tag enrichment**: Claude inspects each dining receipt → structured tags (locale, currency, multi-tax, service-charge, surcharge/fee, auto-gratuity, handwritten-tip, shared-items, foreign-language, long-itemization, comp/discount). Stored in `annotations.tags` + `known_issues`. [Workflow team: tagging]
-- [pending] P8.3 — **"What the splitter misses" story**: across all 32, Claude builds the narrative + a structured findings report of edge cases V1's `ScannedReceipt`/`Reconciler`/`OCRSnapshotMapper` mishandles (fees beyond tax/tip, no currency in reconciler, no-decimal currencies, item-level shared/split hints, modifiers, voids, comps). Ranked by frequency × split-impact. → `evidence/`. [Workflow team: edge-case analysis]
-- [pending] P8.4 — **Azure DI v4 capability audit**: research the LATEST `prebuilt-receipt` v4 (api-version, `features=keyValuePairs/queryFields`, the full receipt field schema incl. `TaxDetails[]`, `Tip`, `ArbitraryKeyValue`, currency, payment) vs our `ocr.py`/`ReceiptScanner.swift` usage. Output: gap list + concrete config/endpoint changes (e.g. enable key-value add-on, parse `TaxDetails[]` not just `TotalTax`). [Workflow team: azure-audit]
-- [pending] P8.5 — **PostHog OCR observability**: plan + wire `ocr.scan.*` events (provider, latency, extras-kind distribution, prebuilt-vs-flagship divergence, unknown-extra count) so the aggregate "where Azure is weak" surfaces in a dashboard. [Source: ocr-moat P4]
-- [pending] P8.6 — **V2 spec for ResplitCore**: synthesize P8.3 + P8.4 into a concrete spec (extras beyond tax/tip, currency-aware reconciler, key-value passthrough) — gated on Leo + the 2.0 freeze.
+- [completed] P8.1 — **Classification hardening (100% sure)**: promote the Vision classifier to a real module (`receipts/classify.py`) with a dining/retail/invoice contract; LLM second-pass the 32 UNSURE to recover real food (Qing Shu, Auntea Jenny, Al Ustad, shoshaku) and reject retail/gas/parking; finalize the confirmed-dining set. Tests pin the dining-vs-retail boundary. [Workflow team: classify]
+- [completed] P8.2 — **Tag enrichment**: Claude inspects each dining receipt → structured tags (locale, currency, multi-tax, service-charge, surcharge/fee, auto-gratuity, handwritten-tip, shared-items, foreign-language, long-itemization, comp/discount). Stored in `annotations.tags` + `known_issues`. [Workflow team: tagging]
+- [completed] P8.3 — **"What the splitter misses" story**: across all 32, Claude builds the narrative + a structured findings report of edge cases V1's `ScannedReceipt`/`Reconciler`/`OCRSnapshotMapper` mishandles (fees beyond tax/tip, no currency in reconciler, no-decimal currencies, item-level shared/split hints, modifiers, voids, comps). Ranked by frequency × split-impact. → `evidence/`. [Workflow team: edge-case analysis]
+- [completed] P8.4 — **Azure DI v4 capability audit**: research the LATEST `prebuilt-receipt` v4 (api-version, `features=keyValuePairs/queryFields`, the full receipt field schema incl. `TaxDetails[]`, `Tip`, `ArbitraryKeyValue`, currency, payment) vs our `ocr.py`/`ReceiptScanner.swift` usage. Output: gap list + concrete config/endpoint changes (e.g. enable key-value add-on, parse `TaxDetails[]` not just `TotalTax`). [Workflow team: azure-audit]
+- [in_progress] P8.5 — **PostHog OCR observability**: plan + wire `ocr.scan.*` events (provider, latency, extras-kind distribution, prebuilt-vs-flagship divergence, unknown-extra count) so the aggregate "where Azure is weak" surfaces in a dashboard. [Source: ocr-moat P4]
+- [in_progress] P8.6 — **V2 spec for ResplitCore**: synthesize P8.3 + P8.4 into a concrete spec (extras beyond tax/tip, currency-aware reconciler, key-value passthrough) — gated on Leo + the 2.0 freeze.
+
+## V2 spec — ResplitCore upgrade (gated on Leo + 2.0 freeze; harness side proven)
+
+Grounded in the 44 real receipts + the Azure audit. Each item cites the proof.
+
+### Free now (decode-only, no Azure spend — data already returned)
+1. **TaxDetails[]** -> emit one `.tax` extra per tax line (sales + service tax). DONE in `extract.py` harness; iOS = add `TaxDetails` to `FieldsV4` + map in `OCRSnapshotMapper`. (Proof: service tax 6% alongside sales tax.)
+2. **Payments[]** (method, amount) -> "who paid" reconciliation. (Proof: split-tender receipts.)
+3. **Items.Price / QuantityUnit / ProductCode** -> repair `qty*price != line total`. (Proof: quantity-embedded-in-description.)
+4. **CountryRegion** -> fix `V3ReceiptReconciler` `currencyCode: nil`; infer currency (RM/AED/AUD in corpus).
+
+### Schema / reconciler (the core gap)
+5. **Populate `extras` beyond `[tax,tip]`** — map service charge -> `.serviceCharge`, admin/CC/cover -> `.fee`/`.surcharge`, auto-gratuity -> `.serviceCharge` (NOT `.tip`), deposit -> `.credit` (negative). (Proof: admin $80.83, gratuity $339.47, deposit -$262, cover $70.)
+6. **Currency-aware reconciler** — stop hardcoding `currencyCode: nil`; derive `matchThreshold` from minor-unit (0.01 USD/EUR, 1 JPY/KRW). (Proof: foreign + no-decimal receipts.)
+7. **`total != balance_due`** awareness — when a deposit/prepayment is applied, split the right number. (Proof: $2180.26 total vs $1918.26 balance due.)
+8. **Inclusive-tax flag** — GST-included-in-total must not be added again. (Proof: "GST included in total $90.68".)
+9. **Shared-item hint + handwritten-tip capture** (split UX). (Proof: shared appetizers; $25/$6 pen tips.)
+
+### Premium (gate on cost, validate vs corpus)
+10. **`features=queryFields=ServiceCharge,Gratuity,Surcharge,Fee,Deposit`** — opt-in shipped in `ocr.py`; prototype vs corpus, measure recovery vs cost before iOS adoption.
+11. `features=languages` (free) — drop hardcoded `locale=en` for the non-English receipts. `ocrHighResolution` only on truncated-item retry.
+
+## P8.5 — PostHog OCR observability (plan)
+
+Per ocr-moat P4. Events (provider-agnostic, fire from the analyze path / iOS `ReceiptOCRAnalyzer`):
+- `ocr.scan.completed` { provider, latencyMs, itemCount, extrasKinds[], hasUnknownExtra, currencyCode, totalReconciles(bool) }
+- `ocr.divergence` { field, azureValue, flagshipValue, agree(bool) } — the prebuilt-vs-flagship gap (the P7 oracle signal) as a queryable funnel.
+- Dashboard: % receipts with extras beyond tax/tip, top dropped-extra kinds, reconcile-fail rate by currency, provider latency p95. This is where "Azure dropped the CC fee" becomes a ranked, trackable metric instead of an anecdote.
+Wire via `posthog-python` from the harness first (LAN-local capture or a project key), iOS via the existing analytics manager. NOT during the 2.0 freeze for the app; the harness/corpus side can capture now.
 
 ## Decision Log
 
