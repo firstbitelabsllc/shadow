@@ -14,15 +14,30 @@ from __future__ import annotations
 
 import base64
 import binascii
+import functools
+import os
 from pathlib import Path
 from typing import Any
 
 from . import ocr, storage
 
+
+def _corpus_safe(fn):
+    """Turn a malformed-corpus CorpusError into a clean (500, {error}) instead of an
+    unhandled traceback the HTTP server would surface as a bare 500 with no body."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except storage.CorpusError as exc:
+            return 500, {"error": str(exc)}
+
+    return wrapper
+
+
 # Default corpus path — sits alongside artifacts/ in the vidux-browse dir.
 # Operator overrides via `RECEIPT_CORPUS_PATH` env var.
-import os
-
 DEFAULT_CORPUS_PATH = Path(
     os.environ.get(
         "RECEIPT_CORPUS_PATH",
@@ -37,6 +52,7 @@ DEFAULT_IMAGES_DIR = DEFAULT_CORPUS_PATH.parent / "images"
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 
 
+@_corpus_safe
 def handle_upload(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /api/receipts/upload — decode base64 image, OCR, write row to corpus.
 
@@ -107,12 +123,14 @@ def handle_upload(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     return 200, {"ok": True, "id": row_id, "row": row}
 
 
+@_corpus_safe
 def handle_list() -> tuple[int, dict[str, Any]]:
     """GET /api/receipts/list — return every row from corpus.jsonl."""
     rows = storage.read_all(DEFAULT_CORPUS_PATH)
     return 200, {"ok": True, "count": len(rows), "rows": rows}
 
 
+@_corpus_safe
 def handle_tag(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /api/receipts/<id>/tag — patch tags / known_issues / leo_note on an existing row."""
     if not row_id:
@@ -147,6 +165,7 @@ def handle_tag(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any
     return 200, {"ok": True, "row": existing}
 
 
+@_corpus_safe
 def handle_ocr(row_id: str) -> tuple[int, dict[str, Any]]:
     """POST /api/receipts/<id>/ocr — fetch image from disk, call Azure, store the response.
 
@@ -161,7 +180,9 @@ def handle_ocr(row_id: str) -> tuple[int, dict[str, Any]]:
     if not image_path:
         return 400, {"error": "row has no image_path (private?); cannot OCR"}
 
-    abs_path = (DEFAULT_CORPUS_PATH.parent / image_path).resolve()
+    abs_path = storage.safe_image_abs(DEFAULT_CORPUS_PATH.parent, DEFAULT_IMAGES_DIR, image_path)
+    if abs_path is None:
+        return 400, {"error": "image_path escapes images dir"}
     if not abs_path.exists():
         return 410, {"error": f"image file missing on disk: {image_path}"}
 
