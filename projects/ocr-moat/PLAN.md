@@ -59,7 +59,9 @@ Status FSM per /vidux: `pending → in_progress → in_review → completed`. `[
 
 - `[in_progress]` **P7 — Multi-Model Receipt-Extraction Benchmark** [Sub-plan: tasks/P7-multi-model-ocr-benchmark/PLAN.md] — Run azure prebuilt + claude + codex + opencode + qwen/gemma3(ollama) on real receipts, same `ScannedReceipt` contract, concurrently; aggregate where prebuilt OCR diverges from the flagship oracle → improve Resplit's on-device scan + last-mile reconciliation. Started 2026-05-30 from Leo's multi-model directive + the first real receipt (Marathon Cafe; claude timed out on the raw 12MP image → resize-before-LLM).
 
-**Total: 47 AI-hours (P1-P5 32h + P6 15h) + P7 ongoing.**
+- `[in_progress]` **P8 — Receipt Intelligence V2** [Sub-plan: tasks/P8-receipt-intelligence-v2/PLAN.md] — 32 real restaurant receipts harvested from Apple Photos; cloud models build tags + the "what V1 splitter misses" story across edge cases; Azure DI v4 capability audit; PostHog observability. The V1→V2 upgrade spec, grounded in real receipts.
+
+**Total: 47 AI-hours (P1-P5 32h + P6 15h) + P7/P8 ongoing.**
 
 ## Decision Log
 
