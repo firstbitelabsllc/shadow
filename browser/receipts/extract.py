@@ -44,18 +44,28 @@ def _resize_for_vision(image_bytes: bytes, max_dim: int = VISION_MAX_DIM, qualit
     """Downscale a large receipt photo for LLM vision. Returns the original bytes if PIL is
     unavailable or the image already fits. (Azure prebuilt gets the full-res image, not this.)"""
     try:
-        from PIL import Image
+        from PIL import Image, ImageOps
     except ImportError:
         return image_bytes
     try:
-        im = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        im = Image.open(io.BytesIO(image_bytes))
     except Exception:
         return image_bytes
+    # Bake in EXIF orientation BEFORE measuring/resizing — phone photos carry a rotation tag that
+    # Azure prebuilt honors server-side but the vision LLMs (claude/qwen) do NOT. Without this the
+    # models see sideways receipts and the whole prebuilt-vs-flagship benchmark is skewed.
+    try:
+        orientation = im.getexif().get(0x0112)  # 274 = Orientation; 1/None = upright
+    except Exception:
+        orientation = None
+    needs_rotate = orientation not in (None, 1)
+    im = ImageOps.exif_transpose(im).convert("RGB")
     w, h = im.size
-    if max(w, h) <= max_dim:
-        return image_bytes
-    scale = max_dim / max(w, h)
-    im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    if max(w, h) <= max_dim and not needs_rotate:
+        return image_bytes  # already upright and within budget — return the original bytes
+    if max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
     out = io.BytesIO()
     im.save(out, "JPEG", quality=quality)
     return out.getvalue()
@@ -136,10 +146,13 @@ def _num(field: dict | None) -> float | None:
     if not isinstance(field, dict):
         return None
     if "valueCurrency" in field and isinstance(field["valueCurrency"], dict):
-        return field["valueCurrency"].get("amount")
+        amt = field["valueCurrency"].get("amount")
+        # Guard like the other branches — a non-numeric (or bool) amount must not leak through.
+        return amt if isinstance(amt, (int, float)) and not isinstance(amt, bool) else None
     for key in ("valueNumber", "valueInteger", "value"):
-        if isinstance(field.get(key), (int, float)):
-            return field[key]
+        val = field.get(key)
+        if isinstance(val, (int, float)) and not isinstance(val, bool):
+            return val
     return None
 
 

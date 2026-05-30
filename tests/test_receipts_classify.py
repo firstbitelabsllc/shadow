@@ -41,6 +41,34 @@ class ClassifyTests(unittest.TestCase):
         c = classify_text("server table guest menu dinner")
         self.assertNotEqual(c["verdict"], "dining")
 
+    def test_substring_keywords_do_not_inflate_dining(self):
+        # Regression: `bar` in BARCODE, `host` in GHOST, `tea`/`menu` inside other words must NOT
+        # count. A pharmacy/grocery receipt full of such substrings must never verdict dining.
+        pharmacy = (
+            "CVS PHARMACY\nRX READY\nBARCODE 8827\nGHOST PEPPER CHIPS 4.99\n"
+            "STEAK SEASONING 3.50\nMENUS PRINTED 0.00\nSUBTOTAL 8.49\nTOTAL $8.49"
+        )
+        c = classify_text(pharmacy)
+        self.assertNotEqual(c["verdict"], "dining")
+
+    def test_generic_beverage_words_alone_are_not_dining(self):
+        # Regression: subtotal (signal-free, now dropped) + a few generic beverage nouns must not
+        # reach the dining floor without a strong dining-only token.
+        store = "GENERIC MART\nsubtotal\ncoffee 2.00\ntea 1.50\nsoda 1.00\nTOTAL $9.00"
+        c = classify_text(store)
+        self.assertNotEqual(c["verdict"], "dining")
+        self.assertEqual(c["strong"], 0)
+
+    def test_dining_requires_strong_keyword(self):
+        # cafe/grill/menu are venue/generic nouns; with no server/table/tip/gratuity the verdict
+        # stays unsure (-> LLM second pass), never a confident dining commit.
+        weak = "CORNER CAFE\nGrill special 9.00\nMenu item 4.00\nDrink 3.00\nTOTAL $16.00"
+        self.assertNotEqual(classify_text(weak)["verdict"], "dining")
+
+    def test_real_restaurant_still_passes(self):
+        # The strong-keyword + margin gate must not regress a genuine dining receipt.
+        self.assertEqual(classify_text(DINING)["verdict"], "dining")
+
 
 if __name__ == "__main__":
     unittest.main()
