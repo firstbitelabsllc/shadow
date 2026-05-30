@@ -34,21 +34,22 @@ Leo's vision (2026-05-30): upload a photo → it auto-stores + auto-runs every e
 
 ## Tasks
 
-- [pending] P7.1: Image resize for vision — `receipts/extract.py` downscales to ≤1568px before any LLM call (fixes the Claude 180s timeout). Azure unchanged. [P0 — unblocks claude on real receipts]
-- [pending] P7.2: Fix `claude` provider — resized image + `--max-turns`/leaner invocation so a real receipt completes in <30s. [P0]
-- [pending] P7.3: `opencode` provider — figure out the non-interactive invocation + structured output, wire into extract.py.
-- [pending] P7.4: `codex` provider — resolve the exit-1/answer-file quirk (structured output) so it returns a ScannedReceipt.
-- [pending] P7.5: ollama local-vision provider — `gemma3:12b` (and pull `qwen2.5-vl` if useful) via `:11434/api/generate` with the image, structured JSON. Local, free, private.
-- [pending] P7.6: Concurrent execution — run all providers in a thread pool in `compare_image`; cloud parallel, ollama serialized.
-- [pending] P7.7: Auto-analyze on upload — after upload, the lab kicks the full extractor set + compare automatically (Leo: "claude/codex just take it from there once i upload"). User-triggered spend; visible "analyzing…" state.
-- [pending] P7.8: Aggregate-divergence report — a CLI/artifact that scans the corpus's stored `extractions`, computes per-field model-vs-prebuilt divergence, and ranks where Azure prebuilt is weakest (the input to resplit scan improvements).
-- [pending] P7.9: Apply P0/P1 code-review fixes (fractional quantity, missing contract type-checks, export-without-azure gate, proxy SSRF) before any export to resplit-ios. [Source: woafkb2vt]
+- [completed] P7.1: Image resize for vision — `extract._resize_for_vision` (PIL, ≤1568px) before every LLM call. Cut claude from a 180s timeout to ~13.5s. Azure gets full-res. [Evidence: commit 6c74175]
+- [completed] P7.2: `claude` provider — resized image + `--model sonnet` (opus timed out; haiku hallucinated) + prompt-via-stdin + Read tool + ```json-fence strip. ~13.5s on the real receipt. [Evidence: 3-way compare]
+- [blocked] P7.3: `opencode` provider — correct shape is `opencode run "<prompt>" -m ollama/<model> -f <img>`, but opencode rejects vision models with "does not support tools" and its text models refuse images. No working vision path with the configured models; revisit if a tool-capable vision model is added to opencode config. [Evidence: workflow wm2m0k7on opencode lane]
+- [blocked] P7.4: `codex` provider — invocation is CORRECT (`codex exec --ignore-user-config --sandbox workspace-write --output-schema -o -i`, prompt via stdin) and wired, but the OpenAI/codex account hit a HARD usage cap (resets 2026-06-01 19:12). Not retried per usage-limit policy. Will work once quota resets. [Evidence: workflow wm2m0k7on codex lane]
+- [completed] P7.5: ollama local-vision — `qwen2.5vl:7b` (pulled, 6GB) wired via `:11434/api/generate` (format=json). **Matches the cloud flagship + catches the same fee Azure drops.** `gemma3:12b` wired too but HALLUCINATED merchant+items on a real receipt → benchmark-only, not default. [Evidence: 3-way Marathon Cafe compare]
+- [completed] P7.6: Concurrent execution — `compare_image` runs providers in a ThreadPoolExecutor; a raising provider becomes an error result, not a sink. Wall-clock ~32s for azure+claude+qwen (vs ~52s serial). [Evidence: commit 6c74175]
+- [pending] P7.7: Auto-analyze on upload — after upload, the lab kicks the full extractor set + compare automatically (Leo: "claude/codex just take it from there once i upload"). User-triggered spend; visible "analyzing…" state. Now viable (~32s concurrent).
+- [pending] P7.8: Aggregate-divergence report — scan the corpus's stored `extractions`, compute per-field model-vs-prebuilt divergence, rank where Azure prebuilt is weakest. (Aggregate, later.)
+- [in_progress] P7.9: Code-review fixes (woafkb2vt) — P0 (fractional quantity), P1 (export-azure gate, PII, SSRF), P2 (lost-update race), several P3 all SHIPPED + tested. Remaining P2/P3 are minor/intentional.
 
 ## Decision Log
 
 - [DIRECTION] 2026-05-30 — Models are an ORACLE to improve prebuilt OCR, not a replacement. Resplit ships Azure prebuilt; the LLMs find its blind spots in aggregate. The deliverable is the divergence report → resplit scan/reconcile improvements, not "swap to an LLM."
 - [DIRECTION] 2026-05-30 — Resize-before-LLM is mandatory: the 180s claude timeout was a 12MP image, not a model limit. 1568px is the standard.
 - [DIRECTION] 2026-05-30 — Leo authorized model spend on upload for this surface (scoped override of moussey no-spend-from-server). Per-upload explicit, never a background cron.
+- [FINDING] 2026-05-30 — **First real divergence (Marathon Cafe, id d49d7331c4d0).** Azure prebuilt extracted only `extras=[tax,tip]` and reported total $53.84. BOTH claude-sonnet AND local qwen2.5-VL independently extracted `extras=[tax,fee,tip]` — recovering a **3% credit-card processing fee ($1.77)** Azure's prebuilt `[tax,tip]` schema dropped — and corrected the grand total to $63.03. Two independent flagships (1 cloud, 1 local) agreeing against the prebuilt = high-confidence signal. **Aggregate hypothesis for Resplit:** Azure prebuilt-receipt under-extracts non-tax/tip extras (CC surcharges, service charges, mandates); the iOS `ScannedExtraKind` enum already supports `.fee/.surcharge/.mandate`, so the gap is in the Azure model + `OCRSnapshotMapper`, not the schema. P7.8 will quantify this across N receipts; if it holds, the fix is a reconciliation pass that flags `subtotal + tax + tip != total` (an unaccounted-extra detector) in `ResplitCore` last-mile logic.
 
 ## Progress
 
