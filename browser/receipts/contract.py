@@ -19,9 +19,10 @@ EXTRA_KINDS = frozenset(
     {"tax", "tip", "fee", "serviceCharge", "mandate", "surcharge", "discount", "credit", "unknown"}
 )
 
-# ReceiptFixtureCorpus.swift:145 uses `.iso8601` — scannedAt must be an ISO-8601 string,
-# NOT a number (a numeric scannedAt fails decode with typeMismatch).
-_ISO8601 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
+# ReceiptFixtureCorpus.swift:145 uses `.iso8601`, whose default options are
+# `[.withInternetDateTime]` — NO fractional seconds. So `...:00.5Z` would throw on decode.
+# Require a timezone, reject fractional seconds, reject a numeric scannedAt.
+_ISO8601 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$")
 
 
 def validate_expected(expected: Any) -> list[str]:
@@ -44,6 +45,13 @@ def validate_expected(expected: Any) -> list[str]:
                 problems.append(f"lineItems[{i}].name must be a string")
             if "amount" in item and not _is_number_or_none(item["amount"]):
                 problems.append(f"lineItems[{i}].amount must be a number")
+            # quantity is Swift `Int?` — a fractional number (e.g. 0.452 kg produce) throws
+            # Int decode and reds the WHOLE corpus. Accept int / integral-float / null only.
+            if "quantity" in item and not _is_intish_or_none(item.get("quantity")):
+                problems.append(f"lineItems[{i}].quantity must be an integer or null (Swift Int?)")
+            # confidence is Swift `Double?`.
+            if "confidence" in item and not _is_number_or_none(item.get("confidence")):
+                problems.append(f"lineItems[{i}].confidence must be a number or null")
 
     # extras: [ScannedExtra] — required array; each needs label(str), amount(number), kind(enum).
     extras = expected.get("extras")
@@ -62,6 +70,8 @@ def validate_expected(expected: Any) -> list[str]:
                 problems.append(
                     f"extras[{i}].kind must be one of {sorted(EXTRA_KINDS)} (got {extra.get('kind')!r})"
                 )
+            if "confidence" in extra and not _is_number_or_none(extra.get("confidence")):
+                problems.append(f"extras[{i}].confidence must be a number or null")
 
     # provenance: ScanProvenance — required object.
     prov = expected.get("provenance")
@@ -76,7 +86,13 @@ def validate_expected(expected: Any) -> list[str]:
                 problems.append(f"provenance.{key} must be an integer")
         scanned_at = prov.get("scannedAt")
         if not isinstance(scanned_at, str) or not _ISO8601.match(scanned_at):
-            problems.append("provenance.scannedAt must be an ISO-8601 string (e.g. 2026-05-30T00:00:00Z)")
+            problems.append(
+                "provenance.scannedAt must be an ISO-8601 string with timezone, no fractional "
+                "seconds (e.g. 2026-05-30T00:00:00Z)"
+            )
+        # operationId is Swift `String?` — if present it must be a string (or null).
+        if prov.get("operationId") is not None and not isinstance(prov.get("operationId"), str):
+            problems.append("provenance.operationId must be a string or null")
 
     # Optional numeric top-level fields.
     for key in ("subtotal", "total"):
@@ -92,3 +108,16 @@ def _is_number(value: Any) -> bool:
 
 def _is_number_or_none(value: Any) -> bool:
     return value is None or _is_number(value)
+
+
+def _is_intish_or_none(value: Any) -> bool:
+    """True for None, a real int, or an integral float (Swift `Int?` decode-safe)."""
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return value.is_integer()
+    return False
