@@ -87,7 +87,7 @@ The completeness sweep surfaced a whole second axis the apportionment model (§1
 ## Prerequisites (fix-FIRST, before any of the above)
 
 1. **Engine NaN/Inf guard** (`ReceiptSplitEngine.swift:26-41`).
-2. **Negative-amount BOUNDED** — `SplitEngineEdgeCaseTests.swift:38-69` proves the engine returns `owed −10.0` / proportion `−0.25` for negatives **today, and that test does NOT call `assertBounded`/`assertProportionBounded`** — so the bounds aren't enforced on the negative path at all. The fix must both add the guard AND wire `assertBounded` onto that path. **Must land before any negative extra (credit/discount) ships.**
+2. **Negative-amount BOUNDED** — `SplitEngineEdgeCaseTests.swift:38-69` doesn't just omit the bound, it **actively asserts `bobOwes == -10.0` as correct** (`:30`) and only checks `ZERO_SUM` (`:31`). So the negative path is unguarded AND a green test pins the broken behavior. The fix must (a) add the engine guard, (b) wire `assertBounded` onto the path, and (c) **flip this test** to expect the guarded result — not just extend it. (Verified directly: `Reconciler.swift:71` `negativeKinds = [.discount,.credit]` subtracts via `abs()`, `MathInvariants.swift:99` PROPORTION_SUM rejects under-normalized sums.) **Must land before any negative extra (credit/discount) ships.**
 3. Post-tax + custom tip end-to-end test; `ReceiptTotalCalculator` overflow guard; `MathInvariants` cross-target dedup.
 
 ## Invariant changes
