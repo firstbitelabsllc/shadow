@@ -193,3 +193,6 @@ Tasks completed and archived from PLAN.md to keep context lean.
 ## Archived 2026-05-31
 - [completed] 5.2.2 Applied draft-PR pattern from `guides/draft-pr-flow.md` to all 3 lane prompts: ACT sections updated (no merge to main, push branch + draft PR), PUSH POLICY replaced with 5-step flow, fallback on `gh` failure. [Done: 2026-04-12]
 - [completed] 5.2.3 Observer-pair audit. strongyes lanes PASS (PR #283 open DRAFT, 10+ merged today by Leo). resplit-ios BLOCKED: `gh pr create` fails 4x with "shared commit overlaps with an existing PR" — lanes are following the draft-PR prompt but `gh` rejects when new branches share ancestry with old branches/PRs. [Done: 2026-04-14]
+
+## Archived 2026-05-31
+- [completed] 5.2.4 Doctrine correction: ready-PR-first supersedes draft-first for operational PRs because review automation skips or delays drafts. Updated core docs/templates while preserving `guides/draft-pr-flow.md` path for link stability. [Done: 2026-04-26]
