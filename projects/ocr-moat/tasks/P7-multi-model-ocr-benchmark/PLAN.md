@@ -2,7 +2,7 @@
 
 > Parent: ../../PLAN.md
 
-**Status:** [in_progress] — started 2026-05-30 (Leo: "run codex claude opencode qwen inference on them all and figure out the plan"). Builds on P6 (the corpus lab) + P6.15 (azure-vs-claude compare).
+**Status:** [completed] — 2026-05-31 (Leo: "run codex claude opencode qwen inference on them all and figure out the plan"). All 48 corpus receipts extracted by Azure prebuilt + Claude + qwen (44/44 new, 0 err). Aggregate divergence captured via P8.5 telemetry: Azure dropped serviceCharge on 9 receipts, tip on 14, + credit/discount/surcharge/fee/mandate. This is the empirical "where Azure is weak" signal feeding the V2 spec (P9). Folded into the central ocr-moat goal (consolidation 2026-05-31).
 
 ## Purpose
 

@@ -2,7 +2,7 @@
 
 > Parent: ../../PLAN.md  ·  Sibling of: ../P8-receipt-intelligence-v2/PLAN.md
 
-**Status:** [in_progress] — started 2026-05-30. Leo elevated this to an all-night, 20-engineer goal. Prework complete (pass 1-3 + empirical extraction + V2 capstone); 12 evidence docs. Open: Leo's comp/voucher ruling; scan-priority gaps (JPY/BHD/deposit). iOS code gated on freeze.
+**Status:** [completed] (prework) — 2026-05-31. All-night, 20-engineer goal delivered: 4 workflows + empirical extraction + the V2-DESIGN-SPEC (Rev 2, adversarially reviewed), **14 evidence docs, zero Swift**. Folded into the central ocr-moat goal at consolidation. REMAINING (gated, not in this prework's scope): Leo's comp/voucher ruling; scan-priority gaps (JPY/BHD/deposit receipts); the iOS V2 implementation = the central goal's P1–P5, gated on the 2.0 freeze.
 
 ## Purpose
 
