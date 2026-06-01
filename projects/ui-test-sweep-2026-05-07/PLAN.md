@@ -1,6 +1,7 @@
 # Resplit 2.0 — iOS UI Sweep on Build 2429
 
 > Sibling of `../resplit-2-0-1/PLAN.md` (post-launch punch-list) and `../resplit-2-0-localized-screenshots/PLAN.md` (ASC screenshots). This plan is the post-ship visual-proof harness.
+> HISTORICAL / DO NOT CLAIM 2026-05-24: this Build 2429 sweep is superseded by the current T48 investigation and 2026-05-24 root plan. Current UI-test truth is `187/188` with only `ResplitUITestsLaunchTests/testLaunch()` needing focused repro; do not resume old T1-T10 rows without fresh evidence.
 
 **Status:** [in_progress — sim-walker active for T1-T5]
 **Created:** 2026-05-07T14:47Z

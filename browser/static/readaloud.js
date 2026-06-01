@@ -1,8 +1,8 @@
 /**
  * Read-aloud add-on for vidux-browse.
  *
- * Preferred engine: local Voxtral 4B TTS over MLX, served from
- * http://127.0.0.1:8765 by browser/scripts/voxtral_mlx_server.py.
+ * Preferred engine: local Voxtral 4B TTS over MLX, served by
+ * browser/scripts/voxtral_mlx_server.py on http://127.0.0.1:8765.
  *
  * Voxtral's HF weights are public and ungated, but they are not a
  * Transformers.js/WebGPU browser model. The browser talks to a local
@@ -39,6 +39,7 @@ const READALOUD = {
   engineProbeDeadline: 0,
   cacheDbPromise: null,
   state: "idle", // idle | loading | playing | paused | error
+  activeEngine: null,
   voxtralBaseUrl: "http://127.0.0.1:8765",
   modelId: "redseaplume/Voxtral-4B-TTS-2603-MLX-4bit",
   defaultVoice: "cheerful_female",
@@ -53,11 +54,23 @@ const READALOUD_SECTION_CONTROL_KINDS = new Set([
   "artifact-block",
 ]);
 
+const READALOUD_ENGINE_CANDIDATES = [
+  {
+    id: "voxtral-mlx-script",
+    label: "Voxtral MLX script server",
+    baseUrl: "http://127.0.0.1:8765",
+    probePath: "/health",
+    modelId: "redseaplume/Voxtral-4B-TTS-2603-MLX-4bit",
+    command: "browser/scripts/start-voxtral-mlx-server.sh",
+  },
+];
 const READALOUD_SERVER_COMMAND = "browser/scripts/start-voxtral-mlx-server.sh";
 const READALOUD_OFFLINE_REPROBE_INTERVAL_MS = 3000;
 const READALOUD_OFFLINE_REPROBE_WINDOW_MS = 90000;
 const READALOUD_CACHE_MAX_BYTES = 160 * 1024 * 1024;
 const READALOUD_CACHE_MAX_ENTRIES = 120;
+const READALOUD_SYNTH_BATCH_TARGET_CHARS = 700;
+const READALOUD_SYNTH_BATCH_MAX_SEGMENTS = 6;
 
 function readaloudInit() {
   READALOUD.button = document.getElementById("root-readaloud-toggle");
@@ -109,19 +122,20 @@ function readaloudSetEngineStatus(status, detail) {
   badge.classList.toggle("is-online", status === "online");
   badge.classList.toggle("is-offline", status === "offline");
   badge.textContent = status === "online" ? "MLX on" : status === "offline" ? "MLX off" : "MLX";
+  const engine = READALOUD.activeEngine || READALOUD_ENGINE_CANDIDATES[0];
   const suffix = detail ? ` (${detail})` : "";
   badge.title =
-    `Audio source: local Voxtral MLX server at ${READALOUD.voxtralBaseUrl}${suffix}. ` +
-    `Click to copy: ${READALOUD_SERVER_COMMAND}`;
+    `Audio source: ${engine.label} at ${READALOUD.voxtralBaseUrl}${suffix}. ` +
+    `Click to copy: ${readaloudServerCommand()}`;
   badge.setAttribute(
     "aria-label",
-    `Audio source: local Voxtral MLX server ${badge.textContent}${suffix}. ` +
+    `Audio source: ${engine.label} ${badge.textContent}${suffix}. ` +
       `Click to copy launch command.`,
   );
   if (status === "offline" && (READALOUD.state === "idle" || READALOUD.state === "error")) {
     if (!READALOUD.engineProbeDeadline) {
       readaloudSetPlayerStatus(
-        `Server offline. Run from the vidux repo root: ${READALOUD_SERVER_COMMAND}`,
+        `Server offline. Start ${readaloudOfflineServerLabel()}`,
       );
     }
     readaloudShowServerCommand(true);
@@ -138,14 +152,10 @@ function readaloudSetEngineStatus(status, detail) {
 
 async function readaloudProbeEngine() {
   try {
-    const response = await readaloudFetchWithTimeout(
-      `${READALOUD.voxtralBaseUrl}/health`,
-      { method: "GET" },
-      800,
-    );
-    readaloudSetEngineStatus(response.ok ? "online" : "offline", `HTTP ${response.status}`);
-  } catch (_) {
-    readaloudSetEngineStatus("offline", "server not reachable");
+    await readaloudResolveEngine(null, 800);
+    readaloudSetEngineStatus("online");
+  } catch (err) {
+    readaloudSetEngineStatus("offline", err.message || "server not reachable");
   }
 }
 
@@ -202,6 +212,71 @@ function readaloudSetPlayerStatus(text) {
   READALOUD.playerStatus.title = text || "";
 }
 
+async function readaloudTrackLoading(label, status, work, options = {}) {
+  const startedAt = Date.now();
+  const hintAfterSeconds = options.hintAfterSeconds || 8;
+  const hint = options.hint || "";
+  const update = () => {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    const elapsedText = elapsed > 0 ? ` (${elapsed}s elapsed)` : "";
+    const hintText = hint && elapsed >= hintAfterSeconds ? ` ${hint}` : "";
+    readaloudSetState("loading", label);
+    readaloudSetPlayerStatus(`${status}${elapsedText}${hintText}`);
+  };
+
+  update();
+  const timer = window.setInterval(update, 1000);
+  try {
+    return await work();
+  } finally {
+    window.clearInterval(timer);
+  }
+}
+
+function readaloudActivateEngine(engine) {
+  READALOUD.activeEngine = engine;
+  READALOUD.voxtralBaseUrl = engine.baseUrl;
+  READALOUD.modelId = engine.modelId;
+}
+
+function readaloudServerCommand() {
+  return (READALOUD.activeEngine && READALOUD.activeEngine.command) || READALOUD_SERVER_COMMAND;
+}
+
+function readaloudOfflineServerLabel() {
+  return `${READALOUD_ENGINE_CANDIDATES[0].label}: ${READALOUD_SERVER_COMMAND}`;
+}
+
+async function readaloudCheckEngine(engine, outerSignal, timeoutMs) {
+  const response = await readaloudFetchWithTimeout(
+    `${engine.baseUrl}${engine.probePath}`,
+    { method: "GET", signal: outerSignal || undefined },
+    timeoutMs,
+  );
+  if (!response.ok) throw new Error(`${engine.label} HTTP ${response.status}`);
+  return response;
+}
+
+async function readaloudResolveEngine(outerSignal, timeoutMs) {
+  const candidates = READALOUD.activeEngine ?
+    [
+      READALOUD.activeEngine,
+      ...READALOUD_ENGINE_CANDIDATES.filter((engine) => engine.id !== READALOUD.activeEngine.id),
+    ] :
+    READALOUD_ENGINE_CANDIDATES;
+  const failures = [];
+  for (const engine of candidates) {
+    try {
+      await readaloudCheckEngine(engine, outerSignal, timeoutMs);
+      readaloudActivateEngine(engine);
+      return engine;
+    } catch (err) {
+      failures.push(`${engine.label}: ${err.message || err}`);
+    }
+  }
+  throw new Error(failures.join("; ") || "server not reachable");
+}
+
 function readaloudStartOfflineReprobe() {
   if (READALOUD.engineProbeTimer) return;
   const now = Date.now();
@@ -210,10 +285,9 @@ function readaloudStartOfflineReprobe() {
   }
   readaloudShowServerCommand(true);
   if (READALOUD.state === "idle" || READALOUD.state === "error") {
-    // Tighter status — the visible command-copy button below already
-    // shows the server command. Don't duplicate it inline; it wastes
-    // ~80px on narrow viewports and reads as noise.
-    readaloudSetPlayerStatus("MLX server offline — copy command to start");
+    readaloudSetPlayerStatus(
+      `Waiting for local server... ${readaloudOfflineServerLabel()}`,
+    );
   }
   READALOUD.engineProbeTimer = window.setTimeout(
     readaloudRunOfflineReprobe,
@@ -227,7 +301,7 @@ async function readaloudRunOfflineReprobe() {
     READALOUD.engineProbeDeadline = 0;
     if (READALOUD.state === "idle" || READALOUD.state === "error") {
       readaloudSetPlayerStatus(
-        `Server still offline. Run from the vidux repo root: ${READALOUD_SERVER_COMMAND}`,
+        `Server still offline. Start ${readaloudOfflineServerLabel()}`,
       );
       readaloudShowServerCommand(true);
     }
@@ -247,10 +321,11 @@ function readaloudStopOfflineReprobe() {
 function readaloudShowServerCommand(show) {
   const b = READALOUD.serverCommandButton;
   if (!b) return;
+  const command = readaloudServerCommand();
   b.hidden = !show;
-  b.textContent = READALOUD_SERVER_COMMAND;
-  b.title = `Copy: ${READALOUD_SERVER_COMMAND}`;
-  b.setAttribute("aria-label", `Copy local Voxtral MLX server command: ${READALOUD_SERVER_COMMAND}`);
+  b.textContent = command;
+  b.title = `Copy: ${command}`;
+  b.setAttribute("aria-label", `Copy local Voxtral MLX server command: ${command}`);
 }
 
 async function readaloudCopyServerCommand(event) {
@@ -259,7 +334,7 @@ async function readaloudCopyServerCommand(event) {
     event.stopPropagation();
   }
 
-  const command = READALOUD_SERVER_COMMAND;
+  const command = readaloudServerCommand();
   try {
     if (!navigator.clipboard || !navigator.clipboard.writeText) {
       throw new Error("Clipboard unavailable");
@@ -486,12 +561,12 @@ function readaloudHandlePlaybackError(err) {
   if (msg.includes("fetch") || msg.includes("NetworkError") || msg.includes("Voxtral server")) {
     readaloudSetState("error", "Start Voxtral server");
     readaloudSetPlayerStatus(
-      `Start local Voxtral MLX server: ${READALOUD_SERVER_COMMAND}`,
+      `Start local Voxtral MLX server: ${readaloudOfflineServerLabel()}`,
     );
     readaloudShowServerCommand(true);
     readaloudStartOfflineReprobe();
     READALOUD.button.title =
-      `Run: ${READALOUD_SERVER_COMMAND}, then retry`;
+      `Run: ${readaloudServerCommand()}, then retry`;
     return;
   }
   readaloudSetState("error", msg);
@@ -919,43 +994,64 @@ async function readaloudGetSegmentAudio(segments, outerSignal) {
     }
   }
 
+  const batches = readaloudBuildSynthesisBatches(misses);
+
   if (misses.length) {
-    readaloudSetPlayerStatus(`${cachedCount} cached, ${misses.length} synthesizing`);
+    const batchWord = batches.length === 1 ? "batch" : "batches";
+    readaloudSetPlayerStatus(
+      `${cachedCount} cached, ${misses.length} missing in ${batches.length} ${batchWord}`,
+    );
   } else {
-    readaloudSetPlayerStatus(`${cachedCount} cached, 0 synthesizing`);
+    readaloudSetPlayerStatus(`${cachedCount} cached, 0 generating audio`);
   }
 
-  for (let i = 0; i < misses.length; i++) {
-    const miss = misses[i];
-    readaloudSetState("loading", `Synth ${i + 1}/${misses.length}`);
-    readaloudSetPlayerStatus(
-      `${cachedCount} cached, ${i + 1}/${misses.length} synthesizing: ${readaloudSegmentTitle(miss.segment)}`,
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    const progress = `${i + 1}/${batches.length}`;
+    const title = readaloudSynthesisBatchTitle(batch);
+    const blob = await readaloudTrackLoading(
+      `Generate ${progress}`,
+      `${cachedCount} cached, generating audio batch ${progress}: ${title}`,
+      () => readaloudFetchVoxtral(batch.text, outerSignal),
+      {
+        hintAfterSeconds: 8,
+        hint: "Local Voxtral returns one WAV when generation finishes; this is still working.",
+      },
     );
-    const blob = await readaloudFetchVoxtral(miss.segment.text, outerSignal);
-    await readaloudCachePut(miss.cacheKey, blob, {
-      type: "segment",
-      model: READALOUD.modelId,
-      voice: READALOUD.defaultVoice,
-      segment_id: miss.segment.id,
-      segment_kind: miss.segment.kind,
-      segment_hash: miss.segment.hash,
-      text: miss.segment.text,
-    });
-    ordered[miss.index] = {
-      segment: miss.segment,
-      blob,
-      cacheKey: miss.cacheKey,
-      source: "generated",
-    };
+    const items = await readaloudMaterializeBatchSegments(batch, blob, progress);
+    for (const item of items) {
+      await readaloudCachePut(item.cacheKey, item.blob, {
+        type: "segment",
+        model: READALOUD.modelId,
+        voice: READALOUD.defaultVoice,
+        segment_id: item.segment.id,
+        segment_kind: item.segment.kind,
+        segment_hash: item.segment.hash,
+        text: item.segment.text,
+        synthesis_batch_size: batch.misses.length,
+      });
+      ordered[item.index] = {
+        segment: item.segment,
+        blob: item.blob,
+        cacheKey: item.cacheKey,
+        source: "generated",
+      };
+    }
   }
 
   const protectedKeys = ordered.map((item) => item && item.cacheKey).filter(Boolean);
   const cachePrune = await readaloudCachePrune({ protectedKeys });
   readaloudReportCachePrune(cachePrune);
 
-  readaloudSetState("loading", "Merging...");
-  readaloudSetPlayerStatus("Merging segment audio...");
-  const merged = await readaloudMergeSegmentAudio(ordered);
+  const merged = await readaloudTrackLoading(
+    "Decoding...",
+    "Decoding and stitching segment audio",
+    () => readaloudMergeSegmentAudio(ordered),
+    {
+      hintAfterSeconds: 4,
+      hint: "Browser is preparing the playable WAV.",
+    },
+  );
   const source =
     misses.length === 0 ? "cached" : cachedCount > 0 ? "mixed" : "generated";
   return {
@@ -967,18 +1063,134 @@ async function readaloudGetSegmentAudio(segments, outerSignal) {
   };
 }
 
-async function readaloudEnsureVoxtralHealthy(outerSignal) {
-  const health = await readaloudFetchWithTimeout(
-    `${READALOUD.voxtralBaseUrl}/health`,
-    { method: "GET", signal: outerSignal },
-    1200,
-  );
-  if (!health.ok) {
-    readaloudSetEngineStatus("offline", `HTTP ${health.status}`);
-    throw new Error(`Voxtral server unhealthy: ${health.status}`);
+function readaloudBuildSynthesisBatches(misses) {
+  const batches = [];
+  for (const miss of misses || []) {
+    const text = readaloudNormalizeSegmentText(miss.segment && miss.segment.text);
+    if (!text) continue;
+
+    const last = batches[batches.length - 1];
+    const candidateText = last ? `${last.text}\n\n${text}` : text;
+    const canAppend =
+      last &&
+      last.misses.length < READALOUD_SYNTH_BATCH_MAX_SEGMENTS &&
+      miss.index === last.misses[last.misses.length - 1].index + 1 &&
+      candidateText.length <= READALOUD_SYNTH_BATCH_TARGET_CHARS;
+
+    if (canAppend) {
+      last.misses.push(miss);
+      last.text = candidateText;
+    } else {
+      batches.push({ misses: [miss], text });
+    }
   }
+  return batches;
+}
+
+function readaloudSynthesisBatchTitle(batch) {
+  if (!batch || !batch.misses || !batch.misses.length) return "empty batch";
+  if (batch.misses.length === 1) return readaloudSegmentTitle(batch.misses[0].segment);
+  const first = batch.misses[0];
+  const last = batch.misses[batch.misses.length - 1];
+  return `${batch.misses.length} segments ${first.index + 1}-${last.index + 1}: ${readaloudSegmentTitle(first.segment)}`;
+}
+
+async function readaloudMaterializeBatchSegments(batch, blob, progress) {
+  if (!batch || !Array.isArray(batch.misses) || !batch.misses.length) {
+    throw new Error("Empty synthesis batch");
+  }
+  if (batch.misses.length === 1) {
+    const miss = batch.misses[0];
+    readaloudSetPlayerStatus(
+      `Buffered ${readaloudFormatBytes(blob.size)} WAV for batch ${progress}; caching segment...`,
+    );
+    return [
+      {
+        index: miss.index,
+        segment: miss.segment,
+        cacheKey: miss.cacheKey,
+        blob,
+      },
+    ];
+  }
+
+  return readaloudTrackLoading(
+    "Splitting...",
+    `Buffered ${readaloudFormatBytes(blob.size)} WAV for batch ${progress}; splitting/decoding ${batch.misses.length} cached segments`,
+    () => readaloudSplitBatchAudio(batch, blob),
+    {
+      hintAfterSeconds: 4,
+      hint: "Keeping one fast MLX call while preserving per-section replay cache.",
+    },
+  );
+}
+
+async function readaloudSplitBatchAudio(batch, blob) {
+  if (!batch || !Array.isArray(batch.misses) || !batch.misses.length) {
+    throw new Error("Empty synthesis batch");
+  }
+  if (!blob || !blob.size) {
+    throw new Error("Empty batch audio");
+  }
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) throw new Error("AudioContext unavailable");
+  const context = new AudioCtx();
+  let buffer;
+  try {
+    buffer = await context.decodeAudioData(await blob.arrayBuffer());
+  } finally {
+    if (context.close) context.close().catch(() => {});
+  }
+
+  const sampleRate = buffer.sampleRate || 24000;
+  const totalLength = buffer.length;
+  if (!totalLength) {
+    throw new Error("Decoded batch audio is empty");
+  }
+  if (totalLength < batch.misses.length) {
+    throw new Error("Decoded batch audio is too short to split");
+  }
+  const weights = batch.misses.map((miss) =>
+    Math.max(1, readaloudNormalizeSegmentText(miss.segment && miss.segment.text).length),
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || weights.length;
+  const items = [];
+  let offset = 0;
+
+  for (let i = 0; i < batch.misses.length; i++) {
+    const miss = batch.misses[i];
+    const remainingSamples = totalLength - offset;
+    const remainingSegments = batch.misses.length - i;
+    if (remainingSamples < remainingSegments) {
+      throw new Error("Decoded batch audio is too short to split");
+    }
+    const maxLength = remainingSamples - (remainingSegments - 1);
+    const length =
+      i === batch.misses.length - 1
+        ? remainingSamples
+        : Math.max(1, Math.min(
+          maxLength,
+          Math.round((totalLength * weights[i]) / totalWeight),
+        ));
+    const samples = new Float32Array(length);
+    buffer.copyFromChannel(samples, 0, offset);
+    offset += length;
+    items.push({
+      index: miss.index,
+      segment: miss.segment,
+      cacheKey: miss.cacheKey,
+      blob: readaloudFloatToWavBlob(samples, sampleRate),
+    });
+  }
+
+  return items;
+}
+
+async function readaloudEnsureVoxtralHealthy(outerSignal) {
+  const engine = await readaloudResolveEngine(outerSignal, 1200);
   readaloudSetEngineStatus("online");
   readaloudShowServerCommand(false);
+  return engine;
 }
 
 async function readaloudSegmentsPlaybackKey(segments) {
@@ -1072,6 +1284,7 @@ async function readaloudFetchVoxtral(text, outerSignal) {
       input: text,
       model: READALOUD.modelId,
       response_format: "wav",
+      stream: false,
       voice: READALOUD.defaultVoice,
     }),
     signal: outerSignal,
@@ -1080,7 +1293,10 @@ async function readaloudFetchVoxtral(text, outerSignal) {
     const detail = await response.text().catch(() => "");
     throw new Error(`Voxtral synthesis failed: ${response.status} ${detail}`);
   }
-  return response.blob();
+  readaloudSetPlayerStatus("Voxtral responded; buffering WAV blob...");
+  const blob = await response.blob();
+  readaloudSetPlayerStatus(`Buffered ${readaloudFormatBytes(blob.size)} WAV from Voxtral`);
+  return blob;
 }
 
 async function readaloudFetchWithTimeout(url, options, timeoutMs) {
@@ -1099,6 +1315,7 @@ async function readaloudFetchWithTimeout(url, options, timeoutMs) {
 
 async function readaloudCacheKey(text) {
   const payload = JSON.stringify({
+    engine: READALOUD.activeEngine ? READALOUD.activeEngine.id : READALOUD.voxtralBaseUrl,
     model: READALOUD.modelId,
     voice: READALOUD.defaultVoice,
     text,
@@ -1338,16 +1555,31 @@ async function readaloudPlayBlob(blob, body, text, sourceRange, meta = {}) {
   const audio = new Audio(READALOUD.objectUrl);
   READALOUD.audio = audio;
   audio.playbackRate = readaloudPlaybackRate();
+  let playbackConfirmed = false;
 
   audio.addEventListener("timeupdate", () => {
     readaloudUpdateWordHighlight();
     readaloudUpdatePlayerProgress();
   });
+  audio.addEventListener("loadstart", () => {
+    if (!playbackConfirmed) readaloudSetPlayerStatus("Loading WAV into browser audio...");
+  });
   audio.addEventListener("loadedmetadata", () => {
     readaloudUpdateWordHighlight();
     readaloudUpdatePlayerProgress();
   });
+  audio.addEventListener("canplay", () => {
+    if (!playbackConfirmed) readaloudSetPlayerStatus("Audio decoded; starting playback...");
+  });
+  audio.addEventListener("waiting", () => {
+    readaloudSetPlayerStatus("Browser audio buffering...");
+  });
   audio.addEventListener("play", () => {
+    readaloudSetState("playing");
+    if (!playbackConfirmed) readaloudSetPlayerStatus("Starting browser playback...");
+  });
+  audio.addEventListener("playing", () => {
+    playbackConfirmed = true;
     readaloudSetState("playing");
     readaloudSetPlayerStatus(
       readaloudPlaybackStatusLabel(

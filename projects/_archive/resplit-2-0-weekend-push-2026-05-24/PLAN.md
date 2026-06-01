@@ -6,6 +6,8 @@ archived-reason: Declared "shipped evidence" in PM war-room audit; 8 ASC bug row
 
 # Resplit 2.0 — Weekend Ship Push (May 2–3, soft target May 4)
 
+**HISTORICAL / DO NOT CLAIM DIRECTLY — 2026-05-24.** This was the May 2-3 ASC bug convergence board. It is retained as shipped evidence and task history, not the live launch queue. Current iOS release/ASC truth lives in `/Users/leokwan/Development/resplit-ios/INBOX.md`, `/Users/leokwan/Development/resplit-ios/PLAN.md`, and `/Users/leokwan/Development/resplit-ios/.cursor/plans/app-store-feedback.plan.md`; current cross-platform/web truth lives in `/Users/leokwan/Development/resplit-web/vidux/resplit-2.0-launch/PLAN.md`. Agents may only reactivate a row from this file after one of those current surfaces explicitly reopens it.
+
 **Soft target:** Monday May 4 morning. **No hard cutoff.** Per Leo verbatim 2026-05-01: *"I really care more about whether we can just keep pushing along and get the bugs fixed. Bug fixing and production-level testability is all they care about."* The metric is **bugs-shipped, not calendar-met**. May 4 is when we'd ideally have a TestFlight build with all 8 ASC bugs verified — slipping a day or two is fine if it means shipping the fixes correctly.
 
 ## Parent plan
@@ -14,7 +16,7 @@ This is the **resplit-ios lane detail** for the multi-platform Resplit 2.0 launc
 
 - **Multi-platform mega plan**: `~/Development/resplit-web/vidux/resplit-2.0-launch/PLAN.md` (open as PR #541 on `firstbitelabsllc/resplit-web`, branch `claude/resplit-2.0-launch-plan-consolidation`).
 - **What the mega plan owns**: web-side ship gates (T3 security review, T5 test coverage, T7 E2E guest flow, staging redeploy from main, dark-mode visual baselines, autobot-resplit-web cron) + the cross-platform Definition of Done.
-- **What this plan owns**: the 8 ASC bug rows specific to the iOS app. The mega plan's iOS gate (`iOS App Store Connect submission accepted — owned by resplit-ios lane, gated independently`) is satisfied when every P0/P1 task below ships and `bundle exec fastlane beta` lands a build with all eight bugs verified.
+- **What this plan owned historically**: the 8 ASC bug rows specific to the May 2-3 iOS app push. The old mega plan's iOS gate language below was only for this archived queue; current iOS release readiness is controlled by `/Users/leokwan/Development/resplit-ios/INBOX.md` and its build 2516 / 40-commit release-gap row.
 - **Convergence**: agents working iOS read THIS plan; agents working web read the mega plan. Cross-references in both directions (parent → child via the iOS row, child → parent via this section).
 - **Sibling iOS project (post-launch foundation)**: `../ocr-moat/PLAN.md` — vendor-neutral receipt scanning contract + fixture corpus + reconciliation + telemetry + dev-app annotator. **GATED behind this weekend-push shipping.** Created 2026-05-01 per Leo's "moat of the app" directive. Agents on this weekend plan: do NOT touch ocr-moat tasks until every Open ASC row above is verified or explicitly deferred.
 
@@ -209,7 +211,7 @@ Each task's worktree is its own git ref + DerivedData path. No contention.
 
 ### Ship gate
 
-- [completed] **T9 — Cut 2.0 release** [SHIPPED 2026-05-01T15:17:49Z, build 2363 (marketing 2.2.0), distributed to External testers / Friends & Family. Tuist Preview run `b13d0692-e34e-43e1-81d6-5e106cfe344f`. Fastlane log `~/.agent-ledger/T9-fastlane-beta-20260501T111209.log`.] — After T1–T7 are `[MERGED]`, run `bundle exec fastlane beta` (this is the deploy-watcher path, which uploads to TestFlight). Then promote the resulting build to App Store in App Store Connect. Tag `v2.0.0` post-promotion.
+- [completed] **T9 — Cut historical May 1 TestFlight build, not current release readiness** [SHIPPED 2026-05-01T15:17:49Z, build 2363 (marketing 2.2.0), distributed to External testers / Friends & Family. Tuist Preview run `b13d0692-e34e-43e1-81d6-5e106cfe344f`. Fastlane log `~/.agent-ledger/T9-fastlane-beta-20260501T111209.log`.] — This row is evidence for the archived May 2-3 queue only. It does not clear the current build 2516 / 40-commit release gap, ASC, or Sentry adoption gates.
 
 ### Cron-purview tasks (resplit-watch infrastructure, separate from bug fixes)
 

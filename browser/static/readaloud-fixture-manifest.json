@@ -33,7 +33,7 @@
     },
     {
       "id": "synth-queue",
-      "expectation": "operator sees cached versus synthesizing segment progress"
+      "expectation": "operator sees cached versus generating segment progress with elapsed time"
     },
     {
       "id": "cache-hit",
@@ -46,6 +46,10 @@
     {
       "id": "cache-pruned",
       "expectation": "operator sees stale cross-document cache eviction after playback starts"
+    },
+    {
+      "id": "batch-splitting",
+      "expectation": "operator sees a batched WAV being split back into cached segments"
     },
     {
       "id": "playing",

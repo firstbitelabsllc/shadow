@@ -3,7 +3,7 @@
 ## Open
 
 - [2026-05-03] **Project split:** Read-aloud is Project A (transcript/player architecture) in this plan; Annotate is Project B (annotation workbench/app-action layer) in `projects/vidux-browser/PLAN.md`. Do not create a third plan store.
-- [2026-05-04] **Reader loop closed:** V29 finished the final no-synthesis smoke and acceptance contract. Keep PR #87 draft until Leo explicitly asks to ready/merge it. Do not add more reader polish in this loop unless review comments or fresh user evidence require it.
+- [2026-05-04] **Reader loop closed except fresh evidence:** V29 finished the final no-synthesis smoke and acceptance contract. Leo's 2026-05-24 screenshot reopened the local runtime/offline-copy gap; V30 proof corrected the path back to the proven `browser/scripts/start-voxtral-mlx-server.sh` server on 8765. Keep PR #87 draft until Leo explicitly asks to ready/merge it.
 - [2026-05-02] **Voice cloning blocked by runtime:** redseaplume Voxtral MLX exposes preset voice embeddings only, no reference-audio API. Server now reports `supports_reference_audio: false` in `/health` and `/v1/audio/capabilities`; revisit only if switching runtimes or adding an embedding-generation path.
 
 ## Skipped / archived
@@ -24,9 +24,25 @@
 - [2026-05-03] **V27 shipped:** offline-to-online auto-reprobe. Offline player/source states now poll `/health` briefly after showing the launch command so the UI flips ready when the local server comes online. Evidence: `evidence/2026-05-03-v27-offline-reprobe.md` + `.png`. No Read click, model download, or synthesis.
 - [2026-05-04] **V28 shipped:** reader cache quota guard. Per-segment cache records now track size and LRU metadata, prune oldest current-model segment blobs past 160MB / 120 entries, and surface prune status in the footer/console. Evidence: `evidence/2026-05-04-v28-cache-quota.md` + `.png`. No model download or real synthesis.
 - [2026-05-04] **V29 shipped:** reader PR closeout + final real-use smoke. Added Project A acceptance contract test; no-synthesis browser smoke verified footer player, section controls, status-only top bar, and annotation FAB on the PR worktree plan page. Evidence: `evidence/2026-05-04-v29-closeout-smoke.md` + `.png`. PR #87 remains draft and green.
+- [2026-05-24] **V30 shipped:** live-runtime repair corrected. `127.0.0.1:8000 /v1/models` was not a valid read-aloud readiness check because speech could hang; browser now probes and synthesizes through the proven script server at `127.0.0.1:8765`, and the offline UI exposes `browser/scripts/start-voxtral-mlx-server.sh`. Evidence: `evidence/2026-05-24-v30-live-8765-browser-smoke.md`.
+- [2026-05-24] **V31 shipped as P0:** loading/perf is no longer polish. The footer now names `generating audio batch`, elapsed seconds, first-run MLX-load hints, buffered WAV, splitting/decoding cached segments, and confirmed playback. Adjacent uncached short sections batch into one Voxtral request while preserving per-section cache entries. Durable installer: `scripts/install-voxtral-launchagent.sh`. Evidence: `evidence/2026-05-24-v31-p0-batched-loading-browser-smoke.md`.
+- [2026-05-24] **V32 shipped:** thirteen concrete local-audio setup/UX issues fixed. `mlx_whisper` is installed/repaired on this Mac, the STT smoke now has stage logs + transcript validation, warm local transcription proved `rtf=0.59`, the Voxtral LaunchAgent installer has `--lint` + better dry-run/check semantics + XML escaping, and read-aloud batch waits now say local Voxtral returns one WAV at completion without clipping the status copy. Evidence: `evidence/2026-05-24-v32-10-issue-sweep.md`.
 - [2026-05-02] **Audibility note closed:** browser automation could not prove foreground speaker audio, but Leo heard it in real use.
 - [2026-05-02] **Selection read shipped:** if text is selected inside the active pane, 🔊 reads only that selection; otherwise it reads the whole pane.
 - [2026-05-02] **Source chip shipped:** top bar now shows `MLX` / `MLX on` / `MLX off` next to 🔊 so Leo can see the audio source is the local loopback Voxtral MLX server, not cloud/API/browser TTS.
 - [2026-05-02] **Regression guard shipped:** `npm test` now includes static read-aloud contracts covering top-bar controls, annotation exclusion, source-chip health probe, loopback URL, speech endpoint, cache, and default voice.
 - [2026-05-02] **PR #87 base merge closed:** resolved dirty-base conflicts twice by keeping the PR's verified `127.0.0.1:8765` redseaplume loopback client as active. `origin/main`'s `mlx_audio.server`/LaunchAgent evidence is preserved as alternate-path context, not the active browser client for this PR. Latest merge commit: `733f73c`.
 - [2026-05-02] **Graphite findings addressed:** fixed both PR #87 inline findings (browser object-URL cleanup on playback rejection, server success response sent outside generation try block). Static tests now assert both guardrails. Commit: `d9946a3`.
+
+
+---
+
+## PSA — 2026-05-26 — Fleet UX/UI lane split codified
+
+- **Claude Code owns ALL UX/UI work fleet-wide.** Codex agents must stay on backend / logic / lanes / workers / API.
+- **Disambiguator:** "is this rendered to a human?" → Claude. "Does this read/write data, run a CLI, or expose an HTTP endpoint?" → Codex.
+- **Canonical visualization layer:** [Litty](file:///Users/leokwan/Development/litty) at `http://localhost:4400` (the operator cockpit). Federates moussey's `/api/coding/*` APIs. Replaces the 12,062-line `moussey/app/coding/page.tsx` rot.
+- **15 routes shipped 2026-05-26:** `/`, `/lanes`, `/lanes/[laneId]`, `/runs`, `/runs/[runId]`, `/runs/[runId]/patch`, `/runs/[runId]/stream`, `/workers`, `/workers/[workerId]`, `/handoffs`, `/handoffs/[handoffId]`, `/capabilities`, `/api/health`, `/api/proxy/coding/[...path]`, plus sibling-shipped `/api/operating-readout`, `/api/proofs`, `/api/repo-catalog`.
+- **Plan:** `~/Development/vidux/projects/litty/PLAN.md` (canonical). Research at `~/Development/vidux/projects/litty/research/` (~30k words, 11 deep-research agents).
+- **Codex agents seeing UX/UI work in this project's queue:** redirect to backend tasks (federation contracts, FirstBite lanes, MCP, repo-backed catalog snapshots, the moussey-side PRs documented as Phase 3.5 unblockers).
+- **Reference:** `/pilot-leo § Agent lane splits — codify in the project, not here (2026-05-24)` (the disambiguator pattern).

@@ -12,12 +12,15 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 # Receipt corpus lab handlers (math-fortress T9). Sibling package — server.py
 # is callable both as __main__ (sys.path[0] = browser/) and via importlib spec
@@ -68,6 +71,39 @@ def _parse_repo_aliases():
         return {}
 LEGACY_REPO_ALIASES = _parse_repo_aliases()
 
+PLANS_CACHE_TTL_SECONDS = float(os.environ.get("VIDUX_PLANS_CACHE_TTL_SECONDS", "20"))
+_PLANS_CACHE_LOCK = threading.Lock()
+_PLANS_CACHE: dict[str, object] = {
+    "key": None,
+    "expires_at": 0.0,
+    "plans": None,
+}
+
+
+def clear_plans_cache() -> None:
+    with _PLANS_CACHE_LOCK:
+        _PLANS_CACHE["key"] = None
+        _PLANS_CACHE["expires_at"] = 0.0
+        _PLANS_CACHE["plans"] = None
+
+
+def discover_plans_cached() -> list[dict]:
+    if PLANS_CACHE_TTL_SECONDS <= 0:
+        return discover_plans()
+
+    key = (str(DEV_ROOT), tuple(PLAN_GLOBS), tuple(sorted(LEGACY_REPO_ALIASES.items())))
+    now = time.monotonic()
+    with _PLANS_CACHE_LOCK:
+        plans = _PLANS_CACHE["plans"]
+        if plans is not None and _PLANS_CACHE["key"] == key and now < _PLANS_CACHE["expires_at"]:
+            return plans  # type: ignore[return-value]
+
+        plans = discover_plans()
+        _PLANS_CACHE["key"] = key
+        _PLANS_CACHE["expires_at"] = time.monotonic() + PLANS_CACHE_TTL_SECONDS
+        _PLANS_CACHE["plans"] = plans
+        return plans
+
 # Files to expose alongside PLAN.md when present.
 # Note: PLAN.md, INBOX.md, investigations/, evidence/ are core /vidux per the
 # canonical doctrine (DOCTRINE.md + guides/fleet-ops.md + guides/investigation.md
@@ -107,6 +143,8 @@ COMMENT_ANCHOR_FIELD_LIMITS = {
 COMMENT_ANCHOR_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 JSON_CONTENT_TYPE = "application/json"
+MOUSSEY_BASE_URL = os.environ.get("VIDUX_MOUSSEY_BASE_URL", "http://127.0.0.1:4321").rstrip("/")
+CODING_HANDOFF_MAX_BYTES = 24 * 1024
 
 # /vidux task-FSM markers. Used by task_stats() to compute completion-bar.
 # Per /vidux doctrine: completion (X/Y tasks) is the headline; ETA is parsed
@@ -943,6 +981,70 @@ def resolve_plan_note_target(raw: str) -> Path | None:
     return p
 
 
+def resolve_coding_handoff_target(raw: str) -> Path | None:
+    return resolve_plan_note_target(raw)
+
+
+def plan_title_for_handoff(plan_path: Path) -> str:
+    try:
+        rel = str(plan_path.relative_to(DEV_ROOT))
+    except ValueError:
+        rel = plan_path.name
+    parent = plan_path.parent.name
+    repo = rel.split("/", 1)[0] if "/" in rel else ""
+    return f"{repo} · {parent}" if repo and parent else parent or rel
+
+
+def build_coding_handoff_prompt(plan_path: Path, prompt: object | None = None) -> str:
+    if isinstance(prompt, str) and prompt.strip():
+        return prompt.strip()
+    try:
+        rel = str(plan_path.relative_to(DEV_ROOT))
+    except ValueError:
+        rel = str(plan_path)
+    return "\n".join([
+        "Continue coding work from this Vidux plan.",
+        "",
+        f"Plan: {rel}",
+        f"File: {plan_path}",
+        "",
+        "Use the Moussey coding workbench as the local agent/IDE lane.",
+        "Start with the safest Resplit Web autobot status or preflight action, then capture evidence back in the owning plan.",
+    ])
+
+
+def create_moussey_coding_handoff(payload: dict, base_url: str | None = None) -> tuple[bool, dict | str]:
+    url = f"{(base_url or MOUSSEY_BASE_URL).rstrip('/')}/api/coding/handoffs"
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib_request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": JSON_CONTENT_TYPE,
+            "Accept": JSON_CONTENT_TYPE,
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=5) as res:
+            text = res.read().decode("utf-8", errors="replace")
+    except urllib_error.HTTPError as e:
+        text = e.read().decode("utf-8", errors="replace")
+        return False, text or f"moussey HTTP {e.code}"
+    except OSError as e:
+        return False, f"moussey unavailable: {e}"
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return False, f"moussey returned non-json: {text[:240]}"
+    if not data.get("ok") or not data.get("url"):
+        return False, data
+    url_value = str(data["url"])
+    if url_value.startswith("/"):
+        data["url"] = f"{(base_url or MOUSSEY_BASE_URL).rstrip('/')}{url_value}"
+    return True, data
+
+
 def write_plan_note(
     plan_path: Path,
     note: str,
@@ -1013,7 +1115,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "dev_root": str(DEV_ROOT), "port": PORT,
                         "artifacts_dir": str(ARTIFACTS_DIR)})
         elif route == "/api/plans":
-            self._json({"plans": discover_plans(), "dev_root": str(DEV_ROOT)})
+            self._json({"plans": discover_plans_cached(), "dev_root": str(DEV_ROOT)})
         elif route == "/api/artifacts":
             self._json({"artifacts": discover_artifacts(),
                         "artifacts_dir": str(ARTIFACTS_DIR)})
@@ -1107,6 +1209,46 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, msg)
                 return
             self._json({"ok": True, "path": msg})
+        elif url.path == "/api/coding-handoff":
+            if not self._require_json_write():
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > CODING_HANDOFF_MAX_BYTES:
+                self._send(400, "missing or oversized body")
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._send(400, f"bad json: {e}")
+                return
+            plan_path = resolve_coding_handoff_target(str(payload.get("plan_path", "")))
+            if not plan_path:
+                self._send(403, "plan_path must be an allowed PLAN.md under dev_root")
+                return
+            try:
+                rel = str(plan_path.relative_to(DEV_ROOT))
+            except ValueError:
+                self._send(403, "plan_path must be under dev_root")
+                return
+            host = (self.headers.get("Host") or f"127.0.0.1:{PORT}").strip()
+            source_url = f"http://{host}/?plan={quote(rel, safe='')}"
+            title = str(payload.get("title") or plan_title_for_handoff(plan_path)).strip()
+            label_slug = plan_path.parent.name.replace("_", "-").lower()
+            ok, result = create_moussey_coding_handoff({
+                "source": "vidux",
+                "sourcePath": str(plan_path),
+                "sourceRel": rel,
+                "sourceUrl": source_url,
+                "title": title[:180] or plan_title_for_handoff(plan_path),
+                "prompt": build_coding_handoff_prompt(plan_path, payload.get("prompt")),
+                "proposedAction": payload.get("proposedAction", "lane-status"),
+                "label": f"vidux-{label_slug[:80] or 'plan'}",
+            })
+            if not ok:
+                self._send(502, str(result))
+                return
+            self._json({"ok": True, "handoff": result.get("handoff"), "url": result.get("url")})
         elif url.path == "/api/upload-ref-audio":
             # Loopback-only personal use. Browser uploads a base64 audio sample
             # to be saved at /tmp/vidux-readaloud-ref-<sha8>.<ext> and the path

@@ -25,6 +25,11 @@ class PrBodyTests(unittest.TestCase):
         body = pr_body.build_pr_body(
             lane="codex/linear-hardening",
             task="LI-5",
+            plan_path="projects/team-agent-coordination/PLAN.md",
+            proof="python3 -m unittest tests.test_pr_body",
+            handoff_status="needs_review",
+            ledger="evt_123abc",
+            files_claimed=["scripts/vidux-pr-body.py", "tests/test_pr_body.py"],
             linear="eve-123",
             resume="nurse CI and reply to review findings",
             changes=["update templates", "add helper"],
@@ -33,6 +38,12 @@ class PrBodyTests(unittest.TestCase):
         self.assertIn("Lane: codex/linear-hardening", body)
         self.assertIn("Plan task: LI-5", body)
         self.assertIn("Linear: EVE-123", body)
+        self.assertIn("## Publish Propagation", body)
+        self.assertIn("Plan path: projects/team-agent-coordination/PLAN.md", body)
+        self.assertIn("Proof: python3 -m unittest tests.test_pr_body", body)
+        self.assertIn("Ledger: evt_123abc", body)
+        self.assertIn("Handoff status: needs_review", body)
+        self.assertIn("- scripts/vidux-pr-body.py", body)
         self.assertIn("Resume point: nurse CI and reply to review findings", body)
         self.assertIn("- update templates", body)
         self.assertTrue(body.endswith("\n"))
@@ -42,7 +53,40 @@ class PrBodyTests(unittest.TestCase):
             pr_body.build_pr_body(
                 lane="codex/linear-hardening",
                 task="LI-5",
+                plan_path="PLAN.md",
+                proof="proof",
+                handoff_status="done",
+                ledger="evt_ok",
+                files_claimed=["PLAN.md"],
                 linear="linear:abc",
+                resume="nurse CI",
+                changes=["update templates"],
+            )
+
+    def test_rejects_missing_file_claims(self):
+        with self.assertRaises(ValueError):
+            pr_body.build_pr_body(
+                lane="codex/linear-hardening",
+                task="LI-5",
+                plan_path="PLAN.md",
+                proof="proof",
+                handoff_status="done",
+                ledger="evt_ok",
+                files_claimed=[],
+                resume="nurse CI",
+                changes=["update templates"],
+            )
+
+    def test_rejects_invalid_handoff_status(self):
+        with self.assertRaises(ValueError):
+            pr_body.build_pr_body(
+                lane="codex/linear-hardening",
+                task="LI-5",
+                plan_path="PLAN.md",
+                proof="proof",
+                handoff_status="green",
+                ledger="evt_ok",
+                files_claimed=["PLAN.md"],
                 resume="nurse CI",
                 changes=["update templates"],
             )
@@ -56,6 +100,16 @@ class PrBodyTests(unittest.TestCase):
                 "codex/test",
                 "--task",
                 "BD-68",
+                "--plan-path",
+                "projects/team-agent-coordination/PLAN.md",
+                "--proof",
+                "python3 -m unittest tests.test_pr_body",
+                "--handoff-status",
+                "done",
+                "--ledger",
+                "evt_456",
+                "--file-claimed",
+                "scripts/vidux-pr-body.py",
                 "--linear",
                 "EVE-456",
                 "--resume",
@@ -70,6 +124,8 @@ class PrBodyTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Plan task: BD-68", result.stdout)
+        self.assertIn("Plan path: projects/team-agent-coordination/PLAN.md", result.stdout)
+        self.assertIn("Ledger: evt_456", result.stdout)
         self.assertIn("Linear: EVE-456", result.stdout)
         self.assertIn("- ship fix", result.stdout)
 

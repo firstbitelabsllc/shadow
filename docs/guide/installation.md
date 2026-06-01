@@ -20,7 +20,26 @@ Replace `/path/to/vidux` with the actual path where you cloned the repo. After t
 
 Vidux ships enforcement hooks that catch common planning failures at commit time. They're optional but recommended for teams or long-running projects.
 
-Copy the hooks into your **target project's** `.git/hooks/` directory (not the vidux repo itself):
+Treat installing or rewiring hooks as a publish/change cycle in the **target project**. Before copying or enabling hooks:
+
+1. Update the target repo's owning `PLAN.md` Progress/Tasks/Drift Log with what is changing, proof, `handoff_status`, files claimed, and the next-agent resume point.
+2. Emit a publish ledger row for the target repo with the plan, proof, hook file, and claim:
+
+```bash
+~/Development/ai/hooks/ledger-emit.sh \
+  --event publish \
+  --repo-path /path/to/your/project \
+  --lane hook-install \
+  --plan-path /path/to/your/project/PLAN.md \
+  --proof "hook install dry-run / shell syntax passed" \
+  --handoff-status done \
+  --file /path/to/your/project/.git/hooks/pre-commit \
+  --claim /path/to/your/project/PLAN.md \
+  --skills vidux \
+  --summary "Installed Vidux planning hooks"
+```
+
+Then copy the hooks into your **target project's** `.git/hooks/` directory (not the vidux repo itself):
 
 ```bash
 cp hooks/pre-commit-plan-check.sh /path/to/your/project/.git/hooks/pre-commit

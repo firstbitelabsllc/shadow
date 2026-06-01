@@ -15,10 +15,10 @@ const state = {
 let activePopoverTarget = null;
 
 const DECISION_LOG_TAB = "Decision Log";
-const DEFAULT_AUTO_REFRESH_INTERVAL_MS = 5000;
+const DEFAULT_AUTO_REFRESH_INTERVAL_MS = 30000;
 const AUTO_REFRESH_INTERVAL_MS = (() => {
   const configured = Number(window.__VIDUX_AUTO_REFRESH_INTERVAL_MS);
-  return Number.isFinite(configured) && configured > 0
+  return Number.isFinite(configured) && configured >= 0
     ? configured
     : DEFAULT_AUTO_REFRESH_INTERVAL_MS;
 })();
@@ -1050,7 +1050,13 @@ async function renderPane(opts = {}) {
     <div class="pane-header">
       ${parentLinkHTML}
       <div class="breadcrumb">${escapeText(plan.rel)}</div>
-      <h2>${escapeText(plan.slug === "_root_" ? plan.repo : `${plan.repo} · ${plan.slug}`)}</h2>
+      <div class="pane-title-row">
+        <h2>${escapeText(plan.slug === "_root_" ? plan.repo : `${plan.repo} · ${plan.slug}`)}</h2>
+        <div class="pane-coding-actions">
+          <button type="button" id="pane-coding-button" class="pane-coding-button" title="Open in Moussey coding workbench">Code</button>
+          <span id="pane-coding-status" class="pane-coding-status" role="status" aria-live="polite"></span>
+        </div>
+      </div>
       <div class="meta">
         <span><span class="pill pill-${plan.status}"></span>${plan.status}</span>
         <span>${fmtAge(plan.age_days) === "today" ? "modified today" : `modified ${fmtAge(plan.age_days)} ago`}</span>
@@ -1110,6 +1116,7 @@ async function renderPane(opts = {}) {
   });
   setupCommentsPanel(tabPath);
   setupPlanSteering(plan);
+  setupCodingHandoff(plan);
   refreshAnnotationTargets();
 
   if (isDecisionLogActive) {
@@ -1281,6 +1288,34 @@ function setupPlanSteering(plan) {
       textarea.value = "";
       status.textContent = "sent";
       if (currentCommentTargetPath() === plan.path) await loadComments(plan.path);
+    } catch (err) {
+      status.textContent = `failed: ${String(err.message || err)}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function setupCodingHandoff(plan) {
+  const button = document.getElementById("pane-coding-button");
+  const status = document.getElementById("pane-coding-status");
+  if (!button || !status || !plan?.path) return;
+  button.addEventListener("click", async () => {
+    status.textContent = "staging...";
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/coding-handoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan_path: plan.path,
+          proposedAction: "lane-status",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) throw new Error(data.error || await res.text().catch(() => `HTTP ${res.status}`));
+      status.textContent = "opened";
+      window.open(data.url, "_blank", "noopener");
     } catch (err) {
       status.textContent = `failed: ${String(err.message || err)}`;
     } finally {

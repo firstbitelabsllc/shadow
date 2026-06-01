@@ -6,7 +6,9 @@ archived-reason: Dormant per activation gate; R1 (ADIQ) absorbed elsewhere — n
 
 # Resplit 2.0.1 — Post-Launch Punch-List
 
-**Status:** OPEN (project frame only — every task `[pending]`, no `[in_progress]` allowed until 2.0 fastlane ships AND user-reported regressions clear F&F).
+**Status:** ARCHIVED / DORMANT (project frame only — every task `[pending]`, no `[in_progress]` allowed until 2.0 fastlane ships AND user-reported regressions clear F&F).
+
+**Activation status — 2026-05-24 02:46 EDT; superseded 05:33 EDT:** BLOCKED / DORMANT. The exact build-truth numbers in the 02:46 snapshot are stale. Current truth is `/Users/leokwan/Development/resplit-ios/INBOX.md`: latest proven TestFlight/Sentry boundary is build `2516` from `2026-05-18T05:11:37Z`, `origin/main` is 40 commits ahead at `HEAD=cdd35d66`, and iOS release smoke remains open on upload/adoption, production Sentry release truth, ASC Fix Specs, GitHub Actions disablement, and the cross-platform FX history gap. The 44-test Autobot reset sweep is green, but that does not activate 2.0.1 without build/adoption/Sentry/ASC proof. Do not flip any row here to `[in_progress]`; only proof-backed absorptions/closeouts may be recorded while the activation gate is red.
 
 **Created:** 2026-05-07 by `claude-opus-4-7-rios` lane subagent. Cron deferred Tier-2.3 work for ~9 cycles citing "project does not exist yet" — this PLAN is the unblock signal.
 

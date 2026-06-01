@@ -145,7 +145,10 @@ How to actually do the work. This block holds the heavy rules — worktree disci
 - `git add {specific files}` — never `-A`
 - Commit message: `{verb}({scope}): {what}`
 - After commit, `git branch --show-current` must match intended branch
-- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
+- Before `git push`, update the owning PLAN.md Progress/Tasks/Drift Log and
+  emit a `ledger-emit.sh --event publish` row with plan, proof, handoff, and
+  claimed-file fields.
+- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --plan-path "{PLAN.md}" --proof "{command/artifact}" --handoff-status "{done|in_progress|blocked|needs_review}" --ledger "{eid-or-dry-run}" --file-claimed "{path}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
 - Open a ready PR with `gh pr create --base main --head "{branch}" --title "{title}" --body-file /tmp/vidux-pr-body.md`
 
 ### Merge (only when gate allows)
@@ -157,12 +160,34 @@ How to actually do the work. This block holds the heavy rules — worktree disci
   for Mode A research compression. See `guides/recipes/subagent-delegation.md`.
 - For bug fixes with a clear spec (>10 lines), use Mode B implementation
   delegation in the same runtime, then review the diff before shipping.
+
+### Long-horizon / multi-agent contract
+- Work expected to span more than one cycle, one day, or one agent must keep
+  one canonical PLAN.md. Use L2 sub-plans only for investigation/Fix Spec work,
+  and link them from the parent task instead of creating sibling plans.
+- Before editing a shared row, run `claims-bus.sh check <PLAN.md> <row-id>`;
+  after a successful claim, record the owner and `files_claimed`.
+- Treat stale-proof as a gate: evidence older than 24h, older than the latest
+  material code/config change, or copied from another agent must be refreshed
+  or explicitly marked stale before publish.
+- At each meter checkpoint (at least every 30-60 minutes, before compaction,
+  and before handoff), update the owning PLAN.md Progress/Tasks/Drift Log with
+  proof, what remains, `handoff_status`, and the next-agent resume point.
+- Before publish, run three self-review passes: invariant audit
+  (plan/ledger/drift/claim propagation), regression runner, and adversarial
+  reviewer. Record the packet with `python3 scripts/vidux-publish-scrutiny.py`
+  using `--review-pass invariant-audit:pass:"..."`,
+  `--review-pass regression-runner:pass:"..."`, and
+  `--review-pass adversarial-reviewer:pass:"..."`. Fix P0/P1 findings before
+  publishing.
 ```
 
 **Rules:**
 - Every verification command is literal — don't paraphrase.
 - "Never `git add -A`" prevents the classic "accidentally committed .env" bug.
 - Delegation is optional per lane; include the sub-block only if the lane ships code.
+- Long-horizon work is still one canonical plan. Sub-plans explain; they do not
+  become competing sources of truth.
 
 ## Block 7: Authority
 
@@ -185,7 +210,7 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 ### Push authorization
 - Operational PRs: push branch + open ready-for-review by default; no approval needed.
 - Draft PRs: only for true WIP or a missing gate; flip ready as soon as the gate passes.
-- PR body must carry `Lane:`, `Plan task:`, and `Resume point:`.
+- PR body must carry `Lane:`, `Plan task:`, `Plan path:`, `Proof:`, `Ledger:`, `Handoff status:`, `Files claimed:`, and `Resume point:`.
 - Direct-to-main or destructive operations (force-push, branch delete, `git reset --hard`): forbidden for this lane.
 ```
 
@@ -209,6 +234,18 @@ After the cycle, append ONE line to
 ```
 - [YYYY-MM-DDThh:mm:ssZ {runtime} {lane-role}] [TAG] {what happened}. {optional second sentence on next-cycle plan}.
 ```
+
+### Durable handoff fields
+
+When the cycle changed code, published a branch/PR/release, or leaves work in
+progress for another agent, the checkpoint must also name the durable surfaces:
+
+- Plan row moved: `{PLAN.md}#{task-id}` or `[NO PLAN CHANGE]` with reason.
+- Ledger: `{eid}` or dry-run payload path.
+- Proof: exact command/artifact that passed, plus stale-proof refresh if needed.
+- Files claimed: `files_claimed=[...]`.
+- Handoff status: `handoff_status={done|in_progress|blocked|needs_review}`.
+- Next-agent resume: exact next command, PR, plan row, or blocker to inspect.
 
 ### Valid tags
 - `[SHIP]` — pushed a PR
@@ -266,7 +303,13 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 - Fresh worktree per code change
 - Verify: lint + build + (UI) screenshot
 - Commit: `{verb}({scope}): {what}`; never `git add -A`
-- PR body: `scripts/vidux-pr-body.py` with Lane / Plan task / Resume point
+- Before push: update PLAN.md and emit `ledger-emit.sh --event publish`
+- PR body: `scripts/vidux-pr-body.py` with Lane / Plan task / Plan path / Proof / Ledger / Handoff status / Files claimed / Resume point
+- Long horizon: one canonical PLAN.md, L2 sub-plans only for investigations,
+  `claims-bus.sh check`, `files_claimed`, stale-proof refresh, meter checkpoint
+  every 30-60 min, invariant audit + regression runner + adversarial reviewer
+  before publish via `scripts/vidux-publish-scrutiny.py`, and `handoff_status`
+  + next-agent resume in the checkpoint.
 - Merge: gh pr merge --squash --auto; only if CI green + push-age ≥1h
 - Delegate via native Mode A / Mode B subagents when the task is large enough
 
@@ -278,6 +321,8 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 ## 8. Checkpoint
 Append one line to memory.md:
 `- [YYYY-MM-DDThh:mm:ssZ {runtime} {lane-role}] [TAG] {what}. {next-cycle hint}.`
+For code/publish/in-progress work also include: Plan row moved, Ledger eid,
+Proof, Files claimed, `handoff_status`, and next-agent resume.
 Tags: SHIP / MERGED / FIX / PROMOTE / DEFER / IDLE / QC / AUDIT-N / MILESTONE.
 No "everything fine" entries.
 ```
@@ -292,6 +337,7 @@ Prompts fail in predictable ways. If you hit one of these, add the missing block
 |---|---|---|
 | Agent edits forbidden files | Block 7 missing or vague | Enumerate forbidden paths with reasons |
 | Two agents both grab the same task | Block 5 priority non-deterministic | Sharpen priority order; "first match wins" |
+| Week-long lane cannot resume after context loss | Missing long-horizon handoff contract | Add canonical PLAN.md, claims, stale-proof, meter checkpoint, `handoff_status`, and next-agent resume fields |
 | Lane ships 5 redundant polish PRs | Block 6 missing polish-brake rule | Add: "if last 3 ships same surface → force rotate" |
 | Memory.md unreadable drift | Block 8 format sloppy or missing | Enforce one-line + tagged format |
 | Agent reads wrong PLAN.md | Block 3 doesn't name the absolute path | Use absolute paths, not relative |
