@@ -2,7 +2,7 @@
 
 > Parent: ../../PLAN.md
 
-**Status:** [in_progress] — MVP completion drive started 2026-05-29 (Leo `/goal` + 20-agent audit `wcu1o3d47`).
+**Status:** [completed] — 2026-05-31. MVP completion drive (Leo `/goal` + 20-agent audit `wcu1o3d47`) shipped: durability + path-traversal hardened, `expected` promotion, export seam fixed, **112 tests green + code-reviewed (10 findings fixed)**. The LAN corpus lab hosts the 48-receipt `corpus.jsonl` that P7–P9 build on. Folded into the central ocr-moat goal (consolidation 2026-05-31). iOS-side replay = the gated P2.
 **Owner:** the vidux-browse `/receipts/` LAN surface — web sibling of P5 (the iOS dev-app corpus loop).
 **Host code:** `~/Development/vidux/browser/receipts/*.py` + `browser/static/receipts.html`, wired in `browser/server.py` (~1109–1383). Served at `http://<mac>.local:7191/receipts/`, exposed via moussey `/receipts`.
 **Downstream:** `~/Development/resplit-ios/Tests/Fixtures/Receipts/` (`corpus.jsonl` + `images/` + `azure-v4-responses/`) → `ResplitCore Corpus Tests`.
