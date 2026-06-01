@@ -196,3 +196,7 @@ Tasks completed and archived from PLAN.md to keep context lean.
 
 ## Archived 2026-05-31
 - [completed] 5.2.4 Doctrine correction: ready-PR-first supersedes draft-first for operational PRs because review automation skips or delays drafts. Updated core docs/templates while preserving `guides/draft-pr-flow.md` path for link stability. [Done: 2026-04-26]
+
+## Archived 2026-06-01
+- [completed] 5.3.0 Worktree lifecycle finalizer: classify local worktrees by PR state, merge status, and dirty state; provide a safe explicit cleanup path for PR-first lanes so Wave 3 does not recreate the 130+ stranded-worktree failure. [Evidence: 2026-04-26 StrongYes worktree audit found 157 worktrees; `guides/fleet-ops.md` still described direct merge-back despite ready-PR doctrine] [Done: 2026-04-26; shipped `scripts/vidux-worktree-gc.py`, docs, and tests]
+- [completed] 5.3.0a Worktree GC CI + sidecar hygiene: wire `tests/test_worktree_gc.py` into GitHub CI and make `.external-state.json` sidecars actually ignored even inside tracked project exceptions. [Evidence: `.github/workflows/ci.yml` runs contract + plan-GC tests but not `tests/test_worktree_gc.py`; `projects/vidux-browser/.external-state.json` appeared untracked despite `SKILL.md` saying sidecars are gitignored] [Done: 2026-04-26; verified by worktree-GC tests, contract sidecar ignore check, and local contract suite]
