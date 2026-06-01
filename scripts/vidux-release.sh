@@ -6,20 +6,25 @@
 #
 # Usage:
 #   bash scripts/vidux-release.sh [--apply] [--bump <major|minor|patch>] [--allow-dirty]
+#                                [--plan-path <PLAN.md>] [--proof <command/artifact>]
 #
 # Steps in --apply mode:
 #   1. Read VERSION, compute NEW_VERSION per --bump (default: patch).
 #   2. Write NEW_VERSION to VERSION (preserving any trailing comment lines).
 #   3. In CHANGELOG.md, rename `## [Unreleased]` -> `## [NEW_VERSION] - YYYY-MM-DD`
 #      and insert a fresh `## [Unreleased]` block above it.
-#   4. git add VERSION CHANGELOG.md
-#   5. git commit -m "release: v<NEW_VERSION>"
-#   6. git tag v<NEW_VERSION>
-#   7. git push origin main --tags
+#   4. Append a release Progress note to the owning PLAN.md.
+#   5. git add VERSION CHANGELOG.md <PLAN.md>
+#   6. git commit -m "release: v<NEW_VERSION>"
+#   7. git tag v<NEW_VERSION>
+#   8. emit an in-progress publish ledger row with plan/proof/handoff fields
+#   9. git push origin main --tags
+#   10. emit a final publish ledger row after the push succeeds
 #
 # Refuses to run if:
 #   - git status is not clean (override: --allow-dirty)
 #   - current branch is not `main`
+#   - --apply is used without --plan-path and --proof
 #
 set -euo pipefail
 
@@ -39,6 +44,16 @@ APPLY=0
 BUMP="patch"
 ALLOW_DIRTY=0
 BRANCH_OVERRIDE=""
+PLAN_PATH=""
+PROOF=""
+HANDOFF_STATUS="done"
+LANE="vidux-release"
+LEDGER_EMIT="${LEDGER_EMIT:-${HOME}/Development/ai/hooks/ledger-emit.sh}"
+PUBLISH_FILES=()
+CLAIMS=()
+PLAN_PATH_ABS=""
+PLAN_PATH_REL=""
+PUBLISH_LEDGER_ENABLED=0
 
 usage() {
   cat <<EOF
@@ -46,6 +61,9 @@ vidux-release.sh — semver bump + CHANGELOG cut + tag + push.
 
 usage: bash scripts/vidux-release.sh [--apply] [--bump <major|minor|patch>]
                                      [--allow-dirty] [--branch-name <name>]
+                                     [--plan-path <PLAN.md>] [--proof <text>]
+                                     [--handoff-status <status>] [--lane <name>]
+                                     [--file <path>] [--claim <path>]
                                      [--help|-h]
 
 flags:
@@ -55,10 +73,23 @@ flags:
   --allow-dirty        Skip the clean-working-tree precheck.
   --branch-name <n>    Override the detected branch name (testing aid).
                        Useful for confirming the main-branch guard fires.
+  --plan-path <path>   Owning PLAN.md. Required with --apply.
+  --proof <text>       Command/artifact proof for this release. Required with
+                       --apply.
+  --handoff-status <s> Final handoff status: done | in_progress | blocked |
+                       needs_review. Defaults to done.
+  --lane <name>        Ledger lane. Defaults to vidux-release.
+  --file <path>        Extra changed file to include in publish ledger rows.
+                       VERSION and CHANGELOG.md are always included.
+  --claim <path>       Claim/resume path to include in publish ledger rows.
+                       Defaults to the plan and scripts/vidux-release.sh.
+  --ledger-emit <path> Ledger emit helper. Defaults to
+                       ~/Development/ai/hooks/ledger-emit.sh or LEDGER_EMIT.
   --help, -h           Show this help and exit.
 
 Refuses to run on any branch other than 'main' (override only via
---branch-name for tests, not for real releases).
+--branch-name for tests, not for real releases). In --apply mode, also
+refuses to publish without plan and ledger propagation inputs.
 EOF
 }
 
@@ -84,6 +115,62 @@ while [[ $# -gt 0 ]]; do
       BRANCH_OVERRIDE="$2"; shift 2 ;;
     --branch-name=*)
       BRANCH_OVERRIDE="${1#--branch-name=}"; shift ;;
+    --plan-path)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: --plan-path requires an argument" >&2
+        exit 2
+      fi
+      PLAN_PATH="$2"; shift 2 ;;
+    --plan-path=*)
+      PLAN_PATH="${1#--plan-path=}"; shift ;;
+    --proof)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: --proof requires an argument" >&2
+        exit 2
+      fi
+      PROOF="$2"; shift 2 ;;
+    --proof=*)
+      PROOF="${1#--proof=}"; shift ;;
+    --handoff-status)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: --handoff-status requires an argument" >&2
+        exit 2
+      fi
+      HANDOFF_STATUS="$2"; shift 2 ;;
+    --handoff-status=*)
+      HANDOFF_STATUS="${1#--handoff-status=}"; shift ;;
+    --lane)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: --lane requires an argument" >&2
+        exit 2
+      fi
+      LANE="$2"; shift 2 ;;
+    --lane=*)
+      LANE="${1#--lane=}"; shift ;;
+    --file)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: --file requires an argument" >&2
+        exit 2
+      fi
+      PUBLISH_FILES+=("$2"); shift 2 ;;
+    --file=*)
+      PUBLISH_FILES+=("${1#--file=}"); shift ;;
+    --claim)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: --claim requires an argument" >&2
+        exit 2
+      fi
+      CLAIMS+=("$2"); shift 2 ;;
+    --claim=*)
+      CLAIMS+=("${1#--claim=}"); shift ;;
+    --ledger-emit)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: --ledger-emit requires an argument" >&2
+        exit 2
+      fi
+      LEDGER_EMIT="$2"; shift 2 ;;
+    --ledger-emit=*)
+      LEDGER_EMIT="${1#--ledger-emit=}"; shift ;;
     --help|-h)
       usage; exit 0 ;;
     *)
@@ -97,6 +184,13 @@ case "${BUMP}" in
   major|minor|patch) ;;
   *)
     echo "vidux-release: invalid --bump '${BUMP}' (want major|minor|patch)" >&2
+    exit 2 ;;
+esac
+
+case "${HANDOFF_STATUS}" in
+  done|in_progress|blocked|needs_review) ;;
+  *)
+    echo "vidux-release: invalid --handoff-status '${HANDOFF_STATUS}' (want done|in_progress|blocked|needs_review)" >&2
     exit 2 ;;
 esac
 
@@ -127,6 +221,113 @@ say_step() {
     printf '[apply] %s\n' "$*"
   else
     printf '[DRY] would do: %s\n' "$*"
+  fi
+}
+
+resolve_repo_path() {
+  local path="$1"
+  if [[ "${path}" = /* ]]; then
+    printf '%s\n' "${path}"
+  else
+    printf '%s/%s\n' "${VIDUX_ROOT}" "${path}"
+  fi
+}
+
+configure_publish_gate() {
+  if [[ -n "${PLAN_PATH}" ]]; then
+    PLAN_PATH_ABS="$(resolve_repo_path "${PLAN_PATH}")"
+    PLAN_PATH_REL="${PLAN_PATH_ABS#"${VIDUX_ROOT}/"}"
+  fi
+
+  if [[ "${APPLY}" -eq 1 || -n "${PLAN_PATH}" || -n "${PROOF}" ]]; then
+    if [[ -z "${PLAN_PATH}" ]]; then
+      echo "vidux-release: --apply requires --plan-path <PLAN.md> for publish propagation" >&2
+      exit 1
+    fi
+    if [[ -z "${PROOF}" ]]; then
+      echo "vidux-release: --apply requires --proof <command/artifact> for publish propagation" >&2
+      exit 1
+    fi
+    if [[ ! -f "${PLAN_PATH_ABS}" ]]; then
+      echo "vidux-release: --plan-path does not exist: ${PLAN_PATH_ABS}" >&2
+      exit 1
+    fi
+    case "${PLAN_PATH_ABS}" in
+      "${VIDUX_ROOT}"/*) ;;
+      *)
+        echo "vidux-release: --plan-path must be inside the Vidux repo: ${PLAN_PATH_ABS}" >&2
+        exit 1 ;;
+    esac
+    if [[ ! -x "${LEDGER_EMIT}" ]]; then
+      echo "vidux-release: ledger emit helper is not executable: ${LEDGER_EMIT}" >&2
+      exit 1
+    fi
+    PUBLISH_LEDGER_ENABLED=1
+  fi
+}
+
+emit_release_publish() {
+  local status="$1"
+  local phase="$2"
+  local summary="Vidux release v${NEW_VERSION} ${phase}"
+  local proof_text="release v${NEW_VERSION} ${phase}; ${PROOF}"
+  local args=(
+    --event publish
+    --summary "${summary}"
+    --repo-path "${VIDUX_ROOT}"
+    --lane "${LANE}"
+    --plan-path "${PLAN_PATH_ABS}"
+    --proof "${proof_text}"
+    --handoff-status "${status}"
+    --skills vidux,pilot-leo,ledger
+    --file VERSION
+    --file CHANGELOG.md
+    --file "${PLAN_PATH_REL}"
+  )
+  if [[ "${#PUBLISH_FILES[@]}" -gt 0 ]]; then
+    local publish_file
+    for publish_file in "${PUBLISH_FILES[@]}"; do
+      args+=(--file "${publish_file}")
+    done
+  fi
+
+  if [[ "${#CLAIMS[@]}" -eq 0 ]]; then
+    args+=(--claim "${PLAN_PATH_ABS}" --claim scripts/vidux-release.sh)
+  else
+    local claim
+    for claim in "${CLAIMS[@]}"; do
+      args+=(--claim "${claim}")
+    done
+  fi
+
+  run "${LEDGER_EMIT}" "${args[@]}"
+}
+
+append_plan_progress_note() {
+  local safe_proof="${PROOF//$'\n'/ }"
+  local note="- [${TODAY}] Release v${NEW_VERSION}: ${safe_proof} [handoff=${HANDOFF_STATUS}]"
+  say_step "append release Progress note to ${PLAN_PATH_REL}"
+  if [[ "${APPLY}" -eq 1 ]]; then
+    tmp_plan="$(mktemp -t vidux-release.plan.XXXXXX)"
+    awk -v note="${note}" '
+      {
+        print
+        if (!inserted && $0 ~ /^## Progress[[:space:]]*$/) {
+          print ""
+          print note
+          inserted = 1
+        }
+      }
+      END {
+        if (!inserted) {
+          print ""
+          print "## Progress"
+          print ""
+          print note
+        }
+      }
+    ' "${PLAN_PATH_ABS}" > "${tmp_plan}"
+    mv "${tmp_plan}" "${PLAN_PATH_ABS}"
   fi
 }
 
@@ -207,6 +408,8 @@ if ! grep -q '^## \[Unreleased\]' "${CHANGELOG_FILE}"; then
   exit 1
 fi
 
+configure_publish_gate
+
 # ---------------------------------------------------------------------------
 # Plan summary (always printed)
 # ---------------------------------------------------------------------------
@@ -217,7 +420,15 @@ printf '  bump            : %s\n' "${BUMP}"
 printf '  new version     : %s\n' "${NEW_VERSION}"
 printf '  release date    : %s\n' "${TODAY}"
 printf '  branch          : %s\n' "${CURRENT_BRANCH}"
+printf '  plan path       : %s\n' "${PLAN_PATH_ABS:-<required with --apply>}"
+printf '  ledger lane     : %s\n' "${LANE}"
+printf '  handoff status  : %s\n' "${HANDOFF_STATUS}"
 printf '  mode            : %s\n' "$([[ "${APPLY}" -eq 1 ]] && echo APPLY || echo DRY-RUN)"
+if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 0 ]]; then
+  printf '  publish ledger  : dry-run only; --apply requires --plan-path and --proof\n'
+else
+  printf '  publish ledger  : %s\n' "${LEDGER_EMIT}"
+fi
 printf '\n'
 
 # ---------------------------------------------------------------------------
@@ -228,7 +439,7 @@ say_step "rewrite ${VERSION_FILE#"${VIDUX_ROOT}/"} from '${CURRENT_VERSION}' to 
 if [[ "${APPLY}" -eq 1 ]]; then
   # Preserve trailing comment / blank lines after the version line.
   tmp_version="$(mktemp -t vidux-release.version.XXXXXX)"
-  trap 'rm -f "${tmp_version}" "${tmp_changelog:-}"' EXIT
+  trap 'rm -f "${tmp_version:-}" "${tmp_changelog:-}" "${tmp_plan:-}"' EXIT
   awk -v new="${NEW_VERSION}" '
     BEGIN { replaced = 0 }
     {
@@ -273,12 +484,33 @@ if [[ "${APPLY}" -eq 1 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3-6: git add / commit / tag / push
+# Step 3: owning PLAN.md Progress note
 # ---------------------------------------------------------------------------
-run git -C "${VIDUX_ROOT}" add VERSION CHANGELOG.md
+if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
+  append_plan_progress_note
+else
+  say_step "append release Progress note to the owning PLAN.md (requires --plan-path and --proof in --apply mode)"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4-8: git add / commit / tag / push
+# ---------------------------------------------------------------------------
+if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
+  run git -C "${VIDUX_ROOT}" add VERSION CHANGELOG.md "${PLAN_PATH_REL}"
+else
+  run git -C "${VIDUX_ROOT}" add VERSION CHANGELOG.md
+fi
 run git -C "${VIDUX_ROOT}" commit -m "release: v${NEW_VERSION}"
 run git -C "${VIDUX_ROOT}" tag "v${NEW_VERSION}"
+if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
+  emit_release_publish "in_progress" "ready to push origin main --tags"
+else
+  say_step "emit publish ledger rows before and after push (requires --plan-path and --proof in --apply mode)"
+fi
 run git -C "${VIDUX_ROOT}" push origin main --tags
+if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
+  emit_release_publish "${HANDOFF_STATUS}" "pushed origin main --tags"
+fi
 
 # ---------------------------------------------------------------------------
 # Done

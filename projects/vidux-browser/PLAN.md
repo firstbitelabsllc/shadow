@@ -255,3 +255,16 @@ Phase 6: Left-panel rework (added 2026-05-01 per Leo "the most annoying fucking 
 - [completed] VB-LP-3 "← Parent: <name>" backlink in pane header for child plans — uses findParentPlan() to walk state.plans for any plan that lists this one in its children array; navigates in-app via selectPlan, href present for cmd-click open-in-new-tab. [Done: 2026-05-01]
 - [completed] VB-LP-4 Sort change: alphabetical-by-repo replaced with mtime descending. Repos sort by their freshest plan's mtime; within each repo, plans sort by mtime descending. The prior alphabetical default surfaced cold long-tail repos above active ones — the chronic friction Leo flagged. [Done: 2026-05-01]
 - [completed] VB-LP-5 Collapsible group headers — recents, artifacts, and each repo. Click h2 → toggleCollapsed(key) → renderSidebar(). State persists across reloads via localStorage. Caret visual (`▾` open, `▸` collapsed). [Done: 2026-05-01]
+
+
+---
+
+## PSA — 2026-05-26 — Fleet UX/UI lane split codified
+
+- **Claude Code owns ALL UX/UI work fleet-wide.** Codex agents must stay on backend / logic / lanes / workers / API.
+- **Disambiguator:** "is this rendered to a human?" → Claude. "Does this read/write data, run a CLI, or expose an HTTP endpoint?" → Codex.
+- **Canonical visualization layer:** [Litty](file:///Users/leokwan/Development/litty) at `http://localhost:4400` (the operator cockpit). Federates moussey's `/api/coding/*` APIs. Replaces the 12,062-line `moussey/app/coding/page.tsx` rot.
+- **15 routes shipped 2026-05-26:** `/`, `/lanes`, `/lanes/[laneId]`, `/runs`, `/runs/[runId]`, `/runs/[runId]/patch`, `/runs/[runId]/stream`, `/workers`, `/workers/[workerId]`, `/handoffs`, `/handoffs/[handoffId]`, `/capabilities`, `/api/health`, `/api/proxy/coding/[...path]`, plus sibling-shipped `/api/operating-readout`, `/api/proofs`, `/api/repo-catalog`.
+- **Plan:** `~/Development/vidux/projects/litty/PLAN.md` (canonical). Research at `~/Development/vidux/projects/litty/research/` (~30k words, 11 deep-research agents).
+- **Codex agents seeing UX/UI work in this project's queue:** redirect to backend tasks (federation contracts, FirstBite lanes, MCP, repo-backed catalog snapshots, the moussey-side PRs documented as Phase 3.5 unblockers).
+- **Reference:** `/pilot-leo § Agent lane splits — codify in the project, not here (2026-05-24)` (the disambiguator pattern).

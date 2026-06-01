@@ -221,6 +221,23 @@ class ViduxContractTests(unittest.TestCase):
         self.assertTrue(has_always, "PLAN.md Constraints missing ALWAYS rule")
         self.assertTrue(has_never, "PLAN.md Constraints missing NEVER rule")
 
+    def test_phase5_goal_names_publish_propagation_fields(self):
+        """The active PR architecture goal must make PR metadata resumable."""
+        text = _read(PLAN)
+        phase5 = text[text.index("### Phase 5: Ready-PR architecture") : text.index("### Phase 6:")]
+        self.assertNotIn(
+            "Each PR carries: automation id, plan task id, last pushed diff, and the resume point.",
+            phase5,
+        )
+        for phrase in [
+            "Each PR carries: automation id, plan path, plan task id, proof, publish ledger eid",
+            "handoff status",
+            "files claimed",
+            "last pushed diff",
+            "resume point",
+        ]:
+            self.assertIn(phrase, phase5)
+
     # -----------------------------------------------------------------------
     # LOOP.md contracts
     # -----------------------------------------------------------------------
@@ -375,7 +392,7 @@ class ViduxContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"vidux-loop.sh failed: {result.stderr}")
         data = json.loads(result.stdout)
         self.assertEqual(data.get("mode"), "reduce")
-        self.assertIn(data.get("next_action"), {"dispatch", "none", "find_work"})
+        self.assertIn(data.get("next_action"), {"dispatch", "none", "find_work", "refresh_proof"})
 
     def test_vidux_loop_routes_pending_work_to_dispatch(self):
         """Reduce mode must recommend dispatch when a runnable task exists."""
@@ -410,6 +427,58 @@ class ViduxContractTests(unittest.TestCase):
             ## Progress
         """)
         self.assertEqual(data["process_fix_declared"], "test")
+
+    def test_vidux_loop_exposes_long_horizon_handoff_contract(self):
+        """Reduce mode must surface week-long handoff and stale-proof gates."""
+        data = self._run_loop_on("""\
+            # Test Plan
+            ## Tasks
+            - [pending] Task P2: Run week-long multi-agent durable loop with proof from 2020-01-01 [Evidence: prior run]
+            ## Progress
+        """)
+
+        contract = data["handoff_contract"]
+        self.assertTrue(contract["long_horizon"])
+        self.assertTrue(contract["handoff_required"])
+        self.assertTrue(contract["meter_checkpoint_required"])
+        self.assertTrue(contract["stale_proof_gate"])
+        self.assertEqual(contract["stale_proof_dates"][0]["date"], "2020-01-01")
+        self.assertEqual(data["action"], "refresh_proof")
+        self.assertEqual(data["next_action"], "refresh_proof")
+        self.assertIn("Stale dated proof", data["context"])
+        for field in [
+            "plan_row_moved",
+            "ledger",
+            "proof",
+            "files_claimed",
+            "handoff_status",
+            "next_agent_resume",
+        ]:
+            self.assertIn(field, contract["required_fields"])
+
+        fresh = self._run_loop_on("""\
+            # Test Plan
+            ## Tasks
+            - [pending] Task P2: Run week-long multi-agent durable loop with current proof [Evidence: current run]
+            ## Progress
+        """)
+        self.assertTrue(fresh["handoff_contract"]["long_horizon"])
+        self.assertFalse(fresh["handoff_contract"]["stale_proof_gate"])
+        self.assertEqual(fresh["action"], "execute")
+        self.assertEqual(fresh["next_action"], "dispatch")
+
+        stale_with_circuit_breaker = self._run_loop_on("""\
+            # Test Plan
+            ## Tasks
+            - [pending] Task P2: Run week-long multi-agent durable loop with proof from 2020-01-01 [Evidence: prior run]
+            ## Progress
+            - [2026-04-07] Cycle 3: Assessed state. No changes needed.
+            - [2026-04-07] Cycle 2: Reviewed plan. Nothing to do.
+            - [2026-04-07] Cycle 1: Read plan. All good.
+        """)
+        self.assertEqual(stale_with_circuit_breaker["circuit_breaker"], "open")
+        self.assertEqual(stale_with_circuit_breaker["action"], "refresh_proof")
+        self.assertEqual(stale_with_circuit_breaker["next_action"], "refresh_proof")
 
     # Tests for vidux-dispatch.sh and vidux-gather.sh removed — scripts deleted in v2.6.0 fleet cleanup
 
@@ -483,6 +552,236 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("PLAN.md", text, "SKILL.md missing PLAN.md reference")
         self.assertIn("evidence/", text, "SKILL.md missing evidence/ reference")
         self.assertIn("investigations/", text, "SKILL.md missing investigations/ reference")
+
+    def test_prompt_template_has_long_horizon_contract(self):
+        """The canonical lane prompt template must make week-long handoff state explicit."""
+        text = _read(ROOT / "docs" / "reference" / "prompt-template.md")
+        required = [
+            "Long-horizon / multi-agent contract",
+            "one canonical PLAN.md",
+            "claims-bus.sh check",
+            "files_claimed",
+            "stale-proof",
+            "meter checkpoint",
+            "handoff_status",
+            "next-agent resume",
+            "invariant audit",
+            "regression runner",
+            "adversarial reviewer",
+            "scripts/vidux-publish-scrutiny.py",
+            "--review-pass invariant-audit:pass",
+        ]
+        for phrase in required:
+            self.assertIn(phrase, text)
+
+    def test_core_push_authorization_requires_publish_propagation(self):
+        """Core push/trunk doctrine must bind allowed publishes to plan+ledger state."""
+        text = _read(SKILL)
+        push = text[text.index("**Push authorization:**") : text.index("### Trunk-First Rule")]
+        trunk = text[text.index("### Trunk-First Rule") : text.index("**Worktree lifecycle:**")]
+
+        self.assertLess(
+            push.index("ledger-emit.sh --event publish"),
+            push.index("Open PRs ready-for-review"),
+        )
+        for phrase in [
+            "Operational PR branch pushes are safe without asking only after",
+            "owning PLAN.md row/Progress/Drift Log is updated",
+            "ledger-emit.sh --event publish",
+            "plan path, proof, handoff status, files claimed, and next-agent resume point",
+            "Direct-to-main operations require explicit authorization and the same publish propagation",
+            "normal publish-propagated PR branch push",
+        ]:
+            self.assertIn(phrase, push)
+
+        for phrase in [
+            "publish propagation must be recorded in the owning plan row",
+            "publish ledger row",
+            "proof trail",
+            "handoff status",
+            "files claimed",
+            "next-agent resume point",
+            "if those commands publish externally, record the plan and ledger propagation",
+        ]:
+            self.assertIn(phrase, trunk)
+
+    def test_team_coordination_skill_push_constraint_is_publish_propagated(self):
+        """Authority-plan skill push constraints must not be raw command-only publishes."""
+        plan = _read(ROOT / "projects" / "team-agent-coordination" / "PLAN.md")
+        self.assertNotIn("committed + pushed via `cd ~/Development/ai && git add -A && git commit && git push`", plan)
+        for phrase in [
+            "every change to a skill in `~/Development/ai/skills/` is a publish action",
+            "update the owning PLAN.md Progress/Tasks or Drift Log",
+            "ledger-emit.sh --event publish",
+            "plan path, proof, handoff status, file, and claim fields",
+            "commit + push from `~/Development/ai`",
+            "ledger eid carried into the handoff",
+        ]:
+            self.assertIn(phrase, plan)
+
+    def test_ready_pr_flow_emits_publish_before_push(self):
+        """Branch-push recipes must update plan and emit publish ledger before push."""
+        flow = _read(ROOT / "guides" / "draft-pr-flow.md")
+        first_ledger_emit = flow.index("ledger-emit.sh")
+        first_push = flow.index("git push origin HEAD")
+        self.assertLess(first_ledger_emit, first_push)
+        for phrase in [
+            "Update the owning PLAN.md",
+            "--event publish",
+            "--plan-path",
+            "--handoff-status",
+            "--claim",
+            "$LEDGER_EID",
+            "gh pr create` fails",
+            "record the failed PR creation in PLAN.md/memory.md",
+        ]:
+            self.assertIn(phrase, flow)
+
+    def test_hook_install_docs_require_publish_ledger(self):
+        """Hook installs must be plan+ledger propagated before copying hooks."""
+        docs = "\n".join(
+            [
+                _read(ROOT / "docs" / "guide" / "installation.md"),
+                _read(ROOT / "docs" / "reference" / "hooks.md"),
+            ]
+        )
+        first_emit = docs.index("ledger-emit.sh")
+        first_copy = docs.index("cp hooks/pre-commit-plan-check.sh")
+        self.assertLess(first_emit, first_copy)
+        for phrase in [
+            "Before copying or enabling hooks",
+            "--event publish",
+            "--repo-path /path/to/your/project",
+            "--plan-path /path/to/your/project/PLAN.md",
+            "--proof",
+            "--handoff-status done",
+            "--file /path/to/your/project/.git/hooks/pre-commit",
+            "--claim /path/to/your/project/PLAN.md",
+            "--skills vidux",
+        ]:
+            self.assertIn(phrase, docs)
+
+    def test_secondary_publish_recipes_require_publish_before_push(self):
+        """Secondary fleet recipes must not drift from the ready-PR publish invariant."""
+        fleet = _read(ROOT / "guides" / "fleet-ops.md")
+        recipe = _read(ROOT / "guides" / "recipes" / "lane-prompt-patterns.md")
+
+        self.assertLess(
+            fleet.index("ledger-emit.sh --event publish"),
+            fleet.index("If work is complete and tests pass: push branch"),
+        )
+        for phrase in [
+            "update the owning PLAN.md",
+            "ledger-emit.sh --event publish",
+            "--plan-path",
+            "--handoff-status",
+            "--file",
+            "--claim",
+            "$LEDGER_EID",
+            "handoff_status=in_progress",
+            "needs_review",
+        ]:
+            self.assertIn(phrase, fleet)
+
+        self.assertLess(
+            recipe.index("Before pushing a branch"),
+            recipe.index("Before `gh pr create`"),
+        )
+        for phrase in [
+            "update the owning PLAN.md",
+            "ledger-emit.sh --event publish",
+            "--plan-path",
+            "--handoff-status",
+            "--file",
+            "--claim",
+            "$LEDGER_EID",
+            '--ledger "$LEDGER_EID"',
+        ]:
+            self.assertIn(phrase, recipe)
+
+    def test_top_level_recipes_require_publish_propagation(self):
+        """The top-level recipes guide must not teach plan-silent publish paths."""
+        recipes = _read(ROOT / "guides" / "recipes.md")
+        self.assertNotIn("commit directly to main", recipes)
+        self.assertLess(
+            recipes.index("ledger-emit.sh --event publish"),
+            recipes.index("git push -u origin claude/skill-refine-<name>"),
+        )
+        self.assertLess(
+            recipes.index("ledger-emit.sh --event publish"),
+            recipes.index("gh pr create --title \"skill(<name>): <improvement>\""),
+        )
+        for phrase in [
+            "Identify the owning PLAN.md row before editing",
+            "Update the owning PLAN.md Progress/Tasks or Drift Log",
+            "--plan-path",
+            "--proof",
+            "--handoff-status done",
+            "--file",
+            "--claim",
+            "--skills vidux,ledger",
+            "--body-file /tmp/vidux-pr-body.md",
+            "any commit, push, or PR is a publish",
+            "Keep the publish ledger eid with the branch/PR handoff",
+        ]:
+            self.assertIn(phrase, recipes)
+
+    def test_claude_md_rules_keep_publish_propagation(self):
+        """Copyable CLAUDE.md rules must not make trunk merge the only done signal."""
+        recipe = _read(ROOT / "guides" / "recipes" / "claude-md-rules.md")
+        self.assertNotIn(
+            "Tier 2 (direct-to-main, merge to trunk): session-scope authorization required.",
+            recipe,
+        )
+        self.assertNotIn("A change isn't\ndone until it's merged back to trunk.", recipe)
+        self.assertNotIn(
+            "A change isn't done until merged to trunk.",
+            recipe,
+        )
+        self.assertLess(
+            recipe.index("ledger-emit.sh --event publish"),
+            recipe.index("Never use --no-verify"),
+        )
+        for phrase in [
+            "same publish propagation before the push/merge",
+            "Every commit, push, PR, direct-to-main update, or trunk merge is a publish",
+            "update the owning PLAN.md Progress/Tasks or Drift Log first",
+            "--plan-path <PLAN.md>",
+            "--proof",
+            "--handoff-status <done|in_progress|blocked|needs_review>",
+            "--file <changed-file>",
+            "--claim <claimed-file>",
+            "Carry the ledger eid",
+            "next-agent resume point",
+            "A merge back to\ntrunk is not enough by itself",
+            "publish ledger row with proof, handoff status, files claimed, and next-agent resume",
+        ]:
+            self.assertIn(phrase, recipe)
+
+    def test_placeholder_draft_prs_are_publish_actions(self):
+        """Core placeholder draft PR doctrine must keep plan and ledger propagation."""
+        text = _read(SKILL)
+        section = text[text.index("### Placeholder draft PRs over blocked exits") :]
+        self.assertLess(
+            section.index("Update owning PLAN.md Progress/Tasks or Drift Log"),
+            section.index("gh pr create --draft"),
+        )
+        self.assertLess(
+            section.index("ledger-emit.sh --event publish"),
+            section.index("gh pr create --draft"),
+        )
+        for phrase in [
+            "A placeholder draft PR is still a publish action",
+            "handoff_status=needs_review",
+            "--plan-path",
+            "--proof",
+            "--handoff-status needs_review",
+            "--file",
+            "--claim",
+            "carry that ledger eid into the draft PR body",
+            "next-agent resume point",
+        ]:
+            self.assertIn(phrase, section)
 
     # -----------------------------------------------------------------------
     # Cross-doc consistency
@@ -825,6 +1124,45 @@ class ViduxContractTests(unittest.TestCase):
             content = Path(plan).read_text(encoding="utf-8")
             self.assertIn("[completed]", content)
             self.assertIn("[concerns noted]", content)
+
+    def test_checkpoint_emits_publish_ready_ledger_row(self):
+        """checkpoint.sh commits must leave enough ledger data for publish handoff."""
+        import tempfile
+        task = "Task 1: publish propagation [Evidence: contract test]"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            plan = self._make_git_plan(tmpdir, textwrap.dedent(f"""\
+                # Test Plan
+                ## Tasks
+                - [in_progress] {task}
+                ## Progress
+            """))
+            ledger_path = Path(tmpdir) / "activity.jsonl"
+            ledger_path.write_text("", encoding="utf-8")
+            env = os.environ.copy()
+            env["VIDUX_LEDGER_FILE"] = str(ledger_path)
+
+            result = subprocess.run(
+                ["bash", str(self.SCRIPTS_DIR / "vidux-checkpoint.sh"), plan, task,
+                 "publish propagation proof"],
+                capture_output=True, text=True, timeout=10, cwd=tmpdir, env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, f"checkpoint failed: {result.stderr}")
+            lines = [line for line in ledger_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(len(lines), 1, f"expected one ledger row, got: {lines!r}")
+            entry = json.loads(lines[0])
+            plan_path = str(Path(plan).resolve())
+
+            self.assertEqual(entry["event"], "vidux_checkpoint")
+            self.assertEqual(entry["handoff_status"], "done")
+            self.assertEqual(entry["plan_path"], plan_path)
+            self.assertIn(plan_path, entry["files"])
+            self.assertIn(plan_path, entry["files_claimed"])
+            self.assertEqual(entry["lane"], "vidux-checkpoint")
+            self.assertEqual(entry["publish_kind"], "checkpoint")
+            self.assertRegex(entry.get("commit", ""), r"^[0-9a-f]{40}$")
+            self.assertIn("commit=", entry["proof"])
+            self.assertIn("plan=", entry["proof"])
 
     def test_checkpoint_next_task_detects_v2_pending(self):
         """checkpoint.sh output must identify the next [pending] task (v2 FSM format)."""

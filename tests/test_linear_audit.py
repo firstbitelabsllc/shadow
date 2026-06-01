@@ -462,6 +462,22 @@ class RunAuditCliTests(unittest.TestCase):
         # Skipped does not dominate; overall should reflect remaining results.
         self.assertEqual(envelope["overall"], mod.SKIPPED)
 
+    def test_no_project_issues_uses_live_fetcher_when_network_enabled(self):
+        original = mod._live_fetch_no_project_issues
+        try:
+            mod._live_fetch_no_project_issues = lambda: [
+                {"identifier": "EVE-317", "title": "stray"}
+            ]
+            envelope = mod.run_audit(selected=["no_project_issues"])
+        finally:
+            mod._live_fetch_no_project_issues = original
+
+        self.assertEqual(envelope["overall"], mod.RED)
+        self.assertEqual(
+            envelope["checks"][0]["evidence"][0]["identifier"],
+            "EVE-317",
+        )
+
     def test_full_run_produces_seven_checks(self):
         envelope = mod.run_audit(
             repos=["vidux"],

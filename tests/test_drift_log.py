@@ -160,6 +160,91 @@ class DriftLogTests(unittest.TestCase):
             )
             self.assertEqual(suggestions[0]["source_drift_id"], "D-20260522-01")
 
+    def test_suggest_cli_can_scope_to_active_task_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "PLAN.md"
+            plan.write_text(base_plan(), encoding="utf-8")
+            cache = root / "drift-cache.jsonl"
+            cache.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "drift_id": "D-20260522-01",
+                        "task": "Build local CLI command",
+                        "planned": "Build an HTTP API.",
+                        "actual": "Built a CLI helper.",
+                        "why": "The caller was a local script.",
+                        "plan_update": "Plan now names the CLI seam.",
+                        "prevention_hints": ["Name the integration seam and caller before implementation."],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "suggest",
+                    str(plan),
+                    "--cache",
+                    str(cache),
+                    "--task-text",
+                    "Implement CLI script integration",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(len(payload["suggestions"]), 1)
+            self.assertEqual(
+                payload["suggestions"][0]["prevention"],
+                "Name the integration seam and caller before implementation.",
+            )
+
+    def test_blocking_drift_requires_evidence_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "PLAN.md"
+            plan.write_text(base_plan(), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "blocking drift records require"):
+                drift.record_drift(
+                    plan,
+                    drift.DriftEntry(
+                        task="T-1",
+                        planned="Use HTTP.",
+                        actual="Use CLI.",
+                        why="The seam moved.",
+                        plan_update="Track CLI.",
+                        next_step="Run tests.",
+                        today="2026-05-22",
+                        impact="blocking",
+                    ),
+                )
+
+            drift_id = drift.record_drift(
+                plan,
+                drift.DriftEntry(
+                    task="T-1",
+                    planned="Use HTTP.",
+                    actual="Use CLI.",
+                    why="The seam moved.",
+                    plan_update="Track CLI.",
+                    next_step="Run tests.",
+                    today="2026-05-22",
+                    impact="blocking",
+                ),
+                evidence_refs=["evidence/fixture.md"],
+            )
+            self.assertEqual(drift_id, "D-20260522-01")
+
     def test_mirrors_drift_to_subplan(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

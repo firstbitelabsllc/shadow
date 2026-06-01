@@ -14,7 +14,31 @@ Vidux ships three optional git hooks in `hooks/`. The repo also includes `hooks/
 
 The README shows the intended install flow:
 
+Hook installs and hook wiring changes are publish/change cycles. Before copying
+or enabling a hook in a target repo, update that repo's owning `PLAN.md` and
+emit a `ledger-emit.sh --event publish` row with:
+
+- `--repo-path` set to the target repo.
+- `--plan-path` set to the target repo's owning `PLAN.md`.
+- `--proof` naming the syntax check, dry-run, or install verification.
+- `--handoff-status done` for a complete install, or `needs_review` when the
+  hook is copied but not yet verified.
+- `--file` for each hook path changed, including `.git/hooks/...` paths.
+- `--claim` for the owning plan or hook wiring file the next agent must inspect.
+
 ```bash
+~/Development/ai/hooks/ledger-emit.sh \
+  --event publish \
+  --repo-path /path/to/your/project \
+  --lane hook-install \
+  --plan-path /path/to/your/project/PLAN.md \
+  --proof "hook install dry-run / shell syntax passed" \
+  --handoff-status done \
+  --file /path/to/your/project/.git/hooks/pre-commit \
+  --claim /path/to/your/project/PLAN.md \
+  --skills vidux \
+  --summary "Installed Vidux planning hooks"
+
 cp hooks/pre-commit-plan-check.sh /path/to/your/project/.git/hooks/pre-commit
 cp hooks/post-commit-checkpoint.sh /path/to/your/project/.git/hooks/post-commit
 cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/

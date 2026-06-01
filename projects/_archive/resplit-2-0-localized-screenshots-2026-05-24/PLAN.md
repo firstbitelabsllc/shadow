@@ -1,5 +1,7 @@
 # Resplit 2.0 — Localized App Store screenshots + computer-use verification
 
+> SUPERSEDED / DO NOT CLAIM 2026-05-24: current screenshot execution lives in `/Users/leokwan/Development/resplit-ios/.cursor/plans/app-store-screenshots.plan.md` and current launch truth lives in `/Users/leokwan/Development/resplit-ios/PLAN.md` plus `/Users/leokwan/Development/resplit-web/vidux/resplit-2.0-launch/PLAN.md`. Keep this file as historical bootstrap only unless a current plan explicitly reactivates a row.
+
 ## Purpose
 
 Ship marketing-quality App Store screenshots in 9 locales (en + de/es/fr/ja/ko/pt-BR/th/zh-Hans) for the Resplit 2.0 App Store Connect listing. Add Anthropic computer-use agent verification to catch locale-specific UI defects (clipping, truncation, font failures, untranslated strings) before submission. Extend autobot-resplit + autobot-resplit-web crons to sweep locales on every cycle.

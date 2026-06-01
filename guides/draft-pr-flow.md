@@ -15,18 +15,42 @@ Ready-for-review PRs also let configured review bots, preview comments, and CI g
 Every automation lane that ships code follows this after a green local build + test:
 
 ```bash
-# 1. Push the worktree branch to origin.
+# 0. Update the owning PLAN.md Progress/Tasks/Drift Log before publish.
+#    Record what changed, proof, handoff_status, files_claimed, and resume point.
+
+# 1. Emit the publish ledger row before the branch leaves the machine.
+LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"
+~/Development/ai/hooks/ledger-emit.sh \
+  --event publish \
+  --repo-path "$(pwd)" \
+  --lane "<lane-name>" \
+  --task-id "<task-id>" \
+  --plan-path "<PLAN.md>" \
+  --proof "<command/artifact that passed>" \
+  --handoff-status done \
+  --file "<changed-file-or-plan>" \
+  --claim "<changed-file-or-plan>" \
+  --skills vidux \
+  --eid "$LEDGER_EID" \
+  --summary "<1-3 bullet summary>"
+
+# 2. Push the worktree branch to origin.
 git push origin HEAD:claude/<lane-name>-<task-id>
 
-# 2. Build the canonical PR body. Add --linear EVE-123 when known.
+# 3. Build the canonical PR body. Add --linear EVE-123 when known.
 python3 scripts/vidux-pr-body.py \
   --lane "<lane-name>" \
   --task "<task-id>" \
+  --plan-path "<PLAN.md>" \
+  --proof "<command/artifact that passed>" \
+  --handoff-status done \
+  --ledger "$LEDGER_EID" \
+  --file-claimed "<changed-file-or-plan>" \
   --resume "<what the next cycle should do if this PR stalls>" \
   --change "<1-3 bullet summary>" \
   > /tmp/vidux-pr-body.md
 
-# 3. Open a ready-for-review PR by default.
+# 4. Open a ready-for-review PR by default.
 gh pr create \
   --base main \
   --head "claude/<lane-name>-<task-id>" \
@@ -67,6 +91,11 @@ The body MUST carry these fields so any agent or human can resume:
 | **Lane** | Which automation created this PR |
 | **Plan task** | Which `PLAN.md` task this addresses |
 | **Linear** | Optional public Linear issue id (`EVE-123`) when the task source is already known |
+| **Plan path** | The owning plan that moved before publish |
+| **Proof** | Command or artifact proving the state being published |
+| **Ledger** | Ledger eid or dry-run payload path for the publish row |
+| **Handoff status** | `done`, `in_progress`, `blocked`, or `needs_review` |
+| **Files claimed** | Changed/claimed files a next agent must inspect first |
 | **Resume point** | What the next cycle should do if this PR stalls |
 
 ## Recovery Via `gh pr list`
@@ -93,10 +122,10 @@ gh pr ready <number>
 
 If `gh pr create` fails (auth issue, network, no `gh` CLI):
 
-1. Push the branch anyway: `git push origin HEAD:claude/<lane-name>-<task-id>`
-2. Log the failure in the lane's `memory.md`
-3. Do NOT fall back to pushing main
-4. The next cycle retries PR creation against the existing branch
+1. Keep the already-emitted publish ledger eid (`$LEDGER_EID`) and branch name.
+2. Log the failure in the owning PLAN.md and lane `memory.md` with proof, `handoff_status=needs_review`, files claimed, and next-agent resume.
+3. Do NOT fall back to pushing main.
+4. The next cycle retries PR creation against the existing branch and reuses the existing ledger reference.
 
 ## What This Does Not Cover
 
@@ -112,12 +141,14 @@ Replace any existing push policy with:
 ```markdown
 **PUSH POLICY (ready-PR-first per vidux):**
 After green build + test in the worktree:
-1. Push branch: `git push origin HEAD:claude/<lane>-<task-id>`
-2. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --resume "<resume point>" --change "<summary>" [--linear EVE-123] > /tmp/vidux-pr-body.md`
-3. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body-file /tmp/vidux-pr-body.md`
-4. Draft only for true WIP or a missing gate; run `gh pr ready <N>` as soon as the gate passes.
-5. NEVER push directly to origin/main.
-6. Fallback: if `gh pr create` fails, push branch only, log failure. Never push main.
+1. Update owning PLAN.md Progress/Tasks/Drift Log with proof, `handoff_status`, files claimed, and resume point.
+2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push: `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
+3. Push branch: `git push origin HEAD:claude/<lane>-<task-id>`.
+4. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --ledger "$LEDGER_EID" --file-claimed "<path>" --resume "<resume point>" --change "<summary>" [--linear EVE-123] > /tmp/vidux-pr-body.md`.
+5. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body-file /tmp/vidux-pr-body.md`.
+6. Draft only for true WIP or a missing gate; run `gh pr ready <N>` as soon as the gate passes.
+7. NEVER push directly to origin/main.
+8. Fallback: if `gh pr create` fails, keep the branch plus `$LEDGER_EID`, record the failed PR creation in PLAN.md/memory.md, and retry PR creation next cycle. Never push main.
 ```
 
 Replace any "stop after branch push" instruction with "push branch + create ready PR." Replace any blanket "draft PR only" instruction with "ready PR by default; draft only for WIP/missing gate."

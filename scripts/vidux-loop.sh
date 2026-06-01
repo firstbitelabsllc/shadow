@@ -177,6 +177,7 @@ fi
 # Initialize contradiction detection fields (populated after task description is extracted)
 CONTRADICTION_WARNING=false; CONTRADICTION_MATCHES=""; CONTRADICTS_TAG=""
 PROCESS_FIX_DECLARED=""
+DRIFT_SUGGESTIONS_JSON='{"schema_version":1,"source":"vidux-drift-log.py","suggestions":[]}'
 
 # --- fleet health (early — needed by all exit paths) ---------------------- #
 # Initialize fleet health fields so early-exit JSON always has consistent schema.
@@ -284,6 +285,8 @@ TASK_REST="${TASK_LINE#*:}"
 # Strip the FSM/checkbox prefix: - [ ] , - [pending] , - [in_progress] , etc.
 TASK_DESC="$(echo "$TASK_REST" | sed -E 's/^- \[([^]]*)\] //')"
 PROCESS_FIX_DECLARED="$({ echo "$TASK_DESC" | grep -oE '\[ProcessFix: ?[a-z_]+\]' || true; } | head -1 | sed -E 's/\[ProcessFix: ?([a-z_]+)\]/\1/' || true)"
+DRIFT_SUGGESTIONS_JSON="$(python3 "$SCRIPT_DIR/vidux-drift-log.py" suggest "$PLAN" --task-text "$TASK_DESC" --limit 3 --json 2>/dev/null || printf '%s' "$DRIFT_SUGGESTIONS_JSON")"
+[ -z "$DRIFT_SUGGESTIONS_JSON" ] && DRIFT_SUGGESTIONS_JSON='{"schema_version":1,"source":"vidux-drift-log.py","suggestions":[]}'
 
 # --- sub-plan traversal ([spawns:] tag) ----------------------------------- #
 # If the current task links to a sub-plan via [spawns: path], count its tasks.
@@ -352,6 +355,47 @@ esac
 # Evidence check
 HAS_EVIDENCE=false
 echo "$TASK_DESC" | grep -qi '\[Evidence\|evidence:\|Source:' && HAS_EVIDENCE=true
+
+# Long-horizon handoff contract.
+# The prompt template teaches these rules in prose; reduce mode exposes them
+# mechanically so schedulers and dashboards can gate handoffs without guessing.
+LONG_HORIZON_TASK=false
+HANDOFF_REQUIRED=false
+METER_CHECKPOINT_REQUIRED=false
+STALE_PROOF_GATE=false
+STALE_PROOF_DATES_JSON="[]"
+if printf '%s' "$TASK_DESC" | grep -qiE 'long-horizon|multi-agent|week-long|weeklong|handoff|resume|stale-proof|meter checkpoint|cron|launchagent|claims bus|worktree|fleet'; then
+  LONG_HORIZON_TASK=true
+fi
+if [ "$IS_RESUMING" = true ] || [ "$LONG_HORIZON_TASK" = true ] || [ "$SUB_PLAN_JSON" != "null" ]; then
+  HANDOFF_REQUIRED=true
+  METER_CHECKPOINT_REQUIRED=true
+fi
+_STALE_PROOF_JSON="$(TASK_DESC="$TASK_DESC" python3 - <<'PY' 2>/dev/null || printf '[]'
+import json
+import os
+import re
+from datetime import datetime, timezone
+
+today = datetime.now(timezone.utc).date()
+stale = []
+for raw in sorted(set(re.findall(r"\b20\d{2}-\d{2}-\d{2}\b", os.environ.get("TASK_DESC", "")))):
+    try:
+        observed = datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        continue
+    age_days = (today - observed).days
+    if age_days > 1:
+        stale.append({"date": raw, "age_days": age_days})
+print(json.dumps(stale, separators=(",", ":")))
+PY
+)"
+[ -n "$_STALE_PROOF_JSON" ] && STALE_PROOF_DATES_JSON="$_STALE_PROOF_JSON"
+if [ "$STALE_PROOF_DATES_JSON" != "[]" ]; then
+  STALE_PROOF_GATE=true
+  HANDOFF_REQUIRED=true
+  METER_CHECKPOINT_REQUIRED=true
+fi
 
 # Blocker check: [Depends: X] where X still has incomplete tasks
 # Note: tasks with [blocked] FSM state are filtered out of TASK_LINE selection entirely,
@@ -447,6 +491,9 @@ elif [ "$TASK_OPEN_QS" -gt 0 ] && [ "$TYPE" = "code" ]; then
   ACTION="refine"; CONTEXT="$TASK_OPEN_QS task-linked open question(s) (${TASK_OPEN_REFS}); resolve before executing"
 elif [ "$HAS_EVIDENCE" = false ] && [ "$TYPE" = "code" ]; then
   ACTION="gather_evidence"; CONTEXT="Task lacks evidence; gather before executing"
+fi
+if [ "$STALE_PROOF_GATE" = true ] && [ "$ACTION" = "execute" ]; then
+  ACTION="refresh_proof"; CONTEXT="Stale dated proof detected; refresh proof before dispatch/publish"
 fi
 
 # --- stuck-loop detection -------------------------------------------------- #
@@ -563,6 +610,9 @@ case "$ACTION" in
       NEXT_ACTION="dispatch"
     fi
     ;;
+  refresh_proof)
+    NEXT_ACTION="refresh_proof"
+    ;;
 esac
 cat <<ENDJSON
 {
@@ -590,6 +640,7 @@ cat <<ENDJSON
   "contradiction_matches": "$(json_escape "$CONTRADICTION_MATCHES")",
   "contradicts_tag": "$(json_escape "$CONTRADICTS_TAG")",
   "process_fix_declared": "$(json_escape "$PROCESS_FIX_DECLARED")",
+  "drift_suggestions": $DRIFT_SUGGESTIONS_JSON,
   "exit_criteria_met": $EXIT_CRITERIA_MET,
   "exit_criteria_pending": $EXIT_CRITERIA_PENDING,
   "ledger_available": $([ "${LEDGER_AVAILABLE:-false}" = "true" ] && echo true || echo false),
@@ -603,11 +654,19 @@ cat <<ENDJSON
   "blocker_dedup": $BLOCKER_DEDUP,
   "queue_starved": $QUEUE_STARVED,
   "sub_plan": $SUB_PLAN_JSON,
+  "handoff_contract": {
+    "long_horizon": $LONG_HORIZON_TASK,
+    "handoff_required": $HANDOFF_REQUIRED,
+    "stale_proof_gate": $STALE_PROOF_GATE,
+    "stale_proof_dates": $STALE_PROOF_DATES_JSON,
+    "meter_checkpoint_required": $METER_CHECKPOINT_REQUIRED,
+    "required_fields": ["plan_row_moved", "ledger", "proof", "files_claimed", "handoff_status", "next_agent_resume"]
+  },
   "reduce_contract": {
     "read_only": true,
     "max_budget_seconds": 120,
     "forbidden": ["code_changes", "plan_execution", "file_writes"],
-    "allowed": ["read_plan", "read_evidence", "assess_state", "fire_dispatch"]
+    "allowed": ["read_plan", "read_evidence", "assess_state", "fire_dispatch", "route_refresh_proof"]
   }
 }
 ENDJSON

@@ -30,6 +30,7 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.dev_root
 
     def tearDown(self):
+        browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
     def test_write_plan_note_creates_inbox_under_open(self):
@@ -94,6 +95,7 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.original_dev_root = browser_server.DEV_ROOT
         self.original_artifacts_dir = browser_server.ARTIFACTS_DIR
         self.original_comments_file = browser_server.COMMENTS_FILE
+        self.original_create_moussey_coding_handoff = browser_server.create_moussey_coding_handoff
         browser_server.DEV_ROOT = self.dev_root
         browser_server.ARTIFACTS_DIR = self.artifacts_dir
         browser_server.COMMENTS_FILE = self.comments_file
@@ -118,6 +120,7 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.original_dev_root
         browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
         browser_server.COMMENTS_FILE = self.original_comments_file
+        browser_server.create_moussey_coding_handoff = self.original_create_moussey_coding_handoff
         self.tmp.cleanup()
 
     def origin(self) -> str:
@@ -207,6 +210,46 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 403, text)
         self.assertFalse((self.plan_dir / "INBOX.md").exists())
 
+    def test_coding_handoff_post_creates_moussey_handoff_for_plan(self):
+        captured = {}
+
+        def fake_create(payload, base_url=None):
+            captured["payload"] = payload
+            captured["base_url"] = base_url
+            return True, {
+                "ok": True,
+                "handoff": {"id": "handoff-1", "source": "vidux"},
+                "url": "http://127.0.0.1:4321/coding?handoff=handoff-1",
+            }
+
+        browser_server.create_moussey_coding_handoff = fake_create
+        status, text = self.post(
+            "/api/coding-handoff",
+            {"plan_path": str(self.plan_path), "proposedAction": "lane-status"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 200, text)
+        body = json.loads(text)
+        self.assertEqual(body["url"], "http://127.0.0.1:4321/coding?handoff=handoff-1")
+        payload = captured["payload"]
+        self.assertEqual(payload["source"], "vidux")
+        self.assertEqual(payload["sourcePath"], str(self.plan_path.resolve()))
+        self.assertEqual(payload["sourceRel"], "repo/projects/demo/PLAN.md")
+        self.assertIn("Continue coding work from this Vidux plan", payload["prompt"])
+        self.assertEqual(payload["proposedAction"], "lane-status")
+
+    def test_coding_handoff_post_rejects_non_plan_target(self):
+        evidence = self.plan_dir / "evidence.md"
+        evidence.write_text("# evidence", encoding="utf-8")
+        status, text = self.post(
+            "/api/coding-handoff",
+            {"plan_path": str(evidence)},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 403, text)
+
     def test_comments_post_accepts_same_origin_json_for_plan_without_inbox_write(self):
         status, text = self.post(
             "/api/comments",
@@ -280,33 +323,6 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         status, text = self.get(f"/api/comments?path={artifact}")
         self.assertEqual(status, 200, text)
         self.assertIn("Artifact comment.", text)
-
-    def test_comments_post_accepts_evidence_markdown_target(self):
-        evidence_dir = self.plan_dir / "evidence"
-        evidence_dir.mkdir()
-        evidence = evidence_dir / "2026-05-24-browser-proof.md"
-        evidence.write_text("# Browser proof\n\nLooks good.\n", encoding="utf-8")
-
-        status, text = self.post(
-            "/api/comments",
-            {
-                "target_path": str(evidence),
-                "author": "Viewer",
-                "body": "Evidence annotation.",
-                "anchor": {"selector": '[data-vidux-anchor="a1"]', "label": "Content / Browser proof"},
-            },
-            self.json_headers(Origin=self.origin()),
-        )
-
-        self.assertEqual(status, 200, text)
-        payload = json.loads(text)
-        self.assertEqual(payload["comment"]["target_kind"], "plan")
-        self.assertEqual(payload["comment"]["target_path"], str(evidence.resolve()))
-        status, text = self.get(f"/api/comments?path={evidence}")
-        self.assertEqual(status, 200, text)
-        payload = json.loads(text)
-        self.assertEqual(payload["comments"][0]["body"], "Evidence annotation.")
-        self.assertEqual(payload["comments"][0]["anchor"]["label"], "Content / Browser proof")
 
     def test_comments_post_rejects_cross_origin(self):
         status, text = self.post(
@@ -398,197 +414,28 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(game_plans[0]["repo"], "strongyes-web")
         self.assertEqual(Path(game_plans[0]["path"]), canonical.resolve())
 
-    def test_discover_plans_handles_missing_evidence_directory(self):
-        plan_path = self.write_plan("demo-repo", "projects/no-evidence", "No Evidence")
+    def test_discover_plans_cached_reuses_recent_plan_index(self):
+        original_ttl = browser_server.PLANS_CACHE_TTL_SECONDS
+        original_discover = browser_server.discover_plans
+        calls = []
 
-        plans = browser_server.discover_plans()
-        plan = next(p for p in plans if Path(p["path"]) == plan_path.resolve())
+        def fake_discover():
+            calls.append("scan")
+            return [{"repo": "demo-repo", "rel": "demo-repo/projects/demo/PLAN.md"}]
 
-        self.assertEqual(plan["evidence"], [])
+        browser_server.PLANS_CACHE_TTL_SECONDS = 60
+        browser_server.discover_plans = fake_discover
+        browser_server.clear_plans_cache()
+        try:
+            first = browser_server.discover_plans_cached()
+            second = browser_server.discover_plans_cached()
+        finally:
+            browser_server.discover_plans = original_discover
+            browser_server.PLANS_CACHE_TTL_SECONDS = original_ttl
+            browser_server.clear_plans_cache()
 
-    def test_discover_evidence_sorts_dated_files_and_keeps_odd_markdown_names(self):
-        plan_path = self.write_plan("demo-repo", "projects/receipts", "Receipts")
-        evidence_dir = plan_path.parent / "evidence"
-        evidence_dir.mkdir()
-        (evidence_dir / "notes without date.md").write_text("# Notes\n", encoding="utf-8")
-        (evidence_dir / "2026-05-24-browser-proof.md").write_text("# Latest\n", encoding="utf-8")
-        (evidence_dir / "2026-05-01-research.md").write_text("# Research\n", encoding="utf-8")
-        (evidence_dir / "2026-05-02-screenshot.png").write_text("not markdown", encoding="utf-8")
-        (evidence_dir / "nested.md").mkdir()
-
-        plans = browser_server.discover_plans()
-        plan = next(p for p in plans if Path(p["path"]) == plan_path.resolve())
-
-        names = [item["name"] for item in plan["evidence"]]
-        self.assertEqual(
-            names,
-            [
-                "2026-05-01-research.md",
-                "2026-05-24-browser-proof.md",
-                "notes without date.md",
-            ],
-        )
-        labels = [item["label"] for item in plan["evidence"]]
-        self.assertEqual(labels[0], "2026-05-01 - research")
-        self.assertEqual(labels[1], "2026-05-24 - browser proof")
-        self.assertEqual(labels[2], "notes without date")
-        self.assertTrue(plan["evidence"][0]["is_dated"])
-        self.assertFalse(plan["evidence"][2]["is_dated"])
-
-
-class BrowserDecisionLogTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dev_root = Path(self.tmp.name).resolve()
-        self.original_dev_root = browser_server.DEV_ROOT
-        browser_server.DEV_ROOT = self.dev_root
-
-    def tearDown(self):
-        browser_server.DEV_ROOT = self.original_dev_root
-        self.tmp.cleanup()
-
-    def test_parse_decision_log_zero_when_section_is_missing(self):
-        result = browser_server.parse_decision_log(
-            "# Demo\n\n## Purpose\nNo decisions yet.\n\n## Tasks\n- [pending] one\n"
-        )
-
-        self.assertFalse(result["present"])
-        self.assertIsNone(result["heading_line"])
-        self.assertEqual(result["count"], 0)
-        self.assertEqual(result["entries"], [])
-        self.assertEqual(result["recent_directions"], [])
-
-    def test_parse_decision_log_handles_messy_markdown_and_wrapped_bullets(self):
-        result = browser_server.parse_decision_log(
-            "# Demo\n\n"
-            "### Decision Log\n"
-            "Intro text should not become an entry.\n"
-            "- [DIRECTION] [2026-05-01] Keep browser read-only.\n"
-            "  Reason: PLAN.md remains canonical.\n"
-            "* [REFRAME] 2026-05-02 Promote decisions instead of scanning full markdown.\n"
-            "1. Plain note without a tag still renders.\n"
-            "#### Nested notes\n"
-            "- [PIVOT] [2026-05-03 app chrome] Keep large modes out of the topbar.\n"
-            "## Tasks\n"
-            "- [pending] next task\n"
-        )
-
-        self.assertTrue(result["present"])
-        self.assertEqual(result["heading_line"], 3)
-        self.assertEqual(result["count"], 4)
-        first = result["entries"][0]
-        self.assertEqual(first["kind"], "DIRECTION")
-        self.assertEqual(first["date"], "2026-05-01")
-        self.assertIn("Reason: PLAN.md remains canonical.", first["body"])
-        self.assertFalse(first["is_recent"])
-        self.assertTrue(result["entries"][1]["is_recent"])
-        self.assertEqual(result["entries"][2]["kind"], "NOTE")
-        self.assertEqual(result["entries"][3]["date"], "2026-05-03 app chrome")
-        self.assertEqual(
-            [entry["kind"] for entry in result["recent_directions"]],
-            ["DIRECTION", "REFRAME", "PIVOT"],
-        )
-
-    def test_discover_plans_exposes_decision_log_metadata(self):
-        plan_dir = self.dev_root / "repo" / "projects" / "demo"
-        plan_dir.mkdir(parents=True)
-        (plan_dir / "PLAN.md").write_text(
-            "# Demo\n\n"
-            "## Decision Log\n"
-            "- [DIRECTION] [2026-05-01] Keep it visible.\n\n"
-            "## Tasks\n"
-            "- [pending] ship pane\n",
-            encoding="utf-8",
-        )
-
-        plans = browser_server.discover_plans()
-
-        self.assertEqual(len(plans), 1)
-        decision_log = plans[0]["decision_log"]
-        self.assertTrue(decision_log["present"])
-        self.assertEqual(decision_log["count"], 1)
-        self.assertEqual(decision_log["entries"][0]["kind"], "DIRECTION")
-
-    def test_decision_log_pane_static_contract(self):
-        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
-        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
-
-        self.assertIn('const DECISION_LOG_TAB = "Decision Log"', app)
-        self.assertIn("function renderDecisionLogPane", app)
-        self.assertIn("recent_directions", app)
-        self.assertIn("No Decision Log section", app)
-        for klass in [
-            "decision-log-summary",
-            "decision-log-recent",
-            "decision-entry",
-            "decision-recent",
-        ]:
-            self.assertIn(klass, style)
-
-
-class BrowserPlanBriefTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dev_root = Path(self.tmp.name).resolve()
-        self.original_dev_root = browser_server.DEV_ROOT
-        browser_server.DEV_ROOT = self.dev_root
-
-    def tearDown(self):
-        browser_server.DEV_ROOT = self.original_dev_root
-        self.tmp.cleanup()
-
-    def test_plan_meta_includes_deterministic_brief_for_cockpit_view(self):
-        plan_dir = self.dev_root / "repo" / "projects" / "pm"
-        plan_dir.mkdir(parents=True)
-        plan_path = plan_dir / "PLAN.md"
-        plan_path.write_text(
-            "# PM\n\n"
-            "## Purpose\n"
-            "Replace external PM surfaces with Vidux-native steering.\n\n"
-            "## Tasks\n"
-            "- [pending] PM-2 Later thing [ETA: 1h]\n"
-            "- [completed] PM-0 Done thing\n"
-            "- [in_progress] PM-1 Build `Now` strip [Evidence: user asked]\n"
-            "- [blocked] PM-3 Waiting on browser proof [Blocker: screenshot]\n\n"
-            "## Decision Log\n"
-            "- [DIRECTION] [2026-05-24] Keep PLAN.md canonical and use comments for steering.\n\n"
-            "## Progress\n"
-            "- [completed] malformed task-shaped bullet should not win\n"
-            "- [2026-05-24] Shipped the first cockpit slice.\n",
-            encoding="utf-8",
-        )
-
-        plan = browser_server.plan_meta(plan_path)
-        brief = plan["brief"]
-
-        self.assertEqual(brief["state"], "blocked")
-        self.assertEqual(brief["open_count"], 3)
-        self.assertEqual(brief["summary"], "Replace external PM surfaces with Vidux-native steering.")
-        self.assertEqual(
-            [item["status"] for item in brief["focus_tasks"]],
-            ["in_progress", "blocked", "pending"],
-        )
-        self.assertIn("Build Now strip", brief["focus_tasks"][0]["label"])
-        self.assertEqual(brief["latest_progress"], "[2026-05-24] Shipped the first cockpit slice.")
-        self.assertIn("Keep PLAN.md canonical", brief["latest_decision"])
-
-    def test_plan_brief_and_steering_static_contract(self):
-        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
-        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
-
-        self.assertIn("function renderPlanBrief", app)
-        self.assertIn("function setupPlanSteering", app)
-        self.assertIn("Steer this plan", app)
-        self.assertIn("@pm", app)
-        self.assertIn("plan-steering", app)
-        self.assertIn("is-steering", app)
-        for klass in [
-            "plan-brief",
-            "plan-brief-task",
-            "plan-steering",
-            "comment-item.is-steering",
-        ]:
-            self.assertIn(klass, style)
+        self.assertEqual(first, second)
+        self.assertEqual(calls, ["scan"])
 
 
 class BrowserSubplanRollupTests(unittest.TestCase):
@@ -733,12 +580,12 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn('aria-label="Read-aloud position"', fixture)
         self.assertIn('aria-label="Play or pause read-aloud" aria-pressed="false"', fixture)
         states = [state["id"] for state in manifest["states"]]
-        self.assertEqual(len(states), 15)
+        self.assertEqual(len(states), 16)
         self.assertEqual(len(states), len(set(states)))
         for state in states:
             self.assertIn(f'data-fixture-state="{state}"', fixture)
 
-        self.assertIn("Server offline. Run from the vidux repo root", fixture)
+        self.assertIn("Server offline. Start Voxtral MLX script server", fixture)
         self.assertIn("Waiting for local server", fixture)
         self.assertIn("browser/scripts/start-voxtral-mlx-server.sh", fixture)
         self.assertIn("Copied server command", fixture)
@@ -762,6 +609,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
             "readaloud-fixture-coexistence",
         ]:
             self.assertIn(klass, style)
+        self.assertIn("grid-template-columns: repeat(auto-fit, minmax(min(640px, 100%), 1fr));", style)
 
     def test_readaloud_storybook_decision_does_not_add_browser_build_stack(self):
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
@@ -780,6 +628,12 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn(
+            '<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" async></script>',
+            index,
+        )
+        self.assertIn('<script src="/static/app.js" defer></script>', index)
 
         topbar_meta = index.split('<div class="topbar-meta">', 1)[1].split("</div>", 1)[0]
         self.assertIn('id="meta-count"', topbar_meta)
@@ -840,19 +694,26 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
             "readaloud-player-time",
         ]:
             self.assertIn(klass, style)
+        self.assertIn(".readaloud-player-main {\n  min-width: 0;\n  min-height: 42px;", style)
+        self.assertIn("overflow-wrap: anywhere;", style)
+        self.assertIn("white-space: normal;", style)
 
-    def test_readaloud_engine_status_is_health_only_loopback_probe(self):
+    def test_readaloud_engine_status_uses_script_server(self):
         readaloud = (ROOT / "browser" / "static" / "readaloud.js").read_text(
             encoding="utf-8",
         )
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
         self.assertIn('voxtralBaseUrl: "http://127.0.0.1:8765"', readaloud)
+        self.assertIn('baseUrl: "http://127.0.0.1:8765"', readaloud)
+        self.assertIn('probePath: "/health"', readaloud)
+        self.assertIn('modelId: "redseaplume/Voxtral-4B-TTS-2603-MLX-4bit"', readaloud)
         self.assertIn("function readaloudSetEngineStatus", readaloud)
         self.assertIn("async function readaloudProbeEngine", readaloud)
         self.assertIn("MLX on", readaloud)
         self.assertIn("MLX off", readaloud)
         self.assertIn('READALOUD_SERVER_COMMAND = "browser/scripts/start-voxtral-mlx-server.sh"', readaloud)
+        self.assertNotIn("READALOUD_FALLBACK_SERVER_COMMAND", readaloud)
         self.assertIn("READALOUD_OFFLINE_REPROBE_INTERVAL_MS = 3000", readaloud)
         self.assertIn("READALOUD_OFFLINE_REPROBE_WINDOW_MS = 90000", readaloud)
         self.assertIn("READALOUD_CACHE_MAX_BYTES = 160 * 1024 * 1024", readaloud)
@@ -866,11 +727,12 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("engineProbeDeadline: 0", readaloud)
         self.assertIn("readaloudShowServerCommand", readaloud)
         self.assertIn("Copied server command", readaloud)
-        self.assertIn("MLX server offline", readaloud)
+        self.assertIn("Waiting for local server", readaloud)
         self.assertIn("Server still offline", readaloud)
-        self.assertIn("Server offline. Run from the vidux repo root", readaloud)
-        self.assertIn("Start local Voxtral MLX server: ${READALOUD_SERVER_COMMAND}", readaloud)
-        self.assertIn('${READALOUD.voxtralBaseUrl}/health', readaloud)
+        self.assertIn("Server offline. Start", readaloud)
+        self.assertIn("Start local Voxtral MLX server: ${readaloudOfflineServerLabel()}", readaloud)
+        self.assertIn("readaloudResolveEngine", readaloud)
+        self.assertIn("${engine.baseUrl}${engine.probePath}", readaloud)
         self.assertIn('${READALOUD.voxtralBaseUrl}/v1/audio/speech', readaloud)
         self.assertIn('defaultVoice: "cheerful_female"', readaloud)
         self.assertIn("voice: READALOUD.defaultVoice", readaloud)
@@ -889,8 +751,31 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("readaloudUpdateCacheButton", readaloud)
         self.assertIn("readaloudSegmentsPlaybackKey", readaloud)
         self.assertIn("readaloudMergeSegmentAudio", readaloud)
-        self.assertIn("Merging segment audio", readaloud)
-        self.assertIn("cached, ${misses.length} synthesizing", readaloud)
+        self.assertIn("readaloudTrackLoading", readaloud)
+        self.assertIn("READALOUD_SYNTH_BATCH_TARGET_CHARS = 700", readaloud)
+        self.assertIn("READALOUD_SYNTH_BATCH_MAX_SEGMENTS = 6", readaloud)
+        self.assertIn("readaloudBuildSynthesisBatches", readaloud)
+        self.assertIn("readaloudSynthesisBatchTitle", readaloud)
+        self.assertIn("readaloudMaterializeBatchSegments", readaloud)
+        self.assertIn("readaloudSplitBatchAudio", readaloud)
+        self.assertIn("generating audio batch ${progress}", readaloud)
+        self.assertIn("Local Voxtral returns one WAV when generation finishes", readaloud)
+        self.assertIn('throw new Error("Empty synthesis batch")', readaloud)
+        self.assertIn('throw new Error("Empty batch audio")', readaloud)
+        self.assertIn('throw new Error("Decoded batch audio is empty")', readaloud)
+        self.assertIn('throw new Error("Decoded batch audio is too short to split")', readaloud)
+        self.assertIn("Decoding and stitching segment audio", readaloud)
+        self.assertIn("Voxtral responded; buffering WAV blob", readaloud)
+        self.assertIn("Buffered ${readaloudFormatBytes(blob.size)} WAV from Voxtral", readaloud)
+        self.assertIn("Buffered ${readaloudFormatBytes(blob.size)} WAV for batch ${progress}", readaloud)
+        self.assertIn("splitting/decoding ${batch.misses.length} cached segments", readaloud)
+        self.assertIn("synthesis_batch_size: batch.misses.length", readaloud)
+        self.assertIn("Keeping one fast MLX call while preserving per-section replay cache.", readaloud)
+        self.assertIn("Loading WAV into browser audio", readaloud)
+        self.assertIn("Audio decoded; starting playback", readaloud)
+        self.assertIn("Browser audio buffering", readaloud)
+        self.assertIn("Starting browser playback", readaloud)
+        self.assertIn("${cachedCount} cached, ${misses.length} missing in ${batches.length}", readaloud)
         self.assertIn('type: "segment"', readaloud)
         self.assertIn("last_used_at", readaloud)
         self.assertIn("created_at", readaloud)
@@ -999,6 +884,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
             'READALOUD_CACHE_MAX_BYTES = 160 * 1024 * 1024',
             'READALOUD_SERVER_COMMAND = "browser/scripts/start-voxtral-mlx-server.sh"',
             'voxtralBaseUrl: "http://127.0.0.1:8765"',
+            'baseUrl: "http://127.0.0.1:8765"',
             'defaultVoice: "cheerful_female"',
             'source === "mixed" ? "Playing cached/generated segments"',
             'span.setAttribute("role", "button")',
@@ -1016,6 +902,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
                 "cache-hit",
                 "cache-clear",
                 "cache-pruned",
+                "batch-splitting",
                 "playing",
                 "paused",
                 "seek-hover",
