@@ -333,12 +333,21 @@ AUDIT (pick ONE skill per cycle — rotate through the list):
 - Length: is the skill concise or bloated? (vendor guidance: "earn your complexity")
 
 FIX (if issues found):
-1. cd ~/Development/ai && git pull --rebase
-2. Edit the skill file
-3. git checkout -b claude/skill-refine-<name>
-4. git add -A && git commit -m "update: <skill> — <what changed>"
-5. git push -u origin claude/skill-refine-<name>
-6. gh pr create --title "skill(<name>): <improvement>" --body "<audit findings>"
+1. cd ~/Development/ai && git pull --ff-only
+2. Identify the owning PLAN.md row before editing. If the skill repo has no
+   active row, add one before changing files.
+3. Edit exactly one skill file plus any focused regression test/doc reference.
+4. Update the owning PLAN.md Progress/Tasks or Drift Log with what changed,
+   proof to run, `handoff_status`, files claimed, and next-agent resume point.
+5. Emit the publish ledger row before the branch leaves the machine:
+   `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane skill-refiner --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
+6. git checkout -b claude/skill-refine-<name>
+7. git add <skill-file> <test-or-doc-file> <PLAN.md>
+8. git commit -m "update: <skill> - <what changed>"
+9. git push -u origin claude/skill-refine-<name>
+10. Build a PR body carrying plan/proof/ledger/handoff/files-claimed/resume
+    fields, then open the ready PR:
+    `gh pr create --title "skill(<name>): <improvement>" --body-file /tmp/vidux-pr-body.md`
 
 ONE skill per cycle. Rotate through the full list over 24-48 hours.
 Never delete a skill without the human operator's explicit approval.
@@ -360,7 +369,8 @@ Never bulk-edit — one skill, one PR, one review cycle.
 Use vidux to improve vidux itself.
 
 Mission: One improvement per cycle. Read the plan, pick the highest-priority
-unfinished item, do the work, commit, push.
+unfinished item, do the work, then publish only after the owning plan and ledger
+row already describe the change.
 
 READ:
 1. PLAN.md in ~/Development/vidux — find [pending] tasks
@@ -374,9 +384,12 @@ ASSESS:
 - Are tests failing? → fix them first
 
 ACT:
-- Trivial doc fixes → commit directly to main
-- Substantial changes → branch + ready PR
-- Always commit as: vidux: self-improvement — <what changed>
+- Trivial local notes can stay unpushed; any commit, push, or PR is a publish
+  cycle and must update PLAN.md plus emit `ledger-emit.sh --event publish`
+  before the branch leaves the machine
+- Substantial changes → branch + ready PR with plan/proof/ledger/handoff/files
+  claimed/resume fields in the PR body
+- Always commit as: vidux: self-improvement - <what changed>
 
 VERIFY:
 - Run tests if they exist: python -m pytest tests/
@@ -384,7 +397,8 @@ VERIFY:
 - Ensure README claims match reality
 
 CHECKPOINT:
-- Update PLAN.md Progress section
+- Update PLAN.md Progress section before publish
+- Keep the publish ledger eid with the branch/PR handoff
 - If all [pending] tasks are done → go IDLE (don't invent work)
 - After 2 consecutive IDLE cycles → routine should reduce frequency or pause
 

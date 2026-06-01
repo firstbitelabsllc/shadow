@@ -110,7 +110,81 @@ ln -sf ~/Development/vidux ~/.claude/skills/vidux
 
 Verify the skill loads: start a Claude Code session and type `/vidux` — it should activate.
 
-## 5. Verification Checklist
+## 5. Local Transcription (Apple Silicon, Optional)
+
+Voice-agent transcription uses `mlx-whisper`, not the `mlx-audio` STT CLI.
+`mlx-audio` remains the local Voxtral TTS server for read-aloud; its
+`mlx_audio.stt.generate --stream` path currently is not the Vidux/Moussey STT
+contract.
+
+Install the two local tools:
+
+```bash
+brew install ffmpeg
+uv tool install mlx-whisper
+```
+
+Smoke test the real local path:
+
+```bash
+cd ~/Development/vidux
+scripts/smoke-local-transcription.sh
+```
+
+Expected output ends with:
+
+```text
+[PASS] mlx_whisper transcription
+model=mlx-community/whisper-base.en-mlx
+elapsed_s=...
+rtf=...
+transcript=Hello local transcription smoke test number 472
+```
+
+Model defaults:
+
+- `mlx-community/whisper-base.en-mlx` is the default local STT model. It is a
+  small cached MLX Whisper model, about 146 MB on disk after first download.
+- `mlx-community/whisper-base.en-mlx-q4` is the low-disk fallback, about 77 MB
+  on disk. Use it with `VIDUX_STT_MODEL=mlx-community/whisper-base.en-mlx-q4`.
+
+First run can look like buffering because Hugging Face model files are being
+downloaded and the Python CLI process is loading MLX. Warm runs should return
+the whole short-file transcript in a few seconds; the inference progress line
+is usually much faster than real time. UI work must show explicit states:
+recording, converting, loading model on first run, transcribing, and transcript
+ready. Do not leave the mic button in an ambiguous spinner.
+
+Keep at least 1 GB free for Whisper installs and cache churn. Voxtral TTS is a
+separate, much larger download; keep at least 20 GB free before touching that
+path.
+
+## 6. Read-Aloud TTS (Apple Silicon, Optional)
+
+Vidux read-aloud uses the repo-owned Voxtral MLX script server on
+`127.0.0.1:8765`. Do not use `127.0.0.1:8000 /v1/models` as readiness for the
+browser reader; the browser path is only ready after `/v1/audio/speech` returns
+a playable WAV/blob.
+
+Install or repair the LaunchAgent:
+
+```bash
+cd ~/Development/vidux
+scripts/install-voxtral-launchagent.sh
+```
+
+Verify:
+
+```bash
+launchctl print gui/$(id -u)/com.leokwan.vidux-voxtral-mlx
+curl http://127.0.0.1:8765/health
+```
+
+The first real synthesis may download or load Voxtral weights. The Vidux footer
+must show explicit cache/generating/buffering/decoding/playback states instead
+of an ambiguous spinner.
+
+## 7. Verification Checklist
 
 ```bash
 # Claude Code
@@ -125,6 +199,16 @@ grep multi_agent ~/.codex/config.toml        # should show true
 
 # Skills
 ls ~/.claude/skills/vidux/SKILL.md           # should exist
+
+# Local transcription
+which mlx_whisper                             # should show ~/.local/bin/mlx_whisper
+which ffmpeg                                  # should show Homebrew/system ffmpeg
+~/Development/vidux/scripts/smoke-local-transcription.sh
+
+# Read-aloud TTS
+~/Development/vidux/scripts/install-voxtral-launchagent.sh --lint
+~/Development/vidux/scripts/install-voxtral-launchagent.sh
+curl http://127.0.0.1:8765/health
 
 # Status line
 test -x ~/.claude/statusline.sh && echo "OK" || echo "MISSING"

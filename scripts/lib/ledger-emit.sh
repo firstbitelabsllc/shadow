@@ -60,6 +60,49 @@ _vidux_detect_repo() {
   fi
 }
 
+_vidux_json_string() {
+  local value="${1:-}"
+  if command -v jq &>/dev/null; then
+    jq -Rn --arg value "$value" '$value'
+  else
+    value=$(printf '%s' "$value" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    printf '"%s"' "$value"
+  fi
+}
+
+_vidux_abs_path() {
+  local path="${1:-}"
+  [[ -z "$path" ]] && return 0
+  local dir base abs_dir
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+  if abs_dir="$(cd "$dir" 2>/dev/null && pwd -P)"; then
+    printf '%s/%s' "$abs_dir" "$base"
+  else
+    printf '%s/%s' "$(pwd -P)" "$path"
+  fi
+}
+
+_vidux_handoff_status() {
+  case "${1:-done}" in
+    done|completed)
+      printf 'done'
+      ;;
+    blocked)
+      printf 'blocked'
+      ;;
+    in_progress)
+      printf 'in_progress'
+      ;;
+    done_with_concerns|needs_review)
+      printf 'needs_review'
+      ;;
+    *)
+      printf 'needs_review'
+      ;;
+  esac
+}
+
 # --- Generic emitter ------------------------------------------------------ #
 
 # vidux_emit EVENT SUMMARY [FILES_JSON] [EXTRA_FIELDS]
@@ -104,7 +147,7 @@ vidux_emit() {
   else
     # Fallback: manual JSON construction (no jq)
     summary=$(printf '%s' "$summary" | sed 's/"/\\"/g; s/\\/\\\\/g')
-    entry="{\"ts\":\"${ts}\",\"eid\":\"${eid}\",\"agent_id\":\"${agent_id}\",\"repo\":\"${repo}\",\"event\":\"${event}\",\"summary\":\"${summary}\",\"files\":${files}}"
+    entry="{\"ts\":\"${ts}\",\"eid\":\"${eid}\",\"agent_id\":\"${agent_id}\",\"repo\":\"${repo}\",\"event\":\"${event}\",\"summary\":\"${summary}\",\"files\":${files}${extra:+,${extra}}}"
   fi
 
   # Append atomically
@@ -147,13 +190,33 @@ vidux_emit_loop_end() {
 # Args: PROJECT_NAME PLAN_PATH COMMIT_HASH [STATUS]
 vidux_emit_checkpoint() {
   local project="${1:-unknown}" plan="${2:-}" commit="${3:-}" status="${4:-done}"
+  local plan_path handoff proof
+  plan_path="$(_vidux_abs_path "$plan")"
+  handoff="$(_vidux_handoff_status "$status")"
+  proof="vidux-checkpoint handoff_status=${handoff}"
+  [[ -n "$commit" ]] && proof="${proof}; commit=${commit}"
+  [[ -n "$plan_path" ]] && proof="${proof}; plan=${plan_path}"
+
   local summary="Vidux checkpoint: ${project} — ${status}"
   [[ -n "$commit" ]] && summary="${summary} [${commit:0:7}]"
+
   local files='[]'
-  [[ -n "$plan" ]] && files="[\"${plan}\"]"
-  local extra="\"status\":\"${status}\""
-  [[ -n "$commit" ]] && extra="${extra},\"commit\":\"${commit}\""
-  [[ -n "$project" ]] && extra="${extra},\"project\":\"${project}\""
+  local files_claimed='[]'
+  local plan_json status_json handoff_json proof_json project_json commit_json
+  plan_json="$(_vidux_json_string "$plan_path")"
+  status_json="$(_vidux_json_string "$status")"
+  handoff_json="$(_vidux_json_string "$handoff")"
+  proof_json="$(_vidux_json_string "$proof")"
+  project_json="$(_vidux_json_string "$project")"
+  commit_json="$(_vidux_json_string "$commit")"
+  if [[ -n "$plan_path" ]]; then
+    files="[${plan_json}]"
+    files_claimed="[${plan_json}]"
+  fi
+
+  local extra="\"status\":${status_json},\"handoff_status\":${handoff_json},\"plan_path\":${plan_json},\"proof\":${proof_json},\"files_claimed\":${files_claimed},\"lane\":\"vidux-checkpoint\",\"publish_kind\":\"checkpoint\""
+  [[ -n "$commit" ]] && extra="${extra},\"commit\":${commit_json}"
+  [[ -n "$project" ]] && extra="${extra},\"project\":${project_json}"
   vidux_emit "vidux_checkpoint" "$summary" "$files" "$extra"
 }
 

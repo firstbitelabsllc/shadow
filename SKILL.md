@@ -1,13 +1,7 @@
 ---
 name: vidux
-description: "Plan-first AI operations discipline for multi-session work: map stack/stage/scale, pick direct execution vs PLAN.md workflows, and keep handoff state in git."
+description: "Plan-first discipline and universal project router for AI agents. Detects stack, stage, and scale, then either executes directly or shifts into plan-first multi-session work. Write down what you're going to build before you build it. Plans live in markdown files in git. Any agent can pick up where the last one left off."
 ---
-
-## First-Time Setup
-
-- Run the setup steps for this skill's toolchain before first use.
-- Confirm CLI auth/permissions and a dry-run check before any mutating action.
-
 
 # Vidux
 
@@ -154,6 +148,9 @@ READ       -> git fetch --prune (kill stale tracking refs first),
               Then read the room (checklist below).
 ASSESS     -> Resume [in_progress] first, else pick highest-impact unblocked task.
              No evidence? Gather it locally before coding. Empty plan? Research first.
+             Then CLASSIFY the task: atomic (one PR, nameable diff) -> code it.
+             Compound (3+ files / unclear root cause / multi-step) -> spawn a
+             sub-plan FIRST (see "The decomposition gate" below). No inline sprawl.
 ACT        -> Execute tasks until queue empty, blocker, or context budget.
              Empty queue? Scan INBOX, owned paths, git log, blocked tasks. Anything
              found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit.
@@ -182,7 +179,7 @@ Ad hoc scratch files (e.g. `<repo>-loop-state.md`) are optional helpers only. Th
 
 **Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Force a surface switch — move to the next unblocked task and mark the stuck one `[blocked]` with a one-line Decision Log entry explaining what was tried. No human hand-off required; the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced. Polish is fractal — the brake is what prevents forever-loops, not a human approval gate.
 
-**Push authorization:** Operational PRs are always safe to push without asking. Open them ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization. A lane prompt that says "NEVER push" without qualification still allows a normal PR push; parking on a local branch wastes cycles.
+**Push authorization:** Operational PR branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated and a `ledger-emit.sh --event publish` row records the plan path, proof, handoff status, files claimed, and next-agent resume point. Open PRs ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate, and treat draft PRs as publish actions too. Direct-to-main operations require explicit authorization and the same publish propagation before the push or merge; destructive operations (force push, branch delete, `git reset --hard`) require explicit per-action authorization. A lane prompt that says "NEVER push" without qualification still allows a normal publish-propagated PR branch push; parking on a local branch wastes cycles.
 
 ### Trunk-First Rule
 
@@ -192,8 +189,8 @@ Vidux defaults to trunk-first:
 - If a repo has not renamed its trunk, detect and use the actual trunk branch instead of forcing a broken assumption.
 - Create short-lived branches or worktrees from the current trunk head only when isolation is useful.
 - Treat lane branches/worktrees as disposable integration helpers, not as the source of truth.
-- Before a job is done, every intended change must be merged or cherry-picked back into trunk in the canonical tree.
-- Run the final proof, release gates, and any ship/deploy command from that merged trunk state.
+- Before a job is done, every intended change must be merged or cherry-picked back into trunk in the canonical tree and the publish propagation must be recorded in the owning plan row, publish ledger row, proof trail, handoff status, files claimed, and next-agent resume point.
+- Run the final proof, release gates, and any ship/deploy command from that merged trunk state; if those commands publish externally, record the plan and ledger propagation before claiming done.
 - Do not end a job with required work stranded in a side branch or worktree unless a real external blocker prevents merge-back; if so, record the exact blocker and the exact unmerged branch.
 
 **Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only automatic cleanup bucket. `open_pr` is durable handoff and must be nursed or recorded. `dirty`, `closed_unmerged`, and `unmerged_no_pr` are not cleanup; they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
@@ -205,7 +202,7 @@ Vidux defaults to trunk-first:
 - If multiple isolated proofs are unavoidable, give each lane its own `-derivedDataPath` and avoid shared package/bootstrap churn.
 - If `.mise.toml`, `.tool-versions`, installed CLIs, and skill docs disagree, resolve version authority before trusting command examples.
 
-**Plan discovery before plan creation:** Before opening a new PLAN.md (or kicking off heavy research that would produce one) for any cross-repo lane, `grep -ri <topic-keyword>` across the known plan stores: `~/Development/vidux/projects/`, `~/REDACTED-EMPLOYER-PATH/Dev/<repo>/ai/plans/`, `~/REDACTED-EMPLOYER-PATH/Dev/<repo>/.cursor/plans/`, plus any memory entries referencing existing plans for that surface. Glob hits in `vidux-browse` (sidebar filter box) cover the same ground from the UI. If a same-surface plan exists, append to it; never create a sibling. The 2026-05-22 GetCTRecommendations duplication (a second session rebuilt 5 weeks of receipts and shipped two duplicate placeholder PRs because it skipped this check) is the canonical failure this rule prevents.
+**Plan discovery before plan creation:** Before opening a new PLAN.md (or kicking off heavy research that would produce one) for any lane, `grep -ri <topic-keyword>` across your configured plan stores — the `plan_store` path from `vidux.config.json`, any `external_plan_roots`, repo-inline `PLAN.md`, and the common conventions (`<repo>/ai/plans/<slug>/`, `<repo>/.cursor/plans/`, `<repo>/projects/<slug>/`) — plus any memory entries referencing existing plans for that surface. Glob hits in `vidux-browse` (sidebar filter box) cover the same ground from the UI. If a same-surface plan exists, append to it; never create a sibling. The canonical failure this prevents: a second session walks in cold, skips the check, rebuilds weeks of an existing plan's receipts from scratch, and ships duplicate placeholder PRs that then have to be reconciled and closed.
 
 **Cross-session collision detection:** When multiple Claude / Codex sessions could be running concurrently against the same repo, check `~/.agent-ledger/activity.jsonl` for recent entries (last ~72h) keyed on the same lane keyword before kicking off heavy research. A second session walking in cold is the highest-risk path to a duplicate plan; a 30-second ledger grep is cheaper than re-discovering the prior session's receipts.
 
@@ -315,6 +312,30 @@ Vidux is designed for projects that span days to months. A quarter project has:
 
 The plan LIVES -- it gets updated every cycle, not written once and followed blindly.
 
+### The decomposition gate
+
+**Before you touch code, classify the task. Compound work spawns a sub-plan first; atomic work ships direct.** This is the single rule that keeps a vidux project resumable — a compound task done "in your head" leaves no artifact for the next agent (or the next you, after a context reset) to pick up.
+
+The test is one sentence: **can you name the exact diff before you start?**
+
+| Signal | Classification | Do this |
+|---|---|---|
+| One PR. You can name the file(s) and the change in a sentence. No open root-cause question. | **Atomic** | **Code it directly.** Do NOT spawn a sub-plan — that's pure overhead. Most tasks are atomic. |
+| Any one of: 3+ files in play • unclear root cause • an ordered multi-step sequence with dependencies between steps • a sub-stream that ships on its own • "I need to think before I touch code." | **Compound** | **Spawn a sub-plan FIRST** (an `investigations/<slug>.md` or a child `PLAN.md` — see the two modes below). The parent task stays `[in_progress]` and cites it (`[Investigation: …]`). No inline sprawl, no chat-only step list. The sub-plan is where the thinking lands; the code ships *with* it. |
+
+**The sub-plan is a CHILD, never a SIBLING.** This is what makes the gate compatible with "every project has exactly ONE PLAN.md" (above):
+
+- New work on a surface → **append a task** to the existing parent PLAN.md.
+- A compound task within it → **nest a child** (investigation file beside the parent, or child PLAN.md with a `> Parent:` backlink).
+- A second same-surface plan with no parent link is the forbidden sibling — in BOTH directions. Everything hangs off the one parent: appended as a task, or nested as a child. Nothing floats beside it.
+
+**Why the gate, not "nest everything":** mandatory nesting would bury the queue in bookkeeping and violate "progress is code change" (Principle 5 — no plan-only PRs). The gate is selective on purpose: atomic ships fast, compound gets the artifact it needs. If you're genuinely unsure, the one-sentence-diff test breaks the tie — can't name the diff → it's compound.
+
+**Scope of the gate — two seams worth naming:**
+
+- **Gate ≠ activation.** This gate structures a task you've already committed to *inside* a vidux project. Whether a standalone request needs a PLAN.md at all is the separate question in "Activation & Triage" (multi-session / 5+ files / explicit plan-first). So a 3–4 file change *under an existing plan* is a compound task → sub-plan; the same change as a one-off with an obvious cause may not pull in vidux at all. The file counts differ because the questions differ: "does this need a plan?" (activation) vs. "does this task need a sub-plan?" (the gate).
+- **Decomposition is for unfinished work.** If the surface is already shipped and working, the Principle 4 brake fires first — *stop polishing, move to the next gap*. "I need to think before I code" is a signal to nest genuine unfinished work, not a license to re-open a done surface as an investigation.
+
 ### Two nesting modes
 
 Vidux supports two distinct nesting shapes — pick the one that fits the work:
@@ -347,7 +368,7 @@ or
 
 Use this when you have 5+ child plans that meaningfully ship independently (e.g., `T1-*/PLAN.md` through `T9-*/PLAN.md`). Don't use it for trivial nesting where an investigation file would do.
 
-**Choosing between the two:** investigation = "I need to think before I code, for one task." Sub-plan rollup = "this mission has many sub-streams that ship independently and I want a consolidated dashboard." If you're not sure, default to investigation — it's the lower-overhead shape.
+**Choosing between the two** (once the decomposition gate above says "compound"): investigation = "I need to think before I code, for one task." Sub-plan rollup = "this mission has many sub-streams that ship independently and I want a consolidated dashboard." Default to the investigation file — it's the lower-overhead shape; promote to a child PLAN.md only when 5+ sub-streams ship independently.
 
 **How it works:**
 
@@ -379,7 +400,7 @@ Use this when you have 5+ child plans that meaningfully ship independently (e.g.
 1. **No Fix Spec = no PR.** Investigation file lives on disk until the Fix Spec is filled AND the code ships.
 2. **Parent status follows child status.** Parent task can't flip `[completed]` while the investigation has any `(pending)` section.
 3. **Decision Log stays in the parent PLAN.md.** The investigation captures *why this bug happened*; the parent Decision Log captures *why we fixed it this way*.
-4. **When in doubt, don't nest.** A plain task with clear evidence doesn't need an investigation. Reserve nesting for surfaces that genuinely have a root-cause question.
+4. **Atomic ships direct; compound nests.** A plain task whose diff you can name in a sentence doesn't need an investigation — code it. Reserve nesting for the compound signals in the decomposition gate (3+ files / unclear root cause / multi-step / independent sub-stream). The one-sentence-diff test is the tie-breaker, not a "don't nest" reflex.
 
 ### vidux.config.json (where plans live)
 
@@ -414,9 +435,9 @@ Agents read `vidux.config.json` at session start and resolve the authority PLAN.
 
 ### External boards (adapter plugins)
 
-vidux supports external kanban boards (GitHub Projects, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the source of truth; the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
+vidux supports external kanban boards (GitHub Projects, Linear, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the source of truth; the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
 
-The checked-in example config (`vidux.config.example.json`) demonstrates a single `gh_projects` inbox source. Live repo configs keep each inbox source opt-in, with its own token file and optional `auto_promote_target`.
+The checked-in example config (`vidux.config.example.json`) demonstrates a single `gh_projects` inbox source. The live repo config (`vidux.config.json`) enables both `gh_projects` and `linear`, each with its own token file and optional `auto_promote_target`.
 
 When a repo opts into external boards, agents should:
 1. Read `PLAN.md` first — it stays canonical even when a board is enabled.
@@ -468,7 +489,7 @@ See `vidux.config.example.json` at the repo root for a live block you can copy.
 
 - **PULL** — novel external items append to `INBOX.md` as `- [live-feedback] <title> [Source: <adapter>:<id>]` entries (idempotent — marker-based dedupe). External items whose status lands in `completed` auto-flip the corresponding PLAN.md task to `[completed]`.
 - **PUSH** — unmapped `[pending]` / `[in_progress]` tasks create via `push_task`; mapped tasks receive `push_status` (column move) + `push_fields({'_blocked': ...})` for the orthogonal blocked flag.
-- **AUTO-PROMOTE** — opt-in via `auto_promote_target` (relative or absolute path) on each `inbox_sources[]` entry. When set, novel cards skip INBOX and land directly in the named plan_dir's PLAN.md as `- [pending] BD-<seq>: <title> [Source: <adapter>:<id>]` tasks. `BD` = "board-dropped" (per-plan namespace, sequence minted from `_next_bd_seq`). Idempotency uses BOTH the state file mapping AND in-text `[Source:]` marker scan, so a state-file loss during git races (rebase + stash drop) cannot cause re-promotion. Missing targets fail closed; vidux refuses to fall back to INBOX because that would route work to the wrong lane. Auto-promote suppresses creation of brand-new external issues from local-only plan rows, but still pushes status for tasks already linked by `[Source:]`.
+- **AUTO-PROMOTE** — opt-in via `auto_promote_target` (relative or absolute path) on each `inbox_sources[]` entry. When set, novel cards skip INBOX and land directly in the named plan_dir's PLAN.md as `- [pending] BD-<seq>: <title> [Source: <adapter>:<id>]` tasks. `BD` = "board-dropped" (per-plan namespace, sequence minted from `_next_bd_seq`). Idempotency uses BOTH the state file mapping AND in-text `[Source:]` marker scan, so a state-file loss during git races (rebase + stash drop) cannot cause re-promotion. Missing targets fail closed; vidux refuses to fall back to INBOX because that would route work to the wrong lane. Auto-promote suppresses creation of brand-new external issues from local-only plan rows, but still pushes status for tasks already linked by `[Source:]`. Linear title-only cards are the exception: they land as `[blocked]` with a blocker asking for description, evidence/source, acceptance or repro, and estimate before any agent can claim them.
   - **Per-plan PUSH opt-in via `push_only_for_plans`** — optional list of plan-dir paths (relative to the config file's parent dir, or absolute) that opt INTO PUSH for brand-new external issues even when `auto_promote_target` is set. Listed plan_dirs get `create_missing_external_tasks=True`; every other plan stays suppressed by the global auto-promote. Canonical use case: specific lane plans opt into PUSH so their tasks become external issues, while the rest of the fleet stays in PULL-only mode and doesn't flood the external board. Default unset = empty list = unchanged behavior (every plan still suppressed by auto-promote).
 - **PR sweep** — opt-in via `--include-prs`. Sweeps `gh pr list` open + recently-merged PRs from the repo containing the config and adds open PRs to the bound GH Project as items linked via `addProjectV2ItemById`. Status follows PR state: open-draft→Dev, open-ready→QA-Review, merged→Prod-Shipped. Already-tracked PRs reconcile status. Merged PRs that were never on the board are NOT backfilled (avoids flooding Backlog with shipped history).
 - Flags: `--dry-run` skips writes; `--direction={push,pull,both}` gates the halves; `--include-prs` enables PR sweep; `--repo-dir` overrides repo for PR list source; `--json` emits machine-readable summary; exit codes `0/2/3` for success / config-error / adapter-error.
@@ -477,9 +498,89 @@ Per-plan sidecar `.external-state.json` stores the `task_id ↔ external_id` map
 
 **Blocked is orthogonal.** Status column represents pipeline state; the `Blocked` field is a separate flag. An item can be `[in_progress]` AND blocked simultaneously without losing pipeline position. Adapters MUST reject `push_status(BLOCKED)` — callers write `Blocked=Yes` via `push_fields({'_blocked': True})`.
 
-**Writing a new adapter.** See `~/Development/vidux/adapters/README.md` for the 6-step authors guide + 5-step round-trip rubric (push seed, pull status change, custom-field round-trip, blocked orthogonality check, idempotency). Current documented fleet: `gh_projects` is a live full-round-trip PM adapter; `apple_asc` is live READ-only (parses ASC-style YAML tracker files — see below); `asana` / `jira` / `trello` ship as stubs (`NotImplementedError`) with per-platform auth + API docstrings — subclass-ready when a real integration is needed.
+**Writing a new adapter.** See `~/Development/vidux/adapters/README.md` for the 6-step authors guide + 5-step round-trip rubric (push seed, pull status change, custom-field round-trip, blocked orthogonality check, idempotency). Current fleet: `gh_projects` and `linear` are live full-round-trip PM adapters; `apple_asc` is live READ-only (parses ASC-style YAML tracker files — see below); `asana` / `jira` / `trello` ship as stubs (`NotImplementedError`) with per-platform auth + API docstrings — subclass-ready when a real integration is needed.
 
-**Apple ASC adapter (read-only feedback-tracker shape).** Apple does not publish a public API for marking TestFlight / ASC beta feedback handled, so the `apple_asc` adapter parses a repo-local tracker file (typically `<repo>/.cursor/plans/app-store-feedback.plan.md`, maintained by `ruby scripts/asc_beta_feedback.rb sync-plan`) and returns each `## Open` row as an `ExternalItem` with `external_id = "asc:<id>"`. The standard `vidux-inbox-sync.py` PULL leg then auto-promotes those items to PLAN.md. `push_task` / `push_status` / `push_fields` raise `NotImplementedError` ("Apple ASC has no public API for marking TestFlight / beta feedback handled; the tracker file is one-way READ-only."). Config schema: `tracker_file` (required path) + `status_filter` (optional list, defaults to `["new", "triaged", "claimed"]`; terminal states `fixed` / `verified` / `archived` are always dropped). See `~/Development/vidux/adapters/README.md` for the full tracker file format + parser tolerances (multi-line continuations, git-conflict markers, missing-file fail-safe).
+**Apple ASC adapter (read-only feedback-tracker shape).** Apple does not publish a public API for marking TestFlight / ASC beta feedback handled, so the `apple_asc` adapter parses a repo-local tracker file (typically `<repo>/.cursor/plans/app-store-feedback.plan.md`, maintained by `ruby scripts/asc_beta_feedback.rb sync-plan`) and returns each `## Open` row as an `ExternalItem` with `external_id = "asc:<id>"`. The standard `vidux-inbox-sync.py` PULL leg then auto-promotes those items to PLAN.md; pairing with `linear`'s `push_only_for_plans` mechanism gets the same row into a Linear EVE issue end-to-end. `push_task` / `push_status` / `push_fields` raise `NotImplementedError` ("Apple ASC has no public API for marking TestFlight / beta feedback handled; the tracker file is one-way READ-only."). Config schema: `tracker_file` (required path) + `status_filter` (optional list, defaults to `["new", "triaged", "claimed"]`; terminal states `fixed` / `verified` / `archived` are always dropped). See `~/Development/vidux/adapters/README.md` for the full tracker file format + parser tolerances (multi-line continuations, git-conflict markers, missing-file fail-safe).
+
+### Linear extension — full round-trip (PULL + PUSH + CLOSEOUT)
+
+The `linear` adapter (`~/Development/vidux/adapters/linear.py`) supports a complete project-management round-trip: external Linear cards become PLAN.md tasks via PULL; new local tasks become Linear issues via PUSH; status changes flow both directions; agents close issues from PLAN status flips. This is the canonical worked example for the broader adapter contract — Asana / Jira / Trello adapters should follow the same shape.
+
+**PULL** — Linear → PLAN.md:
+
+- New Linear issues in the configured project become `[pending] BD-<seq>: <title> [Source: linear:<issue-id>]` rows in INBOX.md (or auto-promoted to a target plan via `auto_promote_target` in `vidux.config.json`). If the Linear issue has no description, auto-promote writes `[blocked]` instead of `[pending]` and adds a blocker requiring real intake details before claim.
+- Status changes on tracked issues flow back: a Linear issue moved to "Done" auto-flips its mapped PLAN.md row to `[completed]`.
+- Idempotency: per-plan `.external-state.json` sidecar maps `task_id ↔ linear_issue_id`. The in-text `[Source:]` marker is the safety net if the sidecar is lost (see `### External boards` race-recovery rule).
+
+**PUSH** — PLAN.md → Linear:
+
+- Unmapped `[pending]` / `[in_progress]` PLAN tasks create Linear issues via `mcp__plugin_linear_linear__create_issue` (or the adapter's REST equivalent).
+- Linear descriptions must not be title-only. The adapter renders Details, Evidence, non-core tags (`Sub-plan`, `Depends`, `Blocker`, etc.), plan location, ETA, and explicit Intake Gaps. If a PLAN row has no prose beyond the title, no `[Evidence:]`, or no `[ETA:]`, the Linear card says so instead of pretending the issue is specified. Existing mapped issues get the same treatment through `sync_task_metadata()`; the next sync updates stale titles/descriptions instead of only fixing future cards.
+- Status flips on PLAN rows push to Linear via `update_issue` mutation:
+  - `[pending]` → Backlog
+  - `[in_progress]` → In Progress
+  - `[in_review]` → In Review (if configured) or "Ready for QA"
+  - `[completed]` → Done
+- The `_blocked` flag pushes via `push_fields({'_blocked': True})` and sets the Blocked field separately (does NOT change pipeline status — Blocked is orthogonal per the adapter contract).
+
+**CLOSEOUT** — when a fix PR merges:
+
+- The agent that shipped the fix flips the PLAN row to `[completed]`. The next inbox-sync cycle pushes that to Linear automatically.
+- For real-time closeout (don't wait for the next cron tick), call directly:
+
+```bash
+# Find the issue's stateId for the project's "Done" state via:
+mcp__plugin_linear_linear__get_workflow_states project="<project-name>"
+# Then update:
+mcp__plugin_linear_linear__update_issue id=<issue-id> stateId=<done-state-uuid>
+# Add the fix-commit SHA as context:
+mcp__plugin_linear_linear__create_comment issueId=<issue-id> body="Fixed in <commit-sha> (PR #<N>)."
+```
+
+**Configuration** — each user / org configures their own Linear binding in `vidux.config.json`:
+
+```json
+{
+  "inbox_sources": [{
+    "adapter": "linear",
+    "enabled": true,
+    "config": {
+      "token_file": "~/.config/vidux/linear.token",
+      "team_id": "<your-linear-team-uuid>",
+      "project_id": "<your-linear-project-uuid>",
+      "project_name": "<project-display-name>",
+      "state_mapping": {
+        "pending": "<backlog-state-uuid>",
+        "in_progress": "<in-progress-state-uuid>",
+        "in_review": "<review-state-uuid>",
+        "completed": "<done-state-uuid>"
+      },
+      "blocked_label": "blocked",
+      "managed_labels": {
+        "repo": "repo:<repo-name>",
+        "source": "source:vidux"
+      },
+      "auto_promote_target": "<plan-dir>",
+      "auto_promote_max_new": 25
+    }
+  }]
+}
+```
+
+Workspace-specific bindings (project UUIDs, state UUIDs, token paths) are LOCAL to each user's `vidux.config.json` — core vidux ships only the adapter contract.
+
+**Why this lives in CORE (not in a per-user overlay).** Linear is one of the supported PM tools alongside `gh_projects`, `asana`, `jira`, `trello`. The closeout pattern (fix PR → status flip → external system update) is the SAME shape for all of them. Documenting it in core lets other vidux users adopt Linear (or any adapter) without re-inventing the round-trip.
+
+**Cross-workspace caveat.** A Linear adapter token (`token_file:` in the adapter config) is scoped to ONE Linear workspace. PUSH, PULL, and CLOSEOUT all run against THAT workspace's API only. If a different system — Jam.dev's Linear bridge, a separately-installed GitHub Linear sync, manual hand-create from a teammate — routes Linear issues into a DIFFERENT workspace, the configured adapter cannot see them: PULL never surfaces them as INBOX or auto-promote candidates, and PUSH never duplicates (those issues already exist somewhere, just not in the watched workspace).
+
+When triaging a finding that mentions a Linear identifier (e.g. `EVE-317`), do not assume the prefix maps to the workspace your adapter token watches. Verify the workspace component of the Linear URL (`linear.app/<workspace-slug>/issue/<id>`) before deciding whether the cron should have caught it. Misreading the workspace as "ours" leads to wasted retries and false-negative reports about adapter health.
+
+Two mitigations when work routes across workspaces:
+
+1. **Consolidate sources** so every issue-creating system writes into the configured workspace.
+2. **Configure multiple `inbox_sources` entries** with the `linear` adapter, each pointing at a different `token_file:` for a different workspace. Each entry maintains its own per-plan `.external-state.json` map; idempotency is per-adapter-instance, not per-adapter-class.
+
+When Linear is unreachable for any reason — wrong workspace, expired OAuth, MCP disconnected, token rotated — the originating system's metadata is still authoritative. Jam recordings keep their console / network / repro detail; GitHub PR comments keep their thread; Sentry events keep their stack. Don't gate a fix lane on Linear being queryable; treat the originating system as the source of truth and let Linear catch up via CLOSEOUT or the next sync cycle.
 
 ### Inbox
 
@@ -534,11 +635,13 @@ When something breaks or changes:
 
 ### Placeholder draft PRs over blocked exits
 
-When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle should **not** exit "drained" while there is agent-doable surface. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in and documented in the PR body, so the conversation moves forward on concrete artifacts instead of speculative chat. Defaults: every flag default-off / zero, isolated worktree off `origin/master`, `gh pr create --draft`, no assigned reviewers, no `@`-mentions in the body. Per-organization-overlay placeholder discipline (review-bot acks, fleet wiring, person-specific routing) lives in `/vidux-leo § Placeholder draft PRs over blocking` (codified 2026-05-21); core vidux owns the principle, overlays own the local taste.
+When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle should **not** exit "drained" while there is agent-doable surface. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in and documented in the PR body, so the conversation moves forward on concrete artifacts instead of speculative chat.
+
+A placeholder draft PR is still a publish action. Update owning PLAN.md Progress/Tasks or Drift Log with the blocked question, assumptions, proof, `handoff_status=needs_review`, files claimed, and next-agent resume point; emit `ledger-emit.sh --event publish` with `--plan-path`, `--proof`, `--handoff-status needs_review`, `--file`, and `--claim`; then carry that ledger eid into the draft PR body before `gh pr create --draft`. Defaults: every flag default-off / zero, isolated worktree off `origin/master`, no assigned reviewers, no `@`-mentions in the body. Per-organization-overlay placeholder discipline (review-bot acks, fleet wiring, person-specific routing) lives in `/vidux-leo § Placeholder draft PRs over blocking` (codified 2026-05-21); core vidux owns the principle, overlays own the local taste.
 
 ### Plan archival pattern (parallel-session reconciliation)
 
-When two plans for the same surface are discovered post-hoc (the discovery rule above failed and a duplicate exists), fold the smaller / newer / less-receipt-dense one INTO the canonical older one. Append an H2 section to the canonical plan titled `## YYYY-MM-DD — Parallel-Session Reconciliation` that lists what the other plan covered, which receipts merged in, and which tasks transferred. Then move the duplicate plan directory into `_archived/<plan-slug>/` next to the canonical, and prepend a SUPERSEDED banner to its top-level file pointing at the canonical PLAN.md. Don't delete; archival preserves the receipts and the conversation trail for future agents. Close any duplicate placeholder PRs the second session opened with a comment linking the canonical plan. The 2026-05-22 GetCTRecommendations reconciliation at `~/Development/vidux/projects/semantic-music-understanding/PLAN.md` is the worked example.
+When two plans for the same surface are discovered post-hoc (the discovery rule above failed and a duplicate exists), fold the smaller / newer / less-receipt-dense one INTO the canonical older one. Append an H2 section to the canonical plan titled `## YYYY-MM-DD — Parallel-Session Reconciliation` that lists what the other plan covered, which receipts merged in, and which tasks transferred. Then move the duplicate plan directory into `_archived/<plan-slug>/` next to the canonical, and prepend a SUPERSEDED banner to its top-level file pointing at the canonical PLAN.md. Don't delete; archival preserves the receipts and the conversation trail for future agents. Close any duplicate placeholder PRs the second session opened with a comment linking the canonical plan. This is the recovery path for when the discovery rule above was skipped and a duplicate slipped through.
 
 ---
 
@@ -604,7 +707,7 @@ These rules apply to `/vidux loop`, `/vidux nurse`, and any ORCHESTRATED trackin
    - **Before each checkpoint:** write iteration state to repo files (PLAN.md progress, RALPH.md queue, `.agent-ledger/`). The filesystem survives compaction; conversation memory does not.
    - **After compaction fires:** rehydrate from repo files. Read PLAN.md, RALPH.md, CLAUDE.md, and the last ledger entry. Do not trust pre-compaction conversation details.
    - **Put durable loop instructions in CLAUDE.md**, not in the loop prompt. CLAUDE.md is re-read from disk after every compaction. Loop prompts are summarized away.
-   - **Use subagents for heavy work inside loops.** Each subagent gets a fresh context window. The parent loop stays light and survives more iterations before compaction.
+   - **Use subagents for heavy work inside loops.** Each subagent gets a fresh context window. The parent loop stays light and survives more iterations before compaction. Before spawning a subagent for heavy work, honor the shared-memory-budget preflight (see `~/Development/ai/skills/fleet-cleanup/SKILL.md#shared-memory-budget`); under memory pressure do the heavy work inline-sequentially instead of fanning out — degrade, never hard-fail.
    - **Run `/context` periodically** to check remaining capacity. If below 30% after compaction, the session is overloaded — consider starting fresh.
    - **PreCompact and PostCompact hooks** are installed globally. PreCompact reminds you to checkpoint; PostCompact reminds you to rehydrate.
 
@@ -927,7 +1030,7 @@ ln <canonical-path>.html ~/Development/vidux/browser/artifacts/<slug>.html   # n
 ```
 
 **Constraints + verification:**
-- Same filesystem only. Any path under the user's home volume is fine (`~/Development/...`, `~/REDACTED-EMPLOYER-PATH/Dev/...`, `~/.claude/...` all share one volume on a stock macOS install). Cross-volume hard links fail at `ln` time.
+- Same filesystem only. Any path under the user's home volume is fine (`~/Development/...`, `~/work/...`, `~/.claude/...` all share one volume on a stock macOS install). Cross-volume hard links fail at `ln` time.
 - `Path.resolve()` does NOT cross hard links — the artifact path stays inside `ARTIFACTS_DIR`, security check passes.
 - Updates to the canonical file reflect instantly at the artifact path; it's one inode with two names.
 - Verify with `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove they share data.
@@ -957,36 +1060,123 @@ curl -X POST http://127.0.0.1:7191/api/local-plan-note \
 
 This endpoint rejects non-loopback clients. Even when vidux-browse is bound to `0.0.0.0` for home-LAN reading, `POST /api/local-plan-note` must be called through `127.0.0.1` or `::1`; other Wi-Fi devices can read but cannot write plan notes.
 
+### Local transcription add-on (mlx-whisper, optional)
+
+Voice-agent transcription uses `mlx-whisper` on Apple Silicon. Keep this
+separate from the Voxtral read-aloud path: `mlx-audio` is the local TTS server,
+not the blessed Vidux/Moussey STT runtime.
+
+Install:
+
+```bash
+brew install ffmpeg
+uv tool install mlx-whisper
+```
+
+Smoke:
+
+```bash
+cd ~/Development/vidux
+scripts/smoke-local-transcription.sh
+```
+
+The installed executable is `mlx_whisper`. The correct default model repo is
+`mlx-community/whisper-base.en-mlx`; `mlx-community/whisper-base.en-mlx-q4` is
+the smaller fallback. Do not use the stale `mlx-community/whisper-base.en`
+model name.
+
+First-run "buffering" usually means model download or MLX process startup.
+Short-file CLI transcription is not token-streaming; it writes a transcript
+after the clip is decoded. User-facing voice UI must show explicit states for
+recording, ffmpeg conversion, first-run model load/download, transcribing, and
+transcript ready. If true partial transcripts are required, use a persistent STT
+worker or a streaming STT runtime instead of spawning the CLI per request.
+
+Reference files:
+
+- `SETUP_NEW_MACHINE.md` — install and verification checklist.
+- `scripts/smoke-local-transcription.sh` — real local WAV -> `mlx_whisper` JSON smoke.
+- `projects/moussey-voice-agent/PLAN.md` — voice-agent plan and STT task board.
+
 ### Read-aloud add-on (local Voxtral MLX, optional)
 
-vidux-browse can expose a top-bar `🔊 Read` button that reads the current artifact / PLAN.md aloud. The browser is only the client/player; Mistral Voxtral 4B TTS runs through a loopback Apple-Silicon MLX server.
+vidux-browse exposes a footer `Read` player that reads the current artifact /
+PLAN.md aloud. The browser is only the client/player; Mistral Voxtral 4B TTS
+runs through a loopback Apple-Silicon MLX server.
 
 **Correct runtime model:**
 
 - `mistralai/Voxtral-4B-TTS-2603` is public, ungated, and non-private on Hugging Face.
 - It is **not** a Transformers.js/WebGPU browser model. Do not load it with `VoxtralForConditionalGeneration.from_pretrained(...)` in browser JS.
 - Official runtime is vLLM-Omni (`vllm serve mistralai/Voxtral-4B-TTS-2603 --omni`) on NVIDIA-class GPUs.
-- Leo's local path is MLX on Apple Silicon, using the 4-bit community port first: `redseaplume/Voxtral-4B-TTS-2603-MLX-4bit`.
+- Leo's proven browser read-aloud path is the script server on
+  `127.0.0.1:8765`, using `redseaplume/Voxtral-4B-TTS-2603-MLX-4bit`.
+- The `com.leokwan.mlx-audio` LaunchAgent on `127.0.0.1:8000` may be
+  installed as an alternate runtime, but `/v1/models` alone is not readiness;
+  do not make it the browser client unless `/v1/audio/speech` completes with a
+  playable browser WAV/blob.
 
 **Local server:**
+
+Install or repair the LaunchAgent from the repo:
+
+```bash
+cd ~/Development/vidux
+scripts/install-voxtral-launchagent.sh --lint
+scripts/install-voxtral-launchagent.sh
+```
+
+On Leo's Studio, the proven server is installed as a user LaunchAgent:
+
+```bash
+launchctl print gui/$(id -u)/com.leokwan.vidux-voxtral-mlx
+launchctl kickstart -k gui/$(id -u)/com.leokwan.vidux-voxtral-mlx
+```
+
+Manual foreground fallback:
 
 ```bash
 cd ~/Development/vidux
 browser/scripts/start-voxtral-mlx-server.sh
 ```
 
-The server binds to `127.0.0.1:8765` and exposes:
+The proven script server binds to `127.0.0.1:8765` and exposes:
 
 - `GET /health`
 - `GET /v1/audio/voices`
-- `POST /v1/audio/speech` with `{ "input": "...", "voice": "cheerful_female", "response_format": "wav" }`
+- `POST /v1/audio/speech` with `{ "model": "redseaplume/Voxtral-4B-TTS-2603-MLX-4bit", "input": "...", "voice": "cheerful_female", "response_format": "wav", "stream": false }`
 
-First real synthesis downloads the ~3.4GB 4-bit MLX weights into the Hugging Face cache. Subsequent generations reuse the cache.
+First real synthesis downloads model weights into the Hugging Face cache.
+Subsequent generations reuse the cache. Keep 20GB+ free before touching Voxtral
+TTS.
+
+Alternate LaunchAgent:
+
+```bash
+cd ~/Development/vidux
+launchctl kickstart -k gui/$(id -u)/com.leokwan.mlx-audio
+```
+
+The LaunchAgent binds to `127.0.0.1:8000` and may expose:
+
+- `GET /v1/models`
+- `POST /v1/audio/speech` with `{ "input": "...", "model": "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16", "voice": "cheerful_female", "response_format": "wav", "stream": false }`
+
+Important: 8000 answering `/v1/models` is not enough for Vidux read-aloud.
+In the 2026-05-24 smoke, speech could still hang after headers. Treat 8000 as
+experimental until browser playback is proven end-to-end.
 
 **Browser client:**
 
-- `browser/static/readaloud.js` checks the loopback server, POSTs visible markdown/artifact text, plays the returned WAV blob, and shows a clear retry state if the server is absent.
+- `browser/static/readaloud.js` probes the script server at `/health`, POSTs
+  visible markdown/artifact text to `/v1/audio/speech`, plays the returned WAV
+  blob, and shows clear start/retry state if the server is absent.
 - The bottom player owns playback, seek, source, speed, and cache controls.
+- Long waits are explicit: the footer reports cache checks, generating audio
+  with elapsed seconds, first-run MLX weight-load hints, WAV buffering,
+  decoding/stitching, browser-audio buffering, and confirmed playback.
+- Performance is P0: adjacent uncached short sections are batched into one
+  Voxtral request, then split back into per-section cache entries for replay.
 - Highlighting is approximate: `.ra-active` advances from local playback state and cached segment metadata. It is not forced alignment and does not claim word-accurate timestamps.
 - If the loopback server is absent, the UI exposes the local launch command instead of failing silently.
 
@@ -996,7 +1186,13 @@ First real synthesis downloads the ~3.4GB 4-bit MLX weights into the Hugging Fac
 
 - `~/Development/vidux/projects/voxtral-reader-addon/PLAN.md` — task breakdown and Decision Log for the read-aloud add-on.
 - `~/Development/vidux/projects/voxtral-reader-addon/evidence/` — browser proof, cache/seek/a11y screenshots, and local synthesis evidence.
-- `browser/scripts/voxtral_mlx_server.py` and `browser/scripts/start-voxtral-mlx-server.sh` — the current local server path.
+- `~/Library/LaunchAgents/com.leokwan.vidux-voxtral-mlx.plist` — proven
+  user LaunchAgent for the 8765 script server on this Mac.
+- `scripts/install-voxtral-launchagent.sh` — repo-owned installer/repair script
+  for the 8765 LaunchAgent.
+- `browser/scripts/voxtral_mlx_server.py` and `browser/scripts/start-voxtral-mlx-server.sh` — proven script server path.
+- `~/Library/LaunchAgents/com.leokwan.mlx-audio.plist` — alternate local
+  runtime; not the browser readiness path unless speech playback is proven.
 
 ---
 
