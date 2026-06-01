@@ -23,7 +23,7 @@
         <button class="root-readaloud-toggle readaloud-player-read" type="button" aria-label="Read or stop read-aloud">Retry</button>
         <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
         <div class="readaloud-player-main">
-          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Server offline. Run from the vidux repo root: browser/scripts/start-voxtral-mlx-server.sh</div>
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Server offline. Start Voxtral MLX script server: browser/scripts/start-voxtral-mlx-server.sh</div>
           <button class="readaloud-server-command" type="button" aria-label="Copy local Voxtral MLX server command">browser/scripts/start-voxtral-mlx-server.sh</button>
           <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
         </div>
@@ -40,7 +40,7 @@
         <button class="root-readaloud-toggle readaloud-player-read" type="button" aria-label="Read or stop read-aloud">Retry</button>
         <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
         <div class="readaloud-player-main">
-          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Waiting for local server... browser/scripts/start-voxtral-mlx-server.sh</div>
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Waiting for local server... Voxtral MLX script server: browser/scripts/start-voxtral-mlx-server.sh</div>
           <button class="readaloud-server-command" type="button" aria-label="Copy local Voxtral MLX server command">browser/scripts/start-voxtral-mlx-server.sh</button>
           <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
         </div>
@@ -54,10 +54,10 @@
     <section class="readaloud-fixture-case" data-fixture-state="first-load">
       <h2>first-load</h2>
       <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
-        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Preparing...</button>
+        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Generate 1/1</button>
         <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
         <div class="readaloud-player-main">
-          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Checking local MLX server...</div>
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">0 cached, generating audio batch 1/1: first run sample (12s elapsed) Local Voxtral returns one WAV when generation finishes; this is still working.</div>
           <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
         </div>
         <span class="readaloud-player-time">0:00 / 0:00</span>
@@ -87,10 +87,10 @@
     <section class="readaloud-fixture-case" data-fixture-state="synth-queue">
       <h2>synth-queue</h2>
       <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
-        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Synth 2/5</button>
+        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Generate 2/5</button>
         <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
         <div class="readaloud-player-main">
-          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">2 cached, 3 synthesizing: segment title with enough text to truncate</div>
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">2 cached, generating audio batch 2/3: 3 segments 4-6 with enough text to truncate (9s elapsed)</div>
           <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="180" />
         </div>
         <span class="readaloud-player-time">0:07 / 0:38</span>
@@ -144,6 +144,22 @@
         <span class="readaloud-player-time">0:18 / 1:22</span>
         <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
         <button class="readaloud-cache-clear is-mixed" type="button" aria-label="Clear current read-aloud cache">Mixed</button>
+        <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
+      </div>
+    </section>
+
+    <section class="readaloud-fixture-case" data-fixture-state="batch-splitting">
+      <h2>batch-splitting</h2>
+      <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
+        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Splitting...</button>
+        <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
+        <div class="readaloud-player-main">
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Buffered 1.3 MB WAV for batch 1/1; splitting/decoding 3 cached segments</div>
+          <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="0" />
+        </div>
+        <span class="readaloud-player-time">0:00 / 0:00</span>
+        <button class="root-readaloud-engine is-online" type="button" aria-label="Copy local Voxtral MLX server command">MLX on</button>
+        <button class="readaloud-cache-clear" type="button" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
         <button class="root-readaloud-speed is-default" type="button" aria-label="Read-aloud speed">1.12x</button>
       </div>
     </section>
@@ -215,10 +231,10 @@
     <section class="readaloud-fixture-case" data-fixture-state="long-title">
       <h2>long-title</h2>
       <div class="readaloud-player readaloud-player-fixture" role="region" aria-label="Read-aloud player">
-        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Synth 1/1</button>
+        <button class="root-readaloud-toggle readaloud-player-read is-loading" type="button" aria-label="Read or stop read-aloud">Generate 1/1</button>
         <button class="readaloud-player-toggle" type="button" aria-label="Play or pause read-aloud" aria-pressed="false">▶</button>
         <div class="readaloud-player-main">
-          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Synthesizing: a very long PLAN.md section heading with nested task metadata, evidence paths, owner tags, and enough detail to prove truncation</div>
+          <div class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">0 cached, generating audio batch 1/1: a very long PLAN.md section heading with nested task metadata, evidence paths, owner tags, and enough detail to prove truncation (7s elapsed)</div>
           <input class="readaloud-player-seek" type="range" aria-label="Read-aloud position" min="0" max="1000" value="80" />
         </div>
         <span class="readaloud-player-time">0:02 / 0:29</span>

@@ -300,6 +300,14 @@ elif [[ "$STATUS" != "blocked" && -n "$FIX_HEURISTIC" ]]; then
   echo "  Doctrine 6 requires a machine-checkable process fix alongside the code fix." >&2
 fi
 
+# --- Drift-cache advisory (warn-only; never blocks checkpoint) -------------- #
+DRIFT_ADVISORY_JSON="$(python3 "$SCRIPT_DIR/vidux-drift-log.py" suggest "$PLAN" --task-text "$TASK" --limit 3 --json 2>/dev/null || true)"
+DRIFT_ADVISORY_COUNT="$(printf '%s' "$DRIFT_ADVISORY_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(len(data.get("suggestions") or []))' 2>/dev/null || echo 0)"
+if [[ "$DRIFT_ADVISORY_COUNT" =~ ^[0-9]+$ ]] && [[ "$DRIFT_ADVISORY_COUNT" -gt 0 ]]; then
+  echo "DRIFT ADVISORY: $DRIFT_ADVISORY_COUNT cache-backed prevention hint(s) matched this checkpoint task." >&2
+  printf '%s' "$DRIFT_ADVISORY_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); [print("  - {} [source: {}]".format(item.get("prevention"), item.get("source_drift_id"))) for item in data.get("suggestions", [])]' >&2 || true
+fi
+
 # --- Commit (propagate failures — a failed commit means the checkpoint did not land) ---
 git add "$PLAN"
 if ! git commit -m "vidux: ${SUMMARY}"; then
@@ -311,7 +319,9 @@ fi
 if type vidux_emit_checkpoint &>/dev/null 2>&1; then
   _COMMIT_HASH=$(git -C "$PLAN_DIR" rev-parse HEAD 2>/dev/null || echo "")
   _PROJECT_NAME="$(basename "$PLAN_DIR")"
-  vidux_emit_checkpoint "$_PROJECT_NAME" "$PLAN" "$_COMMIT_HASH" "$STATUS" 2>/dev/null || true
+  if ! vidux_emit_checkpoint "$_PROJECT_NAME" "$PLAN" "$_COMMIT_HASH" "$STATUS"; then
+    echo "Warning: ledger checkpoint emit failed; checkpoint commit still landed." >&2
+  fi
 fi
 
 echo "Checkpoint complete. Cycle ${CYCLE}: ${SUMMARY}${STATUS_NOTE}"

@@ -76,10 +76,17 @@ sight in design PRs.
 ```markdown
 Push tiers:
 
-- Tier 1 (ready PRs, feature branches): safe, no approval needed. Use draft only for true WIP or a missing gate.
-- Tier 2 (direct-to-main, merge to trunk): session-scope authorization required.
+- Tier 1 (ready PRs, feature branches): safe after publish propagation; no approval needed. Use draft only for true WIP or a missing gate.
+- Tier 2 (direct-to-main, merge to trunk): session-scope authorization required, plus the same publish propagation before the push/merge.
 - Tier 3 (destructive: force-push, branch delete, git reset --hard, history
   rewrite): per-action authorization required, every time.
+
+Every commit, push, PR, direct-to-main update, or trunk merge is a publish
+action: update the owning PLAN.md Progress/Tasks or Drift Log first, then emit
+`ledger-emit.sh --event publish --plan-path <PLAN.md> --proof "<command/artifact>"
+--handoff-status <done|in_progress|blocked|needs_review> --file <changed-file>
+--claim <claimed-file>`. Carry the ledger eid into the PR, merge note, or final
+handoff with files claimed and the next-agent resume point.
 
 Never use --no-verify, --no-gpg-sign, or hook-skipping flags unless the
 user explicitly requests them per-action. If a hook fails, investigate and
@@ -94,8 +101,10 @@ fix the underlying issue.
 Start every code change from the current trunk (usually `main`). Run
 `git fetch origin && git log origin/main..HEAD` before committing — if
 trunk has moved, rebase or restart from `origin/main`. Worktrees are
-disposable integration helpers, not the source of truth. A change isn't
-done until it's merged back to trunk.
+disposable integration helpers, not the source of truth. A merge back to
+trunk is not enough by itself: the publish is done only after the owning
+PLAN.md and ledger row record what changed, what proof passed, the
+handoff_status, files claimed, and the next-agent resume point.
 ```
 
 **Why:** Long-lived feature branches diverge silently. Trunk-first keeps the merge surface small and conflicts local.
@@ -131,7 +140,7 @@ If you copy only one section, copy this:
 4. No cause attribution without concrete evidence; "I don't know yet" beats a guess.
 5. No tech-stack attribution ("Built with X") in product UI unless the user asks.
 6. Destructive git (force-push, reset --hard, branch delete) needs per-action authorization.
-7. Every code change starts from origin/main. A change isn't done until merged to trunk.
+7. Every code change starts from origin/main. Any commit, push, PR, direct-to-main update, or trunk merge must update the owning PLAN.md and emit a publish ledger row with proof, handoff status, files claimed, and next-agent resume before done is claimed.
 8. After 3 same-error failures, stop and re-diagnose. Don't sleep-loop.
 ```
 

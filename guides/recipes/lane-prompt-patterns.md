@@ -59,7 +59,7 @@ One deterministic priority order. "First match wins" so two agents running the s
 ### 6. Act
 Worktree discipline + verification commands + commit/push/merge procedure. Every command literal — don't paraphrase.
 
-Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must pass; never `git add -A`; UI change needs a screenshot, not a green test. Before `gh pr create`, build the body with `scripts/vidux-pr-body.py` so every PR carries `Lane:`, `Plan task:`, `Resume point:`, and optional `Linear: EVE-N`.
+Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must pass; never `git add -A`; UI change needs a screenshot, not a green test. Before pushing a branch, update the owning PLAN.md and emit `ledger-emit.sh --event publish` with `--plan-path`, `--proof`, `--handoff-status`, `--file`, and `--claim`; keep the eid in `$LEDGER_EID`. Before `gh pr create`, build the body with `scripts/vidux-pr-body.py --ledger "$LEDGER_EID"` so every PR carries `Lane:`, `Plan task:`, `Plan path:`, `Proof:`, `Ledger:`, `Handoff status:`, `Files claimed:`, `Resume point:`, and optional `Linear: EVE-N`.
 
 ### 7. Authority
 Explicit owned paths + explicit forbidden paths with reasons. The authority block is the lane's immune system. **Mandatory push-tier line** for any code-writing lane.

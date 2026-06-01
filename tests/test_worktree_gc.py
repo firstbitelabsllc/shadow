@@ -119,16 +119,32 @@ class WorktreeGcTests(unittest.TestCase):
         by_branch = {item["branch"]: item for item in payload["worktrees"]}
 
         self.assertEqual("primary", by_branch["main"]["bucket"])
+        self.assertIn("protected", by_branch["main"]["next_owner_action"])
         self.assertEqual("merged_clean", by_branch["merged-clean"]["bucket"])
         self.assertTrue(by_branch["merged-clean"]["removable"])
+        self.assertIn("--apply --yes", by_branch["merged-clean"]["next_owner_action"])
         self.assertEqual("open_pr", by_branch["open-pr"]["bucket"])
         self.assertEqual(12, by_branch["open-pr"]["pr_number"])
+        self.assertIn("review the PR", by_branch["open-pr"]["next_owner_action"])
         self.assertEqual("dirty", by_branch["dirty-branch"]["bucket"])
+        self.assertIn("preserve WIP", by_branch["dirty-branch"]["next_owner_action"])
         self.assertEqual("closed_unmerged", by_branch["closed-unmerged"]["bucket"])
         self.assertEqual(13, by_branch["closed-unmerged"]["pr_number"])
+        self.assertIn("owner review required", by_branch["closed-unmerged"]["next_owner_action"])
         self.assertEqual("unmerged_no_pr", by_branch["unmerged-no-pr"]["bucket"])
+        self.assertIn("open a PR", by_branch["unmerged-no-pr"]["next_owner_action"])
         self.assertEqual(1, payload["summary"]["removable"])
         self.assertEqual(6, payload["summary"]["total"])
+
+    def test_text_output_includes_next_owner_action(self):
+        result = run(
+            [sys.executable, str(SCRIPT), "--base", "origin/main", str(self.repo)],
+            env=self.env,
+        )
+
+        self.assertIn("next: eligible for automated removal with --apply --yes", result.stdout)
+        self.assertIn("next: review the PR; merge or close it before cleanup", result.stdout)
+        self.assertIn("next: owner review required; open a PR, merge, or archive the branch", result.stdout)
 
     def test_apply_requires_yes(self):
         result = run(

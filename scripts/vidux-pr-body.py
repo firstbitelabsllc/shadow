@@ -9,6 +9,7 @@ import sys
 
 
 LINEAR_REF_RE = re.compile(r"^[A-Z]+-\d+$")
+HANDOFF_STATUSES = {"done", "in_progress", "blocked", "needs_review"}
 
 
 def _clean(value: str, *, field: str) -> str:
@@ -22,6 +23,11 @@ def build_pr_body(
     *,
     lane: str,
     task: str,
+    plan_path: str,
+    proof: str,
+    handoff_status: str,
+    ledger: str,
+    files_claimed: list[str],
     resume: str,
     changes: list[str],
     linear: str | None = None,
@@ -29,11 +35,21 @@ def build_pr_body(
     """Return the durable PR body every automation lane can resume from."""
     lane = _clean(lane, field="lane")
     task = _clean(task, field="task")
+    plan_path = _clean(plan_path, field="plan_path")
+    proof = _clean(proof, field="proof")
+    ledger = _clean(ledger, field="ledger")
+    handoff_status = _clean(handoff_status, field="handoff_status")
+    if handoff_status not in HANDOFF_STATUSES:
+        allowed = ", ".join(sorted(HANDOFF_STATUSES))
+        raise ValueError(f"handoff_status must be one of: {allowed}")
     resume = _clean(resume, field="resume")
 
     cleaned_changes = [_clean(change, field="change") for change in changes]
     if not cleaned_changes:
         raise ValueError("at least one --change entry is required")
+    cleaned_files = [_clean(path, field="file_claimed") for path in files_claimed]
+    if not cleaned_files:
+        raise ValueError("at least one --file-claimed entry is required")
 
     body = [
         "## Automation",
@@ -49,6 +65,22 @@ def build_pr_body(
 
     body.extend(
         [
+            "",
+            "## Publish Propagation",
+            f"Plan path: {plan_path}",
+            f"Proof: {proof}",
+            f"Ledger: {ledger}",
+            f"Handoff status: {handoff_status}",
+            "Files claimed:",
+        ]
+    )
+
+    for path in cleaned_files:
+        body.append(path if path.startswith("- ") else f"- {path}")
+
+    body.extend(
+        [
+            "",
             f"Resume point: {resume}",
             "",
             "## Changes",
@@ -67,10 +99,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--lane", required=True, help="Lane id, e.g. codex/resplit-web")
     parser.add_argument("--task", required=True, help="PLAN.md task id, e.g. BD-68")
+    parser.add_argument("--plan-path", required=True, help="Owning PLAN.md path.")
+    parser.add_argument("--proof", required=True, help="Command or artifact proving the PR state.")
+    parser.add_argument(
+        "--handoff-status",
+        required=True,
+        choices=sorted(HANDOFF_STATUSES),
+        help="Current resume status for the PR handoff.",
+    )
+    parser.add_argument(
+        "--ledger",
+        required=True,
+        help="Ledger eid, ledger command dry-run payload, or proof path for the publish row.",
+    )
     parser.add_argument(
         "--resume",
         required=True,
         help="What the next cycle should do if this PR stalls.",
+    )
+    parser.add_argument(
+        "--file-claimed",
+        action="append",
+        default=[],
+        help="File/plan path claimed by this PR. Repeat for multiple files.",
     )
     parser.add_argument(
         "--change",
@@ -92,6 +143,11 @@ def main(argv: list[str] | None = None) -> int:
             build_pr_body(
                 lane=args.lane,
                 task=args.task,
+                plan_path=args.plan_path,
+                proof=args.proof,
+                handoff_status=args.handoff_status,
+                ledger=args.ledger,
+                files_claimed=args.file_claimed,
                 resume=args.resume,
                 changes=args.change,
                 linear=args.linear,

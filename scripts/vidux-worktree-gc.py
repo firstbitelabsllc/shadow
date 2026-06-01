@@ -51,6 +51,7 @@ class WorktreeInfo:
     pr_state: Optional[str]
     pr_url: Optional[str]
     reason: str
+    next_owner_action: str
 
 
 def run(command: List[str], cwd: Optional[Path] = None, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -125,6 +126,19 @@ def is_ancestor(repo: Path, head: Optional[str], base: str) -> bool:
         return False
     result = run(["git", "-C", str(repo), "merge-base", "--is-ancestor", head, base], check=False)
     return result.returncode == 0
+
+
+def next_owner_action_for_bucket(bucket: str) -> str:
+    actions = {
+        "primary": "skip; primary and invocation checkouts are protected",
+        SAFE_BUCKET: "eligible for automated removal with --apply --yes",
+        "open_pr": "review the PR; merge or close it before cleanup",
+        "dirty": "preserve WIP; ask the owner to commit, stash, or abandon it before cleanup",
+        "closed_unmerged": "owner review required; archive, revive, or manually remove the abandoned branch",
+        "unmerged_no_pr": "owner review required; open a PR, merge, or archive the branch",
+        "unknown": "repair classifier warnings before cleanup",
+    }
+    return actions.get(bucket, "owner review required before cleanup")
 
 
 def load_prs(repo: Path, limit: int) -> Tuple[Dict[str, PullRequestInfo], Optional[str]]:
@@ -237,6 +251,7 @@ def classify_worktree(
         pr_state=pr.state if pr else None,
         pr_url=pr.url if pr else None,
         reason=reason,
+        next_owner_action=next_owner_action_for_bucket(bucket),
     )
 
 
@@ -273,6 +288,7 @@ def format_text(repo: Path, base: str, worktrees: List[WorktreeInfo], warnings: 
         marker = " removable" if worktree.removable else ""
         lines.append(f"  - [{worktree.bucket}{marker}] {branch}{pr} :: {worktree.path}")
         lines.append(f"    {worktree.reason}")
+        lines.append(f"    next: {worktree.next_owner_action}")
 
     if summary.get("removable", 0):
         lines.append("")

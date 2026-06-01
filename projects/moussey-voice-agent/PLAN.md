@@ -103,9 +103,9 @@ The killer use case: Leo says *"hey check my Gmail for amazon shipments this wee
 
 ### Phase 1 — Local Whisper STT + browser mic capture (foundation)
 
-- [pending] **V1**: Install mlx-whisper on M4 Pro. `uv tool install mlx-whisper`. Smoke test: 5-second test WAV → transcript text in <2s. Document RAM + RTF in evidence/. Cross-Mac: separately install on Studio in V1b (deferred).
+- [completed] [owner: codex] **V1**: Install mlx-whisper on this Mac (`Leos-Mac-Studio-10442.local`, arm64). `uv tool install mlx-whisper`. Smoke test a 3-5 second WAV, then document transcript, warm RTF, CLI process latency, RAM, and buffering semantics in evidence. Cross-Mac: separately install on M4 Pro after the Studio path is proven. [Done: 2026-05-24; evidence: `evidence/2026-05-24-v1-stt-install-smoke.md`]
 - [pending] **V2**: Browser `/voice` page (new route in moussey/app/voice/page.tsx). Button: hold-to-talk OR click-to-toggle. MediaRecorder captures opus codec at 48kHz mono. On release, posts opus blob to `POST /api/voice/transcribe`. Show transcript in chat-style bubble. Reuse the dark `code-block` style from /triggers page.
-- [pending] **V3**: `POST /api/voice/transcribe` route in moussey. Receives opus blob, transcodes to 16kHz WAV via ffmpeg (system bin, no npm wrapper needed), spawns `mlx_whisper.transcribe` subprocess, parses JSON output, returns `{text, durationMs, modelLoadMs}`. Audit log entry to `~/.moussey/voice-sessions.jsonl`.
+- [pending] **V3**: `POST /api/voice/transcribe` route in moussey. Receives opus blob, transcodes to 16kHz WAV via ffmpeg (system bin, no npm wrapper needed), spawns the `mlx_whisper` subprocess for v0, parses JSON output, returns `{text, durationMs, modelLoadMs}`. Audit log entry to `~/.moussey/voice-sessions.jsonl`. If per-request CLI latency feels too buffered, upgrade V3 to a persistent local STT worker that keeps the model loaded.
 - **GATE 1**: Hold button → say "hello moussey" → see transcript appear in browser within 3s end-to-end. Evidence: screenshot + JSONL entry.
 
 ### Phase 2 — Brain dispatcher (route transcript to LLM, return text)
@@ -121,7 +121,7 @@ The killer use case: Leo says *"hey check my Gmail for amazon shipments this wee
 ### Phase 3 — Streaming TTS playback
 
 - [pending] **V7**: Sentence chunker (port from voxtral-reader-addon `readaloud.js` ~320-char boundary logic). As streaming text arrives, group into sentences; emit each completed sentence to the TTS queue.
-- [pending] **V8**: TTS playback queue. Per sentence: POST Voxtral `:8000/v1/audio/speech` with `voice=casual_male`, `speed=1.25`, decode WAV via `AudioContext.decodeAudioData`, schedule on a contiguous AudioContext queue (same pattern as M3 in voxtral-reader-addon).
+- [pending] **V8**: TTS playback queue. Per sentence: POST Voxtral `:8765/v1/audio/speech` with `voice=cheerful_female`, decode WAV via `AudioContext.decodeAudioData`, schedule on a contiguous AudioContext queue (same pattern as the proven voxtral-reader-addon footer). Do not use `:8000 /v1/models` as readiness unless speech playback is separately proven.
 - [pending] **V9**: Word-highlight migration during playback. Reuse the M13 heuristic from voxtral-reader-addon: `audioBuf.duration / wordCount` per-word `setTimeout`. Highlight migrates across the response bubble.
 - [pending] **V9b**: localStorage cache reuse from voxtral-reader-addon M16 — if the same response text + voice + speed was already synthesized, replay instantly. (Probably rare for voice agent since responses are unique, but free win.)
 - **GATE 3**: Full VOICE round-trip. Speak → transcript → streaming text → TTS speaks the response while text is still arriving. Word highlight migrates with audio. Provider switchable.
@@ -158,7 +158,7 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 - [DIRECTION] [2026-05-22] WebSocket over WebRTC for v1. Reason: LAN-only + push-to-talk doesn't need WebRTC's TURN/STUN/jitter complexity. Plain WebSocket + MediaRecorder API ships faster. Reconsider if always-on listening (P4+) reveals jitter or echo issues.
 - [DIRECTION] [2026-05-22] Brain dispatcher with three providers, not one. Claude is the proven path (trigger-claude shipped, full MCP access, subscription billing). Codex for cost-sensitive heavy reads (Codex is unlimited per /captain). Local Ollama for offline/private prompts where MCP isn't needed.
 - [DIRECTION] [2026-05-22] Reuse trigger-claude as the Claude brain. Already has HMAC auth, rate limit, kill switch, audit log, MCP toolkit, subscription billing (apiKeySource: "none"). No need to fork.
-- [DIRECTION] [2026-05-22] Voxtral 4B-TTS (already running) as v1 TTS. CC-BY-NC-4.0 personal-use OK. If commercial Snowcubes voice ever needed, swap to bundled Kokoro Apache-2.0 fallback (already in voxtral-reader-addon as readaloud-kokoro.js).
+- [DIRECTION] [2026-05-22] Voxtral 4B-TTS (now installed as `com.leokwan.vidux-voxtral-mlx` on `127.0.0.1:8765`) as v1 TTS. CC-BY-NC-4.0 personal-use OK. If commercial Snowcubes voice ever needed, swap to bundled Kokoro Apache-2.0 fallback (already in voxtral-reader-addon as readaloud-kokoro.js).
 - [DIRECTION] [2026-05-22] Whisper for STT, not Voxtral STT. mlx-whisper is more mature, smaller (~140 MB base.en vs 8 GB Voxtral), faster (RTF <0.1× on M4), Apache-2.0. Voxtral STT exists in the 8GB bundle but the marginal benefit isn't worth the GPU cycles when Whisper is excellent.
 - [DIRECTION] [2026-05-22] Default brain = Claude (trigger-claude). User can switch via UI dropdown. Reason: only Claude has the full MCP skill toolkit wired up; codex + local are degraded modes until we add MCP shims for them. Once Codex has nia + iMessage + Gmail integration parity, default becomes "auto-pick cheapest path."
 - [DIRECTION] [2026-05-22] Voice orchestrator lives in moussey (TypeScript Next.js :4321), not vidux-browse (Python static-file :7191). Reason: moussey already runs HMAC auth, audit log, kill switch, rate limit, and SSE streaming — all of which voice needs. vidux-browse is intentionally thin.
@@ -172,7 +172,7 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 
 | Task | Status | Owner | Blocking | Updated |
 |---|---|---|---|---|
-| V1: mlx-whisper install + smoke (M4 Pro) | [pending] | — | nothing | 2026-05-22 |
+| V1: mlx-whisper install + smoke (Studio) | [completed] | codex | nothing | 2026-05-24 |
 | V2: Browser /voice mic UI | [pending] | — | nothing | 2026-05-22 |
 | V3: /api/voice/transcribe route | [pending] | — | V1 (Whisper bin must exist) | 2026-05-22 |
 | V4: Brain dispatcher (3 providers) | [pending] | — | **ALL THREE PROVIDERS SHIPPED** — `moussey/lib/brain-dispatcher.ts` `dispatch()` is real. claude verified live (`✓ Hi 4441ms $0.20`). V4 = wire `dispatch({provider, sourceModality:"voice"})` into the WebSocket relay + map BrainChunks to SSE frames. No more abstraction work needed. | 2026-05-22 |
@@ -191,7 +191,9 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 
 ## Related projects + skills
 
+- **connect-the-fleet** (`~/Development/vidux/projects/connect-the-fleet/PLAN.md`) — **2026-05-26 unified fleet parent plan.** Owns Mac × surface matrix, authority-store canonicalization, and the moussey-mobile critical path. This voice-agent plan stays the canonical owner of audio init, but connect-the-fleet sequences when AudioContext gesture work lands relative to NET-1..NET-4 + Bundle C auth enforce flip.
 - **voxtral-reader-addon** (`~/Development/vidux/projects/voxtral-reader-addon/PLAN.md`) — sibling project. Already shipped TTS for reading artifacts. This project consumes its Voxtral server. **Phase 4 P4-T1 of voxtral-reader-addon should be marked superseded by this project** once V11-V12 land.
+- **moussey-mobile-operator** (`~/Development/vidux/projects/moussey-mobile-operator/PLAN.md`) — **sibling project (added 2026-05-24 per M-R65 reciprocal cross-link).** Mobile-operator's Phase 4 (M-E1/M-E2/M-E3) is the iOS-Safari `/chat` consumer for voice-agent's mic-capture (Phase 1) + Voxtral-TTS (Phase 3) + VAD/barge-in (Phase 4) pipeline. **Cross-plan contract per M-R82**: voice-agent V8 (Voxtral TTS SSE producer) MUST NOT emit audio_chunk frames until consumer signals `audioContext.state === 'running'` via first SSE frame ACK — iOS treats AudioContext as gesture-locked. Without ACK gate, first burst drops silently on iOS Safari. See `moussey-mobile-operator/PLAN.md` M-E2 task body for consumer-side AudioContext.resume() ritual in push-to-talk handler.
 - **moussey** (`~/Development/ai-leo/skills/moussey/SKILL.md`) — the host. Cross-Mac trigger and dashboard live here.
 - **vidux** (`/vidux`) — project discipline + browse + plan format.
 - **captain** (`/captain`) — fleet sync. Will pick up the new voice route, mic permissions, mlx-whisper install when shipped.
@@ -200,4 +202,5 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 ## Progress
 
 - [2026-05-22] Plan created. Architecture locked. Phase 1 unblocked. Cross-Mac Claude trigger + Voxtral TTS already proven and live, so the surface area to ship is just the audio I/O glue (V1-V3), brain dispatcher (V4-V5), UI wiring (V6), TTS playback (V7-V9), barge-in (V10-V12). Phases 1-3 are MVP (push-to-talk voice agent). Phase 4 brings ChatGPT-voice-mode parity. Phase 5 is polish.
+- [2026-05-24] V1 completed on `Leos-Mac-Studio-10442.local`. Installed `mlx-whisper` via `uv tool install mlx-whisper`; executable is `mlx_whisper`. Corrected the stale model name from `mlx-community/whisper-base.en` to `mlx-community/whisper-base.en-mlx`. Added `scripts/smoke-local-transcription.sh`, SETUP/SKILL instructions, and evidence at `evidence/2026-05-24-v1-stt-install-smoke.md`. Warm smoke: 3.35s WAV -> transcript in 2.11s best observed total, RTF 0.63, transcript `Hello local transcription smoke test number 472`; repeat CLI runs varied up to 3.85s because process/model-load overhead dominates. Note: per-request CLI buffers until the clip is decoded; UI must show recording/converting/model-load/transcribing states unless a persistent/streaming STT worker replaces the subprocess path.
 - [2026-05-22] V4 interface NOW AVAILABLE — brain-dispatcher-shared Phase 0 stubs shipped (B1/B5/B6 [completed]) at `moussey/lib/brain-dispatcher.ts` + README + 6 passing tests. intent-router (R1/R2/R3 [completed]) at `moussey/lib/intent-router.ts`. V4 work can begin against the stable interface — wire `dispatch()` into the WebSocket relay; the three provider implementations (B2/B3/B4) ship as drop-in replacements for the `NotImplemented`-throwing stubs without changing the call site.

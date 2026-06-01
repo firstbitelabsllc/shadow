@@ -152,9 +152,12 @@ def _entry_block(
 
 
 def _progress_block(entry: DriftEntry, drift_id: str) -> str:
+    actual = entry.actual.rstrip(".")
+    why = entry.why.rstrip(".")
+    next_step = entry.next_step.rstrip(".")
     return (
-        f"- [{entry.today}] Drift {drift_id}: {entry.actual} "
-        f"Reason: {entry.why}. Next: {entry.next_step}."
+        f"- [{entry.today}] Drift {drift_id}: {actual}. "
+        f"Reason: {why}. Next: {next_step}."
     )
 
 
@@ -315,6 +318,21 @@ def suggest_preventions(
     return suggestions[:limit]
 
 
+def drift_suggestions_payload(
+    plan_text: str,
+    *,
+    cache_path: Path | str | None = None,
+    limit: int = 3,
+) -> dict[str, object]:
+    suggestions = suggest_preventions(plan_text, cache_path=cache_path, limit=limit)
+    return {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "source": "vidux-drift-log.py",
+        "cache_path": str(Path(cache_path).expanduser()) if cache_path is not None else str(_default_cache_path()),
+        "suggestions": suggestions,
+    }
+
+
 def record_drift(
     plan_path: Path,
     entry: DriftEntry,
@@ -349,6 +367,8 @@ def record_drift(
         cause=_clean_choice(entry.cause, field="cause", choices=CAUSES),
         impact=_clean_choice(entry.impact, field="impact", choices=IMPACTS),
     )
+    if entry.impact == "blocking" and not evidence_refs:
+        raise ValueError("blocking drift records require at least one --evidence-ref")
 
     resolved_subplans = [
         path if path.is_absolute() else plan_path.parent / path
@@ -429,6 +449,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser.add_argument("plan", type=Path, help="Path to PLAN.md")
         parser.add_argument("--cache", type=Path, default=None)
         parser.add_argument("--limit", type=int, default=3)
+        parser.add_argument(
+            "--task-text",
+            help="Optional active-task text. When set, suggestions are scoped to this text instead of the whole plan.",
+        )
         parser.add_argument("--json", action="store_true")
         return parser.parse_args(argv)
 
@@ -478,14 +502,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     try:
         if args.command == "suggest":
-            suggestions = suggest_preventions(
-                args.plan.read_text(encoding="utf-8"),
+            source_text = args.task_text if args.task_text is not None else args.plan.read_text(encoding="utf-8")
+            payload = drift_suggestions_payload(
+                source_text,
                 cache_path=args.cache,
                 limit=args.limit,
             )
             if args.json:
-                print(json.dumps({"suggestions": suggestions}, sort_keys=True))
+                print(json.dumps(payload, sort_keys=True))
             else:
+                suggestions = payload["suggestions"]
                 if not suggestions:
                     print("no drift-cache suggestions")
                 for item in suggestions:

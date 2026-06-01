@@ -6,7 +6,7 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 
 | Script | Purpose |
 |---|---|
-| `scripts/vidux-loop.sh` | Stateless cycle helper that reads a plan and emits machine-readable next-action state. |
+| `scripts/vidux-loop.sh` | Stateless cycle helper that reads a plan and emits machine-readable next-action state, including `refresh_proof` routing plus `handoff_contract` fields for long-horizon work, stale proof dates, meter checkpoints, and required resume metadata. |
 | `scripts/vidux-checkpoint.sh` | Structured checkpoint helper for marking work done, blocked, or archived. Its two entry shapes are `vidux-checkpoint.sh <plan> <task> <summary> ...` and `vidux-checkpoint.sh <plan> --archive`. |
 | `scripts/vidux-drift-log.py` | Records planned-vs-actual implementation drift in `## Drift Log`, appends Progress, writes optional prevention-hint cache rows, emits optional signposts, and can explicitly block stale tasks, add follow-up tasks, or mirror the drift into named subplans. Exposed as `vidux drift`. |
 | `scripts/vidux_signpost.py` | Emits and summarizes local JSONL signposts for helper actions such as `drift.record` and `cache.suggest`. Exposed as `vidux signpost`. |
@@ -14,7 +14,9 @@ The `scripts/` directory contains the executable support layer for vidux. Most f
 | `scripts/vidux-plan-gc.py` | Mechanical plan garbage collection for completed tasks, old investigations, and oversized inboxes. |
 | `scripts/vidux-plan-gc-cron.sh` | Scheduled wrapper around `vidux-plan-gc.py`. |
 | `scripts/vidux-inbox-sync.py` | Round-trip sync between `PLAN.md` state and external kanban adapters. |
-| `scripts/vidux-pr-body.py` | Builds the canonical ready-PR body with `Lane:`, `Plan task:`, `Resume point:`, and change bullets. |
+| `scripts/vidux-pr-body.py` | Builds the canonical ready-PR body with lane, plan, proof, ledger, handoff, claimed-file, resume, and change fields. |
+| `scripts/vidux-publish-scrutiny.py` | Read-only preflight for publish packets. It fails closed unless plan/proof/ledger/handoff/file/claim/resume metadata exists and invariant, regression, and adversarial review passes are recorded as passing. |
+| `scripts/vidux-claims.py` | Append-only claims bus for claiming, releasing, and listing active repo surfaces in `~/.agent-ledger/claims.jsonl`. |
 
 ## Checkpoint script contract
 
@@ -32,7 +34,7 @@ If you wire it into an app-level `afterTask` event, wrap it with the task-specif
 | `scripts/vidux-doctor.sh` | Runtime health checks for plans, worktrees, and automation state. |
 | `scripts/vidux-test-all.sh` | Comprehensive self-test harness for contract tests and related checks. |
 | `scripts/vidux-fleet-quality.sh` | Classifies automation runs into quick, deep, mid, and normal quality buckets. |
-| `scripts/vidux-worktree-gc.py` | Read-only by default. Classifies worktrees into `primary`, `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `unknown`; with `--apply --yes`, removes only `merged_clean` worktrees and protects both the primary checkout and the invocation checkout from removal. |
+| `scripts/vidux-worktree-gc.py` | Read-only by default. Classifies worktrees into `primary`, `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `unknown`, and emits a `next_owner_action` for each worktree so cleanup reviews have an explicit resume point; with `--apply --yes`, removes only `merged_clean` worktrees and protects both the primary checkout and the invocation checkout from removal. |
 
 ## Codex maintenance scripts
 

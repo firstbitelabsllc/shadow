@@ -71,6 +71,7 @@ It's also the right surface for tasks where voice is awkward — pasting a long 
 
 - [completed] **T11**: Provider readiness + local reasoning controls. `/chat` shows local/claude/codex readiness, defaults to a working provider, and lets Leo choose fast/steady/deep for local models without pretending every model supports thinking tokens.
 - [completed] **T12**: Coding-lane handoff from chat. A user turn can stage a local coding handoff that opens the `/coding` workbench with session/turn context instead of requiring Leo to copy/paste the prompt.
+- [completed] **T13**: Local model inventory + reasoning truth. `/api/chat/providers` reports the selected Ollama model, installed local models, context/output budgets per reasoning level, and whether the current model actually supports Ollama `think`; `/chat` shows that state inline so Leo can see when Deep is bigger-budget versus true thinking tokens.
 
 ## Decision Log
 
@@ -97,6 +98,7 @@ It's also the right surface for tasks where voice is awkward — pasting a long 
 | T10: LAN session sharing | [completed] | codex | — | T7 | 2026-05-24 (`share-route.test.ts` + browser proof `/tmp/moussey-chat-proof-final.png` show `leos-mac-studio-10442.local:4321/chat?session=...&readonly=1`.) |
 | T11: Provider readiness + local reasoning controls | [completed] | codex | — | T2 | 2026-05-24 (`/api/chat/providers` reports local ready, codex ready, claude auth warning; browser proof shows Fast/Steady/Deep controls.) |
 | T12: Coding-lane handoff from chat | [completed] | codex | — | T1, agentic-coding-workbench C4 | 2026-05-24 (`POST /api/coding/handoffs` test + live handoff `b446c42d-dc7d-4128-9db8-0cba0fedf47c` opened `/coding` with Run Local Smoke controls; proof `/tmp/moussey-chat-coding-handoff-loaded-proof.png`.) |
+| T13: Local model inventory + reasoning truth | [completed] | codex | — | T11 | 2026-05-24 (`lib/local-model-runtime.ts`, `/api/chat/providers`, and `/chat` now expose selected model `qwen2.5:0.5b`, installed Ollama models, Fast/Steady/Deep ctx/out budgets, and `thinking unavailable` for qwen2.5; proof `/tmp/moussey-c24-local-model-chat-ui.png`.) |
 
 ## Two-agent coordination
 
@@ -118,3 +120,17 @@ The two surfaces are intentionally siblings, not phases of the same product:
 - [2026-05-22] Plan created. Architecture locked. Phase 0 stubs already shipped (brain-dispatcher B1+R1 [completed], 12 tests passing) so T2 is interface-ready as soon as brain-dispatcher B2 (claude provider) lands. T1 (page UI) is unblocked NOW since it only needs the textarea + SSE consumer pattern.
 - [2026-05-24] Reconciled the plan with current Moussey code before continuing: `/chat` already contains markdown/code rendering, session persistence/listing, history continuation, file attachments, read-only LAN sharing, provider readiness, local reasoning controls, peer target routing, and a coding-lane handoff button. Holding T4-T12 in `[in_progress]` until this cycle adds the missing route regressions plus local browser/API proof.
 - [2026-05-24] Closed T4-T12 for `/chat` and `/api/chat/ask`. Added regressions for session continuation prompt injection, assistant persistence, session list route, and single-session load route. Fixed direct `?session=` loads so the sidebar refreshes instead of showing "No saved sessions." Verification: `npm run test:brain-dispatcher` (80/80), `npx tsc --noEmit`, `npm run build` (passes with known Turbopack NFT warning on `trigger-send`), `scripts/moussey-trigger-doctor --brief` accepting, `bin/vidux-browse health`, live local SSE session `codex-proof-20260524T052320Z`, browser proof `/tmp/moussey-chat-proof-final.png`, share proof embedded there, and coding handoff proof `/tmp/moussey-chat-coding-handoff-loaded-proof.png`.
+- [2026-05-24] Closed T13 after Leo asked whether open models can dial up reasoning and whether Qwen/Gemma-style models are truly thinking. Shared `lib/local-model-runtime.ts` now drives both `brain-dispatcher` runtime options and `/api/chat/providers`; live provider API reports only `qwen2.5:0.5b` installed, with Deep = `num_ctx 16384` + `num_predict 2048` but no Ollama `think` field because qwen2.5 is not in the thinking-family allowlist. Verification: focused local-model/chat-provider tests 16/16, `npm run test:brain-dispatcher` 122/122, `npm run test:cleaner` 116/116, TypeScript, standalone rebuild/restart, live `/api/chat/providers`, live `/api/health`, and browser proof `/tmp/moussey-c24-local-model-chat-ui.png`.
+
+
+---
+
+## PSA — 2026-05-26 — Fleet UX/UI lane split codified
+
+- **Claude Code owns ALL UX/UI work fleet-wide.** Codex agents must stay on backend / logic / lanes / workers / API.
+- **Disambiguator:** "is this rendered to a human?" → Claude. "Does this read/write data, run a CLI, or expose an HTTP endpoint?" → Codex.
+- **Canonical visualization layer:** [Litty](file:///Users/leokwan/Development/litty) at `http://localhost:4400` (the operator cockpit). Federates moussey's `/api/coding/*` APIs. Replaces the 12,062-line `moussey/app/coding/page.tsx` rot.
+- **15 routes shipped 2026-05-26:** `/`, `/lanes`, `/lanes/[laneId]`, `/runs`, `/runs/[runId]`, `/runs/[runId]/patch`, `/runs/[runId]/stream`, `/workers`, `/workers/[workerId]`, `/handoffs`, `/handoffs/[handoffId]`, `/capabilities`, `/api/health`, `/api/proxy/coding/[...path]`, plus sibling-shipped `/api/operating-readout`, `/api/proofs`, `/api/repo-catalog`.
+- **Plan:** `~/Development/vidux/projects/litty/PLAN.md` (canonical). Research at `~/Development/vidux/projects/litty/research/` (~30k words, 11 deep-research agents).
+- **Codex agents seeing UX/UI work in this project's queue:** redirect to backend tasks (federation contracts, FirstBite lanes, MCP, repo-backed catalog snapshots, the moussey-side PRs documented as Phase 3.5 unblockers).
+- **Reference:** `/pilot-leo § Agent lane splits — codify in the project, not here (2026-05-24)` (the disambiguator pattern).

@@ -198,6 +198,11 @@ test.describe('auto-refresh polling', () => {
     await expect(page.locator('#comment-list')).toContainText('poll-loaded comment');
     await expect(page.locator('.pane-tabs button.is-active')).toHaveText('INBOX.md');
 
+    const sidebarToggle = page.locator('#sidebar-toggle');
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
+    }
     await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
     await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version A');
 
