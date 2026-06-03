@@ -72,9 +72,9 @@ On the second `/vidux` invocation:
 2. **ASSESS**: first pending task has evidence → ready to code
 3. **ACT**: sets task to `[in_progress]`, executes it
 4. **VERIFY**: runs build and tests, shows proof
-5. **CHECKPOINT**: structured commit, updates Progress log
+5. **CHECKPOINT**: updates the plan/progress record and emits the publish ledger row before any branch/PR/release publish
 
-The commit format:
+When code changed, the local commit can still be concise:
 
 ```
 vidux: add rate limiting to login endpoint
@@ -84,6 +84,10 @@ vidux: add rate limiting to login endpoint
 - Tests: auth.test.ts passes (12/12)
 ```
 
+The durable handoff is the owning `PLAN.md` update plus the matching publish
+ledger row with task id, proof, handoff status, files claimed, and next-agent
+resume.
+
 ## 6. Crash Recovery
 
 If a session dies mid-task, the next cycle auto-recovers:
@@ -92,10 +96,11 @@ If a session dies mid-task, the next cycle auto-recovers:
 CRASH RECOVERY: uncommitted work detected
 git diff shows changes to src/auth/login.ts
 
-Committing: "vidux: recover uncommitted work from crashed session"
+Preserving WIP: map changes to the owning PLAN.md row
+Recording: plan + ledger handoff before commit/push/cleanup
 ```
 
-The agent commits the in-progress work, then continues from the last checkpoint.
+The agent preserves the in-progress work first, records a plan/ledger handoff, then commits only after the plan/ledger packet exists and only if code changed.
 
 ## 7. When All Tasks Complete
 

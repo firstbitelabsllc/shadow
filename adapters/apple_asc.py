@@ -9,10 +9,12 @@ to a downstream PM board automatically — closing the loop on
 `scripts/vidux-asc-bridge.py` one-shot script.
 
 Apple does NOT publish a public API for marking TestFlight / ASC beta
-feedback as handled — the source of truth for handled state is the
-tracker file itself (`<repo>/.cursor/plans/app-store-feedback.plan.md`),
+feedback as handled, so handled-state authority stays with the repo-local
+tracker file (`<repo>/.cursor/plans/app-store-feedback.plan.md`),
 maintained out-of-band by `ruby scripts/asc_beta_feedback.rb sync-plan`.
-This adapter is therefore READ-only:
+This adapter reads that scoped tracker authority but never replaces the
+owning PLAN.md plus publish ledger packet for shipped-work recovery. It is
+therefore READ-only:
 
   - `fetch_inbox()` — parses the `## Open` section of the tracker file
     and returns one `ExternalItem` per row.
@@ -144,8 +146,8 @@ class AppleAscAdapter(AdapterBase):
 
         The sync script interprets `None` as "leave the PLAN.md status
         unchanged", which is the correct behavior for a read-only
-        feedback source — Leo's hand on the tracker file is the
-        authoritative status mutation, not the agent.
+        feedback source — Leo's hand on the tracker-file edit is the
+        status mutation authority, not the agent.
         """
         return None
 

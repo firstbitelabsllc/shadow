@@ -26,7 +26,7 @@ Vidux uses **prompt** hooks for plan compliance. Here is why:
 
 ## Hook 1: PreToolUse — Write/Edit Gate
 
-**Doctrine enforced:** #2 (Unidirectional flow), #1 (Plan is truth)
+**Doctrine enforced:** #2 (Unidirectional flow), #1 (Plan authority)
 
 **Trigger:** Before any `Write` or `Edit` tool call.
 
@@ -43,7 +43,7 @@ Vidux uses **prompt** hooks for plan compliance. Here is why:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. The plan is truth. Code is derived from it. All code changes flow from plan entries."
+            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. PLAN.md is the queue/planning authority. All code changes flow from plan entries."
           }
         ]
       }
@@ -146,7 +146,7 @@ Same reasoning as Hook 1. Drift is a judgment call. The agent needs to compare t
 
 **Trigger:** When the agent session ends (user stops, timeout, or agent completes).
 
-**What it does:** Reminds the agent to write a checkpoint before dying. Every session must leave behind a structured progress entry so the next session can resume.
+**What it does:** Reminds the agent to write a checkpoint before dying. Every shipped session must leave behind a structured plan/ledger packet so the next session can resume from the owning plan plus the matching ledger row.
 
 ### Configuration
 
@@ -158,7 +158,7 @@ Same reasoning as Hook 1. Drift is a judgment call. The agent needs to compare t
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated PLAN.md Progress section with: date, cycle number, what happened, what's next, any blockers.\n2. Checked off any completed tasks in PLAN.md (- [x] with [Done: date]).\n3. Committed all changes with message format: vidux: [summary]\n4. If you have NOT updated the Progress section, do it now. Run vidux-checkpoint.sh or manually update PLAN.md.\n\nThe next session is a different agent. It knows nothing except what's in the files. Leave it a clear trail."
+            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.\n2. Emitted a publish ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.\n3. Committed only after the plan/ledger packet exists, and only if code changed.\n4. If no work shipped, leave a plan/ledger handoff or blocker note instead of inventing a commit.\n\nThe next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail."
           }
         ]
       }
@@ -173,12 +173,12 @@ When the agent is about to stop:
 
 > VIDUX CHECKPOINT: Before this session ends, ensure you have:
 >
-> 1. Updated PLAN.md Progress section with: date, cycle number, what happened, what's next, any blockers.
-> 2. Checked off any completed tasks in PLAN.md.
-> 3. Committed all changes.
-> 4. If you have NOT updated the Progress section, do it now.
+> 1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.
+> 2. Emitted a publish ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.
+> 3. Committed only after the plan/ledger packet exists, and only if code changed.
+> 4. If no work shipped, left a plan/ledger handoff or blocker note instead of inventing a commit.
 >
-> The next session is a different agent. It knows nothing except what's in the files. Leave it a clear trail.
+> The next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail.
 
 ### Why prompt, not command
 
@@ -200,11 +200,11 @@ However, you CAN pair this prompt hook with a command hook that runs a lightweig
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have updated PLAN.md Progress section, checked off completed tasks, and committed all changes. The next session knows nothing except what's in the files."
+            "prompt": "VIDUX CHECKPOINT: Before this session ends, update the owning PLAN.md Progress/Tasks/Drift Log, emit a publish ledger row for shipped work with proof, handoff_status, files claimed, claims, and resume, then commit only after that packet exists and only if code changed. The next session knows nothing except what's in the files and matching ledger row."
           },
           {
             "type": "command",
-            "command": "bash -c 'PLAN=$(find . -maxdepth 3 -name PLAN.md -path \"*/vidux/*\" 2>/dev/null | head -1); if [ -n \"$PLAN\" ] && ! grep -q \"$(date +%Y-%m-%d)\" \"$PLAN\" 2>/dev/null; then echo \"WARNING: PLAN.md has no progress entry for today. Run vidux-checkpoint.sh before stopping.\"; fi'",
+            "command": "bash -c 'PLAN=$(find . -maxdepth 3 -name PLAN.md -path \"*/vidux/*\" 2>/dev/null | head -1); if [ -n \"$PLAN\" ] && ! grep -q \"$(date +%Y-%m-%d)\" \"$PLAN\" 2>/dev/null; then echo \"WARNING: PLAN.md has no progress entry for today. Record the plan plus ledger handoff before stopping.\"; fi'",
             "async": true
           }
         ]
@@ -220,11 +220,11 @@ The command hook here is `async: true` — it prints a warning but does not bloc
 
 ## Hook 4: SessionStart — Resume Protocol
 
-**Doctrine enforced:** #5 (Design for completion), #1 (Plan is truth)
+**Doctrine enforced:** #5 (Design for completion), #1 (Plan authority)
 
 **Trigger:** When a new session starts.
 
-**What it does:** Injects a directive to read PLAN.md first and find where the previous session left off. This is the "design for completion" principle in action: every session starts by reading the files, not by remembering anything.
+**What it does:** Injects a directive to read PLAN.md and the latest matching ledger row first. This is the "design for completion" principle in action: every session starts by reading durable files and ledger proof, not by remembering anything.
 
 ### Configuration
 
@@ -236,7 +236,7 @@ The command hook here is `async: true` — it prints a warning but does not bloc
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry — that's where the previous session left off.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, commit it first.\n5. Find the first unchecked task (- [ ]) — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. The plan is truth. Code is derived from it."
+            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry and matching publish/handoff ledger row — that's where shipped work resumes.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.\n5. Find the highest-priority unblocked task — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. PLAN.md is the queue/planning authority; matching publish ledger rows prove shipped work."
           }
         ]
       }
@@ -249,20 +249,20 @@ The command hook here is `async: true` — it prints a warning but does not bloc
 
 When the agent wakes up:
 
-> VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md:
+> VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:
 >
 > 1. Read PLAN.md -- find the Purpose, then go to the Progress section.
-> 2. Find the last progress entry -- that's where the previous session left off.
+> 2. Find the last progress entry and matching publish/handoff ledger row -- that's where shipped work resumes.
 > 3. Check for uncommitted work: run git status and git diff --stat.
-> 4. If uncommitted work exists from a crashed session, commit it first.
-> 5. Find the first unchecked task -- that's your job this session.
+> 4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.
+> 5. Find the highest-priority unblocked task -- that's your job this session.
 > 6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.
 
 ### Why this is essential
 
 Without this hook, a fresh session starts with whatever the user's prompt says. The agent has no idea there's a plan, a progress log, or a queue of tasks. It will do what the user says — which might be "implement the feature" — and skip straight to code.
 
-The SessionStart hook ensures the agent's FIRST act is reading the plan. This is the single highest-leverage enforcement in Vidux. If the agent reads the plan, the other hooks are safety nets. If the agent skips the plan, the other hooks are fighting an uphill battle.
+The SessionStart hook ensures the agent's FIRST act is reading the plan and newest matching ledger row. This is the highest-leverage enforcement in Vidux. If the agent reads the plan and ledger, the other hooks are safety nets. If the agent skips them, the other hooks are fighting an uphill battle.
 
 ### Why prompt, not command
 
@@ -282,7 +282,7 @@ If you want both — the directive AND a quick summary — pair with a command:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Read PLAN.md first. Find the last Progress entry. Check git status for uncommitted work. Find the first unchecked task. Follow the loop: Gather -> Plan -> Execute -> Verify -> Checkpoint."
+            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Read PLAN.md and the latest matching ledger row first. Find the last Progress entry, check git status for uncommitted work, preserve crashed-session WIP before cleanup or commit, then find the highest-priority unblocked task. Follow the loop: Gather -> Plan -> Execute -> Verify -> Checkpoint."
           },
           {
             "type": "command",
@@ -310,7 +310,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. The plan is truth. Code is derived from it. All code changes flow from plan entries."
+            "prompt": "VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:\n\n1. STOP — do not proceed with the edit yet.\n2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.\n3. Then return to the edit.\n\nIf the file IS covered by an existing task, proceed normally. PLAN.md is the queue/planning authority. All code changes flow from plan entries."
           }
         ]
       }
@@ -331,7 +331,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated PLAN.md Progress section with: date, cycle number, what happened, what's next, any blockers.\n2. Checked off any completed tasks in PLAN.md (- [x] with [Done: date]).\n3. Committed all changes with message format: vidux: [summary]\n4. If you have NOT updated the Progress section, do it now. Run vidux-checkpoint.sh or manually update PLAN.md.\n\nThe next session is a different agent. It knows nothing except what's in the files. Leave it a clear trail."
+            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.\n2. Emitted a publish ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.\n3. Committed only after the plan/ledger packet exists, and only if code changed.\n4. If no work shipped, leave a plan/ledger handoff or blocker note instead of inventing a commit.\n\nThe next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail."
           }
         ]
       }
@@ -341,7 +341,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry — that's where the previous session left off.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, commit it first.\n5. Find the first unchecked task (- [ ]) — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. The plan is truth. Code is derived from it."
+            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry and matching publish/handoff ledger row — that's where shipped work resumes.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.\n5. Find the highest-priority unblocked task — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. PLAN.md is the queue/planning authority; matching publish ledger rows prove shipped work."
           }
         ]
       }

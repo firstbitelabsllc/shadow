@@ -3,8 +3,9 @@
 An adapter plugs an external kanban / issue-tracker into vidux as an
 `inbox_sources` entry in `vidux.config.json`. The external board becomes a
 live, bi-directional view of PLAN.md `[pending]` + `[in_progress]` +
-`[in_review]` tasks. PLAN.md stays the source of truth; the adapter round-
-trips status + custom fields; the sync script reconciles.
+`[in_review]` tasks. PLAN.md stays the queue/planning authority, publish
+ledger rows carry shipped-cycle proof/resume, and the adapter round-trips
+status + custom fields; the sync script reconciles.
 
 Adapters shipped today:
 
@@ -21,7 +22,7 @@ Adapters shipped today:
 `apple_asc` is the first feedback-tracker-shaped adapter (as opposed
 to a PM-board adapter like `gh_projects`). Apple does NOT
 publish a public API for marking TestFlight / ASC beta feedback
-handled, so the source of truth is a repo-local tracker file —
+handled, so the handled-state authority is a repo-local tracker file —
 typically `<repo>/.cursor/plans/app-store-feedback.plan.md` —
 maintained out-of-band by `ruby scripts/asc_beta_feedback.rb sync-plan`.
 
@@ -31,7 +32,7 @@ The adapter is READ-only:
   `## Open` section and returns one `ExternalItem` per row.
 - `pull_status` returns `None` — the sync script treats this as
   "leave the PLAN.md status unchanged"; the tracker file is the
-  authoritative status mutation, not the agent.
+  status mutation authority, not the agent.
 - `pull_fields` returns `{}`.
 - `push_task` / `push_status` / `push_fields` raise
   `NotImplementedError("Apple ASC has no public API for marking

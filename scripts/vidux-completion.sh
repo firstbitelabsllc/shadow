@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Canonical subcommand list. Order matches print_top_help() in bin/vidux.
-VIDUX_SUBCOMMANDS="dev browse status init drift signpost doctor build release completion help"
+VIDUX_SUBCOMMANDS="dev browse status init drift config signpost http-smoke doctor build release completion help"
 VIDUX_FLAGS="--help -h --version -v"
 
 print_usage() {
@@ -45,14 +45,48 @@ _vidux_complete() {
   fi
 
   case "\${COMP_WORDS[1]}" in
-    help|completion)
+    help)
       if [ "\$COMP_CWORD" -eq 2 ]; then
         COMPREPLY=( \$(compgen -W "\${subcommands}" -- "\${cur}") )
         return 0
       fi
       ;;
+    completion)
+      if [ "\$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( \$(compgen -W "bash zsh fish --help -h" -- "\${cur}") )
+        return 0
+      fi
+      ;;
     dev)
       COMPREPLY=( \$(compgen -W "--bg --help -h" -- "\${cur}") )
+      return 0
+      ;;
+    browse)
+      COMPREPLY=( \$(compgen -W "--no-open --foreground -f --port --host --root --open-host --comments-path --help -h" -- "\${cur}") )
+      return 0
+      ;;
+    status)
+      COMPREPLY=( \$(compgen -W "--root --focus --all --json --help -h" -- "\${cur}") )
+      return 0
+      ;;
+    config)
+      if [ "\$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( \$(compgen -W "path check show init --help -h" -- "\${cur}") )
+      else
+        COMPREPLY=( \$(compgen -W "--config --json --strict --path --source --force --help -h" -- "\${cur}") )
+      fi
+      return 0
+      ;;
+    signpost)
+      if [ "\$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( \$(compgen -W "emit summary trace wrap lifecycle-smoke spawned-subagent-smoke --help -h" -- "\${cur}") )
+      else
+        COMPREPLY=( \$(compgen -W "--feature --action --status --duration-ms --exit-code --called --emitter --meta --log --run-id --runtime --limit --json --help -h" -- "\${cur}") )
+      fi
+      return 0
+      ;;
+    http-smoke)
+      COMPREPLY=( \$(compgen -W "--url --timeout --max-sample-bytes --json --help -h" -- "\${cur}") )
       return 0
       ;;
     *)
@@ -75,13 +109,15 @@ _vidux() {
   subcommands=(
     'dev:Start the local dev browser (foreground; auto-restart)'
     'browse:Launch the plan browser at :7191'
-    'status:Print active-plan status across projects/*/PLAN.md'
+    'status:Print plan status across operational PLAN.md files'
     'init:Bootstrap a new plan PLAN.md from template'
     'drift:Record planned-vs-actual drift in PLAN.md'
+    'config:Inspect, validate, or initialize local vidux.config.json'
     'signpost:Emit or summarize local feature signposts'
+    'http-smoke:Classify local HTTP monitor budget responses'
     'doctor:Diagnose local toolchain + auth'
     'build:Run docs:build + contract tests as release gate'
-    'release:Bump VERSION, tag, push'
+    'release:Plan/ledger-gated release tag + push'
     'completion:Emit a shell completion script (bash|zsh|fish)'
     'help:Show help for vidux or a subcommand'
   )
@@ -101,12 +137,78 @@ _vidux() {
       ;;
     args)
       case \$line[1] in
-        help|completion)
+        help)
           _describe -t commands 'subcommand' subcommands
+          ;;
+        completion)
+          _values 'shell' \\
+            'bash[Emit bash completion]' \\
+            'zsh[Emit zsh completion]' \\
+            'fish[Emit fish completion]'
+          _values 'flag' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
           ;;
         dev)
           _values 'flag' \\
             '--bg[Background mode]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
+        browse)
+          _values 'flag' \\
+            '--no-open[Do not open a browser]' \\
+            '--foreground[Run in foreground]' \\
+            '-f[Run in foreground]' \\
+            '--port[Bind or reuse port]' \\
+            '--host[Server bind host]' \\
+            '--root[Scan root for PLAN.md files]' \\
+            '--open-host[Browser URL host]' \\
+            '--comments-path[Comments JSONL path]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
+        status)
+          _values 'flag' \\
+            '--root[Root path to scan]' \\
+            '--focus[Repo name to prioritize]' \\
+            '--all[Include empty, shipped, and stale tracked rows]' \\
+            '--json[Print JSON]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
+        config)
+          _values 'config command' path check show init
+          _values 'flag' \\
+            '--config[Explicit config path]' \\
+            '--json[Print JSON]' \\
+            '--strict[Require live config]' \\
+            '--path[Destination path]' \\
+            '--source[Source config]' \\
+            '--force[Overwrite destination]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
+        signpost)
+          _values 'signpost command' emit summary trace wrap lifecycle-smoke spawned-subagent-smoke
+          _values 'flag' \\
+            '--feature[Feature name]' \\
+            '--action[Action name]' \\
+            '--status[Event status]' \\
+            '--log[Log path]' \\
+            '--run-id[Filter run id]' \\
+            '--runtime[Runtime attribution]' \\
+            '--limit[Limit trace rows]' \\
+            '--json[Print JSON]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
+        http-smoke)
+          _values 'flag' \\
+            '--url[URL to smoke]' \\
+            '--timeout[Total budget per URL in seconds]' \\
+            '--max-sample-bytes[Maximum response sample bytes]' \\
+            '--json[Print JSON]' \\
             '--help[Show help]' \\
             '-h[Show help]'
           ;;
@@ -139,13 +241,15 @@ end
 complete -c vidux -f
 complete -c vidux -n '__vidux_no_subcommand' -a dev        -d 'Start the local dev browser (foreground; auto-restart)'
 complete -c vidux -n '__vidux_no_subcommand' -a browse     -d 'Launch the plan browser at :7191'
-complete -c vidux -n '__vidux_no_subcommand' -a status     -d 'Print active-plan status across projects/*/PLAN.md'
+complete -c vidux -n '__vidux_no_subcommand' -a status     -d 'Print plan status across operational PLAN.md files'
 complete -c vidux -n '__vidux_no_subcommand' -a init       -d 'Bootstrap a new plan PLAN.md from template'
 complete -c vidux -n '__vidux_no_subcommand' -a drift      -d 'Record planned-vs-actual drift in PLAN.md'
+complete -c vidux -n '__vidux_no_subcommand' -a config     -d 'Inspect, validate, or initialize local vidux.config.json'
 complete -c vidux -n '__vidux_no_subcommand' -a signpost   -d 'Emit or summarize local feature signposts'
+complete -c vidux -n '__vidux_no_subcommand' -a http-smoke -d 'Classify local HTTP monitor budget responses'
 complete -c vidux -n '__vidux_no_subcommand' -a doctor     -d 'Diagnose local toolchain + auth'
 complete -c vidux -n '__vidux_no_subcommand' -a build      -d 'Run docs:build + contract tests as release gate'
-complete -c vidux -n '__vidux_no_subcommand' -a release    -d 'Bump VERSION, tag, push'
+complete -c vidux -n '__vidux_no_subcommand' -a release    -d 'Plan/ledger-gated release tag + push'
 complete -c vidux -n '__vidux_no_subcommand' -a completion -d 'Emit a shell completion script'
 complete -c vidux -n '__vidux_no_subcommand' -a help       -d 'Show help for vidux or a subcommand'
 
@@ -155,9 +259,52 @@ complete -c vidux -n '__vidux_no_subcommand' -l version -s v -d 'Print vidux ver
 complete -c vidux -n '__fish_seen_subcommand_from dev' -l bg                       -d 'Background mode'
 complete -c vidux -n '__fish_seen_subcommand_from dev' -l help    -s h             -d 'Show help'
 
-complete -c vidux -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'   -d 'Target shell'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l no-open               -d 'Do not open a browser'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l foreground -s f       -d 'Run in foreground'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l port                  -d 'Bind or reuse port'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l host                  -d 'Server bind host'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l root                  -d 'Scan root for PLAN.md files'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l open-host             -d 'Browser URL host'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l comments-path         -d 'Comments JSONL path'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l help  -s h            -d 'Show help'
 
-complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status init drift signpost doctor build release completion'
+complete -c vidux -n '__fish_seen_subcommand_from status' -l root                  -d 'Root path to scan'
+complete -c vidux -n '__fish_seen_subcommand_from status' -l focus                 -d 'Repo name to prioritize'
+complete -c vidux -n '__fish_seen_subcommand_from status' -l all                   -d 'Include empty, shipped, and stale tracked rows'
+complete -c vidux -n '__fish_seen_subcommand_from status' -l json                  -d 'Print JSON'
+complete -c vidux -n '__fish_seen_subcommand_from status' -l help  -s h            -d 'Show help'
+
+complete -c vidux -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'   -d 'Target shell'
+complete -c vidux -n '__fish_seen_subcommand_from completion' -l help -s h         -d 'Show help'
+
+complete -c vidux -n '__fish_seen_subcommand_from config' -a 'path check show init'               -d 'Config command'
+complete -c vidux -n '__fish_seen_subcommand_from config' -l config               -d 'Explicit config path'
+complete -c vidux -n '__fish_seen_subcommand_from config' -l json                 -d 'Print JSON'
+complete -c vidux -n '__fish_seen_subcommand_from config' -l strict               -d 'Require live config'
+complete -c vidux -n '__fish_seen_subcommand_from config' -l path                 -d 'Destination path'
+complete -c vidux -n '__fish_seen_subcommand_from config' -l source               -d 'Source config'
+complete -c vidux -n '__fish_seen_subcommand_from config' -l force                -d 'Overwrite destination'
+complete -c vidux -n '__fish_seen_subcommand_from config' -l help -s h             -d 'Show help'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -a 'emit summary trace wrap lifecycle-smoke spawned-subagent-smoke' -d 'Signpost command'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l feature             -d 'Feature name'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l action              -d 'Action name'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l status              -d 'Event status'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l duration-ms         -d 'Duration in milliseconds'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l exit-code           -d 'Exit code'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l called              -d 'Wrapped command name'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l emitter             -d 'Emitter runtime'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l meta                -d 'Metadata key=value'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l log                 -d 'Log path'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l run-id              -d 'Filter run id'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l runtime             -d 'Runtime attribution'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l limit               -d 'Limit trace rows'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l json                -d 'Print JSON'
+complete -c vidux -n '__fish_seen_subcommand_from signpost' -l help -s h            -d 'Show help'
+complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l url              -d 'URL to smoke'
+complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l timeout          -d 'Total budget per URL in seconds'
+complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l max-sample-bytes -d 'Maximum response sample bytes'
+complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l json             -d 'Print JSON'
+complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status init drift config signpost http-smoke doctor build release completion help'
 EOF
 }
 

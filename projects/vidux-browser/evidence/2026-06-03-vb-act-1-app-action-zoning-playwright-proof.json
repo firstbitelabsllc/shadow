@@ -1,0 +1,120 @@
+[
+  {
+    "view": "desktop",
+    "url": "http://127.0.0.1:7191/?plan=vidux%2Fprojects%2Fvidux-browser%2FPLAN.md&tab=PLAN.md",
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "zones": [
+      "status-header",
+      "app-shell",
+      "navigation-sidebar",
+      "content-pane",
+      "mode-detail",
+      "floating-action",
+      "footer-player",
+      "mode-popover"
+    ],
+    "tokenOrder": {
+      "header": 20,
+      "footer": 30,
+      "action": 40,
+      "popover": 50
+    },
+    "layout": {
+      "footer": {
+        "x": 16,
+        "y": 643,
+        "width": 1248,
+        "height": 63,
+        "top": 643,
+        "right": 1264,
+        "bottom": 706,
+        "left": 16
+      },
+      "fab": {
+        "x": 1164,
+        "y": 584,
+        "width": 98,
+        "height": 34,
+        "top": 584,
+        "right": 1262,
+        "bottom": 618,
+        "left": 1164
+      },
+      "popover": {
+        "x": 398,
+        "y": 289,
+        "width": 380,
+        "height": 228,
+        "top": 289,
+        "right": 778,
+        "bottom": 517,
+        "left": 398
+      },
+      "fabClearsFooter": true,
+      "popoverAboveAction": true,
+      "horizontalOverflow": false
+    }
+  },
+  {
+    "view": "mobile",
+    "url": "http://127.0.0.1:7191/?plan=vidux%2Fprojects%2Fvidux-browser%2FPLAN.md&tab=PLAN.md",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "zones": [
+      "status-header",
+      "app-shell",
+      "navigation-sidebar",
+      "content-pane",
+      "mode-detail",
+      "floating-action",
+      "footer-player",
+      "mode-popover"
+    ],
+    "tokenOrder": {
+      "header": 20,
+      "footer": 30,
+      "action": 40,
+      "popover": 50
+    },
+    "layout": {
+      "footer": {
+        "x": 10,
+        "y": 734,
+        "width": 370,
+        "height": 100,
+        "top": 734,
+        "right": 380,
+        "bottom": 834,
+        "left": 10
+      },
+      "fab": {
+        "x": 280,
+        "y": 660,
+        "width": 98,
+        "height": 34,
+        "top": 660,
+        "right": 378,
+        "bottom": 694,
+        "left": 280
+      },
+      "popover": {
+        "x": 12,
+        "y": 504,
+        "width": 366,
+        "height": 228,
+        "top": 504,
+        "right": 378,
+        "bottom": 732,
+        "left": 12
+      },
+      "fabClearsFooter": true,
+      "popoverAboveAction": true,
+      "horizontalOverflow": false
+    }
+  }
+]

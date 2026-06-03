@@ -18,7 +18,7 @@ sedi() { if [[ "$(uname)" == "Darwin" ]]; then sed -i '' "$@"; else sed -i "$@";
 usage() {
   cat <<'USAGE'
 Usage:
-  vidux-checkpoint.sh <plan-path> <task-description> <summary> [--blocker <text>] [--status <done|done_with_concerns|blocked>]
+  vidux-checkpoint.sh <plan-path> <task-description> <summary> [--blocker <text>] [--status <done|done_with_concerns|blocked>] [--outcome <useful|busy|blocked_clarified>]
   vidux-checkpoint.sh <plan-path> --archive
 USAGE
   exit 1
@@ -308,20 +308,20 @@ if [[ "$DRIFT_ADVISORY_COUNT" =~ ^[0-9]+$ ]] && [[ "$DRIFT_ADVISORY_COUNT" -gt 0
   printf '%s' "$DRIFT_ADVISORY_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); [print("  - {} [source: {}]".format(item.get("prevention"), item.get("source_drift_id"))) for item in data.get("suggestions", [])]' >&2 || true
 fi
 
-# --- Commit (propagate failures — a failed commit means the checkpoint did not land) ---
-git add "$PLAN"
-if ! git commit -m "vidux: ${SUMMARY}"; then
-  echo "Error: git commit failed — checkpoint not saved" >&2
-  exit 1
+# --- Emit checkpoint ledger before git transport --------------------------- #
+if type vidux_emit_checkpoint &>/dev/null 2>&1; then
+  _PROJECT_NAME="$(basename "$PLAN_DIR")"
+  if ! vidux_emit_checkpoint "$_PROJECT_NAME" "$PLAN" "" "$STATUS" "$NEXT_TASK" "$TASK"; then
+    echo "Error: ledger checkpoint emit failed - git transport not attempted" >&2
+    exit 1
+  fi
 fi
 
-# --- emit ledger checkpoint event ------------------------------------------ #
-if type vidux_emit_checkpoint &>/dev/null 2>&1; then
-  _COMMIT_HASH=$(git -C "$PLAN_DIR" rev-parse HEAD 2>/dev/null || echo "")
-  _PROJECT_NAME="$(basename "$PLAN_DIR")"
-  if ! vidux_emit_checkpoint "$_PROJECT_NAME" "$PLAN" "$_COMMIT_HASH" "$STATUS"; then
-    echo "Warning: ledger checkpoint emit failed; checkpoint commit still landed." >&2
-  fi
+# --- Commit (propagate failures: a failed commit means git transport did not land) ---
+git add "$PLAN"
+if ! git commit -m "vidux: ${SUMMARY}"; then
+  echo "Error: git commit failed - git transport did not land" >&2
+  exit 1
 fi
 
 echo "Checkpoint complete. Cycle ${CYCLE}: ${SUMMARY}${STATUS_NOTE}"

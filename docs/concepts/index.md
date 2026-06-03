@@ -17,13 +17,13 @@ Vidux is built on a small set of ideas, each chosen to solve a specific failure 
                        │ reads/writes
 ┌──────────────────────▼──────────────────────┐
 │                  THE STORE                  │
-│  PLAN.md + evidence/ + investigations/ + git│
+│  PLAN.md + ledger + evidence/ + git         │
 └─────────────────────────────────────────────┘
 ```
 
 - **Doctrine** — the rules. Five principles and gate patterns that govern how agents behave.
 - **The Cycle** — the loop. Five steps that every agent session follows, in order, without skipping.
-- **The Store** — the files. Where state lives: PLAN.md, evidence, investigations, git history.
+- **The Store** — the files plus ledger rows. Where queue state, evidence, investigations, shipped-cycle proof, and git transport evidence live.
 
 ## Why These Three Layers?
 
@@ -31,7 +31,7 @@ Vidux is built on a small set of ideas, each chosen to solve a specific failure 
 
 **Without the cycle**, agents skip steps under time pressure. Evidence gathering gets skipped when there's "obvious" work. Verification gets skipped when the diff "looks right." Checkpointing gets skipped when the session ends abruptly.
 
-**Without the store**, state lives in chat history or agent memory — both of which die when the session ends. Files in git are the only reliable persistence.
+**Without the store**, state lives in chat history or agent memory -- both of which die when the session ends. Repo files plus matching publish ledger rows are the reliable recovery packet; git transports the diff when code changed, but it does not replace a missing plan/ledger packet.
 
 ## Key Concepts
 

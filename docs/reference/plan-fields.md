@@ -38,7 +38,7 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 **Rules:**
 
 - A task is `[in_progress]` for at most one cycle at a time. If the session dies mid-task, the next agent resumes it.
-- A task appears in 3+ Progress entries while still `[in_progress]` → force a surface switch; the next cycle finds new evidence or the task stays blocked.
+- A task appears in 3+ Progress entries while still `[in_progress]` → force a surface switch. Default reduce mode reports the next runnable candidate in JSON; auto-blocking and Decision Log writes require explicit opt-in.
 - `[completed]` is earned by verification evidence (a command, screenshot, or build output), not by assertion. Claiming complete without evidence is a lie (SKILL.md Principle 5).
 - Status flows UP from sub-plans: an L1 task stays `[in_progress]` while its L2 investigation has any `(pending)` section.
 
@@ -73,7 +73,11 @@ The Decision Log is the **lock file** that stops stateless agents from undoing d
 
 ## Progress Entry Format
 
-One line per cycle. Leaner than a checkpoint commit — the diff tells the story, the Progress line orients future agents.
+One line per meaningful cycle. The Progress line orients future agents to the
+owning plan state; the matching publish ledger row carries shipped-cycle proof,
+handoff status, claimed files, and next-agent resume metadata. Git diff/log
+evidence can support the entry, but it does not replace the plan plus ledger
+packet.
 
 ```
 - [YYYY-MM-DD HH:MM] What happened. Next: what's next. Blocker: if any.
@@ -85,7 +89,8 @@ One line per cycle. Leaner than a checkpoint commit — the diff tells the story
 - Cite files when the reader needs them: `see fix at src/auth.ts:42`
 
 **Don't:**
-- Summarize the diff — that's what `git log` is for
+- Treat the diff or git log as the whole handoff — cite the task, proof, and
+  resume point instead
 - Write "everything fine" lines — if there's nothing to report, don't add an entry
 - Paraphrase the plan — reference it by task number instead
 

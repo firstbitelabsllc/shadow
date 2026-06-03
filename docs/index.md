@@ -15,12 +15,12 @@ hero:
 
 features:
   - icon: 📄
-    title: One Source of Truth
-    details: Every project has a single PLAN.md. All decisions, pivots, and progress live there. Documentation is the control plane — not chat, not memory.
+    title: One Planning Authority
+    details: Every project has one owning PLAN.md for queue, decisions, and progress. Publish ledger rows carry shipped-cycle proof and resume metadata. Chat is not the control plane.
 
   - icon: 🔄
     title: Stateless Agents
-    details: Each run starts fresh, reads the plan, does one task, checkpoints, and exits. No memory tricks. Sessions die; state lives in files committed to git.
+    details: Each run starts fresh, reads the plan, does one task, checkpoints, and exits. No memory tricks. Sessions die; durable recovery lives in repo files plus append-only ledger rows.
 
   - icon: 🌐
     title: Works Everywhere

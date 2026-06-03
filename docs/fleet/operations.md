@@ -32,6 +32,19 @@ The decision tree is simple:
 - Clear, bounded code-writing work goes to implementation dispatch.
 - Small, obvious changes stay in the parent lane.
 
+## Lifecycle observability
+
+Every dispatch cycle should leave the same local proof shape, regardless of
+whether the parent runtime is Claude Code, Codex, or an editor-bound Cursor
+lane:
+
+- `vidux config check --json` proves the local config or example fallback before plan-store assumptions.
+- `scripts/vidux-doctor.sh --json` is the beforeTask runtime health probe; `vidux doctor` remains the terminal install/readiness doctor.
+- One `VIDUX_SIGNPOST_RUN_ID` ties together `hook.beforeTask`, `subagent.spawn`, `task.verify`, and `hook.afterTask`.
+- `VIDUX_RUNTIME=claude`, `VIDUX_RUNTIME=codex`, or `VIDUX_RUNTIME=cursor` keeps spawned worker attribution honest.
+- `vidux signpost trace --run-id <id>` is the ordered call-stack receipt; `vidux signpost lifecycle-smoke --json` is the disposable trace-shape smoke; `vidux signpost spawned-subagent-smoke --json` is the disposable inherited-env attribution smoke.
+- The final handoff is still the owning `PLAN.md` plus matching publish ledger row, not the signpost log alone.
+
 ## Coordination checks
 
 The fleet operations guide makes several checks mandatory before a lane acts:
@@ -54,7 +67,7 @@ A writer on the wrong plan may waste a cycle. A scanner on the wrong gate can st
 
 The fleet guide treats PR sweep and worktree handoff as operational requirements:
 
-- Open automation PRs are the durable recovery manifest and should be swept before new branch work starts.
+- The owning `PLAN.md` plus matching publish ledger row is the durable shipped-work recovery packet; open automation PRs are transport/review handles and should be swept before new branch work starts.
 - Active worktrees should be resumed or garbage-collected instead of duplicated.
 - `vidux-worktree-gc.py` protects both the primary checkout and the checkout it is invoked from; only `merged_clean` rows are auto-removable.
 - PLAN changes should stay append-mostly so stale merges do not clobber task queues.

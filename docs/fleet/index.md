@@ -20,7 +20,7 @@ The automation guide says to automate only when all of these are true:
 
 - Work spans multiple sessions and would lose context across handoff.
 - The cycle is repeatable across fires.
-- State can live on disk in files such as `PLAN.md`, `memory.md`, and ledger data.
+- State orientation can live on disk: owning `PLAN.md`, publish ledger rows, evidence, and lane-local `memory.md` notes.
 - You accept disposable sessions in exchange for steady progress.
 
 ## When not to automate
@@ -31,6 +31,18 @@ The same guide says to stay manual when any of these are true:
 - The cycle cannot be described in a self-contained prompt.
 - The state would have to live in session memory.
 - The task is a one-off fix that can be done directly.
+
+## Shared lifecycle spine
+
+Every runtime follows the same Vidux proof spine, even though scheduling differs:
+
+1. Resolve local config with `vidux config check --json`.
+2. Run pre-task runtime health with `scripts/vidux-doctor.sh --json`, not the slower terminal `vidux doctor`.
+3. Keep one `VIDUX_SIGNPOST_RUN_ID` across the cycle and emit signposts for `hook.beforeTask`, `subagent.spawn`, `task.verify`, and `hook.afterTask`.
+4. Attribute spawned workers with `VIDUX_RUNTIME=claude`, `VIDUX_RUNTIME=codex`, or `VIDUX_RUNTIME=cursor` when the ambient session environment would otherwise mislabel the event.
+5. Finish by updating the owning `PLAN.md` plus the matching publish ledger row with proof, handoff status, files claimed, and next-agent resume.
+
+Use `vidux signpost lifecycle-smoke --json` as a local trace-shape smoke before relying on a new lane prompt. Use `vidux signpost spawned-subagent-smoke --json` when the question is inherited Codex parent env plus Claude/Cursor worker attribution. Both are local smokes, not proof that the external runtimes actually launched.
 
 ## Suggested reading order
 

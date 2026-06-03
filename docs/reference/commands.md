@@ -22,7 +22,8 @@ The command file requires stage markers for the main cycle:
 The command spec says `/vidux` should:
 
 1. Load the `vidux` skill.
-2. Read `vidux.config.json`.
+2. Resolve config with `vidux config check --json`, keeping a missing live
+   config distinct from the checked-in example fallback.
 3. Resolve the authority plan store.
 4. Read the authority `PLAN.md`, recent progress, and current git diff.
 
@@ -58,12 +59,31 @@ It also defines a 10-cell progress bar and rules for hiding stale, inactive plan
 ## Shell CLI note
 
 The executable `bin/vidux` also exposes helper subcommands that back the
-discipline. `vidux drift <PLAN.md> ...` records planned-vs-actual deviation in
-`## Drift Log`, appends Progress, and can explicitly block stale tasks, add
-follow-up tasks, or mirror the drift into subplans. The drift helper can also
-write local feedback-cache rows and emit signposts when those paths are
-supplied. Use signpost summaries to verify deep smoke runs without treating
-them as product analytics.
+discipline:
+
+- `vidux config path|check|show|init` resolves and validates the local
+  `vidux.config.json`, falling back to `vidux.config.example.json` unless
+  `--strict` is used. JSON output includes redacted inbox-source and token-file
+  metadata for operator checks.
+- `vidux drift <PLAN.md> ...` records planned-vs-actual deviation in
+  `## Drift Log`, appends Progress, and can explicitly block stale tasks, add
+  follow-up tasks, or mirror the drift into subplans.
+- `vidux signpost emit|summary|trace|wrap|lifecycle-smoke|spawned-subagent-smoke`
+  records local helper events and can print ordered call-stack proof for one
+  run id.
+- `vidux http-smoke --json --timeout 3 <url>...` classifies local HTTP monitor
+  probes as `pass`, `warn_partial`, or `fail_budget` with bounded response
+  samples, so route smokes do not dump full HTML or huge JSON into evidence.
+  JSON `ok` follows the hard-fail exit status, while `strict_ok` is false when
+  any warning is present. `--timeout` must be greater than 0, and
+  `--max-sample-bytes` must be 0 or greater.
+- `vidux doctor` runs local toolchain, auth, stale pidfile, config, and test
+  checks as an install/readiness gate. Use `scripts/vidux-doctor.sh --json`
+  for hook-safe runtime checks across plans, worktrees, automations, browser
+  processes, and Codex state. Exit codes are `0` for pass, `1` for failed
+  checks, and `2` for invalid usage.
+
+Signposts are local smoke/profiler events, not product analytics.
 
 ## Related references
 

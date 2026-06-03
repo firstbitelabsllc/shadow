@@ -340,13 +340,13 @@ FIX (if issues found):
 4. Update the owning PLAN.md Progress/Tasks or Drift Log with what changed,
    proof to run, `handoff_status`, files claimed, and next-agent resume point.
 5. Emit the publish ledger row before the branch leaves the machine:
-   `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane skill-refiner --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
+   `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane skill-refiner --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
 6. git checkout -b claude/skill-refine-<name>
 7. git add <skill-file> <test-or-doc-file> <PLAN.md>
 8. git commit -m "update: <skill> - <what changed>"
 9. git push -u origin claude/skill-refine-<name>
-10. Build a PR body carrying plan/proof/ledger/handoff/files-claimed/resume
-    fields, then open the ready PR:
+10. Build a PR body carrying summary/plan/proof/ledger/handoff/files-claimed/self-scrutiny/resume
+    fields, including the three `--review-pass` entries, then open the ready PR:
     `gh pr create --title "skill(<name>): <improvement>" --body-file /tmp/vidux-pr-body.md`
 
 ONE skill per cycle. Rotate through the full list over 24-48 hours.
@@ -386,8 +386,10 @@ ASSESS:
 ACT:
 - Trivial local notes can stay unpushed; any commit, push, or PR is a publish
   cycle and must update PLAN.md plus emit `ledger-emit.sh --event publish`
-  before the branch leaves the machine
-- Substantial changes → branch + ready PR with plan/proof/ledger/handoff/files
+  with non-empty `--summary`, `--task-id`, `--plan-path`, proof, handoff
+  status, changed file, claim, and a next-agent resume point before the branch
+  leaves the machine
+- Substantial changes → branch + ready PR with summary/plan/proof/ledger/handoff/files
   claimed/resume fields in the PR body
 - Always commit as: vidux: self-improvement - <what changed>
 
@@ -485,7 +487,8 @@ Write to memory → re-read memory → compare expected vs actual
 
 ```
 Cycle fails with external_blocker or context_overflow
-  → checkpoint failure reason to memory.md
+  → record lane-local failure reason in memory.md
+  → if blocking or handing off, update the owning PLAN.md plus ledger handoff
   → wait 5 minutes (ScheduleWakeup if same-session, next CronCreate fire if lane-based)
   → retry once with fresh context
   → second failure → mark task [blocked], add Decision Log entry, exit

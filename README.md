@@ -14,8 +14,9 @@
 
 **Plan first, code second.** Vidux is a lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.
 
-- **One source of truth** — every project has a single `PLAN.md`. All decisions, pivots, and progress live there.
-- **Stateless agents** — each run starts fresh, reads the plan, does one task, checkpoints, and exits. No memory tricks.
+- **One planning authority** — every project has a single `PLAN.md` for the queue, decisions, pivots, and progress.
+- **Proof travels with the handoff** — publish ledger rows record what shipped, how it was proved, which files were claimed, and where the next agent resumes.
+- **Stateless agents** — each run starts fresh, reads the plan plus latest proof rows, does one task, checkpoints, and exits. No memory tricks.
 - **Works everywhere** — Claude Code, Cursor, Codex. Any agent that can read markdown can pick up where the last one stopped.
 
 <p align="center">
@@ -85,7 +86,7 @@ vidux is developed on macOS but core scripts are POSIX-compatible:
 
 ## Vidux Browse
 
-Vidux also ships a local browser surface for reading plans, reviewing HTML artifacts, and leaving comments without editing the source files:
+Vidux also ships a local browser surface for reading plans, scanning the cross-plan fleet queue, reviewing HTML artifacts, and leaving comments without editing the source files:
 
 ```bash
 bin/vidux-browse
@@ -95,7 +96,11 @@ By default it opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` on
 
 The browser keeps the plan contract intact:
 
+- The default pane is a read-only fleet dashboard for in-progress tasks, blocked tasks, open `ASK-LEO.md` entries, and open `INBOX.md` entries.
+- The sidebar can filter by repo/slug/purpose, narrow with persisted hot/tasks/ETA chips, and sort the visible plan groups by `mtime`, remaining `ETA`, or freshness status.
+- Each plan has a read-only `Ledger` tab for recent publish/checkpoint proof rows from `${VIDUX_LEDGER_FILE:-~/.agent-ledger/activity.jsonl}`, capped by `VIDUX_LEDGER_ITEM_LIMIT` and `VIDUX_LEDGER_SCAN_LIMIT`.
 - Plan files and artifacts are rendered from disk; comments are separate append-only app data.
+- Local HTML artifacts can link `../static/artifact-base.css` after their own `<style>` block for shared dark-mode tokens that also work when opened from disk.
 - The top-bar `Annotate` button or `Cmd/Ctrl+Shift+C` lets a commenter click the exact browser surface they mean, then opens a small popover composer at that target. Shortcuts are ignored while typing in form fields.
 - Comment anchors are display pointers, not source edits: they never mutate `PLAN.md`, `INBOX.md`, repo code, task claims, or artifact HTML.
 - Local plan-note writes are loopback-only; LAN viewers can comment through the browser origin but cannot write plan state.
@@ -132,7 +137,7 @@ flowchart LR
     A["ASSESS<br/><i>evidence exists?<br/>code or refine?</i>"]
     E["ACT<br/><i>execute tasks<br/>until queue empty</i>"]
     V["VERIFY<br/><i>build, test,<br/>gate</i>"]
-    C["CHECKPOINT<br/><i>structured commit,<br/>progress entry</i>"]
+    C["CHECKPOINT<br/><i>plan update,<br/>publish ledger row</i>"]
 
     R --> A --> E --> V --> C
     C -.->|"next cycle"| R
@@ -144,7 +149,9 @@ flowchart LR
     style C fill:#2d333b,stroke:#e5534b,stroke-width:2px,color:#adbac7
 ```
 
-If the code is wrong, the plan is wrong — fix the plan first. The store persists across sessions; each run dies. Any fresh agent can rehydrate from files and continue.
+If the code is wrong, the plan is wrong — fix the plan first. The owning plan
+plus publish ledger proof persists across sessions; each run dies. Any fresh
+agent can rehydrate from repo docs and ledger rows, then continue.
 
 ## Why It Exists
 
@@ -155,14 +162,17 @@ Most agent failures are state failures:
 - a later session could not tell what was intentional
 - the same bug got "fixed" three different ways
 
-Vidux solves that by making documentation the control plane. State lives in markdown files in a git branch — no databases, no daemons, no memory tricks. Any agent can read the files, understand the world, and pick up where the last one stopped.
+Vidux solves that by making documentation the planning control plane. `PLAN.md`
+lives in git; publish ledger rows live in the append-only ledger. No databases,
+no daemons, no memory tricks. Any agent can read the plan, proof rows, and repo
+files, understand the world, and pick up where the last one stopped.
 
 ## How Vidux Compares
 
 | | Vidux | Raw Claude Code / Cursor | Aider / OpenCode |
 |---|---|---|---|
-| **State** | `PLAN.md` in git — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
-| **Multi-agent** | Any agent reads the same files and picks up | Single agent per session | Single agent |
+| **State** | `PLAN.md` + publish ledger rows — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
+| **Multi-agent** | Any agent reads the same plan/proof packet and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
 | **Fleet ops** | Ready-PR flow, session-gc, idle detection | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
@@ -185,11 +195,24 @@ A few hard rules that prevent the most common stateless-agent failures:
 
 ```bash
 python3 scripts/vidux-status.py
+vidux config check
+vidux doctor
+vidux http-smoke --json --timeout 3 http://127.0.0.1:4400/api/health
 ```
 
-Scans every `PLAN.md` under `~/Development/`, renders a two-bucket board: plans tied to the current repo vs everything else tracked on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags on active tasks), last activity timestamp. Flags: `--all` (include empty / shipped / stale), `--json`, `--focus <repo...>`, `--root <path>`.
+Scans every `PLAN.md` under `~/Development/`, renders a two-bucket board: plans tied to the current repo vs everything else tracked on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags on active tasks), last activity timestamp. `vidux browse` also shows the same server-calculated fleet remaining-hours total in the topbar. Flags: `--all` (include empty / shipped / stale), `--json`, `--focus <repo...>`, `--root <path>`.
 
-Config lives at `vidux.config.json` in the repo root. The only required key is `plan_store`:
+Live config lives at a local, gitignored `vidux.config.json`. The repo ships
+`vidux.config.example.json` as the checked-in shape; `vidux config check`
+falls back to the example unless `--strict` is passed. The only required key is
+`plan_store`:
+
+`vidux doctor` is the terminal install/readiness doctor and can run `npm test`.
+For hook-safe runtime health probes, use `scripts/vidux-doctor.sh --json`.
+For observe-only local route budget checks, use `vidux http-smoke`; partial
+responses inside the budget are classified as `warn_partial`, while zero-byte
+budget misses are classified as `fail_budget`. Warning-only JSON runs exit 0
+with top-level `ok: true` and `strict_ok: false`.
 
 ```json
 {
@@ -205,6 +228,8 @@ Config lives at `vidux.config.json` in the repo root. The only required key is `
 - `mode: "external"` — same as local but path may point outside `~/Development`
 
 Agents read this at session start and resolve the authority `PLAN.md` before doing anything else.
+Use `vidux config init` to copy the example into a local config, and
+`vidux config show` for a redacted summary that does not print adapter tokens.
 
 ## What Ships Here
 
@@ -221,7 +246,7 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
 | `commands/` | `/vidux` (single entry point — Part 1 inline, Part 2 + recipes on demand) |
 | `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
-| `scripts/` | Cycle, status, drift log, drift feedback cache, signposting, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-drift-log.py`, `vidux_signpost.py`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, and `vidux-test-all.sh` |
+| `scripts/` | Cycle, status, config, doctor, drift log, drift feedback cache, signposting, HTTP monitor smoke, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-config.py`, `vidux-doctor-cli.sh`, `vidux-http-smoke.py`, `vidux-drift-log.py`, `vidux_signpost.py`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, and `vidux-test-all.sh` |
 | `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
@@ -230,7 +255,7 @@ Agents read this at session start and resolve the authority `PLAN.md` before doi
 
 ## Ecosystem
 
-Vidux has **one entry point** — `/vidux` — loading the core discipline inline. The automation layer and the recipes layer are opt-in: load `guides/automation.md` and `guides/recipes/*.md` only when the task calls for them. Vidux runs single-tool: you run on Claude with Claude subagents, or on Codex with Codex subagents. Never both at once.
+Vidux has **one entry point** — `/vidux` — loading the core discipline inline. The automation layer and the recipes layer are opt-in: load `guides/automation.md` and `guides/recipes/*.md` only when the task calls for them. Each lane keeps one primary writer runtime: Claude with Claude subagents, Codex with Codex subagents, or an editor-bound Cursor lane when that is the active tool. The signpost schema is shared across runtimes, so `vidux signpost lifecycle-smoke --json` can verify the expected Codex/Claude/Cursor call-stack labels and `vidux signpost spawned-subagent-smoke --json` can verify inherited parent/worker env attribution without claiming those external tools actually ran.
 
 | Skill | What it does | Ships in this repo? |
 |---|---|---|

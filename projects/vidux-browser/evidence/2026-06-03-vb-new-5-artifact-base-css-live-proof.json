@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-06-03T09:27:55.225Z",
+  "url": "http://127.0.0.1:7191/?artifact=snowcubes-tabling",
+  "results": [
+    {
+      "label": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cssResponses": [
+        {
+          "url": "http://127.0.0.1:7191/static/artifact-base.css",
+          "status": 200
+        }
+      ],
+      "consoleErrors": [],
+      "pageErrors": [],
+      "hostMetrics": {
+        "title": "vidux browser",
+        "activeTitle": "Our Table — Snowcubes at Market",
+        "errorBoxes": 0,
+        "pageScrollWidth": 1440,
+        "pageClientWidth": 1440,
+        "paneScrollWidth": 1080,
+        "paneClientWidth": 1080
+      },
+      "frameMetrics": {
+        "textSample": "◠‿◠\nOur table, figured out 💛\n\nA quiet plan for selling Snowcubes at markets — and a couple of big things we learned along the way. Nicole & Leo · June 2026\n\nWe dug into the whole ",
+        "bg": "rgb(29, 25, 22)",
+        "color": "rgb(239, 231, 218)",
+        "linkCount": 1,
+        "oldDarkBlocks": false,
+        "scrollWidth": 998,
+        "clientWidth": 998
+      },
+      "screenshot": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-new-5-artifact-base-css-desktop-dark.png",
+      "screenshotScroll": "iframe centered before capture"
+    },
+    {
+      "label": "mobile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "cssResponses": [
+        {
+          "url": "http://127.0.0.1:7191/static/artifact-base.css",
+          "status": 200
+        }
+      ],
+      "consoleErrors": [],
+      "pageErrors": [],
+      "hostMetrics": {
+        "title": "vidux browser",
+        "activeTitle": "Our Table — Snowcubes at Market",
+        "errorBoxes": 0,
+        "pageScrollWidth": 390,
+        "pageClientWidth": 390,
+        "paneScrollWidth": 390,
+        "paneClientWidth": 390
+      },
+      "frameMetrics": {
+        "textSample": "◠‿◠\nOur table, figured out 💛\n\nA quiet plan for selling Snowcubes at markets — and a couple of big things we learned along the way. Nicole & Leo · June 2026\n\nWe dug into the whole ",
+        "bg": "rgb(29, 25, 22)",
+        "color": "rgb(239, 231, 218)",
+        "linkCount": 1,
+        "oldDarkBlocks": false,
+        "scrollWidth": 356,
+        "clientWidth": 356
+      },
+      "screenshot": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-new-5-artifact-base-css-mobile-dark.png",
+      "screenshotScroll": "iframe centered before capture"
+    }
+  ]
+}

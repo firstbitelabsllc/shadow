@@ -499,7 +499,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
         if args.command == "suggest":
             source_text = args.task_text if args.task_text is not None else args.plan.read_text(encoding="utf-8")

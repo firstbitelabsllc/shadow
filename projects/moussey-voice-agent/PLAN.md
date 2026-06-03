@@ -141,7 +141,7 @@ The killer use case: Leo says *"hey check my Gmail for amazon shipments this wee
 
 ## Two-agent coordination
 
-Same protocol as voxtral-reader-addon. Atomic claim: edit `[pending]` → `[in_progress] [owner: <claude|codex>]`, `git add PLAN.md && git commit -m "voice-agent: claim <V#>" && git push`. First-pusher wins; second-pusher pulls + picks a different unblocked task.
+Same publish-propagated atomic-claim protocol as the command-center parent. Claim by editing `[pending]` to `[in_progress] [owner: <claude|codex>]` in this `PLAN.md`, then before any claim branch or PR leaves the machine emit `ledger-emit.sh --event publish` with this plan path, the plan task id, proof, `handoff_status=in_progress`, the changed/claimed plan path, and the next-agent resume point. First publish-propagated claimer wins; the second agent pulls, reads the plan plus publish ledger row, and picks a different unblocked task. Completion uses the same plan plus publish-ledger packet with final proof and `handoff_status=done|needs_review|blocked`.
 
 **Strength alignment:**
 - **Claude (this agent on M4 Pro)**: JS/HTML/CSS UI, browser audio scheduling, MediaRecorder + AudioContext, MCP integration smoke tests, plan curation, evidence screenshots.
@@ -168,7 +168,7 @@ V3 + V4 can ship in parallel with V1 + V2 since their interfaces are locked abov
 - [HARD-NEVER] No commercial-property voice (Snowcubes / Resplit / StrongYes) using Voxtral. License inherited from voxtral-reader-addon project.
 - [HARD-NEVER] No always-on remote-mic listening with `bypassPermissions` Claude active. v1 ships push-to-talk only. P4 wake-word ships only after barge-in + clear visible state.
 
-## Claims board (live — claim atomically and push)
+## Claims board (live - claim with publish packet)
 
 | Task | Status | Owner | Blocking | Updated |
 |---|---|---|---|---|

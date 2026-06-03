@@ -21,17 +21,17 @@ Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
 
 **In practice:**
 
-1. **A lane = `prompt.md` + `memory.md` on disk.** These files are NEVER deleted while the assignment is active. When a session dies, the files stay. A new session re-schedules the cron pointing at the same files. The lane resumes from memory.md. Work is never lost to a session restart.
+1. **A lane = `prompt.md` + `memory.md` on disk.** These files are NEVER deleted while the assignment is active. When a session dies, the files stay. A new session re-schedules the cron pointing at the same files. The lane reads memory.md for local orientation, then resumes shipped work from the owning PLAN.md plus the latest matching publish ledger row. Work is never lost to a session restart.
 2. **A session = one Claude Code process + its JSONL.** Sessions are disposable. They die for many reasons: account rotation, laptop sleep, compaction pressure, manual restart. Their JSONLs accumulate on disk until GC'd.
 3. **session-gc is the mandatory janitor.** Without it, the 24/7 model breaks. It runs hourly and deletes old session JSONLs (>3 days), subagent JSONLs (>1 day), and reports the current session's growth rate. See Section 2.
 4. **Lane count stays low.** More than 6 lanes per session causes worktree contention and JSONL bloat.
-5. **Cross-session handoff is implicit.** When a session dies at ~50 MB, the next session starts fresh, re-schedules crons, and each lane reads its own memory.md to resume. **No state lives in the session.** All durable state is on disk: PLAN.md, memory.md, `.agent-ledger/activity.jsonl`, evidence/. The session is a transient execution environment, not a database.
+5. **Cross-session handoff is implicit.** When a session dies at ~50 MB, the next session starts fresh, re-schedules crons, and each lane reads its own memory.md for local orientation plus the owning PLAN.md and latest matching publish ledger row for shipped-work proof/resume. **No state lives in the session.** Durable recovery is on disk: PLAN.md, publish ledger rows, evidence/, investigations/, and lane-local memory.md notes. The session is a transient execution environment, not a database.
 
 ### Hot vs cold storage
 
 | Layer | What lives here | Lifetime | GC |
 |---|---|---|---|
-| **Cold (durable)** | PLAN.md (queue + decision log), evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Until assignment done | Agent archives completed tasks when the plan feels heavy — no fixed threshold |
+| **Cold (durable)** | PLAN.md (queue + decision log), publish ledger rows, evidence/, investigations/, lane-local memory.md notes | Until assignment done | Agent archives completed tasks when the plan feels heavy — no fixed threshold |
 | **Hot (disposable)** | `~/.claude/projects/*/*.jsonl` (conversation log) | One session | Automatic via the session-gc lane's operator-provided JSONL cleanup helper |
 
 **Every cold-storage entry has a stable home and a reason to exist.** Every hot-storage byte is evictable once the session it belongs to is inactive. If you find yourself reading old JSONLs to recover state, the cold-storage contract is broken — fix the checkpoint discipline, don't revive the JSONL.
@@ -73,7 +73,7 @@ Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 
 Strips noise categories from a JSONL file. Repairs the `parentUuid` chain so `/resume` still works. Creates a `.bak` backup first. Applied to INACTIVE sessions only — never the live one.
 
 **Level 2 — Old-session GC (`--gc-old [days]`).**
-DELETES main session JSONLs older than N days across all projects. These sessions will never be `/resume`d — their durable state has already moved to PLAN.md, ledger, and memory.md by design. Default: 3 days.
+DELETES main session JSONLs older than N days across all projects. These sessions will never be `/resume`d -- their durable recovery packet has already moved to PLAN.md, the publish ledger, evidence, and lane-local memory notes by design. Default: 3 days.
 
 **Level 3 — Subagent GC.**
 Same `--gc-old` invocation also deletes ALL subagent JSONL files older than 1 day. Standalone variant: `--gc-subagents [hours]`.
@@ -103,7 +103,7 @@ Instead, session-gc **measures the current session's growth rate** and emits a c
 The human reads the signal and decides when to restart. On restart:
 1. New session starts (fresh JSONL)
 2. New session re-schedules the crons (CronCreate calls)
-3. Each lane's next fire reads its own `memory.md` and picks up where it left off
+3. Each lane's next fire reads its own `memory.md` for local orientation and resumes shipped work from the owning PLAN.md plus latest matching publish ledger row
 4. The old session's JSONL becomes eligible for `--gc-old` on the next cycle
 
 ### The session-gc lane (mandatory for 24/7)
@@ -163,9 +163,9 @@ A **coordinator** is one lane that owns ALL concerns for one repo: ship code, fi
 
 - **No PLAN.md stampede.** Multiple writers touching the same PLAN.md cause merge races and Progress-log corruption. One coordinator per repo is a natural serialization.
 - **End-to-end ownership.** The coordinator that shipped the code is the same one that fixes the test when it fails. No handoff bugs, no "that's not my lane" gaps.
-- **Simpler mental model.** When something breaks, the operator opens ONE memory.md to diagnose, not 5.
+- **Simpler mental model.** When something breaks, the operator checks one lane-local memory note stream plus the owning PLAN.md and latest matching publish ledger row, not 5 sibling lane logs.
 - **JSONL savings.** 1 coordinator firing 3x/hour adds ~600KB/hour of JSONL. 5 specialists firing 3x/hour each add ~3MB/hour. Over 10 hours the difference is 24MB vs 6MB.
-- **Works with multi-account rotation.** On account switch, the coordinator's state is on disk (memory.md). The new session picks up. Specialist sprawl multiplies this handoff risk.
+- **Works with multi-account rotation.** On account switch, the coordinator's lane-local orientation stays in `memory.md`, while shipped-work state resumes from the owning PLAN.md plus matching publish ledger row. Specialist sprawl multiplies this handoff risk.
 
 ### Observer lanes are deprecated (2026-04-17)
 
@@ -645,22 +645,22 @@ Husky + lint-staged use `git stash` during pre-commit. On some setups, the stash
 
 ### Why prompt file on disk (not inline in the cron)
 
-- **Disk-persisted authority.** Crashes, restarts, and Mac sleeps do NOT wipe `prompt.md`. Session-only cron state does. If the cron dies and gets re-scheduled, the new cron can be a thin wrapper pointing at the same on-disk prompt — zero rework.
-- **Diffable lane evolution.** Edits land, the next cycle picks them up, and memory.md captures the before/after behavior.
-- **Cross-lane coordination.** Lanes read each other's `memory.md` to avoid racing. A lane reads a sibling lane's memory before touching a shared file, because the sibling may have an `[in_progress]` task there.
+- **Disk-persisted instructions.** Crashes, restarts, and Mac sleeps do NOT wipe `prompt.md`. Session-only cron state does. If the cron dies and gets re-scheduled, the new cron can be a thin wrapper pointing at the same on-disk prompt -- zero rework.
+- **Diffable lane evolution.** Edits land, the next cycle picks them up, and memory.md captures lane-local before/after behavior; shipped proof/resume still belongs to the owning plan plus publish ledger packet.
+- **Cross-lane coordination.** Lanes read each other's `memory.md` notes to avoid racing, then verify owning plan and ledger state before changing a shared file. A lane reads a sibling lane's memory before touching a shared file, because the sibling may have an `[in_progress]` task there.
 
 ### The 8-block structure
 
 ```
 1. Mission        — one paragraph, end goal, why this lane exists
 2. Skills         — skill tokens relevant to this lane (/vidux, etc.)
-3. Read           — files to read every cycle IN ORDER (PLAN.md, cross-lane, memory)
+3. Read           — files to read every cycle IN ORDER (PLAN.md, latest publish ledger row, cross-lane memory)
 4. Gate           — trunk divergence, stuck detection, resume rules
 5. Assess         — unified queue rule (in_progress -> resume, else first eligible pending)
 6. Act            — worktree discipline, verification commands, merge rules
                     + optional delegation blocks (research read / implementation write)
 7. Authority      — paths this lane owns vs. paths it must not touch
-8. Checkpoint     — memory.md append format, reconcile plan vs. diff
+8. Checkpoint     — lane-local memory note plus plan/ledger publish packet, reconcile plan vs. diff
 ```
 
 Every lane prompt ends with a **STRATEGIC DIRECTION** block that captures *why* the lane exists and what biases the agent should lean into (e.g., "hardening > new features," "research only, never delete").
@@ -754,7 +754,7 @@ A burst lane that fires every ~17 min, scans open PRs for reviewer P1/P2 comment
 
 ```
 <lane-dir>/qa-iterator/prompt.md   # 8-block lane prompt
-<lane-dir>/qa-iterator/memory.md   # append-only checkpoint log
+<lane-dir>/qa-iterator/memory.md   # lane-local cycle log
 CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 ```
 
@@ -809,7 +809,7 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 ### Deleting a lane
 
 1. Remove the cron via `CronDelete`.
-2. Archive `<lane-dir>/<lane-name>/` to `<lane-dir>/_archive/<lane-name>-YYYY-MM-DD/`. Do NOT hard-delete — the memory.md is load-bearing history.
+2. Archive `<lane-dir>/<lane-name>/` to `<lane-dir>/_archive/<lane-name>-YYYY-MM-DD/`. Do NOT hard-delete -- `memory.md` is lane-local cycle history, and shipped-work recovery still belongs to the owning PLAN.md plus publish ledger packet.
 3. If the plan is complete, update PLAN.md Progress with a "lane closed" entry.
 
 ---
@@ -818,7 +818,7 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 
 **Location:** `<lane-dir>/<lane-name>/memory.md`
 
-Agents have no built-in cross-session memory. The lane's memory.md IS the memory — every cycle reads the last 3 entries before acting, and appends a new entry after checkpointing.
+Agents have no built-in cross-session memory. The lane's `memory.md` is lane-local orientation only: every cycle reads the last 3 entries before acting, then appends a compact lane-local note. When the cycle ships work, the owning PLAN.md plus matching publish ledger row carries the durable proof, handoff status, files claimed, and next-agent resume.
 
 ### Entry format
 
@@ -862,7 +862,7 @@ Rules in priority order:
 0. **Hard cap: 6 lanes per session.** More than 6 causes worktree contention, JSONL bloat, PLAN.md stampede, and session-restart friction.
 1. **Max 3-4 parallel agents per wave.** More than 4 simultaneous agents on the same repo causes git worktree contention and branch-switch collisions.
 2. **Fire-and-forget.** Dispatch background agents and move on. Do not block the parent waiting for results.
-3. **Trust memory.md.** Do not inject stale briefing state into the agent prompt — the agent reads `prompt.md` and `memory.md` itself for live state.
+3. **Trust lane files for local orientation, then verify plan/ledger.** Do not inject stale briefing state into the agent prompt -- the agent reads `prompt.md` and `memory.md` itself for local orientation, then reads the owning PLAN.md plus latest matching publish ledger row for shipped-work state.
 4. **Don't bloat parent context.** Agent results are stored as attachments in the parent JSONL. Many agents with large output adds up fast. Keep agent prompts tight (<500 bytes) and let each agent read its own context from disk.
 5. **Absorb duplicate fires.** If a cron fires while the previous cycle's agent is still running, skip it.
 6. **Batch cron waves.** When multiple crons fire at the same minute, dispatch them in a single multi-tool-call message, not sequentially.

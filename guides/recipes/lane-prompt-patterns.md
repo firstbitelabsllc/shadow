@@ -20,7 +20,7 @@ Every lane prompt has these eight blocks, in this order. Rearranging or omitting
 5. Assess       — priority rule for picking the ONE thing to do this cycle.
 6. Act          — how to do the work (worktree, verify, commit, merge).
 7. Authority    — paths owned vs paths forbidden (+ push tier).
-8. Checkpoint   — one-line memory.md format with valid tags.
+8. Checkpoint   — lane-local memory format plus plan/ledger publish packet for shipped work.
 ```
 
 Full reference: `docs/reference/prompt-template.md`. Size target: 2000-3000 chars total.
@@ -59,7 +59,7 @@ One deterministic priority order. "First match wins" so two agents running the s
 ### 6. Act
 Worktree discipline + verification commands + commit/push/merge procedure. Every command literal — don't paraphrase.
 
-Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must pass; never `git add -A`; UI change needs a screenshot, not a green test. Before pushing a branch, update the owning PLAN.md and emit `ledger-emit.sh --event publish` with `--plan-path`, `--proof`, `--handoff-status`, `--file`, and `--claim`; keep the eid in `$LEDGER_EID`. Before `gh pr create`, build the body with `scripts/vidux-pr-body.py --ledger "$LEDGER_EID"` so every PR carries `Lane:`, `Plan task:`, `Plan path:`, `Proof:`, `Ledger:`, `Handoff status:`, `Files claimed:`, `Resume point:`, and optional `Linear: EVE-N`.
+Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must pass; never `git add -A`; UI change needs a screenshot, not a green test. Before pushing a branch, update the owning PLAN.md and emit `ledger-emit.sh --event publish` with `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status`, `--resume`, `--file`, and `--claim`; keep the eid in `$LEDGER_EID`. Before `gh pr create`, build the body with `scripts/vidux-pr-body.py --summary "<summary>" --ledger "$LEDGER_EID"` plus the three `--review-pass` entries so every PR carries `Lane:`, `Plan task:`, `Summary:`, `Plan path:`, `Proof:`, `Ledger:`, `Handoff status:`, `Files claimed:`, `Self-Scrutiny`, `Resume point:`, and optional `Linear: EVE-N`.
 
 ### 7. Authority
 Explicit owned paths + explicit forbidden paths with reasons. The authority block is the lane's immune system. **Mandatory push-tier line** for any code-writing lane.
@@ -69,7 +69,7 @@ Explicit owned paths + explicit forbidden paths with reasons. The authority bloc
 > Push tier: operational PRs only; open ready-for-review by default with the canonical vidux PR body. No direct-to-main, no destructive ops.
 
 ### 8. Checkpoint
-One-line `memory.md` append, always tagged. Future agents scan the last 3 entries.
+One-line lane-local `memory.md` append, always tagged. Future agents scan the last 3 entries for cycle orientation. When the cycle ships work, the owning PLAN.md update plus matching `ledger-emit.sh --event publish` row carries the durable proof, handoff status, files claimed, and next-agent resume.
 
 > `- [YYYY-MM-DDThh:mm:ssZ claude coord] [SHIP] <what>. <next-cycle hint>.`
 > Tags: `SHIP` / `MERGED` / `FIX` / `PROMOTE` / `DEFER` / `IDLE` / `QC` / `AUDIT-N` / `MILESTONE`.
@@ -81,7 +81,7 @@ One-line `memory.md` append, always tagged. Future agents scan the last 3 entrie
 
 **QC exit.** Cheap exits for concurrent-cycle, stuck tasks, red CI. Always tagged `[QC] <reason>`. A `[QC]` exit is not a failure — it's the correct move when preconditions aren't met.
 
-**Signal-only checkpoint vs full checkpoint.** Default: signal-only (one line, tag + summary). Only expand to multi-line when crossing a plan-phase boundary (`[MILESTONE]`). Reading memory.md's last 3 entries should take 5 seconds.
+**Signal-only lane note vs full publish checkpoint.** Default: signal-only `memory.md` note (one line, tag + summary). Only expand the lane note to multi-line when crossing a plan-phase boundary (`[MILESTONE]`). Reading memory.md's last 3 entries should take 5 seconds; shipped work still needs the owning PLAN.md plus publish ledger packet.
 
 **Worktree-per-change.** Every code edit happens in a fresh worktree from `origin/main`. Never edit on the main worktree. Merge back to trunk before closing the task.
 

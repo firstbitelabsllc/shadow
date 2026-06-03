@@ -1,18 +1,20 @@
 # The Store
 
-The Store is the persistence layer. Every fact Vidux needs to survive an interrupted session lives in one of four durable locations — PLAN.md, `evidence/`, `investigations/`, or git history — with `INBOX.md` acting as the intake queue. No databases. No daemons. No in-memory state.
+The Store is the persistence layer. Every fact Vidux needs to survive an interrupted session lives in repo files — `PLAN.md`, `evidence/`, `investigations/`, and git history — plus the append-only publish ledger rows that prove shipped cycles. `INBOX.md` acts as the intake queue. No databases. No daemons. No in-memory state.
 
 ## Why Files?
 
-AI agents are stateless. Authentication expires. Sessions crash. The only state that reliably survives a dead session is a file committed to git.
+AI agents are stateless. Authentication expires. Sessions crash. The reliable
+state that survives a dead session is the repo plan/evidence tree plus the
+append-only publish ledger packet for shipped work.
 
 The Store is designed around one constraint: **any agent, resuming cold, must reach full context within 90 seconds of reading the Store.**
 
-## The Four Durable Locations
+## The Durable Locations
 
 ```
 vidux-project/
-├── PLAN.md                    ← source of truth
+├── PLAN.md                    ← queue/planning authority
 ├── INBOX.md                   ← unprocessed findings
 ├── evidence/
 │   └── YYYY-MM-DD-slug.md     ← research snapshots
@@ -20,11 +22,14 @@ vidux-project/
     └── slug.md                ← root cause analysis + fix specs
 ```
 
-`INBOX.md` appears in the tree because it is part of the on-disk workflow, but the durable state stores are still PLAN.md, `evidence/`, `investigations/`, and git history.
+`INBOX.md` appears in the tree because it is part of the on-disk workflow, but the durable repo state stores are still PLAN.md, `evidence/`, `investigations/`, and git history. Publish ledger rows live outside the repo in the append-only ledger and carry the matching task id, proof, handoff status, claimed files, and resume point for any publish cycle.
 
 ### PLAN.md
 
-One per project. The single source of truth for what needs to happen, what has been decided, and what actually happened.
+One per project. The planning authority for the queue, decisions, constraints,
+and Progress/Drift record. For a publish cycle, the matching publish ledger row
+is the proof packet that says what actually shipped and how the next agent
+resumes.
 
 Six required sections — missing any produces known failure modes:
 
@@ -74,13 +79,16 @@ Investigations are **durable**. They stay in `investigations/` after the parent 
 
 ### Git History
 
-Git is the timeline. Every checkpoint commit records what changed and why, in a format any agent can parse:
+Git is the transport timeline. When code changed, a transport commit records
+the local diff and why it moved, in a format any agent can parse:
 
 ```
 vidux: add rate limiting to login endpoint
 ```
 
-The commit message is the single source of truth for what happened in a cycle. The Progress log in PLAN.md mirrors it — if they diverge, the git log wins.
+Cycle truth lives in the owning `PLAN.md` Progress, Tasks, or Drift Log entry
+and the matching publish ledger row. The ledger row carries the plan task id,
+proof, handoff status, files claimed, and next-agent resume point. Git history is evidence that transport happened; it does not outrank a missing or stale plan/ledger packet.
 
 ## INBOX.md
 

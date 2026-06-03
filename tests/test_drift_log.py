@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -358,6 +360,50 @@ class DriftLogTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("recorded drift D-20260522-01", result.stdout)
             self.assertIn("## Drift Log", plan.read_text(encoding="utf-8"))
+
+    def test_main_empty_argv_does_not_read_process_argv(self):
+        """Programmatic main([]) must not mutate a plan from ambient sys.argv."""
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "PLAN.md"
+            original = base_plan()
+            plan.write_text(original, encoding="utf-8")
+            original_argv = sys.argv[:]
+            sys.argv = [
+                "probe",
+                str(plan),
+                "--task",
+                "T-1",
+                "--planned",
+                "Use HTTP.",
+                "--actual",
+                "Use CLI.",
+                "--why",
+                "The seam moved.",
+                "--plan-update",
+                "Track CLI.",
+                "--next",
+                "Run tests.",
+                "--today",
+                "2026-05-22",
+                "--no-cache",
+                "--no-telemetry",
+            ]
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            try:
+                with (
+                    self.assertRaises(SystemExit) as raised,
+                    contextlib.redirect_stdout(stdout),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    drift.main([])
+            finally:
+                sys.argv = original_argv
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("the following arguments are required", stderr.getvalue())
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(plan.read_text(encoding="utf-8"), original)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ Vidux core is markdown + git. Extensions plug external systems (kanban boards, i
 
 ## Why extensions
 
-Some teams need their tasks visible on a board their non-coder collaborators can read and write to. Some teams need their issues correlated with a tracker that already runs their company's planning rituals. Vidux doesn't fight that — it absorbs it. PLAN.md stays the source of truth; the external board becomes a live mirror that round-trips through `scripts/vidux-inbox-sync.py`.
+Some teams need their tasks visible on a board their non-coder collaborators can read and write to. Some teams need their issues correlated with a tracker that already runs their company's planning rituals. Vidux doesn't fight that — it absorbs it. PLAN.md stays the queue/planning authority; publish ledger rows remain the shipped-cycle proof packet, and the external board becomes a live mirror that round-trips through `scripts/vidux-inbox-sync.py`.
 
 ## The contract
 
@@ -144,7 +144,7 @@ Claim discipline:
 1. Set `_blocked: true` on the external card with reason `claimed-by-<lane>:<cycle-ts>` — a 5-minute soft-claim window.
 2. Move external status to In Progress.
 3. Append a `[pending]` task to the local PLAN.md citing `[Source: <adapter>:<id>] [Claimed: <ts>]`.
-4. After the local task transitions to `[in_progress]`, clear `_blocked`. The external In Progress state is now the source-of-truth claim.
+4. After the local task transitions to `[in_progress]`, clear `_blocked`. The external In Progress state mirrors the local claim; the owning plan row plus ledger/claims metadata remains the durable handoff packet.
 
 Two lanes firing the same cycle can't double-claim — the second one sees `_blocked=true` from the first and moves to the next candidate. No cross-lane coordination protocol needed; the soft-claim IS the lock.
 

@@ -2,7 +2,7 @@
 
 ## The shape of the win (one paragraph)
 
-You press a button on iPhone OR open moussey on any Mac OR speak out loud OR drop an annotation into vidux-browse OR forward an iMessage OR forward an email. The system parses intent, picks the right brain (Claude with full MCP / Codex / local Ollama), routes to the right Mac in your fleet, executes with FULL access to every Leo skill (/vidux, /captain, /moussey, /snowcubes, /shopper, /maily, /tim, etc.) and every MCP (iMessage, Gmail x3, computer-use, nia, figma), then responds in whatever form fits the task — voice (Voxtral TTS), repo commit, vidux PLAN.md update, Gmail draft, iMessage reply, screen action, cross-Mac dispatch. Everything LAN-only, subscription-billed, kill-switched, visible in moussey GUI dashboards.
+You press a button on iPhone OR open moussey on any Mac OR speak out loud OR drop an annotation into vidux-browse OR forward an iMessage OR forward an email. The system parses intent, picks the right brain (Claude with full MCP / Codex / local Ollama), routes to the right Mac in your fleet, executes with FULL access to every Leo skill (/vidux, /captain, /moussey, /snowcubes, /shopper, /maily, /tim, etc.) and every MCP (iMessage, Gmail x3, computer-use, nia, figma), then responds in whatever form fits the task — voice (Voxtral TTS), repo diff/PR transport after owning-plan plus publish-ledger propagation, vidux PLAN.md update, Gmail draft, iMessage reply, screen action, cross-Mac dispatch. Everything LAN-only, subscription-billed, kill-switched, visible in moussey GUI dashboards.
 
 ChatGPT voice mode is the FRONT DOOR for one input modality. The actual product is the **command-center brain** behind it.
 
@@ -16,8 +16,9 @@ Unified agentic command center for Leo's home Mac fleet. Any input modality
 (voice / text / vidux-browse annotation / iMessage / Gmail / cron) routes
 through a brain dispatcher (Claude with full MCP via cross-Mac trigger /
 Codex / local Ollama) with full skill + MCP coverage, responds in whatever
-form fits (TTS / text / repo commit / vidux update / Gmail / iMessage /
-screen action / cross-Mac dispatch). LAN-only. Subscription-billed.
+form fits (TTS / text / repo diff/PR transport after owning-plan plus
+publish-ledger propagation / vidux update / Gmail / iMessage / screen action /
+cross-Mac dispatch). LAN-only. Subscription-billed.
 Kill-switched. Visible in moussey GUI.
 
 Voice is ONE input modality. Text chat, vidux-browse-action, iMessage bridge,
@@ -29,9 +30,13 @@ Architecture + sub-project list:
 
 Pick a [pending] task atom from any active child PLAN.md that matches your
 strengths (Claude = JS/UI/MCP integration/plan curation; Codex = TS/Node
-server, Python subprocess, dispatcher abstraction, indexed reads). Atomic
-claim: edit [pending] → [in_progress] [owner: <claude|codex>] and push.
-First-pusher wins.
+server, Python subprocess, dispatcher abstraction, indexed reads). Claim by
+editing [pending] to [in_progress] [owner: <claude|codex>] in the owning
+PLAN.md, then before any claim branch or PR leaves the machine emit
+ledger-emit.sh --event publish with the plan task id, plan path, proof,
+handoff_status=in_progress, changed/claimed plan path, and next-agent resume
+point. First publish-propagated claimer wins; the second agent pulls, reads
+the plan plus publish ledger row, and picks a different unblocked task.
 
 Reuse every shipped piece. Do not rebuild any of these:
   • Voxtral 4B-TTS LaunchAgent  :8000 per Mac
@@ -100,7 +105,7 @@ or anchored vidux-browse comment.
 │ OUTPUT — multimodal, same brain output to multiple sinks         │
 │   • TTS voice            (Voxtral :8000)                        │
 │   • streaming chat text  (browser bubble)                       │
-│   • repo commit + push                                          │
+│   • repo diff/PR transport after plan + publish ledger          │
 │   • vidux PLAN.md update / claim board edit                     │
 │   • Gmail draft / send                                          │
 │   • iMessage reply                                              │
@@ -285,9 +290,9 @@ worker_reserved` / `conflictKind:"tool_action"` before execution; and
 
 ## Two-agent coordination (across all sub-projects)
 
-Same atomic-claim protocol everywhere. Each sub-project has its own PLAN.md with its own claims board. Pull → claim → push → ship → mark completed. First-pusher wins.
+Same atomic-claim protocol everywhere. Each sub-project has its own `PLAN.md` with its own claims board. Pull, inspect the owning plan and recent ledger rows, move the task to `[in_progress] [owner: <agent>]`, and before any claim branch or PR leaves the machine emit a `ledger-emit.sh --event publish` row with the plan task id, plan path, proof, `handoff_status=in_progress`, changed/claimed plan path, and next-agent resume point. First publish-propagated claimer wins; the second agent pulls, reads the plan plus publish ledger row, and picks a different unblocked task. Completion repeats the same plan plus publish-ledger packet with final proof, files claimed, and `handoff_status=done|needs_review|blocked`.
 
-**Cross-sub-project rule:** if you finish a Phase 0 task (brain-dispatcher or intent-router) that unblocks Phase 1+ work, the unblocked tasks become claimable immediately. No handoff DM needed — every agent's next cycle starts with `git pull --rebase`.
+**Cross-sub-project rule:** if you finish a Phase 0 task (brain-dispatcher or intent-router) that unblocks Phase 1+ work, the unblocked tasks become claimable immediately. No handoff DM needed — every agent's next cycle starts with `git pull --rebase`, the owning `PLAN.md`, and the matching publish ledger row.
 
 **Strength alignment, fleet-wide:**
 

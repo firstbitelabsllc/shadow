@@ -44,6 +44,75 @@ json_escape() {
 # Platform-aware sed -i
 sedi() { if [[ "$(uname)" == "Darwin" ]]; then sed -i '' "$@"; else sed -i "$@"; fi; }
 
+_escape_ere() {
+  printf '%s' "$1" | sed -E 's/[][(){}.^$*+?|\\]/\\&/g'
+}
+
+_task_progress_key() {
+  local desc="$1"
+  local key=""
+  if [[ "$desc" =~ ^(Task[[:space:]]+[0-9]+(\.[0-9]+)*)($|[[:space:]:]) ]]; then
+    key="${BASH_REMATCH[1]}"
+  elif [[ "$desc" =~ ^([A-Z]{1,6}-[0-9]+[A-Z0-9-]*)($|[[:space:]:]) ]]; then
+    key="${BASH_REMATCH[1]}"
+  elif [[ "$desc" =~ ^([A-Z][A-Z0-9]*[0-9][A-Za-z]?)($|[[:space:]:]) ]]; then
+    key="${BASH_REMATCH[1]}"
+  elif [[ "$desc" =~ ^([0-9]+(\.[0-9]+)+[A-Za-z]*)($|[[:space:]:]) ]]; then
+    key="${BASH_REMATCH[1]}"
+  fi
+  printf '%s' "$key"
+}
+
+_task_prose_blocker_note() {
+  local desc="$1"
+  TASK_DESC="$desc" python3 - <<'PY' 2>/dev/null || true
+import os
+import re
+
+text = os.environ.get("TASK_DESC", "")
+if re.search(r"\b(?:not|no longer|not currently)\s+blocked\s+by\b", text, re.I):
+    raise SystemExit
+
+if re.search(r"\bownership\s+review\b", text, re.I) and re.search(
+    r"\b(no\s+(?:cleanup\s+)?deletion|no\s+branch\s+removal|non-removable|owner\s+must\s+review|before\s+any\s+cleanup|cleanup\s+remains\s+closed)\b",
+    text,
+    re.I,
+):
+    print("Waiting on owner review: ownership review before cleanup")
+    raise SystemExit
+
+patterns = [
+    (r"\bblocked\s+(?:by|until)\s+([^.\];]+)", "Waiting on", "group"),
+    (r"\bwaiting\s+on\s+([^.\];]+)", "Waiting on", "group"),
+    (r"\bcannot\s+proceed\s+until\s+([^.\];]+)", "Waiting until", "group"),
+    (r"\b([^.\[\]]{1,140}?)\s+must\s+be\s+solved\s+first\b", "Waiting on", "group"),
+    (r"\bpending\s+ownership\s+review\b([^.\];]{0,140})", "Waiting on owner review", "match"),
+    (r"\bowner\s+cleanup\s+decisions?\b([^.\];]{0,140})", "Waiting on owner decision", "match"),
+    (r"\bowner\s+decisions?\s+(?:resolve|required|needed|must|before|to)\b([^.\];]{0,140})", "Waiting on owner decision", "match"),
+    (r"\bowner\s+approval\s+(?:required|needed|before)\b([^.\];]{0,140})", "Waiting on owner approval", "match"),
+    (r"\bapproval\s+required\s+before\s+apply\b([^.\];]{0,140})", "Waiting on cleanup approval", "match"),
+    (r"\bcleanup\s+approval\b([^.\];]{0,140})", "Waiting on cleanup approval", "match"),
+    (r"\boperator[- ]gated\b([^.\];]{0,140})", "Waiting on operator gate", "match"),
+    (r"\boperator\s+approval\s+(?:required|needed|before)\b([^.\];]{0,140})", "Waiting on operator approval", "match"),
+    (r"\bASK-LEO-MANDATORY\b([^.\];]{0,140})", "Waiting on Leo decision", "match"),
+]
+
+for pattern, prefix, source in patterns:
+    match = re.search(pattern, text, re.I)
+    if not match:
+        continue
+    if source == "group":
+        blocker = match.group(1).strip(" \t:-—")
+        blocker = re.sub(r"^Depends:\s*", "", blocker, flags=re.I).strip(" \t:-—")
+        blocker = re.split(r"\bbut\s+", blocker, maxsplit=1, flags=re.I)[-1].strip(" \t:-—")
+    else:
+        blocker = re.sub(r"\s+", " ", match.group(0)).strip(" \t:-—[]")
+    if blocker:
+        print(f"{prefix}: {blocker[:180]}")
+        break
+PY
+}
+
 # Contradiction detection: stop words (inline, no external file)
 CD_STOP="the a an is are was were be been being have has had do does did
 will would shall should may might can could must need to of in for on at
@@ -64,16 +133,20 @@ _cd_keywords() {
     done
 }
 
+REDUCE_CONTRACT_JSON='"reduce_contract": {"read_only": true, "max_budget_seconds": 120, "forbidden": ["code_changes", "plan_execution", "file_writes"], "allowed": ["read_plan", "read_evidence", "assess_state", "fire_dispatch", "route_refresh_proof", "route_surface_switch"]}'
+MISSING_PLAN_HANDOFF_JSON='"handoff_contract": {"long_horizon": false, "handoff_required": false, "stale_proof_gate": false, "stale_proof_dates": [], "meter_checkpoint_required": false, "required_fields": ["plan_path"]}'
+
 # --- guards ---------------------------------------------------------------- #
 [ -z "$PLAN" ] && die "usage: vidux-loop.sh <plan-path> [--checkpoint]"
 if [ ! -f "$PLAN" ]; then
-  json '{"mode":"reduce","error":"no plan found","action":"create_plan","next_action":"none"}'; exit 0
+  json "{\"mode\":\"reduce\", \"error\":\"no plan found\", \"task\":\"none\", \"type\":\"missing_plan\", \"action\":\"create_plan\", \"next_action\":\"none\", \"context\":\"Plan file does not exist; create PLAN.md before execution\", \"hot_tasks\":0, \"runnable_tasks\":0, \"cold_tasks\":0, \"queue_starved\":false, \"sub_plan\":null, $MISSING_PLAN_HANDOFF_JSON, $REDUCE_CONTRACT_JSON}"; exit 0
 fi
 PLAN_DIR="$(cd "$(dirname "$PLAN")" && pwd)"
 PROJECT_NAME="$(basename "$PLAN_DIR")"
 
 # --- emit loop start event ------------------------------------------------- #
-if type vidux_emit_loop_start &>/dev/null; then
+# Default READ/ASSESS mode is a reducer and must not write telemetry rows.
+if { [ "$MODE" != "read" ] || [ "${VIDUX_LOOP_EMIT_READ_LEDGER:-0}" = "1" ]; } && type vidux_emit_loop_start &>/dev/null; then
   vidux_emit_loop_start "$PROJECT_NAME" "$PLAN" "" 2>/dev/null || true
 fi
 
@@ -124,6 +197,168 @@ _first_pending_task_line() {
   ' "$PLAN"
 }
 
+_section_has_open_tasks() {
+  local section="$1"
+  SECTION="$section" awk '
+    BEGIN { found = 0; needle = tolower(ENVIRON["SECTION"]) }
+    /^#{2,6}[[:space:]]/ {
+      heading = $0
+      sub(/^#{2,6}[[:space:]]*/, "", heading)
+      if (found) { exit }
+      if (index(tolower(heading), needle) > 0) { found = 1; next }
+    }
+    found && /^- \[( |pending|in_progress|blocked)\] / { print; exit }
+  ' "$PLAN"
+}
+
+_task_dependency_blocker_note() {
+  local desc="$1"
+  local current_line="${2:-0}"
+  local dep dep_target pending_ids dep_part task_id task_num section_target
+  dep="$(printf '%s' "$desc" | grep -o '\[Depends: [^]]*\]' || true)"
+  [ -z "$dep" ] && return 1
+
+  dep_target="${dep#\[Depends: }"; dep_target="${dep_target%\]}"
+  # Short-circuit: "none" is a sentinel, not a dependency.
+  if printf '%s' "$dep_target" | grep -qi '^none$'; then
+    return 1
+  fi
+
+  pending_ids="$(grep -nE '^\- (\[ \]|\[(pending|in_progress)\]) ' "$PLAN" \
+    | _exclude_ec_lines \
+    | grep -v "^${current_line}:" \
+    | sed -E 's/^[0-9]+:- \[([^]]*)\] //' \
+    | grep -oE '^((Task [0-9]+(\.[0-9]+)*)|([0-9]+(\.[0-9]+)+[A-Za-z]*)|([A-Z]{1,6}-[0-9]+[A-Z0-9-]*)|([A-Z][A-Z0-9]*[0-9][A-Za-z]?))' || true)"
+
+  IFS=',' read -ra DEP_PARTS <<< "$dep_target"
+  for dep_part in "${DEP_PARTS[@]}"; do
+    dep_part="$(printf '%s' "$dep_part" | xargs)"
+    [ -z "$dep_part" ] && continue
+
+    section_target="$(printf '%s' "$dep_part" | sed -E 's/[[:space:]]+complete$//' || true)"
+    if [ "$section_target" != "$dep_part" ] && [ -n "$(_section_has_open_tasks "$section_target")" ]; then
+      printf 'Waiting on: %s\n' "$dep_part"
+      return 0
+    fi
+
+    while IFS= read -r task_id; do
+      [ -z "$task_id" ] && continue
+      if [[ "$task_id" == "$dep_part" ]]; then
+        printf 'Waiting on: %s\n' "$dep_part"
+        return 0
+      fi
+      task_num="${task_id#Task }"
+      if [[ "$task_num" == "$dep_part" ]]; then
+        printf 'Waiting on: %s\n' "$dep_part"
+        return 0
+      fi
+    done <<< "$pending_ids"
+  done
+
+  return 1
+}
+
+_task_blocker_note() {
+  local desc="$1"
+  local current_line="${2:-0}"
+  local note=""
+  note="$(_task_dependency_blocker_note "$desc" "$current_line" || true)"
+  if [ -n "$note" ]; then
+    printf '%s\n' "$note"
+    return 0
+  fi
+  note="$(_task_prose_blocker_note "$desc" || true)"
+  if [ -n "$note" ]; then
+    printf '%s\n' "$note"
+    return 0
+  fi
+  return 1
+}
+
+_progress_section_block() {
+  awk '/^## Progress/{found=1; next} found && /^## /{found=0} found{print}' "$PLAN"
+}
+
+_task_stuck_hits() {
+  local desc="$1"
+  local block task_short task_key task_key_pattern hits key_hits
+  if ! grep -q '^## Progress' "$PLAN" 2>/dev/null; then
+    printf '0\n'
+    return 0
+  fi
+  block="$(_progress_section_block)"
+  task_short="$(printf '%s' "$desc" | cut -c1-40)"
+  task_key="$(_task_progress_key "$desc")"
+  hits="$(printf '%s\n' "$block" | grep -cF "$task_short" 2>/dev/null || true)"
+  if [ -n "$task_key" ]; then
+    task_key_pattern="(^|[^[:alnum:]_.-])$(_escape_ere "$task_key")([^[:alnum:]_.-]|$)"
+    key_hits="$(printf '%s\n' "$block" | grep -cE "$task_key_pattern" 2>/dev/null || true)"
+    if [ "${key_hits:-0}" -gt "${hits:-0}" ] 2>/dev/null; then
+      hits="$key_hits"
+    fi
+  fi
+  printf '%s\n' "${hits:-0}"
+}
+
+_task_is_stuck() {
+  local desc="$1"
+  local hits
+  hits="$(_task_stuck_hits "$desc")"
+  [ "${hits:-0}" -ge 3 ] 2>/dev/null
+}
+
+_first_surface_switch_task_line() {
+  local current_line="${1:-0}"
+  local first_in_progress="" first_pending="" line lnum rest desc
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    lnum="${line%%:*}"
+    [ "$lnum" = "$current_line" ] && continue
+    rest="${line#*:}"
+    desc="$(printf '%s' "$rest" | sed -E 's/^- \[([^]]*)\] //')"
+
+    # A surface switch must be runnable by the current agent. Rows that say
+    # they need owner/operator approval remain open, but they are blockers,
+    # not alternate execution surfaces.
+    if [ -n "$(_task_blocker_note "$desc" "$lnum")" ]; then
+      continue
+    fi
+    if _task_is_stuck "$desc"; then
+      continue
+    fi
+
+    if printf '%s' "$rest" | grep -qE '^- \[in_progress\] ' && [ -z "$first_in_progress" ]; then
+      first_in_progress="$line"
+    elif printf '%s' "$rest" | grep -qE '^- (\[ \]|\[pending\]) ' && [ -z "$first_pending" ]; then
+      first_pending="$line"
+    fi
+  done < <(grep -nE '^\- (\[ \]|\[(pending|in_progress)\]) ' "$PLAN" | _exclude_ec_lines || true)
+
+  if [ -n "$first_in_progress" ]; then
+    printf '%s\n' "$first_in_progress"
+  elif [ -n "$first_pending" ]; then
+    printf '%s\n' "$first_pending"
+  fi
+}
+
+_count_runnable_task_lines() {
+  local count=0 line lnum rest desc
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    lnum="${line%%:*}"
+    rest="${line#*:}"
+    desc="$(printf '%s' "$rest" | sed -E 's/^- \[([^]]*)\] //')"
+    if [ -n "$(_task_blocker_note "$desc" "$lnum")" ]; then
+      continue
+    fi
+    if _task_is_stuck "$desc"; then
+      continue
+    fi
+    count=$((count + 1))
+  done < <(grep -nE '^\- (\[ \]|\[(pending|in_progress)\]) ' "$PLAN" | _exclude_ec_lines || true)
+  printf '%s\n' "$count"
+}
+
 _progress_entries_head() {
   local limit="${1:-3}"
   awk -v limit="$limit" '
@@ -140,24 +375,14 @@ _progress_entries_head() {
 # --- hot/cold window (read-only context budget awareness) ----------------- #
 # HOT = pending + in_progress (v1 and v2) — excludes Exit Criteria lines
 HOT_TASKS="$(grep -nE '^\- (\[ \]|\[(pending|in_progress)\]) ' "$PLAN" | _exclude_ec_lines | grep -c '.' || true)"
+RUNNABLE_TASKS="$(_count_runnable_task_lines)"
 # COLD = completed (v1 and v2) — excludes Exit Criteria lines
 COLD_TASKS="$(grep -nE '^\- (\[x\]|\[completed\]) ' "$PLAN" | _exclude_ec_lines | grep -c '.' || true)"
 TOTAL_LINES="$(wc -l < "$PLAN" | tr -d ' ')"
 CONTEXT_WARNING=false; CONTEXT_NOTE=""
 if [ "$TOTAL_LINES" -gt "$CONTEXT_WARNING_LINES" ] || [ "$COLD_TASKS" -gt "$ARCHIVE_THRESHOLD" ]; then
   CONTEXT_WARNING=true
-  # Auto-archive: run checkpoint --archive if threshold exceeded
-  _CHECKPOINT_SCRIPT="$SCRIPT_DIR/vidux-checkpoint.sh"
-  if [ -x "$_CHECKPOINT_SCRIPT" ] && [ "$COLD_TASKS" -gt "$ARCHIVE_THRESHOLD" ]; then
-    _ARCHIVE_OUT=$("$_CHECKPOINT_SCRIPT" "$PLAN" --archive 2>&1 || true)
-    # Re-count after archive
-    COLD_TASKS="$(grep -nE '^\- (\[x\]|\[completed\]) ' "$PLAN" | _exclude_ec_lines | grep -c '.' || true)"
-    TOTAL_LINES="$(wc -l < "$PLAN" | tr -d ' ')"
-    HOT_TASKS="$(grep -nE '^\- (\[ \]|\[(pending|in_progress)\]) ' "$PLAN" | _exclude_ec_lines | grep -c '.' || true)"
-    CONTEXT_NOTE="Auto-archived completed tasks (was $COLD_TASKS). $_ARCHIVE_OUT"
-  else
-    CONTEXT_NOTE="PLAN.md has $COLD_TASKS completed tasks ($TOTAL_LINES lines). Consider archiving with vidux-checkpoint.sh --archive"
-  fi
+  CONTEXT_NOTE="PLAN.md has $COLD_TASKS completed tasks ($TOTAL_LINES lines). Reduce mode is read-only; archive explicitly with vidux-checkpoint.sh --archive."
 fi
 
 # --- Decision Log awareness (READ step) ------------------------------------ #
@@ -185,6 +410,7 @@ AUTO_PAUSE_RECOMMENDED=false; UNPRODUCTIVE_STREAK=0
 BIMODAL_SCORE=-1; BIMODAL_GATE="pass"
 CIRCUIT_BREAKER="closed"; CIRCUIT_BREAKER_STREAK=0
 BLOCKER_DEDUP=false; QUEUE_STARVED=false
+EARLY_HANDOFF_SUFFIX='"handoff_contract": {"long_horizon": false, "handoff_required": true, "stale_proof_gate": false, "stale_proof_dates": [], "meter_checkpoint_required": true, "required_fields": ["plan_row_moved", "task_id", "ledger", "proof", "files_claimed", "handoff_status", "next_agent_resume"]}, '"$REDUCE_CONTRACT_JSON"
 
 # Circuit breaker: if last N Progress entries show no shipping signals, block dispatch.
 # Scoped to ## Progress section only — don't match task descriptions elsewhere.
@@ -254,7 +480,7 @@ if [ -z "$TASK_LINE" ]; then
       QUEUE_STARVED=true
     fi
   fi
-  _FLEET_SUFFIX="\"auto_pause_recommended\": $AUTO_PAUSE_RECOMMENDED, \"unproductive_streak\": $UNPRODUCTIVE_STREAK, \"bimodal_score\": $BIMODAL_SCORE, \"bimodal_gate\": \"$BIMODAL_GATE\", \"circuit_breaker\": \"$CIRCUIT_BREAKER\", \"circuit_breaker_streak\": $CIRCUIT_BREAKER_STREAK, \"blocker_dedup\": $BLOCKER_DEDUP, \"queue_starved\": $QUEUE_STARVED, \"sub_plan\": null"
+  _FLEET_SUFFIX="\"runnable_tasks\": $RUNNABLE_TASKS, \"auto_pause_recommended\": $AUTO_PAUSE_RECOMMENDED, \"unproductive_streak\": $UNPRODUCTIVE_STREAK, \"bimodal_score\": $BIMODAL_SCORE, \"bimodal_gate\": \"$BIMODAL_GATE\", \"circuit_breaker\": \"$CIRCUIT_BREAKER\", \"circuit_breaker_streak\": $CIRCUIT_BREAKER_STREAK, \"blocker_dedup\": $BLOCKER_DEDUP, \"queue_starved\": $QUEUE_STARVED, \"sub_plan\": null, $EARLY_HANDOFF_SUFFIX"
   # Check if there are blocked tasks left (not "done" — escalate)
   BLOCKED_COUNT="$(grep -nE '^\- \[blocked\] ' "$PLAN" | _exclude_ec_lines | grep -c '.' || true)"
   if [ "$BLOCKED_COUNT" -gt 0 ]; then
@@ -379,11 +605,16 @@ from datetime import datetime, timezone
 
 today = datetime.now(timezone.utc).date()
 stale = []
+observed_dates = []
 for raw in sorted(set(re.findall(r"\b20\d{2}-\d{2}-\d{2}\b", os.environ.get("TASK_DESC", "")))):
     try:
         observed = datetime.strptime(raw, "%Y-%m-%d").date()
     except ValueError:
         continue
+    if observed <= today:
+        observed_dates.append((observed, raw))
+if observed_dates:
+    observed, raw = max(observed_dates)
     age_days = (today - observed).days
     if age_days > 1:
         stale.append({"date": raw, "age_days": age_days})
@@ -403,37 +634,26 @@ fi
 # Fix (v2.3.0): matches against task identifiers only, not full task text.
 # Handles [Depends: none], multi-dep lists, and numeric ID partial-match safety.
 BLOCKED=false; BLOCKER_NOTE=""
-DEP="$(echo "$TASK_DESC" | grep -o '\[Depends: [^]]*\]' || true)"
-if [ -n "$DEP" ]; then
-  DEP_TARGET="${DEP#\[Depends: }"; DEP_TARGET="${DEP_TARGET%\]}"
-  # Short-circuit: "none" is a sentinel, not a dependency (fixes [Depends: none] false-positive)
-  if ! echo "$DEP_TARGET" | grep -qi '^none$'; then
-    # Extract task identifiers from all non-completed task lines (exclude current task line)
-    # Each identifier is "Task N" or "Task N.N" from the start of the task description
-    PENDING_IDS="$(grep -nE '^\- (\[ \]|\[(pending|in_progress)\]) ' "$PLAN" \
-      | grep -v "^${LINE_NUM}:" \
-      | sed -E 's/^[0-9]+:- \[([^]]*)\] //' \
-      | grep -oE '^Task [0-9]+(\.[0-9]+)?' || true)"
-    # Split DEP_TARGET on comma for multi-dep support (e.g., [Depends: 0.3, 0.4, 0.5])
-    IFS=',' read -ra DEP_PARTS <<< "$DEP_TARGET"
-    for DEP_PART in "${DEP_PARTS[@]}"; do
-      DEP_PART="$(echo "$DEP_PART" | xargs)"  # trim whitespace
-      [ -z "$DEP_PART" ] && continue
-      # Match against each pending task identifier
-      while IFS= read -r TASK_ID; do
-        [ -z "$TASK_ID" ] && continue
-        # Full form: "Task 0.3" matches identifier "Task 0.3"
-        if [[ "$TASK_ID" == "$DEP_PART" ]]; then
-          BLOCKED=true; BLOCKER_NOTE="Waiting on: $DEP_PART"; break 2
-        fi
-        # Short form: "0.3" matches the numeric part of "Task 0.3"
-        TASK_NUM="${TASK_ID#Task }"
-        if [[ "$TASK_NUM" == "$DEP_PART" ]]; then
-          BLOCKED=true; BLOCKER_NOTE="Waiting on: $DEP_PART"; break 2
-        fi
-      done <<< "$PENDING_IDS"
-    done
+DEPENDENCY_BLOCKER_NOTE="$(_task_dependency_blocker_note "$TASK_DESC" "$LINE_NUM" || true)"
+if [ -n "$DEPENDENCY_BLOCKER_NOTE" ]; then
+  BLOCKED=true
+  BLOCKER_NOTE="$DEPENDENCY_BLOCKER_NOTE"
+fi
+
+# Explicit prose blockers are dependency gates too. Some active rows summarize
+# a satisfied dependency and then name a current blocker inside the same
+# [Depends:] annotation, which should not route agents to evidence gathering.
+if [ "$BLOCKED" = false ]; then
+  PROSE_BLOCKER_NOTE="$(_task_prose_blocker_note "$TASK_DESC")"
+  if [ -n "$PROSE_BLOCKER_NOTE" ]; then
+    BLOCKED=true
+    BLOCKER_NOTE="$PROSE_BLOCKER_NOTE"
   fi
+fi
+
+if [ "$BLOCKED" = true ]; then
+  HANDOFF_REQUIRED=true
+  METER_CHECKPOINT_REQUIRED=true
 fi
 
 # --- blocker dedup detection ------------------------------------------------ #
@@ -483,10 +703,10 @@ fi
 
 # Decide action
 ACTION="execute"; CONTEXT="Ready to execute"
-if [ "$IS_RESUMING" = true ]; then
-  ACTION="execute"; CONTEXT="Resuming in_progress task"
-elif [ "$BLOCKED" = true ]; then
+if [ "$BLOCKED" = true ]; then
   ACTION="blocked"; CONTEXT="$(json_escape "$BLOCKER_NOTE")"
+elif [ "$IS_RESUMING" = true ]; then
+  ACTION="execute"; CONTEXT="Resuming in_progress task"
 elif [ "$TASK_OPEN_QS" -gt 0 ] && [ "$TYPE" = "code" ]; then
   ACTION="refine"; CONTEXT="$TASK_OPEN_QS task-linked open question(s) (${TASK_OPEN_REFS}); resolve before executing"
 elif [ "$HAS_EVIDENCE" = false ] && [ "$TYPE" = "code" ]; then
@@ -500,20 +720,36 @@ fi
 # Uses Progress section (not git log) — survives commit message wording changes
 # and LLM compaction. A task appearing in 3+ Progress entries without [completed] = stuck.
 STUCK=false; STUCK_HITS=0; AUTO_BLOCKED=false
+SURFACE_SWITCH_AVAILABLE=false; SURFACE_SWITCH_TASK=""; SURFACE_SWITCH_LINE=0
 TASK_SHORT="$(echo "$TASK_DESC" | cut -c1-40)"
-if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
+TASK_KEY="$(_task_progress_key "$TASK_DESC")"
+TASK_KEY_PATTERN=""
+STUCK_MATCH_MODE="task_short"
+if [ "$BLOCKED" != true ] && grep -q '^## Progress' "$PLAN" 2>/dev/null; then
   PROG_BLOCK="$(awk '/^## Progress/{found=1; next} found && /^## /{found=0} found{print}' "$PLAN")"
   STUCK_HITS="$(printf '%s\n' "$PROG_BLOCK" | grep -cF "$TASK_SHORT" 2>/dev/null || true)"
+  if [ -n "$TASK_KEY" ]; then
+    TASK_KEY_PATTERN="(^|[^[:alnum:]_.-])$(_escape_ere "$TASK_KEY")([^[:alnum:]_.-]|$)"
+    TASK_KEY_HITS="$(printf '%s\n' "$PROG_BLOCK" | grep -cE "$TASK_KEY_PATTERN" 2>/dev/null || true)"
+    if [ "$TASK_KEY_HITS" -gt "$STUCK_HITS" ]; then
+      STUCK_HITS="$TASK_KEY_HITS"
+      STUCK_MATCH_MODE="task_key"
+    fi
+  fi
   if [ "$STUCK_HITS" -ge 3 ]; then
     STUCK=true; ACTION="stuck"
     CONTEXT="Task in $STUCK_HITS Progress entries without completing; possible stuck loop"
 
-    # --- mechanical enforcement: auto-block after 3+ cycles on same task --- #
-    # Only act on [in_progress] tasks (pending tasks haven't been started yet)
-    if [ "$IS_RESUMING" = true ] && [ -n "$LINE_NUM" ]; then
+    # --- optional enforcement: auto-block after 3+ cycles on same task ------ #
+    # Default READ/ASSESS mode only reports stuck state. Mutation requires opt-in.
+    if [ "${VIDUX_LOOP_AUTO_BLOCK:-0}" = "1" ] && [ "$IS_RESUMING" = true ] && [ -n "$LINE_NUM" ]; then
       TODAY="$(date +%Y-%m-%d)"
       # Grab the last progress entry mentioning this task for the reason
-      LAST_PROG="$(printf '%s\n' "$PROG_BLOCK" | grep -F "$TASK_SHORT" | tail -1 || true)"
+      if [ "$STUCK_MATCH_MODE" = "task_key" ] && [ -n "$TASK_KEY_PATTERN" ]; then
+        LAST_PROG="$(printf '%s\n' "$PROG_BLOCK" | grep -E "$TASK_KEY_PATTERN" | tail -1 || true)"
+      else
+        LAST_PROG="$(printf '%s\n' "$PROG_BLOCK" | grep -F "$TASK_SHORT" | tail -1 || true)"
+      fi
       LAST_PROG_ESCAPED="$(json_escape "${LAST_PROG:-no progress entry found}")"
 
       # Flip [in_progress] -> [blocked] on the task line
@@ -543,8 +779,19 @@ $DL_ENTRY\\
   fi
 fi
 
-# --- recompute hot_tasks after mutations (stuck-loop may have auto-blocked) - #
+if [ "$STUCK" = true ]; then
+  SURFACE_SWITCH_TASK_LINE="$(_first_surface_switch_task_line "$LINE_NUM")"
+  if [ -n "$SURFACE_SWITCH_TASK_LINE" ]; then
+    SURFACE_SWITCH_AVAILABLE=true
+    SURFACE_SWITCH_LINE="${SURFACE_SWITCH_TASK_LINE%%:*}"
+    SURFACE_SWITCH_REST="${SURFACE_SWITCH_TASK_LINE#*:}"
+    SURFACE_SWITCH_TASK="$(echo "$SURFACE_SWITCH_REST" | sed -E 's/^- \[([^]]*)\] //')"
+  fi
+fi
+
+# --- recompute hot_tasks after optional mutations (if auto-block was opted in) #
 HOT_TASKS="$(grep -nE '^\- (\[ \]|\[(pending|in_progress)\]) ' "$PLAN" | _exclude_ec_lines | grep -c '.' || true)"
+RUNNABLE_TASKS="$(_count_runnable_task_lines)"
 
 # --- checkpoint mode ------------------------------------------------------- #
 if [ "$MODE" = "--checkpoint" ]; then
@@ -558,10 +805,10 @@ if [ "$MODE" = "--checkpoint" ]; then
     sedi "/^## Progress/a\\
 $PROGRESS" "$PLAN"
   fi
-  # Emit checkpoint event
+  # Emit checkpoint event. This mode mutates the plan but does not create a git
+  # commit, so do not attach HEAD as proof for the newly-written checkpoint.
   if type vidux_emit_checkpoint &>/dev/null; then
-    local_commit=$(git -C "$PLAN_DIR" rev-parse HEAD 2>/dev/null || echo "")
-    vidux_emit_checkpoint "$PROJECT_NAME" "$PLAN" "$local_commit" "done" 2>/dev/null || true
+    vidux_emit_checkpoint "$PROJECT_NAME" "$PLAN" "" "done" "check plan" "$TASK_DESC" 2>/dev/null || true
   fi
   json "{\"checkpoint\": true, \"cycle\": $NEXT_CYCLE, \"task\": \"$(json_escape "$TASK_DESC")\", \"status\": \"done\"}"
   exit 0
@@ -598,8 +845,9 @@ fi
 # --- output ---------------------------------------------------------------- #
 # Field semantics: blocked vs auto_blocked
 #   blocked     = dependency-gated: task's [Depends: X] references an unresolved task
-#   auto_blocked = stuck-loop enforcement: task was in_progress for 3+ cycles, script
-#                  flipped it to [blocked] in PLAN.md. Human must unblock.
+#   auto_blocked = explicit stuck-loop enforcement: task was in_progress for 3+
+#                  cycles and VIDUX_LOOP_AUTO_BLOCK=1 let the script flip it to
+#                  [blocked] in PLAN.md. Human must unblock.
 #   Both are booleans. A task can be auto_blocked=true with blocked=false (stuck, not dep-gated).
 NEXT_ACTION="none"
 case "$ACTION" in
@@ -612,6 +860,11 @@ case "$ACTION" in
     ;;
   refresh_proof)
     NEXT_ACTION="refresh_proof"
+    ;;
+  stuck|auto_blocked)
+    if [ "$SURFACE_SWITCH_AVAILABLE" = true ]; then
+      NEXT_ACTION="surface_switch"
+    fi
     ;;
 esac
 cat <<ENDJSON
@@ -629,7 +882,13 @@ cat <<ENDJSON
   "action": "$ACTION",
   "next_action": "$NEXT_ACTION",
   "context": "$(json_escape "$CONTEXT")",
+  "surface_switch": {
+    "available": $SURFACE_SWITCH_AVAILABLE,
+    "task": "$(json_escape "$SURFACE_SWITCH_TASK")",
+    "line": $SURFACE_SWITCH_LINE
+  },
   "hot_tasks": $HOT_TASKS,
+  "runnable_tasks": $RUNNABLE_TASKS,
   "cold_tasks": $COLD_TASKS,
   "context_warning": $CONTEXT_WARNING,
   "context_note": "$(json_escape "$CONTEXT_NOTE")",
@@ -660,13 +919,13 @@ cat <<ENDJSON
     "stale_proof_gate": $STALE_PROOF_GATE,
     "stale_proof_dates": $STALE_PROOF_DATES_JSON,
     "meter_checkpoint_required": $METER_CHECKPOINT_REQUIRED,
-    "required_fields": ["plan_row_moved", "ledger", "proof", "files_claimed", "handoff_status", "next_agent_resume"]
+    "required_fields": ["plan_row_moved", "task_id", "ledger", "proof", "files_claimed", "handoff_status", "next_agent_resume"]
   },
   "reduce_contract": {
     "read_only": true,
     "max_budget_seconds": 120,
     "forbidden": ["code_changes", "plan_execution", "file_writes"],
-    "allowed": ["read_plan", "read_evidence", "assess_state", "fire_dispatch", "route_refresh_proof"]
+    "allowed": ["read_plan", "read_evidence", "assess_state", "fire_dispatch", "route_refresh_proof", "route_surface_switch"]
   }
 }
 ENDJSON

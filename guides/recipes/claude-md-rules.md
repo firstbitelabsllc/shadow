@@ -83,8 +83,9 @@ Push tiers:
 
 Every commit, push, PR, direct-to-main update, or trunk merge is a publish
 action: update the owning PLAN.md Progress/Tasks or Drift Log first, then emit
-`ledger-emit.sh --event publish --plan-path <PLAN.md> --proof "<command/artifact>"
---handoff-status <done|in_progress|blocked|needs_review> --file <changed-file>
+`ledger-emit.sh --event publish --summary "<summary>" --task-id <task-id> --plan-path <PLAN.md> --proof "<command/artifact>"
+--handoff-status <done|in_progress|blocked|needs_review> --resume "<resume point>"
+--file <changed-file>
 --claim <claimed-file>`. Carry the ledger eid into the PR, merge note, or final
 handoff with files claimed and the next-agent resume point.
 
@@ -120,7 +121,9 @@ handoff_status, files claimed, and the next-agent resume point.
 - All-blocked early exit: if every PLAN.md task is [blocked] and every PR
   is failing, exit the cycle with a [QC] checkpoint. Don't improvise.
 - Compaction survival: assume every file you've read may be absent after
-  compaction. State lives on disk (PLAN.md, memory.md), not in context.
+  compaction. State orientation lives on disk: PLAN.md plus publish ledger
+  rows carry shipped-work truth; memory.md is the lane-local cycle log, not
+  chat context.
 ```
 
 **Why:** Loops consume tokens and produce no progress. Escalation is cheaper than 20 retries.

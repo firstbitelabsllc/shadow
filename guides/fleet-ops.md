@@ -28,7 +28,7 @@ Every automation MUST read sibling state during its READ step. Not optional. Not
 
 > A dirty or diverged canonical checkout is a fleet-level infrastructure failure, not a per-task blocker. Detect it in 10 seconds, not after 45 minutes of deep work.
 
-Every automation works in a worktree and is expected to leave durable state as a branch + PR before the local worktree is discarded. If the canonical checkout is dirty, diverged, or behind origin, that PR-first flow starts from a stale base and the lane burns time on avoidable conflict resolution instead of shipping.
+Every automation works in a worktree and is expected to leave a durable handoff packet before the local worktree is discarded: owning PLAN.md update plus publish ledger row first, then branch + PR as git transport and review handles. If the canonical checkout is dirty, diverged, or behind origin, that publish-propagated PR flow starts from a stale base and the lane burns time on avoidable conflict resolution instead of shipping.
 
 Overnight this compounds: 10 automations x 8 hours = 80 cycles producing stale branches or PRs that nobody can safely land. vidux-loop.sh counts these as "unproductive" because no PLAN.md task state changed, which triggers auto-pause, which makes it worse.
 
@@ -55,7 +55,7 @@ An automation that ships code to a branch, pushes it to origin, opens or updates
 
 ## PR Sweep
 
-The lead writer or coordinator sweeps open automation PRs. `gh pr list` is the durable recovery manifest; a branch with no PR is infrastructure drift. Without a PR sweep, lanes keep creating fresh work while already-shipped work rots in review or sits only on a branch.
+The lead writer or coordinator sweeps open automation PRs. `gh pr list` is the transport/review recovery index for branch-backed work; the owning PLAN.md plus matching publish ledger row remains the durable shipped-work recovery packet. A branch with no PR is infrastructure drift. Without a PR sweep, lanes keep creating fresh work while already-shipped work rots in review or sits only on a branch.
 
 ### Protocol (run during the lead writer's READ step, before popping new tasks)
 
@@ -103,39 +103,40 @@ Cron agents are stateless but worktrees are not. When a session dies mid-task in
    ```
    If the count drops, abort the merge and escalate. Worktree branches should minimize PLAN.md edits -- confine changes to their own task status updates.
 
-6. **PR sweep role.** In a multi-automation fleet, open PRs are the durable recovery manifest. Branches without PRs are drift. The lead writer or coordinator owns the PR sweep. See "PR Sweep" section above for the full protocol.
+6. **PR sweep role.** In a multi-automation fleet, open PRs are the transport/review recovery index that complements the owning plan plus publish ledger packet. Branches without PRs are drift. The lead writer or coordinator owns the PR sweep. See "PR Sweep" section above for the full protocol.
 
 ### Worktree PR handoff rule (for prompts)
 
-Every automation that uses `execution_environment = "worktree"` MUST hand off durable state before exiting. The durable state is the branch + PR, not the local worktree. Without this, the runtime creates a fresh worktree each cycle and the old one becomes invisible local state.
+Every automation that uses `execution_environment = "worktree"` MUST hand off durable state before exiting. The durable handoff starts with the owning plan plus publish ledger packet; branch + PR are the transport and review handles, not the local worktree. Without this, the runtime creates a fresh worktree each cycle and the old one becomes invisible local state.
 
 **The rule (add to block 7 -- Execution in the prompt):**
 ```
 WORKTREE RULE: Before stopping, update the plan, emit publish ledger, push the branch, and open/update the PR.
 - First update the owning PLAN.md Progress/Tasks/Drift Log with what changed, proof, `handoff_status`, files claimed, and the next-agent resume point.
-- Then emit `ledger-emit.sh --event publish` with `--plan-path`, `--proof`, `--handoff-status`, `--file`, and `--claim`; keep the eid in `$LEDGER_EID`.
-- If work is complete and tests pass: push branch, build the PR body with `scripts/vidux-pr-body.py` including `--plan-path`, `--proof`, `--handoff-status`, `--ledger "$LEDGER_EID"`, and `--file-claimed`, open a ready PR, and record the resume point in the PR body.
+- Then emit `ledger-emit.sh --event publish` with non-empty `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status`, `--resume`, changed-file `--file` entries, and path-like `--claim` entries for claimed files; keep the eid in `$LEDGER_EID`.
+- If work is complete and tests pass: push branch, build the PR body with `scripts/vidux-pr-body.py` including `--summary`, `--plan-path`, `--proof`, `--handoff-status`, `--ledger "$LEDGER_EID"`, `--file-claimed`, `--resume`, and the three `--review-pass` self-scrutiny entries, open a ready PR, and record the resume point in the PR body.
 - If work is incomplete or a gate is still missing: emit the publish row with `handoff_status=in_progress` or `needs_review`, push branch, open/update PR as draft, and record the exact next step.
 - If work conflicts or is unsafe: record why in memory/PLAN.md and keep the branch name visible.
 - NEVER push directly to the default branch from an automation worktree.
 - NEVER exit with only local worktree commits unless the blocker is recorded.
 ```
 
-After a branch is pushed and the resume point is recorded, the local worktree is disposable. If a lane intentionally keeps it for PR nursing, keep the `## Active Worktrees` entry current; otherwise remove the entry and rely on `gh pr list` for recovery.
+After a branch is pushed and the resume point is recorded, the local worktree is disposable. If a lane intentionally keeps it for PR nursing, keep the `## Active Worktrees` entry current; otherwise remove the entry and rely on the plan/ledger packet plus `gh pr list` for transport recovery.
 
 **Detecting and classifying local worktrees:**
 ```bash
 python3 scripts/vidux-worktree-gc.py --base origin/main
 python3 scripts/vidux-worktree-gc.py --json --base origin/main
+python3 scripts/vidux-worktree-gc.py --owner-review-markdown --base origin/main
 ```
 
-The classifier separates worktrees into `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `primary`. Only `merged_clean` worktrees are eligible for automatic removal.
+The classifier separates worktrees into `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `primary`. Its JSON and text output also include a top-level `cleanup_decision` so dry-runs can say whether owner approval is required before guarded apply, or owner review is still required for non-removable rows. JSON carries `guarded_removal_available`, `owner_approval_required_before_apply`, and `cleanup_approval_status` on that decision, plus `owner_review_items` with `commits_not_in_base`, `last_commit_subject`, `last_commit_date`, `last_commit_age_days`, and safe `review_command` inspection commands. `safe_cleanup_items` lists the exact `merged_clean` rows eligible for guarded cleanup after approval. The top-level decision and safe rows carry `cleanup_approval_status=required_before_apply` when any `merged_clean` row exists. `--owner-review-markdown` prints the same non-removable rows and safe cleanup rows as a compact packet with commit evidence, last-activity evidence, and an approval-required column. Only `merged_clean` worktrees are eligible for removal after owner approval.
 
 **Cleanup:**
 1. Run `git fetch --prune origin` so `origin/main` and PR refs are fresh.
 2. Run `python3 scripts/vidux-worktree-gc.py --base origin/main`.
-3. Inspect any `dirty`, `closed_unmerged`, or `unmerged_no_pr` rows. These require a human or lane-owner decision.
-4. Remove safe local-only worktrees explicitly: `python3 scripts/vidux-worktree-gc.py --base origin/main --apply --yes`.
+3. Inspect any `dirty`, `closed_unmerged`, or `unmerged_no_pr` rows, using `--owner-review-markdown` when a handoff packet is useful. These require a human or lane-owner decision. If the packet includes safe cleanup rows, review those concrete paths and record owner approval before running the guarded apply command.
+4. After owner approval for the concrete safe rows, remove safe local-only worktrees explicitly: `python3 scripts/vidux-worktree-gc.py --base origin/main --apply --yes`.
 5. Run `git worktree prune` afterward to remove stale metadata entries.
 
 ---
@@ -341,12 +342,12 @@ Safety mechanisms can become traps. Circuit breaker opens after N idle cycles an
 `vidux-loop.sh` enforces stuck detection without relying on LLM judgment:
 
 1. A task appearing in 3+ Progress entries while still `[in_progress]` is stuck.
-2. The script automatically flips the task from `[in_progress]` to `[blocked]` in PLAN.md.
-3. A `[STUCK]` entry is appended to the Decision Log with the date and last progress note.
-4. The JSON output includes `auto_blocked: true` so the harness knows enforcement fired.
-5. The harness forces a surface switch on the next cycle — no human gate. The blocked task is terminal; if new evidence surfaces (observed signal, PR comment, queue re-sort), a replacement task is added with a Decision Log entry rather than reviving the blocked one.
+2. Default read mode reports `action: "stuck"` and, when another runnable row exists, `next_action: "surface_switch"` with a `surface_switch` candidate.
+3. If `VIDUX_LOOP_AUTO_BLOCK=1`, the script flips the task from `[in_progress]` to `[blocked]` in PLAN.md.
+4. With auto-blocking enabled, a `[STUCK]` entry is appended to the Decision Log with the date and last progress note.
+5. The harness forces a surface switch — no human gate. If auto-blocking was enabled, the blocked task is terminal; if new evidence surfaces (observed signal, PR comment, queue re-sort), add a replacement task with a Decision Log entry rather than reviving the blocked one.
 
-If PLAN.md format is unexpected (missing sections, unusual markup), the enforcement degrades gracefully: stuck detection still reports `stuck: true` in JSON, but the auto-block write is skipped. No data is lost.
+If PLAN.md format is unexpected (missing sections, unusual markup), the enforcement degrades gracefully: stuck detection still reports `stuck: true` in JSON, but the auto-block write is skipped unless explicitly enabled and mechanically safe. No data is lost.
 
 ---
 

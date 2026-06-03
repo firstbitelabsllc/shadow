@@ -10,9 +10,9 @@ When the human returns: brief them. What happened. What the options are. What yo
 
 Silence is not confirmation. Be hungry for steering.
 
-## 1. Plan is truth
+## 1. Plan is planning authority
 
-PLAN.md is the single source of truth. Code is derived from it. If the code is wrong, the plan is wrong. Fix the plan first. An agent that edits code without a corresponding plan entry is violating the plan-first rule.
+PLAN.md is the queue/planning authority for work, decisions, constraints, and progress. Code is derived from that plan state, and shipped-cycle proof/resume lives in the matching publish ledger row. If the code is wrong, first reconcile the owning plan, then pair the shipped change with a publish ledger row carrying proof, handoff status, files claimed, and next-agent resume. An agent that edits code without a corresponding plan entry is violating the plan-first rule.
 
 *Why this matters: The Acme iOS fleet drifted 400+ lines from spec in 6 cycles before this rule existed. SlopCodeBench confirms it -- agent code degradation is monotonic.*
 
@@ -44,7 +44,7 @@ Every plan entry cites a source. No source = no entry. Sources: MCP queries, cod
 
 ## 5. Design for completion
 
-Deep work runs end. Context is lost. Auth expires. The plan persists. State lives in files, not memory. Every cycle reads fresh. Checkpoints are structured. Any agent can resume from the last checkpoint. Tool state (.claude/, .cursor/) lives outside the working tree.
+Deep work runs end. Context is lost. Auth expires. The plan persists, and append-only ledger rows preserve shipped-cycle proof. State lives in repo files plus ledger rows, not chat memory. Every cycle reads fresh. Checkpoints are structured plan/ledger packets. Any agent can resume from the owning plan plus the latest matching publish or handoff row. Tool state (.claude/, .cursor/) lives outside the working tree.
 
 *Why this matters: A Beacon overnight loop lost auth at 3am. The next cron fire committed recovered work and continued. Zero human intervention.*
 

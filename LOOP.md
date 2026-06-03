@@ -4,7 +4,8 @@
 
 ## The Stateless Cycle
 
-Every cron fire is a fresh context. No memory. No carried state. Just files.
+Every cron fire is a fresh context. No memory. No carried state. Just repo
+files plus append-only ledger rows.
 
 ```
 [Cron fires] -> [Read PLAN.md] -> [Assess] -> [Act] -> [Checkpoint] -> [Complete]
@@ -29,10 +30,10 @@ sequenceDiagram
     else score < 7
         Agent->>Plan: ACT — refine plan
     end
-    Agent->>Plan: update Progress
-    Agent->>Git: CHECKPOINT commit
+    Agent->>Plan: CHECKPOINT plan + ledger
+    Agent->>Git: publish branch/PR when propagated
     Agent->>Agent: COMPLETE (no state carried)
-    Note over Cron,Git: Next fire = brand new agent reading fresh from files
+    Note over Cron,Git: Next fire = brand new agent reading fresh plan + ledger
 ```
 
 The agent that wakes up next time is a different agent. It knows nothing except what's in the files. Design for this. Always.
@@ -41,7 +42,7 @@ The agent that wakes up next time is a different agent. It knows nothing except 
 
 Read these files in order. Stop if any is missing — that's your first task.
 
-1. `PLAN.md` — the source of truth. First look for any `[in_progress]` task (resume priority — a prior session may have died mid-task). If none found, find the first `[pending]` task (or unchecked `[ ]` in v1 plans).
+1. `PLAN.md` — the planning authority for the queue, decisions, constraints, and Progress/Drift record. First look for any `[in_progress]` task (resume priority — a prior session may have died mid-task). If none found, find the first `[pending]` task (or unchecked `[ ]` in v1 plans).
 2. **Decision Log** — read the `## Decision Log` section before doing anything else. If `vidux-loop.sh` output has `decision_log_warning: true`, review every entry. You MUST NOT contradict a logged direction. If your next action would, skip that action and move on.
 3. Drift feedback cache, if configured: check whether the current task matches prior drift and apply any prevention hint before editing.
 4. `git log --oneline -10` — what happened recently? Any commits since last checkpoint?
@@ -54,7 +55,7 @@ Read these files in order. Stop if any is missing — that's your first task.
    local cleanup candidates.
 7. Ledger (if available): `tail -5 ~/.agent-ledger/activity.jsonl | jq '.summary'`
 
-If uncommitted work exists from a crash, commit it first with message `vidux: recover uncommitted work from crashed session`.
+If uncommitted work exists from a crash, preserve it first: inspect `git status` and `git diff --stat`, identify the touched files, decide whether the work belongs to the current `PLAN.md` row, and record the recovery path in the owning plan plus a ledger handoff before any commit, push, cleanup, or overwrite. Do not commit unknown WIP just to clean the tree.
 
 ## Step 2: Assess (30 seconds)
 
@@ -192,7 +193,12 @@ Blocker: [if any, or "none"]
 - [DATE TIME] Cycle N: [what happened]. Next: [what's next]. Blocker: [if any].
 ```
 
-Push when ready — not required per-cycle. Git commit is the checkpoint, not git push.
+Push when ready — not required per-cycle. A commit is only a local code
+snapshot. The checkpoint for any publishable branch/PR/release is the owning
+PLAN.md update plus `ledger-emit.sh --event publish` with concise summary,
+plan task id, proof, `handoff_status`, files claimed, next-agent resume, and the
+resulting ledger eid carried into the branch/PR/release handoff before the
+publish leaves the machine.
 
 **Reconcile planned vs actual:** Compare what the plan said with what the git diff shows. If they diverge, run `vidux drift <PLAN.md> --task ... --planned ... --actual ... --why ... --plan-update ... --next ...` or call `scripts/vidux-drift-log.py` directly. The helper writes `## Drift Log`, appends Progress, and can explicitly block stale tasks, add follow-up tasks, or mirror the drift into subplans. When the drift exposes a reusable prevention, record it with `--prevention`; when telemetry is enabled, emit a local signpost for `drift.record` / `cache.suggest`. The plan always reflects truth.
 
@@ -337,8 +343,9 @@ ACT:
   - Check off Task 4 in PLAN.md
 
 CHECKPOINT:
-  Commit: "vidux: Task 4 — boundary shell (APIClientFeature)"
-  Plan: Task 4 complete. Next: Task 5 (entry-point wiring).
+  Plan: Task 4 complete with proof. Next: Task 5 (entry-point wiring).
+  Ledger: publish row carries proof, handoff_status, concise summary, plan task id, files claimed, and resume.
+  Git: commit/push branch only after the plan/ledger packet exists.
 
 COMPLETE.
 ```
@@ -353,7 +360,7 @@ For a 20-minute cron interval, budget:
 | Assess | 30s | Decision is simple if plan is good |
 | Act (plan refinement) | 15 min | Research agents + synthesis |
 | Act (code execution) | 15 min | One task + build/test |
-| Checkpoint | 1 min | Commit + push |
+| Checkpoint | 1 min | Plan update + publish ledger row + resume handoff; git transport follows only when needed |
 | Buffer | 3 min | For retries, errors |
 
 If a task will take longer than 15 min, break it into sub-tasks that each fit in one cycle.

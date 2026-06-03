@@ -8,4 +8,4 @@ Second fixture so the sidebar shows more than one row + the search/filter has so
 
 - [completed] Beta task one
 - [completed] Beta task two
-- [in_review] Beta task three
+- [in_review] Beta task three [ETA: 4h]

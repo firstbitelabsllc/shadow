@@ -126,15 +126,76 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertEqual("open_pr", by_branch["open-pr"]["bucket"])
         self.assertEqual(12, by_branch["open-pr"]["pr_number"])
         self.assertIn("review the PR", by_branch["open-pr"]["next_owner_action"])
+        self.assertIn("gh pr view 12", by_branch["open-pr"]["review_command"])
         self.assertEqual("dirty", by_branch["dirty-branch"]["bucket"])
         self.assertIn("preserve WIP", by_branch["dirty-branch"]["next_owner_action"])
+        self.assertIn("git -C", by_branch["dirty-branch"]["review_command"])
+        self.assertIn("status --short", by_branch["dirty-branch"]["review_command"])
         self.assertEqual("closed_unmerged", by_branch["closed-unmerged"]["bucket"])
         self.assertEqual(13, by_branch["closed-unmerged"]["pr_number"])
+        self.assertEqual(1, by_branch["closed-unmerged"]["commits_not_in_base"])
+        self.assertEqual("change closed-unmerged", by_branch["closed-unmerged"]["last_commit_subject"])
+        self.assertRegex(by_branch["closed-unmerged"]["last_commit_date"], r"^\d{4}-\d{2}-\d{2}T")
+        self.assertIsInstance(by_branch["closed-unmerged"]["last_commit_age_days"], int)
         self.assertIn("owner review required", by_branch["closed-unmerged"]["next_owner_action"])
+        self.assertIn("gh pr view 13", by_branch["closed-unmerged"]["review_command"])
         self.assertEqual("unmerged_no_pr", by_branch["unmerged-no-pr"]["bucket"])
+        self.assertEqual(1, by_branch["unmerged-no-pr"]["commits_not_in_base"])
+        self.assertEqual("change unmerged-no-pr", by_branch["unmerged-no-pr"]["last_commit_subject"])
+        self.assertRegex(by_branch["unmerged-no-pr"]["last_commit_date"], r"^\d{4}-\d{2}-\d{2}T")
+        self.assertIsInstance(by_branch["unmerged-no-pr"]["last_commit_age_days"], int)
         self.assertIn("open a PR", by_branch["unmerged-no-pr"]["next_owner_action"])
+        self.assertIn("log --oneline", by_branch["unmerged-no-pr"]["review_command"])
+        self.assertIn("origin/main..HEAD", by_branch["unmerged-no-pr"]["review_command"])
         self.assertEqual(1, payload["summary"]["removable"])
         self.assertEqual(6, payload["summary"]["total"])
+        self.assertTrue(payload["cleanup_decision"]["automated_removal_allowed"])
+        self.assertTrue(payload["cleanup_decision"]["guarded_removal_available"])
+        self.assertTrue(payload["cleanup_decision"]["owner_approval_required_before_apply"])
+        self.assertEqual(1, payload["cleanup_decision"]["removable_count"])
+        self.assertEqual(4, payload["cleanup_decision"]["owner_review_required_count"])
+        self.assertEqual(
+            {
+                "closed_unmerged": 1,
+                "dirty": 1,
+                "open_pr": 1,
+                "unmerged_no_pr": 1,
+            },
+            payload["cleanup_decision"]["blocked_by_buckets"],
+        )
+        self.assertTrue(payload["cleanup_decision"]["cleanup_approval_required"])
+        self.assertEqual(
+            "required_before_apply",
+            payload["cleanup_decision"]["cleanup_approval_status"],
+        )
+        self.assertEqual(
+            "owner_approval_required_before_apply; owner review required for non-removable buckets",
+            payload["cleanup_decision"]["next_action"],
+        )
+        self.assertEqual(
+            ["closed_unmerged", "dirty", "open_pr", "unmerged_no_pr"],
+            [item["bucket"] for item in payload["owner_review_items"]],
+        )
+        self.assertEqual(
+            ["closed-unmerged", "dirty-branch", "open-pr", "unmerged-no-pr"],
+            [item["branch"] for item in payload["owner_review_items"]],
+        )
+        self.assertNotIn("main", [item["branch"] for item in payload["owner_review_items"]])
+        self.assertNotIn("merged-clean", [item["branch"] for item in payload["owner_review_items"]])
+        self.assertIn("review_command", payload["owner_review_items"][0])
+        self.assertIn("last_commit_date", payload["owner_review_items"][0])
+        self.assertIn("last_commit_age_days", payload["owner_review_items"][0])
+        self.assertEqual(1, len(payload["safe_cleanup_items"]))
+        self.assertEqual("merged_clean", payload["safe_cleanup_items"][0]["bucket"])
+        self.assertEqual("merged-clean", payload["safe_cleanup_items"][0]["branch"])
+        self.assertIn("HEAD is contained in origin/main", payload["safe_cleanup_items"][0]["reason"])
+        self.assertIn("last_commit_date", payload["safe_cleanup_items"][0])
+        self.assertIn("last_commit_age_days", payload["safe_cleanup_items"][0])
+        self.assertTrue(payload["safe_cleanup_items"][0]["cleanup_approval_required"])
+        self.assertEqual(
+            "required_before_apply",
+            payload["safe_cleanup_items"][0]["cleanup_approval_status"],
+        )
 
     def test_text_output_includes_next_owner_action(self):
         result = run(
@@ -142,9 +203,65 @@ class WorktreeGcTests(unittest.TestCase):
             env=self.env,
         )
 
-        self.assertIn("next: eligible for automated removal with --apply --yes", result.stdout)
+        self.assertIn("next: eligible for guarded removal after owner approval with --apply --yes", result.stdout)
+        self.assertIn("evidence: commits_not_in_base=1; last_commit_date=", result.stdout)
+        self.assertIn("last_commit_age_days=", result.stdout)
+        self.assertIn("last_commit=change closed-unmerged", result.stdout)
+        self.assertIn("review: gh pr view 13", result.stdout)
+        self.assertIn("review: git -C", result.stdout)
         self.assertIn("next: review the PR; merge or close it before cleanup", result.stdout)
         self.assertIn("next: owner review required; open a PR, merge, or archive the branch", result.stdout)
+        self.assertIn(
+            "cleanup decision: owner approval required before applying 1 merged_clean worktree(s)",
+            result.stdout,
+        )
+        self.assertIn("owner review required for 4 non-removable worktree(s)", result.stdout)
+
+    def test_owner_review_markdown_packet(self):
+        result = run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--base",
+                "origin/main",
+                "--owner-review-markdown",
+                str(self.repo),
+            ],
+            env=self.env,
+        )
+
+        self.assertIn("# Worktree Owner Review", result.stdout)
+        self.assertIn("- Guarded removal available: `true`", result.stdout)
+        self.assertIn("- Owner approval required before apply: `true`", result.stdout)
+        self.assertNotIn("- Automated removal allowed:", result.stdout)
+        self.assertIn("- Cleanup approval status: `required_before_apply`", result.stdout)
+        self.assertIn(
+            "| Bucket | Branch | PR | Commits not in base | Last activity | Last commit | Path | Reason | Next owner action | Review command |",
+            result.stdout,
+        )
+        self.assertIn("open-pr", result.stdout)
+        self.assertIn("[#12](https://example.test/pull/12)", result.stdout)
+        self.assertRegex(
+            result.stdout,
+            r"\| closed_unmerged \| closed-unmerged \| \[#13\]\(https://example\.test/pull/13\) \| 1 \| [^|]+T[^|]+ \| change closed-unmerged \|",
+        )
+        self.assertIn("gh pr view 13", result.stdout)
+        self.assertIn("git -C", result.stdout)
+        self.assertIn("preserve WIP", result.stdout)
+        self.assertNotIn("| primary | main |", result.stdout)
+        self.assertNotIn("| merged_clean | merged-clean |", result.stdout)
+        self.assertIn("## Guarded Cleanup Candidates", result.stdout)
+        self.assertIn(
+            "These rows are read-only evidence; run the apply command only after owner approval for these concrete paths.",
+            result.stdout,
+        )
+        self.assertIn(
+            "| Branch | Approval | Commits not in base | Last activity | Last commit | Path | Reason |",
+            result.stdout,
+        )
+        self.assertIn("| merged-clean | required before apply | 0 |", result.stdout)
+        self.assertIn("HEAD is contained in origin/main", result.stdout)
+        self.assertIn("python3 scripts/vidux-worktree-gc.py --base origin/main --apply --yes", result.stdout)
 
     def test_apply_requires_yes(self):
         result = run(
@@ -163,6 +280,16 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertEqual([str((self.worktrees_dir / "merged-clean").resolve())], payload["removed"])
         self.assertEqual(5, payload["summary"]["total"])
         self.assertEqual(0, payload["summary"]["removable"])
+        self.assertFalse(payload["cleanup_decision"]["automated_removal_allowed"])
+        self.assertFalse(payload["cleanup_decision"]["guarded_removal_available"])
+        self.assertFalse(payload["cleanup_decision"]["owner_approval_required_before_apply"])
+        self.assertEqual(0, payload["cleanup_decision"]["removable_count"])
+        self.assertEqual(4, payload["cleanup_decision"]["owner_review_required_count"])
+        self.assertEqual("owner_review_required_before_cleanup", payload["cleanup_decision"]["next_action"])
+        self.assertFalse(payload["cleanup_decision"]["cleanup_approval_required"])
+        self.assertEqual("not_required", payload["cleanup_decision"]["cleanup_approval_status"])
+        self.assertEqual(4, len(payload["owner_review_items"]))
+        self.assertEqual([], payload["safe_cleanup_items"])
         self.assertFalse((self.worktrees_dir / "merged-clean").exists())
         self.assertTrue((self.worktrees_dir / "open-pr").exists())
         self.assertTrue((self.worktrees_dir / "dirty-branch").exists())

@@ -15,7 +15,7 @@ Vidux has three layers: **doctrine** (the rules), **the cycle** (the loop), and 
                        │ reads/writes
 ┌──────────────────────▼────────────────────────┐
 │                   THE STORE                   │
-│  PLAN.md + evidence/ + investigations/ + git  │
+│  PLAN.md + publish ledger + evidence + git    │
 └─────────────────────────��─────────────────────┘
 ```
 
@@ -58,17 +58,17 @@ Every agent session — human-triggered or cron — runs the same five steps:
 
 ```mermaid
 flowchart LR
-    R[READ<br/>PLAN.md + git log]
+    R[READ<br/>PLAN.md + latest ledger row]
     A[ASSESS<br/>evidence? blocker?]
     X[ACT<br/>code or refine plan]
     V[VERIFY<br/>build + test + screenshot]
-    C[CHECKPOINT<br/>structured commit]
+    C[CHECKPOINT<br/>plan update + publish ledger]
 
     R --> A --> X --> V --> C
     C -.->|next session| R
 ```
 
-**Read:** Load PLAN.md, check for in-progress tasks (crash recovery), scan git log/diff.
+**Read:** Load PLAN.md, check the latest matching publish or handoff ledger row, check for in-progress tasks (crash recovery), and scan git log/diff.
 
 **Assess:** Does the next task have evidence? If yes, execute. If no, gather it locally — no commit or PR until the fix ships.
 
@@ -76,28 +76,31 @@ flowchart LR
 
 **Verify:** Build must pass. Tests must pass. UI work requires visual proof (screenshot, simulator). "It works" is never sufficient.
 
-**Checkpoint:** Structured commit message. Update Progress log in PLAN.md. Record what happened, what's next, any blockers.
+**Checkpoint:** Update Progress/Tasks/Drift Log in PLAN.md, emit a publish ledger row with proof, handoff status, files claimed, and next-agent resume, then use git commit/push only as transport when code changed.
 
 ## The Store
 
-State lives in markdown files in git. No databases. No daemons. No chat history.
+Planning state lives in markdown files in git, and shipped-cycle proof lives in append-only publish ledger rows. No product database or chat history is the coordination store.
 
 ```mermaid
 flowchart TD
-    PLAN[PLAN.md<br/>source of truth]
+    PLAN[PLAN.md<br/>queue/planning authority]
+    LEDGER[publish ledger rows<br/>shipped-cycle proof]
     EV[evidence/<br/>cited findings]
     INV[investigations/<br/>compound task sub-plans]
     PROG[Progress log<br/>append-only in PLAN.md]
-    GIT[git history<br/>checkpoint commits]
+    GIT[git history<br/>transport + diff evidence]
 
     PLAN -->|cites| EV
     PLAN -->|links to| INV
     INV -->|produces Fix Spec| PLAN
     PLAN -->|updated each cycle| PROG
-    PROG -->|committed to| GIT
+    PROG -->|paired with| LEDGER
+    LEDGER -->|cites proof/files/resume| PLAN
+    PROG -->|code changes travel via| GIT
 ```
 
-A project has exactly **one PLAN.md**. Course corrections update the Decision Log — they never spawn a sibling plan. Evidence files back every plan entry. Investigation files handle compound tasks that need root cause analysis before code.
+A project has exactly **one PLAN.md** as its queue/planning authority. Course corrections update the Decision Log or Drift Log -- they never spawn a sibling plan. Evidence files back every plan entry. Matching publish ledger rows prove shipped cycles with task id, proof, handoff status, files claimed, and resume metadata. Investigation files handle compound tasks that need root cause analysis before code.
 
 ## Fleet Architecture
 
@@ -113,7 +116,7 @@ Coordinator      ──┘
 - **Radars** monitor surfaces (read-only). They find work; they never fix it.
 - **Coordinators** audit the fleet — flag stuck agents, handoff gaps, bimodal quality.
 
-Each agent runs as a stateless cron. They share state through PLAN.md and git, never through memory or message passing.
+Each agent runs as a stateless cron. They share queue state through PLAN.md, shipped-cycle proof through publish ledger rows, and transport/diff evidence through git, never through chat memory or message passing.
 
 ## Extensions — external adapters
 
@@ -122,7 +125,7 @@ Vidux core is markdown + git. Extensions plug external systems (kanban boards, i
 ```
 ┌──────────────────────────────────────────────────────┐
 │                   THE STORE                          │
-│  PLAN.md + evidence/ + investigations/ + git         │
+│  PLAN.md + publish ledger + evidence + git           │
 └──────────────┬─────────────────────────┬─────────────┘
                │                         │
                │ adapters/               │ vidux.config.json
@@ -186,8 +189,8 @@ chmod +x /path/to/project/.git/hooks/{pre-commit,post-commit,three-strike-gate.s
 
 **Why markdown?** Any agent that reads files can participate. No SDK, no API, no vendor lock-in.
 
-**Why one plan?** Multiple plan files create coordination overhead. One file, one truth. Decision Log handles pivots.
+**Why one plan?** Multiple plan files create coordination overhead. One queue/planning authority, with publish ledger rows for shipped proof, keeps pivots resumable. Decision Log handles direction changes.
 
-**Why stateless cycles?** Sessions die. Context windows fill. Auth expires. The only reliable thing is what's committed to git. Design for interruption, not for persistence.
+**Why stateless cycles?** Sessions die. Context windows fill. Auth expires. The reliable recovery packet is the owning PLAN.md update plus the matching publish ledger row; git records the transport and diff when code changed. Design for interruption, not for persistence.
 
 **Why evidence-first?** A plan entry without evidence is a guess. Guesses cause rework. Evidence costs 2-5 minutes. Rework costs 15-60 minutes.

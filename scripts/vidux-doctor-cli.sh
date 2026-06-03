@@ -10,11 +10,12 @@
 #   3. ~/.config/vidux/*.token files (if any) are chmod 600
 #   4. $HOME/Development directory exists
 #   5. No stale ${TMPDIR:-/tmp}/vidux-browser.pid pointing to a dead PID
-#   6. `npm test` passes (contract bundle count is reported dynamically)
+#   6. `vidux config check --json` passes
+#   7. `npm test` passes (contract bundle count is reported dynamically)
 #
 # Each check prints `[PASS] <name>` or `[FAIL] <name>: <reason>`. Exit 0 if all
 # pass, exit 1 if any fail. Pure POSIX bash, stdlib + system tools only — no
-# python startup tax beyond optional version probing.
+# extra dependencies beyond system shell, python3, and the repo scripts.
 #
 set -euo pipefail
 
@@ -23,9 +24,12 @@ SKIP_NPM_TEST="${VIDUX_DOCTOR_SKIP_NPM_TEST:-0}"
 
 print_help() {
   cat <<EOF
-vidux doctor — diagnose local toolchain + auth.
+vidux doctor — install/readiness doctor for the local CLI.
 
 usage: vidux doctor [--help|-h]
+
+This is the terminal user doctor for a checkout/fresh clone. For hook-safe
+runtime state checks, use: scripts/vidux-doctor.sh --json
 
 Runs the following checks in order, printing [PASS] / [FAIL] for each:
   1. python3 >= 3.10
@@ -33,17 +37,20 @@ Runs the following checks in order, printing [PASS] / [FAIL] for each:
   3. ~/.config/vidux/*.token files have chmod 600 (if any exist)
   4. \$HOME/Development directory exists
   5. No stale browser pidfile at \${TMPDIR:-/tmp}/vidux-browser.pid
-  6. 'npm test' passes (contract suite — 182 tests)
+  6. 'vidux config check --json' validates the selected config
+  7. 'npm test' passes (contract suite — count is reported dynamically)
 
 Exit codes:
   0   all checks pass
   1   one or more checks failed
+  2   invalid usage, such as an unknown flag
 
 environment:
   VIDUX_ROOT                       Override vidux checkout root
                                    (default: \$HOME/Development/vidux)
-  VIDUX_DOCTOR_SKIP_NPM_TEST=1     Skip the npm-test gate (check 6)
-                                   useful when the dev loop already runs it
+  VIDUX_DOCTOR_SKIP_NPM_TEST=1     Skip the npm-test gate (check 7);
+                                   useful in fast loops because full doctor
+                                   can be slow when it runs npm test
 EOF
 }
 
@@ -221,7 +228,55 @@ check_stale_browser_pidfile() {
 }
 
 # ----------------------------------------------------------------------------
-# Check 6: npm test (contract suite)
+# Check 6: vidux config check
+# ----------------------------------------------------------------------------
+check_vidux_config() {
+  local name="vidux config check"
+  if [[ ! -d "$VIDUX_ROOT" ]]; then
+    _fail "$name" "VIDUX_ROOT $VIDUX_ROOT does not exist"
+    return
+  fi
+  if [[ ! -f "$VIDUX_ROOT/scripts/vidux-config.py" ]]; then
+    _fail "$name" "$VIDUX_ROOT/scripts/vidux-config.py missing"
+    return
+  fi
+  local out rc
+  set +e
+  out="$(cd "$VIDUX_ROOT" && python3 "$VIDUX_ROOT/scripts/vidux-config.py" check --json 2>&1)"
+  rc=$?
+  set -e
+  if [[ "$rc" -ne 0 ]]; then
+    local reason
+    reason="$(printf '%s\n' "$out" | python3 -c 'import json,sys
+try:
+    payload=json.load(sys.stdin)
+    issues=payload.get("issues") or []
+    if issues:
+        first=issues[0]
+        code=first.get("code", "error")
+        message=first.get("message", "config check failed")
+        print(f"{code}: {message}")
+    else:
+        print(payload.get("status", "config check failed"))
+except Exception:
+    print("config check failed")
+' 2>/dev/null || true)"
+    [[ -z "$reason" ]] && reason="config check exited $rc"
+    _fail "$name" "$reason"
+    return
+  fi
+  local source live using_example
+  source="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source", "unknown"))' 2>/dev/null || true)"
+  live="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print("yes" if json.load(sys.stdin).get("live_config_present") else "no")' 2>/dev/null || true)"
+  using_example="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print("yes" if json.load(sys.stdin).get("using_example") else "no")' 2>/dev/null || true)"
+  [[ -z "$source" ]] && source="unknown"
+  [[ -z "$live" ]] && live="unknown"
+  [[ -z "$using_example" ]] && using_example="unknown"
+  _pass "$name (source=$source live=$live example=$using_example)"
+}
+
+# ----------------------------------------------------------------------------
+# Check 7: npm test (contract suite)
 # ----------------------------------------------------------------------------
 check_npm_test() {
   local name="npm test (contract suite)"
@@ -273,6 +328,7 @@ check_gh_auth
 check_token_perms
 check_development_dir
 check_stale_browser_pidfile
+check_vidux_config
 check_npm_test
 
 echo ""

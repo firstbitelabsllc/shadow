@@ -1,10 +1,13 @@
 import importlib.util
 import http.client
 import json
+import os
+import subprocess
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -354,14 +357,308 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertTrue(browser_server.Handler._require_browser_json(handler, require_origin=True))
         self.assertEqual(sent, [])
 
+    def test_api_file_returns_404_for_allowed_missing_file(self):
+        missing = self.plan_dir / "INBOX.md"
+
+        status, text = self.get(f"/api/file?path={quote(str(missing), safe='')}")
+
+        self.assertEqual(status, 404, text)
+        self.assertEqual(text, "file missing: INBOX.md")
+
+    def test_api_file_still_rejects_forbidden_missing_file(self):
+        forbidden = self.plan_dir / ".env"
+
+        status, text = self.get(f"/api/file?path={quote(str(forbidden), safe='')}")
+
+        self.assertEqual(status, 403, text)
+        self.assertEqual(text, "forbidden")
+
+
+class BrowserArtifactBaseCssTests(unittest.TestCase):
+    def test_shared_artifact_base_css_contract(self):
+        css_path = ROOT / "browser" / "static" / "artifact-base.css"
+
+        self.assertTrue(css_path.is_file())
+        css = css_path.read_text(encoding="utf-8")
+
+        self.assertIn("@media (prefers-color-scheme: dark)", css)
+        self.assertIn("color-scheme: light dark", css)
+        self.assertIn("--paper:", css)
+        self.assertIn("--bg:", css)
+        self.assertIn("--ink:", css)
+        self.assertIn("--shadow:", css)
+        self.assertIn(".hero", css)
+
+    def test_local_snowcubes_artifacts_use_shared_base_when_present(self):
+        artifacts = sorted((ROOT / "browser" / "artifacts").glob("snowcubes-*.html"))
+        if not artifacts:
+            self.skipTest("Snowcubes artifacts are ignored local runtime artifacts")
+
+        for artifact in artifacts:
+            html = artifact.read_text(encoding="utf-8")
+            self.assertEqual(
+                html.count("artifact-base.css"),
+                1,
+                f"{artifact.name} should link the shared artifact stylesheet once",
+            )
+            self.assertIn(
+                'href="../static/artifact-base.css"',
+                html,
+                f"{artifact.name} should use the offline-friendly relative stylesheet link",
+            )
+            self.assertNotIn(
+                "prefers-color-scheme",
+                html,
+                f"{artifact.name} should not carry a copied dark-mode block",
+            )
+
+
+class BrowserViduxTruthTests(unittest.TestCase):
+    def setUp(self):
+        self.commands = []
+        self.original_runner = browser_server.run_truth_command
+
+        def fake_runner(args, *, timeout):
+            self.commands.append(list(args))
+            joined = " ".join(str(part) for part in args)
+            if "vidux-config.py" in joined:
+                stdout = json.dumps({
+                    "status": "ok",
+                    "source": "example",
+                    "path": "/repo/vidux.config.example.json",
+                    "live_config_present": False,
+                    "using_example": True,
+                    "issues": [],
+                    "plan_store": {"mode": "local", "path_exists": True},
+                })
+            elif "vidux-doctor.sh" in joined:
+                stdout = json.dumps({
+                    "pass": 13,
+                    "total": 14,
+                    "checks": [
+                        {"id": "worktree_count", "status": "pass"},
+                        {"id": "orphan_automations", "status": "warn"},
+                        {
+                            "id": "system_memory_pressure",
+                            "status": "pass",
+                            "available": True,
+                            "memory_pressure_free_pct": 64,
+                            "memory_free_pct": 64,
+                            "min_memory_free_pct": 15,
+                            "memory_pct_source": "memory_pressure -Q",
+                            "vm_free_mb": 91.0,
+                            "vm_speculative_mb": 41.5,
+                            "free_mb": 91.0,
+                            "speculative_mb": 41.5,
+                            "vm_pages_source": "vm_stat",
+                            "total_bytes": 68719476736,
+                        },
+                    ],
+                })
+            elif "vidux_signpost.py" in joined and "trace" in joined:
+                stdout = json.dumps({
+                    "total_events": 4,
+                    "events": [
+                        {
+                            "run_id": "run-browser-truth",
+                            "feature": "hook",
+                            "action": "beforeTask",
+                            "runtime": "codex",
+                            "called": "scripts/vidux-doctor.sh --json",
+                            "metadata": {"phase": "pre"},
+                        },
+                        {
+                            "run_id": "run-browser-truth",
+                            "feature": "subagent",
+                            "action": "spawn",
+                            "runtime": "claude",
+                            "called": "claude spawned-worker",
+                            "metadata": {"phase": "during"},
+                        },
+                        {
+                            "run_id": "run-browser-truth",
+                            "feature": "task",
+                            "action": "verify",
+                            "runtime": "cursor",
+                            "called": "cursor worker verify",
+                            "metadata": {"phase": "during"},
+                        },
+                        {
+                            "run_id": "run-browser-truth",
+                            "feature": "hook",
+                            "action": "afterTask",
+                            "runtime": "codex",
+                            "called": "vidux checkpoint",
+                            "metadata": {"phase": "post"},
+                        },
+                    ],
+                    "log_path": "/Users/test/.vidux/signposts.jsonl",
+                })
+            elif "vidux_signpost.py" in joined:
+                stdout = json.dumps({
+                    "total_events": 4,
+                    "features": {"hook.beforeTask": {"count": 1}},
+                    "log_path": "/Users/test/.vidux/signposts.jsonl",
+                })
+            else:
+                stdout = "{}"
+            return subprocess.CompletedProcess(args, 0, stdout, "")
+
+        browser_server.run_truth_command = fake_runner
+        browser_server.clear_vidux_truth_cache()
+        self.httpd = browser_server.ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            browser_server.Handler,
+        )
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.thread.join(timeout=2)
+        self.httpd.server_close()
+        browser_server.run_truth_command = self.original_runner
+        browser_server.clear_vidux_truth_cache()
+
+    def get(self, path: str):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("GET", path)
+        res = conn.getresponse()
+        text = res.read().decode("utf-8", errors="replace")
+        conn.close()
+        return res.status, text
+
+    def test_vidux_truth_cached_payload_can_warm_without_blocking(self):
+        payload = browser_server.vidux_truth_cached_payload(background=False)
+
+        self.assertTrue(payload["read_only"])
+        self.assertFalse(payload["browser_runs_install_doctor"])
+        self.assertFalse(payload["browser_runs_runtime_fix"])
+        self.assertEqual(payload["cache"]["status"], "warming")
+        self.assertFalse(payload["cache"]["refreshing"])
+        self.assertEqual(payload["config"]["status"], "warming")
+        self.assertEqual(payload["runtime_doctor"]["status"], "warming")
+        self.assertEqual(self.commands, [])
+
+    def test_vidux_truth_endpoint_is_read_only_and_splits_doctors(self):
+        status, text = self.get("/api/vidux/truth?refresh=sync")
+
+        self.assertEqual(status, 200, text)
+        payload = json.loads(text)
+        self.assertTrue(payload["read_only"])
+        self.assertFalse(payload["browser_runs_install_doctor"])
+        self.assertFalse(payload["browser_runs_runtime_fix"])
+        self.assertEqual(payload["cache"]["status"], "fresh")
+        self.assertEqual(payload["config"]["source"], "example")
+        self.assertEqual(payload["install_doctor"]["browser_status"], "not_run")
+        self.assertFalse(payload["install_doctor"]["pre_hook_safe"])
+        self.assertEqual(payload["runtime_doctor"]["command"], "scripts/vidux-doctor.sh --json")
+        self.assertTrue(payload["runtime_doctor"]["pre_hook_safe"])
+        self.assertEqual(payload["runtime_doctor"]["status"], "warn")
+        self.assertEqual(payload["runtime_doctor"]["warnings"], ["orphan_automations"])
+        self.assertEqual(payload["runtime_doctor"]["system_memory"]["memory_pressure_free_pct"], 64)
+        self.assertEqual(payload["runtime_doctor"]["system_memory"]["memory_pct_source"], "memory_pressure -Q")
+        self.assertEqual(payload["runtime_doctor"]["system_memory"]["vm_pages_source"], "vm_stat")
+        self.assertEqual(payload["runtime_doctor"]["system_memory"]["free_mb"], 91.0)
+        self.assertEqual(payload["signposts"]["total_events"], 4)
+        self.assertEqual(payload["signposts"]["latest_run"]["run_id"], "run-browser-truth")
+        self.assertEqual(
+            payload["signposts"]["latest_run"]["call_stack"],
+            "codex > claude > cursor > codex",
+        )
+        self.assertTrue(payload["signposts"]["latest_run"]["complete_lifecycle"])
+
+        command_text = "\n".join(" ".join(str(part) for part in cmd) for cmd in self.commands)
+        self.assertIn("vidux-config.py check --json", command_text)
+        self.assertIn("vidux-doctor.sh --json", command_text)
+        self.assertIn("vidux_signpost.py summary --json", command_text)
+        self.assertIn("vidux_signpost.py trace --limit 12 --json", command_text)
+        self.assertNotIn("vidux-doctor-cli.sh", command_text)
+        self.assertNotIn("vidux doctor", command_text)
+        self.assertNotIn("--fix", command_text)
+
+    def test_health_payload_identifies_repo_root_for_launcher_reuse(self):
+        status, text = self.get("/api/health")
+
+        self.assertEqual(status, 200, text)
+        payload = json.loads(text)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["repo_root"], str(browser_server.VIDUX_ROOT))
+        self.assertEqual(payload["dev_root"], str(browser_server.DEV_ROOT))
+        self.assertEqual(payload["server_path"], str(browser_server.SERVER_FILE))
+        self.assertEqual(payload["server_mtime_ns"], browser_server.SERVER_MTIME_NS)
+        self.assertIn("port", payload)
+
+    def test_vidux_truth_static_contract(self):
+        server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('route == "/api/vidux/truth"', server)
+        self.assertIn("vidux_truth_cached_payload", server)
+        self.assertIn('refresh == "sync"', server)
+        self.assertIn("browser_runs_install_doctor", server)
+        self.assertIn("browser_runs_runtime_fix", server)
+        self.assertIn('"vidux-doctor.sh"), "--json"', server)
+        self.assertIn('fetch("/api/vidux/truth")', app)
+        self.assertIn("function renderOpsTruth", app)
+        self.assertIn("cache.refreshing", app)
+        self.assertIn("install doctor not run here", app)
+        self.assertIn("scripts/vidux-doctor.sh --json", app)
+        self.assertIn("runtime.system_memory", app)
+        self.assertIn("memory_pressure", app)
+        self.assertIn("vm_stat", app)
+        self.assertIn("signposts.latest_run", app)
+        self.assertIn("function renderMarkdownBody", app)
+        self.assertIn("markdown render failed", app)
+        self.assertIn("markdown-source-fallback", style)
+        self.assertIn('const SESSION_TAB = "Sessions"', app)
+        self.assertIn("function renderSessionPanel", app)
+        self.assertIn("No Claude session found", app)
+        self.assertIn(".session-panel", style)
+        self.assertIn(".session-turn", style)
+        self.assertIn("complete_lifecycle", app)
+        self.assertIn("function refreshOpsTruth", app)
+        for klass in [
+            "ops-truth",
+            "ops-truth-grid",
+            "ops-truth-item",
+            "ops-chip",
+            "ops-chip.is-warn",
+        ]:
+            self.assertIn(klass, style)
+
+
+class BrowserResponseWriteTests(unittest.TestCase):
+    def test_response_helpers_swallow_client_disconnect_writes(self):
+        class BrokenWriter:
+            def write(self, body):
+                raise BrokenPipeError("client closed")
+
+        handler = object.__new__(browser_server.Handler)
+        handler.wfile = BrokenWriter()
+        handler.send_response = lambda code: None
+        handler.send_header = lambda name, value: None
+        handler.end_headers = lambda: None
+
+        self.assertFalse(browser_server.Handler._write_body(handler, b"hello"))
+        browser_server.Handler._json(handler, {"ok": True})
+        browser_server.Handler._send_with_type(handler, b"body", "text/plain")
+        browser_server.Handler._send_text(handler, "markdown")
+        browser_server.Handler._send(handler, 404, "missing")
+
 
 class BrowserPlanDiscoveryTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dev_root = Path(self.tmp.name).resolve()
+        self.original_claude_projects_dir = browser_server.CLAUDE_PROJECTS_DIR
         browser_server.DEV_ROOT = self.dev_root
+        browser_server.CLAUDE_PROJECTS_DIR = self.dev_root / ".claude" / "projects"
 
     def tearDown(self):
+        browser_server.CLAUDE_PROJECTS_DIR = self.original_claude_projects_dir
         browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
@@ -458,6 +755,141 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertNotIn("children", parent_item)
         self.assertEqual(parent_item["child_rels"], [child_rel])
 
+    def test_build_fleet_summary_sums_completion_and_active_eta(self):
+        plan_a = self.write_plan("demo-repo", "projects/eta-a", "ETA A")
+        plan_a.write_text(
+            "# ETA A\n\n"
+            "## Tasks\n"
+            "- [completed] done already [ETA: 99h]\n"
+            "- [pending] next up [ETA: 1.25h]\n"
+            "- [in_progress] active now [ETA: 2h]\n"
+            "- [in_review] review lane [ETA: 0.75h]\n"
+            "- [blocked] blocked elsewhere [ETA: 6h]\n",
+            encoding="utf-8",
+        )
+        plan_b = self.write_plan("other-repo", "projects/eta-b", "ETA B")
+        plan_b.write_text(
+            "# ETA B\n\n"
+            "## Tasks\n"
+            "- [pending] untagged active row\n"
+            "- [completed] shipped row\n",
+            encoding="utf-8",
+        )
+
+        summary = browser_server.build_fleet_summary(browser_server.discover_plans())
+
+        self.assertEqual(summary["plans"], 2)
+        self.assertEqual(summary["repos"], 2)
+        self.assertEqual(summary["tasks_completed"], 2)
+        self.assertEqual(summary["tasks_total"], 7)
+        self.assertEqual(summary["completion_pct"], 29)
+        self.assertEqual(summary["eta_remaining_hours"], 4.0)
+        self.assertEqual(summary["eta_remaining_label"], "4h remaining")
+        self.assertEqual(summary["eta_tagged"], 3)
+        self.assertEqual(summary["eta_eligible"], 4)
+
+    def test_plan_payload_includes_latest_claude_session_summary(self):
+        plan_path = self.write_plan("demo-repo", "projects/session", "Session")
+        session_dir = (
+            browser_server.CLAUDE_PROJECTS_DIR
+            / browser_server.claude_project_slug(self.dev_root / "demo-repo")
+        )
+        session_dir.mkdir(parents=True)
+        old_session = session_dir / "old.jsonl"
+        old_session.write_text(
+            json.dumps({
+                "type": "user",
+                "sessionId": "old-session",
+                "message": {"role": "user", "content": "old session text"},
+            }) + "\n",
+            encoding="utf-8",
+        )
+        latest_session = session_dir / "latest.jsonl"
+        rows = [
+            {"type": "last-prompt", "sessionId": "latest-session"},
+            {
+                "type": "user",
+                "timestamp": "2026-06-03T08:00:00Z",
+                "sessionId": "latest-session",
+                "message": {"role": "user", "content": [{"type": "text", "text": "first should drop"}]},
+            },
+            {
+                "type": "assistant",
+                "timestamp": "2026-06-03T08:01:00Z",
+                "sessionId": "latest-session",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "second kept"}]},
+            },
+            {
+                "type": "user",
+                "timestamp": "2026-06-03T08:02:00Z",
+                "sessionId": "latest-session",
+                "message": {"role": "user", "content": "third kept"},
+            },
+            {
+                "type": "assistant",
+                "timestamp": "2026-06-03T08:03:00Z",
+                "sessionId": "latest-session",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "name": "ignored"}, {"type": "text", "text": "fourth kept"}],
+                },
+            },
+            {
+                "type": "user",
+                "timestamp": "2026-06-03T08:04:00Z",
+                "sessionId": "latest-session",
+                "message": {"role": "user", "content": [{"type": "text", "text": "fifth kept"}]},
+            },
+            "{not-json",
+            {
+                "type": "assistant",
+                "timestamp": "2026-06-03T08:05:00Z",
+                "sessionId": "latest-session",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "sixth kept"}]},
+            },
+        ]
+        latest_session.write_text(
+            "\n".join(row if isinstance(row, str) else json.dumps(row) for row in rows) + "\n",
+            encoding="utf-8",
+        )
+        os.utime(old_session, (1_000, 1_000))
+        os.utime(latest_session, (2_000, 2_000))
+
+        plans = browser_server.plan_list_payload(browser_server.discover_plans())
+        plan = next(p for p in plans if Path(p["path"]) == plan_path.resolve())
+        session = plan["session"]
+
+        self.assertTrue(session["available"])
+        self.assertEqual(session["status"], "ok")
+        self.assertEqual(session["file"], "latest.jsonl")
+        self.assertEqual(session["session_id"], "latest-session")
+        self.assertEqual(session["turns_seen"], 6)
+        self.assertEqual(session["invalid_lines"], 1)
+        self.assertEqual(len(session["turns"]), 5)
+        self.assertEqual([turn["role"] for turn in session["turns"]], [
+            "assistant",
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+        ])
+        joined = " ".join(turn["text"] for turn in session["turns"])
+        self.assertNotIn("first should drop", joined)
+        self.assertNotIn("old session text", joined)
+        self.assertIn("sixth kept", joined)
+
+    def test_plan_payload_reports_missing_claude_session(self):
+        plan_path = self.write_plan("demo-repo", "projects/no-session", "No Session")
+
+        plans = browser_server.plan_list_payload(browser_server.discover_plans())
+        plan = next(p for p in plans if Path(p["path"]) == plan_path.resolve())
+        session = plan["session"]
+
+        self.assertFalse(session["available"])
+        self.assertEqual(session["status"], "missing")
+        self.assertEqual(session["turns"], [])
+        self.assertIn(".claude/projects", session["project_dir"])
+
     def test_discover_plans_cached_reuses_recent_scan(self):
         self.write_plan("demo-repo", "projects/cache", "Cache")
         original_discover = browser_server.discover_plans
@@ -481,6 +913,338 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(calls, ["scan"])
+
+
+class BrowserDashboardTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dev_root = Path(self.tmp.name).resolve()
+        self.original_dev_root = browser_server.DEV_ROOT
+        self.original_claude_projects_dir = browser_server.CLAUDE_PROJECTS_DIR
+        browser_server.DEV_ROOT = self.dev_root
+        browser_server.CLAUDE_PROJECTS_DIR = self.dev_root / ".claude" / "projects"
+
+    def tearDown(self):
+        browser_server.DEV_ROOT = self.original_dev_root
+        browser_server.CLAUDE_PROJECTS_DIR = self.original_claude_projects_dir
+        browser_server.clear_plans_cache()
+        self.tmp.cleanup()
+
+    def test_dashboard_extracts_bounded_tasks_and_open_sibling_entries(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "dashboard"
+        plan_dir.mkdir(parents=True)
+        plan_path = plan_dir / "PLAN.md"
+        plan_path.write_text(
+            "# Dashboard\n\n"
+            "## Purpose\nFleet queue.\n\n"
+            "## Tasks\n"
+            "- [in_progress] Ship cross-plan dashboard [ETA: 1h]\n"
+            "- [blocked] Wait for external proof [Blocker: real thing]\n"
+            "- [pending] Ignore pending row\n",
+            encoding="utf-8",
+        )
+        (plan_dir / "INBOX.md").write_text(
+            "# Inbox\n\n"
+            "## Open\n\n"
+            "### First open inbox item\n"
+            "- Second open inbox item\n\n"
+            "## Processed\n\n"
+            "- Old processed item\n",
+            encoding="utf-8",
+        )
+        (plan_dir / "ASK-LEO.md").write_text(
+            "# Ask Leo\n\n"
+            "- Decide whether dashboard ships as default pane\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        payload = browser_server.plan_list_payload(plans)
+        plan_payload = next(item for item in payload if item["rel"] == "repo/projects/dashboard/PLAN.md")
+        dashboard = browser_server.build_dashboard(plans)
+
+        self.assertNotIn("dashboard_tasks", plan_payload)
+        self.assertNotIn("dashboard_inbox_entries", plan_payload)
+        self.assertNotIn("dashboard_ask_leo_entries", plan_payload)
+        self.assertEqual(dashboard["plans_scanned"], 1)
+        self.assertEqual(dashboard["repos"], 1)
+
+        in_progress = dashboard["categories"]["in_progress"]
+        blocked = dashboard["categories"]["blocked"]
+        inbox = dashboard["categories"]["inbox"]
+        ask_leo = dashboard["categories"]["ask_leo"]
+
+        self.assertEqual(in_progress["total"], 1)
+        self.assertEqual(blocked["total"], 1)
+        self.assertEqual(inbox["total"], 2)
+        self.assertEqual(ask_leo["total"], 1)
+        self.assertFalse(inbox["truncated"])
+
+        task_item = in_progress["items"][0]
+        self.assertEqual(task_item["kind"], "task")
+        self.assertEqual(task_item["tab"], "PLAN.md")
+        self.assertEqual(task_item["status"], "in_progress")
+        self.assertEqual(task_item["source_rel"], "repo/projects/dashboard/PLAN.md")
+        self.assertGreater(task_item["line"], 0)
+        self.assertIn("Ship cross-plan dashboard", task_item["label"])
+        self.assertNotIn("[ETA:", task_item["label"])
+
+        inbox_labels = [item["label"] for item in inbox["items"]]
+        self.assertEqual(inbox_labels, ["First open inbox item", "Second open inbox item"])
+        self.assertNotIn("Old processed item", " ".join(inbox_labels))
+        self.assertEqual(inbox["items"][0]["tab"], "INBOX.md")
+        self.assertEqual(ask_leo["items"][0]["tab"], "ASK-LEO.md")
+
+    def test_dashboard_parses_open_ask_leo_question_blocks(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "asks"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "PLAN.md").write_text("# Asks\n\n## Tasks\n", encoding="utf-8")
+        (plan_dir / "ASK-LEO.md").write_text(
+            "# ASK-LEO\n\n"
+            "## Q1 — resolved question\n"
+            "Opened: 2026-06-03\n"
+            "Resolved: Leo decided no.\n"
+            "Status: resolved\n\n"
+            "## Q2 — open explicit question\n"
+            "Opened: 2026-06-03\n"
+            "Status: open\n\n"
+            "## Q3 — implicit open question\n"
+            "Opened: 2026-06-03\n",
+            encoding="utf-8",
+        )
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans())
+        ask_leo = dashboard["categories"]["ask_leo"]
+        labels = [item["label"] for item in ask_leo["items"]]
+
+        self.assertEqual(ask_leo["total"], 2)
+        self.assertEqual(labels, ["Q2 — open explicit question", "Q3 — implicit open question"])
+        self.assertTrue(all(item["tab"] == "ASK-LEO.md" for item in ask_leo["items"]))
+
+    def test_dashboard_limit_marks_truncated_categories(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "many"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "PLAN.md").write_text(
+            "# Many\n\n"
+            "## Tasks\n"
+            "- [in_progress] first task\n"
+            "- [in_progress] second task\n",
+            encoding="utf-8",
+        )
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans(), limit=1)
+        bucket = dashboard["categories"]["in_progress"]
+
+        self.assertEqual(bucket["total"], 2)
+        self.assertEqual(len(bucket["items"]), 1)
+        self.assertTrue(bucket["truncated"])
+        self.assertEqual(bucket["limit"], 1)
+
+    def test_dashboard_static_contract(self):
+        server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        sidebar_sort = (ROOT / "browser" / "static" / "sidebar-sort.js").read_text(encoding="utf-8")
+        sidebar_filters = (ROOT / "browser" / "static" / "sidebar-filters.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('"summary": build_fleet_summary(plans)', server)
+        self.assertIn("def build_fleet_summary", server)
+        self.assertIn('"dashboard": build_dashboard(plans)', server)
+        self.assertIn("def build_dashboard", server)
+        self.assertIn("extract_dashboard_tasks", server)
+        self.assertIn("extract_open_entries", server)
+        self.assertIn("fleetSummary", app)
+        self.assertIn("function topbarFleetSummary", app)
+        self.assertIn("remaining", app)
+        self.assertIn("function renderDashboardPane", app)
+        self.assertIn("function selectDashboard", app)
+        self.assertIn('data-kind="dashboard"', app)
+        self.assertIn("Cross-plan queue", app)
+        self.assertIn('id="sort"', index)
+        self.assertIn('/static/sidebar-sort.js', index)
+        self.assertIn('/static/sidebar-filters.js', index)
+        self.assertIn('/static/annotation-state.js', index)
+        self.assertLess(index.index('/static/sidebar-sort.js'), index.index('/static/app.js'))
+        self.assertLess(index.index('/static/sidebar-filters.js'), index.index('/static/app.js'))
+        self.assertLess(index.index('/static/annotation-state.js'), index.index('/static/app.js'))
+        self.assertIn('data-filter-chip="hot"', index)
+        self.assertIn('data-filter-chip="tasks"', index)
+        self.assertIn('data-filter-chip="eta"', index)
+        self.assertIn("ViduxSidebarSort", app)
+        self.assertIn("ViduxSidebarFilters", app)
+        self.assertIn("function planComparator", sidebar_sort)
+        self.assertIn("function repoComparator", sidebar_sort)
+        self.assertIn("vidux:sidebar-sort", sidebar_sort)
+        self.assertIn("vidux:sidebar-filter-chips", sidebar_filters)
+        self.assertIn("function matches", sidebar_filters)
+        self.assertIn("function syncButtons", sidebar_filters)
+        self.assertIn(".sidebar-controls", style)
+        self.assertIn(".sidebar-filter-chips", style)
+        self.assertIn(".filter-chip.is-active", style)
+        self.assertIn(".progress-row .progress-bar", style)
+        self.assertIn(".dashboard-panel", style)
+        self.assertIn(".dashboard-item", style)
+
+
+class BrowserLedgerTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dev_root = Path(self.tmp.name).resolve()
+        self.ledger_file = self.dev_root / "activity.jsonl"
+        self.original_dev_root = browser_server.DEV_ROOT
+        self.original_ledger_file = browser_server.LEDGER_FILE
+        self.original_item_limit = browser_server.LEDGER_ITEM_LIMIT
+        self.original_scan_limit = browser_server.LEDGER_SCAN_LIMIT
+        browser_server.DEV_ROOT = self.dev_root
+        browser_server.LEDGER_FILE = self.ledger_file
+        browser_server.LEDGER_ITEM_LIMIT = 2
+        browser_server.LEDGER_SCAN_LIMIT = 20
+        self.plan_dir = self.dev_root / "demo-repo" / "projects" / "ledger"
+        self.plan_dir.mkdir(parents=True)
+        self.plan_path = self.plan_dir / "PLAN.md"
+        self.plan_path.write_text("# Ledger\n\n## Tasks\n", encoding="utf-8")
+
+    def tearDown(self):
+        browser_server.DEV_ROOT = self.original_dev_root
+        browser_server.LEDGER_FILE = self.original_ledger_file
+        browser_server.LEDGER_ITEM_LIMIT = self.original_item_limit
+        browser_server.LEDGER_SCAN_LIMIT = self.original_scan_limit
+        browser_server.clear_plans_cache()
+        self.tmp.cleanup()
+
+    def write_ledger_rows(self, rows):
+        self.ledger_file.write_text(
+            "\n".join(row if isinstance(row, str) else json.dumps(row) for row in rows) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_ledger_payload_matches_plan_rows_first_then_repo_rows(self):
+        self.write_ledger_rows([
+            "{bad json",
+            {
+                "ts": "2026-06-03T08:00:00Z",
+                "eid": "evt_other",
+                "event": "publish",
+                "repo": "other-repo",
+                "summary": "ignored other repo",
+                "plan_path": "projects/ledger/PLAN.md",
+            },
+            {
+                "ts": "2026-06-03T08:01:00Z",
+                "eid": "evt_repo",
+                "event": "publish",
+                "repo": "demo-repo",
+                "lane": "demo-lane",
+                "task_id": "R1",
+                "summary": "repo level proof",
+                "plan_path": "PLAN.md",
+                "files": ["README.md"],
+                "files_claimed": ["README.md"],
+            },
+            {
+                "ts": "2026-06-03T08:02:00Z",
+                "eid": "evt_checkpoint",
+                "event": "vidux_checkpoint",
+                "repo": "demo-repo",
+                "lane": "demo-lane",
+                "task_id": "T4b",
+                "summary": "absolute checkpoint",
+                "plan_path": str(self.plan_path),
+                "proof": "checkpoint proof",
+                "handoff_status": "done",
+                "next_agent_resume": "resume from the plan",
+                "files": [str(self.plan_path)],
+                "files_claimed": [str(self.plan_path)],
+            },
+            {
+                "ts": "2026-06-03T08:03:00Z",
+                "eid": "evt_plan",
+                "event": "publish",
+                "repo": "demo-repo",
+                "lane": "demo-lane",
+                "task_id": "T4b",
+                "summary": "relative plan publish",
+                "plan_path": "projects/ledger/PLAN.md",
+                "proof": "plan proof",
+                "handoff_status": "done",
+                "next_agent_resume": "resume again",
+                "files": ["projects/ledger/PLAN.md"],
+                "files_claimed": ["projects/ledger/PLAN.md"],
+            },
+            {
+                "ts": "2026-06-03T08:04:00Z",
+                "event": "vidux_loop_start",
+                "repo": "demo-repo",
+                "summary": "ignored noisy loop row",
+                "files": ["projects/ledger/PLAN.md"],
+            },
+        ])
+
+        payload = browser_server.ledger_payload_for_plan(self.plan_path)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["invalid_rows"], 1)
+        self.assertEqual(payload["plan_total"], 2)
+        self.assertEqual(payload["repo_total"], 1)
+        self.assertEqual(payload["returned"], 2)
+        self.assertTrue(payload["truncated"])
+        self.assertEqual([item["scope"] for item in payload["items"]], ["plan", "plan"])
+        self.assertEqual([item["eid"] for item in payload["items"]], ["evt_plan", "evt_checkpoint"])
+        self.assertEqual(payload["items"][0]["files_claimed_count"], 1)
+        self.assertIn("plan proof", payload["items"][0]["proof"])
+        self.assertIn("resume again", payload["items"][0]["next_agent_resume"])
+
+    def test_ledger_endpoint_accepts_plan_and_rejects_non_plan_targets(self):
+        self.write_ledger_rows([
+            {
+                "ts": "2026-06-03T08:03:00Z",
+                "eid": "evt_plan",
+                "event": "publish",
+                "repo": "demo-repo",
+                "summary": "relative plan publish",
+                "plan_path": "projects/ledger/PLAN.md",
+            },
+        ])
+        inbox = self.plan_dir / "INBOX.md"
+        inbox.write_text("# Inbox\n", encoding="utf-8")
+        httpd = browser_server.ThreadingHTTPServer(("127.0.0.1", 0), browser_server.Handler)
+        port = httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("GET", f"/api/ledger?path={quote(str(self.plan_path))}")
+            res = conn.getresponse()
+            ok_text = res.read().decode("utf-8", errors="replace")
+            conn.close()
+            self.assertEqual(res.status, 200, ok_text)
+            self.assertEqual(json.loads(ok_text)["items"][0]["eid"], "evt_plan")
+
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("GET", f"/api/ledger?path={quote(str(inbox))}")
+            res = conn.getresponse()
+            forbidden_text = res.read().decode("utf-8", errors="replace")
+            conn.close()
+            self.assertEqual(res.status, 403, forbidden_text)
+        finally:
+            httpd.shutdown()
+            thread.join(timeout=2)
+            httpd.server_close()
+
+    def test_ledger_static_contract(self):
+        server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('route == "/api/ledger"', server)
+        self.assertIn("ledger_payload_for_plan", server)
+        self.assertIn('const LEDGER_TAB = "Ledger"', app)
+        self.assertIn("function renderLedgerPanel", app)
+        self.assertIn("/api/ledger?path=", app)
+        self.assertIn(".ledger-panel", style)
+        self.assertIn(".ledger-entry", style)
 
 
 class BrowserDecisionLogTests(unittest.TestCase):
@@ -623,6 +1387,12 @@ class BrowserPlanBriefTests(unittest.TestCase):
 
     def test_plan_brief_and_steering_static_contract(self):
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        comment_rail = (
+            ROOT / "browser" / "static" / "comment-rail.js"
+        ).read_text(encoding="utf-8")
+        markers = (
+            ROOT / "browser" / "static" / "comment-markers.js"
+        ).read_text(encoding="utf-8")
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
         self.assertIn("function renderPlanBrief", app)
@@ -633,7 +1403,7 @@ class BrowserPlanBriefTests(unittest.TestCase):
         self.assertIn("Code lane", app)
         self.assertIn("@pm", app)
         self.assertIn("plan-steering", app)
-        self.assertIn("is-steering", app)
+        self.assertIn("is-steering", comment_rail)
         for klass in [
             "plan-brief",
             "plan-brief-task",
@@ -787,12 +1557,12 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn('aria-label="Read-aloud position"', fixture)
         self.assertIn('aria-label="Play or pause read-aloud" aria-pressed="false"', fixture)
         states = [state["id"] for state in manifest["states"]]
-        self.assertEqual(len(states), 15)
+        self.assertEqual(len(states), 16)
         self.assertEqual(len(states), len(set(states)))
         for state in states:
             self.assertIn(f'data-fixture-state="{state}"', fixture)
 
-        self.assertIn("Server offline. Run from the vidux repo root", fixture)
+        self.assertIn("Server offline. Start Voxtral MLX script server", fixture)
         self.assertIn("Waiting for local server", fixture)
         self.assertIn("browser/scripts/start-voxtral-mlx-server.sh", fixture)
         self.assertIn("Copied server command", fixture)
@@ -833,6 +1603,9 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
     def test_readaloud_footer_controls_and_annotation_fab_are_annotation_safe(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        markers = (
+            ROOT / "browser" / "static" / "comment-markers.js"
+        ).read_text(encoding="utf-8")
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
         topbar_meta = index.split('<div class="topbar-meta">', 1)[1].split("</div>", 1)[0]
@@ -895,6 +1668,162 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         ]:
             self.assertIn(klass, style)
 
+    def test_app_action_zoning_contract_names_chrome_layers(self):
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        topbar_meta = index.split('<div class="topbar-meta">', 1)[1].split("</div>", 1)[0]
+        self.assertIn('data-vidux-zone="status-header"', index)
+        self.assertIn('data-vidux-zone="app-shell"', index)
+        self.assertIn('data-vidux-zone="navigation-sidebar"', index)
+        self.assertIn('data-vidux-zone="content-pane"', index)
+        self.assertIn('data-vidux-zone="floating-action"', index)
+        self.assertIn('data-vidux-zone="footer-player"', index)
+        self.assertIn('data-vidux-zone", "mode-popover"', app)
+        self.assertNotIn("root-annotation-toggle", topbar_meta)
+        self.assertNotIn("readaloud-player", topbar_meta)
+
+        for token in [
+            "--z-mobile-sidebar:",
+            "--z-header:",
+            "--z-footer-player:",
+            "--z-floating-action:",
+            "--z-mode-popover:",
+            "--z-skip-link:",
+            "--footer-player-bottom:",
+            "--footer-player-block-size:",
+            "--floating-action-footer-gap:",
+            "--pane-footer-reserve:",
+        ]:
+            self.assertIn(token, style)
+
+        self.assertIn("z-index: var(--z-header)", style)
+        self.assertIn("z-index: var(--z-mobile-sidebar)", style)
+        self.assertIn("z-index: var(--z-footer-player)", style)
+        self.assertIn("z-index: var(--z-floating-action)", style)
+        self.assertIn("z-index: var(--z-mode-popover)", style)
+
+    def test_annotation_fab_state_machine_contract_is_named(self):
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        annotation_helper = (
+            ROOT / "browser" / "static" / "annotation-state.js"
+        ).read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('/static/annotation-state.js', index)
+        self.assertLess(index.index('/static/annotation-state.js'), index.index('/static/app.js'))
+        self.assertIn('data-annotation-state="unavailable"', index)
+        self.assertIn('aria-label="Select a plan or artifact to annotate"', index)
+        self.assertIn('aria-pressed="false"', index)
+        self.assertIn("ViduxAnnotationState", app)
+        self.assertIn("ANNOTATION_STATES", app)
+        for state_name in [
+            "unavailable",
+            "idle",
+            "capture-active",
+            "target-picked",
+            "composer-open",
+            "saving",
+            "saved",
+            "error",
+        ]:
+            self.assertIn(state_name, annotation_helper)
+
+        self.assertIn("dataset.annotationState", annotation_helper)
+        self.assertIn("paintButton", annotation_helper)
+        self.assertIn("derive", annotation_helper)
+        self.assertIn("annotationUiState", app)
+        self.assertIn("status.dataset.state", app)
+        self.assertIn("setPopoverStatus(AS.SAVING", app)
+        self.assertIn("setPopoverStatus(AS.SAVED", app)
+        self.assertIn("setPopoverStatus(AS.ERROR", app)
+        self.assertIn("aria-pressed", annotation_helper)
+        self.assertIn("is-saving", style)
+        self.assertIn("is-saved", style)
+        self.assertIn("is-error", style)
+        self.assertIn("z-index: var(--z-skip-link)", style)
+        self.assertIn(
+            "bottom: calc(var(--footer-player-bottom) + var(--footer-player-block-size) + var(--floating-action-footer-gap))",
+            style,
+        )
+        self.assertIn("padding: 24px clamp(20px, 3vw, 40px) var(--pane-footer-reserve)", style)
+        self.assertIn("--footer-player-block-size: 118px", style)
+
+    def test_annotation_review_rail_contract_is_named(self):
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        comment_rail = (
+            ROOT / "browser" / "static" / "comment-rail.js"
+        ).read_text(encoding="utf-8")
+        markers = (
+            ROOT / "browser" / "static" / "comment-markers.js"
+        ).read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('/static/comment-rail.js', index)
+        self.assertLess(index.index('/static/comment-rail.js'), index.index('/static/app.js'))
+        self.assertIn("ViduxCommentRail", app)
+        self.assertIn("commentRail.countLabel", app)
+        self.assertIn("commentRail.renderList", app)
+        self.assertIn('class="comments-panel annotation-review-rail"', markers)
+        self.assertIn('data-comment-scope="current-view"', markers)
+        self.assertIn('data-comment-state="loading"', markers)
+        self.assertIn('data-comment-count="0"', markers)
+        self.assertIn('data-comment-filter="all"', markers)
+        self.assertIn('data-comment-filter="open"', markers)
+        self.assertIn('data-comment-filter="mine"', markers)
+        self.assertIn('data-comment-list', markers)
+        self.assertIn("data-comment-empty", comment_rail)
+        self.assertIn("data-comment-jump", comment_rail)
+        self.assertIn("targetLabel", comment_rail)
+        self.assertIn("data-comment-state", app)
+        self.assertIn("data-comment-count", app)
+        self.assertIn(".annotation-review-rail", style)
+        self.assertIn(".comment-filter-row", style)
+        self.assertIn(".comment-filter.is-active", style)
+        self.assertIn(".comment-empty", style)
+
+    def test_annotation_anchor_marker_contract_is_named(self):
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        markers = (
+            ROOT / "browser" / "static" / "comment-markers.js"
+        ).read_text(encoding="utf-8")
+        style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('/static/comment-markers.js', index)
+        self.assertLess(index.index('/static/comment-rail.js'), index.index('/static/comment-markers.js'))
+        self.assertLess(index.index('/static/comment-markers.js'), index.index('/static/app.js'))
+        self.assertIn("ViduxCommentMarkers", app)
+        self.assertIn("commentMarkers.render", app)
+        self.assertIn("commentMarkers.renderPanel", app)
+        self.assertIn("commentMarkers.bindToggle", app)
+        self.assertIn("commentMarkers.jumpToTarget", app)
+        self.assertIn("commentMarkers.setPreview", app)
+        self.assertIn("commentMarkers.resolveAnchorTarget", app)
+        self.assertIn("resolveAnchorTarget", app)
+        self.assertIn("renderCommentMarkers", app)
+        self.assertIn("vidux:comment-markers-hidden", markers)
+        self.assertIn('data-comment-markers-hidden', markers)
+        self.assertIn('data-comment-marker-toggle', markers)
+        self.assertIn("updateToggle", markers)
+        self.assertIn("setStoredHidden", markers)
+        self.assertIn("accessibleArtifactFrames", markers)
+        self.assertIn("ensureFrameAnchorStyle", markers)
+        self.assertIn("resolveAnchorTarget", markers)
+        self.assertIn('data-comment-target-map', markers)
+        self.assertIn("comment-marker-layer", markers)
+        self.assertIn("data-comment-marker-count", markers)
+        self.assertIn("comment-target-map", markers)
+        self.assertIn(".comment-marker-layer", style)
+        self.assertIn(".comment-marker", style)
+        self.assertIn(".comment-marker-toggle", style)
+        self.assertIn(".comment-target-map", style)
+        self.assertIn(".comment-target-chip", style)
+        self.assertIn(".is-anchor-preview", style)
+
     def test_readaloud_engine_status_is_health_only_loopback_probe(self):
         readaloud = (ROOT / "browser" / "static" / "readaloud.js").read_text(
             encoding="utf-8",
@@ -920,11 +1849,12 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("engineProbeDeadline: 0", readaloud)
         self.assertIn("readaloudShowServerCommand", readaloud)
         self.assertIn("Copied server command", readaloud)
-        self.assertIn("MLX server offline", readaloud)
+        self.assertIn("Server offline. Start", readaloud)
         self.assertIn("Server still offline", readaloud)
-        self.assertIn("Server offline. Run from the vidux repo root", readaloud)
-        self.assertIn("Start local Voxtral MLX server: ${READALOUD_SERVER_COMMAND}", readaloud)
-        self.assertIn('${READALOUD.voxtralBaseUrl}/health', readaloud)
+        self.assertIn("Run from the vidux repo root", readaloud)
+        self.assertIn("Start local Voxtral MLX server: ${readaloudOfflineServerLabel()}", readaloud)
+        self.assertIn('probePath: "/health"', readaloud)
+        self.assertIn("${engine.baseUrl}${engine.probePath}", readaloud)
         self.assertIn('${READALOUD.voxtralBaseUrl}/v1/audio/speech', readaloud)
         self.assertIn('defaultVoice: "cheerful_female"', readaloud)
         self.assertIn("voice: READALOUD.defaultVoice", readaloud)
@@ -943,8 +1873,8 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("readaloudUpdateCacheButton", readaloud)
         self.assertIn("readaloudSegmentsPlaybackKey", readaloud)
         self.assertIn("readaloudMergeSegmentAudio", readaloud)
-        self.assertIn("Merging segment audio", readaloud)
-        self.assertIn("cached, ${misses.length} synthesizing", readaloud)
+        self.assertIn("Decoding and stitching segment audio", readaloud)
+        self.assertIn("cached, ${misses.length} missing in ${batches.length}", readaloud)
         self.assertIn('type: "segment"', readaloud)
         self.assertIn("last_used_at", readaloud)
         self.assertIn("created_at", readaloud)

@@ -28,12 +28,17 @@
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" async></script>
+  <script src="/static/sidebar-sort.js" defer></script>
+  <script src="/static/sidebar-filters.js" defer></script>
+  <script src="/static/annotation-state.js" defer></script>
+  <script src="/static/comment-rail.js" defer></script>
+  <script src="/static/comment-markers.js" defer></script>
   <script src="/static/app.js" defer></script>
   <script type="module" src="/static/readaloud.js" defer></script>
 </head>
 <body>
   <a href="#pane" class="skip-link">Skip to content</a>
-  <header class="topbar">
+  <header class="topbar" data-vidux-zone="status-header">
     <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
     <h1>vidux browser</h1>
     <div class="topbar-meta">
@@ -43,18 +48,29 @@
     </div>
   </header>
 
-  <main class="layout">
-    <aside class="sidebar" id="sidebar" aria-label="plans">
-      <div class="sidebar-search">
+  <main class="layout" data-vidux-zone="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="plans" data-vidux-zone="navigation-sidebar">
+      <div class="sidebar-search sidebar-controls">
         <label for="filter" class="visually-hidden">Filter plans</label>
         <input id="filter" type="search" placeholder="filter (repo, slug, purpose)" aria-label="Filter plans by repo, slug, or purpose" />
+        <label for="sort" class="visually-hidden">Sort plans</label>
+        <select id="sort" aria-label="Sort plans">
+          <option value="mtime">mtime</option>
+          <option value="eta">ETA</option>
+          <option value="status">status</option>
+        </select>
+        <div class="sidebar-filter-chips" role="group" aria-label="Quick filters">
+          <button type="button" class="filter-chip" data-filter-chip="hot" aria-pressed="false">hot</button>
+          <button type="button" class="filter-chip" data-filter-chip="tasks" aria-pressed="false">tasks</button>
+          <button type="button" class="filter-chip" data-filter-chip="eta" aria-pressed="false">ETA</button>
+        </div>
       </div>
       <div class="sidebar-list" id="sidebar-list" role="listbox" aria-label="Plans and artifacts" tabindex="0">
         <p class="muted">loading…</p>
       </div>
     </aside>
 
-    <section class="pane" id="pane" tabindex="-1">
+    <section class="pane" id="pane" tabindex="-1" data-vidux-zone="content-pane">
       <div class="pane-empty muted">
         <p>Select a plan from the sidebar.</p>
         <p>40+ PLAN.md files indexed across <code>~/Development/</code>.</p>
@@ -62,9 +78,9 @@
     </section>
   </main>
 
-  <button id="root-annotation-toggle" class="annotation-fab" type="button" title="Annotate selected view (Cmd/Ctrl+Shift+C)" disabled>Annotate</button>
+  <button id="root-annotation-toggle" class="annotation-fab" type="button" title="Select a plan or artifact to annotate" aria-label="Select a plan or artifact to annotate" aria-pressed="false" data-vidux-zone="floating-action" data-annotation-state="unavailable" disabled>Annotate</button>
 
-  <div id="readaloud-player" class="readaloud-player" role="region" aria-label="Read-aloud player" aria-describedby="readaloud-player-status">
+  <div id="readaloud-player" class="readaloud-player" role="region" aria-label="Read-aloud player" aria-describedby="readaloud-player-status" data-vidux-zone="footer-player">
     <button id="root-readaloud-toggle" class="root-readaloud-toggle readaloud-player-read" type="button" title="Read aloud (local Voxtral MLX)" aria-label="Read current selection or pane aloud">Read</button>
     <button id="readaloud-player-toggle" class="readaloud-player-toggle" type="button" title="Play or pause read-aloud" aria-label="Play read-aloud" aria-pressed="false">▶</button>
     <div class="readaloud-player-main">

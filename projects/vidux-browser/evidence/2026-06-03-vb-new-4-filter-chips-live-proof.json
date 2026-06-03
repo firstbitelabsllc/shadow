@@ -1,0 +1,98 @@
+{
+  "desktop": {
+    "before": 1181,
+    "after": 93,
+    "pressed": "true",
+    "storage": "[\"eta\"]",
+    "chipsText": "hot\ntasks\nETA",
+    "firstRows": [
+      {
+        "title": "vidux-browser",
+        "text": "vidux-browser\nTwo surfaces, one tool, for any /vidux user (not Leo-specific):\ntoday\n54.0KB\n66%\n29/44 done"
+      },
+      {
+        "title": "moussey-mobile-operator",
+        "text": "moussey-mobile-operator\nMoussey `/chat` is the **mobile operator console** Leo uses when he's away from his terminal. It is NOT a desktop chat client. Desktop h"
+      },
+      {
+        "title": "firstbite-local-ci-mega",
+        "text": "firstbite-local-ci-mega\n⌐4\nProve the FirstBite local-CI + local coding-agent substrate end-to-end and ship the operator MVP: **41/41 declared lanes across 6 rep"
+      },
+      {
+        "title": "litty",
+        "text": "litty\n**Build a standalone Next.js 16 admin GUI at `~/Development/litty` that federates moussey's `/api/coding/*` APIs and replaces the 12,062-line `app/coding/"
+      },
+      {
+        "title": "connect-the-fleet",
+        "text": "connect-the-fleet\nStop spending 2-8 min replaying pings to ask \"where are we.\" Stop having Nicole's bookmark point at a dead Mac. Stop letting `/coding` live in"
+      }
+    ],
+    "errorBoxes": 0,
+    "overflow": {
+      "page": false,
+      "sidebar": false,
+      "controls": false,
+      "widest": {
+        "tag": "LABEL",
+        "cls": "visually-hidden",
+        "over": 70,
+        "scrollWidth": 71,
+        "clientWidth": 1,
+        "text": "Filter plans"
+      }
+    },
+    "consoleErrors": [],
+    "pageErrors": [],
+    "persistedPressed": "true",
+    "persistedAfter": 93,
+    "screenshot": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-new-4-filter-chips-desktop.png"
+  },
+  "mobile": {
+    "before": 1181,
+    "after": 93,
+    "pressed": "true",
+    "storage": "[\"eta\"]",
+    "chipsText": "hot\ntasks\nETA",
+    "firstRows": [
+      {
+        "title": "vidux-browser",
+        "text": "vidux-browser\nTwo surfaces, one tool, for any /vidux user (not Leo-specific):\ntoday\n54.0KB\n66%\n29/44 done"
+      },
+      {
+        "title": "moussey-mobile-operator",
+        "text": "moussey-mobile-operator\nMoussey `/chat` is the **mobile operator console** Leo uses when he's away from his terminal. It is NOT a desktop chat client. Desktop h"
+      },
+      {
+        "title": "firstbite-local-ci-mega",
+        "text": "firstbite-local-ci-mega\n⌐4\nProve the FirstBite local-CI + local coding-agent substrate end-to-end and ship the operator MVP: **41/41 declared lanes across 6 rep"
+      },
+      {
+        "title": "litty",
+        "text": "litty\n**Build a standalone Next.js 16 admin GUI at `~/Development/litty` that federates moussey's `/api/coding/*` APIs and replaces the 12,062-line `app/coding/"
+      },
+      {
+        "title": "connect-the-fleet",
+        "text": "connect-the-fleet\nStop spending 2-8 min replaying pings to ask \"where are we.\" Stop having Nicole's bookmark point at a dead Mac. Stop letting `/coding` live in"
+      }
+    ],
+    "errorBoxes": 0,
+    "overflow": {
+      "page": false,
+      "sidebar": false,
+      "controls": false,
+      "widest": {
+        "tag": "LABEL",
+        "cls": "visually-hidden",
+        "over": 70,
+        "scrollWidth": 71,
+        "clientWidth": 1,
+        "text": "Filter plans"
+      }
+    },
+    "consoleErrors": [],
+    "pageErrors": [],
+    "persistedPressed": "true",
+    "persistedAfter": 93,
+    "screenshot": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-new-4-filter-chips-mobile-open.png"
+  }
+}
