@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 
 // Hermetic smoke specs — talk to the fixture-root server booted by
 // playwright.config.ts. They prove: server boots, html renders, sidebar
-// populates from fixtures, filter narrows results, theme toggle works,
-// and the accessibility attrs added in commits 6d9066b + 4f7edde are
-// present in the live DOM.
+// populates from fixtures, filter narrows results, sidebar sort/chips persist,
+// theme toggle works, and the accessibility attrs added in commits 6d9066b
+// + 4f7edde are present in the live DOM.
 
 test.describe('vidux-browse smoke', () => {
   test('server health returns ok', async ({ request }) => {
@@ -15,6 +15,167 @@ test.describe('vidux-browse smoke', () => {
   test('GET / renders topbar', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('.topbar h1')).toHaveText('vidux browser');
+  });
+
+  test('app-action zones keep annotate controls clear of the read-aloud footer', async ({ page }) => {
+    await page.goto('/');
+    const sidebarToggle = page.locator('#sidebar-toggle');
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
+    }
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+    }
+    await expect(page.locator('#root-annotation-toggle')).toBeEnabled();
+    await expect(page.locator('[data-vidux-zone="status-header"]')).toBeVisible();
+    await expect(page.locator('[data-vidux-zone="content-pane"]')).toBeVisible();
+    await expect(page.locator('[data-vidux-zone="mode-detail"]')).toBeVisible();
+    await expect(page.locator('[data-vidux-zone="floating-action"]')).toBeVisible();
+    await expect(page.locator('[data-vidux-zone="footer-player"]')).toBeVisible();
+
+    const zones = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      return {
+        header: root.getPropertyValue('--z-header').trim(),
+        footer: root.getPropertyValue('--z-footer-player').trim(),
+        action: root.getPropertyValue('--z-floating-action').trim(),
+        popover: root.getPropertyValue('--z-mode-popover').trim(),
+        gap: root.getPropertyValue('--floating-action-footer-gap').trim(),
+      };
+    });
+    expect(Number(zones.header)).toBeLessThan(Number(zones.footer));
+    expect(Number(zones.footer)).toBeLessThan(Number(zones.action));
+    expect(Number(zones.action)).toBeLessThan(Number(zones.popover));
+    expect(zones.gap).toMatch(/px$/);
+
+    const boxes = await page.evaluate(() => {
+      function box(selector: string) {
+        const el = document.querySelector(selector);
+        if (!el) throw new Error(`missing ${selector}`);
+        const rect = el.getBoundingClientRect();
+        return {
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        };
+      }
+      return {
+        header: box('[data-vidux-zone="status-header"]'),
+        footer: box('[data-vidux-zone="footer-player"]'),
+        fab: box('[data-vidux-zone="floating-action"]'),
+        pane: box('[data-vidux-zone="content-pane"]'),
+        bodyWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+    expect(boxes.fab.bottom).toBeLessThanOrEqual(boxes.footer.top - 8);
+    expect(boxes.header.bottom).toBeLessThan(boxes.footer.top);
+    expect(boxes.fab.right).toBeLessThanOrEqual(boxes.bodyWidth);
+    expect(boxes.pane.bottom).toBeGreaterThan(boxes.header.bottom);
+    expect(boxes.scrollWidth).toBeLessThanOrEqual(boxes.bodyWidth);
+
+    await page.locator('#root-annotation-toggle').click();
+    await page.locator('.pane-header h2').click();
+    await expect(page.locator('[data-vidux-zone="mode-popover"]')).toBeVisible();
+    const popoverZ = await page.locator('[data-vidux-zone="mode-popover"]').evaluate(el => Number(getComputedStyle(el).zIndex));
+    expect(popoverZ).toBeGreaterThan(Number(zones.action));
+  });
+
+  test('annotation FAB exposes capture, composer, saving, saved, and error states', async ({ page }) => {
+    let postCount = 0;
+    let releaseFirstPost: (() => void) | undefined;
+    await page.route('**/api/comments**', async route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        postCount += 1;
+        if (postCount === 1) {
+          await new Promise<void>(resolve => { releaseFirstPost = resolve; });
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ ok: true }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 500,
+          contentType: 'text/plain',
+          body: 'forced comment failure',
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ comments: [] }),
+      });
+    });
+
+    await page.goto('/');
+    const sidebarToggle = page.locator('#sidebar-toggle');
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
+    }
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+    }
+
+    const fab = page.locator('#root-annotation-toggle');
+    const popover = page.locator('#annotation-popover');
+    await expect(fab).toBeEnabled();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
+    await expect(fab).toHaveAttribute('aria-pressed', 'false');
+
+    await fab.click();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'capture-active');
+    await expect(fab).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('body')).toHaveClass(/is-annotation-mode/);
+    await fab.click();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
+
+    await page.keyboard.press('Control+Shift+C');
+    await expect(fab).toHaveAttribute('data-annotation-state', 'capture-active');
+    await page.locator('.pane-header h2').click();
+    await expect(popover).toBeVisible();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'composer-open');
+
+    const bodyInput = page.locator('#annotation-popover-body');
+    await bodyInput.fill('state machine smoke');
+    await bodyInput.focus();
+    await page.keyboard.press('Control+Shift+C');
+    await expect(popover).toBeVisible();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'composer-open');
+
+    await page.locator('#annotation-popover-form button[type="submit"]').click();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'saving');
+    await expect(page.locator('#annotation-popover-status')).toHaveAttribute('data-state', 'saving');
+    releaseFirstPost?.();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'saved');
+    await expect(page.locator('#annotation-popover-status')).toHaveAttribute('data-state', 'saved');
+    await expect(popover).toHaveCount(0, { timeout: 1_500 });
+    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
+
+    await fab.click();
+    await page.locator('.pane-header h2').click();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'composer-open');
+    await page.locator('#annotation-popover-body').fill('state machine failure smoke');
+    await page.locator('#annotation-popover-form button[type="submit"]').click();
+    await expect(fab).toHaveAttribute('data-annotation-state', 'error');
+    await expect(page.locator('#annotation-popover-status')).toHaveAttribute('data-state', 'error');
+    await expect(page.locator('#annotation-popover-status')).toContainText('forced comment failure');
+    await expect(popover).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(popover).toHaveCount(0);
+    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
   });
 
   test('sidebar lists plans from fixture root', async ({ page }) => {
@@ -34,6 +195,47 @@ test.describe('vidux-browse smoke', () => {
     const after = await page.locator('#sidebar-list .plan-row').count();
     expect(after).toBeLessThan(before);
     expect(after).toBeGreaterThanOrEqual(1);
+  });
+
+  test('sidebar sort menu orders by ETA and persists', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().waitFor();
+    await expect(page.locator('#sort')).toHaveValue('mtime');
+    await page.locator('#sort').selectOption('eta');
+    await expect(page.locator('#sidebar-list .plan-row[data-kind="plan"]').first()).toHaveAttribute('title', /proj-beta/);
+    await expect(page.locator('#sort')).toHaveValue('eta');
+    await expect(page.locator('#sort option')).toHaveText(['mtime', 'ETA', 'status']);
+
+    await page.reload();
+    await expect(page.locator('#sort')).toHaveValue('eta');
+    await expect(page.locator('#sidebar-list .plan-row[data-kind="plan"]').first()).toHaveAttribute('title', /proj-beta/);
+    expect(await page.evaluate(() => localStorage.getItem('vidux:sidebar-sort'))).toBe('eta');
+  });
+
+  test('filter chips narrow by ETA and persist', async ({ page }) => {
+    await page.goto('/');
+    const sidebarToggle = page.locator('#sidebar-toggle');
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
+    }
+    const rows = page.locator('#sidebar-list .plan-row[data-kind="plan"]');
+    await rows.first().waitFor();
+    const before = await rows.count();
+    expect(before).toBeGreaterThanOrEqual(3);
+
+    const etaChip = page.locator('[data-filter-chip="eta"]');
+    await etaChip.click();
+    await expect(etaChip).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#sidebar-list .plan-row[title="proj-gamma"]')).toHaveCount(0);
+    const after = await rows.count();
+    expect(after).toBeLessThan(before);
+    expect(after).toBeGreaterThanOrEqual(1);
+
+    await page.reload();
+    await expect(page.locator('[data-filter-chip="eta"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#sidebar-list .plan-row[title="proj-gamma"]')).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('vidux:sidebar-filter-chips'))).toBe('["eta"]');
   });
 
   test('plan-row has WCAG attrs (tabindex, role, aria-label)', async ({ page }) => {
@@ -104,7 +306,7 @@ test.describe('auto-refresh polling', () => {
     });
 
     let completedTasks = 0;
-    let artifactBody = '<!doctype html><html><body><main>artifact version A</main></body></html>';
+    let artifactBody = '<!doctype html><html><body><main><h1 id="artifact-title">artifact version A</h1><button id="artifact-action">Inspect</button></main></body></html>';
     let comments: Array<Record<string, unknown>> = [];
 
     const planPath = '/tmp/vidux-auto-refresh/PLAN.md';
@@ -183,32 +385,163 @@ test.describe('auto-refresh polling', () => {
     await page.goto('/?plan=fixture%2Fauto-refresh%2FPLAN.md&tab=INBOX.md');
     await expect(page.locator('.pane-tabs button.is-active')).toHaveText('INBOX.md');
     await expect(page.locator('.pane-progress .ratio')).toHaveText('0 of 2 tasks');
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-scope', 'current-view');
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-state', 'ready');
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-count', '0');
+    await expect(page.locator('[data-comment-empty]')).toHaveText('No comments yet.');
+    await expect(page.locator('[data-comment-filter="all"]')).toHaveClass(/is-active/);
+    await expect(page.locator('#comment-target-map')).toHaveAttribute('data-comment-target-count', '0');
 
     completedTasks = 1;
-    comments = [{
-      id: 'c1',
-      author: 'Test',
-      body: 'poll-loaded comment',
-      created_at: '2026-05-24T12:00:00Z',
-      anchor: { label: 'Inbox heading' },
-    }];
+    comments = [
+      {
+        id: 'c1',
+        author: 'Test',
+        body: 'poll-loaded comment',
+        created_at: '2026-05-24T12:00:00Z',
+        anchor: { label: 'Inbox heading', selector: '.pane-header h2' },
+      },
+      {
+        id: 'c2',
+        author: 'Test',
+        body: 'same target comment',
+        created_at: '2026-05-24T12:01:00Z',
+        anchor: { label: 'Inbox heading', selector: '.pane-header h2' },
+      },
+      {
+        id: 'c3',
+        author: 'Test',
+        body: 'tab target comment',
+        created_at: '2026-05-24T12:02:00Z',
+        anchor: { label: 'Tab strip', selector: '.pane-tabs' },
+      },
+    ];
 
     await expect(page.locator('.pane-progress .ratio')).toHaveText('1 of 2 tasks', { timeout: 3_000 });
-    await expect(page.locator('#comment-count')).toHaveText('1 comment');
+    await expect(page.locator('#comments-panel')).toHaveClass(/has-comments/);
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-count', '3');
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-target-count', '2');
+    await expect(page.locator('#comment-count')).toHaveText('3 comments');
     await expect(page.locator('#comment-list')).toContainText('poll-loaded comment');
+    await expect(page.locator('#comment-list')).toContainText('same target comment');
+    await expect(page.locator('#comment-target-map')).toHaveAttribute('data-comment-target-count', '2');
+    await expect(page.locator('#comment-target-map')).toContainText('Inbox heading');
+    await expect(page.locator('[data-comment-marker][data-comment-marker-count="2"]')).toBeVisible();
+    await expect(page.locator('[data-comment-marker][data-comment-marker-count="1"]')).toBeVisible();
+    await page.locator('[data-comment-marker][data-comment-marker-count="2"]').hover();
+    await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-preview/);
+    await page.locator('[data-comment-marker][data-comment-marker-count="2"]').click();
+    await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-highlight/);
+    await page.locator('#comment-markers-toggle').click();
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-markers-hidden', 'true');
+    await expect(page.locator('[data-comment-marker]')).toHaveCount(0);
+    await expect(page.locator('#comment-markers-toggle')).toHaveText('Show');
+    await page.locator('#comment-markers-toggle').click();
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-markers-hidden', 'false');
+    await expect(page.locator('[data-comment-marker][data-comment-marker-count="2"]')).toBeVisible();
+    await page.locator('[data-comment-jump="c1"]').click();
+    await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-highlight/);
     await expect(page.locator('.pane-tabs button.is-active')).toHaveText('INBOX.md');
+
+    comments = [{
+      id: 'a1',
+      author: 'Test',
+      body: 'artifact target comment',
+      created_at: '2026-05-24T12:03:00Z',
+      anchor: { label: 'Artifact title', selector: '#artifact-title' },
+    }];
 
     const sidebarToggle = page.locator('#sidebar-toggle');
     if (await sidebarToggle.isVisible()) {
       await sidebarToggle.click();
       await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
     }
-    await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
+    const artifactRow = page.locator('#sidebar-list .plan-row[data-kind="artifact"]').first();
+    await artifactRow.click();
+    await expect(page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first()).toBeVisible();
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+    }
     await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version A');
+    await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-target-count', '1');
+    await expect(page.locator('#comment-target-map')).toContainText('Artifact title');
+    await expect(page.locator('[data-comment-marker][data-comment-marker-count="1"]')).toBeVisible();
+    await page.locator('[data-comment-marker][data-comment-marker-count="1"]').click();
+    await expect(page.frameLocator('iframe.artifact-frame').locator('#artifact-title')).toHaveClass(/is-anchor-highlight/);
 
-    artifactBody = '<!doctype html><html><body><main>artifact version B</main></body></html>';
+    artifactBody = '<!doctype html><html><body><main><h1 id="artifact-title">artifact version B</h1><button id="artifact-action">Inspect</button></main></body></html>';
 
     await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version B', { timeout: 3_000 });
     await expect(page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first()).toBeVisible();
+  });
+});
+
+test.describe('artifact styling', () => {
+  test('shared artifact base css applies in dark iframe render', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+
+    const artifactPath = '/tmp/vidux-artifact-base-css/a/very/long/local/artifact/path/that/should/wrap/in/the/pane/header/instead/of/forcing/mobile-horizontal-overflow/artifact.html';
+    const artifactBody = `<!doctype html>
+<html>
+<head>
+  <style>
+    :root { --paper: #faf8f5; --ink: #2d231c; }
+    body { margin: 0; background: var(--paper); color: var(--ink); }
+  </style>
+  <link rel="stylesheet" href="../static/artifact-base.css" data-vidux-artifact-base>
+</head>
+<body><main>shared artifact theme</main></body>
+</html>`;
+
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          artifacts: [{
+            slug: 'shared-theme-artifact',
+            title: 'Shared Theme Artifact',
+            path: artifactPath,
+            age_days: 0,
+            size: artifactBody.length,
+          }],
+          artifacts_dir: '/tmp/vidux-artifact-base-css',
+        }),
+      });
+    });
+
+    await page.route('**/api/file**', async route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('path') === artifactPath) {
+        await route.fulfill({ contentType: 'text/html', body: artifactBody });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await page.route('**/api/comments**', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ comments: [] }),
+      });
+    });
+
+    await page.goto('/');
+    const sidebarToggle = page.locator('#sidebar-toggle');
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
+    }
+    await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
+    const body = page.frameLocator('iframe.artifact-frame').locator('body');
+    await expect(body).toContainText('shared artifact theme');
+    await expect.poll(async () => (
+      body.evaluate(el => getComputedStyle(el).backgroundColor)
+    )).toBe('rgb(29, 25, 22)');
+    const paneMetrics = await page.locator('#pane').evaluate(el => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(paneMetrics.scrollWidth).toBeLessThanOrEqual(paneMetrics.clientWidth);
   });
 });

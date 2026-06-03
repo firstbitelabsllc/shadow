@@ -2,8 +2,10 @@
 """vidux-status — read-only scan of all PLAN.md files on the machine.
 
 Renders a two-bucket board: "Tied to this chat" (focus repos) and "Other
-tracked plans" (everything else). Each row: 10-cell progress bar, remaining
-AI-hours from [ETA: Xh] tags on pending+in_progress, last-Progress timestamp.
+tracked plans" (everything else). Example and fixture trees are skipped so
+documentation/test PLAN.md files do not masquerade as resumable work. Each row:
+10-cell progress bar, remaining AI-hours from [ETA: Xh] tags on
+pending+in_progress, last-Progress timestamp.
 
 Usage:
     vidux-status.py                         # compact board, cwd's repo is focus
@@ -25,13 +27,45 @@ from pathlib import Path
 from typing import Optional
 
 DEFAULT_ROOT = Path.home() / "Development"
-SKIP_PARTS = {"node_modules", ".git", "_archive", ".next", "dist", "build", "worktrees"}
+SKIP_PARTS = {
+    "node_modules",
+    ".git",
+    "_archive",
+    ".next",
+    "dist",
+    "build",
+    "worktrees",
+    "examples",
+    "fixtures",
+}
 SKIP_SUBSTRINGS = ("-worktrees/", "/.agents/skills/vidux/", "/ai/skills/vidux/")
 
 STATUS_TAGS = ("pending", "in_progress", "completed", "blocked")
-STATUS_RE = re.compile(r"^-\s+\[(pending|in_progress|completed|blocked)\]", re.MULTILINE)
+TASK_LINE_RE = re.compile(r"^-\s+\[(pending|in_progress|completed|blocked)\]\s+(.*)$")
 ETA_RE = re.compile(r"\[ETA:\s*(\d+(?:\.\d+)?)h\]")
 PROGRESS_LINE_RE = re.compile(r"^-\s*\[?(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?Z?)?)")
+NEGATIVE_PROSE_BLOCKER_RE = re.compile(r"\b(?:not|no longer|not currently)\s+blocked\s+by\b", re.I)
+OWNER_REVIEW_RE = re.compile(r"\bownership\s+review\b", re.I)
+OWNER_REVIEW_GATE_RE = re.compile(
+    r"\b(no\s+(?:cleanup\s+)?deletion|no\s+branch\s+removal|non-removable|"
+    r"owner\s+must\s+review|before\s+any\s+cleanup|cleanup\s+remains\s+closed)\b",
+    re.I,
+)
+PROSE_BLOCKER_PATTERNS = (
+    re.compile(r"\bblocked\s+(?:by|until)\s+([^.\];]+)", re.I),
+    re.compile(r"\bwaiting\s+on\s+([^.\];]+)", re.I),
+    re.compile(r"\bcannot\s+proceed\s+until\s+([^.\];]+)", re.I),
+    re.compile(r"\b([^.\[\]]{1,140}?)\s+must\s+be\s+solved\s+first\b", re.I),
+    re.compile(r"\bpending\s+ownership\s+review\b([^.\];]{0,140})", re.I),
+    re.compile(r"\bowner\s+cleanup\s+decisions?\b([^.\];]{0,140})", re.I),
+    re.compile(r"\bowner\s+decisions?\s+(?:resolve|required|needed|must|before|to)\b([^.\];]{0,140})", re.I),
+    re.compile(r"\bowner\s+approval\s+(?:required|needed|before)\b([^.\];]{0,140})", re.I),
+    re.compile(r"\bapproval\s+required\s+before\s+apply\b([^.\];]{0,140})", re.I),
+    re.compile(r"\bcleanup\s+approval\b([^.\];]{0,140})", re.I),
+    re.compile(r"\boperator[- ]gated\b([^.\];]{0,140})", re.I),
+    re.compile(r"\boperator\s+approval\s+(?:required|needed|before)\b([^.\];]{0,140})", re.I),
+    re.compile(r"\bASK-LEO-MANDATORY\b([^.\];]{0,140})", re.I),
+)
 
 
 @dataclass
@@ -48,7 +82,7 @@ class PlanStatus:
 
     @property
     def denom(self) -> int:
-        return self.pending + self.in_progress + self.completed
+        return self.pending + self.in_progress + self.completed + self.blocked
 
     @property
     def percent(self) -> int:
@@ -60,7 +94,12 @@ class PlanStatus:
 
     @property
     def is_shipped(self) -> bool:
-        return self.pending == 0 and self.in_progress == 0 and self.completed > 0
+        return (
+            self.pending == 0
+            and self.in_progress == 0
+            and self.blocked == 0
+            and self.completed > 0
+        )
 
     @property
     def latest(self) -> str:
@@ -79,25 +118,101 @@ def find_plans(root: Path) -> list[Path]:
     return out
 
 
+def split_table_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return []
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def task_has_prose_blocker(text: str) -> bool:
+    if NEGATIVE_PROSE_BLOCKER_RE.search(text):
+        return False
+    if OWNER_REVIEW_RE.search(text) and OWNER_REVIEW_GATE_RE.search(text):
+        return True
+    return any(pattern.search(text) for pattern in PROSE_BLOCKER_PATTERNS)
+
+
+def status_for_task(tag: str, task_text: str) -> str:
+    if tag in {"pending", "in_progress"} and task_has_prose_blocker(task_text):
+        return "blocked"
+    return tag
+
+
+def list_task_counts(text: str) -> tuple[dict[str, int], float]:
+    counts = {tag: 0 for tag in STATUS_TAGS}
+
+    eta_sum = 0.0
+    for line in text.splitlines():
+        s = line.strip()
+        m = TASK_LINE_RE.match(s)
+        if not m:
+            continue
+        tag = status_for_task(m.group(1), m.group(2))
+        counts[tag] += 1
+        if tag in {"pending", "in_progress"}:
+            for m in ETA_RE.finditer(s):
+                try:
+                    eta_sum += float(m.group(1))
+                except ValueError:
+                    pass
+    return counts, eta_sum
+
+
+def claims_board_task_counts(text: str) -> tuple[dict[str, int], float]:
+    counts = {tag: 0 for tag in STATUS_TAGS}
+    eta_sum = 0.0
+    in_claims_board = False
+    status_col: Optional[int] = None
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("## claims board"):
+            in_claims_board = True
+            status_col = None
+            continue
+        if in_claims_board and stripped.startswith("## "):
+            break
+        if not in_claims_board:
+            continue
+
+        cells = split_table_cells(line)
+        if not cells:
+            continue
+        normalized = [cell.lower().strip("* ") for cell in cells]
+        if status_col is None:
+            if len(normalized) >= 2 and normalized[0] == "task" and normalized[1] == "status":
+                status_col = 1
+            continue
+        if status_col >= len(cells):
+            continue
+
+        status = cells[status_col].strip()
+        if status.startswith("[") and status.endswith("]"):
+            tag = status[1:-1]
+            if tag in counts:
+                task_text = " ".join(cell for idx, cell in enumerate(cells) if idx != status_col)
+                counted_tag = status_for_task(tag, task_text)
+                counts[counted_tag] += 1
+                if counted_tag in {"pending", "in_progress"}:
+                    for m in ETA_RE.finditer(line):
+                        try:
+                            eta_sum += float(m.group(1))
+                        except ValueError:
+                            pass
+
+    return counts, eta_sum
+
+
 def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
     try:
         text = p.read_text(encoding="utf-8", errors="replace")
     except OSError:
         text = ""
 
-    counts = {tag: 0 for tag in STATUS_TAGS}
-    for m in STATUS_RE.finditer(text):
-        counts[m.group(1)] += 1
-
-    eta_sum = 0.0
-    for line in text.splitlines():
-        s = line.strip()
-        if s.startswith("- [pending]") or s.startswith("- [in_progress]"):
-            for m in ETA_RE.finditer(s):
-                try:
-                    eta_sum += float(m.group(1))
-                except ValueError:
-                    pass
+    counts, eta_sum = claims_board_task_counts(text)
+    if sum(counts.values()) == 0:
+        counts, eta_sum = list_task_counts(text)
 
     progress_ts: Optional[str] = None
     in_progress_section = False
@@ -119,7 +234,10 @@ def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
 
     try:
         rel = p.relative_to(dev_root)
-        short = str(rel).removesuffix("/PLAN.md")
+        if rel == Path("PLAN.md"):
+            short = dev_root.name or p.parent.name or str(p).removesuffix("/PLAN.md")
+        else:
+            short = str(rel).removesuffix("/PLAN.md")
     except ValueError:
         short = str(p).removesuffix("/PLAN.md")
     short = short.replace("/vidux/", "/")
@@ -187,13 +305,16 @@ def render_row(plan: PlanStatus, name_width: int = 34) -> str:
     name = name.ljust(name_width)
     pct = plan.percent
     extra = ""
-    if pct == 0 and plan.pending > 0:
-        parts = [f"{plan.pending}p"]
+    if pct == 0 or plan.blocked:
+        parts = []
+        if plan.pending:
+            parts.append(f"{plan.pending}p")
         if plan.in_progress:
             parts.append(f"{plan.in_progress}i")
         if plan.blocked:
             parts.append(f"{plan.blocked}b")
-        extra = "  [" + "/".join(parts) + "]"
+        if parts:
+            extra = "  [" + "/".join(parts) + "]"
     return f"  {name} {bar(pct)} {pct:>3}%  ·  {eta_col(plan):<15}  ·  {staleness(plan.mtime_ts)}{extra}"
 
 
@@ -239,7 +360,8 @@ def main() -> int:
         for p in tied:
             print(render_row(p))
     print()
-    print(f"📋 Other tracked plans  ({len(other)} active)")
+    other_count_label = "tracked" if args.all else "active"
+    print(f"📋 Other tracked plans  ({len(other)} {other_count_label})")
     print("━" * 70)
     for p in other[:20]:
         print(render_row(p))

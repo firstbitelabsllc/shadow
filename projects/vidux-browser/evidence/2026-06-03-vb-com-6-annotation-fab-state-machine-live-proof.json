@@ -1,0 +1,145 @@
+{
+  "url": "http://127.0.0.1:7191/",
+  "serverHealth": {
+    "ok": true,
+    "dev_root": "/Users/leokwan/Development",
+    "port": 7191,
+    "repo_root": "/Users/leokwan/Development/vidux",
+    "server_path": "/Users/leokwan/Development/vidux/browser/server.py",
+    "server_mtime_ns": 1780476429578827500,
+    "artifacts_dir": "/Users/leokwan/Development/vidux/browser/artifacts"
+  },
+  "states": [
+    {
+      "label": "selected-view",
+      "fab": {
+        "text": "Annotate",
+        "state": "idle",
+        "ariaPressed": "false",
+        "ariaLabel": "Annotate selected view",
+        "disabled": false,
+        "className": "annotation-fab"
+      }
+    },
+    {
+      "label": "capture-active",
+      "fab": {
+        "text": "Cancel",
+        "state": "capture-active",
+        "ariaPressed": "true",
+        "ariaLabel": "Cancel annotation target capture",
+        "disabled": false,
+        "className": "annotation-fab is-active"
+      }
+    },
+    {
+      "label": "composer-open",
+      "fab": {
+        "text": "Retarget",
+        "state": "composer-open",
+        "ariaPressed": "true",
+        "ariaLabel": "Annotation composer open; retarget",
+        "disabled": false,
+        "className": "annotation-fab is-active"
+      }
+    },
+    {
+      "label": "textarea-shortcut-immune",
+      "fab": {
+        "text": "Retarget",
+        "state": "composer-open",
+        "ariaPressed": "true",
+        "ariaLabel": "Annotation composer open; retarget",
+        "disabled": false,
+        "className": "annotation-fab is-active"
+      }
+    },
+    {
+      "label": "saving",
+      "fab": {
+        "text": "Saving",
+        "state": "saving",
+        "ariaPressed": "true",
+        "ariaLabel": "Saving annotation comment",
+        "disabled": true,
+        "className": "annotation-fab is-active is-saving"
+      }
+    },
+    {
+      "label": "saved",
+      "fab": {
+        "text": "Saved",
+        "state": "saved",
+        "ariaPressed": "true",
+        "ariaLabel": "Annotation comment saved",
+        "disabled": false,
+        "className": "annotation-fab is-active is-saved"
+      }
+    },
+    {
+      "label": "idle-after-save",
+      "fab": {
+        "text": "Annotate",
+        "state": "idle",
+        "ariaPressed": "false",
+        "ariaLabel": "Annotate selected view",
+        "disabled": false,
+        "className": "annotation-fab"
+      }
+    },
+    {
+      "label": "error",
+      "fab": {
+        "text": "Retry",
+        "state": "error",
+        "ariaPressed": "true",
+        "ariaLabel": "Annotation save failed; retry target capture",
+        "disabled": false,
+        "className": "annotation-fab is-active is-error"
+      }
+    }
+  ],
+  "errorStatus": {
+    "state": "error",
+    "text": "failed: forced live proof failure"
+  },
+  "desktop": {
+    "consoleErrors": [],
+    "pageErrors": [],
+    "screenshots": [
+      "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-com-6-annotation-fab-state-machine-desktop.png",
+      "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-com-6-annotation-fab-state-machine-saving.png",
+      "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-com-6-annotation-fab-state-machine-error.png"
+    ]
+  },
+  "mobile": {
+    "state": "idle",
+    "text": "Annotate",
+    "sidebarOpen": false,
+    "sidebarOffscreen": true,
+    "viewport": {
+      "width": 390,
+      "scrollWidth": 390
+    },
+    "fabClearsFooter": true,
+    "fabRect": {
+      "top": 660,
+      "right": 378,
+      "bottom": 694,
+      "left": 280
+    },
+    "footerRect": {
+      "top": 734,
+      "bottom": 834
+    },
+    "sidebarRect": {
+      "left": -331.5,
+      "right": 0,
+      "width": 331.5
+    },
+    "consoleErrors": [],
+    "pageErrors": [],
+    "screenshot": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-com-6-annotation-fab-state-machine-mobile-final.png"
+  },
+  "commentsMutated": false
+}

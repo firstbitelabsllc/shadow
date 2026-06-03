@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# vidux-release.sh — semver bump + CHANGELOG cut + tag + push.
+# vidux-release.sh — semver bump + CHANGELOG cut + plan/ledger-gated tag + push.
 #
 # Default mode is DRY-RUN: prints every mutation it would perform but
 # touches nothing. Pass `--apply` to actually run.
 #
 # Usage:
 #   bash scripts/vidux-release.sh [--apply] [--bump <major|minor|patch>] [--allow-dirty]
-#                                [--plan-path <PLAN.md>] [--proof <command/artifact>]
+#                                [--plan-path <PLAN.md>] [--task-id <task-id>]
+#                                [--proof <command/artifact>]
+#                                [--resume <next-agent resume point>]
 #
 # Steps in --apply mode:
 #   1. Read VERSION, compute NEW_VERSION per --bump (default: patch).
@@ -17,14 +19,14 @@
 #   5. git add VERSION CHANGELOG.md <PLAN.md>
 #   6. git commit -m "release: v<NEW_VERSION>"
 #   7. git tag v<NEW_VERSION>
-#   8. emit an in-progress publish ledger row with plan/proof/handoff fields
+#   8. emit an in-progress publish ledger row with plan/proof/handoff/resume fields
 #   9. git push origin main --tags
 #   10. emit a final publish ledger row after the push succeeds
 #
 # Refuses to run if:
 #   - git status is not clean (override: --allow-dirty)
 #   - current branch is not `main`
-#   - --apply is used without --plan-path and --proof
+#   - --apply is used without --plan-path, --task-id, --proof, and --resume
 #
 set -euo pipefail
 
@@ -45,7 +47,9 @@ BUMP="patch"
 ALLOW_DIRTY=0
 BRANCH_OVERRIDE=""
 PLAN_PATH=""
+TASK_ID=""
 PROOF=""
+RESUME=""
 HANDOFF_STATUS="done"
 LANE="vidux-release"
 LEDGER_EMIT="${LEDGER_EMIT:-${HOME}/Development/ai/hooks/ledger-emit.sh}"
@@ -57,11 +61,13 @@ PUBLISH_LEDGER_ENABLED=0
 
 usage() {
   cat <<EOF
-vidux-release.sh — semver bump + CHANGELOG cut + tag + push.
+vidux-release.sh — semver bump + CHANGELOG cut + plan/ledger-gated tag + push.
 
 usage: bash scripts/vidux-release.sh [--apply] [--bump <major|minor|patch>]
                                      [--allow-dirty] [--branch-name <name>]
-                                     [--plan-path <PLAN.md>] [--proof <text>]
+                                     [--plan-path <PLAN.md>] [--task-id <task-id>]
+                                     [--proof <text>]
+                                     [--resume <text>]
                                      [--handoff-status <status>] [--lane <name>]
                                      [--file <path>] [--claim <path>]
                                      [--help|-h]
@@ -74,22 +80,29 @@ flags:
   --branch-name <n>    Override the detected branch name (testing aid).
                        Useful for confirming the main-branch guard fires.
   --plan-path <path>   Owning PLAN.md. Required with --apply.
+  --task-id <id>       Existing task row in the owning PLAN.md. Required with
+                       --apply. Alias: --task.
   --proof <text>       Command/artifact proof for this release. Required with
                        --apply.
+  --resume <text>      Next-agent resume point for release ledger rows.
+                       Required with --apply.
   --handoff-status <s> Final handoff status: done | in_progress | blocked |
                        needs_review. Defaults to done.
   --lane <name>        Ledger lane. Defaults to vidux-release.
-  --file <path>        Extra changed file to include in publish ledger rows.
-                       VERSION and CHANGELOG.md are always included.
-  --claim <path>       Claim/resume path to include in publish ledger rows.
-                       Defaults to the plan and scripts/vidux-release.sh.
+  --file <path>        Extra changed file to include and claim in publish
+                       ledger rows. VERSION and CHANGELOG.md are always
+                       included and claimed.
+  --claim <path>       Extra claim/resume path to include in publish ledger
+                       rows. Defaults always include the changed release files
+                       and scripts/vidux-release.sh.
   --ledger-emit <path> Ledger emit helper. Defaults to
                        ~/Development/ai/hooks/ledger-emit.sh or LEDGER_EMIT.
   --help, -h           Show this help and exit.
 
 Refuses to run on any branch other than 'main' (override only via
 --branch-name for tests, not for real releases). In --apply mode, also
-refuses to publish without plan and ledger propagation inputs.
+release publish requires --plan-path, --task-id, --proof, and --resume
+before the tag push.
 EOF
 }
 
@@ -123,6 +136,14 @@ while [[ $# -gt 0 ]]; do
       PLAN_PATH="$2"; shift 2 ;;
     --plan-path=*)
       PLAN_PATH="${1#--plan-path=}"; shift ;;
+    --task-id|--task)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: $1 requires an argument" >&2
+        exit 2
+      fi
+      TASK_ID="$2"; shift 2 ;;
+    --task-id=*|--task=*)
+      TASK_ID="${1#*=}"; shift ;;
     --proof)
       if [[ $# -lt 2 ]]; then
         echo "vidux-release: --proof requires an argument" >&2
@@ -131,6 +152,14 @@ while [[ $# -gt 0 ]]; do
       PROOF="$2"; shift 2 ;;
     --proof=*)
       PROOF="${1#--proof=}"; shift ;;
+    --resume|--next-agent-resume)
+      if [[ $# -lt 2 ]]; then
+        echo "vidux-release: $1 requires an argument" >&2
+        exit 2
+      fi
+      RESUME="$2"; shift 2 ;;
+    --resume=*|--next-agent-resume=*)
+      RESUME="${1#*=}"; shift ;;
     --handoff-status)
       if [[ $# -lt 2 ]]; then
         echo "vidux-release: --handoff-status requires an argument" >&2
@@ -233,19 +262,45 @@ resolve_repo_path() {
   fi
 }
 
+plan_contains_task_row() {
+  python3 - "${PLAN_PATH_ABS}" "${TASK_ID}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+plan_path, task = sys.argv[1:]
+text = Path(plan_path).read_text(encoding="utf-8")
+task_row_re = re.compile(
+    r"^\s*[-*]\s+\[(?: |x|pending|in_progress|completed|blocked)\]\s+"
+    + re.escape(task)
+    + r"(?=$|[\s:])",
+    re.MULTILINE,
+)
+sys.exit(0 if task_row_re.search(text) else 1)
+PY
+}
+
 configure_publish_gate() {
   if [[ -n "${PLAN_PATH}" ]]; then
     PLAN_PATH_ABS="$(resolve_repo_path "${PLAN_PATH}")"
     PLAN_PATH_REL="${PLAN_PATH_ABS#"${VIDUX_ROOT}/"}"
   fi
 
-  if [[ "${APPLY}" -eq 1 || -n "${PLAN_PATH}" || -n "${PROOF}" ]]; then
+  if [[ "${APPLY}" -eq 1 || -n "${PLAN_PATH}" || -n "${TASK_ID}" || -n "${PROOF}" ]]; then
     if [[ -z "${PLAN_PATH}" ]]; then
       echo "vidux-release: --apply requires --plan-path <PLAN.md> for publish propagation" >&2
       exit 1
     fi
+    if [[ -z "${TASK_ID}" ]]; then
+      echo "vidux-release: --apply requires --task-id <task-id> for publish propagation" >&2
+      exit 1
+    fi
     if [[ -z "${PROOF}" ]]; then
       echo "vidux-release: --apply requires --proof <command/artifact> for publish propagation" >&2
+      exit 1
+    fi
+    if [[ -z "${RESUME}" ]]; then
+      echo "vidux-release: --apply requires --resume <next-agent resume point> for publish propagation" >&2
       exit 1
     fi
     if [[ ! -f "${PLAN_PATH_ABS}" ]]; then
@@ -258,6 +313,10 @@ configure_publish_gate() {
         echo "vidux-release: --plan-path must be inside the Vidux repo: ${PLAN_PATH_ABS}" >&2
         exit 1 ;;
     esac
+    if ! plan_contains_task_row; then
+      echo "vidux-release: --task-id must appear in --plan-path as a task row: ${TASK_ID}" >&2
+      exit 1
+    fi
     if [[ ! -x "${LEDGER_EMIT}" ]]; then
       echo "vidux-release: ledger emit helper is not executable: ${LEDGER_EMIT}" >&2
       exit 1
@@ -276,9 +335,11 @@ emit_release_publish() {
     --summary "${summary}"
     --repo-path "${VIDUX_ROOT}"
     --lane "${LANE}"
+    --task-id "${TASK_ID}"
     --plan-path "${PLAN_PATH_ABS}"
     --proof "${proof_text}"
     --handoff-status "${status}"
+    --resume "${RESUME}"
     --skills vidux,pilot-leo,ledger
     --file VERSION
     --file CHANGELOG.md
@@ -291,9 +352,19 @@ emit_release_publish() {
     done
   fi
 
-  if [[ "${#CLAIMS[@]}" -eq 0 ]]; then
-    args+=(--claim "${PLAN_PATH_ABS}" --claim scripts/vidux-release.sh)
-  else
+  args+=(
+    --claim VERSION
+    --claim CHANGELOG.md
+    --claim "${PLAN_PATH_REL}"
+    --claim scripts/vidux-release.sh
+  )
+  if [[ "${#PUBLISH_FILES[@]}" -gt 0 ]]; then
+    local publish_file
+    for publish_file in "${PUBLISH_FILES[@]}"; do
+      args+=(--claim "${publish_file}")
+    done
+  fi
+  if [[ "${#CLAIMS[@]}" -gt 0 ]]; then
     local claim
     for claim in "${CLAIMS[@]}"; do
       args+=(--claim "${claim}")
@@ -305,7 +376,8 @@ emit_release_publish() {
 
 append_plan_progress_note() {
   local safe_proof="${PROOF//$'\n'/ }"
-  local note="- [${TODAY}] Release v${NEW_VERSION}: ${safe_proof} [handoff=${HANDOFF_STATUS}]"
+  local safe_resume="${RESUME//$'\n'/ }"
+  local note="- [${TODAY}] Release v${NEW_VERSION} for ${TASK_ID}: ${safe_proof} [handoff=${HANDOFF_STATUS}; resume=${safe_resume}]"
   say_step "append release Progress note to ${PLAN_PATH_REL}"
   if [[ "${APPLY}" -eq 1 ]]; then
     tmp_plan="$(mktemp -t vidux-release.plan.XXXXXX)"
@@ -421,11 +493,13 @@ printf '  new version     : %s\n' "${NEW_VERSION}"
 printf '  release date    : %s\n' "${TODAY}"
 printf '  branch          : %s\n' "${CURRENT_BRANCH}"
 printf '  plan path       : %s\n' "${PLAN_PATH_ABS:-<required with --apply>}"
+printf '  task id         : %s\n' "${TASK_ID:-<required with --apply>}"
 printf '  ledger lane     : %s\n' "${LANE}"
 printf '  handoff status  : %s\n' "${HANDOFF_STATUS}"
+printf '  resume          : %s\n' "${RESUME:-<required with --apply>}"
 printf '  mode            : %s\n' "$([[ "${APPLY}" -eq 1 ]] && echo APPLY || echo DRY-RUN)"
 if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 0 ]]; then
-  printf '  publish ledger  : dry-run only; --apply requires --plan-path and --proof\n'
+  printf '  publish ledger  : dry-run only; --apply requires --plan-path, --task-id, --proof, and --resume\n'
 else
   printf '  publish ledger  : %s\n' "${LEDGER_EMIT}"
 fi
@@ -489,14 +563,20 @@ fi
 if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
   append_plan_progress_note
 else
-  say_step "append release Progress note to the owning PLAN.md (requires --plan-path and --proof in --apply mode)"
+  say_step "append release Progress note to the owning PLAN.md (requires --plan-path, --task-id, --proof, and --resume in --apply mode)"
 fi
 
 # ---------------------------------------------------------------------------
 # Step 4-8: git add / commit / tag / push
 # ---------------------------------------------------------------------------
 if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
-  run git -C "${VIDUX_ROOT}" add VERSION CHANGELOG.md "${PLAN_PATH_REL}"
+  git_add_args=(VERSION CHANGELOG.md "${PLAN_PATH_REL}")
+  if [[ "${#PUBLISH_FILES[@]}" -gt 0 ]]; then
+    for publish_file in "${PUBLISH_FILES[@]}"; do
+      git_add_args+=("${publish_file}")
+    done
+  fi
+  run git -C "${VIDUX_ROOT}" add "${git_add_args[@]}"
 else
   run git -C "${VIDUX_ROOT}" add VERSION CHANGELOG.md
 fi
@@ -505,7 +585,7 @@ run git -C "${VIDUX_ROOT}" tag "v${NEW_VERSION}"
 if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
   emit_release_publish "in_progress" "ready to push origin main --tags"
 else
-  say_step "emit publish ledger rows before and after push (requires --plan-path and --proof in --apply mode)"
+  say_step "emit publish ledger rows before and after push (requires --plan-path, --task-id, --proof, and --resume in --apply mode)"
 fi
 run git -C "${VIDUX_ROOT}" push origin main --tags
 if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then

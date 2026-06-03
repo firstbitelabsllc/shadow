@@ -21,7 +21,7 @@ Verify or add:
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'Compaction imminent. Critical context should already be in files (PLAN.md, .agent-ledger/). If working in a loop, ensure current iteration state is checkpointed to disk before compaction summarizes conversation history.'"
+            "command": "echo 'Compaction imminent. Critical context should already be in files: owning PLAN.md plus matching publish ledger rows. If working in a loop, ensure current iteration state is recorded before compaction summarizes conversation history.'"
           }
         ]
       }
@@ -32,7 +32,7 @@ Verify or add:
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'Context compacted. Rehydrate from repo files: PLAN.md, CLAUDE.md, .agent-ledger/activity.jsonl. Do not rely on pre-compaction conversation details — they are lossy summaries now.'"
+            "command": "echo 'Context compacted. Rehydrate from repo files plus ~/.agent-ledger/activity.jsonl; repo-local .agent-ledger/ is companion state only when documented. Do not rely on pre-compaction conversation details — they are lossy summaries now.'"
           }
         ]
       }
@@ -44,8 +44,8 @@ Verify or add:
 **What each setting does:**
 - `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50` — fires compaction at 50% context (not the default 85-90%). Gives the summarizer room for a high-quality summary.
 - `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` — enables Agent Teams. Each teammate gets its own context window. Natural fit for Vidux's fan-out pattern (4 research agents -> 1 synthesizer -> 1 critic).
-- `PreCompact` hook — reminds the agent to checkpoint state to disk before compaction fires.
-- `PostCompact` hook — reminds the agent to rehydrate from disk files, not trust the compressed summary.
+- `PreCompact` hook — reminds the agent to record plan plus publish-ledger state before compaction fires.
+- `PostCompact` hook — reminds the agent to rehydrate from repo files and the centralized ledger, not trust the compressed summary.
 
 ### 1b. Status Line
 
@@ -84,7 +84,8 @@ Codex's server-side compaction (`/v1/responses/compact`) produces higher-quality
 **Codex has no PreCompact/PostCompact hooks** (lifecycle hooks are feature-flagged and unstable as of April 2026). The workaround is Vidux discipline:
 - One owned mission/lane per Codex session
 - Write PLAN.md before code changes
-- Keep pushing that same lane until you hit a verified checkpoint or a real blocker
+- Keep driving that same lane until you hit a verified checkpoint or a real blocker
+- Before any branch/PR/release publish leaves the machine, update the owning plan, emit a publish ledger row with concise summary, plan task id, proof, handoff status, files claimed, and next-agent resume, and carry the ledger eid into the handoff
 - After checkpoint, end cleanly instead of trusting compaction memory
 
 ## 3. Codex App (Desktop)
@@ -94,7 +95,10 @@ The desktop app shares `~/.codex/config.toml` settings, but:
 - No `/compact` manual trigger yet
 - No model-aware settings (switching models can break thresholds)
 
-**Recommendation:** Use Codex CLI for Vidux work, not the desktop app. The desktop app is fine for quick one-off questions but not for plan-first long-horizon work.
+**Recommendation:** Use Codex CLI for one-shot local commands and supervised
+terminal proof. The desktop app is fine for supervised Vidux work, but do not
+depend on app auto-compaction as durable state; the owning plan plus publish
+ledger packet remains the recovery surface.
 
 ## 4. Skills Directory (`~/.claude/skills/`)
 

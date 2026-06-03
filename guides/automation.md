@@ -14,7 +14,7 @@ Automate when **all** of these are true:
 
 - Work spans multiple sessions and would lose context across handoff
 - The cycle is repeatable (each fire does the same kind of work on whatever's pending)
-- State can live on disk (PLAN.md, memory.md, ledger) between fires
+- State orientation can live on disk: owning PLAN.md, publish ledger rows, evidence, and lane-local memory notes
 - You accept losing conversation scrollback in exchange for 24/7 progress
 
 Do NOT automate when:
@@ -33,17 +33,17 @@ One invariant: **lanes persist on disk, sessions cycle through them.**
 ```
 Lanes (persistent)                    Sessions (disposable)
 <lane-dir>/<lane>/         ~/.claude/projects/*/*.jsonl
-├── prompt.md   (mission)             - cycle when bloated
-└── memory.md   (durable state)       - state never lives here
+├── prompt.md   (mission/rules)       - cycle when bloated
+└── memory.md   (lane-local cycle log) - shipped-work proof never lives here alone
 ```
 
-A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of what session fires them. When a session dies, the files stay; the next session re-schedules the cron and the lane resumes from memory.md tail.
+A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of what session fires them. When a session dies, the files stay; the next session re-schedules the cron, reads memory.md for lane-local orientation, and resumes from the owning PLAN.md plus publish ledger rows for shipped-work proof.
 
 ### Hot vs cold storage
 
 | Layer | Lives here | GC |
 |---|---|---|
-| **Cold** (durable) | PLAN.md, evidence/, investigations/, memory.md per lane, `.agent-ledger/activity.jsonl` | Agent-decided archive when the plan feels heavy |
+| **Cold** (durable) | PLAN.md, evidence/, investigations/, publish ledger rows, lane-local memory.md notes | Agent-decided archive when the plan feels heavy |
 | **Hot** (disposable) | `~/.claude/projects/*/*.jsonl` | Automatic via the session-gc lane's operator-provided JSONL cleanup helper |
 
 ### session-gc is mandatory for 24/7
@@ -172,7 +172,7 @@ AUTHORITY    — Which files/systems this lane may touch. Paths explicit.
 ROLE         — Writer | Radar | Burst. Sets tier permissions.
 HARD RULES   — Never use --no-verify. Never force push. Never edit legal code.
               Never touch files outside AUTHORITY.
-CHECKPOINT   — Format for the memory.md entry on exit.
+CHECKPOINT   — Format for the lane-local memory.md note, plus publish packet when work ships.
 ```
 
 The MISSION section matters most: it's what differentiates this lane from all others. Be specific about the *output* (a merged PR, a checkpointed decision, an appended evidence line) not just the *input* (check this, scan that).
@@ -191,8 +191,9 @@ Test-fire once. If the first-fire output looks right, leave it.
 
 ### 6. Verify + checkpoint
 
-- Confirm the lane's `memory.md` gets its first entry on the next fire
+- Confirm the lane's `memory.md` gets its first lane-local entry on the next fire
 - Confirm the `[CYCLE] ...` log format matches the CHECKPOINT spec in prompt.md
+- If the fire shipped work, confirm the owning PLAN.md plus publish ledger row carries proof and resume metadata
 - Add the lane to INBOX or coordinator memo so future sessions know it exists
 
 ---

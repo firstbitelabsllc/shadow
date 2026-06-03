@@ -13,13 +13,13 @@ Every lane has two files on disk:
 
 ```
 {lane-dir}/{lane-name}/
-├── prompt.md      ← source of truth (read every cycle)
-└── memory.md      ← append-only checkpoint log
+├── prompt.md      ← lane instructions (read every cycle)
+└── memory.md      ← lane-local cycle log
 ```
 
 The **prompt** is the full instruction set — mission, read list, gate rules, assess priority, act steps, authority boundaries, checkpoint format. It follows the [8-block structure](../reference/prompt-template.md).
 
-The **memory** is the lane's durable state. One line per cycle. Any new session reads this to pick up where the last one left off.
+The **memory** is the lane-local cycle log. One line per cycle. Any new session reads this for local orientation, then resumes shipped work from the owning `PLAN.md` plus matching publish ledger row carrying the durable proof/resume packet.
 
 ## Creation
 
@@ -39,13 +39,17 @@ The cron prompt is a **thin wrapper** — it tells the agent where to find the r
 Each cron fire injects the prompt into the live session. The agent then executes one vidux cycle:
 
 ```
-1. READ     prompt.md → memory.md (last 3 entries) → git fetch + status → PLAN.md → INBOX.md
-2. GATE     Dirty tree not mine? → [QC] exit. 3x stuck? → [blocked]. Main CI red? → fix.
-3. ASSESS   Priority: CI red → PR fix → PR merge → resume in_progress → next pending → filler audit
-4. ACT      Worktree per code change. Lint + build before commit. Verify branch after commit.
-5. VERIFY   Build passes. Tests pass. Visual check for UI.
-6. CHECKPOINT  Append one line to memory.md. Update PLAN.md status. Commit if code changed.
+0. CONFIG   `vidux config check --json`; keep local config separate from checked-in example fallback.
+1. READ     prompt.md -> memory.md (last 3 entries) -> git fetch + status -> PLAN.md -> INBOX.md
+2. PRE-HOOK Set `VIDUX_SIGNPOST_RUN_ID`; emit `hook.beforeTask`; run `scripts/vidux-doctor.sh --json`.
+3. GATE     Dirty tree not mine? -> [QC] exit. 3x stuck? -> [blocked]. Main CI red? -> fix.
+4. ASSESS   Priority: CI red -> PR fix -> PR merge -> resume in_progress -> next pending -> filler audit
+5. ACT      Worktree per code change. Emit `subagent.spawn` when delegating; set `VIDUX_RUNTIME=claude` for Claude workers and `VIDUX_RUNTIME=cursor` for Cursor-attributed workers.
+6. VERIFY   Build passes. Tests pass. Visual check for UI. Emit `task.verify` for the proof command or artifact.
+7. CHECKPOINT  Emit `hook.afterTask`; Update the owning PLAN.md status/Progress and emit the matching publish ledger row with task id, proof, handoff status, files claimed, and next-agent resume. Append the lane-local memory line; commit/push only after the plan/ledger packet exists.
 ```
+
+Use `vidux signpost trace --run-id <id>` to inspect the ordered call stack. Use `vidux signpost lifecycle-smoke --json` for a disposable trace-shape smoke before depending on a new prompt or hook wrapper. Use `vidux signpost spawned-subagent-smoke --json` for inherited Codex parent env plus spawned Claude/Cursor attribution. The smokes are local proof of event shape and env attribution, not proof that Claude, Codex, or Cursor actually launched.
 
 ### Post-push defer
 
@@ -61,11 +65,11 @@ Sessions are disposable. They die for many reasons:
 - Manual `/resume`
 - Process crash
 
-**When a session dies, the cron dies with it.** But the lane files (`prompt.md` + `memory.md`) survive on disk. When a new session starts:
+**When a session dies, the cron dies with it.** But the lane files (`prompt.md` + `memory.md`) survive on disk as instructions plus the lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching publish ledger rows. When a new session starts:
 
 1. Re-schedule `CronCreate` with the same prompt pointing to the same `prompt.md`
-2. The first cycle reads `memory.md` and picks up exactly where the last session left off
-3. No state is lost — the lane resumes from disk
+2. The first cycle reads `memory.md` for lane-local orientation
+3. The lane resumes from disk using the lane files plus repo plan/ledger proof packets
 
 This is the core invariant: **lanes persist, sessions cycle.**
 

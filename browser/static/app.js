@@ -1,20 +1,41 @@
-// vidux browser — vanilla JS, no framework. Reads /api/* from the local server.
+const sidebarSort = window.ViduxSidebarSort;
+const sidebarFilters = window.ViduxSidebarFilters;
+const annotationState = window.ViduxAnnotationState;
+const commentRail = window.ViduxCommentRail;
+const commentMarkers = window.ViduxCommentMarkers;
+const ANNOTATION_STATES = annotationState.STATES;
+const AS = ANNOTATION_STATES;
 
 const state = {
   plans: [],
   artifacts: [],
+  dashboard: null,
+  fleetSummary: null,
+  opsTruth: null,
   filter: "",
-  active: null,        // {kind: 'plan'|'artifact', ...metadata}
+  sort: sidebarSort.getStored(),
+  filterChips: sidebarFilters.getStored(),
+  active: null,        // {kind: 'dashboard'|'plan'|'artifact', ...metadata}
   activeTab: "PLAN.md",
   annotation: {
     capture: false,
     targetPath: "",
     anchor: null,
+    phase: "idle",
   },
+  comments: {
+    targetPath: "",
+    items: [],
+  },
+  commentMarkersHidden: commentMarkers.getStoredHidden(),
 };
 let activePopoverTarget = null;
+let opsTruthRetryTimer = null;
+let commentMarkerRenderFrame = 0;
 
 const DECISION_LOG_TAB = "Decision Log";
+const SESSION_TAB = "Sessions";
+const LEDGER_TAB = "Ledger";
 const DEFAULT_AUTO_REFRESH_INTERVAL_MS = 30000;
 const AUTO_REFRESH_INTERVAL_MS = (() => {
   const configured = Number(window.__VIDUX_AUTO_REFRESH_INTERVAL_MS);
@@ -23,18 +44,6 @@ const AUTO_REFRESH_INTERVAL_MS = (() => {
     : DEFAULT_AUTO_REFRESH_INTERVAL_MS;
 })();
 let autoRefreshInFlight = false;
-
-// ─── URL deep-linking ─────────────────────────────────────────────────────
-// Selection is reflected in the URL via query params so any view is bookmarkable
-// and back/forward navigation works:
-//   ?artifact=<slug>                 → load that artifact
-//   ?plan=<rel-path>                 → load that plan (PLAN.md tab by default)
-//   ?plan=<rel-path>&tab=PROGRESS.md → load plan + open a sibling tab
-//   ?plan=<rel-path>&tab=INV:<path>  → load plan + open an investigation
-//   ?plan=<rel-path>&tab=EVD:<path>  → load plan + open an evidence file
-// `rel` is the plan's path relative to DEV_ROOT (stable, readable, comes from
-// /api/plans). Selection updates use pushState so each navigation lands in the
-// browser's history; popstate restores state on back/forward.
 
 function currentParams() {
   return new URLSearchParams(window.location.search);
@@ -81,6 +90,8 @@ function scrollActiveRowIntoView() {
 const els = {
   list: document.getElementById("sidebar-list"),
   filter: document.getElementById("filter"),
+  sort: document.getElementById("sort"),
+  filterChips: Array.from(document.querySelectorAll("[data-filter-chip]")),
   pane: document.getElementById("pane"),
   count: document.getElementById("meta-count"),
   refresh: document.getElementById("refresh"),
@@ -98,6 +109,8 @@ const APP_ANCHOR_SELECTOR = [
   ".topbar",
   ".topbar h1",
   "#meta-count",
+  ".ops-truth",
+  ".ops-truth-item",
   ".repo-group h2",
   ".plan-row",
   ".pane-header",
@@ -109,6 +122,14 @@ const APP_ANCHOR_SELECTOR = [
   ".pane-tabs button",
   ".pane-investigations-strip",
   ".pane-investigations-strip button",
+  ".dashboard-panel",
+  ".dashboard-card",
+  ".dashboard-list",
+  ".dashboard-item",
+  ".ledger-panel",
+  ".ledger-entry",
+  ".session-panel",
+  ".session-turn",
   ".comments-panel",
   ".comments-head",
   ".comment-list .comment-item",
@@ -137,6 +158,10 @@ const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#annotation-popover",
   "#annotation-popover *",
   ".comment-anchor button",
+  "#comment-markers-toggle",
+  ".comment-marker-layer",
+  ".comment-marker-layer *",
+  ".comment-target-map button",
 ].join(",");
 
 function fmtAge(days) {
@@ -187,13 +212,6 @@ function toggleCollapsed(key) {
 }
 function isCollapsed(key) { return uiState.collapsed.has(key); }
 
-// ─── Theme toggle (light/dark) ──────────────────────────────────────────────
-// Three states: "system" (follow OS preference, default), "light", "dark".
-// Persists to localStorage so the choice survives reloads + new tabs. Applied
-// as a class on the html element (`:root.theme-light` / `:root.theme-dark`)
-// which beats both `:root` defaults and the `@media (prefers-color-scheme:
-// dark)` fallback by specificity. The fallback @media stays in style.css so
-// pre-JS paint also respects OS preference.
 const THEME_KEY = "vidux:theme";
 function getStoredTheme() {
   try { return localStorage.getItem(THEME_KEY) || "system"; }
@@ -373,6 +391,287 @@ function renderPaneAggregateProgress(plan, aggregate) {
     </div>`;
 }
 
+function doctorStatusClass(status) {
+  if (status === "block") return "is-blocked";
+  if (status === "warn") return "is-warn";
+  if (status === "pass" || status === "ok") return "is-ok";
+  return "is-muted";
+}
+
+function cacheStatusClass(status) {
+  if (status === "fresh") return "is-ok";
+  if (status === "stale") return "is-warn";
+  return "is-muted";
+}
+
+function shortLocalPath(path) {
+  const value = String(path || "");
+  if (!value) return "";
+  const homeMatch = value.match(/^\/Users\/[^/]+/);
+  if (homeMatch) return `~${value.slice(homeMatch[0].length)}`;
+  return value;
+}
+
+function renderOpsTruth() {
+  const truth = state.opsTruth;
+  if (!truth) {
+    return `
+      <section class="ops-truth is-loading" id="ops-truth" aria-label="Vidux local truth">
+        <div class="ops-truth-head">
+          <span class="ops-kicker">Local truth</span>
+          <span class="ops-chip is-muted">loading</span>
+        </div>
+      </section>`;
+  }
+  if (truth.error) {
+    return `
+      <section class="ops-truth is-error" id="ops-truth" aria-label="Vidux local truth">
+        <div class="ops-truth-head">
+          <span class="ops-kicker">Local truth</span>
+          <span class="ops-chip is-blocked">error</span>
+        </div>
+        <div class="ops-truth-error">${escapeText(truth.error)}</div>
+      </section>`;
+  }
+
+  const config = truth.config || {};
+  const installDoctor = truth.install_doctor || {};
+  const runtime = truth.runtime_doctor || {};
+  const signposts = truth.signposts || {};
+  const cache = truth.cache || {};
+  const configStatus = config.ok ? "ok" : (config.status || "unknown");
+  const runtimeStatus = runtime.status || "unknown";
+  const cacheStatus = cache.status || "sync";
+  const cacheLabel = cache.refreshing ? `${cacheStatus} refresh` : cacheStatus;
+  const warningCount = Array.isArray(runtime.warnings) ? runtime.warnings.length : 0;
+  const blockerCount = Array.isArray(runtime.blockers) ? runtime.blockers.length : 0;
+  const systemMemory = runtime.system_memory || {};
+  const memoryPct = Number(systemMemory.memory_pressure_free_pct);
+  const vmFree = Number(systemMemory.vm_free_mb);
+  const vmSpeculative = Number(systemMemory.vm_speculative_mb);
+  const runtimeNote = blockerCount
+    ? `${blockerCount} blocker${blockerCount === 1 ? "" : "s"}`
+    : (warningCount ? `${warningCount} warning${warningCount === 1 ? "" : "s"}` : "no blockers");
+  const memoryNote = Number.isFinite(memoryPct)
+    ? `${runtimeNote} | memory_pressure ${memoryPct}%`
+    : runtimeNote;
+  const memoryTitleParts = [
+    Number.isFinite(memoryPct)
+      ? `${systemMemory.memory_pct_source || "memory_pressure"}: ${memoryPct}%`
+      : "",
+    Number.isFinite(vmFree)
+      ? `${systemMemory.vm_pages_source || "vm_stat"} free ${vmFree} MB`
+      : "",
+    Number.isFinite(vmSpeculative)
+      ? `speculative ${vmSpeculative} MB`
+      : "",
+  ].filter(Boolean);
+  const memoryTitle = memoryTitleParts.join("; ");
+  const configNote = config.live_config_present
+    ? "live config"
+    : (config.using_example ? "example fallback" : "no config");
+  const signpostEvents = Number(signposts.total_events || 0);
+  const latestSignpostRun = signposts.latest_run || {};
+  const latestCallStack = latestSignpostRun.call_stack || "";
+  const signpostDetail = latestCallStack || shortLocalPath(signposts.log_path);
+  const signpostTitle = latestCallStack
+    ? [
+        `run ${latestSignpostRun.run_id || "unknown"}`,
+        latestSignpostRun.complete_lifecycle ? "complete lifecycle" : "partial lifecycle",
+        Array.isArray(latestSignpostRun.actions) ? latestSignpostRun.actions.join(" > ") : "",
+        shortLocalPath(signposts.log_path),
+      ].filter(Boolean).join("; ")
+    : shortLocalPath(signposts.log_path);
+  const updated = truth.generated_at ? truth.generated_at.replace("T", " ").replace("Z", "Z") : "";
+  return `
+    <section class="ops-truth" id="ops-truth" aria-label="Vidux local truth">
+      <div class="ops-truth-head">
+        <span class="ops-kicker">Local truth</span>
+        <span class="ops-chip ${doctorStatusClass(configStatus)}">config ${escapeText(configStatus)}</span>
+        <span class="ops-chip ${doctorStatusClass(runtimeStatus)}">runtime ${escapeText(runtimeStatus)}</span>
+        <span class="ops-chip ${cacheStatusClass(cacheStatus)}">${escapeText(cacheLabel)}</span>
+        <span class="ops-chip is-muted">${escapeText(updated)}</span>
+      </div>
+      <div class="ops-truth-grid">
+        <div class="ops-truth-item">
+          <span>Config</span>
+          <strong>${escapeText(config.source || "unknown")}</strong>
+          <small title="${escapeAttr(config.path || "")}">${escapeText(configNote)}</small>
+        </div>
+        <div class="ops-truth-item">
+          <span>Runtime doctor</span>
+          <strong>${Number(runtime.pass || 0)}/${Number(runtime.total || 0)}</strong>
+          <small title="${escapeAttr(memoryTitle)}">${escapeText(memoryNote)}</small>
+        </div>
+        <div class="ops-truth-item">
+          <span>Pre-hook</span>
+          <strong>${escapeText(runtime.command || "scripts/vidux-doctor.sh --json")}</strong>
+          <small>${installDoctor.browser_status === "not_run" ? "install doctor not run here" : "runtime JSON"}</small>
+        </div>
+        <div class="ops-truth-item">
+          <span>Signposts</span>
+          <strong>${signpostEvents}</strong>
+          <small title="${escapeAttr(signpostTitle)}">${escapeText(signpostDetail)}</small>
+        </div>
+      </div>
+    </section>`;
+}
+
+function dashboardCategories() {
+  return state.dashboard?.categories || {};
+}
+
+function dashboardCategory(key) {
+  return dashboardCategories()[key] || { label: key, items: [], total: 0, truncated: false, limit: 0 };
+}
+
+function dashboardTotalOpen() {
+  const cats = dashboardCategories();
+  return Object.values(cats).reduce((sum, cat) => sum + Number(cat?.total || 0), 0);
+}
+
+function renderDashboardCard(key, label) {
+  const cat = dashboardCategory(key);
+  const total = Number(cat.total || 0);
+  const shown = Array.isArray(cat.items) ? cat.items.length : 0;
+  const note = cat.truncated ? `${shown}/${total} shown` : `${total} total`;
+  return `
+    <div class="dashboard-card dashboard-card-${escapeAttr(key)}">
+      <span>${escapeText(label)}</span>
+      <strong>${total}</strong>
+      <small>${escapeText(note)}</small>
+    </div>`;
+}
+
+function renderDashboardItem(item) {
+  const meta = [
+    item.repo || "",
+    item.source_rel ? `${item.source_rel}${item.line ? `:${item.line}` : ""}` : "",
+  ].filter(Boolean).join(" · ");
+  const status = item.status || item.kind || "open";
+  return `
+    <article class="dashboard-item dashboard-item-${escapeAttr(item.kind || "item")}" tabindex="0" role="button"
+      data-dashboard-rel="${escapeAttr(item.rel || "")}"
+      data-dashboard-tab="${escapeAttr(item.tab || "PLAN.md")}"
+      aria-label="${escapeAttr(`${status}: ${item.label || ""}`)}">
+      <div class="dashboard-item-head">
+        <span class="dashboard-status status-${escapeAttr(status)}">${escapeText(status)}</span>
+        <span class="dashboard-label">${escapeText(item.label || "Untitled item")}</span>
+      </div>
+      <div class="dashboard-meta">${escapeText(meta)}</div>
+    </article>`;
+}
+
+function renderDashboardList(key, title, emptyText) {
+  const cat = dashboardCategory(key);
+  const items = Array.isArray(cat.items) ? cat.items : [];
+  const total = Number(cat.total || 0);
+  const countLabel = cat.truncated ? `${items.length}/${total}` : `${total}`;
+  const body = items.length
+    ? items.map(renderDashboardItem).join("")
+    : `<p class="muted dashboard-empty">${escapeText(emptyText)}</p>`;
+  return `
+    <section class="dashboard-list dashboard-list-${escapeAttr(key)}">
+      <div class="dashboard-list-head">
+        <h3>${escapeText(title)}</h3>
+        <span>${escapeText(countLabel)}</span>
+      </div>
+      <div class="dashboard-items">${body}</div>
+    </section>`;
+}
+
+function openDashboardItem(row) {
+  const rel = row.getAttribute("data-dashboard-rel");
+  const tab = row.getAttribute("data-dashboard-tab") || "PLAN.md";
+  const plan = state.plans.find(p => p.rel === rel);
+  if (plan) selectPlan(plan, { tab, scrollIntoView: true });
+}
+
+function setupDashboardPane() {
+  els.pane.querySelectorAll(".dashboard-item").forEach(row => {
+    row.addEventListener("click", () => openDashboardItem(row));
+    row.addEventListener("keydown", e => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      openDashboardItem(row);
+    });
+  });
+}
+
+function renderDashboardPane(opts = {}) {
+  const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
+  if (!opts.preserveAnnotation) clearAnnotationState();
+  const dashboard = state.dashboard || {};
+  const generated = dashboard.generated_at ? dashboard.generated_at.replace("T", " ").replace("Z", "Z") : "";
+  els.pane.innerHTML = `
+    ${renderOpsTruth()}
+    <section class="dashboard-panel">
+      <div class="dashboard-header">
+        <div>
+          <div class="label">Fleet dashboard</div>
+          <h2>Cross-plan queue</h2>
+        </div>
+        <div class="dashboard-header-meta">
+          <span>${Number(dashboard.plans_scanned || state.plans.length)} plans</span>
+          <span>${Number(dashboard.repos || new Set(state.plans.map(p => p.repo)).size)} repos</span>
+          ${generated ? `<span>${escapeText(generated)}</span>` : ""}
+        </div>
+      </div>
+      <div class="dashboard-cards">
+        ${renderDashboardCard("in_progress", "In progress")}
+        ${renderDashboardCard("blocked", "Blocked")}
+        ${renderDashboardCard("ask_leo", "ASK-LEO")}
+        ${renderDashboardCard("inbox", "INBOX")}
+      </div>
+      <div class="dashboard-grid">
+        ${renderDashboardList("in_progress", "In Progress", "No in-progress tasks found.")}
+        ${renderDashboardList("blocked", "Blocked", "No blocked tasks found.")}
+        ${renderDashboardList("ask_leo", "ASK-LEO", "No open ASK-LEO entries found.")}
+        ${renderDashboardList("inbox", "INBOX", "No open INBOX entries found.")}
+      </div>
+    </section>`;
+  if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
+  else els.pane.scrollTop = 0;
+  setupDashboardPane();
+  refreshAnnotationTargets();
+}
+
+function renderEmptyPane() {
+  els.pane.innerHTML = `
+    ${renderOpsTruth()}
+    <div class="pane-empty muted">
+      <p>Select a plan from the sidebar.</p>
+      <p>40+ PLAN.md files indexed across <code>~/Development/</code>.</p>
+    </div>`;
+}
+
+function updateOpsTruthSurface() {
+  const el = document.getElementById("ops-truth");
+  if (el) el.outerHTML = renderOpsTruth();
+}
+
+async function refreshOpsTruth() {
+  if (opsTruthRetryTimer) {
+    window.clearTimeout(opsTruthRetryTimer);
+    opsTruthRetryTimer = null;
+  }
+  try {
+    const res = await fetch("/api/vidux/truth");
+    if (!res.ok) {
+      state.opsTruth = { error: `${res.status}: ${await res.text()}` };
+    } else {
+      state.opsTruth = await res.json();
+    }
+  } catch (e) {
+    state.opsTruth = { error: String(e) };
+  }
+  updateOpsTruthSurface();
+  const cache = state.opsTruth?.cache || {};
+  if (cache.status === "warming" || cache.refreshing) {
+    opsTruthRetryTimer = window.setTimeout(refreshOpsTruth, 1200);
+  }
+}
+
 function renderPlanBrief(plan, stats, aggregate) {
   const brief = plan.brief || {};
   const counts = stats?.counts || {};
@@ -470,16 +769,52 @@ function renderPaneSubplans(plan) {
     </section>`;
 }
 
-function fleetCompletionStat(plans) {
+function formatEtaHours(hours) {
+  const value = Math.round(Number(hours || 0) * 100) / 100;
+  if (Number.isInteger(value)) return `${value}h`;
+  return `${value.toFixed(2).replace(/\.?0+$/, "")}h`;
+}
+
+function fallbackFleetSummary(plans, repoCount) {
   let done = 0, total = 0;
+  let etaRemaining = 0;
+  let etaTagged = 0;
+  let etaEligible = 0;
   for (const p of plans) {
     const t = p.task_stats;
     if (!t) continue;
     done += t.counts?.completed || 0;
     total += t.total || 0;
+    etaRemaining += Number(t.eta_total || 0);
+    etaTagged += Number(t.eta_tagged || 0);
+    etaEligible += Number(t.eta_eligible || 0);
   }
-  if (!total) return "";
-  return ` · ${done}/${total} tasks (${pct(done, total)}%)`;
+  etaRemaining = Math.round(etaRemaining * 100) / 100;
+  return {
+    plans: plans.length,
+    repos: repoCount,
+    tasks_completed: done,
+    tasks_total: total,
+    completion_pct: pct(done, total),
+    eta_remaining_hours: etaRemaining,
+    eta_remaining_label: `${formatEtaHours(etaRemaining)} remaining`,
+    eta_tagged: etaTagged,
+    eta_eligible: etaEligible,
+  };
+}
+
+function topbarFleetSummary(plans, artifacts, repoCount) {
+  const summary = state.fleetSummary || fallbackFleetSummary(plans, repoCount);
+  const planCount = Number(summary.plans ?? plans.length);
+  const summaryRepoCount = Number(summary.repos ?? repoCount);
+  const artifactCount = artifacts.length;
+  const total = Number(summary.tasks_total || 0);
+  const done = Number(summary.tasks_completed || 0);
+  const completionPct = Number(summary.completion_pct ?? pct(done, total));
+  const etaLabel = summary.eta_remaining_label
+    || `${formatEtaHours(summary.eta_remaining_hours || 0)} remaining`;
+  const taskStat = total ? ` · ${done}/${total} tasks (${completionPct}%)` : "";
+  return `${planCount} plans · ${summaryRepoCount} repos · ${artifactCount} artifacts${taskStat} · ${etaLabel}`;
 }
 
 // Plans whose `parent_rel` matches another plan's `rel` are surfaced as
@@ -506,7 +841,9 @@ function hydratePlanChildren() {
 function activateSidebarRow(row) {
   const kind = row.getAttribute("data-kind");
   const path = row.getAttribute("data-path");
-  if (kind === "artifact") {
+  if (kind === "dashboard") {
+    selectDashboard();
+  } else if (kind === "artifact") {
     const a = state.artifacts.find(x => x.path === path);
     if (a) selectArtifact(a);
   } else {
@@ -517,19 +854,23 @@ function activateSidebarRow(row) {
 
 function renderSidebar() {
   const filter = state.filter.toLowerCase();
+  const chipFilterActive = sidebarFilters.active(state.filterChips);
 
-  const filteredPlans = filter
-    ? state.plans.filter(p =>
+  const filteredPlans = state.plans.filter(p => {
+    const textMatch = !filter ||
         p.repo.toLowerCase().includes(filter) ||
         p.slug.toLowerCase().includes(filter) ||
-        (p.purpose || "").toLowerCase().includes(filter))
-    : state.plans;
+        (p.purpose || "").toLowerCase().includes(filter);
+    return textMatch && sidebarFilters.matches(p, state.filterChips);
+  });
 
-  const filteredArtifacts = filter
+  const filteredArtifacts = chipFilterActive ? [] : (filter
     ? state.artifacts.filter(a =>
         a.slug.toLowerCase().includes(filter) ||
         (a.title || "").toLowerCase().includes(filter))
-    : state.artifacts;
+    : state.artifacts);
+  const visiblePlanRels = new Set(filteredPlans.map(p => p.rel));
+  const visibleArtifactSlugs = new Set(filteredArtifacts.map(a => a.slug));
 
   // Build a rel→plan lookup over the FILTERED set so child indentation only
   // happens when both parent and child survive the filter. A child whose
@@ -547,14 +888,16 @@ function renderSidebar() {
     groups.get(plan.repo).push(plan);
   }
 
-  els.count.textContent =
-    `${state.plans.length} plans · ${groups.size} repos · ${state.artifacts.length} artifacts${fleetCompletionStat(state.plans)}`;
+  els.count.textContent = topbarFleetSummary(state.plans, state.artifacts, groups.size);
 
   if (filteredPlans.length === 0 && filteredArtifacts.length === 0) {
     // Differentiate "no filter match" from "nothing indexed at all". The
     // latter is a first-run / wrong-VIDUX_DEV_ROOT signal that deserves
     // a hint, not a one-word "no matches".
     const noResults = state.plans.length === 0 && state.artifacts.length === 0;
+    const activeFilterLabel = state.filter
+      ? `"${escapeText(state.filter)}"`
+      : escapeText(sidebarFilters.summary(state.filterChips) || "current filters");
     els.list.innerHTML = noResults
       ? `<div class="empty-state">
           <p><strong>No plans or artifacts found.</strong></p>
@@ -566,7 +909,7 @@ function renderSidebar() {
             <li>Click <strong>↻ refresh</strong> after adding plans</li>
           </ul>
         </div>`
-      : `<p class="muted" style="padding:12px">no matches for "${escapeText(state.filter)}"</p>`;
+      : `<p class="muted" style="padding:12px">no matches for ${activeFilterLabel}</p>`;
     refreshAnnotationTargetsIfNeeded();
     return;
   }
@@ -598,6 +941,29 @@ function renderSidebar() {
       </div>`;
   }
 
+  function dashboardRow() {
+    const active = state.active && state.active.kind === "dashboard" ? "is-active" : "";
+    const total = dashboardTotalOpen();
+    const cats = dashboardCategories();
+    const meta = [
+      `${Number(cats.in_progress?.total || 0)} in progress`,
+      `${Number(cats.blocked?.total || 0)} blocked`,
+      `${Number(cats.ask_leo?.total || 0)} ask`,
+      `${Number(cats.inbox?.total || 0)} inbox`,
+    ].join(" · ");
+    return `
+      <div class="plan-row dashboard-row ${active}" data-kind="dashboard" data-path="dashboard" tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Fleet dashboard, ${total} open items`)}">
+        <div class="plan-row-head">
+          <span class="pill pill-artifact" title="fleet dashboard"></span>
+          <span>Fleet dashboard</span>
+        </div>
+        <div class="plan-row-purpose">Cross-plan queue</div>
+        <div class="plan-row-meta">
+          <span>${escapeText(meta)}</span>
+        </div>
+      </div>`;
+  }
+
   // Recently viewed — top of sidebar. Drawn from localStorage. Shows up to
   // RECENTS_MAX items that still resolve to a plan/artifact in current state.
   let recentsHTML = "";
@@ -609,10 +975,10 @@ function renderSidebar() {
       const key = r.id.slice(colon + 1);
       if (kind === "plan") {
         const plan = state.plans.find(p => p.rel === key);
-        return plan ? { kind, plan } : null;
+        return plan && visiblePlanRels.has(plan.rel) ? { kind, plan } : null;
       } else if (kind === "artifact") {
         const a = state.artifacts.find(x => x.slug === key);
-        return a ? { kind, a } : null;
+        return a && visibleArtifactSlugs.has(a.slug) ? { kind, a } : null;
       }
       return null;
     })
@@ -696,23 +1062,19 @@ function renderSidebar() {
     // Only render children that survived the filter — a filter that drops
     // a child plan should hide it from the indented list under its parent.
     const childRowsHTML = hasChildren
-      ? plan.children
-          .filter(child => byRel.has(child.rel))
+      ? sidebarSort.sortedPlans(plan.children.filter(child => byRel.has(child.rel)), state.sort)
           .map(child => renderPlanRow(child, depth + 1))
           .join("")
       : "";
     return rowHTML + childRowsHTML;
   }
 
-  // Sort repos by their freshest plan (mtime desc — recently-touched repos
-  // rise to the top). Within each repo, sort plans by mtime desc too.
-  // Alphabetical-by-repo-name was the prior default; recency reflects what
-  // the user is actually working on, which is usually the right answer.
-  const maxMtime = repo => Math.max(...groups.get(repo).map(p => p.mtime || 0));
-  const repoOrder = [...groups.keys()].sort((a, b) => maxMtime(b) - maxMtime(a));
+  // Sort repos and rows by the selected sidebar mode. mtime remains the
+  // default because recency reflects what the operator is actually touching;
+  // ETA/status are explicit scan modes for queue-shaping.
+  const repoOrder = [...groups.keys()].sort(sidebarSort.repoComparator(groups, state.sort));
   const plansHTML = repoOrder.map(repo => {
-    const rows = groups.get(repo);
-    rows.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    const rows = sidebarSort.sortedPlans(groups.get(repo) || [], state.sort);
     const key = `repo:${repo}`;
     const header = groupHeaderHTML(key, repo, rows.length);
     if (isCollapsed(key)) return header;
@@ -720,7 +1082,7 @@ function renderSidebar() {
     return header + inner;
   }).join("");
 
-  els.list.innerHTML = recentsHTML + artifactsHTML + plansHTML;
+  els.list.innerHTML = dashboardRow() + recentsHTML + artifactsHTML + plansHTML;
 
   // Click on group header → toggle collapsed state for that section/repo.
   els.list.querySelectorAll(".repo-group[data-collapse-key]").forEach(grp => {
@@ -775,6 +1137,9 @@ function renderSidebar() {
 
 function currentSelectionSnapshot() {
   if (!state.active) return null;
+  if (state.active.kind === "dashboard") {
+    return { kind: "dashboard" };
+  }
   if (state.active.kind === "plan") {
     return {
       kind: "plan",
@@ -799,6 +1164,14 @@ function annotationIsBusy() {
 
 async function restoreSelection(snapshot, opts = {}) {
   if (!snapshot) return false;
+  if (snapshot.kind === "dashboard") {
+    selectDashboard({
+      skipUrl: true,
+      preserveScroll: opts.preserveScroll,
+      preserveAnnotation: opts.preserveAnnotation,
+    });
+    return true;
+  }
   if (snapshot.kind === "plan") {
     const plan = state.plans.find(p => p.rel === snapshot.rel || p.path === snapshot.path);
     if (!plan) return false;
@@ -827,6 +1200,11 @@ async function restoreSelection(snapshot, opts = {}) {
 
 function refreshActiveMetadata(snapshot) {
   if (!snapshot) return false;
+  if (snapshot.kind === "dashboard") {
+    state.active = { kind: "dashboard" };
+    state.activeTab = null;
+    return true;
+  }
   if (snapshot.kind === "plan") {
     const plan = state.plans.find(p => p.rel === snapshot.rel || p.path === snapshot.path);
     if (!plan) return false;
@@ -863,6 +1241,8 @@ async function loadAll(opts = {}) {
     const artifactsData = await artifactsRes.json();
     state.plans = plansData.plans || [];
     hydratePlanChildren();
+    state.dashboard = plansData.dashboard || null;
+    state.fleetSummary = plansData.summary || null;
     state.artifacts = artifactsData.artifacts || [];
     renderSidebar();
     if (preserveSelection && snapshot) {
@@ -878,6 +1258,7 @@ async function loadAll(opts = {}) {
           state.active = null;
           state.activeTab = "PLAN.md";
           els.pane.innerHTML = `
+            ${renderOpsTruth()}
             <div class="pane-empty muted">
               <p>The selected item disappeared during refresh.</p>
               <p>Pick another plan or artifact from the sidebar.</p>
@@ -886,12 +1267,25 @@ async function loadAll(opts = {}) {
       }
     } else {
       // Restore selection from URL on initial load.
-      applyUrlSelection();
+      if (!applyUrlSelection()) selectDashboard({ skipUrl: true });
     }
+    refreshOpsTruth();
   } catch (e) {
     els.count.textContent = "error";
     els.list.innerHTML = `<div class="error">failed to load: ${escapeText(String(e))}</div>`;
+    renderEmptyPane();
   }
+}
+
+function selectDashboard(opts = {}) {
+  state.active = { kind: "dashboard" };
+  state.activeTab = null;
+  if (!opts.skipUrl) pushUrl(new URLSearchParams());
+  renderSidebar();
+  renderDashboardPane({
+    preserveScroll: opts.preserveScroll,
+    preserveAnnotation: opts.preserveAnnotation,
+  });
 }
 
 async function selectPlan(plan, opts = {}) {
@@ -940,6 +1334,7 @@ async function renderArtifactPane(opts = {}) {
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
   els.pane.innerHTML = `
+    ${renderOpsTruth()}
     <div class="pane-header">
       <div class="breadcrumb">artifact · ${escapeText(a.slug)}.html</div>
       <h2>${escapeText(a.title || a.slug)}</h2>
@@ -1013,19 +1408,23 @@ async function renderPane(opts = {}) {
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
   const plan = state.active;
-  const tabs = ["PLAN.md", DECISION_LOG_TAB, ...plan.siblings];
+  const tabs = ["PLAN.md", DECISION_LOG_TAB, SESSION_TAB, LEDGER_TAB, ...plan.siblings];
   const investigations = plan.investigations || [];
   const evidence = plan.evidence || [];
   const decisionLog = plan.decision_log || { present: false, count: 0, entries: [], recent_directions: [] };
+  const session = plan.session || { available: false, status: "missing", turns: [] };
   const activeTab = state.activeTab || "PLAN.md";
   const isDecisionLogActive = activeTab === DECISION_LOG_TAB;
+  const isSessionActive = activeTab === SESSION_TAB;
+  const isLedgerActive = activeTab === LEDGER_TAB;
   const isInvActive = activeTab.startsWith("INV:");
   const isEvidenceActive = activeTab.startsWith("EVD:");
+  const showFileStrips = !isDecisionLogActive && !isSessionActive && !isLedgerActive;
   const activeInvPath = isInvActive ? state.activeTab.slice(4) : null;
   const activeEvidencePath = isEvidenceActive ? state.activeTab.slice(4) : null;
 
   let tabPath;
-  if (isDecisionLogActive) {
+  if (isDecisionLogActive || isSessionActive || isLedgerActive) {
     tabPath = plan.path;
   } else if (isInvActive) {
     tabPath = activeInvPath;
@@ -1039,7 +1438,7 @@ async function renderPane(opts = {}) {
 
   const stats = plan.task_stats || { counts: {}, total: 0 };
   const aggregate = plan.aggregate_stats || stats;
-  const invStripHTML = investigations.length ? `
+  const invStripHTML = showFileStrips && investigations.length ? `
     <div class="pane-investigations-strip">
       <span class="label">Investigations (${investigations.length}):</span>
       ${investigations.map(p => {
@@ -1048,7 +1447,7 @@ async function renderPane(opts = {}) {
         return `<button data-inv="${escapeAttr(p)}" class="${isActive}">${escapeText(name)}</button>`;
       }).join("")}
     </div>` : "";
-  const evidenceStripHTML = evidence.length ? `
+  const evidenceStripHTML = showFileStrips && evidence.length ? `
     <div class="pane-evidence-strip" aria-label="Evidence timeline">
       <span class="label">Evidence (${evidence.length}):</span>
       ${evidence.map(item => {
@@ -1072,6 +1471,7 @@ async function renderPane(opts = {}) {
       }).join("")}</div>`
     : "";
   const headerHTML = `
+    ${renderOpsTruth()}
     <div class="pane-header">
       ${parentLinkHTML}
       <div class="breadcrumb">${escapeText(plan.rel)}</div>
@@ -1100,7 +1500,7 @@ async function renderPane(opts = {}) {
     </div>
     ${invStripHTML}
     ${evidenceStripHTML}
-    ${renderCommentsPanel(tabPath)}
+    ${isSessionActive || isLedgerActive ? "" : renderCommentsPanel(tabPath)}
     <div class="markdown" id="md-body"><p class="muted">loading…</p></div>
   `;
   els.pane.innerHTML = headerHTML;
@@ -1139,13 +1539,37 @@ async function renderPane(opts = {}) {
       if (target) selectPlan(target, { scrollIntoView: true });
     });
   });
-  setupCommentsPanel(tabPath);
+  if (!isSessionActive && !isLedgerActive) setupCommentsPanel(tabPath);
   setupPlanSteering(plan);
   setupCodingHandoff(plan);
   refreshAnnotationTargets();
 
   if (isDecisionLogActive) {
     document.getElementById("md-body").innerHTML = renderDecisionLogPane(decisionLog);
+    if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
+    refreshAnnotationTargets();
+    return;
+  }
+
+  if (isSessionActive) {
+    document.getElementById("md-body").innerHTML = renderSessionPanel(session);
+    if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
+    refreshAnnotationTargets();
+    return;
+  }
+
+  if (isLedgerActive) {
+    const body = document.getElementById("md-body");
+    try {
+      const res = await fetch(`/api/ledger?path=${encodeURIComponent(plan.path)}`);
+      if (!res.ok) {
+        body.innerHTML = `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
+      } else {
+        body.innerHTML = renderLedgerPanel(await res.json());
+      }
+    } catch (e) {
+      body.innerHTML = `<div class="error">failed to load ledger: ${escapeText(String(e))}</div>`;
+    }
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
     return;
@@ -1162,11 +1586,8 @@ async function renderPane(opts = {}) {
       return;
     }
     const md = stripParentMetadata(await res.text());
-    const html = window.marked
-      ? window.marked.parse(md, { breaks: false, gfm: true })
-      : naiveMarkdown(md);
     const body = document.getElementById("md-body");
-    body.innerHTML = html;
+    body.innerHTML = renderMarkdownBody(md);
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   } catch (e) {
@@ -1174,6 +1595,18 @@ async function renderPane(opts = {}) {
       `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
+  }
+}
+
+function renderMarkdownBody(md) {
+  try {
+    return window.marked
+      ? window.marked.parse(md, { breaks: false, gfm: true })
+      : naiveMarkdown(md);
+  } catch (e) {
+    return `
+      <div class="error">markdown render failed: ${escapeText(String(e))}</div>
+      <pre class="markdown-source-fallback">${escapeText(md.slice(0, 12000))}</pre>`;
   }
 }
 
@@ -1243,6 +1676,130 @@ function renderDecisionLogEntry(entry) {
     </article>`;
 }
 
+function renderSessionPanel(session) {
+  const turns = Array.isArray(session.turns) ? session.turns : [];
+  const status = session.status || (session.available ? "ok" : "missing");
+  if (!session.available) {
+    return `
+      <section class="session-panel session-empty">
+        <div class="session-summary">
+          <div>
+            <div class="label">Sessions</div>
+            <h3>No Claude session found</h3>
+          </div>
+          <span class="session-status">${escapeText(status)}</span>
+        </div>
+        <p class="muted">No latest JSONL was found for this repo under <code>${escapeText(session.project_dir || "~/.claude/projects")}</code>.</p>
+      </section>`;
+  }
+  const meta = [
+    session.file || "",
+    session.age_days == null ? "" : `modified ${fmtAge(Number(session.age_days))} ago`,
+    session.tail_truncated ? "tail scan" : "",
+    `${Number(session.turns_seen || turns.length)} text turns seen`,
+  ].filter(Boolean).join(" · ");
+  const turnsHTML = turns.length
+    ? turns.map(turn => `
+      <article class="session-turn session-turn-${escapeAttr(turn.role || "unknown")}">
+        <div class="session-turn-head">
+          <span class="session-role">${escapeText(turn.role || "unknown")}</span>
+          ${turn.timestamp ? `<span class="session-time">${escapeText(turn.timestamp)}</span>` : ""}
+        </div>
+        <p>${escapeText(turn.text || "")}</p>
+      </article>`).join("")
+    : `<p class="muted">Latest session file had no user/assistant text blocks in the scanned tail.</p>`;
+  return `
+    <section class="session-panel">
+      <div class="session-summary">
+        <div>
+          <div class="label">Sessions</div>
+          <h3>Latest Claude session</h3>
+        </div>
+        <span class="session-status">${escapeText(status)}</span>
+      </div>
+      <div class="session-meta">
+        <span>${escapeText(meta)}</span>
+        <code>${escapeText(session.path || "")}</code>
+      </div>
+      <div class="session-turns">${turnsHTML}</div>
+    </section>`;
+}
+
+function renderLedgerPanel(ledger) {
+  const items = Array.isArray(ledger.items) ? ledger.items : [];
+  const status = ledger.status || (ledger.available ? "ok" : "missing");
+  const total = Number(ledger.plan_total || 0) + Number(ledger.repo_total || 0);
+  if (!ledger.available) {
+    return `
+      <section class="ledger-panel ledger-empty">
+        <div class="ledger-summary">
+          <div>
+            <div class="label">Ledger</div>
+            <h3>No activity ledger found</h3>
+          </div>
+          <span class="ledger-status">${escapeText(status)}</span>
+        </div>
+        <p class="muted">No append-only ledger was found at <code>${escapeText(ledger.source || "~/.agent-ledger/activity.jsonl")}</code>.</p>
+      </section>`;
+  }
+  const meta = [
+    `${Number(ledger.plan_total || 0)} plan rows`,
+    `${Number(ledger.repo_total || 0)} repo rows`,
+    `${Number(ledger.returned || items.length)} shown`,
+    ledger.truncated ? "truncated" : "",
+    `${Number(ledger.scanned_rows || 0)} scanned`,
+  ].filter(Boolean).join(" · ");
+  const itemsHTML = items.length
+    ? items.map(renderLedgerEntry).join("")
+    : `<p class="muted">No publish or checkpoint rows matched this plan or repo in the scanned ledger tail.</p>`;
+  return `
+    <section class="ledger-panel">
+      <div class="ledger-summary">
+        <div>
+          <div class="label">Ledger</div>
+          <h3>Recent publish proof</h3>
+        </div>
+        <span class="ledger-status">${escapeText(status)}</span>
+      </div>
+      <div class="ledger-meta">
+        <span>${escapeText(meta)}</span>
+        <code>${escapeText(ledger.source || "")}</code>
+      </div>
+      ${total > 0 && items.length === 0 ? `<p class="muted">Rows matched, but the item limit is currently 0.</p>` : ""}
+      <div class="ledger-entries">${itemsHTML}</div>
+    </section>`;
+}
+
+function renderLedgerEntry(entry) {
+  const scope = entry.scope || "repo";
+  const headMeta = [
+    entry.event || "",
+    entry.handoff_status ? `handoff ${entry.handoff_status}` : "",
+    entry.ts || "",
+    entry.line ? `line ${entry.line}` : "",
+  ].filter(Boolean).join(" · ");
+  const detailMeta = [
+    entry.repo || "",
+    entry.lane || "",
+    entry.task_id ? `task ${entry.task_id}` : "",
+    entry.files_claimed_count ? `${Number(entry.files_claimed_count)} claimed` : "",
+    entry.files_count ? `${Number(entry.files_count)} files` : "",
+  ].filter(Boolean).join(" · ");
+  return `
+    <article class="ledger-entry ledger-entry-${escapeAttr(scope)}">
+      <div class="ledger-entry-head">
+        <span class="ledger-scope">${escapeText(scope)}</span>
+        ${headMeta ? `<span class="ledger-entry-meta">${escapeText(headMeta)}</span>` : ""}
+      </div>
+      <h4>${escapeText(entry.summary || entry.eid || "ledger row")}</h4>
+      ${detailMeta ? `<div class="ledger-detail-meta">${escapeText(detailMeta)}</div>` : ""}
+      ${entry.eid ? `<code class="ledger-eid">${escapeText(entry.eid)}</code>` : ""}
+      ${entry.proof ? `<p><strong>Proof</strong> ${escapeText(entry.proof)}</p>` : ""}
+      ${entry.next_agent_resume ? `<p><strong>Resume</strong> ${escapeText(entry.next_agent_resume)}</p>` : ""}
+      ${entry.plan_path ? `<p class="ledger-plan-path">${escapeText(entry.plan_path)}</p>` : ""}
+    </article>`;
+}
+
 function getStoredCommentAuthor() {
   try {
     return window.localStorage.getItem(COMMENT_AUTHOR_KEY) || "";
@@ -1260,19 +1817,7 @@ function setStoredCommentAuthor(value) {
 }
 
 function renderCommentsPanel(targetPath) {
-  return `
-    <section class="comments-panel" id="comments-panel" data-target-path="${escapeAttr(targetPath)}">
-      <div class="comments-head">
-        <div>
-          <h3>Comments</h3>
-          <p>Annotate → click element to comment.</p>
-        </div>
-        <div class="comments-tools">
-          <span class="comment-count" id="comment-count">loading</span>
-        </div>
-      </div>
-      <div class="comment-list" id="comment-list"></div>
-    </section>`;
+  return commentMarkers.renderPanel(targetPath, state.commentMarkersHidden, commentRail.targetLabel(targetPath));
 }
 
 function setupPlanSteering(plan) {
@@ -1352,14 +1897,25 @@ function setupCodingHandoff(plan) {
 function setupCommentsPanel(targetPath) {
   const panel = document.getElementById("comments-panel");
   if (!panel) return;
+  state.comments = { targetPath, items: [] };
+  setupCommentMarkerToggle(panel);
+  renderCommentMarkers();
   loadComments(targetPath);
   updateAnnotationUI();
+}
+
+function setupCommentMarkerToggle(panel) {
+  commentMarkers.bindToggle(panel, state.commentMarkersHidden, hidden => {
+    state.commentMarkersHidden = hidden;
+    renderCommentMarkers();
+  });
 }
 
 function clearAnnotationState() {
   state.annotation.capture = false;
   state.annotation.targetPath = "";
   state.annotation.anchor = null;
+  state.annotation.phase = AS.IDLE;
   closeAnnotationPopover({ preserveState: true });
   updateAnnotationUI();
 }
@@ -1369,9 +1925,11 @@ function toggleAnnotationCapture(targetPath) {
     clearAnnotationState();
     return;
   }
+  closeAnnotationPopover({ preserveState: true });
   state.annotation.capture = true;
   state.annotation.targetPath = targetPath;
   state.annotation.anchor = null;
+  state.annotation.phase = AS.CAPTURE_ACTIVE;
   refreshAnnotationTargets();
   updateAnnotationUI();
 }
@@ -1381,22 +1939,29 @@ function currentCommentTargetPath() {
   return panel ? panel.getAttribute("data-target-path") || "" : "";
 }
 
+function setAnnotationPhase(phase) {
+  state.annotation.phase = phase;
+  updateAnnotationUI();
+}
+
+function annotationUiState(currentTarget = currentCommentTargetPath()) {
+  return annotationState.derive({
+    currentTarget,
+    targetPath: state.annotation.targetPath,
+    phase: state.annotation.phase,
+    capture: state.annotation.capture,
+    anchor: state.annotation.anchor,
+    popoverOpen: Boolean(document.getElementById("annotation-popover")),
+  });
+}
+
 function updateAnnotationUI() {
   const currentTarget = currentCommentTargetPath();
-  const captureActive = state.annotation.capture && state.annotation.targetPath === currentTarget;
-  const anchorActive = state.annotation.anchor && state.annotation.targetPath === currentTarget;
+  const uiState = annotationUiState(currentTarget);
   const rootToggle = els.annotate;
 
-  document.body.classList.toggle("is-annotation-mode", Boolean(captureActive));
-  if (rootToggle) {
-    rootToggle.disabled = !currentTarget;
-    rootToggle.textContent = captureActive ? "Cancel" : (anchorActive ? "Retarget" : "Annotate");
-    rootToggle.classList.toggle("is-active", Boolean(captureActive || anchorActive));
-    rootToggle.setAttribute("aria-pressed", String(Boolean(captureActive)));
-    rootToggle.title = currentTarget
-      ? "Annotate selected view (Cmd/Ctrl+Shift+C)"
-      : "Select a plan or artifact to annotate";
-  }
+  document.body.classList.toggle("is-annotation-mode", uiState === AS.CAPTURE_ACTIVE);
+  annotationState.paintButton(rootToggle, uiState);
 }
 
 function openAnnotationPopover(anchor, targetEl) {
@@ -1407,6 +1972,7 @@ function openAnnotationPopover(anchor, targetEl) {
   state.annotation.capture = false;
   state.annotation.targetPath = targetPath;
   state.annotation.anchor = anchor;
+  state.annotation.phase = AS.TARGET_PICKED;
   activePopoverTarget = targetEl || findAnchorElement(anchor);
 
   const author = getStoredCommentAuthor();
@@ -1417,6 +1983,7 @@ function openAnnotationPopover(anchor, targetEl) {
   const popover = document.createElement("aside");
   popover.id = "annotation-popover";
   popover.className = "annotation-popover";
+  popover.setAttribute("data-vidux-zone", "mode-popover");
   popover.setAttribute("role", "dialog");
   popover.setAttribute("aria-modal", "true");
   popover.setAttribute("aria-labelledby", "annotation-popover-title");
@@ -1447,6 +2014,13 @@ function openAnnotationPopover(anchor, targetEl) {
   const authorInput = popover.querySelector("#annotation-popover-author");
   const bodyInput = popover.querySelector("#annotation-popover-body");
   const status = popover.querySelector("#annotation-popover-status");
+  const submitButton = popover.querySelector('button[type="submit"]');
+
+  function setPopoverStatus(phase, message) {
+    status.dataset.state = phase;
+    status.textContent = message;
+    setAnnotationPhase(phase);
+  }
 
   // Close-and-restore-focus helper, used by Escape, Close button, and Cancel.
   const closeAndRestore = () => {
@@ -1495,7 +2069,8 @@ function openAnnotationPopover(anchor, targetEl) {
       return;
     }
     setStoredCommentAuthor(authorValue);
-    status.textContent = "sending…";
+    submitButton.disabled = true;
+    setPopoverStatus(AS.SAVING, "saving...");
     try {
       const res = await fetch("/api/comments", {
         method: "POST",
@@ -1509,13 +2084,20 @@ function openAnnotationPopover(anchor, targetEl) {
       });
       if (!res.ok) throw new Error(await res.text());
       await loadComments(targetPath);
-      clearAnnotationState();
+      if (!document.body.contains(popover)) return;
+      setPopoverStatus(AS.SAVED, "saved");
+      setTimeout(() => {
+        if (document.body.contains(popover) && state.annotation.phase === AS.SAVED) {
+          clearAnnotationState();
+        }
+      }, 350);
     } catch (err) {
-      status.textContent = `failed: ${String(err.message || err)}`;
+      submitButton.disabled = false;
+      setPopoverStatus(AS.ERROR, `failed: ${String(err.message || err)}`);
     }
   });
 
-  updateAnnotationUI();
+  setAnnotationPhase(AS.COMPOSER_OPEN);
   positionAnnotationPopover();
   bodyInput.focus();
 }
@@ -1530,9 +2112,10 @@ function closeAnnotationPopover({ preserveState = false } = {}) {
 function positionAnnotationPopover() {
   const popover = document.getElementById("annotation-popover");
   if (!popover) return;
-  const target = activePopoverTarget && document.body.contains(activePopoverTarget)
-    ? activePopoverTarget
-    : findAnchorElement(state.annotation.anchor);
+  const resolved = activePopoverTarget && document.body.contains(activePopoverTarget)
+    ? { element: activePopoverTarget, rect: activePopoverTarget.getBoundingClientRect() }
+    : resolveAnchorTarget(state.annotation.anchor);
+  const target = resolved?.element || null;
   activePopoverTarget = target;
   const margin = 12;
   const width = Math.min(380, Math.max(280, window.innerWidth - margin * 2));
@@ -1540,8 +2123,8 @@ function positionAnnotationPopover() {
   const height = popover.offsetHeight || 230;
   let left = margin;
   let top = margin;
-  if (target) {
-    const rect = target.getBoundingClientRect();
+  if (target && resolved?.rect) {
+    const rect = resolved.rect;
     left = Math.min(Math.max(rect.left, margin), window.innerWidth - width - margin);
     top = rect.bottom + 10;
     if (top + height > window.innerHeight - margin) top = rect.top - height - 10;
@@ -1575,6 +2158,7 @@ function refreshAnnotationTargets() {
     el.dataset.viduxAnchorKind = el.closest("#md-body") ? "rendered" : "browser";
     el.dataset.viduxAnchorLabel = label || text;
   });
+  renderCommentMarkers();
 }
 
 function refreshAnnotationTargetsIfNeeded() {
@@ -1666,30 +2250,51 @@ function nearestHeadingText(target, container) {
   return heading;
 }
 
+function resolveAnchorTarget(anchor) {
+  return commentMarkers.resolveAnchorTarget(anchor, {
+    document,
+    hostLabel: annotationLabelForElement,
+  });
+}
+
 function findAnchorElement(anchor) {
-  if (!anchor) return null;
-  if (anchor.selector) {
-    try {
-      const found = document.querySelector(anchor.selector);
-      if (found) return found;
-    } catch {
-      // Fall back to excerpt matching if old stored selectors become invalid.
-    }
-  }
-  const excerpt = compactText(anchor.excerpt || anchor.label || "", 120);
-  if (!excerpt) return null;
-  return [...document.querySelectorAll("[data-vidux-anchor]")].find(el => {
-    const text = compactText(el.innerText || el.textContent || "", 180);
-    return text.includes(excerpt) || excerpt.includes(text);
-  }) || null;
+  return resolveAnchorTarget(anchor)?.element || null;
 }
 
 function jumpToCommentAnchor(anchor) {
-  const target = findAnchorElement(anchor);
-  if (!target) return;
-  target.scrollIntoView({ block: "center", behavior: "smooth" });
-  target.classList.add("is-anchor-highlight");
-  setTimeout(() => target.classList.remove("is-anchor-highlight"), 2200);
+  commentMarkers.jumpToTarget(resolveAnchorTarget(anchor));
+}
+
+function setCommentMarkerPreview(target, enabled) {
+  commentMarkers.setPreview(target, enabled);
+}
+
+function renderCommentMarkers() {
+  const panel = document.getElementById("comments-panel");
+  const targetMap = document.getElementById("comment-target-map");
+  const targetPath = panel?.getAttribute("data-target-path") || "";
+  if (!panel || targetPath !== state.comments.targetPath) {
+    commentMarkers.clear({ document });
+    return;
+  }
+  commentMarkers.render({
+    document,
+    panel,
+    targetMap,
+    comments: state.comments.items,
+    hidden: state.commentMarkersHidden,
+    resolve: resolveAnchorTarget,
+    jump: jumpToCommentAnchor,
+    preview: setCommentMarkerPreview,
+  });
+}
+
+function scheduleCommentMarkerRender() {
+  if (commentMarkerRenderFrame) return;
+  commentMarkerRenderFrame = requestAnimationFrame(() => {
+    commentMarkerRenderFrame = 0;
+    renderCommentMarkers();
+  });
 }
 
 async function loadComments(targetPath) {
@@ -1698,6 +2303,7 @@ async function loadComments(targetPath) {
   if (!list || !count) return;
   const panel = document.getElementById("comments-panel");
   if (!panel || panel.getAttribute("data-target-path") !== targetPath) return;
+  panel.setAttribute("data-comment-state", "loading");
   try {
     const res = await fetch(`/api/comments?path=${encodeURIComponent(targetPath)}`);
     if (!res.ok) throw new Error(await res.text());
@@ -1705,13 +2311,12 @@ async function loadComments(targetPath) {
     const currentPanel = document.getElementById("comments-panel");
     if (!currentPanel || currentPanel.getAttribute("data-target-path") !== targetPath) return;
     const comments = data.comments || [];
-    count.textContent = `${comments.length} ${comments.length === 1 ? "comment" : "comments"}`;
-    if (!comments.length) {
-      list.innerHTML = `<div class="comment-empty">No comments yet.</div>`;
-      refreshAnnotationTargets();
-      return;
-    }
-    list.innerHTML = comments.map(renderComment).join("");
+    state.comments = { targetPath, items: comments };
+    currentPanel.setAttribute("data-comment-state", "ready");
+    currentPanel.setAttribute("data-comment-count", String(comments.length));
+    currentPanel.classList.toggle("has-comments", comments.length > 0);
+    count.textContent = commentRail.countLabel(comments.length);
+    list.innerHTML = commentRail.renderList(comments);
     list.querySelectorAll("[data-comment-jump]").forEach(button => {
       button.addEventListener("click", () => {
         const id = button.getAttribute("data-comment-jump");
@@ -1721,47 +2326,14 @@ async function loadComments(targetPath) {
     });
     refreshAnnotationTargets();
   } catch (err) {
+    state.comments = { targetPath, items: [] };
     count.textContent = "error";
+    panel.setAttribute("data-comment-state", "error");
+    panel.setAttribute("data-comment-count", "0");
+    panel.classList.remove("has-comments");
     list.innerHTML = `<div class="error">failed to load comments: ${escapeText(String(err.message || err))}</div>`;
     refreshAnnotationTargets();
   }
-}
-
-function renderComment(comment) {
-  const anchorHTML = renderCommentAnchor(comment);
-  const isSteering = String(comment.body || "").trim().toLowerCase().startsWith("@pm");
-  return `
-    <article class="comment-item ${isSteering ? "is-steering" : ""}">
-      <div class="comment-meta">
-        <strong>${escapeText(comment.author || "Anonymous")}</strong>
-        <span>${escapeText(formatCommentTime(comment.created_at))}</span>
-      </div>
-      ${anchorHTML}
-      <div class="comment-body">${escapeText(comment.body || "").replace(/\n/g, "<br>")}</div>
-    </article>`;
-}
-
-function renderCommentAnchor(comment) {
-  const anchor = comment.anchor;
-  if (!anchor || typeof anchor !== "object") return "";
-  const label = anchor.label || anchor.excerpt || "captured target";
-  return `
-    <div class="comment-anchor">
-      <button type="button" data-comment-jump="${escapeAttr(comment.id || "")}">Target</button>
-      <span>${escapeText(label)}</span>
-    </div>`;
-}
-
-function formatCommentTime(raw) {
-  if (!raw) return "";
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return raw;
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function naiveMarkdown(md) {
@@ -1814,6 +2386,27 @@ els.filter.addEventListener("input", e => {
   state.filter = e.target.value;
   renderSidebar();
 });
+if (els.sort) {
+  els.sort.value = state.sort;
+  els.sort.addEventListener("change", e => {
+    state.sort = sidebarSort.normalize(e.target.value);
+    e.target.value = state.sort;
+    sidebarSort.store(state.sort);
+    renderSidebar();
+  });
+}
+function syncFilterChipButtons() {
+  sidebarFilters.syncButtons(els.filterChips, state.filterChips);
+}
+for (const button of els.filterChips) {
+  button.addEventListener("click", () => {
+    state.filterChips = sidebarFilters.toggle(state.filterChips, button.dataset.filterChip);
+    sidebarFilters.store(state.filterChips);
+    syncFilterChipButtons();
+    renderSidebar();
+  });
+}
+syncFilterChipButtons();
 els.refresh.addEventListener("click", () => {
   loadAll({ preserveSelection: true });
 });
@@ -1858,8 +2451,14 @@ document.addEventListener("mousedown", e => {
   clearAnnotationState();
 }, true);
 
-window.addEventListener("resize", positionAnnotationPopover);
-els.pane.addEventListener("scroll", positionAnnotationPopover, { passive: true });
+function refreshFloatingAnnotationSurfaces() {
+  positionAnnotationPopover();
+  scheduleCommentMarkerRender();
+}
+
+window.addEventListener("resize", refreshFloatingAnnotationSurfaces);
+window.addEventListener("scroll", scheduleCommentMarkerRender, { passive: true });
+els.pane.addEventListener("scroll", refreshFloatingAnnotationSurfaces, { passive: true });
 
 // Keyboard shortcuts: `/` focuses filter, Esc clears or closes drawer.
 document.addEventListener("keydown", e => {
@@ -1889,14 +2488,11 @@ document.addEventListener("keydown", e => {
 });
 
 // Browser back/forward — restore the selection that matches the new URL.
-// If the user navigates back past the first selection, clear the pane.
+// If the user navigates back past the first selection, return to dashboard.
 window.addEventListener("popstate", () => {
   const matched = applyUrlSelection();
   if (!matched) {
-    state.active = null;
-    state.activeTab = "PLAN.md";
-    renderSidebar();
-    els.pane.innerHTML = "";
+    selectDashboard({ skipUrl: true });
   }
 });
 

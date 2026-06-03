@@ -2,7 +2,8 @@
 # queue-jsonl.sh — JSONL task queue alongside PLAN.md (experimental)
 #
 # Machines read QUEUE.jsonl for unambiguous task state. Humans read PLAN.md.
-# PLAN.md remains the source of truth — this is a derived index.
+# PLAN.md is the queue/planning authority; matching publish ledger rows carry shipped-cycle proof and resume metadata.
+# QUEUE.jsonl is a derived index.
 #
 # Usage:
 #   source scripts/lib/queue-jsonl.sh

@@ -15,14 +15,24 @@ When an AI session ends, its context is gone. When a new session starts, it has 
 
 ## The Solution
 
-Vidux makes documentation the control plane. State lives in markdown files in a git branch — no databases, no daemons, no memory tricks. Any agent can read the files, understand the world, and pick up where the last one stopped.
+Vidux makes documentation the planning control plane. The owning `PLAN.md`
+carries the queue, decisions, evidence, and progress; matching publish ledger
+rows carry shipped-cycle proof, handoff status, claimed files, and resume
+metadata. Git stores the docs and transport history, but it does not replace
+the plan plus ledger packet.
 
 ```
-PLAN.md — the only source of truth
+PLAN.md - queue/planning authority
 ├── What to build (tasks with status tags)
 ├── Why it was decided (Decision Log)
 ├── What happened (Progress log)
 └── What we know (Evidence citations)
+
+publish ledger rows - shipped-cycle proof packet
+├── What shipped (summary + task id)
+├── How it was proved (proof command or artifact)
+├── What changed (files claimed + path-like claims)
+└── Where to resume (handoff status + next-agent resume)
 ```
 
 ## How It Works
@@ -39,9 +49,11 @@ Inside each agent run, five steps execute in order. No step is skippable:
 2. **ASSESS** — Does the next task have evidence? Code or refine?
 3. **ACT** — Execute tasks until queue empty, blocker, or context budget
 4. **VERIFY** — Build, test, visual proof
-5. **CHECKPOINT** — Structured commit, progress entry in PLAN.md
+5. **CHECKPOINT** — Plan/progress update plus publish ledger row; git transport only after propagation
 
-If the code is wrong, the plan is wrong — fix the plan first. The store persists across sessions; each run dies. Any fresh agent can rehydrate from files and continue.
+If the code is wrong, the plan is wrong — fix the plan first. The owning plan
+plus publish ledger row persists across sessions; each run dies. Any fresh
+agent can rehydrate from repo docs and ledger proof, then continue.
 
 ## How Vidux Compares
 

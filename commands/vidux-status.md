@@ -5,22 +5,24 @@ description: Scan PLAN.md files across the machine and render a two-category sta
 
 # /vidux-status
 
-Read-only scan. Never writes. Never commits. Never opens PRs. Finds every PLAN.md on the machine, classifies by relevance to the current chat, and renders a status board in <5 seconds.
+Read-only scan. Never writes. Never commits. Never opens PRs. Finds operational `PLAN.md` files under the selected root, classifies by relevance to the current chat, and renders a status board in <5 seconds.
 
 ## What It Does
 
 ### 1. Discover
 
-Find every `PLAN.md` under the usual roots. Good defaults for Leo's machine:
+Find operational `PLAN.md` files under the selected root. The shell helper
+defaults to `~/Development` and accepts `--root <path>` for narrower scans.
 
 ```
-~/Development/*/PLAN.md
-~/Development/*/vidux/PLAN.md
-~/Development/*/vidux/*/PLAN.md
-~/Development/vidux/projects/*/PLAN.md
+vidux status --root ~/Development --focus vidux
+vidux status --all
+vidux status --json
 ```
 
-Use a single `find -maxdepth 4` and filter out `node_modules/`, `.git/`, `dist/`, `.next/`.
+The implementation recursively discovers `PLAN.md` files and skips
+non-operational trees such as `node_modules/`, `.git/`, `_archive/`, `dist/`,
+`build/`, `.next/`, `worktrees/`, `examples/`, and `fixtures/`.
 
 ### 2. Classify — two buckets
 
@@ -37,7 +39,7 @@ Classification is intentionally fuzzy. When a plan could reasonably belong in ei
 ### 3. Parse each plan for
 
 - **Task counts** by status: `[pending]`, `[in_progress]`, `[completed]`, `[blocked]`
-- **Progress %** = `completed / (pending + in_progress + completed)` — blocked is excluded from the denominator (blocked is terminal, not pending work)
+- **Progress %** = `completed / (pending + in_progress + completed + blocked)` — blocked work stays visible in the denominator so parked handoffs do not read as shipped
 - **Remaining AI-hours** = sum of `[ETA: Xh]` tags on `[pending]` + `[in_progress]` tasks
 - **Last Progress timestamp** — most recent `## Progress` entry, or file mtime if no dated entries
 
@@ -86,7 +88,7 @@ If any plan has `[in_progress]` tasks summing to >8 AI-hours across all buckets,
 
 - **Read-only.** Never edits PLAN.md, never commits, never opens PRs. Reads filesystem + git metadata only.
 - **Fast.** Target <5s end-to-end. If a plan is huge (>1MB), count tasks only — skip Decision Log + Progress parsing.
-- **No noise.** If a plan has zero `[pending]` and zero `[in_progress]` tasks AND is >30 days stale, drop it from the output unless the user passes `--all`.
+- **No noise.** Default output hides empty and fully shipped plans. Pass `--all` to include tracked rows that are empty, shipped, or stale.
 - **One screen.** If the output would be >40 rows, show the top 20 by remaining AI-hours and add a `… N more (use --all to see)` footer.
 
 ## AI-Hours Convention
@@ -117,8 +119,10 @@ Estimates settle toward truth as evidence accumulates. A first-cycle `[ETA: 1h]`
 ## Usage
 
 ```
-/vidux-status
-/vidux-status --all     # include stale/empty plans
+vidux status
+vidux status --root ~/Development/vidux --focus vidux
+vidux status --all      # include empty, shipped, and stale tracked rows
+vidux status --json
 ```
 
-No other arguments. Reads the filesystem, classifies, renders. Done.
+Reads the filesystem, classifies, renders. Done.

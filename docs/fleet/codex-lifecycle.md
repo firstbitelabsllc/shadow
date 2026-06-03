@@ -19,10 +19,10 @@ Every Codex lane has four pieces that must stay in sync:
 ~/.codex/automations/{id}/automation.toml  ← schedule + static shim prompt (UI source)
 ~/.codex/sqlite/codex-dev.db               ← runtime source (one row per lane)
 {lane-dir}/{lane-id}/prompt.md             ← real instructions, hot-editable
-{lane-dir}/{lane-id}/memory.md             ← append-only checkpoint log
+{lane-dir}/{lane-id}/memory.md             ← lane-local cycle log
 ```
 
-**The TOML and DB row register the automation.** `prompt.md` and `memory.md` hold the actual lane state. DB-only inserts are runnable but invisible in the UI (Bug #16). TOML-only files are visible but never fire. The shared lane directory is what makes the next fire pick up prompt edits and checkpoint history without rewriting the registration.
+**The TOML and DB row register the automation.** `prompt.md` stores lane instructions and `memory.md` stores the lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching publish ledger rows. DB-only inserts are runnable but invisible in the UI (Bug #16). TOML-only files are visible but never fire. The shared lane directory is what makes the next fire pick up prompt edits and cycle history without rewriting the registration.
 
 ## Creation
 
@@ -85,13 +85,17 @@ open -a "Codex"
 Each rrule fire launches a fresh Codex agent in the configured `cwds`. The agent executes one vidux cycle:
 
 ```
-1. READ     prompt.md → memory.md (last 3 entries) → PLAN.md → INBOX.md
-2. GATE     Dirty tree not mine? → [QC] exit. 3x stuck? → [blocked]. Main CI red? → fix.
-3. ASSESS   Priority: CI red → PR fix → PR merge → resume in_progress → next pending → filler audit
-4. ACT      Worktree per code change. Research dispatch (read-only) / implementation dispatch (workspace-write) per task.
-5. VERIFY   Build passes. Tests pass. Visual check for UI.
-6. CHECKPOINT  Append one line to memory.md. Update PLAN.md status. Commit if code changed.
+0. CONFIG   `vidux config check --json`; keep local config separate from checked-in example fallback.
+1. READ     prompt.md -> memory.md (last 3 entries) -> PLAN.md -> INBOX.md
+2. PRE-HOOK Set `VIDUX_SIGNPOST_RUN_ID`; emit `hook.beforeTask`; run `scripts/vidux-doctor.sh --json`.
+3. GATE     Dirty tree not mine? -> [QC] exit. 3x stuck? -> [blocked]. Main CI red? -> fix.
+4. ASSESS   Priority: CI red -> PR fix -> PR merge -> resume in_progress -> next pending -> filler audit
+5. ACT      Worktree per code change. Research dispatch (read-only) / implementation dispatch (workspace-write) per task. Emit `subagent.spawn` and set `VIDUX_RUNTIME=codex` for Codex workers or `VIDUX_RUNTIME=cursor` for Cursor-attributed workers.
+6. VERIFY   Build passes. Tests pass. Visual check for UI. Emit `task.verify` for the proof command or artifact.
+7. CHECKPOINT  Emit `hook.afterTask`; Update the owning PLAN.md status/Progress and emit the matching publish ledger row with task id, proof, handoff status, files claimed, and next-agent resume. Append the lane-local memory line; commit/push only after the plan/ledger packet exists.
 ```
+
+Use `vidux signpost trace --run-id <id>` to inspect the ordered call stack. Use `vidux signpost lifecycle-smoke --json` for a disposable trace-shape smoke before depending on a new prompt or hook wrapper. Use `vidux signpost spawned-subagent-smoke --json` for inherited Codex parent env plus spawned Claude/Cursor attribution. The smokes are local proof of event shape and env attribution, not proof that Claude, Codex, or Cursor actually launched.
 
 ### Sandbox modes
 
@@ -114,11 +118,11 @@ Same as Claude lanes: after pushing a PR, the lane MUST NOT attempt merge in the
 Codex lanes persist differently from Claude lanes:
 
 - **TOML + DB row** live on disk; they survive app quit, reboot, and account-level changes
-- **`prompt.md` + `memory.md`** live in the shared lane directory and are the durable lane state
+- **`prompt.md` + `memory.md`** live in the shared lane directory as lane instructions plus the lane-local cycle log; durable shipped work lives in the owning `PLAN.md` plus matching publish ledger rows
 - **Agent sessions** live inside the desktop app process; they die when the app quits
 - **No session GC needed** — the Codex app manages its own memory internally (no growing JSONL files to prune)
 
-When the Mac app reopens after a quit, it reads the DB, resumes all `ACTIVE` automations, and fires them per their rrule. Each fire reads the shared `prompt.md` and `memory.md` to pick up where the lane left off.
+When the Mac app reopens after a quit, it reads the DB, resumes all `ACTIVE` automations, and fires them per their rrule. Each fire reads the shared `prompt.md` and `memory.md` for lane-local continuity, then uses the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
 
 **No auto-expire.** Codex automations run until manually stopped (`status = 'PAUSED'` or DB delete) or the app is closed permanently.
 

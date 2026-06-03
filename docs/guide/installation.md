@@ -23,20 +23,22 @@ Vidux ships enforcement hooks that catch common planning failures at commit time
 Treat installing or rewiring hooks as a publish/change cycle in the **target project**. Before copying or enabling hooks:
 
 1. Update the target repo's owning `PLAN.md` Progress/Tasks/Drift Log with what is changing, proof, `handoff_status`, files claimed, and the next-agent resume point.
-2. Emit a publish ledger row for the target repo with the plan, proof, hook file, and claim:
+2. Emit a publish ledger row for the target repo with the summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage. For the pre-copy packet, use the updated `PLAN.md` as both `--file` and `--claim`; after copying and verifying hooks, emit the final `done` row with copied hook paths once they exist.
 
 ```bash
 ~/Development/ai/hooks/ledger-emit.sh \
   --event publish \
   --repo-path /path/to/your/project \
   --lane hook-install \
+  --task-id hook-install \
   --plan-path /path/to/your/project/PLAN.md \
   --proof "hook install dry-run / shell syntax passed" \
-  --handoff-status done \
-  --file /path/to/your/project/.git/hooks/pre-commit \
+  --handoff-status needs_review \
+  --resume "copy hooks, verify installed hook paths exist, then emit final done row" \
+  --file /path/to/your/project/PLAN.md \
   --claim /path/to/your/project/PLAN.md \
   --skills vidux \
-  --summary "Installed Vidux planning hooks"
+  --summary "Planned Vidux planning hook install"
 ```
 
 Then copy the hooks into your **target project's** `.git/hooks/` directory (not the vidux repo itself):
@@ -59,7 +61,7 @@ For stronger enforcement within Claude Code sessions, add the hooks from `ENFORC
 
 - Gate file edits: require a PLAN.md entry before writing code
 - Detect drift: flag file changes that don't match the active plan task
-- Enforce checkpoints: block session exit without a structured commit
+- Enforce checkpoints: require the owning plan/progress update and publish-ledger packet before publishable work exits
 - Resume protocol: prompt plan re-read on session start
 
 The repo also ships `hooks/hooks.json` as a checked-in example manifest: it wraps the three git hooks above and adds `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.

@@ -20,6 +20,9 @@ Verify your environment:
 ls ~/.codex/sqlite/codex-dev.db         # runtime DB must exist
 ls ~/.codex/automations/                # lane directory root
 grep -E "^(model|sandbox_mode)" ~/.codex/config.toml
+vidux config check --json
+vidux signpost lifecycle-smoke --json
+vidux signpost spawned-subagent-smoke --json
 ```
 
 ## The Five-Step Setup Flow
@@ -29,7 +32,7 @@ Every new automation follows this exact sequence. Skipping steps causes the bugs
 ```
 1. Write automation.toml      → disk (UI visibility source)
 2. Insert DB row              → sqlite (runtime source)
-3. Write prompt.md + memory.md → disk (shared lane state)
+3. Write prompt.md + memory.md → disk (lane instructions + local cycle log)
 4. Run codex_verify_tomls     → lightweight preflight before reopen
 5. Full-quit + reopen the app → clears Electron cache (Bug #14/#15)
 ```
@@ -50,7 +53,7 @@ version = 1
 id = "project-coordinator"
 kind = "cron"
 name = "project coordinator"
-prompt = "Read {lane-dir}/project-coordinator/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nAppend one line to memory.md at the end."
+prompt = "Read {lane-dir}/project-coordinator/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching publish ledger row before any commit/push."
 status = "ACTIVE"
 rrule = "FREQ=MINUTELY;INTERVAL=30"
 model = "gpt-5.4"
@@ -109,13 +112,13 @@ sqlite3 "$HOME/.codex/sqlite/codex-dev.db" \
 
 If the row is missing, the automation won't fire. If the TOML is missing, the UI won't show it. **Both are required** (Bug #16).
 
-## Step 3 — Write lane state files
+## Step 3 — Write lane instruction/log files
 
-The TOML holds the schedule. The lane's actual instructions and memory live in separate files that the prompt points at:
+The TOML holds the schedule. The lane's actual instructions and lane-local cycle log live in separate files that the prompt points at:
 
 ```bash
-# Pick one shared lane-state root for your fleet and keep prompt + memory
-# together there. This example uses ~/.vidux/lanes/, but ~/.claude-automations/,
+# Pick one shared lane root for your fleet and keep prompt + memory together
+# there. This example uses ~/.vidux/lanes/, but ~/.claude-automations/,
 # ~/.codex-automations/, or a project-scoped directory also work.
 LANE_DIR="$HOME/.vidux/lanes/$LANE_ID"
 mkdir -p "$LANE_DIR"
@@ -175,8 +178,11 @@ Before considering the lane "live," confirm all five:
 - [ ] `ls ~/.codex/automations/$LANE_ID/automation.toml` — TOML file exists
 - [ ] `sqlite3 ~/.codex/sqlite/codex-dev.db "SELECT id FROM automations WHERE id='$LANE_ID';"` — DB row exists
 - [ ] `source scripts/lib/codex-db.sh && codex_verify_tomls` — exits 0
+- [ ] `vidux config check --json` — local config resolves or the example fallback is explicit
+- [ ] `vidux signpost lifecycle-smoke --json` — emits the local `hook.beforeTask` -> `subagent.spawn` -> `task.verify` -> `hook.afterTask` trace shape
+- [ ] `vidux signpost spawned-subagent-smoke --json` — simulates inherited Codex parent env plus Claude/Cursor worker attribution without launching external runtimes
 - [ ] Codex app shows the lane in the Automations UI
-- [ ] After the first fire, `tail -1 $LANE_DIR/memory.md` shows a cycle checkpoint
+- [ ] After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note; if work shipped, the owning `PLAN.md` plus publish ledger row carries the proof/resume packet
 
 If any check fails, re-read [codex-lifecycle.md § Known Bugs](codex-lifecycle.md#known-bugs).
 
@@ -219,8 +225,8 @@ osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 sqlite3 "$HOME/.codex/sqlite/codex-dev.db" \
   "DELETE FROM automations WHERE id='$LANE_ID';"
 rm -rf "$HOME/.codex/automations/$LANE_ID"
-# Lane state (prompt.md + memory.md) lives in the shared lane directory — keep
-# it as a record unless the lane is truly retired.
+# Lane instructions and the lane-local cycle log live in the shared lane
+# directory — keep them as records unless the lane is truly retired.
 osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 ```
 

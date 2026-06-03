@@ -6,7 +6,7 @@
 #   vidux_emit()              — generic event emitter
 #   vidux_emit_loop_start()   — emitted when a vidux loop cycle begins
 #   vidux_emit_loop_end()     — emitted when a vidux loop cycle completes
-#   vidux_emit_checkpoint()   — emitted after a successful checkpoint commit
+#   vidux_emit_checkpoint()   — emitted after checkpoint state is recorded and before git transport
 #   vidux_emit_plan_modified()— emitted when PLAN.md is updated
 #   vidux_emit_fleet_health() — emitted by vidux-manager fleet-health
 #
@@ -103,6 +103,22 @@ _vidux_handoff_status() {
   esac
 }
 
+_vidux_task_id_from_text() {
+  local task="${1:-}"
+  [[ -z "$task" ]] && return 0
+  if [[ "$task" =~ ^(Task[[:space:]]+[[:alnum:]._-]+): ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  elif [[ "$task" =~ ^([[:alnum:]._-]+): ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  elif [[ "$task" =~ ^(Task[[:space:]]+[[:alnum:]._-]+)[[:space:]] ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  elif [[ "$task" =~ ^([[:alnum:]._-]+)[[:space:]] ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  else
+    printf '%s' "$task"
+  fi
+}
+
 # --- Generic emitter ------------------------------------------------------ #
 
 # vidux_emit EVENT SUMMARY [FILES_JSON] [EXTRA_FIELDS]
@@ -186,37 +202,44 @@ vidux_emit_loop_end() {
   vidux_emit "vidux_loop_end" "$summary" "$files" "$extra"
 }
 
-# Emitted after a successful checkpoint commit
-# Args: PROJECT_NAME PLAN_PATH COMMIT_HASH [STATUS]
+# Emitted after checkpoint state is recorded and before git transport; commit hash is optional for legacy callers.
+# Args: PROJECT_NAME PLAN_PATH COMMIT_HASH [STATUS] [NEXT_TASK] [TASK_TEXT]
 vidux_emit_checkpoint() {
-  local project="${1:-unknown}" plan="${2:-}" commit="${3:-}" status="${4:-done}"
-  local plan_path handoff proof
+  local project="${1:-unknown}" plan="${2:-}" commit="${3:-}" status="${4:-done}" next_task="${5:-}" task_text="${6:-}"
+  local plan_path handoff proof resume task_id
   plan_path="$(_vidux_abs_path "$plan")"
   handoff="$(_vidux_handoff_status "$status")"
+  task_id="$(_vidux_task_id_from_text "$task_text")"
   proof="vidux-checkpoint handoff_status=${handoff}"
   [[ -n "$commit" ]] && proof="${proof}; commit=${commit}"
   [[ -n "$plan_path" ]] && proof="${proof}; plan=${plan_path}"
+  [[ -n "$task_id" ]] && proof="${proof}; task_id=${task_id}"
+  resume="Resume from ${plan_path}"
+  [[ -n "$next_task" ]] && resume="${resume}; next: ${next_task}"
 
   local summary="Vidux checkpoint: ${project} — ${status}"
   [[ -n "$commit" ]] && summary="${summary} [${commit:0:7}]"
 
   local files='[]'
   local files_claimed='[]'
-  local plan_json status_json handoff_json proof_json project_json commit_json
+  local plan_json status_json handoff_json proof_json resume_json project_json commit_json task_json
   plan_json="$(_vidux_json_string "$plan_path")"
   status_json="$(_vidux_json_string "$status")"
   handoff_json="$(_vidux_json_string "$handoff")"
   proof_json="$(_vidux_json_string "$proof")"
+  resume_json="$(_vidux_json_string "$resume")"
   project_json="$(_vidux_json_string "$project")"
   commit_json="$(_vidux_json_string "$commit")"
+  task_json="$(_vidux_json_string "$task_id")"
   if [[ -n "$plan_path" ]]; then
     files="[${plan_json}]"
     files_claimed="[${plan_json}]"
   fi
 
-  local extra="\"status\":${status_json},\"handoff_status\":${handoff_json},\"plan_path\":${plan_json},\"proof\":${proof_json},\"files_claimed\":${files_claimed},\"lane\":\"vidux-checkpoint\",\"publish_kind\":\"checkpoint\""
+  local extra="\"status\":${status_json},\"handoff_status\":${handoff_json},\"plan_path\":${plan_json},\"proof\":${proof_json},\"next_agent_resume\":${resume_json},\"files_claimed\":${files_claimed},\"lane\":\"vidux-checkpoint\",\"publish_kind\":\"checkpoint\""
   [[ -n "$commit" ]] && extra="${extra},\"commit\":${commit_json}"
   [[ -n "$project" ]] && extra="${extra},\"project\":${project_json}"
+  [[ -n "$task_id" ]] && extra="${extra},\"task_id\":${task_json}"
   vidux_emit "vidux_checkpoint" "$summary" "$files" "$extra"
 }
 

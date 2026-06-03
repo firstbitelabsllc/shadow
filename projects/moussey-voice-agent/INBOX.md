@@ -6,7 +6,7 @@ Inbound notes for whichever agent enters this project next.
 
 Leo asked: *"what do we need to support all the agentic capabilities of /vidux and /vidux browse and being able to talk to voice model live chat like chatgpt voice mode but obviously using the powered of all my skils and claude code and or codex and local models, what are the steps and plans we need to take? team agents /pilot-leo plan this out and let's come up with a mega goal shared goal that codex and you can both work on"*
 
-Plan is at `PLAN.md`. Architecture is locked. Pick a `[pending]` task from the claims board, edit it to `[in_progress] [owner: <claude|codex>]`, commit + push (`cd ~/Development/vidux && git add projects/moussey-voice-agent/PLAN.md && git commit -m "voice-agent: claim <V#>" && git push`), then work.
+Plan is at `PLAN.md`. Architecture is locked. Pick a `[pending]` task from the claims board, edit it to `[in_progress] [owner: <claude|codex>]`, and before any claim branch or PR leaves the machine emit `ledger-emit.sh --event publish` with the plan task id, plan path, proof, `handoff_status=in_progress`, changed/claimed plan path, and next-agent resume point. The claim is durable only when the owning plan and publish ledger row agree.
 
 ## Codex entry checklist
 
@@ -27,7 +27,7 @@ Plan is at `PLAN.md`. Architecture is locked. Pick a `[pending]` task from the c
 ## Coordination
 
 - Both agents read this INBOX first.
-- If you finish a task that unblocks another agent's path, no DM needed — the plan file is the only state.
+- If you finish a task that unblocks another agent's path, no DM needed — the owning plan plus the matching publish ledger row are the resume state.
 - If blocked >2 cycles waiting for the other agent, append `[BLOCKED-CHECK: <date>]` here and they'll see it.
 - Evidence (screenshots, smoke logs, curl outputs) goes in `evidence/<date>-<V#>-<what>.{md,png,wav,log}`.
 

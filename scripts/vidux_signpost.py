@@ -9,7 +9,8 @@ import os
 import subprocess
 import sys
 from collections import defaultdict
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -17,6 +18,19 @@ from uuid import uuid4
 
 
 SCHEMA_VERSION = 1
+ATTRIBUTION_ENV_KEYS = [
+    "VIDUX_SIGNPOST_RUN_ID",
+    "VIDUX_RUNTIME",
+    "VIDUX_AGENT_ID",
+    "VIDUX_AUTOMATION_ID",
+    "VIDUX_AUTOMATION_NAME",
+    "CODEX_SESSION_ID",
+    "CODEX_THREAD_ID",
+    "CLAUDE_SESSION_ID",
+    "CLAUDE_AUTOMATION_ID",
+    "CLAUDE_AUTOMATION_NAME",
+    "CURSOR_SESSION_ID",
+]
 
 
 def default_log_path() -> Path:
@@ -51,18 +65,39 @@ def _run_id() -> str:
 
 
 def _runtime() -> str:
-    if os.environ.get("CODEX_SESSION_ID") or os.environ.get("CODEX_THREAD_ID"):
-        return "codex"
+    configured = os.environ.get("VIDUX_RUNTIME")
+    if configured:
+        return configured.strip().lower()
     if os.environ.get("CLAUDE_SESSION_ID") or os.environ.get("CLAUDE_AUTOMATION_ID"):
         return "claude"
     if os.environ.get("CURSOR_SESSION_ID"):
         return "cursor"
+    if os.environ.get("CODEX_SESSION_ID") or os.environ.get("CODEX_THREAD_ID"):
+        return "codex"
     return "unknown"
 
 
-def _attribution() -> dict[str, Any]:
+@contextmanager
+def _temporary_env(overrides: dict[str, str | None]):
+    saved = {key: os.environ.get(key) for key in overrides}
+    try:
+        for key, value in overrides.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _attribution(*, runtime: str | None = None) -> dict[str, Any]:
     return {
-        "runtime": _runtime(),
+        "runtime": runtime or _runtime(),
         "agent_id": os.environ.get("VIDUX_AGENT_ID")
         or os.environ.get("CODEX_SESSION_ID")
         or os.environ.get("CLAUDE_SESSION_ID")
@@ -102,13 +137,15 @@ def emit_event(
     metadata: dict[str, Any] | None = None,
     log_path: Path | str | None = None,
     now: str | datetime | None = None,
+    run_id: str | None = None,
+    runtime: str | None = None,
 ) -> dict[str, Any]:
     """Append a feature signpost event to JSONL and return the payload."""
     path = Path(log_path).expanduser() if log_path is not None else default_log_path()
     event: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "event_id": f"sp_{uuid4().hex}",
-        "run_id": _run_id(),
+        "run_id": _clean(run_id, field="run_id") if run_id is not None else _run_id(),
         "ts": _timestamp(now),
         "feature": _clean(feature, field="feature"),
         "action": _clean(action, field="action"),
@@ -119,7 +156,7 @@ def emit_event(
         "exit_code": exit_code,
         "repo": Path.cwd().name,
         "files": files or [],
-        "attribution": _attribution(),
+        "attribution": _attribution(runtime=_clean(runtime, field="runtime") if runtime is not None else None),
         "metadata": metadata or {},
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,6 +230,202 @@ def summarize_events(log_path: Path | str | None = None) -> dict[str, Any]:
     }
 
 
+def trace_events(
+    log_path: Path | str | None = None,
+    *,
+    run_id: str | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Return ordered events for call-stack proof across hooks/subagents."""
+    if limit is not None and limit < 0:
+        raise ValueError("--limit must be >= 0")
+    path = Path(log_path).expanduser() if log_path is not None else default_log_path()
+    events = _iter_events(path)
+    if run_id:
+        events = [event for event in events if str(event.get("run_id", "")) == run_id]
+    events.sort(key=lambda event: (str(event.get("ts", "")), str(event.get("event_id", ""))))
+    if limit is not None:
+        events = events[-limit:] if limit else []
+
+    normalized: list[dict[str, Any]] = []
+    for index, event in enumerate(events, start=1):
+        attribution = event.get("attribution") if isinstance(event.get("attribution"), dict) else {}
+        normalized.append(
+            {
+                "sequence": index,
+                "ts": event.get("ts"),
+                "run_id": event.get("run_id"),
+                "feature": event.get("feature"),
+                "action": event.get("action"),
+                "status": event.get("status"),
+                "called": event.get("called"),
+                "emitter": event.get("emitter"),
+                "duration_ms": event.get("duration_ms"),
+                "exit_code": event.get("exit_code"),
+                "runtime": attribution.get("runtime"),
+                "agent_id": attribution.get("agent_id"),
+                "thread_id": attribution.get("thread_id"),
+                "automation_id": attribution.get("automation_id"),
+                "metadata": event.get("metadata") if isinstance(event.get("metadata"), dict) else {},
+            }
+        )
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "log_path": str(path),
+        "run_id": run_id,
+        "total_events": len(normalized),
+        "events": normalized,
+    }
+
+
+def emit_lifecycle_smoke(
+    *,
+    log_path: Path | str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Emit a standard parent/subagent lifecycle trace and return it."""
+    selected_run_id = _clean(run_id, field="run_id") if run_id else f"lifecycle_{uuid4().hex}"
+    started = datetime.now(timezone.utc)
+    sequence = [
+        ("hook", "beforeTask", "codex", "pre", "scripts/vidux-doctor.sh --json"),
+        ("subagent", "spawn", "claude", "during", "spawned-worker"),
+        ("task", "verify", "cursor", "during", "worker verify"),
+        ("hook", "afterTask", "codex", "post", "vidux checkpoint"),
+    ]
+    for index, (feature, action, runtime, phase, called) in enumerate(sequence):
+        emit_event(
+            feature,
+            action,
+            status="ok",
+            called=called,
+            emitter="vidux signpost lifecycle-smoke",
+            metadata={"phase": phase, "sequence": str(index + 1)},
+            log_path=log_path,
+            now=started + timedelta(milliseconds=index),
+            run_id=selected_run_id,
+            runtime=runtime,
+        )
+    return trace_events(log_path, run_id=selected_run_id)
+
+
+def _smoke_env(selected_run_id: str, overrides: dict[str, str]) -> dict[str, str | None]:
+    env: dict[str, str | None] = {key: None for key in ATTRIBUTION_ENV_KEYS}
+    env["VIDUX_SIGNPOST_RUN_ID"] = selected_run_id
+    env.update(overrides)
+    return env
+
+
+def emit_spawned_subagent_smoke(
+    *,
+    log_path: Path | str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Emit an env-inheritance smoke for Codex parent and Claude/Cursor workers."""
+    selected_run_id = _clean(run_id, field="run_id") if run_id else f"spawned_{uuid4().hex}"
+    started = datetime.now(timezone.utc)
+    codex_thread = "smoke-codex-thread"
+    sequence: list[dict[str, Any]] = [
+        {
+            "feature": "hook",
+            "action": "beforeTask",
+            "phase": "pre",
+            "called": "scripts/vidux-doctor.sh --json",
+            "env": _smoke_env(
+                selected_run_id,
+                {
+                    "CODEX_SESSION_ID": "smoke-codex-parent",
+                    "CODEX_THREAD_ID": codex_thread,
+                },
+            ),
+            "metadata": {
+                "parent_runtime": "codex",
+                "worker_runtime": None,
+                "inherited_codex_thread": False,
+                "inherited_thread_id": None,
+            },
+        },
+        {
+            "feature": "subagent",
+            "action": "spawn",
+            "phase": "during",
+            "called": "claude spawned-worker",
+            "env": _smoke_env(
+                selected_run_id,
+                {
+                    "VIDUX_RUNTIME": "claude",
+                    "CODEX_THREAD_ID": codex_thread,
+                    "CLAUDE_SESSION_ID": "smoke-claude-worker",
+                },
+            ),
+            "metadata": {
+                "parent_runtime": "codex",
+                "worker_runtime": "claude",
+                "inherited_codex_thread": True,
+                "inherited_thread_id": codex_thread,
+            },
+        },
+        {
+            "feature": "task",
+            "action": "verify",
+            "phase": "during",
+            "called": "cursor worker verify",
+            "env": _smoke_env(
+                selected_run_id,
+                {
+                    "VIDUX_RUNTIME": "cursor",
+                    "CODEX_THREAD_ID": codex_thread,
+                    "CURSOR_SESSION_ID": "smoke-cursor-worker",
+                },
+            ),
+            "metadata": {
+                "parent_runtime": "codex",
+                "worker_runtime": "cursor",
+                "inherited_codex_thread": True,
+                "inherited_thread_id": codex_thread,
+            },
+        },
+        {
+            "feature": "hook",
+            "action": "afterTask",
+            "phase": "post",
+            "called": "vidux checkpoint",
+            "env": _smoke_env(
+                selected_run_id,
+                {
+                    "CODEX_SESSION_ID": "smoke-codex-parent",
+                    "CODEX_THREAD_ID": codex_thread,
+                },
+            ),
+            "metadata": {
+                "parent_runtime": "codex",
+                "worker_runtime": None,
+                "inherited_codex_thread": False,
+                "inherited_thread_id": None,
+            },
+        },
+    ]
+    for index, event in enumerate(sequence):
+        metadata = {
+            "phase": event["phase"],
+            "sequence": str(index + 1),
+            "smoke": "spawned-subagent-env",
+            **event["metadata"],
+        }
+        with _temporary_env(event["env"]):
+            emit_event(
+                event["feature"],
+                event["action"],
+                status="ok",
+                called=event["called"],
+                emitter="vidux signpost spawned-subagent-smoke",
+                metadata=metadata,
+                log_path=log_path,
+                now=started + timedelta(milliseconds=index),
+            )
+    return trace_events(log_path, run_id=selected_run_id)
+
+
 def _parse_meta(values: list[str]) -> dict[str, str]:
     metadata: dict[str, str] = {}
     for value in values:
@@ -212,6 +445,21 @@ def _print_summary(summary: dict[str, Any]) -> None:
         print(f"- {key}: count={item['count']} avg={avg_text} statuses={item['statuses']}")
 
 
+def _print_trace(trace: dict[str, Any]) -> None:
+    filter_text = f", run_id={trace['run_id']}" if trace.get("run_id") else ""
+    print(f"trace events: {trace['total_events']} ({trace['log_path']}{filter_text})")
+    for event in trace["events"]:
+        feature = event.get("feature") or "unknown"
+        action = event.get("action") or "unknown"
+        runtime = event.get("runtime") or "unknown"
+        called = event.get("called") or "n/a"
+        print(
+            f"- #{event['sequence']} {event.get('ts')} "
+            f"{event.get('run_id')} {feature}.{action} "
+            f"status={event.get('status')} runtime={runtime} called={called}"
+        )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Emit or summarize Vidux JSONL signposts.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -224,6 +472,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     emit.add_argument("--exit-code", type=int, default=0)
     emit.add_argument("--called")
     emit.add_argument("--emitter")
+    emit.add_argument("--run-id", help="Explicit run id. Defaults to VIDUX_SIGNPOST_RUN_ID or a generated id.")
+    emit.add_argument("--runtime", help="Explicit runtime attribution, e.g. codex, claude, or cursor.")
     emit.add_argument("--meta", action="append", default=[], help="Metadata key=value. Repeatable.")
     emit.add_argument("--log", type=Path, default=None)
 
@@ -231,17 +481,38 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     summary.add_argument("--log", type=Path, default=None)
     summary.add_argument("--json", action="store_true")
 
+    trace = subparsers.add_parser("trace", help="Print ordered signposts for a run.")
+    trace.add_argument("--log", type=Path, default=None)
+    trace.add_argument("--run-id", help="Filter to one run id.")
+    trace.add_argument("--limit", type=int, help="Show only the latest N events after filtering.")
+    trace.add_argument("--json", action="store_true")
+
     wrap = subparsers.add_parser("wrap", help="Run a child command and signpost its result.")
     wrap.add_argument("--feature", required=True)
     wrap.add_argument("--action", required=True)
     wrap.add_argument("--log", type=Path, default=None)
+    wrap.add_argument("--run-id", help="Explicit run id. Defaults to VIDUX_SIGNPOST_RUN_ID or a generated id.")
+    wrap.add_argument("--runtime", help="Explicit runtime attribution, e.g. codex, claude, or cursor.")
     wrap.add_argument("child", nargs=argparse.REMAINDER)
+
+    lifecycle = subparsers.add_parser("lifecycle-smoke", help="Emit a standard hook/subagent lifecycle trace.")
+    lifecycle.add_argument("--log", type=Path, default=None)
+    lifecycle.add_argument("--run-id", help="Explicit run id for the whole lifecycle smoke.")
+    lifecycle.add_argument("--json", action="store_true")
+
+    spawned = subparsers.add_parser(
+        "spawned-subagent-smoke",
+        help="Emit a local env-inheritance smoke for Codex parent and spawned Claude/Cursor workers.",
+    )
+    spawned.add_argument("--log", type=Path, default=None)
+    spawned.add_argument("--run-id", help="Explicit run id for the whole spawned-subagent smoke.")
+    spawned.add_argument("--json", action="store_true")
 
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
         if args.command == "emit":
             emit_event(
@@ -254,6 +525,8 @@ def main(argv: list[str] | None = None) -> int:
                 emitter=args.emitter,
                 metadata=_parse_meta(args.meta),
                 log_path=args.log,
+                run_id=args.run_id,
+                runtime=args.runtime,
             )
             print(f"signposted {args.feature}.{args.action} {args.status}")
             return 0
@@ -263,6 +536,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(summary, sort_keys=True))
             else:
                 _print_summary(summary)
+            return 0
+        if args.command == "trace":
+            trace = trace_events(args.log, run_id=args.run_id, limit=args.limit)
+            if args.json:
+                print(json.dumps(trace, sort_keys=True))
+            else:
+                _print_trace(trace)
             return 0
         if args.command == "wrap":
             child = args.child[1:] if args.child and args.child[0] == "--" else args.child
@@ -279,8 +559,24 @@ def main(argv: list[str] | None = None) -> int:
                 called=" ".join(child),
                 emitter="vidux signpost wrap",
                 log_path=args.log,
+                run_id=args.run_id,
+                runtime=args.runtime,
             )
             return result.returncode
+        if args.command == "lifecycle-smoke":
+            trace = emit_lifecycle_smoke(log_path=args.log, run_id=args.run_id)
+            if args.json:
+                print(json.dumps(trace, sort_keys=True))
+            else:
+                _print_trace(trace)
+            return 0
+        if args.command == "spawned-subagent-smoke":
+            trace = emit_spawned_subagent_smoke(log_path=args.log, run_id=args.run_id)
+            if args.json:
+                print(json.dumps(trace, sort_keys=True))
+            else:
+                _print_trace(trace)
+            return 0
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"vidux-signpost: {exc}\n")
         return 2

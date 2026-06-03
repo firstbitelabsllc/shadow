@@ -11,15 +11,16 @@ READ → ASSESS → ACT → VERIFY → CHECKPOINT → (next session) → READ �
 Load the current state of the world.
 
 **What to read:**
-- `PLAN.md` — source of truth for tasks, decisions, and progress
+- `PLAN.md` — queue/planning authority for tasks, decisions, constraints, and progress
 - `INBOX.md` — unprocessed findings from humans or external tools
+- Latest publish ledger rows — shipped-cycle proof and resume metadata
 - `git log --oneline -10` — what happened recently
 - `git diff` — uncommitted work from a crashed session
 
-**Crash recovery:** If `git diff` shows uncommitted work from a dead session, commit it first:
-```
-vidux: recover uncommitted work from crashed session
-```
+**Crash recovery:** If `git diff` shows uncommitted work from a dead session,
+inspect it first, resume the owning plan row, and checkpoint through the plan.
+Create a commit only when code changed, and emit the publish ledger row before
+any branch/PR/release publish leaves the machine.
 
 **Time budget:** 60-90 seconds. If reading takes longer, the plan is too large — add a GC task.
 
@@ -94,9 +95,11 @@ Never assert "it works." Prove it.
 
 ## Step 5: CHECKPOINT
 
-Every cycle ends with a checkpoint commit and a Progress entry.
+Every cycle ends with a plan/progress checkpoint. Publishable branch, PR, or
+release work also emits a publish ledger row carrying the task id, proof,
+handoff status, files claimed, and next-agent resume point before transport.
 
-**Commit format:**
+**Commit format when code changed:**
 ```
 vidux: [what you did]
 ```
@@ -113,11 +116,11 @@ vidux: recover uncommitted work from crashed session
 - [DATE] What happened. Next: what's next. Blocker: if any.
 ```
 
-**Reconcile planned vs actual:** Compare what the plan SAID with what the git diff SHOWS. If they diverge, update the plan and note the divergence in the Progress entry. The plan always reflects truth.
+**Reconcile planned vs actual:** Compare what the plan SAID with what the git diff SHOWS. If they diverge, update the plan and note the divergence in the Progress entry. The plan remains the queue/planning authority, and the matching publish ledger row records what shipped.
 
 ## Stuck Detection
 
-If the same task appears in 3+ Progress entries while still `[in_progress]`, force a surface switch. Move to the next unblocked task and mark the stuck one `[blocked]` with a Decision Log entry noting what was tried. The next cycle either finds new evidence or the task stays blocked.
+If the same task appears in 3+ Progress entries while still `[in_progress]`, force a surface switch. In default read mode, `vidux-loop.sh` reports `action: "stuck"` and a `surface_switch` candidate when another runnable task exists; auto-blocking and Decision Log mutation require `VIDUX_LOOP_AUTO_BLOCK=1`. The next cycle either finds new evidence or the task stays blocked.
 
 ```markdown
 ## Decision Log
@@ -126,7 +129,14 @@ If the same task appears in 3+ Progress entries while still `[in_progress]`, for
 
 ## Push Authorization
 
-Operational PRs are always safe to push without asking. Open them ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization.
+Operational PR branch pushes are safe without asking only after the owning
+`PLAN.md` Progress/Tasks/Drift Log is updated and a `ledger-emit.sh --event
+publish` row records the task id, plan path, proof, handoff status, files
+claimed, path-like claims, and next-agent resume point. Open PRs
+ready-for-review by default so configured review bots can run; use draft only
+for true WIP with a missing gate. Direct-to-main or destructive operations
+(force push, branch delete, `git reset --hard`) require explicit authorization
+and the same publish propagation before transport.
 
 ## Escalation Statuses
 
@@ -134,7 +144,7 @@ When a cycle ends, it exits with one of four statuses:
 
 | Status | Meaning |
 |---|---|
-| `DONE` | All tasks complete, build passes, tests pass, checkpoint committed |
+| `DONE` | All tasks complete, build passes, tests pass, plan/proof checkpoint recorded |
 | `DONE_WITH_CONCERNS` | Work complete but something smells wrong — flagged for human review |
 | `NEEDS_CONTEXT` | Blocked by missing information that only a human can provide |
 | `BLOCKED` | Hard blocker — same task failed 3 times or external dependency missing |

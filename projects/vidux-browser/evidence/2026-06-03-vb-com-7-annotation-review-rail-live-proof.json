@@ -1,0 +1,82 @@
+{
+  "task": "VB-COM-7 annotation drawer / review rail",
+  "url": "http://127.0.0.1:7191/?plan=vidux%2Fprojects%2Fvidux-browser%2FPLAN.md",
+  "screenshots": {
+    "desktopEmptyPath": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-com-7-annotation-review-rail-empty.png",
+    "desktopLoadedPath": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-com-7-annotation-review-rail-desktop.png",
+    "mobilePath": "/Users/leokwan/Development/vidux/projects/vidux-browser/evidence/2026-06-03-vb-com-7-annotation-review-rail-mobile.png"
+  },
+  "emptyState": {
+    "panelState": "ready",
+    "panelCount": "0",
+    "countText": "0 comments",
+    "emptyText": "No comments yet.",
+    "activeFilter": true,
+    "disabledFilters": [
+      "open",
+      "mine"
+    ],
+    "targetPath": "/Users/leokwan/Development/vidux/projects/vidux-browser/PLAN.md"
+  },
+  "loadedState": {
+    "panelState": "ready",
+    "panelCount": "2",
+    "hasCommentsClass": true,
+    "countText": "2 comments",
+    "listText": "Codex Jun 3, 6:07 AM Target Browser plan title rail live proof comment Codex Jun 3, 6:08 AM Target Review rail panel @pm review rail readback proof",
+    "targetHighlighted": true,
+    "jumpButtons": [
+      "live-c1",
+      "live-c2"
+    ],
+    "filterValues": [
+      {
+        "value": "all",
+        "active": true,
+        "disabled": false
+      },
+      {
+        "value": "open",
+        "active": false,
+        "disabled": true
+      },
+      {
+        "value": "mine",
+        "active": false,
+        "disabled": true
+      }
+    ],
+    "railBox": {
+      "top": 328,
+      "left": 400,
+      "right": 1400,
+      "bottom": 623,
+      "width": 1000,
+      "height": 295
+    }
+  },
+  "mobileState": {
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390
+    },
+    "panelCount": "2",
+    "footerBox": {
+      "top": 734,
+      "bottom": 834,
+      "height": 100
+    },
+    "panelBox": {
+      "top": 311,
+      "bottom": 635,
+      "width": 358
+    }
+  },
+  "commentPosts": 0,
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "appJsBytes": 99720,
+  "helperBytes": 2406
+}

@@ -2,8 +2,10 @@
 # vidux-doctor.sh — runtime health checks for the Vidux control plane
 # Usage:  bash vidux-doctor.sh [--json] [--fix] [--repo PATH] [--automations-dir PATH] [--automation-db PATH] [--stale-days N]
 #
-# Checks cross-plan, cross-repo runtime state. Complements vidux-install.sh doctor
-# (which checks installation health). This checks RUNTIME health.
+# Checks cross-plan, cross-repo runtime state. Complements `vidux doctor`
+# / scripts/vidux-doctor-cli.sh, which checks installation and local CLI
+# readiness. This script is the JSON-friendly runtime doctor used by hooks and
+# monitors; use --fix only for explicit operator-approved cleanup.
 #
 # Exit codes: 0 = pass/warn, 1 = block (merge conflicts), 2 = script error
 set -euo pipefail
@@ -92,6 +94,21 @@ _fail() { if [[ "$JSON_MODE" = false ]]; then echo -e "  ${RED}BLOCK${RESET} $1"
 # Append a check result (one JSON object per line) to temp file
 _add_check() {
   echo "$1" >> "$CHECKS_FILE"
+}
+
+_pipe_list_json() {
+  local entries="$1"
+  local json="["
+  local first=true
+  while IFS='|' read -ra names; do
+    for n in "${names[@]}"; do
+      [[ -z "$n" ]] && continue
+      local escaped="${n//\"/\\\"}"
+      [[ "$first" = true ]] && first=false || json="$json,"
+      json="$json\"$escaped\""
+    done
+  done <<< "$entries"
+  echo "$json]"
 }
 
 _resolve_automations_dir() {
@@ -506,10 +523,15 @@ import subprocess
 
 payload = {
     "available": False,
+    "memory_pressure_free_pct": None,
     "memory_free_pct": None,
     "total_bytes": None,
+    "vm_free_mb": None,
+    "vm_speculative_mb": None,
     "free_mb": None,
     "speculative_mb": None,
+    "memory_pct_source": None,
+    "vm_pages_source": None,
 }
 
 mem_cmd = shutil.which("memory_pressure")
@@ -538,13 +560,21 @@ spec_pages_match = re.search(r"Pages speculative:\s+(\d+)\.", vm_out)
 if total_match:
     payload["total_bytes"] = int(total_match.group(1))
 if free_match:
-    payload["memory_free_pct"] = int(free_match.group(1))
+    free_pct = int(free_match.group(1))
+    payload["memory_pressure_free_pct"] = free_pct
+    payload["memory_free_pct"] = free_pct
+    payload["memory_pct_source"] = "memory_pressure -Q"
 if page_match:
     page_size = int(page_match.group(1))
     free_pages = int(free_pages_match.group(1)) if free_pages_match else 0
     spec_pages = int(spec_pages_match.group(1)) if spec_pages_match else 0
-    payload["free_mb"] = round((free_pages * page_size) / (1024 * 1024), 1)
-    payload["speculative_mb"] = round((spec_pages * page_size) / (1024 * 1024), 1)
+    free_mb = round((free_pages * page_size) / (1024 * 1024), 1)
+    spec_mb = round((spec_pages * page_size) / (1024 * 1024), 1)
+    payload["vm_free_mb"] = free_mb
+    payload["vm_speculative_mb"] = spec_mb
+    payload["free_mb"] = free_mb
+    payload["speculative_mb"] = spec_mb
+    payload["vm_pages_source"] = "vm_stat"
 
 print(json.dumps(payload))
 PY
@@ -675,6 +705,8 @@ _check_dual_active_automations() {
 _check_orphan_automations() {
   TOTAL=$((TOTAL + 1))
   local orphans="" count=0
+  local removed="" removed_count=0
+  local retained="" retained_count=0
 
   if [[ -d "$AUTOMATIONS_DIR" ]]; then
     for d in "$AUTOMATIONS_DIR"/*/; do
@@ -689,6 +721,11 @@ _check_orphan_automations() {
           lines="$(wc -l < "$d/memory.md" | tr -d ' ')"
           if [[ "$lines" -le 5 ]]; then
             rm -rf "$d"
+            removed="${removed:+$removed|}$name"
+            removed_count=$((removed_count + 1))
+          else
+            retained="${retained:+$retained|}$name"
+            retained_count=$((retained_count + 1))
           fi
         fi
       fi
@@ -696,22 +733,21 @@ _check_orphan_automations() {
   fi
 
   if [[ "$count" -gt 0 ]]; then
-    local details_json="["
-    local first=true
-    while IFS='|' read -ra names; do
-      for n in "${names[@]}"; do
-        [[ -z "$n" ]] && continue
-        [[ "$first" = true ]] && first=false || details_json="$details_json,"
-        details_json="$details_json\"$n\""
-      done
-    done <<< "$orphans"
-    details_json="$details_json]"
-
     if [[ "$FIX_MODE" = true ]]; then
-      _ok "$count orphan automation directories (cleaned)"
-      PASS_COUNT=$((PASS_COUNT + 1))
-      _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"pass\",\"count\":$count,\"details\":$details_json,\"fix_available\":true,\"fixed\":true}"
+      local removed_json retained_json
+      removed_json="$(_pipe_list_json "$removed")"
+      retained_json="$(_pipe_list_json "$retained")"
+      if [[ "$retained_count" -gt 0 ]]; then
+        _warn "$retained_count orphan automation directories retained after --fix: $(echo "$retained" | tr '|' ', ')"
+        _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"warn\",\"count\":$retained_count,\"details\":$retained_json,\"fix_available\":true,\"fixed\":false,\"fixed_count\":$removed_count,\"retained_count\":$retained_count,\"removed\":$removed_json}"
+      else
+        _ok "$count orphan automation directories (cleaned)"
+        PASS_COUNT=$((PASS_COUNT + 1))
+        _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"pass\",\"count\":0,\"details\":[],\"fix_available\":true,\"fixed\":true,\"fixed_count\":$removed_count,\"retained_count\":0,\"removed\":$removed_json}"
+      fi
     else
+      local details_json
+      details_json="$(_pipe_list_json "$orphans")"
       _warn "$count orphan automation directories: $(echo "$orphans" | tr '|' ', ')"
       _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"warn\",\"count\":$count,\"details\":$details_json,\"fix_available\":true}"
     fi
@@ -919,9 +955,9 @@ _check_system_memory_pressure() {
     return
   fi
 
-  free_pct="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('memory_free_pct', 0))" <<< "$snapshot")"
-  free_mb="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('free_mb', 0))" <<< "$snapshot")"
-  spec_mb="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('speculative_mb', 0))" <<< "$snapshot")"
+  free_pct="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('memory_pressure_free_pct', 0))" <<< "$snapshot")"
+  free_mb="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('vm_free_mb', 0))" <<< "$snapshot")"
+  spec_mb="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('vm_speculative_mb', 0))" <<< "$snapshot")"
   total_bytes="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('total_bytes', 0))" <<< "$snapshot")"
   status="pass"
 
@@ -930,12 +966,12 @@ _check_system_memory_pressure() {
   fi
 
   if [[ "$status" = "warn" ]]; then
-    _warn "System memory free: ${free_pct}% (min: ${MIN_SYSTEM_MEMORY_FREE_PCT}%), vm free: ${free_mb} MB, speculative: ${spec_mb} MB"
-    _add_check "{\"id\":\"system_memory_pressure\",\"category\":\"system\",\"status\":\"warn\",\"available\":true,\"memory_free_pct\":$free_pct,\"min_memory_free_pct\":$MIN_SYSTEM_MEMORY_FREE_PCT,\"free_mb\":$free_mb,\"speculative_mb\":$spec_mb,\"total_bytes\":$total_bytes}"
+    _warn "System memory_pressure free: ${free_pct}% (min: ${MIN_SYSTEM_MEMORY_FREE_PCT}%), vm_stat free: ${free_mb} MB, speculative: ${spec_mb} MB"
+    _add_check "{\"id\":\"system_memory_pressure\",\"category\":\"system\",\"status\":\"warn\",\"available\":true,\"memory_pressure_free_pct\":$free_pct,\"memory_free_pct\":$free_pct,\"min_memory_free_pct\":$MIN_SYSTEM_MEMORY_FREE_PCT,\"memory_pct_source\":\"memory_pressure -Q\",\"vm_free_mb\":$free_mb,\"vm_speculative_mb\":$spec_mb,\"free_mb\":$free_mb,\"speculative_mb\":$spec_mb,\"vm_pages_source\":\"vm_stat\",\"total_bytes\":$total_bytes}"
   else
-    _ok "System memory free: ${free_pct}% (min: ${MIN_SYSTEM_MEMORY_FREE_PCT}%)"
+    _ok "System memory_pressure free: ${free_pct}% (min: ${MIN_SYSTEM_MEMORY_FREE_PCT}%)"
     PASS_COUNT=$((PASS_COUNT + 1))
-    _add_check "{\"id\":\"system_memory_pressure\",\"category\":\"system\",\"status\":\"pass\",\"available\":true,\"memory_free_pct\":$free_pct,\"min_memory_free_pct\":$MIN_SYSTEM_MEMORY_FREE_PCT,\"free_mb\":$free_mb,\"speculative_mb\":$spec_mb,\"total_bytes\":$total_bytes}"
+    _add_check "{\"id\":\"system_memory_pressure\",\"category\":\"system\",\"status\":\"pass\",\"available\":true,\"memory_pressure_free_pct\":$free_pct,\"memory_free_pct\":$free_pct,\"min_memory_free_pct\":$MIN_SYSTEM_MEMORY_FREE_PCT,\"memory_pct_source\":\"memory_pressure -Q\",\"vm_free_mb\":$free_mb,\"vm_speculative_mb\":$spec_mb,\"free_mb\":$free_mb,\"speculative_mb\":$spec_mb,\"vm_pages_source\":\"vm_stat\",\"total_bytes\":$total_bytes}"
   fi
 }
 

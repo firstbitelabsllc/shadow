@@ -10,7 +10,7 @@
     {
       "name": "vidux-checkpoint",
       "event": "post-commit",
-      "description": "Updates PLAN.md Progress section with a checkpoint entry after each commit.",
+      "description": "Reminds when PLAN.md has no same-day Progress entry; publish ledger/checkpoint propagation remains explicit.",
       "enabled": false,
       "script": "hooks/post-commit-checkpoint.sh"
     },

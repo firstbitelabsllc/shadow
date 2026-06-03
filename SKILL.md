@@ -1,13 +1,29 @@
 ---
 name: vidux
-description: "Plan-first discipline and universal project router for AI agents. Detects stack, stage, and scale, then either executes directly or shifts into plan-first multi-session work. Write down what you're going to build before you build it. Plans live in markdown files in git. Any agent can pick up where the last one left off."
+description: "Plan-first discipline and universal project router for AI agents. Detects stack, stage, and scale, then either executes directly or shifts into multi-session plan work. Plans live in markdown files in git for queue/planning authority; matching publish ledger rows carry shipped-cycle proof and resume metadata."
 ---
 
 # Vidux
 
-Vidux is a discipline for AI agents: write down what you're going to build before you build it. Plans live in markdown files in git. Agents read the plan, do one piece of work, update the plan, and checkpoint. Any agent can pick up where the last one left off because the plan file is the only state that matters.
+Vidux is a discipline for AI agents: write down what you're going to build before you build it. Plans live in markdown files in git. Agents read the plan, do one piece of work, update the plan, and checkpoint. Any agent can pick up where the last one left off because the owning plan records the queue, decisions, constraints, and progress, while matching publish ledger rows carry shipped-cycle proof, handoff status, files claimed, path-like claims, and next-agent resume.
 
 ---
+
+## First-Time Setup
+
+Prereqs: clone the owning repo and `~/Development/vidux`, install the repo's
+declared toolchain, and read the local `AGENTS.md`/`PLAN.md` before changing
+code. For Leo's fleet, also load `/pilot-leo` and `/captain` when the active
+goal asks for them.
+
+Verify: resolve the canonical plan path, inspect git state, and run the
+smallest repo-owned proof command before claiming progress. For local operator
+work, prefer read-only verified-alive/audit packets before executing lanes or
+installing LaunchAgents.
+
+Safety: do not create duplicate plans, execute local-CI lanes, install
+LaunchAgents, delete worktrees, or push/merge unless the owning plan and user
+authorization make that operation explicit.
 
 ## Activation & Triage
 
@@ -50,15 +66,15 @@ If an automation is being created from Codex, default it to Chat execution unles
 
 ### 1. Plan first, code second
 
-PLAN.md is the source of truth. Code is derived from it. To change code, update the plan first.
+PLAN.md is the planning authority for the queue, decisions, constraints, and Progress/Drift record. Code is derived from that plan state: to change code, update the plan first. To claim a shipped cycle, pair the plan update with a publish ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume.
 
 Every plan entry cites evidence -- a codebase grep, a PR comment, a design doc quote, a team chat message. A plan entry without evidence is a guess. Guesses cause rework.
 
 ### 2. Design for interruption
 
-Every session ends. Context will be lost. Auth will expire. State lives in files, never in memory. Checkpoints are structured (not freeform summaries). Any agent can resume from the last checkpoint.
+Every session ends. Context will be lost. Auth will expire. Durable recovery lives in repo files plus append-only ledger rows, never in chat memory. Checkpoints are structured plan/ledger packets, not freeform summaries. Any agent can resume by re-reading the owning plan, evidence, and the matching ledger row.
 
-After any interruption, re-read PLAN.md and evidence/ from disk. Never trust summaries or memory for plan details.
+After any interruption, re-read PLAN.md and evidence/ from disk, then check the ledger for the latest publish or handoff packet. Never trust summaries or memory for plan details.
 
 ### 3. Investigate before fixing
 
@@ -155,8 +171,9 @@ ACT        -> Execute tasks until queue empty, blocker, or context budget.
              Empty queue? Scan INBOX, owned paths, git log, blocked tasks. Anything
              found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit.
 VERIFY     -> Build, test, gate
-CHECKPOINT -> Commit as `vidux: [what you did]` + Progress entry.
-             Reconcile planned vs actual; use `vidux drift` if they diverge.
+CHECKPOINT -> Update the plan/queue note, emit the publish ledger row, then
+             commit/push only after those breadcrumbs exist. Reconcile planned
+             vs actual; use `vidux drift` if they diverge.
 COMPLETE   -> Close the local worktree lifecycle or record why it remains.
 ```
 
@@ -168,18 +185,18 @@ Before touching code, always check these eight surfaces in order:
 2. **`ai/skills/hooks/`** — repo-specific build/test/lint commands.
 3. **`.cursor/plans/`** — existing plans for this feature or related work.
 4. **`RALPH.md`** — repo-owned queue contract for recurring loops and nurse passes.
-5. **The ledger** (`.agent-ledger/activity.jsonl`) — recent entries from other agents, active lanes, handoffs waiting.
+5. **The ledger** (`~/.agent-ledger/activity.jsonl`) — centralized activity stream for recent entries from other agents, active lanes, and waiting handoffs. Repo-local `.agent-ledger/` is optional companion coordination state only when the repo documents it.
 6. **Memory files** — ownership boundaries, lane assignments.
 7. **Neighboring files** — match existing patterns, don't impose new ones.
 8. **`vidux.config.json`** — resolve the authority `PLAN.md` and any enabled adapters before anything else.
 
 Ad hoc scratch files (e.g. `<repo>-loop-state.md`) are optional helpers only. They do not override the repo's queue, ledger, or checkpoint files unless the repo explicitly says they are canonical. Never read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
 
-**Crash recovery:** If `git diff` shows uncommitted work from a dead session, commit it first: `vidux: recover uncommitted work from crashed session`.
+**Crash recovery:** If `git diff` shows uncommitted work from a dead session, preserve it first: identify the touched files, classify whether the work belongs to the current plan row, and record the recovery path in the owning plan plus a ledger handoff before any commit, push, or cleanup. Never commit, overwrite, or discard unknown WIP just to make the tree clean.
 
 **Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Force a surface switch — move to the next unblocked task and mark the stuck one `[blocked]` with a one-line Decision Log entry explaining what was tried. No human hand-off required; the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced. Polish is fractal — the brake is what prevents forever-loops, not a human approval gate.
 
-**Push authorization:** Operational PR branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated and a `ledger-emit.sh --event publish` row records the plan path, proof, handoff status, files claimed, and next-agent resume point. Open PRs ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate, and treat draft PRs as publish actions too. Direct-to-main operations require explicit authorization and the same publish propagation before the push or merge; destructive operations (force push, branch delete, `git reset --hard`) require explicit per-action authorization. A lane prompt that says "NEVER push" without qualification still allows a normal publish-propagated PR branch push; parking on a local branch wastes cycles.
+**Push authorization:** Operational PR branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated and a `ledger-emit.sh --event publish` row records the plan task id, plan path, concise change summary, proof, handoff status, files claimed, path-like claims, and next-agent resume point. Open PRs ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate, and treat draft PRs as publish actions too. Direct-to-main operations require explicit authorization and the same publish propagation before the push or merge; destructive operations (force push, branch delete, `git reset --hard`) require explicit per-action authorization. A lane prompt that says "NEVER push" without qualification still allows a normal publish-propagated PR branch push; parking on a local branch wastes cycles.
 
 ### Trunk-First Rule
 
@@ -189,11 +206,11 @@ Vidux defaults to trunk-first:
 - If a repo has not renamed its trunk, detect and use the actual trunk branch instead of forcing a broken assumption.
 - Create short-lived branches or worktrees from the current trunk head only when isolation is useful.
 - Treat lane branches/worktrees as disposable integration helpers, not as the source of truth.
-- Before a job is done, every intended change must be merged or cherry-picked back into trunk in the canonical tree and the publish propagation must be recorded in the owning plan row, publish ledger row, proof trail, handoff status, files claimed, and next-agent resume point.
+- Before a job is done, every intended change must be merged or cherry-picked back into trunk in the canonical tree and the publish propagation must be recorded in the owning plan row, publish ledger row, proof trail, handoff status, files claimed, path-like claims, and next-agent resume point.
 - Run the final proof, release gates, and any ship/deploy command from that merged trunk state; if those commands publish externally, record the plan and ledger propagation before claiming done.
 - Do not end a job with required work stranded in a side branch or worktree unless a real external blocker prevents merge-back; if so, record the exact blocker and the exact unmerged branch.
 
-**Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only automatic cleanup bucket. `open_pr` is durable handoff and must be nursed or recorded. `dirty`, `closed_unmerged`, and `unmerged_no_pr` are not cleanup; they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
+**Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only guarded cleanup bucket, and the top-level `cleanup_decision` says whether guarded removal is available, whether owner approval is required before apply, or whether owner review is still required. Use `--owner-review-markdown` to produce a handoff packet for non-removable rows, including safe per-row `review_command` inspection commands and last-activity evidence, plus the exact `merged_clean` rows included by guarded cleanup. `cleanup_decision` and `safe_cleanup_items` carry `cleanup_approval_status=required_before_apply`; treat them as read-only evidence until the owner approves those concrete paths. `open_pr` is durable handoff and must be nursed or recorded. `dirty`, `closed_unmerged`, and `unmerged_no_pr` are not cleanup; they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
 
 **Build/test ownership in multi-agent repos:**
 
@@ -435,12 +452,12 @@ Agents read `vidux.config.json` at session start and resolve the authority PLAN.
 
 ### External boards (adapter plugins)
 
-vidux supports external kanban boards (GitHub Projects, Linear, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the source of truth; the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
+vidux supports external kanban boards (GitHub Projects, Linear, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the canonical queue/planning authority, publish ledger rows remain the shipped-cycle proof packet, and the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
 
 The checked-in example config (`vidux.config.example.json`) demonstrates a single `gh_projects` inbox source. The live repo config (`vidux.config.json`) enables both `gh_projects` and `linear`, each with its own token file and optional `auto_promote_target`.
 
 When a repo opts into external boards, agents should:
-1. Read `PLAN.md` first — it stays canonical even when a board is enabled.
+1. Read `PLAN.md` first — it stays canonical for queue/planning decisions even when a board is enabled.
 2. Use `python3 scripts/vidux-inbox-sync.py --direction=pull` to promote new external items into `INBOX.md` or the adapter's `auto_promote_target`.
 3. Use `python3 scripts/vidux-inbox-sync.py --direction=push` to mirror newly added local tasks back to the external board when the adapter is configured for that direction.
 4. Use `--only-adapter <name>` when you want a run scoped to one configured adapter instead of all enabled sources.
@@ -619,7 +636,7 @@ Worktree GC is separate from plan GC. It classifies local git worktrees by branc
 python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main [repo-dir]
 ```
 
-Read-only is the default. `--apply --yes` removes only `merged_clean` worktrees: clean non-primary worktrees whose branch is already merged into the base or whose PR is merged. Dirty worktrees, open PRs, closed-unmerged PRs, and no-PR unmerged branches are reported but never removed automatically.
+Read-only is the default. `--owner-review-markdown` prints the non-removable owner-review rows as a compact handoff packet with per-row `commits_not_in_base`, `last_commit_subject`, `last_commit_date`, `last_commit_age_days`, and safe `review_command` inspection evidence, then lists the exact `merged_clean` rows eligible for guarded cleanup. JSON carries top-level `cleanup_decision.guarded_removal_available`, `cleanup_decision.owner_approval_required_before_apply`, `cleanup_decision.cleanup_approval_status`, and `safe_cleanup_items` for those removable rows with `cleanup_approval_required=true` and `cleanup_approval_status=required_before_apply`; the packet labels them as read-only evidence until owner approval. After owner approval, `--apply --yes` removes only `merged_clean` worktrees: clean non-primary worktrees whose branch is already merged into the base or whose PR is merged. Dirty worktrees, open PRs, closed-unmerged PRs, and no-PR unmerged branches are reported under the top-level `cleanup_decision` but never removed automatically.
 
 ---
 
@@ -637,7 +654,7 @@ When something breaks or changes:
 
 When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle should **not** exit "drained" while there is agent-doable surface. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in and documented in the PR body, so the conversation moves forward on concrete artifacts instead of speculative chat.
 
-A placeholder draft PR is still a publish action. Update owning PLAN.md Progress/Tasks or Drift Log with the blocked question, assumptions, proof, `handoff_status=needs_review`, files claimed, and next-agent resume point; emit `ledger-emit.sh --event publish` with `--plan-path`, `--proof`, `--handoff-status needs_review`, `--file`, and `--claim`; then carry that ledger eid into the draft PR body before `gh pr create --draft`. Defaults: every flag default-off / zero, isolated worktree off `origin/master`, no assigned reviewers, no `@`-mentions in the body. Per-organization-overlay placeholder discipline (review-bot acks, fleet wiring, person-specific routing) lives in `/vidux-leo § Placeholder draft PRs over blocking` (codified 2026-05-21); core vidux owns the principle, overlays own the local taste.
+A placeholder draft PR is still a publish action. Update owning PLAN.md Progress/Tasks or Drift Log with the blocked question, assumptions, proof, `handoff_status=needs_review`, files claimed, path-like claims, and next-agent resume point; emit `ledger-emit.sh --event publish` with non-empty `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status needs_review`, `--resume`, changed-file `--file`, and path-like `--claim`; then carry that ledger eid into the draft PR body before `gh pr create --draft`. Defaults: every flag default-off / zero, isolated worktree off `origin/master`, no assigned reviewers, no `@`-mentions in the body. Per-organization-overlay placeholder discipline (review-bot acks, fleet wiring, person-specific routing) lives in `/vidux-leo § Placeholder draft PRs over blocking` (codified 2026-05-21); core vidux owns the principle, overlays own the local taste.
 
 ### Plan archival pattern (parallel-session reconciliation)
 
@@ -679,7 +696,7 @@ Loop body:
 6. Absorb obvious same-slice follow-on fixes uncovered by that smoke.
 7. Mark the item done in the queue source.
 8. Update the active plan.
-9. Checkpoint with commit + push.
+9. Checkpoint the publish cycle: update the owning plan/queue note, emit the publish ledger row with concise summary, plan task id, proof, handoff status, files claimed, path-like claims, and next-agent resume, then commit + push the owned branch/PR path.
 10. Write breadcrumb context (ledger + plan/queue note).
 11. Repeat until the queue/spec is actually done.
 
@@ -704,8 +721,8 @@ These rules apply to `/vidux loop`, `/vidux nurse`, and any ORCHESTRATED trackin
 4. **All-blocked early exit.** If every lane is blocked by the same root cause, say so in one sentence and stop. A blocked run that admits it in 30 seconds is better than one that burns 15 minutes restating the blockage from 10 angles.
 
 5. **Compaction survival.** Auto-compact fires at ~50% context usage (configured via `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`). Compaction is lossy — granular conversation details are replaced with summaries. Therefore:
-   - **Before each checkpoint:** write iteration state to repo files (PLAN.md progress, RALPH.md queue, `.agent-ledger/`). The filesystem survives compaction; conversation memory does not.
-   - **After compaction fires:** rehydrate from repo files. Read PLAN.md, RALPH.md, CLAUDE.md, and the last ledger entry. Do not trust pre-compaction conversation details.
+   - **Before each checkpoint:** write iteration state to durable files and ledger rows: update the owning PLAN.md/Progress or RALPH.md queue, emit the matching publish ledger row when work shipped, and use repo-local `.agent-ledger/` only for configured companion state. Repo files plus append-only ledger rows survive compaction; conversation memory does not.
+   - **After compaction fires:** rehydrate from durable files and ledger rows. Read the owning PLAN.md/RALPH.md/CLAUDE.md and the latest matching ledger entry. Do not trust pre-compaction conversation details.
    - **Put durable loop instructions in CLAUDE.md**, not in the loop prompt. CLAUDE.md is re-read from disk after every compaction. Loop prompts are summarized away.
    - **Use subagents for heavy work inside loops.** Each subagent gets a fresh context window. The parent loop stays light and survives more iterations before compaction. Before spawning a subagent for heavy work, honor the shared-memory-budget preflight (see `~/Development/ai/skills/fleet-cleanup/SKILL.md#shared-memory-budget`); under memory pressure do the heavy work inline-sequentially instead of fanning out — degrade, never hard-fail.
    - **Run `/context` periodically** to check remaining capacity. If below 30% after compaction, the session is overloaded — consider starting fresh.
@@ -738,7 +755,7 @@ Nursing means:
 
 Vidux owns the full nursing loop: supervision, coordination, queue advancement, build-owner discipline, and plan updates. Ralph remains the repo-level queue contract (`RALPH.md` / `ralph.config.json`); vidux reads that contract, picks the next item, executes or delegates it, marks completion, and checks the ledger before deciding what's next.
 
-**Repo-level state rule:** nursing state must live in repo-local artifacts, not an ad hoc global handoff file. Preferred sources: `RALPH.md`, repo plan docs, repo nurse logs, and `.agent-ledger/activity.jsonl`. Do not invent or depend on a one-off `<repo>-loop-state.md` file unless the repo already committed it as a canonical contract. If an automation needs durable handled-state for external signals (for example App Store feedback IDs), keep that state in a repo plan/tracker file next to the rest of the queue. Never read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
+**Repo-level state rule:** nursing state must live in repo-local artifacts, not an ad hoc global handoff file. Preferred sources: `RALPH.md`, repo plan docs, repo nurse logs, the centralized `~/.agent-ledger/activity.jsonl` activity stream, and repo-local `.agent-ledger/` companion files only when the repo documents them. Do not invent or depend on a one-off `<repo>-loop-state.md` file unless the repo already committed it as a canonical contract. If an automation needs durable handled-state for external signals (for example App Store feedback IDs), keep that state in a repo plan/tracker file next to the rest of the queue. Never read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
 
 Read `pilot/orchestration/nursing.md` when the user asks for any timed or repeated supervision.
 
@@ -909,9 +926,9 @@ Start with Fleet Watcher + PR Reviewer (highest ROI), add more as daily budget s
 
 After every meaningful completed slice, leave all three breadcrumbs:
 
-1. **Git** — commit and push the owned slice.
-2. **Ledger** — summarize what shipped, what remains, and the current branch/SHA.
-3. **Plan / queue** — mark progress in the active plan, `RALPH.md`, or queue source.
+1. **Plan / queue** — mark progress in the active plan, `RALPH.md`, or queue source, including proof, `handoff_status`, concise summary, files claimed, path-like claims, and next-agent resume.
+2. **Ledger** — emit `ledger-emit.sh --event publish` with a concise change summary, plan task id, plan path, proof, handoff status, next-agent resume point, changed files, and path-like claims; keep the eid with the branch/PR handoff.
+3. **Git** — commit and push only the owned slice after the plan and ledger breadcrumbs exist.
 
 Checkpoint at these moments: after a meaningful slice completes; before handoff; before changing lanes or worktrees; after an integration fix that creates a new stable base for other agents.
 
@@ -951,7 +968,7 @@ For one-shot HTML decision briefs (not ongoing PLAN.md / repo work), use `/edito
 
 ## Browser
 
-A localhost web UI for viewing every PLAN.md across the fleet at a glance. Read-only — the source of truth is still the markdown file in git.
+A localhost web UI for viewing every PLAN.md across the fleet at a glance. Read-only — markdown plan files in git remain the queue/planning authority, and publish ledger rows remain the shipped-cycle proof packet.
 
 ```
 vidux-browse              # start server, open http://127.0.0.1:7191

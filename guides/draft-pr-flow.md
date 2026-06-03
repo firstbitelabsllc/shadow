@@ -6,7 +6,7 @@ Cloud-agnostic. Works with any git remote that supports `gh pr create`. No paid-
 
 ## Why
 
-Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. Pull requests on GitHub are the durable manifest: `gh pr list` shows every lane's in-flight work, the diff, and where to resume.
+Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. The owning PLAN.md plus matching publish ledger row is the durable shipped-work recovery packet; Pull requests on GitHub are transport/review handles. `gh pr list` shows which branch-backed work needs review or nursing, then the PR body points the next agent back to the owning plan and ledger row.
 
 Ready-for-review PRs also let configured review bots, preview comments, and CI gates run immediately. Draft PRs are useful only when a real gate is missing and the PR should not yet enter review.
 
@@ -16,7 +16,7 @@ Every automation lane that ships code follows this after a green local build + t
 
 ```bash
 # 0. Update the owning PLAN.md Progress/Tasks/Drift Log before publish.
-#    Record what changed, proof, handoff_status, files_claimed, and resume point.
+#    Record what changed, proof, handoff_status, path-like files claimed/claims, and resume point.
 
 # 1. Emit the publish ledger row before the branch leaves the machine.
 LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"
@@ -28,8 +28,9 @@ LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"
   --plan-path "<PLAN.md>" \
   --proof "<command/artifact that passed>" \
   --handoff-status done \
+  --resume "<resume point>" \
   --file "<changed-file-or-plan>" \
-  --claim "<changed-file-or-plan>" \
+  --claim "<path-like-claimed-file>" \
   --skills vidux \
   --eid "$LEDGER_EID" \
   --summary "<1-3 bullet summary>"
@@ -41,11 +42,15 @@ git push origin HEAD:claude/<lane-name>-<task-id>
 python3 scripts/vidux-pr-body.py \
   --lane "<lane-name>" \
   --task "<task-id>" \
+  --summary "<1-3 bullet summary>" \
   --plan-path "<PLAN.md>" \
   --proof "<command/artifact that passed>" \
   --handoff-status done \
   --ledger "$LEDGER_EID" \
-  --file-claimed "<changed-file-or-plan>" \
+  --file-claimed "<path-like-claimed-file>" \
+  --review-pass "invariant-audit:pass:<plan/ledger/drift proof>" \
+  --review-pass "regression-runner:pass:<tests/docs proof>" \
+  --review-pass "adversarial-reviewer:pass:<overclaim/stale-proof check>" \
   --resume "<what the next cycle should do if this PR stalls>" \
   --change "<1-3 bullet summary>" \
   > /tmp/vidux-pr-body.md
@@ -70,7 +75,7 @@ Do not push directly to `origin/main`. Before each cycle, sync the local base:
 git fetch --prune origin
 ```
 
-Delete worktrees only after the PR branch is safely pushed and the resume point is recorded.
+Delete worktrees only after the plan/ledger packet exists, the PR branch is safely pushed, and the PR body carries the ledger eid plus resume point.
 
 ## Branch Naming
 
@@ -95,10 +100,10 @@ The body MUST carry these fields so any agent or human can resume:
 | **Proof** | Command or artifact proving the state being published |
 | **Ledger** | Ledger eid or dry-run payload path for the publish row |
 | **Handoff status** | `done`, `in_progress`, `blocked`, or `needs_review` |
-| **Files claimed** | Changed/claimed files a next agent must inspect first |
+| **Files claimed** | Path-like changed/claimed files a next agent must inspect first |
 | **Resume point** | What the next cycle should do if this PR stalls |
 
-## Recovery Via `gh pr list`
+## Transport Recovery Via `gh pr list`
 
 When a worktree is lost:
 
@@ -106,7 +111,7 @@ When a worktree is lost:
 gh pr list --state open --json number,title,isDraft,headRefName --jq '.[]'
 ```
 
-Each open PR is a recoverable unit of work. To resume:
+Each open PR is a transport/review handle. Before checkout, read the PR body for its plan path and ledger eid, then re-read the owning plan plus matching publish ledger row. To inspect the branch:
 
 ```bash
 gh pr checkout <number>
@@ -123,7 +128,7 @@ gh pr ready <number>
 If `gh pr create` fails (auth issue, network, no `gh` CLI):
 
 1. Keep the already-emitted publish ledger eid (`$LEDGER_EID`) and branch name.
-2. Log the failure in the owning PLAN.md and lane `memory.md` with proof, `handoff_status=needs_review`, files claimed, and next-agent resume.
+2. Record the failed PR creation in the owning PLAN.md with proof, `handoff_status=needs_review`, path-like files claimed/claims, and next-agent resume; use `memory.md` only as a lane-local note.
 3. Do NOT fall back to pushing main.
 4. The next cycle retries PR creation against the existing branch and reuses the existing ledger reference.
 
@@ -141,14 +146,14 @@ Replace any existing push policy with:
 ```markdown
 **PUSH POLICY (ready-PR-first per vidux):**
 After green build + test in the worktree:
-1. Update owning PLAN.md Progress/Tasks/Drift Log with proof, `handoff_status`, files claimed, and resume point.
-2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push: `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
+1. Update owning PLAN.md Progress/Tasks/Drift Log with proof, `handoff_status`, path-like files claimed/claims, and resume point.
+2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push: `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
 3. Push branch: `git push origin HEAD:claude/<lane>-<task-id>`.
-4. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --ledger "$LEDGER_EID" --file-claimed "<path>" --resume "<resume point>" --change "<summary>" [--linear EVE-123] > /tmp/vidux-pr-body.md`.
+4. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --summary "<summary>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --ledger "$LEDGER_EID" --file-claimed "<path>" --review-pass "invariant-audit:pass:<plan/ledger/drift proof>" --review-pass "regression-runner:pass:<tests/docs proof>" --review-pass "adversarial-reviewer:pass:<overclaim/stale-proof check>" --resume "<resume point>" --change "<summary>" [--linear EVE-123] > /tmp/vidux-pr-body.md`.
 5. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body-file /tmp/vidux-pr-body.md`.
 6. Draft only for true WIP or a missing gate; run `gh pr ready <N>` as soon as the gate passes.
 7. NEVER push directly to origin/main.
-8. Fallback: if `gh pr create` fails, keep the branch plus `$LEDGER_EID`, record the failed PR creation in PLAN.md/memory.md, and retry PR creation next cycle. Never push main.
+8. Fallback: if `gh pr create` fails, keep the branch plus `$LEDGER_EID`, record the failed PR creation in the owning PLAN.md with `memory.md` only as a lane-local note, and retry PR creation next cycle. Never push main.
 ```
 
 Replace any "stop after branch push" instruction with "push branch + create ready PR." Replace any blanket "draft PR only" instruction with "ready PR by default; draft only for WIP/missing gate."

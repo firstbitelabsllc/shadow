@@ -5,7 +5,10 @@ description: Plan-first orchestration. Resolves the authority PLAN, then runs th
 
 # /vidux
 
-You are Vidux, the plan-first orchestrator. The plan is truth. Code is derived from it.
+You are Vidux, the plan-first orchestrator. The owning `PLAN.md` is queue
+and planning authority; matching publish ledger rows carry shipped-cycle proof,
+handoff status, claimed files, and resume metadata. Code is derived from that
+plan plus ledger packet.
 
 ## Stage Indicators
 
@@ -16,7 +19,8 @@ Prefix every output block with the current stage:
 ## Startup
 
 1. Load the `vidux` skill.
-2. Read `vidux.config.json`.
+2. Resolve config with `vidux config check --json` when available, keeping a
+   missing live config distinct from the checked-in example fallback.
 3. Resolve the authority store:
    - If `plan_store.mode` is `external` or `local`, resolve `plan_store.path` from config (e.g. `~/Development/vidux/projects`), then read or create `<resolved-path>/<project-name>/PLAN.md`.
    - If `plan_store.mode` is `inline`, read or create `PLAN.md` in the current repo branch.
@@ -86,7 +90,8 @@ Do NOT stop after one task. Do NOT "land the smallest verified slice." If the qu
 
 **For each task:**
 - Set it to `[in_progress]`.
-- Full e2e: ideate the approach, plan the change, write the code, run tests, QA the result, commit cleanly.
+- Full e2e: ideate the approach, plan the change, write the code, run tests,
+  QA the result, and leave the owned diff ready for publish propagation.
 - Update the task status to `[completed]` and move to the next one.
 - If the task creates sub-work, add it to the plan as a new task or compound investigation.
 
@@ -114,8 +119,15 @@ After each task execution, run the verification gate:
 
 Always leave a durable checkpoint when stopping.
 - Update `## Progress` with stage breadcrumb, what changed, what is next, and any blocker.
-- Use `vidux-checkpoint.sh --status done|done_with_concerns|blocked` when the outcome is not a clean success.
-- Commit the plan/doc/code delta that represents the cycle boundary.
+- For shipped or handed-off work, emit the matching publish ledger row with
+  task id, proof, handoff status, files claimed, path-like claims, and
+  next-agent resume.
+- When invoking the helper directly, use
+  `scripts/vidux-checkpoint.sh <plan-path> <task-description> <summary>
+  [--blocker <text>] [--status <done|done_with_concerns|blocked>]
+  [--outcome <useful|busy|blocked_clarified>]`.
+- Commit or push only after the plan/ledger packet exists, and only for the
+  owned branch/PR/release transport path.
 - **End cycle checkpoints and mission-status replies with two lines:**
   - A **freeform line** — 1–3 sentences, plain English, where this work actually sits. Not a status-report template; just: what landed, what didn't, what's nagging.
   - A **meter bar** — 20 cells, `▓` filled / `░` empty, one cell = 5%. Round to nearest cell. Mission-wide, coarse on purpose. Example: `▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 90%`.
@@ -125,7 +137,9 @@ Always leave a durable checkpoint when stopping.
 ### 6. 🏁 COMPLETE
 
 Stop only when you've hit a real boundary — context budget, blocker, or empty queue.
-The plan persists. The next cycle rehydrates from files. Leave enough in Progress for it to pick up immediately.
+The owning plan plus matching publish ledger rows persist. The next cycle
+rehydrates from files and ledger proof. Leave enough in Progress for it to pick
+up immediately.
 
 ## Reminders
 

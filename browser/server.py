@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import json
 import os
+import copy
 import re
+import subprocess
 import sys
 import threading
 import time
 import uuid
+from collections import deque
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,8 +35,30 @@ HOST = os.environ.get("VIDUX_BROWSER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("VIDUX_BROWSER_PORT", "7191"))
 
 BROWSER_DIR = Path(__file__).resolve().parent
+VIDUX_ROOT = Path(os.environ.get("VIDUX_ROOT", BROWSER_DIR.parent)).expanduser().resolve()
+SERVER_FILE = Path(__file__).resolve()
+SERVER_MTIME_NS = SERVER_FILE.stat().st_mtime_ns
 STATIC_DIR = BROWSER_DIR / "static"
 ARTIFACTS_DIR = BROWSER_DIR / "artifacts"
+CLAUDE_PROJECTS_DIR = Path(
+    os.environ.get("VIDUX_CLAUDE_PROJECTS_DIR", Path.home() / ".claude" / "projects")
+).expanduser()
+SESSION_TURN_LIMIT = 5
+SESSION_EXCERPT_LIMIT = 360
+SESSION_TAIL_BYTES = 2 * 1024 * 1024
+try:
+    DASHBOARD_ITEM_LIMIT = max(1, int(os.environ.get("VIDUX_DASHBOARD_ITEM_LIMIT", "200")))
+except ValueError:
+    DASHBOARD_ITEM_LIMIT = 200
+LEDGER_FILE = Path(os.environ.get("VIDUX_LEDGER_FILE", Path.home() / ".agent-ledger" / "activity.jsonl")).expanduser()
+try:
+    LEDGER_ITEM_LIMIT = max(1, int(os.environ.get("VIDUX_LEDGER_ITEM_LIMIT", "20")))
+except ValueError:
+    LEDGER_ITEM_LIMIT = 20
+try:
+    LEDGER_SCAN_LIMIT = max(1, int(os.environ.get("VIDUX_LEDGER_SCAN_LIMIT", "5000")))
+except ValueError:
+    LEDGER_SCAN_LIMIT = 5000
 
 # Plan-layout conventions. The two-segment vidux/projects/ai patterns catch
 # parent plans (e.g., `vidux/design-overhaul/PLAN.md`); the `**` recursive forms
@@ -142,6 +167,421 @@ COMMENT_ANCHOR_FIELD_LIMITS = {
 COMMENT_ANCHOR_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 JSON_CONTENT_TYPE = "application/json"
+VIDUX_TRUTH_CACHE_TTL_SECONDS = float(os.environ.get("VIDUX_TRUTH_CACHE_TTL_SECONDS", "45"))
+_VIDUX_TRUTH_CACHE_LOCK = threading.Lock()
+_VIDUX_TRUTH_CACHE: dict[str, object] = {
+    "expires_at": 0.0,
+    "payload": None,
+    "generated_monotonic": 0.0,
+    "refreshing": False,
+}
+
+
+def clear_vidux_truth_cache() -> None:
+    with _VIDUX_TRUTH_CACHE_LOCK:
+        _VIDUX_TRUTH_CACHE["expires_at"] = 0.0
+        _VIDUX_TRUTH_CACHE["payload"] = None
+        _VIDUX_TRUTH_CACHE["generated_monotonic"] = 0.0
+        _VIDUX_TRUTH_CACHE["refreshing"] = False
+
+
+def run_truth_command(args: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=str(VIDUX_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _truth_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _truth_command_payload(args: list[str], *, timeout: float) -> dict:
+    started = time.monotonic()
+    try:
+        result = run_truth_command(args, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "command": args,
+            "command_ok": False,
+            "returncode": None,
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "error": f"timed out after {exc.timeout}s",
+            "data": {},
+        }
+    except OSError as exc:
+        return {
+            "command": args,
+            "command_ok": False,
+            "returncode": None,
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "error": str(exc),
+            "data": {},
+        }
+
+    raw = (result.stdout or "").strip()
+    try:
+        data = json.loads(raw) if raw else {}
+        parsed = isinstance(data, dict)
+    except json.JSONDecodeError as exc:
+        data = {}
+        parsed = False
+        error = f"invalid json: {exc}"
+    else:
+        error = "" if parsed else "json root was not an object"
+
+    return {
+        "command": args,
+        "command_ok": result.returncode == 0 and parsed,
+        "returncode": result.returncode,
+        "duration_ms": int((time.monotonic() - started) * 1000),
+        "error": error or (result.stderr or "").strip(),
+        "data": data if parsed else {},
+    }
+
+
+def _compact_latest_signpost_run(trace_data: dict) -> dict:
+    events = trace_data.get("events", [])
+    if not isinstance(events, list) or not events:
+        return {}
+
+    latest_run_id = ""
+    for event in reversed(events):
+        if isinstance(event, dict) and event.get("run_id"):
+            latest_run_id = str(event["run_id"])
+            break
+    if not latest_run_id:
+        return {}
+
+    run_events = [
+        event
+        for event in events
+        if isinstance(event, dict) and str(event.get("run_id", "")) == latest_run_id
+    ]
+    actions = [str(event.get("action", "")) for event in run_events]
+    runtimes = [str(event.get("runtime", "")) for event in run_events]
+    phases = [
+        str((event.get("metadata") or {}).get("phase", ""))
+        if isinstance(event.get("metadata"), dict)
+        else ""
+        for event in run_events
+    ]
+    called = [str(event.get("called", "")) for event in run_events]
+    complete_lifecycle = actions == ["beforeTask", "spawn", "verify", "afterTask"] and runtimes == [
+        "codex",
+        "claude",
+        "cursor",
+        "codex",
+    ]
+
+    return {
+        "run_id": latest_run_id,
+        "event_count": len(run_events),
+        "actions": actions,
+        "runtimes": runtimes,
+        "phases": phases,
+        "called": called,
+        "call_stack": " > ".join(runtime for runtime in runtimes if runtime),
+        "complete_lifecycle": complete_lifecycle,
+    }
+
+
+def _collect_vidux_truth_payload() -> dict:
+    """Collect read-only local truth for the browser chrome.
+
+    The browser intentionally does not run the install doctor (`vidux doctor`)
+    because that path can execute `npm test`. Runtime state comes from the
+    JSON runtime doctor without --fix, so refreshes stay read-only.
+    """
+    config_cmd = _truth_command_payload(
+        [sys.executable, str(VIDUX_ROOT / "scripts" / "vidux-config.py"), "check", "--json"],
+        timeout=5,
+    )
+    runtime_cmd = _truth_command_payload(
+        ["bash", str(VIDUX_ROOT / "scripts" / "vidux-doctor.sh"), "--json"],
+        timeout=20,
+    )
+    signpost_cmd = _truth_command_payload(
+        [sys.executable, str(VIDUX_ROOT / "scripts" / "vidux_signpost.py"), "summary", "--json"],
+        timeout=5,
+    )
+    signpost_trace_cmd = _truth_command_payload(
+        [
+            sys.executable,
+            str(VIDUX_ROOT / "scripts" / "vidux_signpost.py"),
+            "trace",
+            "--limit",
+            "12",
+            "--json",
+        ],
+        timeout=5,
+    )
+
+    config_data = config_cmd["data"]
+    runtime_data = runtime_cmd["data"]
+    signpost_data = signpost_cmd["data"]
+    signpost_trace_data = signpost_trace_cmd["data"]
+    runtime_checks = runtime_data.get("checks", []) if isinstance(runtime_data.get("checks"), list) else []
+    runtime_warnings = [
+        str(check.get("id", "unknown"))
+        for check in runtime_checks
+        if isinstance(check, dict) and check.get("status") == "warn"
+    ]
+    runtime_blockers = [
+        str(check.get("id", "unknown"))
+        for check in runtime_checks
+        if isinstance(check, dict) and check.get("status") == "block"
+    ]
+    runtime_status = "block" if runtime_blockers else ("warn" if runtime_warnings else "pass")
+    runtime_system_memory = next(
+        (
+            check
+            for check in runtime_checks
+            if isinstance(check, dict) and check.get("id") == "system_memory_pressure"
+        ),
+        {},
+    )
+    system_memory_keys = (
+        "status",
+        "available",
+        "memory_pressure_free_pct",
+        "memory_free_pct",
+        "min_memory_free_pct",
+        "memory_pct_source",
+        "vm_free_mb",
+        "vm_speculative_mb",
+        "free_mb",
+        "speculative_mb",
+        "vm_pages_source",
+        "total_bytes",
+    )
+    system_memory = {
+        key: runtime_system_memory[key]
+        for key in system_memory_keys
+        if isinstance(runtime_system_memory, dict) and key in runtime_system_memory
+    }
+
+    payload = {
+        "ok": True,
+        "generated_at": _truth_now(),
+        "repo_root": str(VIDUX_ROOT),
+        "read_only": True,
+        "browser_runs_install_doctor": False,
+        "browser_runs_runtime_fix": False,
+        "config": {
+            "ok": bool(config_cmd["command_ok"] and config_data.get("status") == "ok"),
+            "command": "vidux config check --json",
+            "returncode": config_cmd["returncode"],
+            "duration_ms": config_cmd["duration_ms"],
+            "status": config_data.get("status", "unknown"),
+            "source": config_data.get("source", "unknown"),
+            "path": config_data.get("path", ""),
+            "live_config_present": bool(config_data.get("live_config_present")),
+            "using_example": bool(config_data.get("using_example")),
+            "issues": config_data.get("issues", []),
+            "plan_store": config_data.get("plan_store", {}),
+            "error": config_cmd["error"],
+        },
+        "install_doctor": {
+            "command": "vidux doctor",
+            "role": "install/readiness",
+            "browser_status": "not_run",
+            "pre_hook_safe": False,
+            "may_run_npm_test": True,
+        },
+        "runtime_doctor": {
+            "ok": bool(runtime_cmd["command_ok"]),
+            "command": "scripts/vidux-doctor.sh --json",
+            "role": "runtime",
+            "returncode": runtime_cmd["returncode"],
+            "duration_ms": runtime_cmd["duration_ms"],
+            "status": runtime_status,
+            "pass": runtime_data.get("pass", 0),
+            "total": runtime_data.get("total", 0),
+            "warnings": runtime_warnings,
+            "blockers": runtime_blockers,
+            "system_memory": system_memory,
+            "pre_hook_safe": True,
+            "fix_available_only_with_explicit_flag": True,
+            "error": runtime_cmd["error"],
+        },
+        "signposts": {
+            "ok": bool(signpost_cmd["command_ok"]),
+            "command": "vidux signpost summary --json",
+            "returncode": signpost_cmd["returncode"],
+            "duration_ms": signpost_cmd["duration_ms"],
+            "trace_ok": bool(signpost_trace_cmd["command_ok"]),
+            "trace_command": "vidux signpost trace --limit 12 --json",
+            "trace_returncode": signpost_trace_cmd["returncode"],
+            "trace_duration_ms": signpost_trace_cmd["duration_ms"],
+            "total_events": signpost_data.get("total_events", 0),
+            "feature_count": len(signpost_data.get("features", {})) if isinstance(signpost_data.get("features"), dict) else 0,
+            "latest_run": _compact_latest_signpost_run(signpost_trace_data),
+            "log_path": signpost_data.get("log_path", ""),
+            "error": signpost_cmd["error"] or signpost_trace_cmd["error"],
+        },
+    }
+
+    return payload
+
+
+def _cache_vidux_truth_payload(payload: dict) -> None:
+    if VIDUX_TRUTH_CACHE_TTL_SECONDS <= 0:
+        return
+    with _VIDUX_TRUTH_CACHE_LOCK:
+        _VIDUX_TRUTH_CACHE["payload"] = payload
+        _VIDUX_TRUTH_CACHE["generated_monotonic"] = time.monotonic()
+        _VIDUX_TRUTH_CACHE["expires_at"] = time.monotonic() + VIDUX_TRUTH_CACHE_TTL_SECONDS
+
+
+def _truth_with_cache_status(payload: dict, *, status: str, refreshing: bool, age_seconds: float | None) -> dict:
+    enriched = copy.deepcopy(payload)
+    enriched["cache"] = {
+        "status": status,
+        "refreshing": refreshing,
+        "age_seconds": None if age_seconds is None else round(max(age_seconds, 0.0), 2),
+        "ttl_seconds": VIDUX_TRUTH_CACHE_TTL_SECONDS,
+    }
+    return enriched
+
+
+def _warming_vidux_truth_payload(*, refreshing: bool) -> dict:
+    return _truth_with_cache_status(
+        {
+            "ok": True,
+            "generated_at": _truth_now(),
+            "repo_root": str(VIDUX_ROOT),
+            "read_only": True,
+            "browser_runs_install_doctor": False,
+            "browser_runs_runtime_fix": False,
+            "config": {
+                "ok": False,
+                "command": "vidux config check --json",
+                "returncode": None,
+                "duration_ms": None,
+                "status": "warming",
+                "source": "pending",
+                "path": "",
+                "live_config_present": False,
+                "using_example": False,
+                "issues": [],
+                "plan_store": {},
+                "error": "",
+            },
+            "install_doctor": {
+                "command": "vidux doctor",
+                "role": "install/readiness",
+                "browser_status": "not_run",
+                "pre_hook_safe": False,
+                "may_run_npm_test": True,
+            },
+            "runtime_doctor": {
+                "ok": False,
+                "command": "scripts/vidux-doctor.sh --json",
+                "role": "runtime",
+                "returncode": None,
+                "duration_ms": None,
+                "status": "warming",
+                "pass": 0,
+                "total": 0,
+                "warnings": [],
+                "blockers": [],
+                "system_memory": {},
+                "pre_hook_safe": True,
+                "fix_available_only_with_explicit_flag": True,
+                "error": "",
+            },
+            "signposts": {
+                "ok": False,
+                "command": "vidux signpost summary --json",
+                "returncode": None,
+                "duration_ms": None,
+                "total_events": 0,
+                "feature_count": 0,
+                "latest_run": {},
+                "log_path": "",
+                "error": "",
+            },
+        },
+        status="warming",
+        refreshing=refreshing,
+        age_seconds=None,
+    )
+
+
+def _refresh_vidux_truth_cache() -> None:
+    try:
+        payload = _collect_vidux_truth_payload()
+        _cache_vidux_truth_payload(payload)
+    finally:
+        with _VIDUX_TRUTH_CACHE_LOCK:
+            _VIDUX_TRUTH_CACHE["refreshing"] = False
+
+
+def _start_vidux_truth_refresh() -> bool:
+    with _VIDUX_TRUTH_CACHE_LOCK:
+        if _VIDUX_TRUTH_CACHE.get("refreshing"):
+            return False
+        _VIDUX_TRUTH_CACHE["refreshing"] = True
+    thread = threading.Thread(target=_refresh_vidux_truth_cache, daemon=True)
+    thread.start()
+    return True
+
+
+def vidux_truth_payload(*, force_refresh: bool = False) -> dict:
+    now = time.monotonic()
+    if not force_refresh and VIDUX_TRUTH_CACHE_TTL_SECONDS > 0:
+        with _VIDUX_TRUTH_CACHE_LOCK:
+            cached = _VIDUX_TRUTH_CACHE.get("payload")
+            expires_at = float(_VIDUX_TRUTH_CACHE.get("expires_at", 0.0))
+            generated_at = float(_VIDUX_TRUTH_CACHE.get("generated_monotonic", 0.0))
+            refreshing = bool(_VIDUX_TRUTH_CACHE.get("refreshing"))
+        if cached is not None and now < expires_at:
+            return _truth_with_cache_status(
+                cached,  # type: ignore[arg-type]
+                status="fresh",
+                refreshing=refreshing,
+                age_seconds=now - generated_at,
+            )
+
+    payload = _collect_vidux_truth_payload()
+    _cache_vidux_truth_payload(payload)
+    return _truth_with_cache_status(payload, status="fresh", refreshing=False, age_seconds=0.0)
+
+
+def vidux_truth_cached_payload(*, background: bool = True) -> dict:
+    """Return quickly for browser/monitor callers, refreshing expensive truth off-thread."""
+    now = time.monotonic()
+    with _VIDUX_TRUTH_CACHE_LOCK:
+        cached = _VIDUX_TRUTH_CACHE.get("payload")
+        expires_at = float(_VIDUX_TRUTH_CACHE.get("expires_at", 0.0))
+        generated_at = float(_VIDUX_TRUTH_CACHE.get("generated_monotonic", 0.0))
+        refreshing = bool(_VIDUX_TRUTH_CACHE.get("refreshing"))
+
+    if cached is not None and now < expires_at:
+        return _truth_with_cache_status(
+            cached,  # type: ignore[arg-type]
+            status="fresh",
+            refreshing=refreshing,
+            age_seconds=now - generated_at,
+        )
+
+    if background:
+        started = _start_vidux_truth_refresh()
+        refreshing = refreshing or started
+
+    if cached is not None:
+        return _truth_with_cache_status(
+            cached,  # type: ignore[arg-type]
+            status="stale",
+            refreshing=refreshing,
+            age_seconds=now - generated_at,
+        )
+    return _warming_vidux_truth_payload(refreshing=refreshing)
 
 # /vidux task-FSM markers. Used by task_stats() to compute completion-bar.
 # Per /vidux doctrine: completion (X/Y tasks) is the headline; ETA is parsed
@@ -157,6 +597,12 @@ PLAN_BRIEF_TASK_RE = re.compile(
 PLAN_BRIEF_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<body>.+?)\s*$")
 PLAN_BRIEF_TAG_RE = re.compile(r"\s*\[[A-Za-z][A-Za-z0-9 _/-]*:\s*[^\]]+\]")
 PLAN_BRIEF_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+DASHBOARD_TASK_RE = re.compile(
+    r"^-\s+\[(?P<status>pending|in_progress|in_review|completed|blocked)\]\s+(?P<body>.+?)\s*$"
+)
+DASHBOARD_OPEN_HEADING_RE = re.compile(r"^[ \t]{0,3}#{3,6}\s+(?P<body>.+?)\s*#*\s*$")
+DASHBOARD_ASK_HEADING_RE = re.compile(r"^[ \t]{0,3}##\s+(?P<body>Q\d+\b.+?)\s*#*\s*$", re.I)
+DASHBOARD_ASK_RESOLVED_RE = re.compile(r"\b(?:resolved:\s*\S+|status:\s*resolved)\b", re.I)
 EVIDENCE_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[-_].*)?\.md$")
 DECISION_LOG_HEADING_RE = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marks>#{2,6})\s+decision\s+log\s*#*\s*$", re.I)
 MARKDOWN_HEADING_RE = re.compile(r"^[ \t]{0,3}(#{1,6})\s+\S")
@@ -179,6 +625,337 @@ PARENT_REF_RE = re.compile(
     re.M,
 )
 TASK_STATUSES = ("pending", "in_progress", "in_review", "completed", "blocked")
+
+
+def claude_project_slug(repo_path: Path) -> str:
+    return str(repo_path.expanduser().resolve(strict=False)).replace("/", "-")
+
+
+def compact_session_text(value: str, limit: int = SESSION_EXCERPT_LIMIT) -> str:
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", value or "")
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    clipped = text[: max(0, limit - 3)].rsplit(" ", 1)[0].strip()
+    return f"{clipped or text[: max(0, limit - 3)].strip()}..."
+
+
+def extract_session_text(content: object) -> str:
+    chunks: list[str] = []
+    if isinstance(content, str):
+        chunks.append(content)
+    elif isinstance(content, dict):
+        value = content.get("text")
+        if isinstance(value, str):
+            chunks.append(value)
+    elif isinstance(content, list):
+        for item in content:
+            if isinstance(item, str):
+                chunks.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            block_type = str(item.get("type", ""))
+            value = item.get("text")
+            if isinstance(value, str) and block_type in ("", "text", "input_text", "output_text"):
+                chunks.append(value)
+    return compact_session_text(" ".join(chunks))
+
+
+def read_tail_lines(path: Path, max_bytes: int = SESSION_TAIL_BYTES) -> tuple[list[str], bool]:
+    try:
+        size = path.stat().st_size
+        start = max(size - max_bytes, 0)
+        with path.open("rb") as f:
+            f.seek(start)
+            raw = f.read()
+    except OSError:
+        return [], False
+    text = raw.decode("utf-8", errors="replace")
+    truncated = start > 0
+    if truncated and "\n" in text:
+        text = text.split("\n", 1)[1]
+    return [line for line in text.splitlines() if line.strip()], truncated
+
+
+def parse_claude_session_file(path: Path, limit: int = SESSION_TURN_LIMIT) -> dict:
+    lines, truncated = read_tail_lines(path)
+    turns: list[dict] = []
+    parsed_lines = 0
+    invalid_lines = 0
+    turns_seen = 0
+    session_id = path.stem
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            invalid_lines += 1
+            continue
+        if not isinstance(item, dict):
+            continue
+        parsed_lines += 1
+        if item.get("sessionId"):
+            session_id = str(item["sessionId"])
+        message = item.get("message") if isinstance(item.get("message"), dict) else {}
+        role = str(message.get("role") or item.get("role") or item.get("type") or "")
+        if role not in ("user", "assistant"):
+            continue
+        text = extract_session_text(message.get("content", item.get("content")))
+        if not text:
+            continue
+        turns_seen += 1
+        turns.append({
+            "role": role,
+            "text": text,
+            "timestamp": str(item.get("timestamp") or ""),
+        })
+        turns = turns[-limit:]
+    return {
+        "session_id": session_id,
+        "turns": turns,
+        "turns_seen": turns_seen,
+        "parsed_lines": parsed_lines,
+        "invalid_lines": invalid_lines,
+        "tail_truncated": truncated,
+    }
+
+
+def missing_session_payload(repo: str, status: str = "missing") -> dict:
+    project_dir = CLAUDE_PROJECTS_DIR / claude_project_slug(DEV_ROOT / repo)
+    return {
+        "available": False,
+        "status": status,
+        "repo": repo,
+        "project_dir": str(project_dir),
+        "path": "",
+        "file": "",
+        "session_id": "",
+        "mtime": None,
+        "age_days": None,
+        "turns": [],
+        "turns_seen": 0,
+        "parsed_lines": 0,
+        "invalid_lines": 0,
+        "tail_truncated": False,
+        "source": "~/.claude/projects/latest-jsonl",
+    }
+
+
+def latest_claude_session_for_repo(repo: str) -> dict:
+    project_dir = CLAUDE_PROJECTS_DIR / claude_project_slug(DEV_ROOT / repo)
+    if not project_dir.is_dir():
+        return missing_session_payload(repo)
+    try:
+        candidates = [p for p in project_dir.glob("*.jsonl") if p.is_file()]
+    except OSError:
+        return missing_session_payload(repo, "unreadable")
+    if not candidates:
+        return missing_session_payload(repo, "empty")
+    try:
+        latest = max(candidates, key=lambda p: p.stat().st_mtime)
+        mtime = latest.stat().st_mtime
+    except OSError:
+        return missing_session_payload(repo, "unreadable")
+    session = parse_claude_session_file(latest)
+    session.update({
+        "available": True,
+        "status": "ok",
+        "repo": repo,
+        "project_dir": str(project_dir),
+        "path": str(latest),
+        "file": latest.name,
+        "mtime": mtime,
+        "age_days": round((time.time() - mtime) / 86400, 1),
+        "source": "~/.claude/projects/latest-jsonl",
+    })
+    return session
+
+
+def discover_repo_sessions(repos: set[str]) -> dict[str, dict]:
+    return {repo: latest_claude_session_for_repo(repo) for repo in sorted(repos)}
+
+
+def compact_ledger_text(value: object, limit: int = 360) -> str:
+    text = re.sub(r"[\x00-\x1f]+", " ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def ledger_path_candidates(value: object, repo: str) -> set[Path]:
+    raw = str(value or "").strip()
+    if not raw:
+        return set()
+    try:
+        raw_path = Path(raw).expanduser()
+    except (OSError, ValueError):
+        return set()
+
+    candidates: set[Path] = set()
+    try:
+        if raw_path.is_absolute():
+            candidates.add(raw_path.resolve(strict=False))
+        else:
+            candidates.add((DEV_ROOT / raw_path).resolve(strict=False))
+            if repo:
+                candidates.add((DEV_ROOT / repo / raw_path).resolve(strict=False))
+    except (OSError, ValueError):
+        return set()
+    return candidates
+
+
+def plan_ledger_match_paths(plan_path: Path) -> tuple[str, set[Path]]:
+    resolved = plan_path.resolve(strict=False)
+    paths = {resolved}
+    try:
+        rel = resolved.relative_to(DEV_ROOT)
+    except (OSError, ValueError):
+        return "", paths
+    repo = rel.parts[0] if rel.parts else ""
+    try:
+        paths.add((DEV_ROOT / rel).resolve(strict=False))
+    except (OSError, ValueError):
+        pass
+    if repo:
+        try:
+            paths.add((DEV_ROOT / repo / resolved.relative_to(DEV_ROOT / repo)).resolve(strict=False))
+        except (OSError, ValueError):
+            pass
+    return repo, paths
+
+
+def row_has_publish_or_checkpoint_event(row: dict) -> bool:
+    event = str(row.get("event", ""))
+    publish_kind = str(row.get("publish_kind", ""))
+    return event in {"publish", "vidux_checkpoint"} or publish_kind == "checkpoint"
+
+
+def ledger_row_matches_plan(row: dict, plan_paths: set[Path], repo: str) -> bool:
+    row_repo = str(row.get("repo", ""))
+    if row_repo and repo and row_repo != repo:
+        return False
+    path_fields: list[object] = [row.get("plan_path")]
+    for key in ("files", "files_claimed"):
+        values = row.get(key)
+        if isinstance(values, list):
+            path_fields.extend(values)
+
+    for value in path_fields:
+        candidate_repos = [row_repo]
+        if repo and repo not in candidate_repos:
+            candidate_repos.append(repo)
+        for candidate_repo in candidate_repos:
+            if ledger_path_candidates(value, candidate_repo) & plan_paths:
+                return True
+    return False
+
+
+def compact_ledger_row(row: dict, line_number: int, scope: str) -> dict:
+    files = row.get("files") if isinstance(row.get("files"), list) else []
+    files_claimed = row.get("files_claimed") if isinstance(row.get("files_claimed"), list) else []
+    return {
+        "scope": scope,
+        "line": line_number,
+        "ts": compact_ledger_text(row.get("ts"), 80),
+        "eid": compact_ledger_text(row.get("eid"), 140),
+        "event": compact_ledger_text(row.get("event"), 80),
+        "repo": compact_ledger_text(row.get("repo"), 120),
+        "lane": compact_ledger_text(row.get("lane"), 160),
+        "task_id": compact_ledger_text(row.get("task_id"), 120),
+        "summary": compact_ledger_text(row.get("summary"), 260),
+        "plan_path": compact_ledger_text(row.get("plan_path"), 220),
+        "proof": compact_ledger_text(row.get("proof"), 320),
+        "handoff_status": compact_ledger_text(row.get("handoff_status"), 80),
+        "next_agent_resume": compact_ledger_text(row.get("next_agent_resume"), 320),
+        "files_count": len(files),
+        "files_claimed_count": len(files_claimed),
+    }
+
+
+def ledger_payload_for_plan(
+    plan_path: Path,
+    *,
+    item_limit: int | None = None,
+    scan_limit: int | None = None,
+    ledger_file: Path | None = None,
+) -> dict:
+    item_limit = item_limit or LEDGER_ITEM_LIMIT
+    scan_limit = scan_limit or LEDGER_SCAN_LIMIT
+    ledger_file = ledger_file or LEDGER_FILE
+    repo, plan_paths = plan_ledger_match_paths(plan_path)
+    payload = {
+        "available": False,
+        "status": "missing",
+        "read_only": True,
+        "source": str(ledger_file),
+        "plan_path": str(plan_path),
+        "repo": repo,
+        "scan_limit": scan_limit,
+        "item_limit": item_limit,
+        "scanned_rows": 0,
+        "invalid_rows": 0,
+        "plan_total": 0,
+        "repo_total": 0,
+        "returned": 0,
+        "truncated": False,
+        "items": [],
+    }
+    if not ledger_file.is_file():
+        return payload
+
+    recent: deque[tuple[int, str]] = deque(maxlen=scan_limit)
+    try:
+        with ledger_file.open("r", encoding="utf-8", errors="replace") as fh:
+            for line_number, line in enumerate(fh, start=1):
+                recent.append((line_number, line))
+    except OSError:
+        payload["status"] = "unreadable"
+        return payload
+
+    payload["available"] = True
+    payload["status"] = "ok"
+    payload["scanned_rows"] = len(recent)
+
+    plan_items: list[dict] = []
+    repo_items: list[dict] = []
+    for line_number, line in reversed(recent):
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            payload["invalid_rows"] += 1
+            continue
+        if not isinstance(row, dict) or not row_has_publish_or_checkpoint_event(row):
+            continue
+
+        if ledger_row_matches_plan(row, plan_paths, repo):
+            payload["plan_total"] += 1
+            if len(plan_items) < item_limit:
+                plan_items.append(compact_ledger_row(row, line_number, "plan"))
+            continue
+
+        if repo and str(row.get("repo", "")) == repo:
+            payload["repo_total"] += 1
+            if len(repo_items) < item_limit:
+                repo_items.append(compact_ledger_row(row, line_number, "repo"))
+
+    items = plan_items[:item_limit]
+    if len(items) < item_limit:
+        items.extend(repo_items[: item_limit - len(items)])
+    payload["items"] = items
+    payload["returned"] = len(items)
+    payload["truncated"] = (payload["plan_total"] + payload["repo_total"]) > len(items)
+    return payload
+
+
+def resolve_ledger_plan_target(raw: str) -> Path | None:
+    path = safe_resolve(raw)
+    if path and path.name == "PLAN.md":
+        return path
+    return None
 
 
 def discover_plans() -> list[dict]:
@@ -210,6 +987,9 @@ def discover_plans() -> list[dict]:
     aggregate_memo: dict[str, dict] = {}
     for plan in plans:
         plan["aggregate_stats"] = aggregate_stats(plan, _memo=aggregate_memo)
+    sessions = discover_repo_sessions({plan["repo"] for plan in plans})
+    for plan in plans:
+        plan["session"] = sessions.get(plan["repo"], missing_session_payload(plan["repo"]))
     plans.sort(key=lambda p: (-p["mtime"], p["repo"], p["slug"]))
     return plans
 
@@ -224,10 +1004,122 @@ def plan_list_payload(plans: list[dict]) -> list[dict]:
     """
     payload: list[dict] = []
     for plan in plans:
-        item = {k: v for k, v in plan.items() if k != "children"}
+        item = {
+            k: v
+            for k, v in plan.items()
+            if k not in (
+                "children",
+                "dashboard_tasks",
+                "dashboard_inbox_entries",
+                "dashboard_ask_leo_entries",
+            )
+        }
         item["child_rels"] = [child["rel"] for child in plan.get("children", [])]
         payload.append(item)
     return payload
+
+
+def format_eta_hours(hours: float) -> str:
+    value = round(float(hours), 2)
+    if value.is_integer():
+        return f"{int(value)}h"
+    return f"{value:.2f}".rstrip("0").rstrip(".") + "h"
+
+
+def build_fleet_summary(plans: list[dict]) -> dict:
+    plans_count = len(plans)
+    repos_count = len({plan.get("repo", "") for plan in plans if plan.get("repo")})
+    completed = 0
+    total = 0
+    eta_remaining = 0.0
+    eta_tagged = 0
+    eta_eligible = 0
+    for plan in plans:
+        stats = plan.get("task_stats") or {}
+        counts = stats.get("counts") or {}
+        completed += int(counts.get("completed") or 0)
+        total += int(stats.get("total") or 0)
+        eta_remaining += float(stats.get("eta_total") or 0.0)
+        eta_tagged += int(stats.get("eta_tagged") or 0)
+        eta_eligible += int(stats.get("eta_eligible") or 0)
+
+    pct = round((completed / total) * 100) if total else 0
+    eta_remaining = round(eta_remaining, 2)
+    return {
+        "plans": plans_count,
+        "repos": repos_count,
+        "tasks_completed": completed,
+        "tasks_total": total,
+        "completion_pct": pct,
+        "eta_remaining_hours": eta_remaining,
+        "eta_remaining_label": f"{format_eta_hours(eta_remaining)} remaining",
+        "eta_tagged": eta_tagged,
+        "eta_eligible": eta_eligible,
+    }
+
+
+def dashboard_source_rel(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(DEV_ROOT))
+    except (OSError, ValueError):
+        return str(path)
+
+
+def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, tab: str) -> dict:
+    return {
+        "kind": kind,
+        "repo": plan.get("repo", ""),
+        "rel": plan.get("rel", ""),
+        "path": plan.get("path", ""),
+        "source_path": str(source_path),
+        "source_rel": dashboard_source_rel(source_path),
+        "tab": tab,
+        "line": raw.get("line"),
+        "label": raw.get("label", ""),
+        "status": raw.get("status", ""),
+    }
+
+
+def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dict:
+    categories: dict[str, dict] = {
+        "in_progress": {"label": "In Progress", "items": [], "total": 0},
+        "blocked": {"label": "Blocked", "items": [], "total": 0},
+        "ask_leo": {"label": "ASK-LEO", "items": [], "total": 0},
+        "inbox": {"label": "INBOX", "items": [], "total": 0},
+    }
+
+    def add(category: str, item: dict) -> None:
+        bucket = categories[category]
+        bucket["total"] += 1
+        if len(bucket["items"]) < limit:
+            bucket["items"].append(item)
+
+    for plan in plans:
+        plan_path = Path(plan.get("path", ""))
+        for task in plan.get("dashboard_tasks", []) or []:
+            status = task.get("status", "")
+            if status in ("in_progress", "blocked"):
+                add(status, dashboard_base_item(plan, plan_path, task, kind="task", tab="PLAN.md"))
+
+        inbox_path = plan_path.parent / "INBOX.md"
+        for entry in plan.get("dashboard_inbox_entries", []) or []:
+            add("inbox", dashboard_base_item(plan, inbox_path, entry, kind="inbox", tab="INBOX.md"))
+
+        ask_path = plan_path.parent / "ASK-LEO.md"
+        for entry in plan.get("dashboard_ask_leo_entries", []) or []:
+            add("ask_leo", dashboard_base_item(plan, ask_path, entry, kind="ask_leo", tab="ASK-LEO.md"))
+
+    for bucket in categories.values():
+        bucket["truncated"] = bucket["total"] > len(bucket["items"])
+        bucket["limit"] = limit
+
+    return {
+        "generated_at": _truth_now(),
+        "plans_scanned": len(plans),
+        "repos": len({plan.get("repo", "") for plan in plans if plan.get("repo")}),
+        "limit": limit,
+        "categories": categories,
+    }
 
 
 def attach_children(plans: list[dict]) -> list[dict]:
@@ -402,6 +1294,8 @@ def plan_meta(path: Path) -> dict:
     investigations = discover_investigations(parent_dir, text)
     evidence = discover_evidence(parent_dir)
     parent_rel = extract_parent_rel(text)
+    dashboard_inbox_entries = read_open_entries(parent_dir / "INBOX.md") if "INBOX.md" in siblings else []
+    dashboard_ask_leo_entries = read_ask_leo_entries(parent_dir / "ASK-LEO.md") if "ASK-LEO.md" in siblings else []
     return {
         "repo": repo,
         "slug": slug,
@@ -419,6 +1313,9 @@ def plan_meta(path: Path) -> dict:
         "investigations": investigations,
         "evidence": evidence,
         "parent_rel": parent_rel,
+        "dashboard_tasks": extract_dashboard_tasks(text),
+        "dashboard_inbox_entries": dashboard_inbox_entries,
+        "dashboard_ask_leo_entries": dashboard_ask_leo_entries,
     }
 
 
@@ -530,6 +1427,121 @@ def clean_plan_brief_text(value: str, limit: int = 180) -> str:
         return text
     clipped = text[: max(0, limit - 3)].rsplit(" ", 1)[0].strip()
     return f"{clipped or text[: max(0, limit - 3)].strip()}..."
+
+
+def markdown_section_lines(text: str, heading: str) -> list[tuple[int, str]]:
+    """Return (1-based line, text) pairs for a markdown heading body."""
+    lines = text.splitlines()
+    start_index = None
+    start_level = None
+    heading_re = re.compile(
+        rf"^[ \t]{{0,3}}(?P<marks>##{{1,6}})\s+{re.escape(heading)}\s*#*\s*$",
+        re.I,
+    )
+    for i, line in enumerate(lines):
+        m = heading_re.match(line)
+        if not m:
+            continue
+        start_index = i
+        start_level = len(m.group("marks"))
+        break
+    if start_index is None or start_level is None:
+        return []
+
+    body: list[tuple[int, str]] = []
+    for i, line in enumerate(lines[start_index + 1:], start=start_index + 2):
+        hm = MARKDOWN_HEADING_RE.match(line)
+        if hm and len(hm.group(1)) <= start_level:
+            break
+        body.append((i, line))
+    return body
+
+
+def extract_dashboard_tasks(text: str) -> list[dict]:
+    tasks: list[dict] = []
+    for line_number, line in markdown_section_lines(text, "Tasks"):
+        m = DASHBOARD_TASK_RE.match(line)
+        if not m:
+            continue
+        status = m.group("status")
+        if status not in ("in_progress", "blocked"):
+            continue
+        label = clean_plan_brief_text(m.group("body"), 220)
+        if label:
+            tasks.append({"status": status, "label": label, "line": line_number})
+    return tasks
+
+
+def open_entry_lines(text: str) -> list[tuple[int, str]]:
+    open_lines = markdown_section_lines(text, "Open")
+    if open_lines:
+        return open_lines
+    return list(enumerate(text.splitlines(), start=1))
+
+
+def extract_open_entries(text: str) -> list[dict]:
+    entries: list[dict] = []
+    for line_number, line in open_entry_lines(text):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("```"):
+            continue
+        if MARKDOWN_HEADING_RE.match(line) and not DASHBOARD_OPEN_HEADING_RE.match(line):
+            continue
+
+        label = ""
+        hm = DASHBOARD_OPEN_HEADING_RE.match(line)
+        if hm:
+            label = hm.group("body")
+        else:
+            bm = PLAN_BRIEF_BULLET_RE.match(line)
+            if bm:
+                label = bm.group("body")
+        label = clean_plan_brief_text(label, 220)
+        if label:
+            entries.append({"label": label, "line": line_number})
+    return entries
+
+
+def read_open_entries(path: Path) -> list[dict]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return extract_open_entries(text)
+
+
+def extract_ask_leo_entries(text: str) -> list[dict]:
+    if markdown_section_lines(text, "Open"):
+        return extract_open_entries(text)
+
+    lines = text.splitlines()
+    entries: list[dict] = []
+    for index, line in enumerate(lines):
+        m = DASHBOARD_ASK_HEADING_RE.match(line)
+        if not m:
+            continue
+        section_lines: list[str] = []
+        for next_line in lines[index + 1:]:
+            if re.match(r"^[ \t]{0,3}##\s+\S", next_line):
+                break
+            section_lines.append(next_line)
+        section_text = "\n".join(section_lines)
+        if DASHBOARD_ASK_RESOLVED_RE.search(section_text):
+            continue
+        label = clean_plan_brief_text(m.group("body"), 220)
+        if label:
+            entries.append({"label": label, "line": index + 1})
+    return entries if entries else extract_open_entries(text)
+
+
+def read_ask_leo_entries(path: Path) -> list[dict]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return extract_ask_leo_entries(text)
 
 
 def extract_focus_tasks(text: str, limit: int = 3) -> list[dict]:
@@ -839,6 +1851,41 @@ def safe_resolve_any(raw: str) -> Path | None:
     return candidate
 
 
+def is_allowed_file_target(raw: str) -> bool:
+    """Return True when a missing /api/file target would otherwise be allowed."""
+    try:
+        candidate = Path(raw).resolve(strict=False)
+    except (OSError, ValueError):
+        return False
+    if "node_modules" in candidate.parts:
+        return False
+    try:
+        candidate.relative_to(DEV_ROOT)
+    except ValueError:
+        pass
+    else:
+        if candidate.name in ALLOWED_PLAN_FILES:
+            return True
+        if candidate.suffix == ".md" and (
+            "investigations" in candidate.parts or "evidence" in candidate.parts
+        ):
+            return True
+    try:
+        candidate.relative_to(ARTIFACTS_DIR.resolve(strict=False))
+    except (OSError, ValueError):
+        return False
+    return candidate.suffix.lower() == ".html"
+
+
+def read_browser_file(path: Path) -> tuple[int, bytes | str]:
+    try:
+        return 200, path.read_bytes()
+    except FileNotFoundError:
+        return 404, f"file missing: {path.name}"
+    except OSError as exc:
+        return 500, f"file read failed: {exc}"
+
+
 def discover_artifacts() -> list[dict]:
     """List ad-hoc HTML artifacts in ARTIFACTS_DIR, newest first."""
     if not ARTIFACTS_DIR.is_dir():
@@ -1078,15 +2125,35 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_static(name)
         elif route == "/api/health":
             self._json({"ok": True, "dev_root": str(DEV_ROOT), "port": PORT,
+                        "repo_root": str(VIDUX_ROOT),
+                        "server_path": str(SERVER_FILE),
+                        "server_mtime_ns": SERVER_MTIME_NS,
                         "artifacts_dir": str(ARTIFACTS_DIR)})
         elif route == "/api/plans":
+            plans = discover_plans_cached()
             self._json({
-                "plans": plan_list_payload(discover_plans_cached()),
+                "plans": plan_list_payload(plans),
+                "summary": build_fleet_summary(plans),
+                "dashboard": build_dashboard(plans),
                 "dev_root": str(DEV_ROOT),
             })
         elif route == "/api/artifacts":
             self._json({"artifacts": discover_artifacts(),
                         "artifacts_dir": str(ARTIFACTS_DIR)})
+        elif route == "/api/vidux/truth":
+            refresh = (qs.get("refresh") or [""])[0]
+            self._json(
+                vidux_truth_payload(force_refresh=True)
+                if refresh == "sync"
+                else vidux_truth_cached_payload()
+            )
+        elif route == "/api/ledger":
+            raw = (qs.get("path") or [""])[0]
+            plan_path = resolve_ledger_plan_target(raw)
+            if not plan_path:
+                self._send(403, "forbidden")
+                return
+            self._json(ledger_payload_for_plan(plan_path))
         elif route == "/api/comments":
             raw = (qs.get("path") or [""])[0]
             p = safe_resolve_any(raw)
@@ -1103,11 +2170,18 @@ class Handler(BaseHTTPRequestHandler):
             raw = (qs.get("path") or [""])[0]
             p = safe_resolve_any(raw)  # plans + artifacts
             if not p:
+                if is_allowed_file_target(raw):
+                    self._send(404, f"file missing: {Path(raw).name}")
+                    return
                 self._send(403, "forbidden")
                 return
             ctype = ("text/html; charset=utf-8" if p.suffix.lower() == ".html"
                      else "text/markdown; charset=utf-8")
-            self._send_with_type(p.read_bytes(), ctype)
+            status, body = read_browser_file(p)
+            if status != 200:
+                self._send(status, body if isinstance(body, str) else "file read failed")
+                return
+            self._send_with_type(body, ctype)
         elif route == "/api/receipts/list":
             status, body = _receipts_handler.handle_list()
             self._send(status, "") if status >= 400 else self._json(body)
@@ -1411,7 +2485,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
+
+    def _write_body(self, body: bytes) -> bool:
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
 
     def _json(self, payload):
         body = json.dumps(payload, indent=2).encode("utf-8")
@@ -1420,7 +2501,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _send_with_type(self, body: bytes, ctype: str):
         self.send_response(200)
@@ -1428,7 +2509,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _send_text(self, text: str):
         body = text.encode("utf-8")
@@ -1437,7 +2518,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _send(self, code: int, msg: str):
         body = msg.encode("utf-8")
@@ -1445,7 +2526,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
 
 def guess_content_type(name: str) -> str:

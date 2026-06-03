@@ -17,7 +17,7 @@ This recipe is the exception path. In normal vidux automation flow, Codex defaul
 
 ## Runtime parity
 
-Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern all work identically on Codex as on Claude. A Codex-run vidux cycle reads PLAN.md, picks a task, ships code, runs the verification gate, and checkpoints to memory.md — exactly the same shape as a Claude-run cycle.
+Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern all work identically on Codex as on Claude. A Codex-run vidux cycle reads PLAN.md, picks a task, ships code, runs the verification gate, records a lane-local memory note, and, for shipped work, updates the owning plan plus matching publish ledger row before any commit/push transport.
 
 What differs between runtimes:
 
@@ -68,15 +68,15 @@ Codex caches `automation.toml` at app startup. Editing the TOML normally require
 ```
 ~/.codex/automations/<lane-id>/automation.toml  — static shim (changes never)
 <lane-dir>/<lane-id>/prompt.md       — the real prompt (hot-editable)
-<lane-dir>/<lane-id>/memory.md       — lane memory
+<lane-dir>/<lane-id>/memory.md       — lane-local cycle log
 ```
 
-Lane state (prompt.md + memory.md) lives under a shared `<lane-dir>/` — pick one convention per fleet (e.g. `~/.vidux/lanes/`, `~/.claude-automations/`, `~/.codex-automations/`, or a project-scoped directory) and reuse it across runtimes. Mixing conventions is fine; keeping prompt + memory paired inside the same `<lane-dir>/<lane-id>/` is what matters.
+Lane instructions and the lane-local cycle log live under a shared `<lane-dir>/` — pick one convention per fleet (e.g. `~/.vidux/lanes/`, `~/.claude-automations/`, `~/.codex-automations/`, or a project-scoped directory) and reuse it across runtimes. Mixing conventions is fine; keeping prompt + memory paired inside the same `<lane-dir>/<lane-id>/` gives the next fire local continuity. Shipped-cycle proof and resume metadata still live in the owning `PLAN.md` plus matching publish ledger row.
 
 **The static shim prompt** (goes in `automation.toml`):
 
 ```
-prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nAppend one line to memory.md at the end."
+prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching publish ledger row before any commit/push."
 ```
 
 The shim points Codex at the real prompt on disk. Edits to `prompt.md` take effect on the **next fire** — no Codex restart needed. This is the primary win: you can iterate on lane behavior without restarting the app every time.
@@ -92,7 +92,7 @@ Every new automation follows this exact 5-step sequence:
 ```
 1. Write automation.toml       → disk (UI visibility source)
 2. Insert DB row               → sqlite (runtime source)
-3. Write prompt.md + memory.md → disk (lane state — hot-reload target)
+3. Write prompt.md + memory.md → disk (lane instructions + local cycle log)
 4. Run codex_verify_tomls      → catches missing fields / TOML-DB drift
 5. Full-quit + reopen the app  → clears Electron cache (Bug #14/#15)
 ```
@@ -160,14 +160,14 @@ Before the reopen, source `scripts/lib/codex-db.sh` and run `codex_verify_tomls`
 1. **Never edit `automations` while Codex is running.** The app holds an in-memory cache; writes from `sqlite3` can race the cache and get overwritten. Stop the app first (`osascript -e 'tell application "Codex" to quit'`), write, then reopen.
 2. **`~/.codex/automations/` must be a real directory, not a symlink.** Codex's startup scan filters symlinks via `isDirectory()`. If you need to share automation definitions across machines, symlink individual lane subfolders into a real parent — never symlink the parent itself.
 3. **Never register without both stores.** DB row without TOML = invisible-but-live. TOML without DB row = visible-but-dead. Both must exist.
-4. **Never bypass pre-commit hooks with `--no-verify`.** Pre-commit hooks (prettier, lint, typecheck, SwiftLint) are the review trail on Codex as on Claude. If a hook fails: document the failure in memory.md, write `[BLOCKED-CI-HOOK]`, exit. A human fixes the hook, not the automation.
+4. **Never bypass pre-commit hooks with `--no-verify`.** Pre-commit hooks (prettier, lint, typecheck, SwiftLint) are the review trail on Codex as on Claude. If a hook fails: record the lane-local memory note, update the owning plan/ledger handoff if this cycle is being handed off, write `[BLOCKED-CI-HOOK]`, and exit. A human fixes the hook, not the automation.
 5. **Full-quit on every schema change.** `pkill -f codex-app-server` leaves the Electron frontend alive with stale cache. Use `osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"`.
 
 ---
 
 ## Cycling Codex sessions
 
-Claude Code has `/resume` for fresh sessions picking up lanes from disk. Codex's equivalent is a full-quit + reopen — the app restarts, re-reads the DB, and resumes scheduling. Lanes pick up from `memory.md` on the next fire.
+Claude Code has `/resume` for fresh sessions picking up lanes from disk. Codex's equivalent is a full-quit + reopen — the app restarts, re-reads the DB, and resumes scheduling. Lanes use `prompt.md` plus `memory.md` for local continuity on the next fire, then use the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
 
 Codex state GC is managed externally, not by Codex itself. Worktree cleanup for Codex-spawned worktrees is the operator's responsibility — Codex auto-delete is OFF, and a sensible retention policy for `~/Development/<repo>-worktrees/codex-*` is 3h minimum. Without external GC, worktrees accumulate at ~84/day at 10 GB under a heavy-cadence fleet.
 

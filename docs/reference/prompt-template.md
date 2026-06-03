@@ -14,7 +14,7 @@ For the runtime mechanics of how the prompt is injected each fire, see [claude-l
 5. Assess        — priority rules for picking the next action
 6. Act           — how to actually do the work
 7. Authority     — paths owned vs paths forbidden
-8. Checkpoint    — what to write to memory.md at the end
+8. Checkpoint    — lane-local memory note plus publish packet fields for shipped work
 ```
 
 Every block is required. A lane missing any of them is underspecified and will produce drift.
@@ -146,9 +146,10 @@ How to actually do the work. This block holds the heavy rules — worktree disci
 - Commit message: `{verb}({scope}): {what}`
 - After commit, `git branch --show-current` must match intended branch
 - Before `git push`, update the owning PLAN.md Progress/Tasks/Drift Log and
-  emit a `ledger-emit.sh --event publish` row with plan, proof, handoff, and
-  claimed-file fields.
-- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --plan-path "{PLAN.md}" --proof "{command/artifact}" --handoff-status "{done|in_progress|blocked|needs_review}" --ledger "{eid-or-dry-run}" --file-claimed "{path}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
+  emit a `ledger-emit.sh --event publish` row with concise summary, plan task
+  id, plan path, proof, `handoff_status`, files claimed, next-agent resume,
+  changed files, and path-like claims.
+- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --summary "{summary}" --plan-path "{PLAN.md}" --proof "{command/artifact}" --handoff-status "{done|in_progress|blocked|needs_review}" --ledger "{publish-ledger-eid}" --file-claimed "{path}" --review-pass "invariant-audit:pass:{plan/ledger/drift proof}" --review-pass "regression-runner:pass:{tests/docs proof}" --review-pass "adversarial-reviewer:pass:{overclaim/stale-proof check}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
 - Open a ready PR with `gh pr create --base main --head "{branch}" --title "{title}" --body-file /tmp/vidux-pr-body.md`
 
 ### Merge (only when gate allows)
@@ -176,7 +177,7 @@ How to actually do the work. This block holds the heavy rules — worktree disci
 - Before publish, run three self-review passes: invariant audit
   (plan/ledger/drift/claim propagation), regression runner, and adversarial
   reviewer. Record the packet with `python3 scripts/vidux-publish-scrutiny.py`
-  using `--review-pass invariant-audit:pass:"..."`,
+  using `--summary "<what changed>"`, `--review-pass invariant-audit:pass:"..."`,
   `--review-pass regression-runner:pass:"..."`, and
   `--review-pass adversarial-reviewer:pass:"..."`. Fix P0/P1 findings before
   publishing.
@@ -210,7 +211,7 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 ### Push authorization
 - Operational PRs: push branch + open ready-for-review by default; no approval needed.
 - Draft PRs: only for true WIP or a missing gate; flip ready as soon as the gate passes.
-- PR body must carry `Lane:`, `Plan task:`, `Plan path:`, `Proof:`, `Ledger:`, `Handoff status:`, `Files claimed:`, and `Resume point:`.
+- PR body must carry `Lane:`, `Plan task:`, `Summary:`, `Plan path:`, `Proof:`, `Ledger:`, `Handoff status:`, `Files claimed:`, and `Resume point:`.
 - Direct-to-main or destructive operations (force-push, branch delete, `git reset --hard`): forbidden for this lane.
 ```
 
@@ -264,7 +265,7 @@ the last entry already said, skip the entry entirely.
 ```
 
 **Rules:**
-- One line, not a paragraph. The diff tells the story; memory.md orients.
+- One line, not a paragraph. The owning plan plus matching publish ledger row carries the shipped-cycle story; memory.md only orients the lane-local cycle note.
 - Always tag. Untagged entries are unsearchable by future agents.
 - Include the session SHA (`{session-sha}`) when the lane hosts cross-session state.
 
@@ -303,8 +304,8 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 - Fresh worktree per code change
 - Verify: lint + build + (UI) screenshot
 - Commit: `{verb}({scope}): {what}`; never `git add -A`
-- Before push: update PLAN.md and emit `ledger-emit.sh --event publish`
-- PR body: `scripts/vidux-pr-body.py` with Lane / Plan task / Plan path / Proof / Ledger / Handoff status / Files claimed / Resume point
+- Before push: update PLAN.md and emit `ledger-emit.sh --event publish --summary --task-id --plan-path --proof --handoff-status --resume --file --claim`
+- PR body: `scripts/vidux-pr-body.py` with Lane / Plan task / Summary / Plan path / Proof / Ledger / Handoff status / Files claimed / Self-Scrutiny review passes / Resume point
 - Long horizon: one canonical PLAN.md, L2 sub-plans only for investigations,
   `claims-bus.sh check`, `files_claimed`, stale-proof refresh, meter checkpoint
   every 30-60 min, invariant audit + regression runner + adversarial reviewer
@@ -319,7 +320,7 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 - Push tier: operational PRs only; ready-for-review by default, canonical PR body required, no direct-to-main/destructive ops
 
 ## 8. Checkpoint
-Append one line to memory.md:
+Append one lane-local line to memory.md:
 `- [YYYY-MM-DDThh:mm:ssZ {runtime} {lane-role}] [TAG] {what}. {next-cycle hint}.`
 For code/publish/in-progress work also include: Plan row moved, Ledger eid,
 Proof, Files claimed, `handoff_status`, and next-agent resume.

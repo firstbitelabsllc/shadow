@@ -4,7 +4,10 @@ The five principles are the doctrine. They govern every agent decision: what to 
 
 ## Principle 1: Plan First, Code Second
 
-PLAN.md is the source of truth. Code is derived from it. To change code, update the plan first.
+PLAN.md is the planning authority for the queue, decisions, constraints, and
+progress. Code is derived from that plan state. To change code, update the plan
+first; to claim a shipped cycle, pair the plan update with a publish ledger row
+that carries proof, handoff status, files claimed, and next-agent resume.
 
 Every plan entry cites evidence — a codebase grep, a PR comment, a design doc quote, a team chat message. **A plan entry without evidence is a guess. Guesses cause rework.**
 
@@ -22,13 +25,18 @@ Every plan entry cites evidence — a codebase grep, a PR comment, a design doc 
 
 ## Principle 2: Design for Interruption
 
-Every session ends. Context will be lost. Auth will expire. State lives in files, never in memory. Checkpoints are structured (not freeform summaries). Any agent can resume from the last checkpoint.
+Every session ends. Context will be lost. Auth will expire. State lives in repo
+files plus append-only ledger rows, never in memory. Checkpoints are structured
+(not freeform summaries). Any agent can resume from the last plan/ledger packet.
 
 After any interruption, re-read PLAN.md and evidence/ from disk. Never trust summaries or memory for plan details.
 
 **Why this matters:** AI agents are inherently stateless. Building systems that assume continuity — "just pick up where I left off" — always fail at the worst moment.
 
-**In practice:** Every cycle ends with a structured commit. The commit message contains what changed, what's next, and any blockers. The Progress log in PLAN.md contains the same. A fresh agent reads these and knows exactly where things stand.
+**In practice:** Every cycle updates the owning plan/progress record. Any
+publishable branch, PR, or release also emits a publish ledger row with the task
+id, proof, handoff status, files claimed, and next-agent resume. A fresh agent
+reads the plan plus ledger packet and knows exactly where things stand.
 
 ## Principle 3: Investigate Before Fixing
 

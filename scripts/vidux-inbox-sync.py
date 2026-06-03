@@ -11,8 +11,10 @@ Direction:
   --direction=both    both (default)
 
 Policy:
-  * PLAN.md is the source of truth for [pending] / [in_progress] / [in_review]
-    / [blocked] tasks. By default, novel external items land in INBOX.md as
+  * PLAN.md is the queue/planning authority for [pending] / [in_progress] /
+    [in_review] / [blocked] tasks. External boards mirror plan task state;
+    shipped-cycle proof and resume metadata still live in matching publish
+    ledger rows. By default, novel external items land in INBOX.md as
     `- [live-feedback] <title> [Source: gh_projects:<id>]` entries for humans
     to promote. When an adapter explicitly sets `auto_promote_target`, novel
     external items are routed directly into that target PLAN.md as `BD-*`
