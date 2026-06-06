@@ -6,6 +6,11 @@ Automation is additive. It never overrides the discipline in SKILL.md; it only d
 
 For Codex-created automations, the default run mode is **Chat**. Treat `Worktree` and `Local` as explicit opt-ins only when the user asks for repo-bound execution or the task is impossible to do from chat.
 
+Control-plane overlays are allowed to choose an execution mode, but they do not
+own queue state. A control plane may store provider refs, cadence, last fire,
+next fire, and retirement rules; each fired run must rehydrate from `PLAN.md`,
+`INBOX.md`, evidence, and publish ledger rows before acting.
+
 ---
 
 ## When to automate (and when not to)
@@ -145,6 +150,19 @@ Default: **Claude-local (CronCreate)**. Simpler to debug, fast feedback, reads m
 For Codex-created automations, default to **Chat** execution so the lane runs in-conversation rather than in `Worktree` or `Local`. Only choose `Worktree` or `Local` if the user explicitly asks for that execution style or the automation truly needs direct project-folder runtime.
 
 For Codex-native repo-bound lanes (the exception path), see `guides/recipes/codex-runtime.md`. The rest of this guide assumes Claude lanes via `CronCreate` unless a Codex Chat automation is explicitly being set up.
+
+Use this provider-neutral mode table when an overlay asks Vidux how to run:
+
+| Situation | Default |
+|---|---|
+| Chat-scoped "keep this thread going" | Chat heartbeat in the current thread |
+| Must survive laptop close or needs external event/API trigger | Routine or CronCreate |
+| Local-only simulator/browser/Mac state | Local cron or launchd |
+| One-shot research or bounded disagreement audit | Subagent |
+| Small direct task | Inline Vidux loop |
+
+Whichever runtime fires, the state contract is the same: routines drive runs;
+`PLAN.md` and ledger remain the authority.
 
 ### 2. Pick the role
 
