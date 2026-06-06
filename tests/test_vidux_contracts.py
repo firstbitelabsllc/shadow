@@ -509,6 +509,9 @@ class ViduxContractTests(unittest.TestCase):
             self.assertEqual(row["blocked"], 1)
             self.assertEqual(row["pending"], 2)
             self.assertEqual(row["eta_hours"], 1.0)
+            self.assertIn("blocked", row["flags"])
+            self.assertIn("Remaining automations", " ".join(row["blocked_tasks"]))
+            self.assertIn("Validate PR manifest", " ".join(row["pending_tasks"]))
 
             rendered = subprocess.run(
                 [
@@ -609,6 +612,9 @@ class ViduxContractTests(unittest.TestCase):
             self.assertEqual(stale_row["completed"], 1)
             self.assertEqual(stale_row["blocked"], 1)
             self.assertEqual(stale_row["eta_hours"], 2.0)
+            self.assertIn("blocked", stale_row["flags"])
+            self.assertIn("live remaining slice", " ".join(stale_row["pending_tasks"]))
+            self.assertIn("parked slice", " ".join(stale_row["blocked_tasks"]))
 
     def test_vidux_status_labels_scan_root_plan_as_repo_name(self):
         """Repo-root scans must keep the root PLAN.md in the focus bucket."""
