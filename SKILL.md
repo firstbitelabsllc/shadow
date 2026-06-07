@@ -94,6 +94,8 @@ But a shipped surface that works is done -- stop polishing and move to the next 
 
 Never assert "it works." Run the build, run the tests, show the screenshot. Definition of done for UI work is a visual proof, never just "the build passes."
 
+If the change reaches a **deployed surface**, proof is hitting the LIVE surface — not the merge, the upload, or a ledger row. A merge is not a deploy; an upload is not a release. Verify the live route/worker/build actually serves the new code (e.g. `curl <route>/api/health` returns the merged SHA; a worker fetch returns the new version; a mobile build number reaches the store's "ready to test"). If you cannot verify the live surface, leave the row `[in_review]` and record `deploy unverified` with the exact check command — never mark it done.
+
 When an audit or grep produces a count or classification, **spot-check at least one entry from each category** before making decisions on it. A grep hit is not a fact -- it's a lead. A line matching "git push" might be a prohibition ("NEVER git push"), not an instruction. An automation classified as "push-capable" might operate on a non-git directory. Validate before you plan; plan before you code.
 
 After a failure, produce two artifacts: a code fix (the immediate repair) and a process fix (a hook, a test, a constraint, a plan update). The process fix is the valuable output -- it makes the system smarter for next time.
@@ -170,7 +172,12 @@ ASSESS     -> Resume [in_progress] first, else pick highest-impact unblocked tas
 ACT        -> Execute tasks until queue empty, blocker, or context budget.
              Empty queue? Scan INBOX, owned paths, git log, blocked tasks. Anything
              found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit.
-VERIFY     -> Build, test, gate
+VERIFY     -> Build, test, gate. If the repo declares CANON terms (e.g. a
+             vidux.config.json `canon_terms` / CANON.md, or approved entity
+             names), grep the diff + touched plan rows for retired aliases
+             before CHECKPOINT — a hit blocks completion. Citation-only canon
+             ("use the right names") is insufficient; a stale agent drifts, an
+             executable grep gate does not.
 CHECKPOINT -> Update the plan/queue note, emit the publish ledger row, then
              commit/push only after those breadcrumbs exist. Reconcile planned
              vs actual; use `vidux drift` if they diverge.
@@ -204,7 +211,7 @@ Vidux defaults to trunk-first:
 
 - Start from the current trunk branch in the canonical repo checkout. Prefer `main`.
 - If a repo has not renamed its trunk, detect and use the actual trunk branch instead of forcing a broken assumption.
-- Create short-lived branches or worktrees from the current trunk head only when isolation is useful.
+- Create short-lived branches or worktrees from the current trunk head only when isolation is useful. **When 2+ agents may touch the same repo, an isolated worktree off `origin/<trunk>` is MANDATORY — never edit, commit, rebase, or reset the shared trunk checkout a sibling session may hold.** A fresh worktree has no `node_modules`/`vendor` — run the repo's install (`npm ci` / `bundle install`) BEFORE the first commit, or husky/lint-staged hooks will revert the work; never `--no-verify` to dodge that.
 - Treat lane branches/worktrees as disposable integration helpers, not as the source of truth.
 - Before a job is done, every intended change must be merged or cherry-picked back into trunk in the canonical tree and the publish propagation must be recorded in the owning plan row, publish ledger row, proof trail, handoff status, files claimed, path-like claims, and next-agent resume point.
 - Run the final proof, release gates, and any ship/deploy command from that merged trunk state; if those commands publish externally, record the plan and ledger propagation before claiming done.
