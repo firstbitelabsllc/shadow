@@ -145,8 +145,42 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         conn.close()
         return res.status, text
 
+    def head(self, path: str):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("HEAD", path)
+        res = conn.getresponse()
+        body = res.read()
+        headers = dict(res.getheaders())
+        status = res.status
+        conn.close()
+        return status, headers, body
+
     def json_headers(self, **extra: str) -> dict[str, str]:
         return {"Content-Type": "application/json", **extra}
+
+    def test_head_health_returns_headers_without_body(self):
+        status, headers, body = self.head("/api/health")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"")
+        self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
+        self.assertGreater(int(headers["Content-Length"]), 0)
+
+    def test_head_static_returns_headers_without_body(self):
+        status, headers, body = self.head("/")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"")
+        self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertGreater(int(headers["Content-Length"]), 0)
+
+    def test_head_missing_route_keeps_status_without_body(self):
+        status, headers, body = self.head("/nope")
+
+        self.assertEqual(status, 404)
+        self.assertEqual(body, b"")
+        self.assertEqual(headers["Content-Type"], "text/plain; charset=utf-8")
+        self.assertGreater(int(headers["Content-Length"]), 0)
 
     def test_artifact_post_accepts_same_origin_json(self):
         status, text = self.post(
@@ -647,6 +681,23 @@ class BrowserResponseWriteTests(unittest.TestCase):
         browser_server.Handler._send_with_type(handler, b"body", "text/plain")
         browser_server.Handler._send_text(handler, "markdown")
         browser_server.Handler._send(handler, 404, "missing")
+
+    def test_head_only_response_helpers_skip_body_write(self):
+        writes = []
+        handler = object.__new__(browser_server.Handler)
+        handler._head_only = True
+        handler.wfile = type("Writer", (), {"write": lambda _self, body: writes.append(body)})()
+        handler.send_response = lambda code: None
+        handler.send_header = lambda name, value: None
+        handler.end_headers = lambda: None
+
+        self.assertTrue(browser_server.Handler._write_body(handler, b"hello"))
+        browser_server.Handler._json(handler, {"ok": True})
+        browser_server.Handler._send_with_type(handler, b"body", "text/plain")
+        browser_server.Handler._send_text(handler, "markdown")
+        browser_server.Handler._send(handler, 404, "missing")
+
+        self.assertEqual(writes, [])
 
 
 class BrowserPlanDiscoveryTests(unittest.TestCase):
