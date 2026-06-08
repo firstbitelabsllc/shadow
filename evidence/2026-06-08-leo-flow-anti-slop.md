@@ -9,8 +9,15 @@ Ledger: `evt_20260608_5e30fn_leo_flow_anti_slop_publish`
 - `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/SKILL.md` now states the Anti-Slop Dispatcher Rule: Leo Flow routes, critiques, names proof gaps, projects sidecars, and folds back receipts, but does not own final user-facing prose/status/strategy when a narrower skill owns the surface.
 - `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/flow.yaml` now records `anti_slop_gate` in packet output plus final-output owners for `/leon`, `/sloth`, `/pilot-leo`, `/hook`, `/crashcourse`, `/architect`, and repo lanes.
 - `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow` now emits `anti_slop_gate` with `flow_role=dispatcher_gate_only`, `final_output_owner`, lane owners, and blocking slop receipts.
-- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh` now covers unknown-skill dispatch, duplicated output blocks, mangled Markdown tables, orphaned workflow state, and final-owner handoffs to `/leon`, `/sloth`, and `/pilot-leo`.
-- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-emit.sh` and `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-append.sh` now preserve `next_agent_resume` so Vidux publish packets can carry a real resume point.
+- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh` now covers unknown-skill dispatch, duplicated output blocks, mangled Markdown tables, orphaned workflow state, hard-wall default output, proof-result contradictions, active-run protection, self-review filtering, signpost metadata, and final-owner handoffs to `/heat-review`, `/leon`, `/sloth`, and `/pilot-leo`.
+- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-emit.sh` dry-run output now normalizes event names before printing, matching append behavior.
+
+## Post-Review Fixes
+
+- Five independent staff-review passes found and fixed: hidden hard-wall default output, mixed review+slop packets defaulting to `/leon`, terminal `blocked` runs staying active, proof-honesty accepting `result=fail`, self-review false positives against detector source/config, Flow-owned wording in `SKILL.md`/`flow.yaml`, signpost metadata under-testing, and ledger dry-run event drift.
+- Mixed "review this PR for slop and staff-level bugs" packets now set `anti_slop_gate.primary_lane=review` and `final_output_owner=heat-review`; `/leon` remains the voice lane owner instead of owning the whole packet.
+- Hard-wall `dispatch` without `--json` now prints `blocked_by_hard_walls`, each hard-wall hit, and the stop action before lane output.
+- Closed blocked Flow runs now use terminal status `closed_blocked`; open hard-wall runs still use `blocked`.
 
 ## Proof
 
@@ -20,11 +27,19 @@ Ledger: `evt_20260608_5e30fn_leo_flow_anti_slop_publish`
 - `bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/ledger/tests/test_ledger_append.sh` PASS.
 - `bash -n /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-emit.sh /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-append.sh` PASS.
 - `python3 -m py_compile /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow` PASS.
-- Scoped `git diff --check` PASS across changed `/ai` and Vidux plan/evidence files.
+- `python3 /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow packet "review Leo Flow anti-slop changes for staff-level bugs; check proof honesty and final-owner handoff" --repo /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai --file /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow --include-cycle --json` PASS with `critique.overall_verdict=source_gap`, `anti_slop_gate.primary_lane=review`, `final_output_owner=heat-review`, and `blocking_slop_receipts=[]`.
+- `python3 /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/vidux/scripts/vidux-publish-scrutiny.py --lane vidux-self-improvement --task 5.3.0fn --summary "Leo Flow anti-slop dispatcher post-review hardening" --plan-path /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/vidux/PLAN.md --proof "bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh PASS; bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/ledger/tests/test_ledger_emit.sh PASS; bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/ledger/tests/test_ledger_append.sh PASS; leo-flow doctor PASS; scoped git diff --check PASS" --ledger evt_20260608_5e30fn_leo_flow_anti_slop_publish --handoff-status done --resume "5.3.1 remains pending and blocked on the Resplit gh pr create overlap; Leo Flow is final-output-owner gated." --json ...` PASS with `ready=true`, no missing fields, and no invalid fields.
+- `git -C /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai diff --check -- hooks/ledger-emit.sh skills/ledger/tests/test_ledger_emit.sh skills/leo-flow/SKILL.md skills/leo-flow/flow.yaml skills/leo-flow/scripts/leo-flow skills/leo-flow/tests/test_leo_flow_cli.sh` PASS.
+- `git -C /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/vidux diff --check -- PLAN.md evidence/2026-06-08-leo-flow-anti-slop.md` PASS.
+
+## Branch State
+
+- Closeout commit `aa64a1d` changed only `PLAN.md` and this evidence artifact.
+- The pushed `codex/leo-flow-control-plane` branch still includes earlier adapter-contract commit `ddc9246`, which touched `SKILL.md`, `docs/concepts/extensions.md`, `guides/automation.md`, `scripts/vidux-status.py`, and `tests/test_vidux_contracts.py`.
 
 ## Non-Claims
 
 - No live PR/Jira/Slack state was refreshed.
 - No final PR body, Daily Scoop, review finding, or strategy output was generated by Leo Flow.
-- No source code outside Leo Flow and shared ledger publish plumbing was changed.
+- No source code outside Leo Flow and shared ledger emit plumbing was changed in `/ai`; Vidux changes in this closeout are plan/evidence only.
 - No remote push or PR happened during proof.
