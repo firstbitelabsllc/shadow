@@ -2195,6 +2195,13 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, "not found")
 
+    def do_HEAD(self):  # noqa: N802 — stdlib override
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
+
     def do_POST(self):  # noqa: N802 — stdlib override
         url = urlparse(self.path)
         if url.path == "/api/artifact":
@@ -2488,6 +2495,8 @@ class Handler(BaseHTTPRequestHandler):
         self._write_body(body)
 
     def _write_body(self, body: bytes) -> bool:
+        if getattr(self, "_head_only", False):
+            return True
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
