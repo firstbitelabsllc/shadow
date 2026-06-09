@@ -152,6 +152,11 @@ Tactical defaults extracted from 30+ plan files across 5 repos. They apply every
   blocked-row specificity, and net-new pump-off behavior.
 - For skill or documentation expeditions, artifact changes are the product:
   update the PLAN, source ledger, example bank, and owning skill hook each pass.
+- For Leo Flow anti-slop expeditions, `/ai-slop` owns critique examples and
+  slop findings while Vidux owns the durable loop: scenario index, example-bank
+  index receipts, staged proof, mounts, and completion audit. Do not bury a
+  200-example bank in the root skill or a PLAN.md; keep it as
+  progressive-disclosure refs.
 - Do not mark a broad loop complete just because the first useful artifact
   exists. Close it only after the floor requirements, verification, and stop
   condition are actually met.
