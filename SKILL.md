@@ -286,6 +286,67 @@ Tasks are processed with these rules:
 
 ---
 
+## Harness Contract
+
+Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet
+lane) MUST satisfy this contract. Amp mints entrypoints; this section owns the
+invariants those entrypoints cite.
+
+1. **No state in the prompt.** The prompt contains only durable instruction —
+   never task numbers, branch names, blockers, or cycle snapshots.
+   *Why: cron agents are stateless; a "T3 is next" prompt is stale by the next
+   fire (Principle 2; ralph-loop literature: "state lives in files, not
+   conversation history").*
+
+2. **One Authority Store.** Exactly one absolute PLAN.md path; the runner
+   rehydrates from it fresh each cycle and records all state changes there.
+   *Why: two sources of truth diverge silently; resume state belongs in the
+   plan, never in the prompt.*
+
+3. **Cycle skeleton: Orient → Choose → Execute → Handoff.** Read store + repo
+   state; pick ONE bounded unblocked row; do the work with verification; write
+   progress/decisions back and exit clean.
+   *Why: explicit phases prevent prompt drift; plural scope makes agents
+   cherry-pick easy work (long-running-agent engineering, 2026).*
+
+4. **Stop condition + cycle cap — mandatory.** The harness names what "done /
+   park the lane" looks like AND a max-cycle (or token) cap with stuck
+   detection (same row touched N consecutive fires → halt and flag). When every
+   remaining row is gated on an event outside the lane's write scope, parking
+   with a Closeout is the SUCCESS state — never grind against a gate to satisfy
+   a meter.
+   *Why: loops without stop conditions only end when a human notices;
+   literature calls the failure "overbaking."*
+
+5. **Disjoint write scopes for concurrent lanes.** Every lane declares the
+   paths/fields it may write; two lanes never share a write scope or a live
+   feature branch. Check `git status -sb` before writing to any repo a sibling
+   may hold.
+   *Why: shared mutable state across concurrent lanes is the textbook parallel-
+   agent failure; isolation is what makes parallel lanes safe (worktree
+   precedent: /bigapple).*
+
+6. **Smoke check at cycle start.** Before choosing work, verify the lane's
+   ground truth still holds (auth alive, branch state expected, store
+   readable) — including re-checking recorded gates, which clear without
+   notice. Degrade to an explicit blocker note — never silent skip.
+   *Why: silent-regression guard; stale gate assumptions waste fires, and a
+   cleared gate left unchecked strands unblockable work.*
+
+7. **Closeout per cycle:** decision, risk, blocker, next action — written to
+   the Authority Store. Proof receipts live in the store, not the prompt; the
+   human-facing line helps the reader decide, not the agent look done
+   (Closeout Gate stays in /amp).
+   *Why: proof-theater closeouts ("tests green, verified") hide the real next
+   action; a reader deciding whether to continue the lane needs decision/risk/
+   blocker, not agent self-attestation.*
+
+Completion claims are governed by the Evaluator Gate (see PLAN.md template:
+`Accept:` criteria + `[verify]` status flow) — a generator never flips its own
+row to done.
+
+---
+
 ## PLAN.md Template
 
 **Every project has exactly ONE PLAN.md.** Course corrections — even dramatic pivots — update the existing plan's Decision Log. They do NOT spawn a sibling plan store. If you catch yourself justifying a new plan with phrases like "clean slate," "emotional separation," or "this rewrite deserves its own home," stop: that's fabricated reasoning. The correct move is to open the existing PLAN.md, add a `[DIRECTION]` entry to the Decision Log, mark now-obsolete tasks `[blocked]` with a pointer to the new direction, and append the new direction as fresh `[pending]` tasks in the same queue. New plan stores are for new PROJECTS (different codebase, different product, different problem surface), not for new OPINIONS about how the same project should look. "Rewrite project-X from scratch" and "polish project-X" are the same project — one plan. "Build a new iOS app" and "ship the web app" are different projects — different plans.
@@ -316,9 +377,20 @@ Ordered, with status tags and evidence citations. Completion (X/Y tasks done)
 is the headline. `[ETA: Xh]` is optional — useful when tasks are similar-sized,
 skip when they vary in difficulty.
 - [pending] Task 1: description [Evidence: ...] [ETA: 0.5h]
+  Accept: testable criteria written at PLAN time (commands + expected outcomes — "works" is not a criterion)
 - [in_progress] Task 2: description [Evidence: ...]
-- [completed] Task 3: description [Evidence: ...]
-- [blocked] Task 4: description [Blocker: ...]
+- [verify] Task 3: generator finished; awaiting evaluator verdict
+- [completed] Task 4: description [Evidence: ...]
+- [blocked] Task 5: description [Blocker: ...]
+
+**Evaluator Gate:** every task row carries `Accept:` criteria written at plan
+time. Status flows `[pending] → [in_progress] → [verify] → [completed]`. The
+generator's authority over status ENDS at `[verify]` — only an independent
+evaluator verdict (the `evaluator` agent: read+execute tools, re-runs the
+Accept commands itself, never reads generator prose) flips `[verify] →
+[completed]`. A FAIL loops the row back to `[in_progress]` with the judge's
+reasons appended as the next work item. Test-weakening (skipped tests, loosened
+assertions) is an automatic FAIL regardless of pass counts.
 
 Inside ## Tasks, every line starting with `- ` MUST be a task with a
 status tag. Use numbered lists (1. 2. 3.) or headers for non-task
