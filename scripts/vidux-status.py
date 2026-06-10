@@ -21,12 +21,14 @@ import argparse
 import json
 import re
 import subprocess
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 DEFAULT_ROOT = Path.home() / "Development"
+LEDGER_PATH = Path.home() / ".agent-ledger" / "activity.jsonl"
 SKIP_PARTS = {
     "node_modules",
     ".git",
@@ -78,7 +80,13 @@ class PlanStatus:
     blocked: int
     eta_hours: float
     progress_ts: Optional[str]
+    latest_progress: Optional[str]
     mtime_ts: str
+    stale_days: int
+    pending_tasks: list[str]
+    in_progress_tasks: list[str]
+    blocked_tasks: list[str]
+    flags: list[str]
 
     @property
     def denom(self) -> int:
@@ -139,8 +147,25 @@ def status_for_task(tag: str, task_text: str) -> str:
     return tag
 
 
-def list_task_counts(text: str) -> tuple[dict[str, int], float]:
+def empty_task_buckets() -> dict[str, list[str]]:
+    return {tag: [] for tag in STATUS_TAGS}
+
+
+def record_task(
+    counts: dict[str, int],
+    buckets: dict[str, list[str]],
+    tag: str,
+    task_text: str,
+) -> str:
+    counted_tag = status_for_task(tag, task_text)
+    counts[counted_tag] += 1
+    buckets[counted_tag].append(task_text.strip())
+    return counted_tag
+
+
+def list_task_counts(text: str) -> tuple[dict[str, int], float, dict[str, list[str]]]:
     counts = {tag: 0 for tag in STATUS_TAGS}
+    buckets = empty_task_buckets()
 
     eta_sum = 0.0
     for line in text.splitlines():
@@ -148,19 +173,19 @@ def list_task_counts(text: str) -> tuple[dict[str, int], float]:
         m = TASK_LINE_RE.match(s)
         if not m:
             continue
-        tag = status_for_task(m.group(1), m.group(2))
-        counts[tag] += 1
+        tag = record_task(counts, buckets, m.group(1), m.group(2))
         if tag in {"pending", "in_progress"}:
             for m in ETA_RE.finditer(s):
                 try:
                     eta_sum += float(m.group(1))
                 except ValueError:
                     pass
-    return counts, eta_sum
+    return counts, eta_sum, buckets
 
 
-def claims_board_task_counts(text: str) -> tuple[dict[str, int], float]:
+def claims_board_task_counts(text: str) -> tuple[dict[str, int], float, dict[str, list[str]]]:
     counts = {tag: 0 for tag in STATUS_TAGS}
+    buckets = empty_task_buckets()
     eta_sum = 0.0
     in_claims_board = False
     status_col: Optional[int] = None
@@ -192,8 +217,7 @@ def claims_board_task_counts(text: str) -> tuple[dict[str, int], float]:
             tag = status[1:-1]
             if tag in counts:
                 task_text = " ".join(cell for idx, cell in enumerate(cells) if idx != status_col)
-                counted_tag = status_for_task(tag, task_text)
-                counts[counted_tag] += 1
+                counted_tag = record_task(counts, buckets, tag, task_text)
                 if counted_tag in {"pending", "in_progress"}:
                     for m in ETA_RE.finditer(line):
                         try:
@@ -201,7 +225,41 @@ def claims_board_task_counts(text: str) -> tuple[dict[str, int], float]:
                         except ValueError:
                             pass
 
-    return counts, eta_sum
+    return counts, eta_sum, buckets
+
+
+def stale_days_for_mtime(mtime: datetime) -> int:
+    return max(0, (datetime.now(timezone.utc).date() - mtime.date()).days)
+
+
+def flags_for_plan(
+    counts: dict[str, int],
+    stale_days: int,
+    buckets: dict[str, list[str]],
+) -> list[str]:
+    flags = []
+    if counts["blocked"]:
+        flags.append("blocked")
+    if counts["in_progress"]:
+        flags.append("in_progress")
+
+    shipped = (
+        counts["pending"] == 0
+        and counts["in_progress"] == 0
+        and counts["blocked"] == 0
+        and counts["completed"] > 0
+    )
+    if stale_days > 7 and not shipped:
+        flags.append("stale")
+
+    active_text = " ".join(
+        buckets["pending"] + buckets["in_progress"] + buckets["blocked"]
+    ).lower()
+    if any(token in active_text for token in ("auth", "signin", "sign-in", "oauth")):
+        flags.append("auth_gap")
+    if "ASK-LEO" in active_text or "ask-leo" in active_text:
+        flags.append("leo_gate")
+    return flags
 
 
 def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
@@ -210,11 +268,12 @@ def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
     except OSError:
         text = ""
 
-    counts, eta_sum = claims_board_task_counts(text)
+    counts, eta_sum, task_buckets = claims_board_task_counts(text)
     if sum(counts.values()) == 0:
-        counts, eta_sum = list_task_counts(text)
+        counts, eta_sum, task_buckets = list_task_counts(text)
 
     progress_ts: Optional[str] = None
+    latest_progress: Optional[str] = None
     in_progress_section = False
     for line in text.splitlines():
         stripped = line.strip()
@@ -229,8 +288,10 @@ def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
                 ts = m.group(1)
                 if progress_ts is None or ts > progress_ts:
                     progress_ts = ts
+                    latest_progress = stripped
 
     mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+    stale_days = stale_days_for_mtime(mtime)
 
     try:
         rel = p.relative_to(dev_root)
@@ -251,8 +312,32 @@ def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
         blocked=counts["blocked"],
         eta_hours=eta_sum,
         progress_ts=progress_ts,
+        latest_progress=latest_progress,
         mtime_ts=mtime.strftime("%Y-%m-%d"),
+        stale_days=stale_days,
+        pending_tasks=task_buckets["pending"],
+        in_progress_tasks=task_buckets["in_progress"],
+        blocked_tasks=task_buckets["blocked"],
+        flags=flags_for_plan(counts, stale_days, task_buckets),
     )
+
+
+def latest_ledger_eid(path: Path = LEDGER_PATH) -> Optional[str]:
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            recent_lines = deque(fh, maxlen=200)
+    except OSError:
+        return None
+
+    for line in reversed(recent_lines):
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        eid = data.get("eid") or data.get("event_id")
+        if isinstance(eid, str) and eid:
+            return eid
+    return None
 
 
 def current_repo() -> Optional[str]:
@@ -346,6 +431,7 @@ def main() -> int:
     if args.json:
         print(json.dumps({
             "focus_repos": sorted(focus),
+            "latest_ledger_eid": latest_ledger_eid(),
             "tied": [asdict(p) for p in tied],
             "other": [asdict(p) for p in other],
         }, indent=2))

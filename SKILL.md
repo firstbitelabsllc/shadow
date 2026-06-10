@@ -25,6 +25,21 @@ Safety: do not create duplicate plans, execute local-CI lanes, install
 LaunchAgents, delete worktrees, or push/merge unless the owning plan and user
 authorization make that operation explicit.
 
+## Leo Flow Overlay Contract
+
+Leo Flow routes Leo-specific requests on top of Vidux; it does not replace this
+kernel. When `/leo-flow` is active:
+
+- Leo Flow owns intent classification, lane selection, hard-wall policy, routine
+  mode, and closeout shape.
+- Vidux owns the run loop, `PLAN.md`/`FLOW.md`/ledger state, checkpoints, proof
+  lifecycle, resume semantics, and publish propagation.
+- `FLOW.md` may carry a local `leo-flow.run.v1` projection for a single active
+  Flow run. It is not a second queue and must point back to the owning `PLAN.md`
+  when a plan exists.
+- Lane skills return `FlowResult` shape: verdict, actions, receipts, open gates,
+  next action, and the weakest truthful proof claim.
+
 ## Activation & Triage
 
 Vidux is the universal entrypoint. Drop into any repo. Read the room. Run the right lifecycle. At expedition scale, shift into plan-first multi-session work; at smaller scales, execute the stage playbook directly.
@@ -116,6 +131,37 @@ Tactical defaults extracted from 30+ plan files across 5 repos. They apply every
 - Match the repo's patterns, naming, DI approach, test style.
 - Don't impose architecture — discover it and extend it.
 - If the repo uses Factory DI, use Factory. If it uses manual injection, use that.
+- For doc/PR/diagram tone drift, use the shared example bank at
+  `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/redacted-private-skills-repo/skills/crashcourse/references/human-flow-examples.md`.
+  Rows 421-460 are the baseline vidux smell tests for plans and loops; rows
+  781-860 add pass-2 calibration from coding lanes, dispatcher plans,
+  autonomous triggers, draft-only bridges, and pivot logs.
+  Rows 1121-1145 add pass-6 calibration from observability, intent-router,
+  vidux-browse-action, text-chat, and OCR Moat plans: keep interfaces honest,
+  triggers explicit, comments PROPOSE-only, and vendor-neutral contracts locked
+  before telemetry or vendor swaps.
+  Rows 1281-1320 add OCR Moat pass-10 calibration: phase-gate slicing,
+  fixture skip semantics, telemetry event pairing, Receipt Lab corpus/replay
+  loops, and review-bot wave handling.
+  Rows 1321-1360 add command-center bridge calibration: explicit trigger
+  prefixes, read/draft-first inbound bridges, loopback safety, shared
+  dispatcher/audit rails, and browser comment/source separation.
+  Rows 1361-1400 add UI-proof calibration: localized screenshot gates,
+  visual sweep evidence rules, XcodeBuildMCP capture boundaries, reader
+  footer/player ownership, and local MLX capability honesty.
+  Rows 1401-1440 add launch-window calibration: ASC bug convergence,
+  esoteric-repro proof, prior-fix archaeology, ship-gate preflights,
+  blocked-row specificity, and net-new pump-off behavior.
+- For skill or documentation expeditions, artifact changes are the product:
+  update the PLAN, source ledger, example bank, and owning skill hook each pass.
+- For Leo Flow anti-slop expeditions, `/ai-slop` owns critique examples and
+  slop findings while Vidux owns the durable loop: scenario index, example-bank
+  index receipts, staged proof, mounts, and completion audit. Do not bury a
+  200-example bank in the root skill or a PLAN.md; keep it as
+  progressive-disclosure refs.
+- Do not mark a broad loop complete just because the first useful artifact
+  exists. Close it only after the floor requirements, verification, and stop
+  condition are actually met.
 
 ### Testability from the start
 
