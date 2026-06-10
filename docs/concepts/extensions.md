@@ -88,6 +88,30 @@ A good overlay:
 That split keeps Vidux reusable while still letting a team make its own
 opinionated operating layer.
 
+## Control-plane projections
+
+A local overlay may act as a control plane above Vidux. That means it can
+classify requests, choose lanes, pick proof floors, select an execution runtime,
+and render status. It still does not own the queue.
+
+A control-plane projection may store:
+
+- lane names and aliases
+- provider refs for routines, chats, worktrees, PRs, or boards
+- cadence, last fire, next fire, and retirement rule
+- latest run id and latest ledger eid
+- read-only status snapshots
+
+It must not store:
+
+- a duplicate task queue
+- copied external comments or PR state as authority
+- proof claims without receipts
+- mutation state that can drift away from `PLAN.md`
+
+The rule is simple: routines drive runs; `PLAN.md`, evidence, and publish
+ledger remain authority.
+
 ## Sync architecture
 
 The repo ships one sync entry point: `scripts/vidux-inbox-sync.py`. Operators can schedule separate invocations per adapter via `--only-adapter` when they want independent cadences or credentials:
