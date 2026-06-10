@@ -4,5 +4,17 @@
   "attribution": {
     "commit": "",
     "pr": ""
+  },
+  "hooks": {
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/gate-check.sh"
+          }
+        ]
+      }
+    ]
   }
 }
