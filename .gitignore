@@ -148,3 +148,7 @@ browser/receipts/images/*
 !browser/receipts/images/.gitkeep
 .playwright-cli/
 vidux.config.json
+# Exception: moussey-cleaner-ux queues the /cleaner GUI 10x pass (watch strip
+# from ~/.agent-ledger/disk-clean-watch, progressive loading, never-auto labels)
+# paired with the ai-leo /disk-clean watch/safe-auto skill shipped 2026-06-10.
+!projects/moussey-cleaner-ux/
