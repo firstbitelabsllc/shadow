@@ -152,3 +152,6 @@ vidux.config.json
 # from ~/.agent-ledger/disk-clean-watch, progressive loading, never-auto labels)
 # paired with the ai-leo /disk-clean watch/safe-auto skill shipped 2026-06-10.
 !projects/moussey-cleaner-ux/
+
+!projects/mom-flushing-home/
+!projects/mom-flushing-home/**
