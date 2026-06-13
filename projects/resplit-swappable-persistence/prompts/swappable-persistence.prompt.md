@@ -1,7 +1,17 @@
 # Resplit Swappable Persistence — Planning Prompt
 
 Authority Store: /Users/leokwan/Development/vidux/projects/resplit-swappable-persistence/PLAN.md
-Target: the whole project — **PLANNING PHASE ONLY** (no production code yet)
+Target: the whole project — **PLANNING + ADDITIVE PREWORK** (no behavior-changing code)
+
+## DECISION (2026-06-13, unanimous 8/8) — read PLAN "SHIP-TIMING DECISION"
+Additive prework ships in 2.0; the SOOC/@Query **cutover is DEFERRED post-2.0**
+behind an ASK-LEO-MANDATORY lane. Do NOT repoint @Query sites, build the
+remote-change bridge, wire Records into any production read/write path, swap the
+default ModelContainer, or flip Swift 5->6 in this lane. Records are READ-ONLY
+projections; all mutation/deletion stays on the @MainActor ModelContext. SQLiteData
+stays out (bug #418 open). Allowed here: more Phase-0 characterization tests, the
+Tuist module boundary + protocol/in-memory-adapter interfaces with NO production
+consumer.
 
 ## Operating Prompt
 
