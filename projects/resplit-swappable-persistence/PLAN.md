@@ -1,6 +1,6 @@
 # Resplit Swappable Persistence — PLAN (Authority Store)
 
-**Status:** PLANNING + PREWORK. Authority (2026-06-13): may do everything EXCEPT
+**Status:** DECISION MADE (2026-06-13): prework-in-2.0, cutover deferred post-2.0 (see SHIP-TIMING DECISION). PREWORK shipping (PR #881, 12 green tests). Authority (2026-06-13): may do everything EXCEPT
 introduce SQLite/SQLiteData. Prework must be additive, worktree-isolated, and
 collision-free — product dev is live in a parallel lane. SQLiteData adapter is a
 stub until Leo says go. Every artifact + prework slice gets an adversarial pass.
@@ -14,6 +14,69 @@ native CKShare sharing (see memory `resplit-ckshare-sqlitedata-decision`).
 boundary makes that swap (or a Core Data fallback) a one-module change, not a
 180-file rewrite. Dependency risk on SQLiteData is contained by (a) the adapter
 boundary and (b) a fork + upstream-tracking patch branch.
+
+---
+
+## SHIP-TIMING DECISION (2026-06-13) — unanimous 8/8, HIGH confidence
+
+**Ship Resplit 2.0 now on the additive prework. DEFER the SOOC/@Query cutover to a
+post-2.0 lane. Do NOT delay launch 2 weeks. Do NOT park the migration entirely.**
+Adversarial panel (wkviwoy1l) all 8 started leaning ship-in-2.0, went looking for
+the honest pro-ship case, and the live-repo evidence killed it — convergence
+against prior.
+
+**Leo's fear answered (inverted):** shipping the full migration in 2.0 is
+DECISIVELY more pain. And deferring the cutover creates LESS post-2.0 pain than
+waiting 2 weeks, not more. The +2wk delay buys ~nothing (prework already shipped
+green + behavior-neutral; the dangerous phases are still ahead either way, now
+done under deadline). Waiting de-risks zero dangerous phases: doesn't fix
+SQLiteData #418 (open, no timeline), doesn't grant iOS-27 HistoryObserver/
+ResultsObserver (Resplit ships iOS 26.0), doesn't make the remote-change bridge
+CI-testable. Asymmetry: waiting = bounded 2wk slip + migration ships post-2.0
+anyway; a launch regression in the persistence/observation spine = unbounded
+emergency App Store point-release (1-3d review) + stale-feed/orphaned-child
+data-integrity blast radius. Defer, don't delay.
+
+### Why the cutover is dangerous in a launch build (ground-truthed)
+- Re-opens a SHIPPED crash class: RESPLIT-IOS-H6 (EXC_BREAKPOINT in
+  libswiftObservation, @Observable willSet re-entrancy) hit prod on 2.2.0+2448.
+  SOOC = @Observable collections mutated on every write = same surface scaled up.
+- The receipt feed was ALREADY moved OFF store-owned-collections ONTO native
+  @Query to fix the 2026-06-01 paginator prod incident (guarded by a regression
+  test). Whole-graph SOOC relitigates a closed incident.
+- The mandatory NSPersistentStoreRemoteChange bridge does NOT exist (grep-clean);
+  net-new 5-step token protocol with un-CI-able 2-device silent-push races.
+- Repo is SWIFT_VERSION=5, zero strict-concurrency; a clean GRDB/ModelActor
+  cutover forces a Swift 5->6 confrontation across 180 files, unbudgeted.
+- CloudKit is feature-flagged OFF (cloudKitDatabase: .none default) — urgency low.
+
+### Pre-2.0-SAFE (land freely — nothing in the app calls it, cannot regress)
+Phase-0 safety-net tests (SHIPPED green, PR #881); the Tuist module boundary +
+protocol/adapter interfaces; the in-memory adapter; value-type Record/Resolver
+type definitions with no production consumer; the "Records never own cascade"
+constraint. The module boundary is the FIRST post-2.0 phase (durable value for
+the backend-free CKShare endgame).
+
+### Post-2.0-RISKY (gate behind ASK-LEO-MANDATORY post-launch lane)
+Repointing the 3 real @Query sites (FolderPickerView:22, ReceiptListView:11/:19)
+to store collections; the remote-change bridge; production read paths consuming
+Records; swapping the default ModelContainer; any Swift 5->6 flip. Migrate the
+ReceiptListView feed LAST — or leave it on @Query indefinitely.
+
+### Single biggest risk of THIS path + guardrail
+"Additive" is only safe while nothing in production READS it. If a Record/Resolver
+lands in a WRITE path it bypasses the SwiftData cascade and orphans
+participants/items -> corrupt split math, invisible to the compiler. GUARDRAIL:
+Records are read-only projections only; all mutation/deletion stays on the
+@MainActor ModelContext; add a banned-symbols lint (paginator-guard shape)
+asserting no production read path consumes a Record, before any Record type ships
+a production consumer. Secondary risk: "defer" becomes "park forever" and the
+module boundary stalls -> the CKShare endgame loses its prerequisite. Keep the
+module boundary as the first post-2.0 phase.
+
+WWDC26 note: HistoryObserver + ResultsObserver (session 274) natively replace the
+two riskiest cutover pieces — but are iOS 27-only, so they are a reason to DEFER
+(cutover gets cheaper later), never to accelerate into the iOS-26 2.0 binary.
 
 ---
 
@@ -1035,3 +1098,4 @@ _Summed ETA: **15.0h** (clears the ≥8h done-state). Rows are agent-executable,
 - 2026-06-13 cycle 3 — Folded research+red-team fleet (wih6rh870): Phase-0 safety net grounded (9 untested cascade/nullify gaps = top priority), 5-angle red-team (0 fatal / 5 serious-mitigable), prior-art. Design AMENDED (2 real @Query sites; scoped SOOC; mandatory CloudKit remote-change bridge). `[METER ▓▓▓▓▓▓▓░ 7] [ETA 15h queued] [15 pending, 0 in_progress, 0 done]`
 - 2026-06-13 cycle 4 (PREWORK START) — Worktree `swappable-persistence-phase0-prework` off origin/main. Wrote P0.1 safety net: `ReceiptSplitterTests/PersistenceDeleteRuleCharacterizationTests.swift` — 6 characterization tests pinning the delete-rule graph the audit found UNTESTED (Receipt cascade→participants/items/summaryItems; Folder→Receipt nullify; Person→ReceiptParticipant nullify; item↔participant inverse; transitive cascade-vs-nullify safety; folder currency majority). `tuist generate` clean; tests building+running in isolated DD (/tmp/resplit-dd-swappable-prework, booted iPhone 17 Pro Max). No production code touched, no SQLite. `[METER ▓▓▓▓▓▓▓░ 7] [ETA 14h remaining] [14 pending, 1 in_progress, 0 done]`
 - 2026-06-13 cycle 5 (PREWORK shipped) — PR #881 (draft, Graphite review fired): P0.1 delete-rule (6 tests) + P0.2 settlement-determinism (2 tests) = **8 green** via `tuist test ReceiptSplitter Unit Tests` on isolated DD. P0.1 + P0.2 DONE+VERIFIED. Remaining Phase-0 (P0.3 @Query view-snapshots, P0.5 Live Split, P0.6 CloudKit-event-sequence) are heavier infra — queued as ready rows for a fresh session, not ground out degraded at 3:30am. No production code, no SQLite. `[METER ▓▓▓▓▓▓▓▓ 8] [ETA ~12h remaining] [12 pending, 0 in_progress, 2 done]`
+- 2026-06-13 cycle 6 (DECISION) — Folded ship-timing decision (wkviwoy1l, 8/8 unanimous HIGH): additive-prework-in-2.0, defer cutover post-2.0 behind ASK-LEO-MANDATORY, do NOT delay launch. Phase-0 safety net = 12 green (PR #881). Cutover scars verified (H6 crash class, June-1 paginator incident, no remote-change bridge, Swift5 mode). `[METER ▓▓▓▓▓▓▓▓ 8] [decision delivered] [cutover parked post-2.0, prework shipping]`
