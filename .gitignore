@@ -155,3 +155,7 @@ vidux.config.json
 
 !projects/mom-flushing-home/
 !projects/mom-flushing-home/**
+# Exception: resplit-swappable-persistence — plan to rip Resplit's domain layer
+# free of SwiftData behind a swappable Tuist persistence module (SwiftData/
+# SQLiteData/in-memory adapters). Planning-only goal; test-case-stories-first.
+!projects/resplit-swappable-persistence/
