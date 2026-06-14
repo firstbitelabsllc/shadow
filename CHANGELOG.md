@@ -8,7 +8,7 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 ## [Unreleased]
 
 ### Added
-- _Nothing yet._
+- Snowcubes imagegen Wave 022-033 resume pointers in `PLAN.md`, plus a shorter root `SKILL.md` description for Captain/frontmatter routing.
 
 ---
 
