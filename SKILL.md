@@ -1,6 +1,6 @@
 ---
 name: vidux
-description: "Plan-first discipline and universal project router for AI agents. Detects stack, stage, and scale, then either executes directly or shifts into multi-session plan work. Plans live in markdown files in git for queue/planning authority; matching publish ledger rows carry shipped-cycle proof and resume metadata."
+description: "Plan-first project router for AI agents. Detects stack, stage, and scale, then executes directly or shifts into markdown plan work with proof and resume metadata."
 ---
 
 # Vidux
