@@ -9,6 +9,26 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 
 ### Added
 - Snowcubes imagegen Wave 022-033 resume pointers in `PLAN.md`, plus a shorter root `SKILL.md` description for Captain/frontmatter routing.
+- **Harness Contract block 8 — the done-state contract (Phase 1, vidux-amp-10x).**
+  Added a CONVERGENCE & FINDABILITY block to `## Harness Contract` in `SKILL.md`
+  defining `done = merged + findable`. Establishes the strict status ladder
+  `branch_pushed < pr_open < merged < findable` ("done"/"complete" deleted from
+  the vocabulary), a findability gate (a row is `[completed]` only with a trunk
+  merge SHA AND a typed `[Findable: …]` locator; a green draft PR is `pr_open`),
+  an honest-status rule (shipped/done/live reserved for merged-to-trunk), a
+  convergence-pass trap (>3 stranded branches blocks new fan-out, default 3),
+  and stacking discipline (own the base's merge or integrate before handoff).
+  Added a `[merged]` rung to the FSM diagram. Motivated by the 2026-06-13
+  stranded-work failure (features stuck in unmerged drafts, none findable).
+- Convergence-ladder unit test `test_handoff_status_convergence_ladder`.
+
+### Changed
+- `scripts/lib/ledger-emit.sh` `_vidux_handoff_status` now emits the convergence
+  ladder. Ladder rungs (`branch_pushed`/`pr_open`/`merged`/`findable`) pass
+  through; legacy `done`/`completed` can no longer overclaim — they map to
+  `merged` only when `VIDUX_MERGE_SHA` proves the merge, otherwise demote to the
+  honest `pr_open` rung. Updated the two checkpoint contract tests that asserted
+  the old `done` overclaim.
 
 ---
 

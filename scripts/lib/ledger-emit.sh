@@ -83,10 +83,33 @@ _vidux_abs_path() {
   fi
 }
 
+# Convergence ladder (Harness Contract block 8): branch_pushed < pr_open < merged < findable.
+# "done"/"completed" are NOT terminal status words — they map down to the rung the
+# caller can actually prove. A row is only `findable` (the true terminal) with a
+# merge SHA reachable from trunk AND a build/URL locator; `merged` requires a SHA.
+# Legacy callers passing done|completed are mapped to `merged` ONLY when a merge SHA
+# is present in the environment (VIDUX_MERGE_SHA), else demoted to `pr_open` so the
+# ledger can never overclaim convergence the work has not reached.
 _vidux_handoff_status() {
-  case "${1:-done}" in
+  local raw="${1:-pr_open}"
+  case "$raw" in
+    findable)
+      printf 'findable'
+      ;;
+    merged)
+      printf 'merged'
+      ;;
+    pr_open|branch_pushed)
+      printf '%s' "$raw"
+      ;;
     done|completed)
-      printf 'done'
+      # Honest-status rule: a bare "done"/"completed" cannot certify a merge.
+      # Only stamp `merged` when a SHA proves it; otherwise it is still `pr_open`.
+      if [[ -n "${VIDUX_MERGE_SHA:-}" ]]; then
+        printf 'merged'
+      else
+        printf 'pr_open'
+      fi
       ;;
     blocked)
       printf 'blocked'
