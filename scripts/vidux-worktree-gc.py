@@ -41,6 +41,7 @@ class PullRequestInfo:
     number: int
     state: str
     head_ref_name: str
+    head_ref_oid: Optional[str]
     title: str
     is_draft: bool
     url: str
@@ -239,7 +240,19 @@ def review_command_for_worktree(path: Path, bucket: str, base: str, pr: Optional
     return "no read-only review command available"
 
 
-def load_prs(repo: Path, limit: int) -> Tuple[Dict[str, PullRequestInfo], Optional[str]]:
+def select_best_pr(prs_by_key: Dict[str, List[PullRequestInfo]]) -> Dict[str, PullRequestInfo]:
+    priority = {"OPEN": 0, "MERGED": 1, "CLOSED": 2}
+    selected: Dict[str, PullRequestInfo] = {}
+    for key, prs in prs_by_key.items():
+        prs.sort(key=lambda pr: (priority.get(pr.state, 9), -pr.number))
+        selected[key] = prs[0]
+    return selected
+
+
+def load_prs(
+    repo: Path,
+    limit: int,
+) -> Tuple[Dict[str, PullRequestInfo], Dict[str, PullRequestInfo], Optional[str]]:
     command = [
         "gh",
         "pr",
@@ -249,40 +262,41 @@ def load_prs(repo: Path, limit: int) -> Tuple[Dict[str, PullRequestInfo], Option
         "--limit",
         str(limit),
         "--json",
-        "number,state,title,headRefName,isDraft,url,mergedAt,closedAt",
+        "number,state,title,headRefName,headRefOid,isDraft,url,mergedAt,closedAt",
     ]
     result = run(command, cwd=repo, check=False)
     if result.returncode != 0:
-        return {}, result.stderr.strip() or "gh pr list failed"
+        return {}, {}, result.stderr.strip() or "gh pr list failed"
 
     try:
         raw_prs = json.loads(result.stdout or "[]")
     except json.JSONDecodeError as exc:
-        return {}, f"could not parse gh pr list JSON: {exc}"
+        return {}, {}, f"could not parse gh pr list JSON: {exc}"
 
     prs_by_branch: Dict[str, List[PullRequestInfo]] = {}
+    prs_by_head: Dict[str, List[PullRequestInfo]] = {}
     for raw in raw_prs:
         head_ref = raw.get("headRefName") or ""
-        if not head_ref:
+        head_ref_oid = raw.get("headRefOid") or ""
+        if not head_ref and not head_ref_oid:
             continue
         pr = PullRequestInfo(
             number=int(raw.get("number") or 0),
             state=str(raw.get("state") or "").upper(),
             head_ref_name=head_ref,
+            head_ref_oid=head_ref_oid or None,
             title=str(raw.get("title") or ""),
             is_draft=bool(raw.get("isDraft")),
             url=str(raw.get("url") or ""),
             merged_at=raw.get("mergedAt"),
             closed_at=raw.get("closedAt"),
         )
-        prs_by_branch.setdefault(head_ref, []).append(pr)
+        if head_ref:
+            prs_by_branch.setdefault(head_ref, []).append(pr)
+        if head_ref_oid:
+            prs_by_head.setdefault(head_ref_oid, []).append(pr)
 
-    priority = {"OPEN": 0, "MERGED": 1, "CLOSED": 2}
-    selected: Dict[str, PullRequestInfo] = {}
-    for branch, prs in prs_by_branch.items():
-        prs.sort(key=lambda pr: (priority.get(pr.state, 9), -pr.number))
-        selected[branch] = prs[0]
-    return selected, None
+    return select_best_pr(prs_by_branch), select_best_pr(prs_by_head), None
 
 
 def classify_worktree(
@@ -290,6 +304,7 @@ def classify_worktree(
     raw: Dict[str, Any],
     protected_paths: set[Path],
     prs_by_branch: Dict[str, PullRequestInfo],
+    prs_by_head: Dict[str, PullRequestInfo],
     base: str,
     warnings: List[str],
 ) -> WorktreeInfo:
@@ -310,6 +325,8 @@ def classify_worktree(
     commit_date = last_commit_date(repo, head, warnings)
     age_days = commit_age_days(commit_date, warnings, head)
     pr = prs_by_branch.get(branch or "")
+    if not pr and not branch and head:
+        pr = prs_by_head.get(head)
 
     bucket = "unknown"
     reason = "could not classify"
@@ -716,12 +733,12 @@ def main(argv: List[str]) -> int:
         return 1
 
     protected_paths = {Path(raw_worktrees[0]["path"]).resolve(), repo}
-    prs_by_branch, pr_warning = load_prs(repo, args.pr_limit)
+    prs_by_branch, prs_by_head, pr_warning = load_prs(repo, args.pr_limit)
     if pr_warning:
         warnings.append(pr_warning)
 
     worktrees = [
-        classify_worktree(repo, raw, protected_paths, prs_by_branch, args.base, warnings)
+        classify_worktree(repo, raw, protected_paths, prs_by_branch, prs_by_head, args.base, warnings)
         for raw in raw_worktrees
     ]
 
@@ -731,7 +748,7 @@ def main(argv: List[str]) -> int:
         if removed:
             raw_worktrees = load_worktrees(repo)
             worktrees = [
-                classify_worktree(repo, raw, protected_paths, prs_by_branch, args.base, warnings)
+                classify_worktree(repo, raw, protected_paths, prs_by_branch, prs_by_head, args.base, warnings)
                 for raw in raw_worktrees
             ]
 
