@@ -108,26 +108,6 @@ class ViduxContractTests(unittest.TestCase):
         ]:
             self.assertIn(bucket, text)
 
-    def test_external_state_sidecars_are_ignored(self):
-        """External board state sidecars must stay local even in tracked plan dirs."""
-        text = _read(GITIGNORE)
-        self.assertIn(".external-state.json", text)
-        result = subprocess.run(
-            ["git", "check-ignore", "-v", "projects/vidux-browser/.external-state.json"],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        self.assertEqual(
-            0,
-            result.returncode,
-            f"external state sidecar is not ignored\nstdout={result.stdout}\nstderr={result.stderr}",
-        )
-
-    # test_skill_has_failure_protocol — removed in v3 (covered by principle 5: Prove it mechanically)
-
     # -----------------------------------------------------------------------
     # DOCTRINE.md contracts
     # -----------------------------------------------------------------------
@@ -362,16 +342,13 @@ class ViduxContractTests(unittest.TestCase):
     def test_ingredients_has_ten_patterns(self):
         """INGREDIENTS.md must list 10 adopted patterns."""
         text = _read(INGREDIENTS)
-        pattern_headers = re.findall(r"^##\s+\d+\.", text, re.MULTILINE)
-        self.assertGreaterEqual(len(pattern_headers), 10)
+        pattern_rows = re.findall(r"^\|\s*\d+\s*\|", text, re.MULTILINE)
+        self.assertGreaterEqual(len(pattern_rows), 10)
 
     def test_ingredients_has_adoption_details(self):
-        """Each ingredient must explain what Vidux adopts AND what it does not."""
+        """The patterns table must carry Adopt and Skip columns."""
         text = _read(INGREDIENTS)
-        adopt_count = text.lower().count("how vidux adopts")
-        not_adopt_count = text.lower().count("what we do not adopt")
-        self.assertGreaterEqual(adopt_count, 10)
-        self.assertGreaterEqual(not_adopt_count, 10)
+        self.assertIn("| Adopt | Skip |", text)
 
     def test_ingredients_has_summary_table(self):
         """INGREDIENTS.md must have a summary table."""
@@ -1058,11 +1035,11 @@ class ViduxContractTests(unittest.TestCase):
         row = scripts[row_start:row_end]
 
         for phrase in [
-            "summary/existing plan path/checkbox-FSM task row/proof/publish ledger eid/handoff",
-            "path-like file and claim/resume metadata exists",
-            "claims include every file-claimed entry",
+            "summary/plan path/checkbox-FSM task row/proof/publish ledger eid/handoff",
+            "path-like file+claim/resume metadata exists",
+            "claims cover every file-claimed entry",
             "claimed paths resolve to existing paths or git-known deletions",
-            "invariant, regression, and adversarial review passes",
+            "invariant + regression + adversarial review passes",
         ]:
             self.assertIn(phrase, row)
 
@@ -1074,9 +1051,10 @@ class ViduxContractTests(unittest.TestCase):
         row = scripts[row_start:row_end]
 
         for phrase in [
-            "lane, existing plan path/checkbox-FSM task row, concise summary, proof, matching publish ledger eid that exists as a publish event in the hot/archive ledger",
+            "lane, existing plan path/checkbox-FSM task row, summary, proof, a matching publish ledger eid",
+            "must exist as a publish event in the hot/archive ledger",
             "same lane/task/summary/plan/proof/handoff/changed-files/file-claims/resume packet",
-            "claimed files that resolve to existing paths or git-known deletions",
+            "claimed files resolving to existing paths or git-known deletions",
             "self-scrutiny review-pass",
             "resume",
             "change fields",
@@ -1094,24 +1072,20 @@ class ViduxContractTests(unittest.TestCase):
             push.index("Open PRs ready-for-review"),
         )
         for phrase in [
-            "Operational PR branch pushes are safe without asking only after",
+            "Operational PR-branch pushes are safe without asking only after",
             "owning PLAN.md row/Progress/Drift Log is updated",
             "ledger-emit.sh --event publish",
-            "plan task id, plan path, concise change summary, proof, handoff status, files claimed, path-like claims, and next-agent resume point",
-            "Direct-to-main operations require explicit authorization and the same publish propagation",
-            "normal publish-propagated PR branch push",
+            "records the publish packet",
+            "Direct-to-main requires explicit authorization + the same publish propagation",
+            "normal publish-propagated PR-branch push",
         ]:
             self.assertIn(phrase, push)
 
         for phrase in [
-            "publish propagation must be recorded in the owning plan row",
-            "publish ledger row",
-            "proof trail",
-            "handoff status",
-            "files claimed",
-            "path-like claims",
-            "next-agent resume point",
-            "if those commands publish externally, record the plan and ledger propagation",
+            "publish propagation recorded in the owning plan row + publish packet",
+            "final proof",
+            "release gates",
+            "If they publish externally, record the plan + ledger propagation",
         ]:
             self.assertIn(phrase, trunk)
 
@@ -1135,7 +1109,7 @@ class ViduxContractTests(unittest.TestCase):
             self.assertNotIn(stale_phrase, setup)
 
         for phrase in [
-            "CHECKPOINT -> Update the plan/queue note, emit the publish ledger row",
+            "CHECKPOINT -> Update the plan/queue note, emit the publish packet",
             "commit/push only after those breadcrumbs exist",
             "use `vidux drift` if they diverge",
         ]:
@@ -1143,34 +1117,26 @@ class ViduxContractTests(unittest.TestCase):
 
         self.assertLess(
             loop.index("update the owning plan/queue note"),
-            loop.index("emit the publish ledger row"),
+            loop.index("emit the publish packet"),
         )
         self.assertLess(
-            loop.index("emit the publish ledger row"),
+            loop.index("emit the publish packet"),
             loop.index("commit + push the owned branch/PR path"),
         )
         for phrase in [
-            "Checkpoint the publish cycle",
-            "proof",
-            "handoff status",
-            "files claimed",
-            "path-like claims",
-            "next-agent resume",
+            "Checkpoint: update the owning plan/queue note",
+            "emit the publish packet",
+            "commit + push the owned branch/PR path",
         ]:
             self.assertIn(phrase, loop)
 
         self.assertLess(breadcrumbs.index("**Plan / queue**"), breadcrumbs.index("**Ledger**"))
         self.assertLess(breadcrumbs.index("**Ledger**"), breadcrumbs.index("**Git**"))
         for phrase in [
-            "including proof, `handoff_status`, concise summary, files claimed, path-like claims, and next-agent resume",
+            "carrying the publish packet fields",
             "ledger-emit.sh --event publish",
-            "proof",
-            "handoff status",
-            "concise change summary",
-            "plan task id",
-            "changed files",
-            "path-like claims",
-            "after the plan and ledger breadcrumbs exist",
+            "branch/PR handoff",
+            "after the plan + ledger breadcrumbs exist",
         ]:
             self.assertIn(phrase, breadcrumbs)
 
@@ -1205,20 +1171,15 @@ class ViduxContractTests(unittest.TestCase):
             "repo files",
             "append-only publish ledger rows that prove shipped cycles",
             "Publish ledger rows live outside the repo in the append-only ledger",
-            "matching task id, proof, handoff status, claimed files, and resume point",
-            "planning authority for the queue, decisions, constraints, and Progress/Drift record",
-            "matching publish ledger row is the proof packet that says what actually shipped",
+            "ledger row carrying task id, proof, handoff status, claimed files, resume point",
+            "Planning authority for queue, decisions, constraints, Progress/Drift record",
+            "publish packet is the proof of what shipped and how the next agent resumes",
         ]:
             self.assertIn(phrase, intro_normalized)
 
         for phrase in [
             "Cycle truth lives in the owning `PLAN.md` Progress, Tasks, or Drift Log entry",
-            "matching publish ledger row",
-            "plan task id",
-            "proof",
-            "handoff status",
-            "files claimed",
-            "next-agent resume point",
+            "publish packet",
             "Git history is evidence that transport happened",
             "does not outrank a missing or stale plan/ledger packet",
         ]:
@@ -1232,7 +1193,6 @@ class ViduxContractTests(unittest.TestCase):
             "quickstart": ROOT / "docs" / "guide" / "quickstart.md",
             "installation": ROOT / "docs" / "guide" / "installation.md",
             "cycle": ROOT / "docs" / "concepts" / "cycle.md",
-            "extensions": ROOT / "docs" / "concepts" / "extensions.md",
             "principles": ROOT / "docs" / "concepts" / "principles.md",
             "store": ROOT / "docs" / "concepts" / "store.md",
         }
@@ -1278,7 +1238,7 @@ class ViduxContractTests(unittest.TestCase):
         for phrase in [
             "emits the publish ledger row before any branch/PR/release publish",
             "durable handoff is the owning `PLAN.md` update plus the matching publish ledger row",
-            "preserves the in-progress work first",
+            "preserves in-progress work first",
             "records a plan/ledger handoff",
             "commits only after the plan/ledger packet exists and only if code changed",
         ]:
@@ -1290,7 +1250,7 @@ class ViduxContractTests(unittest.TestCase):
         )
 
         for phrase in [
-            "queue/planning authority for tasks, decisions, constraints, and progress",
+            "queue/planning authority: tasks, decisions, constraints, progress",
             "Latest publish ledger rows",
             "plan/progress checkpoint",
             "ledger-emit.sh --event publish",
@@ -1299,24 +1259,17 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(phrase, normalized["cycle"])
 
         for phrase in [
-            "PLAN.md stays the queue/planning authority",
-            "publish ledger rows remain the shipped-cycle proof packet",
-            "external In Progress state mirrors the local claim",
-        ]:
-            self.assertIn(phrase, normalized["extensions"])
-
-        for phrase in [
-            "planning authority for the queue, decisions, constraints, and progress",
+            "planning authority for queue, decisions, constraints, progress",
             "State lives in repo files plus append-only ledger rows",
-            "publish ledger row with the task id, proof, handoff status, files claimed, and next-agent resume",
+            "ledger row carrying task id, proof, handoff status, files claimed, next-agent resume",
         ]:
             self.assertIn(phrase, normalized["principles"])
 
         for phrase in [
-            "append-only publish ledger packet for shipped work",
+            "append-only publish ledger rows that prove shipped cycles",
             "PLAN.md ← queue/planning authority",
-            "planning authority for the queue, decisions, constraints",
-            "When code changed, a transport commit records the local diff",
+            "Planning authority for queue, decisions, constraints",
+            "When code changed, a commit records the local diff",
         ]:
             self.assertIn(phrase, normalized["store"])
 
@@ -1337,10 +1290,10 @@ class ViduxContractTests(unittest.TestCase):
             "matching publish ledger row carries shipped-cycle proof",
             "handoff status",
             "claimed files",
-            "next-agent resume metadata",
+            "next-agent resume",
             "does not replace the plan plus ledger packet",
             "Treat the diff or git log as the whole handoff",
-            "cite the task, proof, and resume point instead",
+            "cite the task, proof, resume point",
         ]:
             self.assertIn(phrase, normalized)
 
@@ -1349,11 +1302,14 @@ class ViduxContractTests(unittest.TestCase):
         text = _read(SKILL)
         intro = text[text.index("# Vidux") : text.index("## First-Time Setup")]
         principle_one = text[text.index("### 1. Plan first, code second") : text.index("### 2. Design for interruption")]
-        external_boards = text[text.index("### External boards (adapter plugins)") : text.index("When a repo opts into external boards")]
         browser = text[text.index("## Browser") : text.index("### Ad-hoc artifacts")]
         read_room = text[text.index("### Read the Room") : text.index("Ad hoc scratch files")]
         compaction = text[text.index("5. **Compaction survival.") : text.index("### Cron + interactive interleave")]
-        nursing_state = text[text.index("**Repo-level state rule:**") : text.index("Read `pilot/orchestration/nursing.md`")]
+        nursing_state = text[
+            text.index("**Repo-level state rule:**") : text.index(
+                "For any timed or repeated supervision"
+            )
+        ]
 
         for stale_phrase in [
             "the plan file is the only state that matters",
@@ -1370,9 +1326,9 @@ class ViduxContractTests(unittest.TestCase):
             self.assertNotIn(stale_phrase, text)
 
         for phrase in [
-            "owning plan records the queue, decisions, constraints, and progress",
-            "matching publish ledger rows carry shipped-cycle proof",
-            "handoff status",
+            "owning plan records queue, decisions, constraints, progress",
+            "matching ledger rows carry shipped-cycle proof",
+            "handoff_status",
             "files claimed",
             "path-like claims",
             "next-agent resume",
@@ -1380,40 +1336,34 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(phrase, intro)
 
         for phrase in [
-            "planning authority for the queue, decisions, constraints, and Progress/Drift record",
-            "publish ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume",
+            "planning authority for queue, decisions, constraints, Progress/Drift record",
+            "publish packet",
         ]:
             self.assertIn(phrase, principle_one)
 
         for phrase in [
-            "canonical queue/planning authority",
-            "publish ledger rows remain the shipped-cycle proof packet",
-        ]:
-            self.assertIn(phrase, external_boards)
-
-        for phrase in [
             "queue/planning authority",
-            "publish ledger rows remain the shipped-cycle proof packet",
+            "publish packet remains the shipped-cycle proof",
         ]:
             self.assertIn(phrase, browser)
 
         for phrase in [
             "~/.agent-ledger/activity.jsonl",
-            "Repo-local `.agent-ledger/` is optional companion coordination state",
+            "Repo-local `.agent-ledger/` is optional companion state only when documented",
         ]:
             self.assertIn(phrase, read_room)
 
         for phrase in [
-            "emit the matching publish ledger row when work shipped",
+            "emit the publish packet when work shipped",
             "repo-local `.agent-ledger/` only for configured companion state",
-            "Repo files plus append-only ledger rows survive compaction",
+            "Repo files + append-only ledger rows survive compaction",
             "latest matching ledger entry",
         ]:
             self.assertIn(phrase, compaction)
 
         for phrase in [
-            "centralized `~/.agent-ledger/activity.jsonl` activity stream",
-            "repo-local `.agent-ledger/` companion files only when the repo documents them",
+            "centralized `~/.agent-ledger/activity.jsonl` stream",
+            "repo-local `.agent-ledger/` only when documented",
         ]:
             self.assertIn(phrase, nursing_state)
 
@@ -1434,8 +1384,8 @@ class ViduxContractTests(unittest.TestCase):
             self.assertNotIn(stale_phrase, combined)
 
         for phrase in [
-            "repo files plus append-only ledger rows",
-            "planning authority for the queue, decisions, constraints, and Progress/Drift record",
+            "append-only ledger",
+            "queue/decisions/constraints/Progress authority",
             "`ledger-emit.sh --event publish`",
             "CHECKPOINT plan + ledger",
         ]:
@@ -1444,7 +1394,7 @@ class ViduxContractTests(unittest.TestCase):
         for phrase in [
             "planning control plane",
             "owning `PLAN.md`",
-            "matching publish ledger rows carry shipped-cycle proof",
+            "Matching publish ledger rows carry the shipped-cycle proof packet",
             "handoff status",
             "claimed files",
             "resume metadata",
@@ -1454,31 +1404,6 @@ class ViduxContractTests(unittest.TestCase):
             "owning plan plus publish ledger row persists across sessions",
         ]:
             self.assertIn(phrase, guide_normalized)
-
-    def test_mirror_helpers_scope_plan_authority_and_publish_ledger_truth(self):
-        """Derived queue and external-board helpers must not teach plan-only truth."""
-        queue = _read(ROOT / "scripts" / "lib" / "queue-jsonl.sh")
-        inbox = _read(ROOT / "scripts" / "vidux-inbox-sync.py")
-        scripts_ref = _read(ROOT / "docs" / "reference" / "scripts.md")
-        combined = "\n".join([queue, inbox, scripts_ref])
-        normalized = " ".join(combined.split())
-
-        for stale_phrase in [
-            "PLAN.md remains the source of truth -- this is a derived index.",
-            "PLAN.md remains the source of truth — this is a derived index.",
-            "PLAN.md is the source of truth for [pending]",
-        ]:
-            self.assertNotIn(stale_phrase, combined)
-
-        for phrase in [
-            "PLAN.md is the queue/planning authority",
-            "matching publish ledger rows carry shipped-cycle proof and resume metadata",
-            "QUEUE.jsonl is a derived index",
-            "External boards mirror plan task state",
-            "shipped-cycle proof and resume metadata still live in matching publish ledger rows",
-            "`PLAN.md` remains the queue/planning authority and publish ledger rows carry shipped-cycle proof/resume",
-        ]:
-            self.assertIn(phrase, normalized)
 
     def test_root_architecture_doctrine_ingredients_use_plan_ledger_recovery(self):
         """Root doctrine docs must not teach plan-only truth or commit-first recovery."""
@@ -1517,14 +1442,10 @@ class ViduxContractTests(unittest.TestCase):
             "queue state through PLAN.md",
             "shipped-cycle proof through publish ledger rows",
             "owning PLAN.md update plus the matching publish ledger row",
-            "Plan is planning authority",
-            "queue/planning authority for work, decisions, constraints, and progress",
+            "Plan is authority",
             "shipped-cycle proof/resume lives in the matching publish ledger row",
             "Checkpoints are structured plan/ledger packets",
-            "preserves dirty WIP first",
-            "records a plan/ledger handoff before any commit, push, cleanup, or overwrite",
-            "owning plan plus matching publish ledger rows survive",
-            "publish ledger row carries shipped-cycle proof, handoff status, files claimed, and resume metadata",
+            "preserves dirty WIP",
         ]:
             self.assertIn(phrase, normalized)
 
@@ -1559,14 +1480,14 @@ class ViduxContractTests(unittest.TestCase):
             self.assertNotIn(stale_phrase, combined)
 
         for phrase in [
-            "Durable recovery lives in repo files plus append-only ledger rows",
+            "Durable recovery lives in repo files + append-only ledger rows",
             "structured plan/ledger packets",
             "matching ledger row",
             "preserve it first",
             "record the recovery path in the owning plan plus a ledger handoff",
-            "Never commit, overwrite, or discard unknown WIP",
+            "NEVER commit, overwrite, or discard unknown WIP",
             "record the recovery path in the owning plan plus a ledger handoff before any commit, push, cleanup, or overwrite",
-            "Do not commit unknown WIP just to clean the tree",
+            "commit unknown WIP",
             "prompt.md ← lane instructions (read every cycle)",
             "owning `PLAN.md` plus matching publish ledger row carrying the durable proof/resume packet",
             "Update the owning PLAN.md status/Progress and emit the matching publish ledger row",
@@ -1864,7 +1785,7 @@ class ViduxContractTests(unittest.TestCase):
             "Before copying or enabling hooks",
             "summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage",
             "updated `PLAN.md` as both `--file` and `--claim`",
-            "final `done` row with copied hook paths once they exist",
+            "emit the final `done` row with copied hook paths once they exist",
             "--event publish",
             "--summary \"Planned Vidux planning hook install\"",
             "--repo-path /path/to/your/project",
@@ -2060,7 +1981,6 @@ class ViduxContractTests(unittest.TestCase):
             "vidux signpost trace --run-id",
             "publish ledger row",
             "not proof that Claude, Codex, or Cursor actually launched",
-            "Each lane keeps one primary writer runtime",
         ]:
             self.assertIn(phrase, normalized)
 
@@ -2096,7 +2016,7 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(phrase, normalized_command)
 
         for phrase in [
-            "redacted inbox-source and token-file metadata",
+            "redacted inbox-source metadata",
             "Resolve config with `vidux config check --json`",
             "vidux http-smoke --json --timeout 3",
             "`warn_partial`",
@@ -2108,12 +2028,9 @@ class ViduxContractTests(unittest.TestCase):
 
         for phrase in [
             "vidux http-smoke --json --timeout 3",
-            "observe-only local route budget checks",
+            "observe-only route budget checks",
             "`warn_partial`",
             "`fail_budget`",
-            "top-level `ok: true`",
-            "`strict_ok: false`",
-            "vidux-http-smoke.py",
         ]:
             self.assertIn(phrase, normalized_readme)
 
@@ -2153,13 +2070,13 @@ class ViduxContractTests(unittest.TestCase):
         for phrase in [
             "CHECKPOINT plan + ledger",
             "publish branch/PR when propagated",
-            "A commit is only a local code snapshot",
+            "A commit is a local code snapshot",
             "PLAN.md update plus `ledger-emit.sh --event publish`",
-            "Ledger: publish row carries proof, handoff_status, concise summary, plan task id, files claimed, and resume.",
+            "Ledger: publish row carries proof, handoff_status",
             "Git: commit/push branch only after the plan/ledger packet exists.",
-            "Plan update + publish ledger row + resume handoff",
+            "Plan update + publish ledger row + resume",
             "`handoff_status`",
-            "concise summary",
+            "summary",
             "files claimed",
             "next-agent resume",
             "ledger eid",
@@ -2228,7 +2145,7 @@ class ViduxContractTests(unittest.TestCase):
             "--file <changed-file>",
             "--claim <claimed-file>",
             "Carry the ledger eid",
-            "next-agent resume point",
+            "--resume",
             "A merge back to\ntrunk is not enough by itself",
             "publish ledger row with proof, handoff status, files claimed, and next-agent resume",
         ]:
@@ -2285,82 +2202,12 @@ class ViduxContractTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, normalized)
 
-    def test_concepts_adapters_and_automation_reference_use_plan_ledger_recovery(self):
-        """Active concepts/adapter/reference docs must not teach files-only or memory-only recovery."""
-        concepts = _read(ROOT / "docs" / "concepts" / "index.md")
-        adapters = _read(ROOT / "adapters" / "README.md")
-        automation_ref = _read(ROOT / "references" / "automation.md")
-        combined = "\n".join([concepts, adapters, automation_ref])
-        normalized = " ".join(combined.split())
-
-        for stale_phrase in [
-            "Where state lives: PLAN.md, evidence, investigations, git history.",
-            "Files in git are the only reliable persistence.",
-            "PLAN.md stays the source of truth",
-            "source of truth is a repo-local tracker file",
-            "authoritative status mutation",
-            "The lane resumes from memory.md",
-            "each lane reads its own memory.md to resume",
-            "All durable state is on disk: PLAN.md, memory.md, `.agent-ledger/activity.jsonl`, evidence/.",
-            "their durable state has already moved to PLAN.md, ledger, and memory.md",
-            "Disk-persisted authority.",
-            "Trust memory.md.",
-            "memory.md append format, reconcile plan vs. diff",
-            "operator opens ONE memory.md to diagnose",
-            "coordinator's state is on disk (memory.md)",
-            "append-only checkpoint log",
-            "memory.md is load-bearing history",
-            "memory.md IS the memory",
-            "appends a new entry after checkpointing",
-        ]:
-            self.assertNotIn(stale_phrase, combined)
-
-        for phrase in [
-            "PLAN.md + ledger + evidence/ + git",
-            "Repo files plus matching publish ledger rows are the reliable recovery packet",
-            "PLAN.md stays the queue/planning authority, publish ledger rows carry shipped-cycle proof/resume",
-            "handled-state authority is a repo-local tracker file",
-            "status mutation authority",
-            "reads memory.md for local orientation, then resumes shipped work from the owning PLAN.md plus the latest matching publish ledger row",
-            "Durable recovery is on disk: PLAN.md, publish ledger rows, evidence/, investigations/, and lane-local memory.md notes",
-            "owning PLAN.md plus latest matching publish ledger row",
-            "shipped proof/resume still belongs to the owning plan plus publish ledger packet",
-            "latest publish ledger row",
-            "lane-local memory note plus plan/ledger publish packet",
-            "then reads the owning PLAN.md plus latest matching publish ledger row",
-            "one lane-local memory note stream plus the owning PLAN.md and latest matching publish ledger row",
-            "lane-local orientation stays in `memory.md`, while shipped-work state resumes from the owning PLAN.md plus matching publish ledger row",
-            "memory.md # lane-local cycle log",
-            "`memory.md` is lane-local cycle history, and shipped-work recovery still belongs to the owning PLAN.md plus publish ledger packet",
-            "The lane's `memory.md` is lane-local orientation only",
-            "the owning PLAN.md plus matching publish ledger row carries the durable proof, handoff status, files claimed, and next-agent resume",
-        ]:
-            self.assertIn(phrase, normalized)
-
-    def test_apple_asc_adapter_scopes_handled_state_authority(self):
-        """ASC adapter comments must mirror scoped tracker authority, not source-of-truth shorthand."""
-        adapter = _read(ROOT / "adapters" / "apple_asc.py")
-        normalized = " ".join(adapter.split())
-
-        for stale_phrase in [
-            "source of truth for handled state",
-            "authoritative status mutation",
-        ]:
-            self.assertNotIn(stale_phrase, adapter)
-
-        for phrase in [
-            "handled-state authority stays with the repo-local tracker file",
-            "owning PLAN.md plus publish ledger packet for shipped-work recovery",
-            "status mutation authority, not the agent",
-        ]:
-            self.assertIn(phrase, normalized)
-
     def test_placeholder_draft_prs_are_publish_actions(self):
         """Core placeholder draft PR doctrine must keep plan and ledger propagation."""
         text = _read(SKILL)
         section = text[text.index("### Placeholder draft PRs over blocked exits") :]
         self.assertLess(
-            section.index("Update owning PLAN.md Progress/Tasks or Drift Log"),
+            section.index("owning PLAN.md Progress/Tasks or Drift Log"),
             section.index("gh pr create --draft"),
         )
         self.assertLess(
@@ -2378,8 +2225,7 @@ class ViduxContractTests(unittest.TestCase):
             "--resume",
             "--file",
             "--claim",
-            "carry that ledger eid into the draft PR body",
-            "next-agent resume point",
+            "carry that ledger eid into the PR body",
         ]:
             self.assertIn(phrase, section)
 
@@ -2395,7 +2241,7 @@ class ViduxContractTests(unittest.TestCase):
         s_p1 = re.search(r"###\s+1\.\s+Plan.*?(?=^###\s+2\.)", skill, re.DOTALL | re.MULTILINE)
         self.assertIsNotNone(s_p1, "SKILL.md missing principle 1 (Plan first)")
         self.assertIn("planning authority", s_p1.group())
-        self.assertIn("publish ledger row", s_p1.group())
+        self.assertIn("publish packet", s_p1.group())
         s_p5 = re.search(r"###\s+5\..*?(?=^---|^###|\Z)", skill, re.DOTALL | re.MULTILINE)
         self.assertIsNotNone(s_p5, "SKILL.md missing principle 5 (Prove it)")
         self.assertIn("process fix", s_p5.group())
@@ -4055,6 +3901,58 @@ class ViduxContractTests(unittest.TestCase):
             self.assertEqual(missing.returncode, 2)
             self.assertIn("--port requires a value", missing.stderr)
 
+    def test_vidux_wrapper_exports_resolved_root_to_browse_launcher(self):
+        """vidux browse must launch from the checkout that owns bin/vidux."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            fakebin = tmp / "bin"
+            home = tmp / "home"
+            dev_root = tmp / "scan-root"
+            fakebin.mkdir()
+            home.mkdir()
+            dev_root.mkdir()
+
+            (fakebin / "lsof").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            (fakebin / "open").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            matching_health = json.dumps({
+                "ok": True,
+                "dev_root": str(dev_root.resolve()),
+                "repo_root": str(ROOT.resolve()),
+                "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
+                "port": 7293,
+            })
+            (fakebin / "curl").write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' " + json.dumps(matching_health) + "\n",
+                encoding="utf-8",
+            )
+            for executable in fakebin.iterdir():
+                executable.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "PATH": f"{fakebin}{os.pathsep}{env.get('PATH', '')}",
+            })
+            env.pop("VIDUX_ROOT", None)
+
+            result = subprocess.run(
+                [
+                    str(ROOT / "bin" / "vidux"),
+                    "browse",
+                    "--port",
+                    "7293",
+                    "--root",
+                    str(dev_root),
+                    "--no-open",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("vidux browser already on http://127.0.0.1:7293", result.stdout)
+
     def test_vidux_browse_help_and_completions_include_launcher_flags(self):
         """User-facing help and completions must match vidux-browse flags."""
         help_result = subprocess.run(
@@ -5010,8 +4908,8 @@ class ViduxContractTests(unittest.TestCase):
         """SKILL.md Principle 2 must address context loss and disk-based re-read."""
         text = _read(ROOT / "SKILL.md")
         self.assertTrue(
-            "context will be lost" in text.lower(),
-            "SKILL.md missing 'Context will be lost' in principle 2",
+            "context will be lost" in text.lower() or "context is lost" in text.lower(),
+            "SKILL.md missing context-loss guidance in principle 2",
         )
         self.assertTrue(
             "re-read plan" in text.lower() or "re-read PLAN.md" in text,

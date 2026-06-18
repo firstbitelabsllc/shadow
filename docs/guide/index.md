@@ -1,6 +1,6 @@
 # What is Vidux?
 
-Vidux is a lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.
+Vidux orchestrates AI coding work that spans multiple sessions, agents, or days.
 
 ## The Core Problem
 
@@ -11,15 +11,15 @@ Most agent failures are state failures:
 - A later session could not tell what was intentional
 - The same bug got "fixed" three different ways
 
-When an AI session ends, its context is gone. When a new session starts, it has no idea what the previous one was doing, why decisions were made, or what not to touch. This is the root cause of the "agent drift" problem — where each new session makes slightly different decisions, and the codebase slowly becomes incoherent.
+When a session ends, its context is gone. A new session has no idea what the previous one was doing, why decisions were made, or what not to touch. That is agent drift: each session makes slightly different decisions and the codebase loses coherence.
 
 ## The Solution
 
 Vidux makes documentation the planning control plane. The owning `PLAN.md`
-carries the queue, decisions, evidence, and progress; matching publish ledger
-rows carry shipped-cycle proof, handoff status, claimed files, and resume
-metadata. Git stores the docs and transport history, but it does not replace
-the plan plus ledger packet.
+carries the queue, decisions, evidence, and progress. Matching publish ledger
+rows carry the shipped-cycle proof packet: proof, handoff status, claimed files,
+resume metadata. Git stores docs and transport history; it does not replace the
+plan-plus-ledger packet.
 
 ```
 PLAN.md - queue/planning authority
@@ -43,7 +43,7 @@ Every change flows through a four-stage loop:
 Doc Tree → Work Queue → Fresh Agent → Code Change → Doc Tree
 ```
 
-Inside each agent run, five steps execute in order. No step is skippable:
+Inside each agent run, five steps execute in order — none skippable. Canonical loop: READ → ASSESS → ACT → VERIFY → CHECKPOINT.
 
 1. **READ** — Load PLAN.md, check git log, scan for uncommitted work
 2. **ASSESS** — Does the next task have evidence? Code or refine?
@@ -51,9 +51,9 @@ Inside each agent run, five steps execute in order. No step is skippable:
 4. **VERIFY** — Build, test, visual proof
 5. **CHECKPOINT** — Plan/progress update plus publish ledger row; git transport only after propagation
 
-If the code is wrong, the plan is wrong — fix the plan first. The owning plan
-plus publish ledger row persists across sessions; each run dies. Any fresh
-agent can rehydrate from repo docs and ledger proof, then continue.
+Code wrong = plan wrong. Fix the plan first. The owning plan plus publish ledger
+row persists across sessions; each run dies. Any fresh agent rehydrates from repo
+docs and ledger proof, then continues.
 
 ## How Vidux Compares
 
@@ -65,21 +65,21 @@ agent can rehydrate from repo docs and ledger proof, then continue.
 | **Fleet ops** | Ready-PR flow, session-gc, idle detection | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
-Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
+Vidux doesn't replace your coding agent — it gives it a memory that outlasts the session.
 
 ## Core Invariants
 
-A few hard rules that prevent the most common stateless-agent failures:
+Hard rules that prevent the most common stateless-agent failures:
 
-**One project, one `PLAN.md`** — course corrections update the existing plan's Decision Log; they never spawn a sibling plan. The Decision Log is the memory of why a pivot happened.
+**One project, one `PLAN.md`** — course corrections update the existing plan's Decision Log; NEVER spawn a sibling plan. The Decision Log records why a pivot happened.
 
-**Compound tasks + L2 investigations** — messy surfaces get a compound task that links to an `investigations/<slug>.md` sub-plan. The L2 investigation is the work until the Fix Spec is filled.
+**Compound tasks + L2 investigations** — messy surfaces get a compound task linking to an `investigations/<slug>.md` sub-plan. The L2 investigation is the work until the Fix Spec is filled.
 
-**Progress is code change** — a PR that only touches `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local. This rule was codified in the repo's 2026-04-17 doctrine update.
+**Progress is code change** — a PR touching only `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local. Codified in the 2026-04-17 doctrine update.
 
-**Append-only logs** — the `## Progress` section in `PLAN.md` and each lane's `memory.md` are strictly append-only. Corrections go in new entries, not rewrites. Some overlays also keep a separate `PROGRESS.md`, but core vidux does not require it.
+**Append-only logs** — `## Progress` in `PLAN.md` and each lane's `memory.md` are strictly append-only. Corrections go in new entries, never rewrites. Core vidux does not require a separate `PROGRESS.md`.
 
-**3x stuck rule** — if the same task appears in 3+ consecutive progress entries while still in-progress, force a surface switch; the next cycle finds new evidence or the task stays blocked.
+**3x stuck rule** — same task in 3+ consecutive progress entries while still in-progress → force a surface switch.
 
 ## Next Steps
 

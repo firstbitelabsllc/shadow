@@ -26,14 +26,9 @@ LOG="$LOG_DIR/gc.log"
 
 stamp() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
-# Roots to scan. Both Mac layouts supported: ~/Development/* (personal Mac)
-# and ~/REDACTED-EMPLOYER-PATH/Dev/* (Snap work machine). Non-existent roots skip silently.
-ROOTS=(
-  "$HOME/Development/vidux"
-  "$HOME/REDACTED-EMPLOYER-PATH/Dev/vidux"
-  "$HOME/Development/ai/vidux"
-  "$HOME/REDACTED-EMPLOYER-PATH/Dev/ai/vidux"
-)
+# Roots to scan. Override with VIDUX_GC_ROOTS (space-separated). Non-existent
+# roots skip silently, so listing extra layouts is harmless.
+ROOTS=(${VIDUX_GC_ROOTS:-"$HOME/Development/vidux" "$HOME/Development/ai/vidux"})
 
 hard_cap_any=0
 swept=0

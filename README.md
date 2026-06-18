@@ -26,8 +26,8 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/firstbitelabsllc/vidux.git ~/Development/vidux
-ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
+git clone https://github.com/firstbitelabsllc/vidux.git ~/path/to/vidux
+ln -sf <vidux-dir>/bin/vidux /usr/local/bin/vidux
 vidux dev
 ```
 
@@ -38,13 +38,13 @@ Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/
 ### Option A — symlink into PATH (recommended)
 
 ```bash
-ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
+ln -sf <vidux-dir>/bin/vidux /usr/local/bin/vidux
 ```
 
 ### Option B — add `bin/` to PATH
 
 ```bash
-echo 'export PATH="$HOME/Development/vidux/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="<vidux-dir>/bin:$PATH"' >> ~/.zshrc
 exec zsh
 ```
 
@@ -52,28 +52,16 @@ Verify with `vidux --version`.
 
 ### Claude Code skill (optional)
 
-To use the `/vidux` slash-command discipline inside Claude Code, symlink this repo as a skill and copy optional enforcement hooks into a target repo:
+Symlink this repo as a `/vidux` skill and copy optional enforcement hooks into a target repo:
 
 ```bash
-ln -sfn ~/Development/vidux ~/.claude/skills/vidux
+ln -sfn <vidux-dir> ~/.claude/skills/vidux
 cp hooks/pre-commit-plan-check.sh /path/to/your/project/.git/hooks/pre-commit
 cp hooks/post-commit-checkpoint.sh /path/to/your/project/.git/hooks/post-commit
 cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 ```
 
-Then run `/vidux "your project description"` in Claude Code. The first cycle gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready.
-
-## Security posture
-
-vidux credentials are stored locally (NEVER in repo):
-
-- **GitHub Personal Access Token:** `~/.config/vidux/gh-project.token` (chmod 600). Used by `adapters/gh_projects.py`.
-
-Both files are in the user's home directory, NOT in the repo. Commit hooks
-(`gitleaks`, see `.gitleaks.toml`) catch accidental commits of these files.
-
-For multi-machine sync (e.g. across two Macs): copy the token files manually
-out-of-band; do NOT include them in any repo sync.
+Run `/vidux "your project description"`. The first cycle gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready.
 
 ## Multi-platform notes
 
@@ -86,30 +74,28 @@ vidux is developed on macOS but core scripts are POSIX-compatible:
 
 ## Vidux Browse
 
-Vidux also ships a local browser surface for reading plans, scanning the cross-plan fleet queue, reviewing HTML artifacts, and leaving comments without editing the source files:
+A local browser surface for reading plans, scanning the fleet queue, reviewing HTML artifacts, and leaving comments without editing source files:
 
 ```bash
 bin/vidux-browse
 ```
 
-By default it opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` only on a trusted LAN when you want another device to view the same machine's plans and artifacts.
+Opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` only on a trusted LAN to expose the same machine's plans to another device.
 
 The browser keeps the plan contract intact:
 
-- The default pane is a read-only fleet dashboard for in-progress tasks, blocked tasks, open `ASK-LEO.md` entries, and open `INBOX.md` entries.
-- The sidebar can filter by repo/slug/purpose, narrow with persisted hot/tasks/ETA chips, and sort the visible plan groups by `mtime`, remaining `ETA`, or freshness status.
-- Each plan has a read-only `Ledger` tab for recent publish/checkpoint proof rows from `${VIDUX_LEDGER_FILE:-~/.agent-ledger/activity.jsonl}`, capped by `VIDUX_LEDGER_ITEM_LIMIT` and `VIDUX_LEDGER_SCAN_LIMIT`.
-- Plan files and artifacts are rendered from disk; comments are separate append-only app data.
-- Local HTML artifacts can link `../static/artifact-base.css` after their own `<style>` block for shared dark-mode tokens that also work when opened from disk.
-- The top-bar `Annotate` button or `Cmd/Ctrl+Shift+C` lets a commenter click the exact browser surface they mean, then opens a small popover composer at that target. Shortcuts are ignored while typing in form fields.
-- Comment anchors are display pointers, not source edits: they never mutate `PLAN.md`, `INBOX.md`, repo code, task claims, or artifact HTML.
-- Local plan-note writes are loopback-only; LAN viewers can comment through the browser origin but cannot write plan state.
+- The default pane is a read-only fleet dashboard for in-progress, blocked, and open `ASK-LEO.md` entries.
+- The sidebar filters by repo/slug/purpose and sorts plan groups by `mtime`, remaining `ETA`, or freshness.
+- Each plan has a read-only `Ledger` tab for recent proof rows from `${VIDUX_LEDGER_FILE:-~/.agent-ledger/activity.jsonl}`.
+- Plan files and artifacts render from disk; comments are separate append-only app data.
+- Comment anchors are display pointers, never source edits: they never mutate `PLAN.md`, repo code, task claims, or artifact HTML.
+- Plan-note writes are loopback-only; LAN viewers can comment but cannot write plan state.
 
 See [`docs/reference/browser.md`](docs/reference/browser.md) for the HTTP surface and safety model.
 
 ## How It Works
 
-Every change flows through a four-stage loop. Documentation is the control plane — not chat, not memory.
+Every change flows through a four-stage loop. Documentation is the control plane.
 
 ```mermaid
 flowchart LR
@@ -129,7 +115,7 @@ flowchart LR
     style CODE fill:#2d333b,stroke:#986ee2,stroke-width:2px,color:#adbac7
 ```
 
-Inside each agent run, five steps execute in order. No step is skippable:
+Inside each run, five steps execute in order. None is skippable:
 
 ```mermaid
 flowchart LR
@@ -149,9 +135,7 @@ flowchart LR
     style C fill:#2d333b,stroke:#e5534b,stroke-width:2px,color:#adbac7
 ```
 
-If the code is wrong, the plan is wrong — fix the plan first. The owning plan
-plus publish ledger proof persists across sessions; each run dies. Any fresh
-agent can rehydrate from repo docs and ledger rows, then continue.
+If the code is wrong, the plan is wrong — fix the plan first. The owning plan plus publish ledger proof persists across sessions; each run dies. Any fresh agent rehydrates from repo docs and ledger rows, then continues.
 
 ## Why It Exists
 
@@ -162,10 +146,7 @@ Most agent failures are state failures:
 - a later session could not tell what was intentional
 - the same bug got "fixed" three different ways
 
-Vidux solves that by making documentation the planning control plane. `PLAN.md`
-lives in git; publish ledger rows live in the append-only ledger. No databases,
-no daemons, no memory tricks. Any agent can read the plan, proof rows, and repo
-files, understand the world, and pick up where the last one stopped.
+Vidux makes documentation the planning control plane. `PLAN.md` lives in git; publish ledger rows live in the append-only ledger. No databases, no daemons, no memory tricks.
 
 ## How Vidux Compares
 
@@ -181,13 +162,13 @@ Vidux doesn't replace your coding agent — it gives your agent a memory that ou
 
 ## Core Invariants
 
-A few hard rules that prevent the most common stateless-agent failures:
+Hard rules that prevent the most common stateless-agent failures:
 
-**One project, one `PLAN.md`** — course corrections update the existing plan's Decision Log, they never spawn a sibling plan. The Decision Log is the memory of why a pivot happened.
+**One project, one `PLAN.md`** — course corrections update the existing plan's Decision Log; they never spawn a sibling plan.
 
-**Compound tasks link to an investigation file** — messy surfaces get a compound task pointing at `investigations/<slug>.md` with seven sections (Reporter Says / Evidence / Root Cause / Impact Map / Fix Spec / Tests / Gate). The investigation IS the work until the Fix Spec is filled; then the fix and the investigation ship together as one commit. One parent plan, one child investigation per compound task — no deeper nesting.
+**Compound tasks link to an investigation file** — messy surfaces get a compound task pointing at `investigations/<slug>.md` with seven sections (Reporter Says / Evidence / Root Cause / Impact Map / Fix Spec / Tests / Gate). The investigation IS the work until the Fix Spec is filled; then fix and investigation ship as one commit. One investigation per compound task, no deeper nesting.
 
-**Append-only logs** — the `## Progress` section, optional `## Drift Log`, and each lane's `memory.md` are append-only. Corrections go in new entries, not rewrites. Use `vidux drift` when implementation diverges from the plan so planned, actual, why, plan update, next, prevention hints, feedback-cache rows, and subplan mirrors stay durable. Some overlays also keep a separate `PROGRESS.md`, but core vidux does not require it.
+**Append-only logs** — `## Progress`, the optional `## Drift Log`, and each lane's `memory.md` are append-only. Corrections go in new entries. Use `vidux drift` when implementation diverges from the plan.
 
 **3x stuck rule** — same task in 3+ consecutive progress entries while in-progress = auto-exit. Brake, not kill.
 
@@ -200,121 +181,66 @@ vidux doctor
 vidux http-smoke --json --timeout 3 http://127.0.0.1:4400/api/health
 ```
 
-Scans every `PLAN.md` under `~/Development/`, renders a two-bucket board: plans tied to the current repo vs everything else tracked on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags on active tasks), last activity timestamp. `vidux browse` also shows the same server-calculated fleet remaining-hours total in the topbar. Flags: `--all` (include empty / shipped / stale), `--json`, `--focus <repo...>`, `--root <path>`.
+Scans every `PLAN.md` under a scan root (default `~/path/to/projects`), renders a two-bucket board: plans tied to the current repo vs everything else on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags), last activity. Flags: `--all`, `--json`, `--focus <repo...>`, `--root <path>`.
 
-Live config lives at a local, gitignored `vidux.config.json`. The repo ships
-`vidux.config.example.json` as the checked-in shape; `vidux config check`
-falls back to the example unless `--strict` is passed. The only required key is
-`plan_store`:
+Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.config.example.json` as the shape). The only required key is `plan_store`, whose `mode` is `inline` (repo-local `PLAN.md`, the default), `local` (a configured path), or `external` (a path outside the scan root). Agents resolve the authority `PLAN.md` from this at session start. Use `vidux config init` to seed a local config; full schema in [`docs/reference/config.md`](docs/reference/config.md).
 
-`vidux doctor` is the terminal install/readiness doctor and can run `npm test`.
-For hook-safe runtime health probes, use `scripts/vidux-doctor.sh --json`.
-For observe-only local route budget checks, use `vidux http-smoke`; partial
-responses inside the budget are classified as `warn_partial`, while zero-byte
-budget misses are classified as `fail_budget`. Warning-only JSON runs exit 0
-with top-level `ok: true` and `strict_ok: false`.
-
-```json
-{
-  "plan_store": {
-    "mode": "local",
-    "path": "~/Development/vidux/projects"
-  }
-}
-```
-
-- `mode: "inline"` — plans live in the current repo as `PLAN.md` (default when no config is present)
-- `mode: "local"` — plans live at a configured path, one subdir per project
-- `mode: "external"` — same as local but path may point outside `~/Development`
-
-Agents read this at session start and resolve the authority `PLAN.md` before doing anything else.
-Use `vidux config init` to copy the example into a local config, and
-`vidux config show` for a redacted summary that does not print adapter tokens.
+`vidux doctor` is the install/readiness doctor (can run `npm test`); `scripts/vidux-doctor.sh --json` is the hook-safe probe. `vidux http-smoke` runs observe-only route budget checks: partial responses inside budget are `warn_partial`, zero-byte misses are `fail_budget`.
 
 ## What Ships Here
 
 | Path | What |
 |------|------|
-| `SKILL.md` | Core discipline plus the condensed automation summary — five principles, the cycle, PLAN.md template, and the Part 2 decision trees |
-| `guides/automation.md` | Opt-in automation guide — 24/7 fleet model, session-gc, lane bootstrap, and delegation |
-| `guides/recipes.md` | Named automation recipe catalog — PR review, PR lifecycle, deploy watching, trunk health, self-improvement, and related lane patterns |
-| `guides/recipes/` | Focused opt-in guides — CLAUDE.md rules, lane prompts, subagent delegation, Codex runtime, and workflow-friction patterns |
-| `CHANGELOG.md` | Release notes — latest doctrine changes and migration notes |
+| `SKILL.md` | Core discipline — five principles, the cycle, PLAN.md template, decision trees |
 | `DOCTRINE.md` | The short doctrine (~5 min read) |
 | `LOOP.md` | Stateless cycle mechanics |
 | `ENFORCEMENT.md` | Claude Code hook configuration |
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
-| `commands/` | `/vidux` (single entry point — Part 1 inline, Part 2 + recipes on demand) |
-| `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim gotchas, PR lifecycle) |
-| `scripts/` | Cycle, status, config, doctor, drift log, drift feedback cache, signposting, HTTP monitor smoke, GC, worktree, Codex maintenance, and migration helpers such as `vidux-loop.sh`, `vidux-config.py`, `vidux-doctor-cli.sh`, `vidux-http-smoke.py`, `vidux-drift-log.py`, `vidux_signpost.py`, `vidux-status.py`, `vidux-plan-gc.py`, `vidux-worktree-gc.py`, and `vidux-test-all.sh` |
-| `scripts/lib/` | compat.sh, codex-db.sh, ledger-config.sh, ledger-emit.sh, ledger-query.sh, queue-jsonl.sh, resolve-plan-store.sh |
+| `CHANGELOG.md` | Release notes and migration notes |
+| `commands/` | `/vidux` single entry point |
+| `scripts/` | Cycle, status, config, doctor, drift, signpost, HTTP smoke, GC, worktree, and migration helpers |
+| `scripts/lib/` | Shared shell libs (compat, codex-db, ledger, queue, plan-store resolution) |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
-| `tests/` | Contract and lifecycle tests (scripts, commands, doctrine, worktree lifecycle, SKILL.md structure) |
-| `examples/` | Worked examples (bug fix lifecycle, fleet reference, drift feedback cache smoke, signpost telemetry smoke) |
+| `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim, PR lifecycle) |
+| `tests/` | Contract and lifecycle tests |
+| `examples/` | Worked examples (start with bug-fix lifecycle) |
 
 ## Ecosystem
 
-Vidux has **one entry point** — `/vidux` — loading the core discipline inline. The automation layer and the recipes layer are opt-in: load `guides/automation.md` and `guides/recipes/*.md` only when the task calls for them. Each lane keeps one primary writer runtime: Claude with Claude subagents, Codex with Codex subagents, or an editor-bound Cursor lane when that is the active tool. The signpost schema is shared across runtimes, so `vidux signpost lifecycle-smoke --json` can verify the expected Codex/Claude/Cursor call-stack labels and `vidux signpost spawned-subagent-smoke --json` can verify inherited parent/worker env attribution without claiming those external tools actually ran.
+Vidux has **one entry point** — `/vidux` — loading the core discipline inline.
 
-| Skill | What it does | Ships in this repo? |
+| Skill | What it does | Ships here? |
 |---|---|---|
-| `/vidux` | Plan-first cycle (Part 1 inline) — read, assess, act, verify, checkpoint. Part 2 automation + recipes loaded on demand | Yes |
-| `/pilot` | Universal project lead — detects stack and stage, routes into `/vidux` when needed | No (separate) |
-| `/ledger` | Append-only JSONL activity log for multi-agent coordination across tools | No (separate) |
+| `/vidux` | Plan-first cycle — read, assess, act, verify, checkpoint. Automation + recipes loaded on demand | Yes |
+| `/ledger` | Append-only JSONL activity log for multi-agent coordination | No (separate) |
 
-For deep automation details (session-gc internals, Codex shim registration, PR lifecycle nursing, cross-fleet coordination), `/vidux` reads [`guides/automation.md`](guides/automation.md) and [`references/automation.md`](references/automation.md) on demand — neither is loaded upfront.
+## Automation (opt-in)
 
-## Platform Automation
+The cycle works for humans, one-shot sessions, and cron-scheduled fleets. The automation layer is opt-in — load it only when the task calls for it. It covers session-gc and JSONL growth control, the coordinator pattern and 6-lane cap, subagent dispatch for heavy reads, lane bootstrap, fleet ops, and PR-lifecycle nursing.
 
-Vidux is platform-agnostic — the cycle works for humans, one-shot sessions, and cron-scheduled fleets. As of 2.10.0, the automation layer lives in [`guides/automation.md`](guides/automation.md) (opt-in Part 2 content), with the deep doctrine in [`references/automation.md`](references/automation.md):
+Patterns:
+- **Ready-PR-first** — push ready-for-review by default so review bots run; draft is for true WIP or missing gates.
+- **Progress is code change** — PRs touching only `PLAN.md` / `investigations/` / `evidence/` are bookkeeping; bundle plan updates into the code PR or keep notes local.
+- **`observed` evidence type** — user-observed app behavior is first-class plan evidence.
+- **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit.
 
-- **Session management** — CronCreate lanes, session-gc, JSONL growth control
-- **Lane operations** — coordinator pattern, decision tree, 6-lane hard cap
-- **Subagent dispatch** — spawning fresh-context subagents for heavy reads or isolated implementation work
-- **Lane bootstrap recipe** — role picker (coordinator / burst / radar), file templates, registration steps
-- **Fleet ops** — discover, prescribe, validate, audit across automation fleets
-- **PR lifecycle** — PR Nurse pattern, triage at cycle start, self-review before push
-
-See [guides/fleet-ops.md](guides/fleet-ops.md) and [guides/recipes.md](guides/recipes.md) for full lifecycle docs and setup guides.
-
-## Fleet Patterns
-
-Patterns for autonomous multi-lane fleets. See [`guides/automation.md`](guides/automation.md) and [`references/automation.md`](references/automation.md) for mechanics, plus the [recipe catalog](guides/recipes/) for ready-to-deploy patterns with prompt templates.
-
-- **Ready-PR-first** — automation pushes open ready-for-review by default so review bots run; draft is reserved for true WIP or missing gates ([guide](guides/draft-pr-flow.md))
-- **Progress is code change** — PRs that only touch `PLAN.md` / `investigations/` / `evidence/` / `INBOX.md` are bookkeeping, not progress. Bundle plan updates into the code PR, or keep notes local ([CHANGELOG](CHANGELOG.md#290--2026-04-17))
-- **`observed` evidence type** — user-observed app behavior is first-class plan evidence alongside grep hits and PR comments
-- **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit
-
-## Lessons from Production (Apr 2026 fleet run)
-
-Three findings from running 35+ Claude lanes and Codex agents across 5 repos for 48 hours:
-
-**1. Stuck crons need exit conditions.** A verification cron confirmed PR #9 was live, then re-verified it 300+ times over 2 hours. Fix: after success, mark done and stop. The 3x stuck rule catches *failing* loops; *succeeding* loops that don't exit are a different bug.
-
-**2. Ledger noise drowns signal.** The vidux-loop cron produced 395K empty `vidux_loop_start` entries in 2 days — 99.7% of all ledger volume. Fix: log once when idle, not per-PID per-fire. The ledger is only useful if real events are findable.
-
-**3. Subagent dispatch keeps the parent context lean.** Heavy reads (30+ file audits) and isolated implementation slices delegate to fresh-context subagents via `Agent()`. The parent session reads only the summary or diff, not the raw source — this is the main lever for running productive 24/7 fleets without hitting compaction pressure. See [`guides/recipes/subagent-delegation.md`](guides/recipes/subagent-delegation.md).
+Guides: [automation](guides/automation.md), [references/automation](references/automation.md), [fleet-ops](guides/fleet-ops.md), [recipes](guides/recipes.md), [recipe catalog](guides/recipes/), [draft-pr-flow](guides/draft-pr-flow.md), [subagent-delegation](guides/recipes/subagent-delegation.md).
 
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) — three-layer overview with diagrams
 - [Harness Setup](guides/harness.md) — writing automation prompts
-- [Evidence Format](guides/evidence-format.md) — how to structure evidence files
-- [Fleet Operations](guides/fleet-ops.md) — automation fleet management
+- [Evidence Format](guides/evidence-format.md) — structuring evidence files
 - [Investigation Lifecycle](guides/investigation.md) — the parent-plan + child-investigation pattern
-- [Ready PR Flow](guides/draft-pr-flow.md) — how automation lanes push code
-- [Automation Recipes](guides/recipes.md) — the named automation recipe catalog for lane shapes and operating patterns
-- [Focused Recipes](guides/recipes/) — narrow guides such as Codex runtime, prompt patterns, and evidence discipline
-- [Examples](examples/) — worked examples (start with [bug fix lifecycle](examples/bug-fix-lifecycle/))
+- [Examples](examples/) — start with [bug-fix lifecycle](examples/bug-fix-lifecycle/)
 
 ## Sibling Project
 
-**[claudux](https://github.com/firstbitelabsllc/claudux)** — documentation generator with multi-backend AI support (Claude + Codex). If vidux is "plan before code," claudux is "docs before code." Same philosophy, different surface: claudux can target multiple generation backends, while vidux runs inside whichever runtime you launch.
+**[claudux](https://github.com/firstbitelabsllc/claudux)** — documentation generator with multi-backend AI support. If vidux is "plan before code," claudux is "docs before code."
 
 ## Contributing
 
-This repo currently stays private while the portable Layer 1 core is refined. Feedback is tracked through [GitHub Issues](https://github.com/firstbitelabsllc/vidux/issues) for collaborators with access; private Layer 2 project wiring should stay out of the core.
+This repo is public for reuse, critique, and feedback. Track feedback through [GitHub Issues](https://github.com/firstbitelabsllc/vidux/issues).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for the vulnerability reporting policy.

@@ -112,54 +112,6 @@ jobs:
         run: python -m unittest tests.test_acquire_cycle_lock
         timeout-minutes: 3
 
-  linear-audit-tests:
-    name: linear-audit tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run linear-audit tests
-        run: python -m unittest tests.test_linear_audit
-        timeout-minutes: 3
-
-  lane-closeout-tests:
-    name: lane-closeout tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run lane-closeout tests
-        run: python -m unittest tests.test_lane_closeout
-        timeout-minutes: 3
-
-  asc-bridge-tests:
-    name: asc-bridge tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run asc-bridge tests
-        run: python -m unittest tests.test_asc_bridge
-        timeout-minutes: 3
-
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
@@ -244,3 +196,18 @@ jobs:
               sys.exit(1)
           print('All templates valid.')
           "
+
+  public-ready-grep:
+    name: Public-ready grep gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run public-ready grep gate
+        run: python3 scripts/vidux-public-ready-grep-gate.py

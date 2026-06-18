@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 
 
-LINEAR_REF_RE = re.compile(r"^[A-Z]+-\d+$")
 HANDOFF_STATUSES = {"done", "in_progress", "blocked", "needs_review"}
 REQUIRED_REVIEW_PASSES = ("invariant", "regression", "adversarial")
 TASK_ROW_STATUS_RE = r"(?: |x|pending|in_progress|completed|blocked)"
@@ -305,7 +304,6 @@ def build_pr_body(
     resume: str,
     changes: list[str],
     review_passes: list[str],
-    linear: str | None = None,
     cwd: Path | None = None,
     ledger_paths: list[Path] | None = None,
 ) -> str:
@@ -350,12 +348,6 @@ def build_pr_body(
         f"Lane: {lane}",
         f"Plan task: {task}",
     ]
-
-    if linear is not None:
-        linear = _clean(linear, field="linear").upper()
-        if not LINEAR_REF_RE.match(linear):
-            raise ValueError("linear must use the public issue id shape, e.g. EVE-123")
-        body.append(f"Linear: {linear}")
 
     body.extend(
         [
@@ -440,10 +432,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=[],
         help="One concise change summary. Repeat for 1-3 bullets.",
     )
-    parser.add_argument(
-        "--linear",
-        help="Optional public Linear issue id, e.g. EVE-123, when already known.",
-    )
     return parser.parse_args(argv)
 
 
@@ -463,7 +451,6 @@ def main(argv: list[str] | None = None) -> int:
                 resume=args.resume,
                 changes=args.change,
                 review_passes=args.review_pass,
-                linear=args.linear,
             )
         )
     except ValueError as exc:

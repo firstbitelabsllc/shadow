@@ -132,41 +132,6 @@ def _walk_secret_values(value: Any, *, path: str = "") -> list[dict[str, str]]:
     return issues
 
 
-def _token_file_summary(
-    config: dict[str, Any],
-    *,
-    base: Path,
-    issue_path: str,
-    issues: list[dict[str, str]],
-) -> dict[str, Any] | None:
-    if "token_file" not in config:
-        return None
-    raw = config.get("token_file")
-    if not isinstance(raw, str) or not raw.strip():
-        issues.append(_issue("error", "inbox_source_token_file_invalid", f"{issue_path}.token_file must be a non-empty string"))
-        return {
-            "configured": False,
-            "redacted": True,
-            "resolved_path": None,
-            "path_exists": False,
-        }
-    resolved = _expand_path(raw, base=base)
-    if not _looks_pathish(raw):
-        issues.append(
-            _issue(
-                "warning",
-                "token_file_path_suspicious",
-                f"{issue_path}.token_file does not look like a file path",
-            )
-        )
-    return {
-        "configured": True,
-        "redacted": True,
-        "resolved_path": str(resolved),
-        "path_exists": resolved.exists(),
-    }
-
-
 def load_config(path: Path) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -248,77 +213,12 @@ def validate_config(config: dict[str, Any], *, config_path: Path) -> dict[str, A
                 }
             )
 
-    sources = config.get("inbox_sources", [])
-    if sources is None:
-        sources = []
-    enabled_sources = 0
-    source_summaries: list[dict[str, Any]] = []
-    if not isinstance(sources, list):
-        issues.append(_issue("error", "inbox_sources_not_list", "inbox_sources must be a list"))
-        sources = []
-    for index, source in enumerate(sources):
-        if not isinstance(source, dict):
-            issues.append(_issue("error", "inbox_source_not_object", f"inbox_sources[{index}] must be an object"))
-            continue
-        adapter = source.get("adapter")
-        source_summary: dict[str, Any] = {
-            "index": index,
-            "adapter": adapter if isinstance(adapter, str) else None,
-            "enabled": source.get("enabled") is True,
-            "config_keys": [],
-            "secret_fields_redacted": [],
-        }
-        if not isinstance(adapter, str) or not adapter.strip():
-            issues.append(_issue("error", "inbox_source_adapter_missing", f"inbox_sources[{index}].adapter missing"))
-        if "enabled" in source and not isinstance(source["enabled"], bool):
-            issues.append(_issue("error", "inbox_source_enabled_not_bool", f"inbox_sources[{index}].enabled must be a boolean when present"))
-        if source.get("enabled") is True:
-            enabled_sources += 1
-        if "config" in source and not isinstance(source["config"], dict):
-            issues.append(_issue("error", "inbox_source_config_not_object", f"inbox_sources[{index}].config must be an object"))
-        if isinstance(source.get("config"), dict):
-            source_config = source["config"]
-            config_keys = sorted(str(key) for key in source_config)
-            source_summary["config_keys"] = config_keys
-            source_summary["secret_fields_redacted"] = [
-                key for key in config_keys if _secret_like_key(key)
-            ]
-            token_summary = _token_file_summary(
-                source_config,
-                base=config_dir,
-                issue_path=f"inbox_sources[{index}].config",
-                issues=issues,
-            )
-            if token_summary is not None:
-                source_summary["token_file"] = token_summary
-            auto_promote_target = source_config.get("auto_promote_target")
-            if auto_promote_target is not None:
-                if not isinstance(auto_promote_target, str) or not auto_promote_target.strip():
-                    issues.append(
-                        _issue(
-                            "error",
-                            "inbox_source_auto_promote_target_invalid",
-                            f"inbox_sources[{index}].config.auto_promote_target must be a non-empty string when present",
-                        )
-                    )
-                else:
-                    resolved = _expand_path(auto_promote_target, base=config_dir)
-                    source_summary["auto_promote_target"] = {
-                        "path": auto_promote_target,
-                        "resolved_path": str(resolved),
-                        "path_exists": resolved.exists(),
-                    }
-        source_summaries.append(source_summary)
-
     issues.extend(_walk_secret_values(config))
 
     return {
         "plan_store": plan_store_summary,
         "external_plan_roots": external_roots_summary,
         "external_plan_roots_detail": external_roots_detail,
-        "inbox_sources": source_summaries,
-        "inbox_sources_total": len(sources),
-        "inbox_sources_enabled": enabled_sources,
         "issues": issues,
         "status": "fail" if any(item["severity"] == "error" for item in issues) else "ok",
     }
@@ -372,8 +272,6 @@ def print_human_report(report: dict[str, Any], *, verbose: bool = True) -> None:
     if plan_store:
         exists = "exists" if plan_store.get("path_exists") else "missing"
         print(f"plan_store: {plan_store.get('mode')} {plan_store.get('resolved_path')} ({exists})")
-    if "inbox_sources_total" in report:
-        print(f"inbox_sources: {report['inbox_sources_total']} total, {report['inbox_sources_enabled']} enabled")
     if report.get("issues"):
         print("issues:")
         for item in report["issues"]:

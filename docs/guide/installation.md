@@ -1,6 +1,6 @@
 # Installation
 
-Vidux is installed as a Claude Code skill. It requires no package manager, no build step, and no server — just a symlink into your Claude skills directory.
+Vidux installs as a Claude Code skill — no package manager, no build step, no server. Just a symlink into your Claude skills directory.
 
 ## Prerequisites
 
@@ -14,19 +14,19 @@ git clone https://github.com/firstbitelabsllc/vidux.git
 ln -sfn /path/to/vidux ~/.claude/skills/vidux
 ```
 
-Replace `/path/to/vidux` with the actual path where you cloned the repo. After this, `/vidux` is available as a slash command in any Claude Code session.
+Replace `/path/to/vidux` with your clone path. `/vidux` is then a slash command in any Claude Code session.
 
 ## Optional: Git Hooks
 
-Vidux ships enforcement hooks that catch common planning failures at commit time. They're optional but recommended for teams or long-running projects.
+Vidux ships enforcement hooks that catch planning failures at commit time. Optional; recommended for teams or long-running projects.
 
 Treat installing or rewiring hooks as a publish/change cycle in the **target project**. Before copying or enabling hooks:
 
-1. Update the target repo's owning `PLAN.md` Progress/Tasks/Drift Log with what is changing, proof, `handoff_status`, files claimed, and the next-agent resume point.
-2. Emit a publish ledger row for the target repo with the summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage. For the pre-copy packet, use the updated `PLAN.md` as both `--file` and `--claim`; after copying and verifying hooks, emit the final `done` row with copied hook paths once they exist.
+1. Update the target repo's owning `PLAN.md` (Progress/Tasks/Drift Log) with what is changing, proof, `handoff_status`, files claimed, next-agent resume.
+2. Emit a publish ledger row for the target repo with the summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage. Pre-copy packet: use the updated `PLAN.md` as both `--file` and `--claim`. After copying and verifying hooks, emit the final `done` row with copied hook paths once they exist.
 
 ```bash
-~/Development/ai/hooks/ledger-emit.sh \
+ledger-emit.sh \
   --event publish \
   --repo-path /path/to/your/project \
   --lane hook-install \
@@ -57,16 +57,16 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 
 ## Optional: Claude Code Enforcement Hooks
 
-For stronger enforcement within Claude Code sessions, add the hooks from `ENFORCEMENT.md` to your `settings.local.json`. These hooks:
+For stronger enforcement within Claude Code sessions, add the hooks from `ENFORCEMENT.md` to your `settings.local.json`. They:
 
 - Gate file edits: require a PLAN.md entry before writing code
 - Detect drift: flag file changes that don't match the active plan task
 - Enforce checkpoints: require the owning plan/progress update and publish-ledger packet before publishable work exits
 - Resume protocol: prompt plan re-read on session start
 
-The repo also ships `hooks/hooks.json` as a checked-in example manifest: it wraps the three git hooks above and adds `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
+The repo ships `hooks/hooks.json` as a checked-in example manifest: it wraps the three git hooks above plus `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
 
-`vidux-before-task` is directly runnable as shown. `vidux-after-task` is illustrative rather than zero-config: the raw `scripts/vidux-checkpoint.sh` CLI expects either `<plan-path> <task> <summary>` (plus optional flags) or `--archive`, so an app-level `afterTask` hook needs a wrapper that supplies those arguments.
+`vidux-before-task` runs as shown. `vidux-after-task` is illustrative, not zero-config: raw `scripts/vidux-checkpoint.sh` expects `<plan-path> <task> <summary>` (plus optional flags) or `--archive`, so an app-level `afterTask` hook needs a wrapper that supplies those arguments.
 
 See [Hooks Reference](/reference/hooks) for the full configuration.
 
@@ -78,11 +78,11 @@ Open a Claude Code session and run:
 /vidux "test project"
 ```
 
-If installed correctly, the agent reads the skill, loads `vidux.config.json` when present, resolves the authority plan store, and then either drafts or resumes the authoritative `PLAN.md` before executing the stateless cycle.
+If installed correctly, the agent reads the skill, loads `vidux.config.json` when present, resolves the authority plan store, then drafts or resumes the authoritative `PLAN.md` before executing the stateless cycle.
 
 ## Ecosystem Skills
 
-Vidux is a **single entry point** — `/vidux` — that covers both planning and automation. As of 2026-04-17, previously separate planning, automation, platform-specific, and fleet companion commands were merged into `/vidux` or pruned as orphaned.
+Vidux is a **single entry point** — `/vidux` — covering both planning and automation. As of 2026-04-17, previously separate planning, automation, platform-specific, and fleet companion commands were merged into `/vidux` or pruned.
 
 | Skill | What it does |
 |---|---|

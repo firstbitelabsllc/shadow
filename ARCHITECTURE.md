@@ -118,53 +118,11 @@ Coordinator      ──┘
 
 Each agent runs as a stateless cron. They share queue state through PLAN.md, shipped-cycle proof through publish ledger rows, and transport/diff evidence through git, never through chat memory or message passing.
 
-## Extensions — external adapters
+## Extensions
 
-Vidux core is markdown + git. Extensions plug external systems (kanban boards, issue trackers, project planners) into the same store via a small contract — without changing the cycle or the discipline.
-
-```
-┌──────────────────────────────────────────────────────┐
-│                   THE STORE                          │
-│  PLAN.md + publish ledger + evidence + git           │
-└──────────────┬─────────────────────────┬─────────────┘
-               │                         │
-               │ adapters/               │ vidux.config.json
-               ▼                         ▼
-┌──────────────────────────────────────────────────────┐
-│                   EXTENSIONS                         │
-│                                                      │
-│  AdapterBase (6 methods, status-orthogonal blocked) │
-│      │                                               │
-│      ├── gh_projects   ─── GitHub Projects v2 API    │
-│      ├── linear        ─── Linear GraphQL            │
-│      ├── asana / jira / trello (stubs)               │
-│      └── <your adapter here>                         │
-│                                                      │
-│  scripts/vidux-inbox-sync.py — round-trip reconciler │
-└──────────────────────────────────────────────────────┘
-```
-
-**Six-method contract.** Every adapter implements `fetch_inbox`, `push_task`, `pull_status`, `push_status`, `pull_fields`, `push_fields`. Status pipeline (`pending` → `in_progress` → `in_review` → `completed`) is the column. The Blocked flag is **orthogonal** — written via `push_fields({'_blocked': True})` so the pipeline column never moves when an item gets blocked. `push_status(BLOCKED)` is reserved and must raise.
-
-**Composition over migration.** Adapters are additive. A repo's `vidux.config.json` can list multiple `inbox_sources` entries — `gh_projects` and `linear` coexist; cards minted on one stay on that surface and never bridge. Per-adapter quota buckets stay independent: GitHub PAT vs Linear personal-key never share a rate limit.
-
-**Sync split.** The repo ships one sync entry point, `scripts/vidux-inbox-sync.py`. Operators can scope scheduled runs per adapter with `--only-adapter` when they want independent cadences or credential buckets:
-
-| Invocation shape | Scope | Credential bucket |
-|------|-------|-------|
-| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter gh_projects --direction=both` | GitHub Projects only | GitHub token file |
-| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter linear --direction=both` | Linear only | Linear token file |
-| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --direction=both` | All enabled adapters for that repo | All configured token files |
-
-The repo does not ship scheduler wrappers for these sync passes; a fleet can run one combined invocation or separate scheduler entries per adapter.
-
-**State sidecar.** Per-plan `<plan_dir>/.external-state.json` stores the `task_id ↔ external_id` map per adapter, plus adapter-specific metadata (Linear's task_metadata sidecar after the 2026-04-25 description-codec drop). Gitignored. **Never lose this file** — `git stash drop` after a rebase that captured it permanently breaks the dedup story; always `git stash pop`.
-
-**Auto-promote.** When an adapter's config sets `auto_promote_target: <plan-dir>`, novel external items skip `INBOX.md` and land directly as `[pending] BD-N: <title> [Source: <adapter>:<id>]` tasks in that plan's PLAN.md. The board IS the inbox. Round-trip dedup is required for safety: see the dedup discipline under `scripts/vidux-inbox-sync.py` push reconcile.
-
-**Self-extending lanes.** Per `/vidux-leo`, lanes that opt in via `Self-extending: true` claim adjacent external cards (project/labels/title intersect lane scope) using the orthogonal Blocked label as a 5-min soft-claim window — preventing two lanes from racing the same card without needing a cross-lane lock primitive.
-
-See `adapters/README.md` for the full authoring guide (six-step rubric, round-trip test, token conventions).
+Vidux core is markdown + git, and that is the whole store. There is no
+external-board or issue-tracker integration — `PLAN.md` in git is the only
+queue/planning authority. See `docs/concepts/extensions.md`.
 
 ## Hook Enforcement
 

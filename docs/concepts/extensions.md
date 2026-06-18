@@ -1,181 +1,27 @@
-# Extensions
+# No external integrations
 
-Vidux core is markdown + git. Extensions plug external systems (kanban boards, issue trackers, project planners) into the same store via a small contract — without changing the cycle or the discipline.
+Vidux is markdown + git, and that's the whole store. There is **no** external-board
+or issue-tracker integration, no sync path, and no adapter layer.
 
-## Why extensions
+`PLAN.md` in git is the only queue/planning authority. You read it, update it, and
+checkpoint it as files. If your team lives on a kanban board, mirror vidux's plan
+state there by hand — vidux will not round-trip to one.
 
-Some teams need their tasks visible on a board their non-coder collaborators can read and write to. Some teams need their issues correlated with a tracker that already runs their company's planning rituals. Vidux doesn't fight that — it absorbs it. PLAN.md stays the queue/planning authority; publish ledger rows remain the shipped-cycle proof packet, and the external board becomes a live mirror that round-trips through `scripts/vidux-inbox-sync.py`.
+Why plan-native: the store *is* the discipline. A second synced surface is a second
+source of truth, and the failure mode of every board integration is silent drift
+between the board and the plan. Keeping `PLAN.md` as the sole authority removes that
+drift by construction.
 
-## The contract
+## FAQ
 
-Every adapter subclasses `AdapterBase` and implements six methods:
+### What if my team already works from a board?
 
-| Method | Direction | Purpose |
-|--------|-----------|---------|
-| `fetch_inbox` | external → | Return every item on the board as `ExternalItem` |
-| `push_task`   | → external | Create an external item from a `PlanTask` |
-| `pull_status` | external → | Read current `VidxStatus` for one item |
-| `push_status` | → external | Move the item to the column matching a `VidxStatus` |
-| `pull_fields` | external → | Read typed custom-field values (Evidence, ETA, …) |
-| `push_fields` | → external | Write typed custom-field values |
+Keep using it for human communication if you want, but treat it as a mirror.
+Vidux will not sync tasks, statuses, comments, or ownership back and forth. The
+agent-readable source of truth stays `PLAN.md` plus the matching proof ledger.
 
-The pipeline (`pending` → `in_progress` → `in_review` → `completed`) is the adapter-facing column. The `Blocked` flag is **orthogonal** — written via `push_fields({'_blocked': True})` so the pipeline column never moves when an item gets blocked. `push_status(BLOCKED)` is reserved and must raise.
+### Can I build my own bridge?
 
-That full pipeline is real in the adapter layer, but some local shell helpers still operate on the four-state core subset. In practice, `in_review` is most useful when the board or PR workflow needs it; local scripts such as `vidux-status.py` and `vidux-loop.sh` still assume `pending`, `in_progress`, `completed`, and `blocked`.
-
-See [`adapters/README.md`](https://github.com/firstbitelabsllc/vidux/blob/main/adapters/README.md) in the repo for the six-step authoring guide and the round-trip test rubric.
-
-## Adapters shipped today
-
-| Adapter | Status | Notes |
-|---------|--------|-------|
-| `gh_projects` | live | GitHub Projects v2 adapter |
-| `asana`       | stub | API + auth scaffolded; subclass-ready |
-| `jira`        | stub | API + auth scaffolded; subclass-ready |
-| `trello`      | stub | API + auth scaffolded; subclass-ready |
-
-## Composition over migration
-
-Adapters are **additive**. A repo's `vidux.config.json` can list multiple `inbox_sources` entries. Cards minted on one surface stay on that surface; vidux does not cross-bridge them. Per-adapter quota buckets stay independent.
-
-This means migrating from one tracker to another is a no-op — you don't migrate, you just add the new adapter alongside the old one and let teams use whichever surface fits the work.
-
-## Codebase-owned projects
-
-For repo lanes, the safest external project is named after the codebase it
-feeds, such as `<repo-name>` or `<service-name>`. Product buckets such as
-"Launch Queue" or "Infrastructure" can still exist in a planning tool, but
-they are planning buckets, not repo intake queues.
-
-Adapters should fail closed before mutating PLAN.md when a config points at a
-surprising project, workspace, team, or board. Adapter-specific guardrails live
-with that adapter's docs and config schema; core keeps the policy shape generic.
-
-## PR Linkage
-
-PR handling stays in the extension layer. When `scripts/vidux-inbox-sync.py`
-runs with `--include-prs`, an adapter may look for PR bodies that include
-`Plan task: <id>`, find the matching PLAN.md task, and link the PR only if that
-task has a `[Source: <adapter>:<id>]` marker.
-
-Adapters that support PR linkage should make the operation idempotent, store
-machine-readable linkage in the sidecar, and keep human-facing PR bodies
-readable.
-
-## Labels
-
-Label taxonomy is also an extension-level concern. Core vidux does not define a
-global label scheme. Adapters may support static labels, managed prefix-owned
-labels, or blocked-state labels through their own config, but human-owned
-labels should stay human-owned unless the adapter explicitly documents a
-managed prefix.
-
-## Local policy overlays
-
-Core vidux stays open-source and organization-neutral. If your team needs
-local policy such as "which external projects map to which repos", "which
-review bot blocks merge", or "which cron cadence to use overnight", put that
-in a separate overlay skill or runbook rather than hardcoding it into core.
-
-A good overlay:
-
-- Loads after `/vidux` and says it overlays core instead of replacing it.
-- Stores organization-specific project ids, repo names, review tools, and
-  merge precedents outside the public adapter docs.
-- References the generic adapter contract here instead of duplicating it.
-- Treats contradictions with core as overlay bugs.
-
-That split keeps Vidux reusable while still letting a team make its own
-opinionated operating layer.
-
-## Control-plane projections
-
-A local overlay may act as a control plane above Vidux. That means it can
-classify requests, choose lanes, pick proof floors, select an execution runtime,
-and render status. It still does not own the queue.
-
-A control-plane projection may store:
-
-- lane names and aliases
-- provider refs for routines, chats, worktrees, PRs, or boards
-- cadence, last fire, next fire, and retirement rule
-- latest run id and latest ledger eid
-- read-only status snapshots
-
-It must not store:
-
-- a duplicate task queue
-- copied external comments or PR state as authority
-- proof claims without receipts
-- mutation state that can drift away from `PLAN.md`
-
-The rule is simple: routines drive runs; `PLAN.md`, evidence, and publish
-ledger remain authority.
-
-## Sync architecture
-
-The repo ships one sync entry point: `scripts/vidux-inbox-sync.py`. Operators can schedule separate invocations per adapter via `--only-adapter` when they want independent cadences or credentials:
-
-| Invocation shape | Scope | Credential bucket |
-|------|-------|-------|
-| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter gh_projects --direction=both` | GitHub Projects only | GitHub token file |
-| `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --direction=both` | All enabled adapters for that repo | All configured token files |
-
-Separating scheduler entries is optional, but the `--only-adapter` split is the repo-supported way to scope a run to one external surface.
-
-## State sidecar
-
-Per plan, `<plan_dir>/.external-state.json` stores:
-
-- `task_id ↔ external_id` mapping per adapter
-- Adapter-specific metadata needed to make future sync runs idempotent
-
-The sidecar is **gitignored** because plans live under `projects/*` which is itself gitignored on private fleets. **Never `git stash drop` a sidecar that was captured by `stash push -u`** — that permanently breaks the dedup story and the next sync sees every tracked item as novel. Always `git stash pop`.
-
-## Auto-promote
-
-When an adapter's config sets `auto_promote_target: <plan-dir>`, novel external items skip `INBOX.md` and land directly in that plan's PLAN.md as:
-
-```markdown
-- [pending] BD-N: <title> [Source: <adapter>:<id>]
-```
-
-`BD-` = "board-dropped". The sequence is per-plan and minted via `_next_bd_seq` in the sync script.
-
-Missing `auto_promote_target` paths fail closed. Vidux refuses to fall back to `INBOX.md`, because that would route external work to the first plan in the store instead of the lane that owns the board/project.
-
-Auto-promote sources are guarded on the push half: they do **not** create new
-external issues from local-only PLAN rows. Already-linked rows with a
-`[Source: adapter:id]` marker still reconcile status back to the external item,
-so a completed imported task can move the external project forward.
-
-Auto-promote also has a batch safety cap: by default, more than 25 novel items
-in one run fails closed before mutating `PLAN.md`. Set
-`auto_promote_max_new` to a different integer, or to `null` to disable the cap
-for a deliberate bulk import.
-
-**Round-trip dedup is required for safety.** Without it, the push half mints duplicate cards every cycle (push uses `task.id` as the mapping key while auto-promote names cards `BD-N` — a namespace mismatch that causes infinite-mint). The sync script's push reconcile must scan task lines for an existing `[Source: <adapter>:<id>]` marker before pushing.
-
-## Self-extending lanes
-
-Some organizations let lanes opt in to adjacent work. A lane that declares
-`Self-extending: true` in its prompt can **claim adjacent external cards** when
-its queue empties or when it spots a card whose project/labels/title intersect
-its scope.
-
-Claim discipline:
-
-1. Set `_blocked: true` on the external card with reason `claimed-by-<lane>:<cycle-ts>` — a 5-minute soft-claim window.
-2. Move external status to In Progress.
-3. Append a `[pending]` task to the local PLAN.md citing `[Source: <adapter>:<id>] [Claimed: <ts>]`.
-4. After the local task transitions to `[in_progress]`, clear `_blocked`. The external In Progress state mirrors the local claim; the owning plan row plus ledger/claims metadata remains the durable handoff packet.
-
-Two lanes firing the same cycle can't double-claim — the second one sees `_blocked=true` from the first and moves to the next candidate. No cross-lane coordination protocol needed; the soft-claim IS the lock.
-
-## When NOT to use an adapter
-
-- Your project has one author and one reviewer who both write code → `INBOX.md` + a Decision Log is plenty.
-- Your team already has a vidux-native cron loop that's working — adding an adapter doubles the surface area without solving a clear problem.
-- The external system charges per API call and your plan churn is high — the round-trip cost will dwarf the value.
-
-Vidux works without any extension. Extensions exist for teams whose stakeholders live on a kanban board.
+Yes, outside the core contract. Keep it as a private overlay or downstream tool
+that reads `PLAN.md` and writes its own projection. Do not make Vidux depend on
+that projection, and do not teach agents that the projection is authoritative.

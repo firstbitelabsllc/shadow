@@ -316,13 +316,13 @@ Recommend actions; let the fleet watcher or a human execute.
 ### Prompt Template
 
 ```
-Use vidux as skill refiner for ~/Development/ai/skills/.
+Use vidux as skill refiner for <your-skills-dir>/.
 
 Mission: Every skill's description drives its activation rate. Polish descriptions,
 fix stale refs, ensure cross-refs are valid. Ship improvements as ready PRs after local gates pass.
 
 READ:
-1. List all skills: ls ~/Development/ai/skills/*/SKILL.md
+1. List all skills: ls <your-skills-dir>/*/SKILL.md
 2. For each: extract name, description, last-modified date
 3. Check activation signals: grep across lane prompts for skill references
 
@@ -340,7 +340,7 @@ FIX (if issues found):
 4. Update the owning PLAN.md Progress/Tasks or Drift Log with what changed,
    proof to run, `handoff_status`, files claimed, and next-agent resume point.
 5. Emit the publish ledger row before the branch leaves the machine:
-   `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane skill-refiner --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
+   `ledger-emit.sh --event publish --repo-path "$(pwd)" --lane skill-refiner --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
 6. git checkout -b claude/skill-refine-<name>
 7. git add <skill-file> <test-or-doc-file> <PLAN.md>
 8. git commit -m "update: <skill> - <what changed>"

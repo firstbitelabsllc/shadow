@@ -1,6 +1,6 @@
 # Reference Overview
 
-This section groups the repo's durable reference material: prompt structure, plan structure, commands, scripts, the local browser UI, hooks, and configuration.
+The repo's durable reference material: prompt structure, plan structure, commands, scripts, the local browser UI, hooks, and configuration.
 
 ## Plan and prompt references
 

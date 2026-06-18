@@ -2,14 +2,13 @@
 # acquire-cycle-lock.sh — single-instance lock guard for launchd cron wrappers.
 #
 # Two parallel cron cycles racing on the same shared state (PLAN.md mutations,
-# `.external-state.json` sidecars, Linear MCP intake) silently produce
-# duplicate work and clobber each other. This helper provides an atomic claim
-# step that any wrapper can call before invoking Claude or any mutator.
+# queue files, ledger rows) silently produce duplicate work and clobber each
+# other. This helper provides an atomic claim step that any wrapper can call
+# before invoking Claude or any mutator.
 #
 # The lock format is `PID|ISO|EPOCH\n`. A lock is treated as "fresh" while
 # the recorded PID is alive AND its age is below `--max-age-seconds`
-# (default 1500 = 25 min, longer than the longest healthy linear-health-watch
-# cycle observed). Stale locks (dead PID OR age >= max) are swept.
+# (default 1500 = 25 min). Stale locks (dead PID OR age >= max) are swept.
 #
 # Usage:
 #   acquire-cycle-lock.sh --acquire --lock-file <path> [--max-age-seconds N]

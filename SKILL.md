@@ -5,40 +5,23 @@ description: "Plan-first project router for AI agents. Detects stack, stage, and
 
 # Vidux
 
-Vidux is a discipline for AI agents: write down what you're going to build before you build it. Plans live in markdown files in git. Agents read the plan, do one piece of work, update the plan, and checkpoint. Any agent can pick up where the last one left off because the owning plan records the queue, decisions, constraints, and progress, while matching publish ledger rows carry shipped-cycle proof, handoff status, files claimed, path-like claims, and next-agent resume.
+Vidux is a discipline for AI agents: write down what you build before you build it. Plans live in markdown files in git. Agents read the plan, do one piece of work, update the plan, and checkpoint. Any agent resumes where the last left off: the owning plan records queue, decisions, constraints, progress; matching ledger rows carry shipped-cycle proof.
+
+**publish packet** = the publish ledger row that carries `{summary, task-id, plan-path, proof, handoff_status, files claimed, path-like claims, next-agent resume}`. Named once here; referenced by name below.
 
 ---
 
 ## First-Time Setup
 
-Prereqs: clone the owning repo and `~/Development/vidux`, install the repo's
-declared toolchain, and read the local `AGENTS.md`/`PLAN.md` before changing
-code. For Leo's fleet, also load `/pilot-leo` and `/captain` when the active
-goal asks for them.
+NEVER: create duplicate plans, execute local-CI lanes, install LaunchAgents, delete worktrees, or push/merge unless the owning plan AND user authorization make it explicit.
 
-Verify: resolve the canonical plan path, inspect git state, and run the
-smallest repo-owned proof command before claiming progress. For local operator
-work, prefer read-only verified-alive/audit packets before executing lanes or
-installing LaunchAgents.
+Prereqs: clone the owning repo plus this Vidux checkout, install the repo's declared toolchain, read local `AGENTS.md`/`PLAN.md` before changing code. Load downstream project skills after `/vidux` when the active goal asks.
 
-Safety: do not create duplicate plans, execute local-CI lanes, install
-LaunchAgents, delete worktrees, or push/merge unless the owning plan and user
-authorization make that operation explicit.
+Verify: resolve the canonical plan path, inspect git state, run the smallest repo-owned proof before claiming progress. For local operator work, prefer read-only verified-alive/audit packets before executing lanes or installing LaunchAgents.
 
-## Leo Flow Overlay Contract
+## Overlay contract
 
-Leo Flow routes Leo-specific requests on top of Vidux; it does not replace this
-kernel. When `/leo-flow` is active:
-
-- Leo Flow owns intent classification, lane selection, hard-wall policy, routine
-  mode, and closeout shape.
-- Vidux owns the run loop, `PLAN.md`/`FLOW.md`/ledger state, checkpoints, proof
-  lifecycle, resume semantics, and publish propagation.
-- `FLOW.md` may carry a local `leo-flow.run.v1` projection for a single active
-  Flow run. It is not a second queue and must point back to the owning `PLAN.md`
-  when a plan exists.
-- Lane skills return `FlowResult` shape: verdict, actions, receipts, open gates,
-  next action, and the weakest truthful proof claim.
+Vidux is the kernel. A downstream project skill may route org-specific requests on top; it does NOT replace the kernel. Vidux owns the run loop, `PLAN.md`/ledger state, checkpoints, proof lifecycle, resume semantics. Downstream skills own local policy and product-specific routing. If local policy contradicts core plan/proof/checkpoint semantics, fix the local policy.
 
 ## Activation & Triage
 
@@ -46,34 +29,32 @@ Vidux is the universal entrypoint. Drop into any repo. Read the room. Run the ri
 
 ### Fast-exit triage (trivial requests stop here)
 
-Before any detection, check if the request is trivially answerable inline. If ANY of these apply, respond with 2-3 options directly in conversation and STOP — do NOT invoke brainstorming, TaskCreate, planning skills, or heavy routing:
+Before any detection, check if the request is trivially answerable inline. If ANY apply, respond with 2-3 options inline and STOP — do NOT invoke brainstorming, planning skills, or heavy routing:
 
-- Request is ≤50 words AND names copy/wording/naming work. Keyword triggers: `tagline`, `hero`, `CTA`, `copy`, `wording`, `name`, `naming`, `rename`, `headline`, `subtitle`, `blurb`, `caption`, `alt text`, `commit message`, `title`.
-- Request is a single factual question ("what's the flag for X?", "how does Y work?", "where does Z live?").
-- Request is a quick refinement on prior output ("make that shorter", "try a different angle", "punchier").
+- ≤50 words AND names copy/wording/naming work. Triggers: `tagline`, `hero`, `CTA`, `copy`, `wording`, `name`, `naming`, `rename`, `headline`, `subtitle`, `blurb`, `caption`, `alt text`, `commit message`, `title`.
+- A single factual question ("what's the flag for X?", "where does Z live?").
+- A quick refinement on prior output ("shorter", "different angle", "punchier").
 
-**Why this exists:** routing layers fire before CLAUDE.md "respond directly with 2-3 options" rules. This is the routing-layer enforcement so brainstorming/TaskCreate chains do not spin up for hero-copy or one-line wording asks.
+Routing-layer enforcement: routing fires before repo-local "respond with 2-3 options" rules, so brainstorming chains do not spin up for one-line asks.
 
-**Who this is NOT for:** expedition-scale work, multi-file changes, anything that would edit production code, or anything framed as "plan first" / "think through" / "design." Those bypass triage and load full vidux.
+NOT for: expedition-scale work, multi-file changes, production-code edits, or anything framed "plan first" / "think through" / "design." Those bypass triage and load full vidux.
 
 ### When vidux activates
 
 Full vidux loads when:
 
-- User says `/vidux`, `vidux`, `plan first`, `quarter project`, `big project`, or describes work spanning multiple sessions.
-- An existing `PLAN.md` (inline, in `vidux.config.json` plan store, or via an enabled adapter) already governs the work.
-- User asks to create or manage a lane / automation / cron (load `guides/automation.md` alongside).
+- User says `/vidux`, `vidux`, `plan first`, `quarter project`, `big project`, or describes multi-session work.
+- An existing `PLAN.md` (inline or in the `vidux.config.json` plan store) already governs the work.
+- User asks to create/manage a lane/automation/cron (load `guides/automation.md` alongside).
 - Work touches 5+ files, needs phases, or is multi-session.
 
 ### When vidux does NOT activate
 
 - Single-file changes with obvious cause.
-- Anything that takes less than 30 minutes with a clear root cause.
-- Trivial requests that passed fast-exit triage above.
+- Anything under 30 minutes with a clear root cause.
+- Trivial requests that passed fast-exit triage.
 
-For requests in between (substantive but small), the stage playbook handles it directly without spinning up a PLAN.md — see `## Stack & Stage Routing` below.
-
-If an automation is being created from Codex, default it to Chat execution unless the user explicitly asks for Worktree or Local.
+For requests in between (substantive but small), the stage playbook handles it directly without a PLAN.md — see `## Stack & Stage Routing` below.
 
 ---
 
@@ -81,87 +62,61 @@ If an automation is being created from Codex, default it to Chat execution unles
 
 ### 1. Plan first, code second
 
-PLAN.md is the planning authority for the queue, decisions, constraints, and Progress/Drift record. Code is derived from that plan state: to change code, update the plan first. To claim a shipped cycle, pair the plan update with a publish ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume.
+PLAN.md is the planning authority for queue, decisions, constraints, Progress/Drift record. Code derives from plan state: to change code, update the plan first. To claim a shipped cycle, pair the plan update with the publish packet.
 
-Every plan entry cites evidence -- a codebase grep, a PR comment, a design doc quote, a team chat message. A plan entry without evidence is a guess. Guesses cause rework.
+Every plan entry cites evidence — a codebase grep, PR comment, design-doc quote, team chat. A plan entry without evidence is a guess; guesses cause rework.
 
 ### 2. Design for interruption
 
-Every session ends. Context will be lost. Auth will expire. Durable recovery lives in repo files plus append-only ledger rows, never in chat memory. Checkpoints are structured plan/ledger packets, not freeform summaries. Any agent can resume by re-reading the owning plan, evidence, and the matching ledger row.
+Every session ends; context is lost; auth expires. Durable recovery lives in repo files + append-only ledger rows, NEVER in chat memory. Checkpoints are structured plan/ledger packets, not freeform summaries.
 
-After any interruption, re-read PLAN.md and evidence/ from disk, then check the ledger for the latest publish or handoff packet. Never trust summaries or memory for plan details.
+After any interruption: re-read PLAN.md and evidence/ from disk, then check the ledger for the latest publish or handoff packet. NEVER trust summaries or memory for plan details.
 
 ### 3. Investigate before fixing
 
-Bug tickets are not line items. Before coding, map root cause, related surfaces, and impact. A fix without investigation is a guess.
+Bug tickets are not line items. Before coding, map root cause, related surfaces, impact. A fix without investigation is a guess.
 
-When 2+ tickets touch the same surface, bundle them into one investigation. The investigation produces a root cause analysis, an impact map, and a fix spec. Investigation notes live locally in the working tree until the fix ships — they are not a separate deliverable. No investigation PR, no evidence PR, no plan-flip PR. The unit of progress is code change.
+When 2+ tickets touch the same surface, bundle them into one investigation producing a root-cause analysis, impact map, and fix spec. Investigation notes live locally in the working tree until the fix ships. No investigation PR, no evidence PR, no plan-flip PR. The unit of progress is code change.
 
 ### 4. Self-extend with a brake
 
-Agents add tasks they discover. When you fix a bug, log the related bugs you saw. When you add a feature, log the edge cases you spotted.
+Agents add tasks they discover: fixing a bug, log related bugs; adding a feature, log edge cases.
 
-But a shipped surface that works is done -- stop polishing and move to the next gap. If overall mission has gaps elsewhere, polish on a done surface is procrastination. Only re-extend plans when investigation reveals new surfaces, not when you find one more thing to tweak on a surface you already finished.
+But a shipped surface that works is done — stop polishing, move to the next gap. Polish on a done surface while the mission has gaps elsewhere is procrastination. Re-extend plans only when investigation reveals new surfaces, not for one more tweak on a finished surface.
 
-**If evidence changes mid-cycle, the queue re-sorts.** Observed user behavior, a failing deploy, a new PR comment — any of these can reorder what's next. You don't need permission to reorder. Note the reorder in the next Progress entry so future agents see the why. When implementation deviates from the plan, run `vidux drift` (or `scripts/vidux-drift-log.py`) to record planned, actual, why, the plan update, prevention hints, and any subplan mirrors before continuing. When a drift has a preventable pattern, include a short prevention hint so future cache suggestions can stop the same miss before code changes.
+**Evidence changes mid-cycle → the queue re-sorts.** Observed user behavior, a failing deploy, a new PR comment can reorder what's next. Reorder without permission; note it in the next Progress entry so future agents see why. When implementation deviates from plan, run `vidux drift` (or `scripts/vidux-drift-log.py`) to record planned/actual/why/plan-update/prevention-hints/subplan-mirrors before continuing. Add a prevention hint when a drift has a preventable pattern so cache suggestions stop the same miss before code changes.
 
 ### 5. Prove it mechanically
 
-Never assert "it works." Run the build, run the tests, show the screenshot. Definition of done for UI work is a visual proof, never just "the build passes."
+Never assert "it works." Run the build, run the tests, show the screenshot. UI definition-of-done is a visual proof, never just "the build passes."
 
-If the change reaches a **deployed surface**, proof is hitting the LIVE surface — not the merge, the upload, or a ledger row. A merge is not a deploy; an upload is not a release. Verify the live route/worker/build actually serves the new code (e.g. `curl <route>/api/health` returns the merged SHA; a worker fetch returns the new version; a mobile build number reaches the store's "ready to test"). If you cannot verify the live surface, leave the row `[in_review]` and record `deploy unverified` with the exact check command — never mark it done.
+If the change reaches a **deployed surface**, proof is hitting the LIVE surface — not the merge, upload, or ledger row. A merge is not a deploy; an upload is not a release. Verify the live route/worker/build serves the new code (`curl <route>/api/health` returns the merged SHA; a worker fetch returns the new version; a mobile build number reaches "ready to test"). Can't verify the live surface? Leave the row `[in_review]`, record `deploy unverified` with the exact check command — never mark it done.
 
-When an audit or grep produces a count or classification, **spot-check at least one entry from each category** before making decisions on it. A grep hit is not a fact -- it's a lead. A line matching "git push" might be a prohibition ("NEVER git push"), not an instruction. An automation classified as "push-capable" might operate on a non-git directory. Validate before you plan; plan before you code.
+When an audit or grep produces a count or classification, **spot-check at least one entry per category** before deciding on it. A grep hit is a lead, not a fact:
+- A "git push" line may be a prohibition ("NEVER git push"), not an instruction.
+- An automation classified "push-capable" may operate on a non-git directory.
 
-After a failure, produce two artifacts: a code fix (the immediate repair) and a process fix (a hook, a test, a constraint, a plan update). The process fix is the valuable output -- it makes the system smarter for next time.
+Validate before you plan; plan before you code.
 
-When a scaffold PR leaves skipped tests for a "pending" served path, the follow-up PR that wires the path must either activate those tests or delete the placeholder rows. Stale skips are drift wearing a lab coat.
+After a failure, produce two artifacts: a **code fix** (the immediate repair) and a **process fix** (a hook, test, constraint, or plan update). The process fix is the valuable output — it makes the system smarter next time.
 
-**Progress is code change.** A PR that only touches `PLAN.md`, `investigations/`, `evidence/`, or `INBOX.md` without a source-code change is not progress — it's bookkeeping. Bundle plan updates into the code PR that ships the fix, or keep the notes local until a fix is ready. Standalone "flip row to [completed]", "reconcile Phase N", "audit already-delivered", or "investigation closeout" PRs are prohibited. If a cycle produces no code, it produces no PR and no commit — the notes stay on disk for the next cycle to pick up.
+A scaffold PR that leaves skipped tests for a "pending" served path: the follow-up PR wiring the path MUST activate those tests or delete the placeholder rows. No stale skips.
+
+**Progress is code change.** A PR touching only `PLAN.md`, `investigations/`, `evidence/`, or `INBOX.md` with no source change is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local until a fix is ready. Standalone "flip row to [completed]", "reconcile Phase N", "audit already-delivered", and "investigation closeout" PRs are prohibited. A cycle that produces no code produces no PR and no commit — notes stay on disk for the next cycle.
 
 ---
 
 ## Working Defaults
 
-Tactical defaults extracted from 30+ plan files across 5 repos. They apply everywhere, regardless of stack or stage.
+Tactical defaults from 30+ plan files across 5 repos. They apply everywhere, regardless of stack or stage.
 
 ### Flow with the water
 
 - Read existing code before writing new code.
-- Match the repo's patterns, naming, DI approach, test style.
-- Don't impose architecture — discover it and extend it.
-- If the repo uses Factory DI, use Factory. If it uses manual injection, use that.
-- For doc/PR/diagram tone drift, use the shared example bank at
-  `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/redacted-private-skills-repo/skills/crashcourse/references/human-flow-examples.md`.
-  Rows 421-460 are the baseline vidux smell tests for plans and loops; rows
-  781-860 add pass-2 calibration from coding lanes, dispatcher plans,
-  autonomous triggers, draft-only bridges, and pivot logs.
-  Rows 1121-1145 add pass-6 calibration from observability, intent-router,
-  vidux-browse-action, text-chat, and OCR Moat plans: keep interfaces honest,
-  triggers explicit, comments PROPOSE-only, and vendor-neutral contracts locked
-  before telemetry or vendor swaps.
-  Rows 1281-1320 add OCR Moat pass-10 calibration: phase-gate slicing,
-  fixture skip semantics, telemetry event pairing, Receipt Lab corpus/replay
-  loops, and review-bot wave handling.
-  Rows 1321-1360 add command-center bridge calibration: explicit trigger
-  prefixes, read/draft-first inbound bridges, loopback safety, shared
-  dispatcher/audit rails, and browser comment/source separation.
-  Rows 1361-1400 add UI-proof calibration: localized screenshot gates,
-  visual sweep evidence rules, XcodeBuildMCP capture boundaries, reader
-  footer/player ownership, and local MLX capability honesty.
-  Rows 1401-1440 add launch-window calibration: ASC bug convergence,
-  esoteric-repro proof, prior-fix archaeology, ship-gate preflights,
-  blocked-row specificity, and net-new pump-off behavior.
-- For skill or documentation expeditions, artifact changes are the product:
-  update the PLAN, source ledger, example bank, and owning skill hook each pass.
-- For Leo Flow anti-slop expeditions, `/ai-slop` owns critique examples and
-  slop findings while Vidux owns the durable loop: scenario index, example-bank
-  index receipts, staged proof, mounts, and completion audit. Do not bury a
-  200-example bank in the root skill or a PLAN.md; keep it as
-  progressive-disclosure refs.
-- Do not mark a broad loop complete just because the first useful artifact
-  exists. Close it only after the floor requirements, verification, and stop
-  condition are actually met.
+- Match the repo's patterns, naming, DI approach, test style. Discover architecture and extend it; don't impose. Factory DI → use Factory; manual injection → use that.
+- For doc/PR/diagram tone drift, use repo-owned examples or style guides when they exist; do not invent a new voice from scratch.
+- Skill/documentation expeditions: artifact changes are the product. Update PLAN, source ledger, examples, and owning skill hooks each pass.
+- Do not mark a broad loop complete just because the first useful artifact exists. Close it only after floor requirements, verification, and stop condition are met.
 
 ### Testability from the start
 
@@ -224,7 +179,7 @@ VERIFY     -> Build, test, gate. If the repo declares CANON terms (e.g. a
              before CHECKPOINT — a hit blocks completion. Citation-only canon
              ("use the right names") is insufficient; a stale agent drifts, an
              executable grep gate does not.
-CHECKPOINT -> Update the plan/queue note, emit the publish ledger row, then
+CHECKPOINT -> Update the plan/queue note, emit the publish packet, then
              commit/push only after those breadcrumbs exist. Reconcile planned
              vs actual; use `vidux drift` if they diverge.
 COMPLETE   -> Close the local worktree lifecycle or record why it remains.
@@ -232,49 +187,48 @@ COMPLETE   -> Close the local worktree lifecycle or record why it remains.
 
 ### Read the Room (READ-phase checklist)
 
-Before touching code, always check these eight surfaces in order:
+Before touching code, check these eight surfaces in order:
 
-1. **`AGENTS.md`, `CLAUDE.md`, or equivalent repo instructions** — repo-level instructions override everything.
+1. **`AGENTS.md` / `CLAUDE.md` / repo instructions** — these override everything.
 2. **`ai/skills/hooks/`** — repo-specific build/test/lint commands.
 3. **`.cursor/plans/`** — existing plans for this feature or related work.
 4. **`RALPH.md`** — repo-owned queue contract for recurring loops and nurse passes.
-5. **The ledger** (`~/.agent-ledger/activity.jsonl`) — centralized activity stream for recent entries from other agents, active lanes, and waiting handoffs. Repo-local `.agent-ledger/` is optional companion coordination state only when the repo documents it.
+5. **The ledger** (`~/.agent-ledger/activity.jsonl`) — recent entries from other agents, active lanes, waiting handoffs. Repo-local `.agent-ledger/` is optional companion state only when documented.
 6. **Memory files** — ownership boundaries, lane assignments.
-7. **Neighboring files** — match existing patterns, don't impose new ones.
-8. **`vidux.config.json`** — resolve the authority `PLAN.md` and any enabled adapters before anything else.
+7. **Neighboring files** — match existing patterns; don't impose new ones.
+8. **`vidux.config.json`** — resolve the authority `PLAN.md` before anything else.
 
-Ad hoc scratch files (e.g. `<repo>-loop-state.md`) are optional helpers only. They do not override the repo's queue, ledger, or checkpoint files unless the repo explicitly says they are canonical. Never read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
+Ad hoc scratch files (e.g. `<repo>-loop-state.md`) are optional helpers; they do not override the repo's queue, ledger, or checkpoint files unless the repo says they are canonical. NEVER read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
 
-**Crash recovery:** If `git diff` shows uncommitted work from a dead session, preserve it first: identify the touched files, classify whether the work belongs to the current plan row, and record the recovery path in the owning plan plus a ledger handoff before any commit, push, or cleanup. Never commit, overwrite, or discard unknown WIP just to make the tree clean.
+**Crash recovery:** If `git diff` shows uncommitted work from a dead session, preserve it first: identify the touched files, classify whether the work belongs to the current plan row, record the recovery path in the owning plan + a ledger handoff before any commit/push/cleanup. NEVER commit, overwrite, or discard unknown WIP just to clean the tree.
 
-**Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Force a surface switch — move to the next unblocked task and mark the stuck one `[blocked]` with a one-line Decision Log entry explaining what was tried. No human hand-off required; the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced. Polish is fractal — the brake is what prevents forever-loops, not a human approval gate.
+**Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Switch surface — move to the next unblocked task, mark the stuck one `[blocked]` with a one-line Decision Log entry of what was tried. No human hand-off; the next cycle finds new evidence (observed signal, new PR comment, queue re-sort) or the task stays blocked until replaced. The brake prevents forever-loops; it is not a human approval gate.
 
-**Push authorization:** Operational PR branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated and a `ledger-emit.sh --event publish` row records the plan task id, plan path, concise change summary, proof, handoff status, files claimed, path-like claims, and next-agent resume point. Open PRs ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate, and treat draft PRs as publish actions too. Direct-to-main operations require explicit authorization and the same publish propagation before the push or merge; destructive operations (force push, branch delete, `git reset --hard`) require explicit per-action authorization. A lane prompt that says "NEVER push" without qualification still allows a normal publish-propagated PR branch push; parking on a local branch wastes cycles.
+**Push authorization:** Operational PR-branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated AND `ledger-emit.sh --event publish` records the publish packet. Open PRs ready-for-review by default so review bots run; use draft only for true WIP with a missing gate. Draft PRs are publish actions too. Direct-to-main requires explicit authorization + the same publish propagation before push/merge. Destructive operations (force push, branch delete, `git reset --hard`) require explicit per-action authorization. A lane prompt saying "NEVER push" without qualification still allows a normal publish-propagated PR-branch push; parking on a local branch wastes cycles.
 
 ### Trunk-First Rule
 
 Vidux defaults to trunk-first:
 
-- Start from the current trunk branch in the canonical repo checkout. Prefer `main`.
-- If a repo has not renamed its trunk, detect and use the actual trunk branch instead of forcing a broken assumption.
-- Create short-lived branches or worktrees from the current trunk head only when isolation is useful. **When 2+ agents may touch the same repo, an isolated worktree off `origin/<trunk>` is MANDATORY — never edit, commit, rebase, or reset the shared trunk checkout a sibling session may hold.** A fresh worktree has no `node_modules`/`vendor` — run the repo's install (`npm ci` / `bundle install`) BEFORE the first commit, or husky/lint-staged hooks will revert the work; never `--no-verify` to dodge that.
-- Treat lane branches/worktrees as disposable integration helpers, not as the source of truth.
-- Before a job is done, every intended change must be merged or cherry-picked back into trunk in the canonical tree and the publish propagation must be recorded in the owning plan row, publish ledger row, proof trail, handoff status, files claimed, path-like claims, and next-agent resume point.
-- Run the final proof, release gates, and any ship/deploy command from that merged trunk state; if those commands publish externally, record the plan and ledger propagation before claiming done.
-- Do not end a job with required work stranded in a side branch or worktree unless a real external blocker prevents merge-back; if so, record the exact blocker and the exact unmerged branch.
+- Start from the current trunk branch in the canonical checkout. Prefer `main`; if a repo hasn't renamed its trunk, detect and use the actual one — don't force a broken assumption.
+- Create short-lived branches/worktrees from the trunk head only when isolation helps. **When 2+ agents may touch the same repo, an isolated worktree off `origin/<trunk>` is MANDATORY — never edit, commit, rebase, or reset the shared trunk checkout a sibling may hold.** A fresh worktree has no `node_modules`/`vendor` — run the repo's install (`npm ci` / `bundle install`) BEFORE the first commit, or husky/lint-staged hooks revert the work; never `--no-verify` to dodge that.
+- Treat lane branches/worktrees as disposable integration helpers, not the source of truth.
+- Before a job is done, every intended change MUST be merged or cherry-picked back into trunk in the canonical tree, with publish propagation recorded in the owning plan row + publish packet.
+- Run the final proof, release gates, and ship/deploy commands from that merged trunk state. If they publish externally, record the plan + ledger propagation before claiming done.
+- Do not end a job with required work stranded in a side branch/worktree unless a real external blocker prevents merge-back; if so, record the exact blocker and unmerged branch.
 
-**Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only guarded cleanup bucket, and the top-level `cleanup_decision` says whether guarded removal is available, whether owner approval is required before apply, or whether owner review is still required. Use `--owner-review-markdown` to produce a handoff packet for non-removable rows, including safe per-row `review_command` inspection commands and last-activity evidence, plus the exact `merged_clean` rows included by guarded cleanup. `cleanup_decision` and `safe_cleanup_items` carry `cleanup_approval_status=required_before_apply`; treat them as read-only evidence until the owner approves those concrete paths. `open_pr` is durable handoff and must be nursed or recorded. `dirty`, `closed_unmerged`, and `unmerged_no_pr` are not cleanup; they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
+**Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 <vidux-dir>/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only guarded cleanup bucket; the top-level `cleanup_decision` says whether guarded removal is available, owner approval is required before apply, or owner review is still required. `--owner-review-markdown` produces a handoff packet for non-removable rows with per-row `review_command` commands, last-activity evidence, and the exact `merged_clean` rows in guarded cleanup. `cleanup_decision`/`safe_cleanup_items` carry `cleanup_approval_status=required_before_apply` — read-only evidence until the owner approves the concrete paths. `open_pr` is durable handoff (nurse or record). `dirty`, `closed_unmerged`, `unmerged_no_pr` are not cleanup — they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
 
 **Build/test ownership in multi-agent repos:**
 
-- Treat real build/test execution as a serial lane unless the repo explicitly documents a safe parallel workflow.
-- When the ledger shows active parallel lanes, nominate one build owner before starting verification churn.
-- If multiple isolated proofs are unavoidable, give each lane its own `-derivedDataPath` and avoid shared package/bootstrap churn.
+- Treat build/test execution as a serial lane unless the repo documents a safe parallel workflow.
+- When the ledger shows active parallel lanes, nominate one build owner before verification churn.
+- If multiple isolated proofs are unavoidable, give each lane its own `-derivedDataPath`; avoid shared package/bootstrap churn.
 - If `.mise.toml`, `.tool-versions`, installed CLIs, and skill docs disagree, resolve version authority before trusting command examples.
 
-**Plan discovery before plan creation:** Before opening a new PLAN.md (or kicking off heavy research that would produce one) for any lane, `grep -ri <topic-keyword>` across your configured plan stores — the `plan_store` path from `vidux.config.json`, any `external_plan_roots`, repo-inline `PLAN.md`, and the common conventions (`<repo>/ai/plans/<slug>/`, `<repo>/.cursor/plans/`, `<repo>/projects/<slug>/`) — plus any memory entries referencing existing plans for that surface. Glob hits in `vidux-browse` (sidebar filter box) cover the same ground from the UI. If a same-surface plan exists, append to it; never create a sibling. The canonical failure this prevents: a second session walks in cold, skips the check, rebuilds weeks of an existing plan's receipts from scratch, and ships duplicate placeholder PRs that then have to be reconciled and closed.
+**Plan discovery before plan creation:** Before opening a new PLAN.md (or heavy research that would produce one) for any lane, `grep -ri <topic-keyword>` across your configured plan stores — `plan_store` path from `vidux.config.json`, any `external_plan_roots`, repo-inline `PLAN.md`, and the conventions (`<repo>/ai/plans/<slug>/`, `<repo>/.cursor/plans/`, `<repo>/projects/<slug>/`) — plus memory entries referencing existing plans for that surface. `vidux-browse` sidebar filter box covers the same ground from the UI. If a same-surface plan exists, append; never create a sibling. Evidence: a cold second session skips the check, rebuilds weeks of receipts, and ships duplicate placeholder PRs that must then be reconciled and closed.
 
-**Cross-session collision detection:** When multiple Claude / Codex sessions could be running concurrently against the same repo, check `~/.agent-ledger/activity.jsonl` for recent entries (last ~72h) keyed on the same lane keyword before kicking off heavy research. A second session walking in cold is the highest-risk path to a duplicate plan; a 30-second ledger grep is cheaper than re-discovering the prior session's receipts.
+**Cross-session collision detection:** When multiple Claude/Codex sessions may run concurrently against the same repo, check `~/.agent-ledger/activity.jsonl` for recent entries (last ~72h) keyed on the same lane keyword before heavy research. A cold second session is the highest-risk path to a duplicate plan; a 30-second ledger grep is cheaper than re-discovering the prior session's receipts.
 
 ### Queue order
 
@@ -288,70 +242,38 @@ Tasks are processed with these rules:
 
 ## Harness Contract
 
-Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet
-lane) MUST satisfy this contract. Amp mints entrypoints; this section owns the
-invariants those entrypoints cite.
+Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet lane) MUST satisfy this contract. Amp mints entrypoints; this section owns the invariants those entrypoints cite.
 
-1. **No state in the prompt.** The prompt contains only durable instruction —
-   never task numbers, branch names, blockers, or cycle snapshots.
-   *Why: cron agents are stateless; a "T3 is next" prompt is stale by the next
-   fire (Principle 2; ralph-loop literature: "state lives in files, not
-   conversation history").*
+1. **No state in the prompt.** The prompt holds only durable instruction — NEVER task numbers, branch names, blockers, or cycle snapshots. Cron agents are stateless; a "T3 is next" prompt is stale by the next fire (Principle 2).
 
-2. **One Authority Store.** Exactly one absolute PLAN.md path; the runner
-   rehydrates from it fresh each cycle and records all state changes there.
-   *Why: two sources of truth diverge silently; resume state belongs in the
-   plan, never in the prompt.*
+2. **One Authority Store.** Exactly one absolute PLAN.md path; the runner rehydrates from it fresh each cycle and records all state changes there. Two sources of truth diverge silently.
 
-3. **Cycle skeleton: Orient → Choose → Execute → Handoff.** Read store + repo
-   state; pick ONE bounded unblocked row; do the work with verification; write
-   progress/decisions back and exit clean.
-   *Why: explicit phases prevent prompt drift; plural scope makes agents
-   cherry-pick easy work (long-running-agent engineering, 2026).*
+3. **Cycle skeleton: Orient → Choose → Execute → Handoff.** Read store + repo state; pick ONE bounded unblocked row; do the work with verification; write progress/decisions back; exit clean. Plural scope makes agents cherry-pick easy work.
 
-4. **Stop condition + cycle cap — mandatory.** The harness names what "done /
-   park the lane" looks like AND a max-cycle (or token) cap with stuck
-   detection (same row touched N consecutive fires → halt and flag). When every
-   remaining row is gated on an event outside the lane's write scope, parking
-   with a Closeout is the SUCCESS state — never grind against a gate to satisfy
-   a meter.
-   *Why: loops without stop conditions only end when a human notices;
-   literature calls the failure "overbaking."*
+4. **Stop condition + cycle cap — mandatory.** Name what "done / park the lane" looks like AND a max-cycle (or token) cap with stuck detection (same row touched N consecutive fires → halt and flag). When every remaining row is gated outside the lane's write scope, parking with a Closeout is the SUCCESS state — never grind against a gate to satisfy a meter. Loops without stop conditions end only when a human notices ("overbaking").
 
-5. **Disjoint write scopes for concurrent lanes.** Every lane declares the
-   paths/fields it may write; two lanes never share a write scope or a live
-   feature branch. Check `git status -sb` before writing to any repo a sibling
-   may hold.
-   *Why: shared mutable state across concurrent lanes is the textbook parallel-
-   agent failure; isolation is what makes parallel lanes safe (worktree
-   precedent: /bigapple).*
+5. **Disjoint write scopes for concurrent lanes.** Every lane declares the paths/fields it may write; two lanes NEVER share a write scope or a live feature branch. Check `git status -sb` before writing to any repo a sibling may hold. Isolation is what makes parallel lanes safe.
 
-6. **Smoke check at cycle start.** Before choosing work, verify the lane's
-   ground truth still holds (auth alive, branch state expected, store
-   readable) — including re-checking recorded gates, which clear without
-   notice. Degrade to an explicit blocker note — never silent skip.
-   *Why: silent-regression guard; stale gate assumptions waste fires, and a
-   cleared gate left unchecked strands unblockable work.*
+6. **Smoke check at cycle start.** Before choosing work, verify the lane's ground truth holds (auth alive, branch state expected, store readable), including re-checking recorded gates — they clear without notice. Degrade to an explicit blocker note; never silent-skip. A cleared gate left unchecked strands unblockable work.
 
-7. **Closeout per cycle:** decision, risk, blocker, next action — written to
-   the Authority Store. Proof receipts live in the store, not the prompt; the
-   human-facing line helps the reader decide, not the agent look done
-   (Closeout Gate stays in /amp).
-   *Why: proof-theater closeouts ("tests green, verified") hide the real next
-   action; a reader deciding whether to continue the lane needs decision/risk/
-   blocker, not agent self-attestation.*
+7. **Closeout per cycle:** decision, risk, blocker, next action — written to the Authority Store. Proof receipts live in the store, not the prompt; the human-facing line helps the reader decide (Closeout Gate stays in /amp). A reader continuing the lane needs decision/risk/blocker, not self-attestation.
 
-Completion claims are governed by the Evaluator Gate (see PLAN.md template:
-`Accept:` criteria + `[verify]` status flow) — a generator never flips its own
-row to done.
+Completion claims are governed by the Evaluator Gate (see PLAN.md template: `Accept:` criteria + `[verify]` status flow) — a generator never flips its own row to done.
 
 ---
 
 ## PLAN.md Template
 
-**Every project has exactly ONE PLAN.md.** Course corrections — even dramatic pivots — update the existing plan's Decision Log. They do NOT spawn a sibling plan store. If you catch yourself justifying a new plan with phrases like "clean slate," "emotional separation," or "this rewrite deserves its own home," stop: that's fabricated reasoning. The correct move is to open the existing PLAN.md, add a `[DIRECTION]` entry to the Decision Log, mark now-obsolete tasks `[blocked]` with a pointer to the new direction, and append the new direction as fresh `[pending]` tasks in the same queue. New plan stores are for new PROJECTS (different codebase, different product, different problem surface), not for new OPINIONS about how the same project should look. "Rewrite project-X from scratch" and "polish project-X" are the same project — one plan. "Build a new iOS app" and "ship the web app" are different projects — different plans.
+**Every project has exactly ONE PLAN.md.** Course corrections — even pivots — update the existing plan's Decision Log; they do NOT spawn a sibling plan store. A new plan justified by "clean slate," "emotional separation," or "this rewrite deserves its own home" is fabricated reasoning. Instead:
 
-Planning itself can happen in the agent's main thread. What matters is WHERE the output lands: the existing PLAN.md for the project, always.
+1. Open the existing PLAN.md.
+2. Add a `[DIRECTION]` entry to the Decision Log.
+3. Mark now-obsolete tasks `[blocked]` with a pointer to the new direction.
+4. Append the new direction as fresh `[pending]` tasks in the same queue.
+
+New plan stores are for new PROJECTS (different codebase/product/problem surface), not new OPINIONS about the same project. "Rewrite project-X from scratch" and "polish project-X" are one project, one plan. "Build a new iOS app" and "ship the web app" are different projects, different plans.
+
+Planning can happen in the agent's main thread. What matters is WHERE the output lands: the existing PLAN.md, always.
 
 Required sections:
 
@@ -410,18 +332,7 @@ review-bot acks. Skip it for docs, config, or plan-only work that never goes
 through review. Existing 4-state plans (pending / in_progress / completed /
 blocked) remain valid; agents may adopt in_review per-task.
 
-**`[ETA: Xh]` — optional AI-hour estimate.** Completion (X/Y tasks done) is
-the headline; ETA is supplementary. Use it when tasks in a plan are
-similar-sized and the sum gives a meaningful "AI-hours remaining" read; skip
-it when tasks vary in difficulty and the sum becomes fiction. An AI-hour is
-how much focused AI-agent work a task takes end-to-end, not wall-clock time.
-Calibration when you do tag (still useful for the tasks that get one):
-0.25h trivial / 0.5h simple fix / 1h small feature / 2h moderate / 4h e2e
-bug / 8h+ multi-phase (promote to compound). ETAs are elastic — when scope
-moves, log the revision in `## Decision Log` and update the tag.
-`/vidux-status` sums whatever ETAs are present on pending + in_progress
-tasks; the sum is informational, not a contract. Completed + blocked tasks
-don't need an ETA (they're terminal for this calibration).
+**`[ETA: Xh]` — optional AI-hour estimate.** Completion (X/Y tasks done) is the headline; ETA is supplementary. Use it when tasks are similar-sized and the sum gives a meaningful "AI-hours remaining" read; skip it when tasks vary and the sum becomes fiction. An AI-hour is focused AI-agent work end-to-end, not wall-clock. Calibration: 0.25h trivial / 0.5h simple fix / 1h small feature / 2h moderate / 4h e2e bug / 8h+ multi-phase (promote to compound). ETAs are elastic — log scope moves in `## Decision Log` and update the tag. `/vidux-status` sums ETAs on pending + in_progress tasks; the sum is informational, not a contract. Completed + blocked tasks need no ETA (terminal for this calibration).
 
 ## Decision Log
 Intentional choices that future agents must not undo.
@@ -444,47 +355,47 @@ Questions section. If a finding needs a task, promote it to a task.
 
 ## Quarter-Sized Projects
 
-Vidux is designed for projects that span days to months. A quarter project has:
+Vidux is designed for projects spanning days to months. A quarter project has:
 
-- **A top-level PLAN.md** with the mission, phases, and current tasks
-- **Sub-plans in `investigations/`** for complex surfaces that need root cause analysis before code
-- **Evidence snapshots in `evidence/`** that back plan decisions (named `YYYY-MM-DD-<slug>.md`)
-- **An `INBOX.md`** where humans or external tools deposit findings for agents to act on
-- **A Progress log** that any agent can read to understand where things stand
+- **A top-level PLAN.md** with mission, phases, current tasks.
+- **Sub-plans in `investigations/`** for complex surfaces needing root-cause analysis before code.
+- **Evidence snapshots in `evidence/`** backing plan decisions (`YYYY-MM-DD-<slug>.md`).
+- **An `INBOX.md`** where humans or external tools deposit findings.
+- **A Progress log** any agent can read to understand where things stand.
 
-The plan LIVES -- it gets updated every cycle, not written once and followed blindly.
+The plan LIVES — updated every cycle, not written once and followed blindly.
 
 ### The decomposition gate
 
-**Before you touch code, classify the task. Compound work spawns a sub-plan first; atomic work ships direct.** This is the single rule that keeps a vidux project resumable — a compound task done "in your head" leaves no artifact for the next agent (or the next you, after a context reset) to pick up.
+**Before you touch code, classify the task. Compound work spawns a sub-plan first; atomic work ships direct.** This keeps a vidux project resumable — a compound task done in your head leaves no artifact for the next agent (or the next you, after a context reset).
 
 The test is one sentence: **can you name the exact diff before you start?**
 
 | Signal | Classification | Do this |
 |---|---|---|
-| One PR. You can name the file(s) and the change in a sentence. No open root-cause question. | **Atomic** | **Code it directly.** Do NOT spawn a sub-plan — that's pure overhead. Most tasks are atomic. |
-| Any one of: 3+ files in play • unclear root cause • an ordered multi-step sequence with dependencies between steps • a sub-stream that ships on its own • "I need to think before I touch code." | **Compound** | **Spawn a sub-plan FIRST** (an `investigations/<slug>.md` or a child `PLAN.md` — see the two modes below). The parent task stays `[in_progress]` and cites it (`[Investigation: …]`). No inline sprawl, no chat-only step list. The sub-plan is where the thinking lands; the code ships *with* it. |
+| One PR. You can name the file(s) and change in a sentence. No open root-cause question. | **Atomic** | **Code it directly.** Do NOT spawn a sub-plan. Most tasks are atomic. |
+| Any one of: 3+ files in play • unclear root cause • an ordered multi-step sequence with step dependencies • a sub-stream that ships on its own • "I need to think before I touch code." | **Compound** | **Spawn a sub-plan FIRST** (an `investigations/<slug>.md` or a child `PLAN.md` — see two modes below). Parent task stays `[in_progress]` and cites it (`[Investigation: …]`). No inline sprawl, no chat-only step list. The thinking lands in the sub-plan; code ships *with* it. |
 
-**The sub-plan is a CHILD, never a SIBLING.** This is what makes the gate compatible with "every project has exactly ONE PLAN.md" (above):
+**The sub-plan is a CHILD, never a SIBLING.** This keeps the gate compatible with "every project has exactly ONE PLAN.md":
 
 - New work on a surface → **append a task** to the existing parent PLAN.md.
 - A compound task within it → **nest a child** (investigation file beside the parent, or child PLAN.md with a `> Parent:` backlink).
 - A second same-surface plan with no parent link is the forbidden sibling — in BOTH directions. Everything hangs off the one parent: appended as a task, or nested as a child. Nothing floats beside it.
 
-**Why the gate, not "nest everything":** mandatory nesting would bury the queue in bookkeeping and violate "progress is code change" (Principle 5 — no plan-only PRs). The gate is selective on purpose: atomic ships fast, compound gets the artifact it needs. If you're genuinely unsure, the one-sentence-diff test breaks the tie — can't name the diff → it's compound.
+**Why the gate, not "nest everything":** mandatory nesting buries the queue in bookkeeping and violates Principle 5 (no plan-only PRs). Atomic ships fast; compound gets the artifact it needs. Unsure? Can't name the diff → it's compound.
 
-**Scope of the gate — two seams worth naming:**
+**Scope of the gate — two distinctions:**
 
-- **Gate ≠ activation.** This gate structures a task you've already committed to *inside* a vidux project. Whether a standalone request needs a PLAN.md at all is the separate question in "Activation & Triage" (multi-session / 5+ files / explicit plan-first). So a 3–4 file change *under an existing plan* is a compound task → sub-plan; the same change as a one-off with an obvious cause may not pull in vidux at all. The file counts differ because the questions differ: "does this need a plan?" (activation) vs. "does this task need a sub-plan?" (the gate).
-- **Decomposition is for unfinished work.** If the surface is already shipped and working, the Principle 4 brake fires first — *stop polishing, move to the next gap*. "I need to think before I code" is a signal to nest genuine unfinished work, not a license to re-open a done surface as an investigation.
+- **Gate ≠ activation.** The gate structures a task you've already committed to *inside* a vidux project. Whether a standalone request needs a PLAN.md is the separate "Activation & Triage" question (multi-session / 5+ files / explicit plan-first). A 3-4 file change *under an existing plan* is compound → sub-plan; the same change as a one-off with an obvious cause may not pull in vidux at all.
+- **Decomposition is for unfinished work.** If the surface already ships and works, the Principle 4 brake fires first — stop polishing, move to the next gap. "Think before I code" nests genuine unfinished work; it is not a license to re-open a done surface as an investigation.
 
 ### Two nesting modes
 
-Vidux supports two distinct nesting shapes — pick the one that fits the work:
+Two nesting shapes — pick the one that fits:
 
-**1. Investigation (1-level, when a task needs an investigation / compound tasks needing root-cause work)**
+**1. Investigation (1-level, for one compound task needing root-cause work)**
 
-Some tasks are atomic — one PR, clear diff. Others are messy: unclear root cause, 3+ files in play, you need to think before you touch code. For those, the parent plan task delegates its deep work to a child investigation file:
+The parent plan task delegates its deep work to a child investigation file:
 
 ```markdown
 - [in_progress] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
@@ -494,37 +405,22 @@ One parent plan, one child investigation per compound task. The investigation fi
 
 **2. Sub-plan rollup (N-level, for multi-phase missions with parallel sub-streams)**
 
-For larger missions where multiple sub-streams ship in parallel — each with their own task list — use child PLAN.md files with a Parent backlink at the top:
+Multiple sub-streams shipping in parallel — each with its own task list — use child PLAN.md files with a Parent backlink at the top (either form):
 
 ```markdown
 > Parent: vidux/projects/big-mission/PLAN.md
-```
-
-or
-
-```markdown
 **Parent:** vidux/projects/big-mission/PLAN.md
 ```
 
-`vidux-browse` parses these backlinks, builds a parent → children tree, and computes recursive aggregate stats so the parent shows BOTH its own progress bar AND a rolled-up bar across every descendant. Sidebar indents children under their parent; cycle-safe via visited-set.
+`vidux-browse` parses these backlinks into a parent → children tree with recursive aggregate stats: the parent shows BOTH its own progress bar AND a rolled-up bar across every descendant. Sidebar indents children; cycle-safe via visited-set.
 
-Use this when you have 5+ child plans that meaningfully ship independently (e.g., `T1-*/PLAN.md` through `T9-*/PLAN.md`). Don't use it for trivial nesting where an investigation file would do.
+Use this for 5+ child plans that ship independently (e.g. `T1-*/PLAN.md` through `T9-*/PLAN.md`), not for trivial nesting where an investigation file would do.
 
-**Choosing between the two** (once the decomposition gate above says "compound"): investigation = "I need to think before I code, for one task." Sub-plan rollup = "this mission has many sub-streams that ship independently and I want a consolidated dashboard." Default to the investigation file — it's the lower-overhead shape; promote to a child PLAN.md only when 5+ sub-streams ship independently.
+**Choosing** (once the gate says "compound"): investigation = "think before I code, one task." Sub-plan rollup = "many sub-streams ship independently, want a consolidated dashboard." Default to the investigation file; promote to a child PLAN.md only at 5+ independent sub-streams.
 
 **How it works:**
 
-1. **You write the investigation file first.** `investigations/payment-flow.md` has seven sections, filled bottom-up:
-
-   ```
-   ## Reporter Says    — exact quote from feedback
-   ## Evidence         — files, related tickets, repro steps
-   ## Root Cause       (pending)
-   ## Impact Map       (pending)
-   ## Fix Spec         (pending)
-   ## Tests            (pending)
-   ## Gate             (pending)
-   ```
+1. **You write the investigation file first.** `investigations/payment-flow.md` has the seven sections of the `## Investigation Template` (below), filled bottom-up: Reporter Says and Evidence first, then Root Cause / Impact Map / Fix Spec / Tests / Gate each `(pending)`.
 
 2. **The parent task stays `[in_progress]`** while the investigation is active. Each cycle fills one `(pending)` section. No PR opens during investigation — the sections live on disk.
 
@@ -535,14 +431,14 @@ Use this when you have 5+ child plans that meaningfully ship independently (e.g.
      [Fix: src/checkout/submit.ts:42, src/checkout/retry.ts:18] [Shipped: <commit sha>]
    ```
 
-4. **The investigation file stays forever.** It's the historical record of *why* the fix looks the way it does. Future agents who touch the same surface read it before acting. Archived by age (180+ days), never by "task done."
+4. **The investigation file stays forever.** It records *why* the fix looks the way it does. Future agents touching the same surface read it before acting. Archived by age (180+ days), never by "task done."
 
 **Four rules the example illustrates:**
 
-1. **No Fix Spec = no PR.** Investigation file lives on disk until the Fix Spec is filled AND the code ships.
-2. **Parent status follows child status.** Parent task can't flip `[completed]` while the investigation has any `(pending)` section.
-3. **Decision Log stays in the parent PLAN.md.** The investigation captures *why this bug happened*; the parent Decision Log captures *why we fixed it this way*.
-4. **Atomic ships direct; compound nests.** A plain task whose diff you can name in a sentence doesn't need an investigation — code it. Reserve nesting for the compound signals in the decomposition gate (3+ files / unclear root cause / multi-step / independent sub-stream). The one-sentence-diff test is the tie-breaker, not a "don't nest" reflex.
+1. **No Fix Spec = no PR** (steps 1-3 above).
+2. **Parent status follows child status** — parent can't flip `[completed]` while any `(pending)` section remains.
+3. **Decision Log stays in the parent PLAN.md.** Investigation captures *why this bug happened*; parent Decision Log captures *why we fixed it this way*.
+4. **Atomic ships direct; compound nests** (the gate table). One-sentence-diff test is the tie-breaker; reserve nesting for 3+ files / unclear root cause / multi-step / independent sub-stream.
 
 ### vidux.config.json (where plans live)
 
@@ -557,188 +453,36 @@ One optional config file at the repo root controls plan discovery:
 }
 ```
 
-- `mode: "inline"` — plans live in the current repo as `PLAN.md`. Default when no config is present.
-- `mode: "local"` — plans live at the configured `path` (one subdir per project). Useful when you want plans tracked in a separate git repo synced across machines.
+- `mode: "inline"` — plans live in the current repo as `PLAN.md`. Default when no config present.
+- `mode: "local"` — plans live at the configured `path` (one subdir per project). For plans tracked in a separate git repo synced across machines.
 - `mode: "external"` — same as local but path may point outside `~/Development`.
 
-Other top-level fields (see `vidux.config.example.json` for the canonical schema):
+Other top-level fields (see `vidux.config.example.json`):
 
-- `version` — config schema version. `"1.0"` is current. Reserved for future schema migrations.
-- `external_plan_roots` — optional list of additional absolute paths to scan for `PLAN.md` files. Default `[]`. Useful when plans live in sibling repos outside `plan_store.path`.
-- `inbox_sources` — array of adapter configs (see "External boards" below).
+- `version` — config schema version. `"1.0"` is current.
+- `external_plan_roots` — optional additional absolute paths to scan for `PLAN.md`. Default `[]`. For plans in sibling repos outside `plan_store.path`.
 
-Per-adapter optional fields:
+Agents read `vidux.config.json` at session start and resolve the authority PLAN.md before anything else.
 
-- `auto_promote_target` — relative or absolute plan_dir path. Novel external cards land directly there instead of `INBOX.md` (see "External boards").
-- `auto_promote_max_new` — cap on novel cards promoted per sync run. Default `25`. Prevents a misconfigured query from flooding a plan with hundreds of issues in one cycle.
-- `push_only_for_plans` — optional list of plan_dir paths that opt INTO PUSH for brand-new external issues even when `auto_promote_target` is set. Default empty (all plans suppressed).
+### No external boards
 
-Agents read `vidux.config.json` at session start and resolve the authority PLAN.md from the config before anything else.
-
-### External boards (adapter plugins)
-
-vidux supports external kanban boards (GitHub Projects, Linear, Asana, Jira, Trello) as first-class inbox sources via a plugin adapter architecture. PLAN.md stays the canonical queue/planning authority, publish ledger rows remain the shipped-cycle proof packet, and the external board is a view + input surface that round-trips through `scripts/vidux-inbox-sync.py`.
-
-The checked-in example config (`vidux.config.example.json`) demonstrates a single `gh_projects` inbox source. The live repo config (`vidux.config.json`) enables both `gh_projects` and `linear`, each with its own token file and optional `auto_promote_target`.
-
-When a repo opts into external boards, agents should:
-1. Read `PLAN.md` first — it stays canonical for queue/planning decisions even when a board is enabled.
-2. Use `python3 scripts/vidux-inbox-sync.py --direction=pull` to promote new external items into `INBOX.md` or the adapter's `auto_promote_target`.
-3. Use `python3 scripts/vidux-inbox-sync.py --direction=push` to mirror newly added local tasks back to the external board when the adapter is configured for that direction.
-4. Use `--only-adapter <name>` when you want a run scoped to one configured adapter instead of all enabled sources.
-
-The repo does not ship scheduler wrappers for these sync passes; operators decide whether to run one combined `--direction=both` invocation or separate scheduled invocations per adapter.
-
-Keep organization-specific policy out of core. If a team needs concrete board
-ids, repo/project maps, review-tool gates, or fleet cadences, put those in a
-separate overlay skill or runbook that loads after `/vidux`. Core owns the
-adapter contract; overlays own local taste and bindings.
-
-Opt-in. Empty `inbox_sources: []` (the default) keeps vanilla vidux unchanged. Populate the array to enable one or more adapters:
-
-```json
-{
-  "plan_store": { "mode": "local", "path": "~/Development/vidux/projects" },
-  "inbox_sources": [
-    {
-      "adapter": "gh_projects",
-      "enabled": true,
-      "config": {
-        "owner": "<you>",
-        "project_number": 3,
-        "token_file": "~/.config/vidux/gh-project.token",
-        "status_field_name": "Status",
-        "column_mapping": { "pending": "Backlog", "in_progress": "Dev", "in_review": "QA/Testing/Review", "completed": "Prod/Shipped" },
-        "blocked_field_name": "Blocked",
-        "blocked_linked_label_fallback": "blocked",
-        "field_mapping": {
-          "Evidence":      { "project_field": "Evidence",      "type": "TEXT"   },
-          "Investigation": { "project_field": "Investigation", "type": "TEXT"   },
-          "ETA":           { "project_field": "ETA",           "type": "NUMBER" },
-          "Source":        { "project_field": "Source",        "type": "TEXT"   }
-        }
-      }
-    }
-  ]
-}
-```
-
-See `vidux.config.example.json` at the repo root for a live block you can copy.
-
-**Adapter contract.** Each adapter subclasses `AdapterBase` at `~/Development/vidux/adapters/base.py` and implements six methods: `fetch_inbox` (external items → `list[ExternalItem]`), `push_task` (`PlanTask` → opaque `external_id`), `pull_status` / `push_status` (column ↔ vidux FSM), `pull_fields` / `push_fields` (custom fields like Evidence / ETA / Source). Adapters self-register via the `@register` decorator at import time; `get_adapter(name)` resolves the class.
-
-**Sync script.** `scripts/vidux-inbox-sync.py` walks every PLAN.md under `plan_store.path`, diffs tasks against each enabled adapter's external state, and:
-
-- **PULL** — novel external items append to `INBOX.md` as `- [live-feedback] <title> [Source: <adapter>:<id>]` entries (idempotent — marker-based dedupe). External items whose status lands in `completed` auto-flip the corresponding PLAN.md task to `[completed]`.
-- **PUSH** — unmapped `[pending]` / `[in_progress]` tasks create via `push_task`; mapped tasks receive `push_status` (column move) + `push_fields({'_blocked': ...})` for the orthogonal blocked flag.
-- **AUTO-PROMOTE** — opt-in via `auto_promote_target` (relative or absolute path) on each `inbox_sources[]` entry. When set, novel cards skip INBOX and land directly in the named plan_dir's PLAN.md as `- [pending] BD-<seq>: <title> [Source: <adapter>:<id>]` tasks. `BD` = "board-dropped" (per-plan namespace, sequence minted from `_next_bd_seq`). Idempotency uses BOTH the state file mapping AND in-text `[Source:]` marker scan, so a state-file loss during git races (rebase + stash drop) cannot cause re-promotion. Missing targets fail closed; vidux refuses to fall back to INBOX because that would route work to the wrong lane. Auto-promote suppresses creation of brand-new external issues from local-only plan rows, but still pushes status for tasks already linked by `[Source:]`. Linear title-only cards are the exception: they land as `[blocked]` with a blocker asking for description, evidence/source, acceptance or repro, and estimate before any agent can claim them.
-  - **Per-plan PUSH opt-in via `push_only_for_plans`** — optional list of plan-dir paths (relative to the config file's parent dir, or absolute) that opt INTO PUSH for brand-new external issues even when `auto_promote_target` is set. Listed plan_dirs get `create_missing_external_tasks=True`; every other plan stays suppressed by the global auto-promote. Canonical use case: specific lane plans opt into PUSH so their tasks become external issues, while the rest of the fleet stays in PULL-only mode and doesn't flood the external board. Default unset = empty list = unchanged behavior (every plan still suppressed by auto-promote).
-- **PR sweep** — opt-in via `--include-prs`. Sweeps `gh pr list` open + recently-merged PRs from the repo containing the config and adds open PRs to the bound GH Project as items linked via `addProjectV2ItemById`. Status follows PR state: open-draft→Dev, open-ready→QA-Review, merged→Prod-Shipped. Already-tracked PRs reconcile status. Merged PRs that were never on the board are NOT backfilled (avoids flooding Backlog with shipped history).
-- Flags: `--dry-run` skips writes; `--direction={push,pull,both}` gates the halves; `--include-prs` enables PR sweep; `--repo-dir` overrides repo for PR list source; `--json` emits machine-readable summary; exit codes `0/2/3` for success / config-error / adapter-error.
-
-Per-plan sidecar `.external-state.json` stores the `task_id ↔ external_id` map per adapter. Lives inside the plan directory; gitignored. **Race-recovery rule:** if you `git stash push -u` (which captures the gitignored state file as untracked) and then `git stash drop` instead of `pop`, the state file is permanently lost and the next cron tick will see all already-tracked items as "novel." The in-text `[Source:]` marker safety net catches this for auto-promote, but PUSH still trusts the state file. Mitigation: always `git stash pop` (not drop) after a rebase that captured the sidecar.
-
-**Blocked is orthogonal.** Status column represents pipeline state; the `Blocked` field is a separate flag. An item can be `[in_progress]` AND blocked simultaneously without losing pipeline position. Adapters MUST reject `push_status(BLOCKED)` — callers write `Blocked=Yes` via `push_fields({'_blocked': True})`.
-
-**Writing a new adapter.** See `~/Development/vidux/adapters/README.md` for the 6-step authors guide + 5-step round-trip rubric (push seed, pull status change, custom-field round-trip, blocked orthogonality check, idempotency). Current fleet: `gh_projects` and `linear` are live full-round-trip PM adapters; `apple_asc` is live READ-only (parses ASC-style YAML tracker files — see below); `asana` / `jira` / `trello` ship as stubs (`NotImplementedError`) with per-platform auth + API docstrings — subclass-ready when a real integration is needed.
-
-**Apple ASC adapter (read-only feedback-tracker shape).** Apple does not publish a public API for marking TestFlight / ASC beta feedback handled, so the `apple_asc` adapter parses a repo-local tracker file (typically `<repo>/.cursor/plans/app-store-feedback.plan.md`, maintained by `ruby scripts/asc_beta_feedback.rb sync-plan`) and returns each `## Open` row as an `ExternalItem` with `external_id = "asc:<id>"`. The standard `vidux-inbox-sync.py` PULL leg then auto-promotes those items to PLAN.md; pairing with `linear`'s `push_only_for_plans` mechanism gets the same row into a Linear EVE issue end-to-end. `push_task` / `push_status` / `push_fields` raise `NotImplementedError` ("Apple ASC has no public API for marking TestFlight / beta feedback handled; the tracker file is one-way READ-only."). Config schema: `tracker_file` (required path) + `status_filter` (optional list, defaults to `["new", "triaged", "claimed"]`; terminal states `fixed` / `verified` / `archived` are always dropped). See `~/Development/vidux/adapters/README.md` for the full tracker file format + parser tolerances (multi-line continuations, git-conflict markers, missing-file fail-safe).
-
-### Linear extension — full round-trip (PULL + PUSH + CLOSEOUT)
-
-The `linear` adapter (`~/Development/vidux/adapters/linear.py`) supports a complete project-management round-trip: external Linear cards become PLAN.md tasks via PULL; new local tasks become Linear issues via PUSH; status changes flow both directions; agents close issues from PLAN status flips. This is the canonical worked example for the broader adapter contract — Asana / Jira / Trello adapters should follow the same shape.
-
-**PULL** — Linear → PLAN.md:
-
-- New Linear issues in the configured project become `[pending] BD-<seq>: <title> [Source: linear:<issue-id>]` rows in INBOX.md (or auto-promoted to a target plan via `auto_promote_target` in `vidux.config.json`). If the Linear issue has no description, auto-promote writes `[blocked]` instead of `[pending]` and adds a blocker requiring real intake details before claim.
-- Status changes on tracked issues flow back: a Linear issue moved to "Done" auto-flips its mapped PLAN.md row to `[completed]`.
-- Idempotency: per-plan `.external-state.json` sidecar maps `task_id ↔ linear_issue_id`. The in-text `[Source:]` marker is the safety net if the sidecar is lost (see `### External boards` race-recovery rule).
-
-**PUSH** — PLAN.md → Linear:
-
-- Unmapped `[pending]` / `[in_progress]` PLAN tasks create Linear issues via `mcp__plugin_linear_linear__create_issue` (or the adapter's REST equivalent).
-- Linear descriptions must not be title-only. The adapter renders Details, Evidence, non-core tags (`Sub-plan`, `Depends`, `Blocker`, etc.), plan location, ETA, and explicit Intake Gaps. If a PLAN row has no prose beyond the title, no `[Evidence:]`, or no `[ETA:]`, the Linear card says so instead of pretending the issue is specified. Existing mapped issues get the same treatment through `sync_task_metadata()`; the next sync updates stale titles/descriptions instead of only fixing future cards.
-- Status flips on PLAN rows push to Linear via `update_issue` mutation:
-  - `[pending]` → Backlog
-  - `[in_progress]` → In Progress
-  - `[in_review]` → In Review (if configured) or "Ready for QA"
-  - `[completed]` → Done
-- The `_blocked` flag pushes via `push_fields({'_blocked': True})` and sets the Blocked field separately (does NOT change pipeline status — Blocked is orthogonal per the adapter contract).
-
-**CLOSEOUT** — when a fix PR merges:
-
-- The agent that shipped the fix flips the PLAN row to `[completed]`. The next inbox-sync cycle pushes that to Linear automatically.
-- For real-time closeout (don't wait for the next cron tick), call directly:
-
-```bash
-# Find the issue's stateId for the project's "Done" state via:
-mcp__plugin_linear_linear__get_workflow_states project="<project-name>"
-# Then update:
-mcp__plugin_linear_linear__update_issue id=<issue-id> stateId=<done-state-uuid>
-# Add the fix-commit SHA as context:
-mcp__plugin_linear_linear__create_comment issueId=<issue-id> body="Fixed in <commit-sha> (PR #<N>)."
-```
-
-**Configuration** — each user / org configures their own Linear binding in `vidux.config.json`:
-
-```json
-{
-  "inbox_sources": [{
-    "adapter": "linear",
-    "enabled": true,
-    "config": {
-      "token_file": "~/.config/vidux/linear.token",
-      "team_id": "<your-linear-team-uuid>",
-      "project_id": "<your-linear-project-uuid>",
-      "project_name": "<project-display-name>",
-      "state_mapping": {
-        "pending": "<backlog-state-uuid>",
-        "in_progress": "<in-progress-state-uuid>",
-        "in_review": "<review-state-uuid>",
-        "completed": "<done-state-uuid>"
-      },
-      "blocked_label": "blocked",
-      "managed_labels": {
-        "repo": "repo:<repo-name>",
-        "source": "source:vidux"
-      },
-      "auto_promote_target": "<plan-dir>",
-      "auto_promote_max_new": 25
-    }
-  }]
-}
-```
-
-Workspace-specific bindings (project UUIDs, state UUIDs, token paths) are LOCAL to each user's `vidux.config.json` — core vidux ships only the adapter contract.
-
-**Why this lives in CORE (not in a per-user overlay).** Linear is one of the supported PM tools alongside `gh_projects`, `asana`, `jira`, `trello`. The closeout pattern (fix PR → status flip → external system update) is the SAME shape for all of them. Documenting it in core lets other vidux users adopt Linear (or any adapter) without re-inventing the round-trip.
-
-**Cross-workspace caveat.** A Linear adapter token (`token_file:` in the adapter config) is scoped to ONE Linear workspace. PUSH, PULL, and CLOSEOUT all run against THAT workspace's API only. If a different system — Jam.dev's Linear bridge, a separately-installed GitHub Linear sync, manual hand-create from a teammate — routes Linear issues into a DIFFERENT workspace, the configured adapter cannot see them: PULL never surfaces them as INBOX or auto-promote candidates, and PUSH never duplicates (those issues already exist somewhere, just not in the watched workspace).
-
-When triaging a finding that mentions a Linear identifier (e.g. `EVE-317`), do not assume the prefix maps to the workspace your adapter token watches. Verify the workspace component of the Linear URL (`linear.app/<workspace-slug>/issue/<id>`) before deciding whether the cron should have caught it. Misreading the workspace as "ours" leads to wasted retries and false-negative reports about adapter health.
-
-Two mitigations when work routes across workspaces:
-
-1. **Consolidate sources** so every issue-creating system writes into the configured workspace.
-2. **Configure multiple `inbox_sources` entries** with the `linear` adapter, each pointing at a different `token_file:` for a different workspace. Each entry maintains its own per-plan `.external-state.json` map; idempotency is per-adapter-instance, not per-adapter-class.
-
-When Linear is unreachable for any reason — wrong workspace, expired OAuth, MCP disconnected, token rotated — the originating system's metadata is still authoritative. Jam recordings keep their console / network / repro detail; GitHub PR comments keep their thread; Sentry events keep their stack. Don't gate a fix lane on Linear being queryable; treat the originating system as the source of truth and let Linear catch up via CLOSEOUT or the next sync cycle.
+vidux is markdown-plan-first: a `PLAN.md` in git is the only queue authority. There is **no** external-board sync — no third-party board integrations, no adapter-backed inboxes. Plans are read, updated, checkpointed as files. Want a board view? Mirror it by hand; vidux will not round-trip to one.
 
 ### Inbox
 
-`INBOX.md` is where humans or external tools drop findings for agents to act on:
+`INBOX.md` is where humans or external tools drop findings for agents:
 
-- Agents check INBOX.md during READ, before looking at tasks
-- Promote actionable findings to `[pending]` tasks in PLAN.md
-- Annotate non-actionable ones with `[SKIP: reason]`
-- Max 20 entries. If full, oldest are archived to `evidence/`.
+- Agents check INBOX.md during READ, before tasks.
+- Promote actionable findings to `[pending]` tasks in PLAN.md.
+- Annotate non-actionable ones with `[SKIP: reason]`.
+- Max 20 entries; if full, oldest archived to `evidence/`.
 
 ### Garbage collection
 
-Plan GC is **mechanical, not vibes-based**. "Feels heavy" doesn't fire; thresholds do. Run from the plan dir (or pass it as an arg):
+Plan GC is **mechanical, not vibes-based**: thresholds fire, "feels heavy" does not. Run from the plan dir (or pass it as an arg):
 
 ```bash
-python3 ~/Development/vidux/scripts/vidux-plan-gc.py [--dry-run] [--json] [plan-dir]
+python3 <vidux-dir>/scripts/vidux-plan-gc.py [--dry-run] [--json] [plan-dir]
 ```
 
 Three operations, one script:
@@ -753,37 +497,39 @@ Three operations, one script:
 
 **When to run:** coordinator lanes include `vidux-plan-gc.py` in their READ step each cycle. `--dry-run` + `--json` gives a pre-check; the live run is idempotent (no-op under caps).
 
-**Exit 2** (hard cap exceeded) is the gate signal: coordinators should hold ACT and loudly note the bloat in the next checkpoint — the plan structurally needs attention beyond archival (too many tasks completed without being split into phases, or Phase rollover is overdue).
+**Exit 2** (hard cap exceeded) is the gate signal: coordinators hold ACT and note the bloat in the next checkpoint — the plan needs attention beyond archival (too many completed tasks not split into phases, or Phase rollover overdue).
 
 Worktree GC is separate from plan GC. It classifies local git worktrees by branch/PR state before removing anything:
 
 ```bash
-python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main [repo-dir]
+python3 <vidux-dir>/scripts/vidux-worktree-gc.py --base origin/main [repo-dir]
 ```
 
-Read-only is the default. `--owner-review-markdown` prints the non-removable owner-review rows as a compact handoff packet with per-row `commits_not_in_base`, `last_commit_subject`, `last_commit_date`, `last_commit_age_days`, and safe `review_command` inspection evidence, then lists the exact `merged_clean` rows eligible for guarded cleanup. JSON carries top-level `cleanup_decision.guarded_removal_available`, `cleanup_decision.owner_approval_required_before_apply`, `cleanup_decision.cleanup_approval_status`, and `safe_cleanup_items` for those removable rows with `cleanup_approval_required=true` and `cleanup_approval_status=required_before_apply`; the packet labels them as read-only evidence until owner approval. After owner approval, `--apply --yes` removes only `merged_clean` worktrees: clean non-primary worktrees whose branch is already merged into the base or whose PR is merged. Dirty worktrees, open PRs, closed-unmerged PRs, and no-PR unmerged branches are reported under the top-level `cleanup_decision` but never removed automatically.
+Read-only by default; see **Worktree lifecycle** (under Trunk-First Rule) for the bucket semantics and `--owner-review-markdown` packet. JSON top-level: `cleanup_decision.{guarded_removal_available, owner_approval_required_before_apply, cleanup_approval_status}` and `safe_cleanup_items` (removable rows, `cleanup_approval_required=true`, `cleanup_approval_status=required_before_apply` — read-only until owner approval). After approval, `--apply --yes` removes only `merged_clean` worktrees (clean non-primary, branch merged into base or PR merged). Dirty / open-PR / closed-unmerged / no-PR-unmerged are reported but never auto-removed.
 
 ---
 
 ## Course Correction
 
-The plan is a living document. When evidence changes, the plan changes. When the plan changes, the work changes.
+The plan is a living document: evidence changes → plan changes → work changes. When something breaks or changes:
 
-When something breaks or changes:
-
-1. **Update the plan FIRST** -- what changed, why, what's the new direction
-2. **Then update the code** -- derived from the new plan state
-3. **Every failure produces a process fix** -- not just a code fix
+1. **Update the plan FIRST** — what changed, why, new direction.
+2. **Then update the code** — derived from the new plan state.
+3. **Every failure produces a process fix**, not just a code fix.
 
 ### Placeholder draft PRs over blocked exits
 
-When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle should **not** exit "drained" while there is agent-doable surface. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in and documented in the PR body, so the conversation moves forward on concrete artifacts instead of speculative chat.
+When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle does **not** exit "drained" while agent-doable surface remains. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in + documented in the PR body, so the conversation moves on concrete artifacts, not speculative chat.
 
-A placeholder draft PR is still a publish action. Update owning PLAN.md Progress/Tasks or Drift Log with the blocked question, assumptions, proof, `handoff_status=needs_review`, files claimed, path-like claims, and next-agent resume point; emit `ledger-emit.sh --event publish` with non-empty `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status needs_review`, `--resume`, changed-file `--file`, and path-like `--claim`; then carry that ledger eid into the draft PR body before `gh pr create --draft`. Defaults: every flag default-off / zero, isolated worktree off `origin/master`, no assigned reviewers, no `@`-mentions in the body. Per-organization-overlay placeholder discipline (review-bot acks, fleet wiring, person-specific routing) lives in `/vidux-leo § Placeholder draft PRs over blocking` (codified 2026-05-21); core vidux owns the principle, overlays own the local taste.
+A placeholder draft PR is still a publish action. Emit the publish packet with `handoff_status=needs_review` (`ledger-emit.sh --event publish` with non-empty `--summary`/`--task-id`/`--plan-path`/`--proof`/`--handoff-status needs_review`/`--resume`/`--file`/`--claim`), record the blocked question + assumptions in the owning PLAN.md Progress/Tasks or Drift Log, then carry that ledger eid into the PR body before `gh pr create --draft`. Defaults: every flag default-off/zero, isolated worktree off `origin/master`, no reviewers, no `@`-mentions. Core owns the publish/proof principle; downstream repos own reviewer taste and merge policy.
 
 ### Plan archival pattern (parallel-session reconciliation)
 
-When two plans for the same surface are discovered post-hoc (the discovery rule above failed and a duplicate exists), fold the smaller / newer / less-receipt-dense one INTO the canonical older one. Append an H2 section to the canonical plan titled `## YYYY-MM-DD — Parallel-Session Reconciliation` that lists what the other plan covered, which receipts merged in, and which tasks transferred. Then move the duplicate plan directory into `_archived/<plan-slug>/` next to the canonical, and prepend a SUPERSEDED banner to its top-level file pointing at the canonical PLAN.md. Don't delete; archival preserves the receipts and the conversation trail for future agents. Close any duplicate placeholder PRs the second session opened with a comment linking the canonical plan. This is the recovery path for when the discovery rule above was skipped and a duplicate slipped through.
+Recovery path when the discovery rule was skipped and a duplicate slipped through. Fold the smaller/newer/less-receipt-dense plan INTO the canonical older one:
+
+1. Append an H2 `## YYYY-MM-DD — Parallel-Session Reconciliation` to the canonical plan listing what the other plan covered, which receipts merged in, which tasks transferred.
+2. Move the duplicate plan dir into `_archived/<plan-slug>/` next to the canonical; prepend a SUPERSEDED banner pointing at the canonical PLAN.md. Don't delete — archival preserves receipts and the conversation trail.
+3. Close any duplicate placeholder PRs the second session opened with a comment linking the canonical plan.
 
 ---
 
@@ -809,88 +555,76 @@ If the Fix Spec is missing, notes stay local. The investigation ships with the f
 
 ## Persistent Loop Mode
 
-If the user says `/vidux loop`, `loop`, `don't stop until done`, `keep going`, `finish the queue`, or `finish the spec`, enter a persistent outer loop instead of stopping after one normal slice.
+If the user says `/vidux loop`, `loop`, `don't stop until done`, `keep going`, `finish the queue`, or `finish the spec`, enter a persistent outer loop instead of stopping after one slice.
 
 Loop body:
 
 1. Read the queue source (`RALPH.md`, active plans, or inline spec).
-2. Pick the next highest-leverage unblocked step inside the currently owned lane.
-3. Execute it directly or delegate it.
-4. Run targeted gates for the touched area.
-5. Run the first viable UI/E2E/manual smoke path for the touched surface.
-6. Absorb obvious same-slice follow-on fixes uncovered by that smoke.
-7. Mark the item done in the queue source.
-8. Update the active plan.
-9. Checkpoint the publish cycle: update the owning plan/queue note, emit the publish ledger row with concise summary, plan task id, proof, handoff status, files claimed, path-like claims, and next-agent resume, then commit + push the owned branch/PR path.
-10. Write breadcrumb context (ledger + plan/queue note).
-11. Repeat until the queue/spec is actually done.
+2. Pick the next highest-leverage unblocked step inside the owned lane; execute or delegate.
+3. Run targeted gates for the touched area, then the first viable UI/E2E/manual smoke path for the surface.
+4. Absorb obvious same-slice follow-on fixes the smoke uncovers.
+5. Mark the item done in the queue source; update the active plan.
+6. Checkpoint: update the owning plan/queue note, emit the publish packet, then commit + push the owned branch/PR path.
+7. Repeat until the queue/spec is done.
 
-Persistent loop mode is **lane-persistent, not checkbox-persistent**: once vidux owns a feature, surface, or queue lane, keep driving connected follow-on work there until it reaches a verified boundary or a real blocker. Do not bounce to a second mission just because one checkbox landed if the same surface still has obvious connected work.
+Persistent loop mode is **lane-persistent, not checkbox-persistent**: once vidux owns a feature, surface, or queue lane, keep driving connected follow-on work there until a verified boundary or real blocker. Do not bounce to a second mission because one checkbox landed while the same surface has obvious connected work.
 
-**Queue-source rule:** `RALPH.md` and `ralph.config.json` are repo-level queue contracts. Execute that contract directly in `/vidux loop` and `/vidux nurse`. Do not replace a repo's queue contract with an ad hoc shared-state file unless the repo explicitly documents that file as canonical.
+**Queue-source rule:** `RALPH.md`/`ralph.config.json` are repo-level queue contracts. Execute that contract directly in `/vidux loop` and `/vidux nurse`. Do not replace it with an ad hoc shared-state file unless the repo documents that file as canonical.
 
-**Blocking rule:** user-visible work is not done when unit tests or build gates pass. It is only done after the first viable UI/E2E/manual smoke path passes, or a real blocker is recorded with the exact attempted command/flow. If a screenshot, simulator, browser, preview, or your own eyes reveal visible breakage, interrupt the loop and act on that defect before continuing status/proof narration. Green identifier tests do not override clipped controls, overlap, illegible text, or off-brand/product-fiction UI.
+**Blocking rule:** user-visible work is not done when unit/build gates pass — only after the first viable UI/E2E/manual smoke path passes, or a real blocker is recorded with the exact attempted command/flow. If a screenshot, simulator, browser, preview, or your own eyes reveal visible breakage, interrupt the loop and fix it before continuing status/proof narration. Green identifier tests do not override clipped controls, overlap, illegible text, or off-brand/product-fiction UI.
 
-Persistent loop mode only stops for: an external blocker or missing credential; a real product decision that changes implementation; conflicting repo state that would sweep another agent's work; an explicit user redirect. It does NOT stop just because one item landed, one test suite passed, a queue checkbox flipped, a connected regression remains, or only unit/build gates passed without UI/E2E smoke proof.
+Stops only for: an external blocker or missing credential; a real product decision that changes implementation; conflicting repo state that would sweep another agent's work; an explicit user redirect. It does NOT stop because one item landed, a test suite passed, a checkbox flipped, a connected regression remains, or only unit/build gates passed without UI/E2E smoke proof.
 
 ### Anti-Loop Discipline
 
-These rules apply to `/vidux loop`, `/vidux nurse`, and any ORCHESTRATED tracking cycle. They are part of the core loop contract, not optional overlays.
+These rules apply to `/vidux loop`, `/vidux nurse`, and any ORCHESTRATED tracking cycle. They are core loop contract, not optional overlays.
 
-1. **3-strike escalation.** Before picking the next slice, check whether the same blocker, failing command, or surface appeared in the last 3 checkpoints (ledger entries, plan logs, or memory). If it did: do NOT retry it. Write a one-paragraph escalation into the repo plan or nurse log (what is stuck, what was tried, what the human needs to do). Move to the next-highest-value unblocked lane.
+1. **3-strike escalation.** Before the next slice, check whether the same blocker, failing command, or surface appeared in the last 3 checkpoints (ledger, plan logs, memory). If so: do NOT retry. Write a one-paragraph escalation into the repo plan or nurse log (what's stuck, what was tried, what the human needs to do); move to the next-highest-value unblocked lane.
 
-2. **Diminishing-returns circuit breaker.** If the last 3 loop iterations produced zero shipped code (only coordination, proof attempts, or status updates), say so explicitly and either identify the structural reason and escalate, or pick a genuinely different surface. Do not pad a stuck run with busywork.
+2. **Diminishing-returns circuit breaker.** If the last 3 loop iterations produced zero shipped code (only coordination, proof attempts, status updates), say so and either identify the structural reason and escalate, or pick a different surface. Do not pad a stuck run with busywork.
 
-3. **Same-command ban.** Never re-execute the exact same command that failed in the previous iteration unless the environment visibly changed (disk freed, process cleared, credential restored). "Visibly changed" means a concrete observable difference, not hope.
+3. **Same-command ban.** Never re-execute the exact command that failed last iteration unless the environment visibly changed (disk freed, process cleared, credential restored) — a concrete observable difference, not hope.
 
-4. **All-blocked early exit.** If every lane is blocked by the same root cause, say so in one sentence and stop. A blocked run that admits it in 30 seconds is better than one that burns 15 minutes restating the blockage from 10 angles.
+4. **All-blocked early exit.** If every lane is blocked by the same root cause, say so in one sentence and stop. Admitting it in 30 seconds beats restating the blockage from 10 angles.
 
-5. **Compaction survival.** Auto-compact fires at ~50% context usage (configured via `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`). Compaction is lossy — granular conversation details are replaced with summaries. Therefore:
-   - **Before each checkpoint:** write iteration state to durable files and ledger rows: update the owning PLAN.md/Progress or RALPH.md queue, emit the matching publish ledger row when work shipped, and use repo-local `.agent-ledger/` only for configured companion state. Repo files plus append-only ledger rows survive compaction; conversation memory does not.
-   - **After compaction fires:** rehydrate from durable files and ledger rows. Read the owning PLAN.md/RALPH.md/CLAUDE.md and the latest matching ledger entry. Do not trust pre-compaction conversation details.
-   - **Put durable loop instructions in CLAUDE.md**, not in the loop prompt. CLAUDE.md is re-read from disk after every compaction. Loop prompts are summarized away.
-   - **Use subagents for heavy work inside loops.** Each subagent gets a fresh context window. The parent loop stays light and survives more iterations before compaction. Before spawning a subagent for heavy work, honor the shared-memory-budget preflight (see `~/Development/ai/skills/fleet-cleanup/SKILL.md#shared-memory-budget`); under memory pressure do the heavy work inline-sequentially instead of fanning out — degrade, never hard-fail.
-   - **Run `/context` periodically** to check remaining capacity. If below 30% after compaction, the session is overloaded — consider starting fresh.
-   - **PreCompact and PostCompact hooks** are installed globally. PreCompact reminds you to checkpoint; PostCompact reminds you to rehydrate.
+5. **Compaction survival.** Long sessions can compact or lose chat context. Conversation details become summaries. Therefore:
+   - **Before each checkpoint:** write iteration state to durable files + ledger rows: update the owning PLAN.md/Progress or RALPH.md queue, emit the publish packet when work shipped, use repo-local `.agent-ledger/` only for configured companion state. Repo files + append-only ledger rows survive compaction; conversation memory does not.
+   - **After compaction fires:** rehydrate from durable files + ledger rows. Read the owning PLAN.md/RALPH.md/repo instructions and the latest matching ledger entry. Do not trust pre-compaction conversation details.
+   - **Put durable loop instructions in repo files**, not only in the loop prompt. Repo files are re-read from disk; loop prompts are easy to summarize away.
+   - **Use subagents for heavy work inside loops** only when the surfaces are disjoint and the environment has enough headroom. Under pressure, do heavy work inline-sequentially instead of fanning out — degrade, never hard-fail.
 
 ### Cron + interactive interleave
 
-When an autonomous cron lane is firing on a project AND the user interactively redirects mid-cycle ("revamp X next", "kill that pattern", "switch to Y"), UPDATE the cron prompt in-place rather than waiting for prior tasks to drain. The pattern is small and fast — ~2 seconds for a `CronDelete` + `CronCreate` rewrite vs a full cron-interval drain (15-20 min) that would otherwise flush the redirect.
+When a cron lane is firing AND the user interactively redirects mid-cycle ("revamp X next", "switch to Y"), UPDATE the cron prompt in-place rather than waiting for prior tasks to drain. Two re-arm shapes:
 
-Two re-arm shapes:
+- **Soft re-arm** (redirect EXTENDS scope) — edit the existing prompt's priority order; preserve in-flight task list. The next tick picks up the new priority.
+- **Hard re-arm** (redirect REPLACES scope) — `CronDelete` + `CronCreate` with a fresh prompt. Prior cron's working notes stay in PLAN.md as decision trail.
 
-- **Soft re-arm** (layered scope) — when the redirect EXTENDS the current cron's scope. Edit the existing prompt's priority order; preserve in-flight task list. The next tick picks up the new priority without wasting current tasks.
-- **Hard re-arm** (replaced scope) — when the redirect REPLACES the current cron's scope. `CronDelete` + `CronCreate` with a fresh prompt. The prior cron's working notes stay in PLAN.md as decision trail.
-
-Cost asymmetry: 2-second re-arm vs 15-min full drain. Generalizes to any cron + interactive overlap (release babysitters, watcher loops, autonomous polish loops).
+Evidence: ~2s re-arm vs 15-20min full cron-interval drain. Generalizes to any cron + interactive overlap (release babysitters, watcher loops, polish loops).
 
 ---
 
 ## Nursing Mode
 
-If the user asks you to nurse, watch, or keep an eye on active work — `/vidux nurse`, "keep an eye on it", "watch the hot lanes" — switch into a **supervisory cadence** instead of a normal execute-once loop.
+If the user asks you to nurse, watch, or keep an eye on active work — `/vidux nurse`, "keep an eye on it", "watch the hot lanes" — switch into a **supervisory cadence**, not a normal execute-once loop. Nursing means:
 
-Nursing means:
-
-- Read the ledger on a cadence.
-- Read the active plan/queue on the same cadence.
-- Keep track of hot lanes, owners, blockers, and fresh completions.
+- Read the ledger and the active plan/queue on a cadence.
+- Track hot lanes, owners, blockers, fresh completions.
 - Intervene only when a lane drifts, blocks, conflicts, or unlocks the next queued slice.
 - Drive queue items directly when the next slice is unblocked and unowned.
 
-Vidux owns the full nursing loop: supervision, coordination, queue advancement, build-owner discipline, and plan updates. Ralph remains the repo-level queue contract (`RALPH.md` / `ralph.config.json`); vidux reads that contract, picks the next item, executes or delegates it, marks completion, and checks the ledger before deciding what's next.
+Vidux owns the full nursing loop: supervision, coordination, queue advancement, build-owner discipline, plan updates. Ralph remains the repo-level queue contract (`RALPH.md`/`ralph.config.json`); vidux reads it, picks the next item, executes/delegates, marks completion, checks the ledger before deciding what's next.
 
-**Repo-level state rule:** nursing state must live in repo-local artifacts, not an ad hoc global handoff file. Preferred sources: `RALPH.md`, repo plan docs, repo nurse logs, the centralized `~/.agent-ledger/activity.jsonl` activity stream, and repo-local `.agent-ledger/` companion files only when the repo documents them. Do not invent or depend on a one-off `<repo>-loop-state.md` file unless the repo already committed it as a canonical contract. If an automation needs durable handled-state for external signals (for example App Store feedback IDs), keep that state in a repo plan/tracker file next to the rest of the queue. Never read another repo's queue files, nurse logs, or ledger when selecting work for the current repo.
+**Repo-level state rule:** nursing state MUST live in repo-local artifacts, not an ad hoc global handoff file. Preferred sources: `RALPH.md`, repo plan docs, repo nurse logs, the centralized `~/.agent-ledger/activity.jsonl` stream, repo-local `.agent-ledger/` only when documented. Per the Read-the-Room scratch-file rule: don't depend on a one-off `<repo>-loop-state.md` unless the repo committed it as canonical, and never read another repo's state when selecting work. Durable handled-state for external signals (e.g. App Store feedback IDs) goes in a repo plan/tracker file next to the queue.
 
-Read `pilot/orchestration/nursing.md` when the user asks for any timed or repeated supervision.
+For any timed or repeated supervision, use a concrete repo-owned runner and record its authority PLAN.md, cadence, proof command, and stop condition.
 
 **Cadence selection:**
 
-- **Claude Routines** (cloud-native, always-on) are the production path for recurring nursing — they survive laptop close and support scheduled + GitHub event + API triggers.
-- **CronCreate** or Claude Code `/loop` are suitable for session-scoped or experimental nursing.
-- If the user wants **every 5 minutes** or other sub-hourly cadence, use an external scheduler (`launchd`, `cron`, `systemd`) to invoke a narrow nurse task.
+- Use the repo's declared automation surface for recurring nursing. Vidux core supplies the loop contract; the scheduler can be a local cron/systemd/launchd job, a hosted routine, or a manual session.
+- In-session loops suit experimental nursing and short-lived follow-through.
+- For **every 5 minutes** or other sub-hourly cadence, use an external scheduler (`launchd`, `cron`, `systemd`) to invoke a narrow nurse task.
 - Do not fake timed nursing by spinning a blind idle loop in chat.
-- Use `pilot/orchestration/nursing.md` and `pilot/scripts/nurse_pulse.sh` as the default concrete nurse mechanism.
 
 ---
 
@@ -900,29 +634,27 @@ After detecting stack and stage, determine scale:
 
 | Scale | Signals | Mode |
 |-------|---------|------|
-| **SOLO** | Quick hit, kickoff, or mid-flight. < 8 files, single concern, serial by nature. | Execute directly — vidux is the worker. Follow the stage playbook. |
+| **SOLO** | Quick hit/kickoff/mid-flight. <8 files, single concern, serial by nature. | Execute directly — vidux is the worker. Follow the stage playbook. |
 | **ORCHESTRATED** | Expedition-scale. 8+ files, multiple independent concerns, multi-session, cross-tool. | Vidux orchestrates — decompose, delegate, track. |
 
 **ORCHESTRATED triggers** (any two = orchestrate):
 
 - Multiple file sets with zero overlap.
-- Work naturally splits into independent API + UI + test concerns.
+- Work splits into independent API + UI + test concerns.
 - User mentions multiple agents, Routines, Cursor, or parallel work.
-- Existing ledger entries show active lanes from other agents.
+- Ledger entries show active lanes from other agents.
 - PLAN.md has a lane table or multi-phase dependency graph.
-- **Multi-prototype gallery / variant fan-out** — PLAN.md has ≥3 prototypes/variants AND user issues a surface-wide directive ("revamp all", "polish every", "team agents split up", "audit each one"). Pre-route to multi-agent fan-out: spawn one Plan agent per prototype/variant, each reads its own surface, returns task list with `file:line` citations, parent integrates into the single PLAN.md. Wall-clock 3-5x savings vs serial. Surface-disjoint precondition holds because each prototype is its own file and no agent edits another's file.
+- **Multi-prototype gallery / variant fan-out** — PLAN.md has ≥3 prototypes/variants AND user issues a surface-wide directive ("revamp all", "polish every", "team agents split up", "audit each one"). Pre-route to multi-agent fan-out: spawn one Plan agent per prototype/variant, each reads its own surface and returns a task list with `file:line` citations; parent integrates into the single PLAN.md. Surface-disjoint precondition holds (each prototype is its own file). Evidence: 3-5x wall-clock savings vs serial.
 
 ### Default Discipline Swarm
 
-For product/UI work that spans multiple concerns, default to a discipline swarm even in an unfamiliar repo:
+For product/UI work spanning multiple concerns, default to a discipline swarm even in an unfamiliar repo (project-agnostic decomposition pattern, not a repo's structure):
 
 - UX / surface behavior
 - copy / localization
 - persistence / data correctness
 - Dev App or preview/manual QA
 - automation / E2E
-
-This is project-agnostic — the decomposition pattern, not a specific repo's structure.
 
 ### Release Swarm (10 roles)
 
@@ -941,43 +673,43 @@ When the user asks for release readiness, a nurse loop, or a last-mile ship push
 
 ### Heat scan before spawn
 
-Before spawning agents, spend 60 seconds on a heat scan: which roles have open items in the queue/plan/ledger? Which had activity in the last 2 runs? Which are blocked by known persistent blockers?
+Before spawning, spend 60 seconds on a heat scan: which roles have open items in the queue/plan/ledger? Which had activity in the last 2 runs? Which are blocked by known persistent blockers?
 
-- **Hot** (2-4 roles): open items, recent activity, unblocked. Full inspection and dedicated agent lanes.
-- **Warm** (2-3 roles): no open items but could have drifted. 30-second scan with a one-line verdict.
-- **Cold** (remaining roles): confirmed stable in last 2 runs. Single line: "Role N: cold since [date], skipping."
+- **Hot** (2-4 roles): open items, recent activity, unblocked. Full inspection + dedicated agent lanes.
+- **Warm** (2-3 roles): no open items but could have drifted. 30-second scan, one-line verdict.
+- **Cold** (rest): confirmed stable in last 2 runs. Single line: "Role N: cold since [date], skipping."
 
-Spawn agents for hot roles only. Do not spawn 6 agents when 2 lanes are hot and 4 would idle. Minimum spawn 1 (single deep lane while coordinator coordinates). Maximum 4-6 for genuinely parallel independent work. A cold role becomes warm when a new queue item touches its surface, a user mentions it, or 5+ runs pass since last inspection. Preserve the 10-role checklist for completeness; cold roles get one line in memory, not a full inspection pass.
+Spawn agents for hot roles only — not 6 when 2 are hot and 4 would idle. Min 1 (single deep lane while coordinator coordinates); max 4-6 for parallel independent work. A cold role goes warm when a new queue item touches its surface, a user mentions it, or 5+ runs pass since last inspection. Preserve the 10-role checklist; cold roles get one line in memory, not a full pass.
 
 ### Orchestration loop
 
-When ORCHESTRATED, follow this loop (see `pilot/orchestration/mayor.md` for the long form):
+When ORCHESTRATED, follow this loop:
 
-1. Select molecule from `pilot/orchestration/molecules.md` (Feature, Cleanup, Migration, Research, or composed).
-2. Decompose into lanes per `pilot/orchestration/lanes.md`.
-3. Write PLAN.md with lane table and dependency graph.
-4. Spawn agents for independent lanes (Agent tool, background, worktrees).
-5. Track via the ledger and completion notifications.
-6. Intervene on blockers, drift, or discoveries.
+1. Classify the mission shape: feature, cleanup, migration, research, or integration.
+2. Decompose into independent lanes with explicit write scopes and dependencies.
+3. Write PLAN.md with the lane table, dependency graph, proof gates, and owner/resume metadata.
+4. Spawn or assign workers only for independent lanes.
+5. Track via the ledger + completion notifications.
+6. Intervene on blockers, drift, discoveries.
 7. Integrate when lanes complete — merge, cross-test, full gates.
-8. Handoff per `pilot/orchestration/handoff.md` if work continues.
+8. Write a handoff packet if work continues.
 
 ### First-class end-to-end proof
 
-For any user-visible change, treat end-to-end proof as a blocking gate, not a polish task. Preferred order: (1) existing UI/E2E automation for the touched surface; (2) add or tighten focused UI/E2E coverage if the gap is small and the path is stable; (3) manual smoke path when no automation exists yet. Do not declare "done" on build + unit coverage alone. Record the exact smoke command or manual path you ran. If smoke reveals more bugs, reopen the queue and continue the loop.
+For any user-visible change, end-to-end proof is a blocking gate, not a polish task. Preferred order: (1) existing UI/E2E automation for the touched surface; (2) add/tighten focused UI/E2E coverage if the gap is small and the path is stable; (3) manual smoke path when no automation exists. Never declare "done" on build + unit coverage alone. Record the exact smoke command/path run. If smoke reveals more bugs, reopen the queue and continue.
 
 ---
 
 ## Stack & Stage Routing
 
-Run `pilot/scripts/detect_stack.sh` or check signal files manually:
+Check signal files manually or use the repo's own detector script when one exists:
 
 | Signal | Stack ID | Routing |
 |--------|----------|---------|
-| `Project.swift` or `*.xcodeproj` | `ios-tuist` | See `pilot/stacks/ios-tuist.md` |
-| `next.config.*` | `nextjs-vercel` | See `pilot/stacks/nextjs-vercel.md` |
-| `vite.config.*` (no next.config) | `vite-react` | See `pilot/stacks/vite-react.md` |
-| `shopify/` or `*.liquid` | `shopify` | See `pilot/stacks/shopify.md` |
+| `Project.swift` or `*.xcodeproj` | `ios` | Use repo iOS build/test instructions |
+| `next.config.*` | `nextjs` | Use repo web build/test/deploy instructions |
+| `vite.config.*` (no next.config) | `vite-react` | Use repo web build/test instructions |
+| `shopify/` or `*.liquid` | `shopify` | Use repo Shopify/theme instructions |
 | `Cargo.toml` | `rust` | Inline (no skill yet) |
 | `package.json` only | `node-generic` | playwright if e2e exists |
 
@@ -985,52 +717,42 @@ After stack, detect stage from repo state:
 
 | Stage | Signals | Playbook |
 |-------|---------|----------|
-| **KICKOFF** | No plan file for this feature, user says "build X" / "add X" | `pilot/stages/kickoff.md` |
-| **MID-FLIGHT** | Existing plan with pending items, branch with changes | `pilot/stages/mid-flight.md` |
-| **LAST MILE** | Most plan items done, user says "ship" / "finish" / "polish" | `pilot/stages/last-mile.md` |
-| **QUICK HIT** | Single-screen change, one-sentence description, < 3 files | `pilot/stages/quick-hit.md` |
-| **EXPEDITION** | Touches 5+ files, needs phases, multi-session | `pilot/stages/expedition.md` (integrates orchestration for ORCHESTRATED scale) |
+| **KICKOFF** | No plan file for this feature, user says "build X" / "add X" | Gather evidence, draft plan, then ship the first vertical slice |
+| **MID-FLIGHT** | Existing plan with pending items, branch with changes | Resume `[in_progress]`, reconcile diff, then continue |
+| **LAST MILE** | Most plan items done, user says "ship" / "finish" / "polish" | Verify, close blockers, prepare handoff/release |
+| **QUICK HIT** | Single-screen change, one-sentence description, < 3 files | Execute directly with focused proof |
+| **EXPEDITION** | Touches 5+ files, needs phases, multi-session | Use the full plan-first cycle and orchestration loop |
 
-Every stage ends with verification gates from `pilot/patterns/gate-checklist.md`. Universal engineering patterns (DI, state machines, in-memory test seams, lifecycle gates) live in `pilot/patterns/leos-patterns.md`.
+Every stage ends with repo-declared verification gates. When no gate exists, define the smallest honest build/test/manual-smoke proof in the PLAN before executing.
 
-For Figma-driven work, prefer repo-local MCP rules over global defaults and preserve them in the repo's `ai/skills/` folder when they are durable project knowledge.
+For Figma-driven work, prefer repo-local MCP rules over global defaults; preserve them in the repo's `ai/skills/` folder when they are durable project knowledge.
 
 ---
 
 ## Skill Composition
 
-Vidux delegates. It never duplicates. See `pilot/stacks/*.md` for per-stack routing tables.
-
-Universal skills available in any stack:
+Vidux delegates; it never duplicates. Universal companion skills may be available in the host environment:
 
 - `clipdiff` — PR-ready diffs.
-- `captain` — meta/skill maintenance (skill audit, symlink discipline). If older prompts say `skill-manager`, route to `captain`.
+- `captain` — meta/skill maintenance (audit, symlink discipline). Older `skill-manager` prompts route here.
 - `maily` — email cross-referencing.
 - `ledger` — cross-tool coordination (critical for ORCHESTRATED mode).
-- `nia` — external doc / package source lookup (check before WebFetch).
+- `nia` — external doc/package source lookup (check before WebFetch).
 - `amp` — prompt amplification for vague tasks (GATHER → steer → fire).
 
-Local skills do not usually need a manual "on" switch if the `~/.claude/skills` or repo-local skills symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
+Local skills need no manual "on" switch if the `~/.claude/skills` or repo-local symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
 
-When a repo already has one active feature-reset plan and multiple agents are working in parallel: reuse the existing plan instead of creating a competing plan doc; add a claim line before editing canonical sections or cross-cutting files; append discoveries to the shared coordination log before rewriting product-contract text; treat chat guidance as non-canonical until it is written back into the active plan.
+When a repo has one active feature-reset plan and multiple agents work in parallel:
+- Reuse the existing plan; never create a competing plan doc.
+- Add a claim line before editing canonical sections or cross-cutting files.
+- Append discoveries to the shared coordination log before rewriting product-contract text.
+- Treat chat guidance as non-canonical until written back into the active plan.
 
-### Claude Routines vs CronCreate vs `/loop`
+### Automation Entrypoints
 
-Codex fleet is deprecated — use **Claude Routines** (cloud-native, always-on, survives laptop close, configured at [claude.ai/code/routines](https://claude.ai/code/routines)) for production recurring automation. CronCreate is for session-scoped experiments. `/loop` is for in-session iteration.
+Vidux core is scheduler-agnostic. Use the host environment's approved mechanism for recurring work: local cron/systemd/launchd, hosted scheduled jobs, CI events, manual loops, or another repo-owned runner. The invariant is the same everywhere: each run rehydrates from the authority PLAN.md, does one bounded slice, writes proof back, and exits cleanly.
 
-| Trigger type | Fires when | Create via |
-|---|---|---|
-| **Scheduled** | Cron expression (min 1h, presets: hourly/daily/weekdays/weekly) | CLI (`/schedule`) or web |
-| **GitHub event** | PR, push, issues, workflow runs, releases, etc. | Web UI only |
-| **API** | `POST /fire` with bearer token + optional payload | Web UI only |
-
-**Heuristic:**
-
-- **Routines** — anything that must survive laptop close, GitHub event triggers, fleet watchers, lifecycle managers (always-on).
-- **CronCreate** — session-scoped experiments, rapid recipe iteration, local-only resources (Xcode, simulators).
-- A single routine can combine multiple triggers (e.g., nightly schedule + PR webhook).
-
-When wiring fleet work, reference the 8 automation recipes from `guides/recipes.md`:
+When wiring recurring work, reference the automation recipes from `guides/recipes/`:
 
 | # | Recipe | Role | Trigger |
 |---|--------|------|---------|
@@ -1043,7 +765,7 @@ When wiring fleet work, reference the 8 automation recipes from `guides/recipes.
 | 7 | **Skill Refiner** | Quality auditor | Scheduled 6h |
 | 8 | **Self-Improvement** | Meta-writer | Scheduled 24h |
 
-Start with Fleet Watcher + PR Reviewer (highest ROI), add more as daily budget supports them. A typical fleet combines 3-5 recipes.
+Start with the smallest recipe that proves value. Add more only when the PLAN.md and ledger show durable demand.
 
 ---
 
@@ -1051,11 +773,11 @@ Start with Fleet Watcher + PR Reviewer (highest ROI), add more as daily budget s
 
 After every meaningful completed slice, leave all three breadcrumbs:
 
-1. **Plan / queue** — mark progress in the active plan, `RALPH.md`, or queue source, including proof, `handoff_status`, concise summary, files claimed, path-like claims, and next-agent resume.
-2. **Ledger** — emit `ledger-emit.sh --event publish` with a concise change summary, plan task id, plan path, proof, handoff status, next-agent resume point, changed files, and path-like claims; keep the eid with the branch/PR handoff.
-3. **Git** — commit and push only the owned slice after the plan and ledger breadcrumbs exist.
+1. **Plan / queue** — mark progress in the active plan, `RALPH.md`, or queue source, carrying the publish packet fields.
+2. **Ledger** — emit `ledger-emit.sh --event publish` (the publish packet); keep the eid with the branch/PR handoff.
+3. **Git** — commit and push only the owned slice after the plan + ledger breadcrumbs exist.
 
-Checkpoint at these moments: after a meaningful slice completes; before handoff; before changing lanes or worktrees; after an integration fix that creates a new stable base for other agents.
+Checkpoint at: a meaningful slice completing; before handoff; before changing lanes or worktrees; after an integration fix that creates a new stable base for other agents.
 
 Commit everything the active agent owns, but do NOT sweep unrelated dirty files from other agents by default.
 
@@ -1063,37 +785,37 @@ Commit everything the active agent owns, but do NOT sweep unrelated dirty files 
 
 ## Replaces /superpowers (folded 2026-04-26)
 
-The Anthropic `superpowers` plugin used to provide 14 process-discipline subskills that auto-loaded on relevant triggers (brainstorming, TDD, debugging, code review, parallel agents, worktrees, etc.). All of those concepts are already covered by core vidux and its companion skills — having both was redundant ("if vidux is supposed to be my superpower"). The plugin is uninstalled. Use this routing table when you'd previously have reached for a `/superpowers:*` skill:
+The Anthropic `superpowers` plugin provided 14 process-discipline subskills (brainstorming, TDD, debugging, code review, parallel agents, worktrees, etc.). Core vidux + companion skills already cover those concepts; the plugin is uninstalled. Use this routing table when you'd previously have reached for a `/superpowers:*` skill:
 
 | `/superpowers:*` was for | Use this instead |
 |---|---|
-| `brainstorming` (before any creative work) | Vidux Principle 1: plan first. Brainstorm in main thread, then write the PLAN.md before code. Quick brainstorms can stay in chat — only formalize when the work spans 30+ minutes. |
-| `writing-plans` | Vidux core — `## PLAN.md Template` section above |
-| `executing-plans` | Vidux Cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT) |
-| `subagent-driven-development` | `guides/automation.md` § subagent dispatch + your overlay skill's auto-dispatch protocol |
-| `dispatching-parallel-agents` | `guides/automation.md` § parallel agents (surface-disjoint precondition) + your overlay skill's fan-out rule |
-| `test-driven-development` | Vidux Principle 5: prove it mechanically. Write the assertion before the implementation when the surface needs regression protection (visual-proof merge gate) |
-| `systematic-debugging` | Vidux Principle 3: investigate before fixing. Use the `## Investigation Template` for any bug touching 2+ tickets or unclear root cause |
-| `requesting-code-review` / `receiving-code-review` | Your overlay skill's review-bot ack discipline (Graphite / Greptile / Cursor / Seer yay-or-nay before merge) |
-| `verification-before-completion` | Vidux Principle 5: prove it mechanically. UI work definition-of-done = visual proof |
-| `using-git-worktrees` | Your overlay skill's worktree isolation + per-lane DerivedData guidance |
-| `finishing-a-development-branch` | Your overlay skill's merge-timing rubric (ready-PR auto-merge once review-bots ack) |
-| `writing-skills` | Use `captain` — owns skill creation, registry, and symlink hygiene |
-| `using-superpowers` (meta loader) | Removed — vidux loads when you say `/vidux` or describe expedition-scale work |
+| `brainstorming` | Principle 1: plan first. Brainstorm in main thread, then write the PLAN.md before code. Quick brainstorms stay in chat; formalize only when work spans 30+ min. |
+| `writing-plans` | `## PLAN.md Template` above |
+| `executing-plans` | The Cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT) |
+| `subagent-driven-development` | `guides/automation.md` § subagent dispatch |
+| `dispatching-parallel-agents` | `guides/automation.md` § parallel agents (surface-disjoint precondition) |
+| `test-driven-development` | Principle 5: write the assertion before implementation when the surface needs regression protection |
+| `systematic-debugging` | Principle 3: investigate before fixing. Use `## Investigation Template` for any bug touching 2+ tickets or unclear root cause |
+| `requesting-code-review` / `receiving-code-review` | Repo-specific review discipline before merge |
+| `verification-before-completion` | Principle 5: prove it mechanically. UI definition-of-done = visual proof |
+| `using-git-worktrees` | Worktree lifecycle section above plus repo-specific isolation guidance |
+| `finishing-a-development-branch` | Repo-specific merge and release policy |
+| `writing-skills` | Use `captain` — owns skill creation, registry, symlink hygiene |
+| `using-superpowers` (meta loader) | Removed — vidux loads on `/vidux` or expedition-scale work |
 
-**Rule of thumb:** if you'd reach for a `/superpowers:*` skill, you're already inside `/vidux`'s domain. Read the relevant principle / cycle step / guide instead of summoning a separate plugin.
+**Rule of thumb:** reaching for a `/superpowers:*` skill means you're already inside `/vidux`'s domain. Read the relevant principle/cycle-step/guide instead of summoning a separate plugin.
 
 ---
 
 ## Output formats — one-shot HTML decision briefs
 
-For one-shot HTML decision briefs (not ongoing PLAN.md / repo work), use `/editorial-brief` — it ships a single-file editorial-magazine HTML artifact to vidux-browse on a trusted-LAN host, and follows /vidux plan-first discipline for the research/write phases but lands as a self-contained HTML file instead of a tracked-in-repo .md plan.
+For one-shot HTML decision briefs (not ongoing PLAN.md/repo work), use `/editorial-brief` — ships a single-file editorial-magazine HTML artifact to vidux-browse on a trusted-LAN host. Follows /vidux plan-first discipline for research/write, but lands as a self-contained HTML file, not a tracked-in-repo .md plan.
 
 ---
 
 ## Browser
 
-A localhost web UI for viewing every PLAN.md across the fleet at a glance. Read-only — markdown plan files in git remain the queue/planning authority, and publish ledger rows remain the shipped-cycle proof packet.
+A localhost web UI for viewing every PLAN.md across the fleet at a glance. Read-only — markdown plan files in git remain the queue/planning authority; the publish packet remains the shipped-cycle proof.
 
 ```
 vidux-browse              # start server, open http://127.0.0.1:7191
@@ -1102,42 +824,35 @@ vidux-browse -f           # foreground (stream logs)
 ```
 
 What it shows:
-- Sidebar grouped by repo, with hot/stale/cold pills (≤7d / 7-30d / >30d by mtime)
-- Selected plan rendered as markdown, with sibling tabs for any sibling `.md` files in the same plan directory when present (common conventions include `PROGRESS.md` and `INBOX.md`; per-owner conventions like `ASK-<OWNER>.md` are also supported)
-- Named comments attached to the selected plan tab or artifact, stored separately from source files
-- Anchored annotations: click the top-bar `Annotate` control or press `Cmd/Ctrl+Shift+C`, then click the exact rendered element the comment is about
-- Filter box to search across repo / slug / purpose
+- Sidebar grouped by repo, with hot/stale/cold pills (≤7d / 7-30d / >30d by mtime).
+- Selected plan rendered as markdown, with sibling tabs for sibling `.md` files in the plan dir (e.g. `PROGRESS.md`, `INBOX.md`; per-owner `ASK-<OWNER>.md` supported).
+- Named comments on the selected plan tab or artifact, stored separately from source files.
+- Anchored annotations: top-bar `Annotate` control or `Cmd/Ctrl+Shift+C`, then click the exact rendered element.
+- Filter box across repo / slug / purpose.
 
-Discovery globs (covers the three conventions in use across the fleet):
+Discovery globs: `<repo>/ai/plans/<slug>/PLAN.md`, `<repo>/vidux/<slug>/PLAN.md`, `<repo>/projects/<slug>/PLAN.md`, `<repo>/PLAN.md`.
 
-- `<repo>/ai/plans/<slug>/PLAN.md`
-- `<repo>/vidux/<slug>/PLAN.md`
-- `<repo>/projects/<slug>/PLAN.md`
-- `<repo>/PLAN.md` (root-level)
-
-Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` from CDN. Zero pip dependencies. Default bind is `127.0.0.1`; `VIDUX_BROWSER_HOST=0.0.0.0` enables trusted-LAN read access for operator-owned dashboards.
-
-Code lives at `~/Development/vidux/browser/`. See `projects/vidux-browser/PLAN.md` for design decisions and the v1/Polish roadmap (sessions panel, ledger entries, memory viewer, launchd auto-start).
+Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` (CDN). Zero pip deps. Default bind `127.0.0.1`; `VIDUX_BROWSER_HOST=0.0.0.0` enables trusted-LAN read access. Code lives in `<vidux-dir>/browser/`; design decisions and browser roadmap live in the relevant repo plan.
 
 ### Ad-hoc artifacts (anytime, anywhere in chat)
 
-The browser has a second surface beyond plan-viewing: ad-hoc HTML artifacts that any agent can drop in from any session. They appear in a top-level "ARTIFACTS" section in the sidebar (above the repo-grouped plans), decoupled from any specific plan.
+A second surface beyond plan-viewing: ad-hoc HTML artifacts any agent drops in from any session. They appear in a top-level "ARTIFACTS" sidebar section (above the repo-grouped plans), decoupled from any plan.
 
 **Two ways to drop an artifact:**
 
 ```bash
-# Option 1 — file write (works from any shell)
-cat > ~/Development/vidux/browser/artifacts/<slug>.html
+# Option 1 — file write (any shell)
+cat > <vidux-dir>/browser/artifacts/<slug>.html
 
-# Option 2 — POST endpoint (works from any session with HTTP, no shell needed)
+# Option 2 — POST endpoint (any session with HTTP, no shell)
 curl -X POST http://127.0.0.1:7191/api/artifact \
   -H "Content-Type: application/json" \
   -d '{"slug":"<slug>","html":"<!DOCTYPE html>..."}'
 ```
 
-**Slug rules** (POST-validated): `^[a-z0-9][a-z0-9-]{0,63}$`. Lowercase, dashes only, no slashes, no `..`. Same slug overwrites.
+**Slug rules** (POST-validated): `^[a-z0-9][a-z0-9-]{0,63}$`. Lowercase, dashes only, no slashes/`..`. Same slug overwrites.
 
-**Component CSS shim** — to inherit the paper-and-ink palette in your artifact, use these classes (defined in `static/style.css`):
+**Component CSS shim** — inherit the paper-and-ink palette via these classes (in `static/style.css`):
 
 - `.card-grid` — auto-fill grid container, 280px min column
 - `.contact-card` — bordered card with padding; nests `<h3>`, `.meta`, `<a>`, `<p>`
@@ -1146,53 +861,37 @@ curl -X POST http://127.0.0.1:7191/api/artifact \
 - `.person-chip` — pill-shaped inline tag
 - `.label` — uppercase mono label (e.g., `<span class="label">hook</span>`)
 
-Artifacts render via direct `innerHTML` into the same pane that renders markdown, so anything in your `<body>` works. Trust boundary: localhost + your own filesystem; no XSS surface.
+Artifacts render via direct `innerHTML` into the markdown pane, so anything in your `<body>` works. Trust boundary: localhost + your own filesystem; no XSS surface.
 
-**Use cases this enables:**
-- Research summaries with vendor / lead / contact cards (vs flat markdown tables)
-- Visual fleet dashboards (per-repo status grids)
-- One-off briefings to share with yourself across sessions
-- Plan-adjacent visualizations (timeline, network graph, decision tree) without bloating PLAN.md
-
-For lanes consuming this surface: drop the artifact, log the URL to memory if you want to reference it later (`http://127.0.0.1:7191/` then click into the slug in the sidebar). The artifact survives across sessions; the slug is the stable handle.
+Use cases: research summaries with vendor/lead/contact cards; visual fleet dashboards; cross-session briefings; plan-adjacent visualizations (timeline, network graph, decision tree) without bloating PLAN.md. Drop the artifact, log the URL (`http://127.0.0.1:7191/` → click the slug) if you want to reference it later. Survives across sessions; the slug is the stable handle.
 
 #### Symlinks vs hard links in `artifacts/`
 
-When you want an artifact file to share content with a canonical source elsewhere (e.g., the `.html` lives next to a `.md` source in some other repo and you want a single inode), use a **hard link, not a symlink**. The browser server enforces this mechanically; symlinks pointing outside `ARTIFACTS_DIR` fail closed.
-
-**Why.** `browser/server.py`'s `safe_resolve_any()` validates request paths with `Path.resolve()`, which follows symlinks. If an artifact file is a symlink whose target resolves OUTSIDE `ARTIFACTS_DIR` (e.g., to a canonical source in another repo), the subsequent `Path.relative_to(ARTIFACTS_DIR.resolve())` raises `ValueError` — the server returns **403 forbidden** on `/api/file` and `/api/comments`.
-
-**Symptom.** Artifact metadata shows in the sidebar (vidux-browse globs the dir for index purposes and that's directory iteration, not path resolution), but the body never loads. Browser console shows `failed to load comments: forbidden` plus a 403 on the file request. The H1 from the index may render but everything below is empty.
+To share content between an artifact and a canonical source elsewhere (single inode), use a **hard link, not a symlink**. The server fails closed on symlinks resolving outside `ARTIFACTS_DIR`: `browser/server.py` `safe_resolve_any()` uses `Path.resolve()` (follows symlinks); an outside target makes `Path.relative_to(ARTIFACTS_DIR.resolve())` raise `ValueError` → **403 forbidden** on `/api/file` and `/api/comments`. Symptom: sidebar shows the artifact but the body never loads; console shows `failed to load comments: forbidden` + a 403.
 
 **Fix — hard link, no `-s`:**
 
 ```bash
-rm ~/Development/vidux/browser/artifacts/<slug>.html
-ln <canonical-path>.html ~/Development/vidux/browser/artifacts/<slug>.html   # no -s
+rm <vidux-dir>/browser/artifacts/<slug>.html
+ln <canonical-path>.html <vidux-dir>/browser/artifacts/<slug>.html   # no -s
 ```
 
-**Constraints + verification:**
-- Same filesystem only. Any path under the user's home volume is fine (`~/Development/...`, `~/work/...`, `~/.claude/...` all share one volume on a stock macOS install). Cross-volume hard links fail at `ln` time.
-- `Path.resolve()` does NOT cross hard links — the artifact path stays inside `ARTIFACTS_DIR`, security check passes.
-- Updates to the canonical file reflect instantly at the artifact path; it's one inode with two names.
-- Verify with `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove they share data.
-
-**Real-world incident (2026-05-12).** `music-semantic-backend-mvp.html` was dropped into `artifacts/` as a symlink to its canonical source in another repo. vidux-browse sidebar showed it; clicking it rendered only the H1 plus `403: forbidden` in the body. Replacing the symlink with a hard link fixed it the same minute. Memory: `reference_vidux_artifacts_hardlink_rule.md`.
+Constraints: same filesystem only (the home volume shares one volume on stock macOS; cross-volume `ln` fails). `Path.resolve()` does NOT cross hard links so the check passes; canonical-file updates reflect instantly. Verify: `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove shared data. Evidence (2026-05-12): a symlinked `artifacts/music-semantic-backend-mvp.html` rendered only H1 + `403`; hard link fixed it. Memory: `reference_vidux_artifacts_hardlink_rule.md`.
 
 ### Named comments / annotations
 
-vidux-browse comments are lightweight annotations on the current view. They can target either an allowed markdown file (`PLAN.md`, `INBOX.md`, `investigations/*.md`, `evidence/*.md`, etc.) or an HTML artifact.
+vidux-browse comments are lightweight annotations on the current view, targeting an allowed markdown file (`PLAN.md`, `INBOX.md`, `investigations/*.md`, `evidence/*.md`, etc.) or an HTML artifact.
 
 Key contract:
-- Comments are append-only app data in `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`.
-- Comments never mutate `PLAN.md`, `INBOX.md`, repo files, task claims, or artifact HTML.
-- Cross-machine LAN viewers may comment through the vidux-browse UI, but POSTs must be JSON and same-origin (`Origin` or `Referer` must match the browser host).
-- Use comments for human feedback, review notes, “worth knowing” annotations, and LAN collaboration. Use `INBOX.md` only when a local agent intentionally needs the note inside vidux state.
-- For precise comments, use the top-bar `Annotate` control or `Cmd/Ctrl+Shift+C`; the next clicked rendered markdown/artifact element becomes a sanitized anchor with selector, label, excerpt, tag, and index metadata. The `Target` pill scrolls back to that element. Anchors are best-effort UI pointers, not plan authority. Annotation/filter shortcuts are ignored while typing in inputs, textareas, selects, or contenteditable fields.
+- Append-only app data in `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`.
+- Comments NEVER mutate `PLAN.md`, `INBOX.md`, repo files, task claims, or artifact HTML.
+- Cross-machine LAN viewers may comment via the UI, but POSTs must be JSON + same-origin (`Origin`/`Referer` must match the browser host).
+- Use comments for human feedback, review notes, annotations, LAN collaboration; use `INBOX.md` only when a local agent needs the note inside vidux state.
+- For precise comments: `Annotate` control or `Cmd/Ctrl+Shift+C`, then click the rendered element → a sanitized anchor (selector, label, excerpt, tag, index). The `Target` pill scrolls back. Anchors are best-effort UI pointers, not plan authority. Annotation/filter shortcuts are ignored while typing in inputs, textareas, selects, contenteditable.
 
 ### Local plan notes (loopback-only)
 
-When an agent needs to leave a constrained note for the current Mac's vidux plan, use the local plan-note endpoint. It appends to that plan directory's `INBOX.md`; it does not edit `PLAN.md` directly.
+To leave a constrained note for the current Mac's vidux plan, use the local plan-note endpoint. It appends to that plan dir's `INBOX.md`; it does NOT edit `PLAN.md` directly.
 
 ```bash
 curl -X POST http://127.0.0.1:7191/api/local-plan-note \
@@ -1200,199 +899,45 @@ curl -X POST http://127.0.0.1:7191/api/local-plan-note \
   -d '{"plan_path":"~/Development/project/PLAN.md","source":"codex/local","agent":"codex/local","note":"Short note for the next local agent."}'
 ```
 
-This endpoint rejects non-loopback clients. Even when vidux-browse is bound to `0.0.0.0` for home-LAN reading, `POST /api/local-plan-note` must be called through `127.0.0.1` or `::1`; other Wi-Fi devices can read but cannot write plan notes.
+Rejects non-loopback clients: even when bound to `0.0.0.0` for home-LAN reading, `POST /api/local-plan-note` must come through `127.0.0.1`/`::1`. Other Wi-Fi devices can read but cannot write plan notes.
 
-### Local transcription add-on (mlx-whisper, optional)
+### Optional local audio add-ons
 
-Voice-agent transcription uses `mlx-whisper` on Apple Silicon. Keep this
-separate from the Voxtral read-aloud path: `mlx-audio` is the local TTS server,
-not the blessed Vidux/Moussey STT runtime.
-
-Install:
-
-```bash
-brew install ffmpeg
-uv tool install mlx-whisper
-```
-
-Smoke:
-
-```bash
-cd ~/Development/vidux
-scripts/smoke-local-transcription.sh
-```
-
-The installed executable is `mlx_whisper`. The correct default model repo is
-`mlx-community/whisper-base.en-mlx`; `mlx-community/whisper-base.en-mlx-q4` is
-the smaller fallback. Do not use the stale `mlx-community/whisper-base.en`
-model name.
-
-First-run "buffering" usually means model download or MLX process startup.
-Short-file CLI transcription is not token-streaming; it writes a transcript
-after the clip is decoded. User-facing voice UI must show explicit states for
-recording, ffmpeg conversion, first-run model load/download, transcribing, and
-transcript ready. If true partial transcripts are required, use a persistent STT
-worker or a streaming STT runtime instead of spawning the CLI per request.
-
-Reference files:
-
-- `SETUP_NEW_MACHINE.md` — install and verification checklist.
-- `scripts/smoke-local-transcription.sh` — real local WAV -> `mlx_whisper` JSON smoke.
-- `projects/moussey-voice-agent/PLAN.md` — voice-agent plan and STT task board.
-
-### Read-aloud add-on (local Voxtral MLX, optional)
-
-vidux-browse exposes a footer `Read` player that reads the current artifact /
-PLAN.md aloud. The browser is only the client/player; Mistral Voxtral 4B TTS
-runs through a loopback Apple-Silicon MLX server.
-
-**Correct runtime model:**
-
-- `mistralai/Voxtral-4B-TTS-2603` is public, ungated, and non-private on Hugging Face.
-- It is **not** a Transformers.js/WebGPU browser model. Do not load it with `VoxtralForConditionalGeneration.from_pretrained(...)` in browser JS.
-- Official runtime is vLLM-Omni (`vllm serve mistralai/Voxtral-4B-TTS-2603 --omni`) on NVIDIA-class GPUs.
-- Leo's proven browser read-aloud path is the script server on
-  `127.0.0.1:8765`, using `redseaplume/Voxtral-4B-TTS-2603-MLX-4bit`.
-- The `com.leokwan.mlx-audio` LaunchAgent on `127.0.0.1:8000` may be
-  installed as an alternate runtime, but `/v1/models` alone is not readiness;
-  do not make it the browser client unless `/v1/audio/speech` completes with a
-  playable browser WAV/blob.
-
-**Local server:**
-
-Install or repair the LaunchAgent from the repo:
-
-```bash
-cd ~/Development/vidux
-scripts/install-voxtral-launchagent.sh --lint
-scripts/install-voxtral-launchagent.sh
-```
-
-On Leo's Studio, the proven server is installed as a user LaunchAgent:
-
-```bash
-launchctl print gui/$(id -u)/com.leokwan.vidux-voxtral-mlx
-launchctl kickstart -k gui/$(id -u)/com.leokwan.vidux-voxtral-mlx
-```
-
-Manual foreground fallback:
-
-```bash
-cd ~/Development/vidux
-browser/scripts/start-voxtral-mlx-server.sh
-```
-
-The proven script server binds to `127.0.0.1:8765` and exposes:
-
-- `GET /health`
-- `GET /v1/audio/voices`
-- `POST /v1/audio/speech` with `{ "model": "redseaplume/Voxtral-4B-TTS-2603-MLX-4bit", "input": "...", "voice": "cheerful_female", "response_format": "wav", "stream": false }`
-
-First real synthesis downloads model weights into the Hugging Face cache.
-Subsequent generations reuse the cache. Keep 20GB+ free before touching Voxtral
-TTS.
-
-Alternate LaunchAgent:
-
-```bash
-cd ~/Development/vidux
-launchctl kickstart -k gui/$(id -u)/com.leokwan.mlx-audio
-```
-
-The LaunchAgent binds to `127.0.0.1:8000` and may expose:
-
-- `GET /v1/models`
-- `POST /v1/audio/speech` with `{ "input": "...", "model": "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16", "voice": "cheerful_female", "response_format": "wav", "stream": false }`
-
-Important: 8000 answering `/v1/models` is not enough for Vidux read-aloud.
-In the 2026-05-24 smoke, speech could still hang after headers. Treat 8000 as
-experimental until browser playback is proven end-to-end.
-
-**Browser client:**
-
-- `browser/static/readaloud.js` probes the script server at `/health`, POSTs
-  visible markdown/artifact text to `/v1/audio/speech`, plays the returned WAV
-  blob, and shows clear start/retry state if the server is absent.
-- The bottom player owns playback, seek, source, speed, and cache controls.
-- Long waits are explicit: the footer reports cache checks, generating audio
-  with elapsed seconds, first-run MLX weight-load hints, WAV buffering,
-  decoding/stitching, browser-audio buffering, and confirmed playback.
-- Performance is P0: adjacent uncached short sections are batched into one
-  Voxtral request, then split back into per-section cache entries for replay.
-- Highlighting is approximate: `.ra-active` advances from local playback state and cached segment metadata. It is not forced alignment and does not claim word-accurate timestamps.
-- If the loopback server is absent, the UI exposes the local launch command instead of failing silently.
-
-**License:** Voxtral weights inherit CC BY-NC 4.0. Fine for Leo's personal vidux/leojkwan usage. Do not use this add-on for commercial Snowcubes, Resplit, or StrongYes surfaces without swapping the engine/license.
-
-**Reference files:**
-
-- `~/Development/vidux/projects/voxtral-reader-addon/PLAN.md` — task breakdown and Decision Log for the read-aloud add-on.
-- `~/Development/vidux/projects/voxtral-reader-addon/evidence/` — browser proof, cache/seek/a11y screenshots, and local synthesis evidence.
-- `~/Library/LaunchAgents/com.leokwan.vidux-voxtral-mlx.plist` — proven
-  user LaunchAgent for the 8765 script server on this Mac.
-- `scripts/install-voxtral-launchagent.sh` — repo-owned installer/repair script
-  for the 8765 LaunchAgent.
-- `browser/scripts/voxtral_mlx_server.py` and `browser/scripts/start-voxtral-mlx-server.sh` — proven script server path.
-- `~/Library/LaunchAgents/com.leokwan.mlx-audio.plist` — alternate local
-  runtime; not the browser readiness path unless speech playback is proven.
-
----
+The browser footer has an optional read-aloud player + an optional local-transcription path for voice notes. Both rely on a local Apple-Silicon MLX speech backend that is **out of core scope** — install/wire it from your own overlay or runbook. Core vidux ships the browser client only.
 
 ## Voice & Tone
 
 Output should sound like a sharp teammate briefing the user, not a CI pipeline writing a report.
 
-- **Lead with what matters.** What shipped, what is blocked, what you need from the user. Not role labels, not file lists, not generic summaries.
-- **One warm paragraph beats a 10-row table.** Save structured role breakdowns for ledger entries and memory files. The human-facing output should read like a message from someone who cares about the project.
-- **Name things by product meaning.** "Built and uploaded build 622 to TestFlight" beats "iOS Release Lane: shipped." "Screenshots stuck on CoreSimulator" beats "Screenshot + Snapshot + UI Test Sheriff: blocked."
-- **Be honest about nothing happening.** If a run produced no shipped code, say that in one sentence. Do not inflate coordination work into apparent progress.
+- **Lead with what matters.** What shipped, what's blocked, what you need from the user. Not role labels, file lists, or generic summaries.
+- **One warm paragraph beats a 10-row table.** Save structured role breakdowns for ledger entries and memory files.
+- **Name things by product meaning.** "Built and uploaded build 622 to TestFlight" beats "iOS Release Lane: shipped."
+- **Be honest about nothing happening.** No shipped code → say so in one sentence. Don't inflate coordination into progress.
 - **Blockers are requests, not complaints.** "The FX pipeline needs a fresh credential — can you rotate it?" beats "FX Lane: blocked (credential expired)."
 - **Ledger, plans, and memory can stay structured** — those are for machines and future agents. The final message to the human is for a human.
 
-Default to: terse, concrete, evidence-cited; one decision per paragraph; named files+lines for citations; no hedging language; no marketing tone.
+Default: terse, concrete, evidence-cited; one decision per paragraph; named files+lines for citations; no hedging; no marketing tone.
 
 ---
 
 ## Reference Files
 
-The `pilot/` subfiles remain on disk and are referenced by name from this SKILL.md. They contain the long-form detail for routing, orchestration, patterns, and stage playbooks.
+Core Vidux references are shipped as docs and guides in this repo:
 
-| File | What It Contains |
-|------|-----------------|
-| **Orchestration** | |
-| `pilot/orchestration/mayor.md` | Orchestration loop: decompose → plan → spawn → track → intervene → integrate → handoff |
-| `pilot/orchestration/nursing.md` | Supervisory cadence for hot lanes, timed ledger polling, and queue driving |
-| `pilot/orchestration/lanes.md` | Lane anatomy, rules, decomposition patterns, conflict resolution |
-| `pilot/orchestration/handoff.md` | Handoff protocol: ledger entries, 5-suggestion pattern, receiving handoffs |
-| `pilot/orchestration/molecules.md` | Composable workflow templates: Feature, Cleanup, Migration, Research, Integration |
-| **Patterns** | |
-| `pilot/patterns/leos-patterns.md` | 20+ universal engineering patterns with examples |
-| `pilot/patterns/plan-template.md` | Skeleton plan: locked decisions, TDD slices, gates, kill list |
-| `pilot/patterns/gate-checklist.md` | Per-stack verification commands |
-| **Stage Playbooks** | |
-| `pilot/stages/kickoff.md` | New feature playbook |
-| `pilot/stages/mid-flight.md` | Resume/continue playbook |
-| `pilot/stages/last-mile.md` | Polish/ship playbook |
-| `pilot/stages/quick-hit.md` | Small feature playbook |
-| `pilot/stages/expedition.md` | Multi-phase playbook (integrates orchestration for ORCHESTRATED scale) |
-| **Stack Routing** | |
-| `pilot/stacks/ios-tuist.md` | iOS skill routing |
-| `pilot/stacks/nextjs-vercel.md` | Next.js skill routing |
-| `pilot/stacks/shopify.md` | Shopify skill routing |
-| `pilot/stacks/vite-react.md` | Vite/React skill routing |
+- **[`README.md`](README.md)** — public overview, quick start, CLI/browser install.
+- **[`guides/automation.md`](guides/automation.md)** — recurring lane and automation doctrine.
+- **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and lane prompt patterns.
+- **[`docs/reference/`](docs/reference/)** — CLI, config, hooks, scripts, browser, and PLAN field references.
+- **[`examples/`](examples/)** — worked plan-first examples.
 
 ---
 
 ## Beyond Core — Automation and Recipes
 
-Everything above is **core vidux** — the five principles, the cycle, the PLAN.md template, investigations, course correction, routing, orchestration. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. A human following core alone is doing vidux correctly.
+Everything above is **core vidux** — five principles, cycle, PLAN.md template, investigations, course correction, routing, orchestration. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. Two companion surfaces carry the rest (neither overrides core; both are opt-in layers):
 
-If your work needs more, two companion surfaces carry the rest:
+- **[`guides/automation.md`](guides/automation.md)** — 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load when running lanes on a schedule.
+- **[`guides/recipes/`](guides/recipes/)** — opt-in tactics: CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements. Load a specific recipe on demand.
+- **[`guides/figma-net-new-project.md`](guides/figma-net-new-project.md)** — Figma MCP onboarding for new vidux projects: install, OAuth, verify, kickoff, lane-selection for design→code vs code→design vs library-build. Load when a vidux project gets its first visual surface.
 
-- **[`guides/automation.md`](guides/automation.md)** — the 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load this when you run lanes on a schedule.
-- **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and patterns. CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements, and more. Load a specific recipe on demand.
-- **[`guides/figma-net-new-project.md`](guides/figma-net-new-project.md)** — Figma MCP onboarding for new vidux projects: install, OAuth, verify, kickoff, and lane-selection table for design→code vs code→design vs library-build. Load this when a vidux project gets its first visual surface.
-
-**Codex automation default:** when creating a new automation from Codex, assume `Run in: Chat`. Do not default to `Worktree` or `Local` unless the user explicitly asks for repo-bound execution or the task cannot be done from chat.
-
-Neither surface overrides core vidux. Core is opinionated machinery; automation and recipes are opt-in layers.
+**Automation default:** prefer the least privileged execution surface that can do the job. Do not default to repo-bound execution unless the user explicitly asks for it or the task cannot be done from a read-only/chat-style context.

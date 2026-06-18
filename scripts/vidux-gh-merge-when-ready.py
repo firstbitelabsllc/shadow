@@ -4,8 +4,8 @@
 Replaces `gh pr merge --auto --squash` for vidux automation lanes. The
 `--auto` flag merges the moment branch protection lets it through; on a
 repo without REQUIRED checks the merge fires immediately, bypassing the
-/vidux-leo policy that Graphite + Seer + CI must pass on the *latest*
-commit before any squash.
+repo policy that required review bots + CI must pass on the *latest* commit
+before any squash.
 
 This helper polls `gh pr view --json headRefOid,statusCheckRollup,reviews`
 on a fixed interval, checks readiness against the latest commit SHA, and

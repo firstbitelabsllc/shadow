@@ -1,6 +1,6 @@
 # Hooks Reference
 
-Vidux ships three optional git hooks in `hooks/`. The repo also includes `hooks/hooks.json`, a source-grounded manifest that maps those scripts plus two task-lifecycle helpers into higher-level hook events.
+Vidux ships three optional git hooks in `hooks/`, plus `hooks/hooks.json` — a source-grounded manifest mapping those scripts and two task-lifecycle helpers into higher-level hook events.
 
 ## Git hooks
 
@@ -12,25 +12,22 @@ Vidux ships three optional git hooks in `hooks/`. The repo also includes `hooks/
 
 ## Installation
 
-The README shows the intended install flow:
+Hook installs and wiring changes are publish/change cycles. Before copying or
+enabling a hook in a target repo, update that repo's owning `PLAN.md` and emit a
+`ledger-emit.sh --event publish` row with:
 
-Hook installs and hook wiring changes are publish/change cycles. Before copying
-or enabling a hook in a target repo, update that repo's owning `PLAN.md` and
-emit a `ledger-emit.sh --event publish` row with:
-
-- `--repo-path` set to the target repo.
-- non-empty `--summary` naming the hook install/change.
-- `--task-id` set to the owning plan row/task id, matching a checkbox/FSM row in `--plan-path`.
-- `--plan-path` set to the target repo's existing owning `PLAN.md`.
-- `--proof` naming the syntax check, dry-run, or install verification.
-- `--handoff-status done` for a complete install, or `needs_review` when the
-  hook is copied but not yet verified.
-- `--resume` with the next command, repo, or blocker for the next agent.
-- `--file` for each changed path, using path-like values that exist or are git-known deletions. For the pre-copy packet, the updated `PLAN.md` is the changed file; final `done` packets can name `.git/hooks/...` paths after they exist.
-- `--claim` for every `--file` entry plus any owning plan or hook wiring file the next agent must inspect; claims must also be path-like and resolve to existing paths or git-known deletions.
+- `--repo-path` — the target repo.
+- `--summary` — non-empty, naming the hook install/change.
+- `--task-id` — owning plan row/task id, matching a checkbox/FSM row in `--plan-path`.
+- `--plan-path` — the target repo's existing owning `PLAN.md`.
+- `--proof` — the syntax check, dry-run, or install verification.
+- `--handoff-status` — `done` for a complete install, `needs_review` when copied but not yet verified.
+- `--resume` — next command, repo, or blocker for the next agent.
+- `--file` — each changed path; path-like values that exist or are git-known deletions. Pre-copy packet: the updated `PLAN.md` is the changed file. Final `done` packets can name `.git/hooks/...` paths after they exist.
+- `--claim` — every `--file` entry plus any owning plan or hook wiring file the next agent must inspect; path-like, resolving to existing paths or git-known deletions.
 
 ```bash
-~/Development/ai/hooks/ledger-emit.sh \
+ledger-emit.sh \
   --event publish \
   --repo-path /path/to/your/project \
   --lane hook-install \
@@ -61,7 +58,7 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 | `vidux-before-task` | `beforeTask` | `scripts/vidux-doctor.sh --json` |
 | `vidux-after-task` | `afterTask` | `scripts/vidux-checkpoint.sh` |
 
-These entries are examples, not auto-installed defaults. In the shipped manifest, `vidux-before-task` is a non-blocking runtime health check that intentionally runs `scripts/vidux-doctor.sh --json`, not `vidux doctor`. The runtime doctor is read-only by default and JSON-friendly for hook probes; `vidux doctor` is the terminal install/readiness doctor and may be slow when it runs `npm test`. `vidux-after-task` is illustrative rather than plug-and-play: the raw `scripts/vidux-checkpoint.sh` CLI exits with usage unless it receives either `--archive` or `<plan-path> <task> <summary>` (plus optional flags), so a real app hook needs a wrapper that supplies those arguments.
+These are examples, not auto-installed defaults. In the shipped manifest, `vidux-before-task` is a non-blocking runtime health check that runs `scripts/vidux-doctor.sh --json`, not `vidux doctor`. The runtime doctor is read-only by default and JSON-friendly for hook probes; `vidux doctor` is the terminal install/readiness doctor and may be slow when it runs `npm test`. `vidux-after-task` is illustrative, not plug-and-play: raw `scripts/vidux-checkpoint.sh` exits with usage unless it receives `--archive` or `<plan-path> <task> <summary>` (plus optional flags), so a real app hook needs a wrapper that supplies those arguments.
 
 ## Behavior notes
 
@@ -72,9 +69,9 @@ These entries are examples, not auto-installed defaults. In the shipped manifest
 
 ## Signposted lifecycle trace
 
-Use `vidux signpost trace` when you need mechanical proof that pre-task,
-during-task, spawned-subagent, and post-task hooks ran in the intended order.
-Give the whole lane one `VIDUX_SIGNPOST_RUN_ID`, then emit each phase:
+Use `vidux signpost trace` for mechanical proof that pre-task, during-task,
+spawned-subagent, and post-task hooks ran in the intended order. Give the lane
+one `VIDUX_SIGNPOST_RUN_ID`, then emit each phase:
 
 ```bash
 export VIDUX_SIGNPOST_RUN_ID=run-example
@@ -98,18 +95,17 @@ vidux signpost spawned-subagent-smoke --run-id run-example-env --json
 attribution respectively. `spawned-subagent-smoke` uses temporary local
 environment overlays to simulate a Codex parent thread inherited by Claude and
 Cursor workers, then restores the ambient environment. Both are local smokes,
-not proof that those external tools actually ran.
+not proof those external tools ran.
 
-Runtime attribution comes from `VIDUX_RUNTIME` when it is set, otherwise from
-local session environment variables such as `CLAUDE_SESSION_ID`,
-`CURSOR_SESSION_ID`, and `CODEX_SESSION_ID`. Use `VIDUX_RUNTIME=claude` or
-`VIDUX_RUNTIME=cursor` for spawned workers that inherit an ambient Codex thread
-environment. The trace is local JSONL proof, so it is safe for smoke runs but
-should not be treated as a central analytics source.
+Runtime attribution comes from `VIDUX_RUNTIME` when set, otherwise from local
+session environment variables such as `CLAUDE_SESSION_ID`, `CURSOR_SESSION_ID`,
+and `CODEX_SESSION_ID`. Use `VIDUX_RUNTIME=claude` or `VIDUX_RUNTIME=cursor` for
+spawned workers that inherit an ambient Codex thread environment. The trace is
+local JSONL proof — safe for smoke runs, not a central analytics source.
 
 ## When to use hooks
 
-Hooks are a good fit when you want a local nudge without running a scheduled lane:
+Hooks fit when you want a local nudge without running a scheduled lane:
 
 - Use the pre-commit hook to catch planless code changes.
 - Use the post-commit hook to keep progress logging from drifting.

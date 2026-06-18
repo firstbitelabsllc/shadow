@@ -20,7 +20,7 @@ Every automation lane that ships code follows this after a green local build + t
 
 # 1. Emit the publish ledger row before the branch leaves the machine.
 LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"
-~/Development/ai/hooks/ledger-emit.sh \
+ledger-emit.sh \
   --event publish \
   --repo-path "$(pwd)" \
   --lane "<lane-name>" \
@@ -38,7 +38,7 @@ LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"
 # 2. Push the worktree branch to origin.
 git push origin HEAD:claude/<lane-name>-<task-id>
 
-# 3. Build the canonical PR body. Add --linear EVE-123 when known.
+# 3. Build the canonical PR body.
 python3 scripts/vidux-pr-body.py \
   --lane "<lane-name>" \
   --task "<task-id>" \
@@ -95,7 +95,6 @@ The body MUST carry these fields so any agent or human can resume:
 |---|---|
 | **Lane** | Which automation created this PR |
 | **Plan task** | Which `PLAN.md` task this addresses |
-| **Linear** | Optional public Linear issue id (`EVE-123`) when the task source is already known |
 | **Plan path** | The owning plan that moved before publish |
 | **Proof** | Command or artifact proving the state being published |
 | **Ledger** | Ledger eid or dry-run payload path for the publish row |
@@ -147,9 +146,9 @@ Replace any existing push policy with:
 **PUSH POLICY (ready-PR-first per vidux):**
 After green build + test in the worktree:
 1. Update owning PLAN.md Progress/Tasks/Drift Log with proof, `handoff_status`, path-like files claimed/claims, and resume point.
-2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push: `~/Development/ai/hooks/ledger-emit.sh --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
+2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push: `ledger-emit.sh --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
 3. Push branch: `git push origin HEAD:claude/<lane>-<task-id>`.
-4. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --summary "<summary>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --ledger "$LEDGER_EID" --file-claimed "<path>" --review-pass "invariant-audit:pass:<plan/ledger/drift proof>" --review-pass "regression-runner:pass:<tests/docs proof>" --review-pass "adversarial-reviewer:pass:<overclaim/stale-proof check>" --resume "<resume point>" --change "<summary>" [--linear EVE-123] > /tmp/vidux-pr-body.md`.
+4. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --summary "<summary>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --ledger "$LEDGER_EID" --file-claimed "<path>" --review-pass "invariant-audit:pass:<plan/ledger/drift proof>" --review-pass "regression-runner:pass:<tests/docs proof>" --review-pass "adversarial-reviewer:pass:<overclaim/stale-proof check>" --resume "<resume point>" --change "<summary>" > /tmp/vidux-pr-body.md`.
 5. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body-file /tmp/vidux-pr-body.md`.
 6. Draft only for true WIP or a missing gate; run `gh pr ready <N>` as soon as the gate passes.
 7. NEVER push directly to origin/main.
