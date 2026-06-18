@@ -5,7 +5,7 @@ its end-to-end behavior via subprocess so the test contract matches what
 launchd cron wrappers actually invoke.
 
 Test matrix (mirrors the LI-8 Fix Spec in
-projects/linear-integration-hardening/PLAN.md):
+projects/cycle-lock-hardening/PLAN.md):
 - fresh acquire on an empty lock dir
 - acquire while held by a live, recent PID — exits 1 with LOCKED token
 - acquire while held by a live PID but past max-age — sweeps + claims

@@ -1,18 +1,18 @@
 # Codex Setup Guide
 
-Step-by-step guide to creating a native Codex automation on Mac. Covers the TOML + DB + app-restart sequence for repo-bound `Local` or `Worktree` lanes.
+Create a native Codex automation on Mac: the TOML + DB + app-restart sequence for repo-bound `Local` or `Worktree` lanes.
 
-The automation guide treats `Chat` as the default for Codex-created automations. Use this setup flow only when the lane truly needs native project-folder execution.
+The automation guide defaults Codex-created automations to `Chat`. Use this flow only when the lane needs native project-folder execution.
 
 > **⚠️ The Codex CLI cannot run automations.**
-> The `codex` CLI can run one-shot tasks, but recurring jobs require the **Codex Mac desktop app**. If you're on Linux, a remote server, or CI — this workflow will not work. Use Claude Code `CronCreate` instead (see [claude-lifecycle.md](claude-lifecycle.md)).
+> The `codex` CLI runs one-shot tasks; recurring jobs require the **Codex Mac desktop app**. On Linux, a remote server, or CI this will not work — use Claude Code `CronCreate` ([claude-lifecycle.md](claude-lifecycle.md)).
 
 ## Prerequisites
 
-- Codex Mac desktop app installed and signed in
-- `~/.codex/config.toml` configured with `model`, `sandbox_mode`, and trusted project paths
-- `sqlite3` CLI (preinstalled on macOS)
-- Local vidux checkout so you can `source scripts/lib/codex-db.sh` and use the shipped helpers (`codex_verify_tomls`, `codex_sync_tomls`, `codex_safe_restart`)
+- Codex Mac desktop app installed + signed in.
+- `~/.codex/config.toml` with `model`, `sandbox_mode`, and trusted project paths.
+- `sqlite3` CLI (preinstalled on macOS).
+- Local vidux checkout — `source scripts/lib/codex-db.sh` for helpers (`codex_verify_tomls`, `codex_sync_tomls`, `codex_safe_restart`).
 
 Verify your environment:
 
@@ -27,26 +27,24 @@ vidux signpost spawned-subagent-smoke --json
 
 ## The Five-Step Setup Flow
 
-Every new automation follows this exact sequence. Skipping steps causes the bugs listed in [codex-lifecycle.md](codex-lifecycle.md#known-bugs).
+Every new automation follows this exact sequence. Skipping steps causes the bugs in [codex-lifecycle.md](codex-lifecycle.md#known-bugs).
 
 ```
 1. Write automation.toml      → disk (UI visibility source)
 2. Insert DB row              → sqlite (runtime source)
-3. Write prompt.md + memory.md → disk (lane instructions + local cycle log)
+3. Write prompt.md + memory.md → disk (lane instructions + lane-local cycle log)
 4. Run codex_verify_tomls     → lightweight preflight before reopen
 5. Full-quit + reopen the app → clears Electron cache (Bug #14/#15)
 ```
 
 ## Step 1 — Write `automation.toml`
 
-Pick a unique `id` (UUID or a slugified name) and create the lane directory:
+Pick a unique `id` (UUID or slugified name) and create the lane directory:
 
 ```bash
 LANE_ID="project-coordinator"   # or a UUID
 mkdir -p "$HOME/.codex/automations/$LANE_ID"
 ```
-
-Write `automation.toml`:
 
 ```toml
 version = 1
@@ -64,21 +62,18 @@ created_at = 1744761600000
 updated_at = 1744761600000
 ```
 
-**Field notes:**
+Field notes:
 
-- `id` — must match the directory name and the DB row `id`. All three must agree.
-- `prompt` — **single-line only**. Escape newlines as `\n` (Bug #22 — raw newlines break TOML parsing).
-- `rrule` — RFC 5545. Common patterns:
-  - Every 30 min: `FREQ=MINUTELY;INTERVAL=30`
-  - Hourly on the hour: `FREQ=HOURLY;INTERVAL=1;BYMINUTE=0`
-  - Daily at 09:00: `FREQ=DAILY;BYHOUR=9;BYMINUTE=0`
-- `cwds` — JSON-style array of absolute paths. Codex runs in the first path by default.
-- `created_at` / `updated_at` — **required**. Missing either causes silent failure (Bug #18). Use a **millisecond** unix epoch integer. If you have already sourced `scripts/lib/codex-db.sh`, `codex_db_epoch_ms` prints the right format.
-- `execution_environment` — `"worktree"` for recurring vidux lanes. Sandbox access still comes from `sandbox_mode` in `~/.codex/config.toml`.
+- `id` — matches the directory name and DB row `id` (all three agree).
+- `prompt` — **single-line only**; escape newlines as `\n` (Bug #22).
+- `rrule` — RFC 5545. 30 min: `FREQ=MINUTELY;INTERVAL=30`; hourly: `FREQ=HOURLY;INTERVAL=1;BYMINUTE=0`; daily 09:00: `FREQ=DAILY;BYHOUR=9;BYMINUTE=0`.
+- `cwds` — JSON array of absolute paths; Codex runs in the first.
+- `created_at`/`updated_at` — **required**, millisecond unix epoch (Bug #18). `codex_db_epoch_ms` (after sourcing `scripts/lib/codex-db.sh`) prints the format.
+- `execution_environment` — `"worktree"` for recurring lanes. Sandbox access comes from `sandbox_mode` in `~/.codex/config.toml`.
 
 ## Step 2 — Insert the DB row
 
-The TOML is the UI source; the DB is the runtime. Both must exist.
+TOML is the UI source; DB is the runtime — both must exist.
 
 ```bash
 NOW=$(python3 -c 'import time; print(int(time.time() * 1000))')
@@ -103,60 +98,49 @@ INSERT INTO automations (
 EOF
 ```
 
-**Confirm the row landed:**
+Confirm the row landed:
 
 ```bash
 sqlite3 "$HOME/.codex/sqlite/codex-dev.db" \
   "SELECT id, name, status, rrule FROM automations WHERE id='$LANE_ID';"
 ```
 
-If the row is missing, the automation won't fire. If the TOML is missing, the UI won't show it. **Both are required** (Bug #16).
+Row missing = won't fire. TOML missing = won't show. **Both required** (Bug #16).
 
 ## Step 3 — Write lane instruction/log files
 
-The TOML holds the schedule. The lane's actual instructions and lane-local cycle log live in separate files that the prompt points at:
+The TOML holds the schedule. Actual instructions and the lane-local cycle log live in separate files the prompt points at:
 
 ```bash
-# Pick one shared lane root for your fleet and keep prompt + memory together
-# there. This example uses ~/.vidux/lanes/, but ~/.claude-automations/,
-# ~/.codex-automations/, or a project-scoped directory also work.
+# Pick one shared lane root for your fleet (any automation root or a
+# project-scoped directory works); keep prompt + memory together there.
 LANE_DIR="$HOME/.vidux/lanes/$LANE_ID"
 mkdir -p "$LANE_DIR"
 
-# prompt.md — 8-block structure (Mission / Skills / Read / Gate / Assess / Act / Authority / Checkpoint)
-$EDITOR "$LANE_DIR/prompt.md"
+$EDITOR "$LANE_DIR/prompt.md"   # 8-block structure
 
-# memory.md — seed with the lane's creation entry
 cat > "$LANE_DIR/memory.md" <<EOF
 # $LANE_ID — memory
 - [$(date -u +%Y-%m-%dT%H:%M:%SZ) codex setup] Lane created. First fire scheduled per rrule.
 EOF
 ```
 
-See [prompt-template.md](../reference/prompt-template.md) for the 8-block structure.
+See [prompt-template.md](../reference/prompt-template.md) for the 8-block structure (Mission / Skills / Read / Gate / Assess / Act / Authority / Checkpoint).
 
 ## Step 4 — Verify
 
-Run the verifier **before** reopening the app. It is the repo's lightweight preflight: it confirms that active DB rows have TOML files with prompt lines before reopen.
+Run the verifier **before** reopening — the lightweight preflight confirms active DB rows have TOML files with prompt lines.
 
 ```bash
 source scripts/lib/codex-db.sh
-codex_verify_tomls
+codex_verify_tomls   # success: "All 1/1 TOMLs verified — single-line prompts, files exist."
 ```
 
-Expected output on success:
+On failure, fix and re-run. **Do not reopen with broken TOMLs** — the app may silently skip or crash on them. `codex_safe_restart` is the full safe path instead of manual Step 5: it quits the app, regenerates TOMLs from DB rows via `codex_sync_tomls`, and reopens.
 
-```
-All 1/1 TOMLs verified — single-line prompts, files exist.
-```
+## Step 5 — Full-quit and reopen the app
 
-If it fails, fix the reported issue and re-run. **Do not reopen the app with broken TOMLs** — the desktop app may silently skip or crash on them.
-
-If you want the repo's full safe path instead of the manual Step 5 flow, run `codex_safe_restart` after sourcing `scripts/lib/codex-db.sh`. That helper quits the app, regenerates TOMLs from DB rows via `codex_sync_tomls`, and reopens Codex.
-
-## Step 5 — Full-quit and reopen the Codex app
-
-This is the step most often skipped. A full quit clears the Electron frontend's in-memory automation cache.
+The most-skipped step. A full quit clears the Electron frontend's in-memory automation cache.
 
 ```bash
 osascript -e 'tell application "Codex" to quit'
@@ -164,76 +148,51 @@ sleep 3
 open -a "Codex"
 ```
 
-**Why a full quit matters:**
-
-- `pkill -f codex-app-server` kills the backend but leaves the Electron frontend running. The UI keeps its cached automation list and your new lane stays invisible (Bug #15).
-- `Cmd+Q` from the menu bar works too, but `osascript` is scriptable.
-- `sleep 3` gives the app time to flush DB writes and release file locks.
-- After reopen, check the Automations panel in the Codex UI — your new lane should appear with a countdown to the next fire.
+`pkill -f codex-app-server` leaves the Electron frontend running and your lane invisible (Bug #15). `sleep 3` lets the app flush DB writes and release locks. After reopen, the Automations panel shows your lane with a countdown to the next fire.
 
 ## Verification Checklist
 
-Before considering the lane "live," confirm all five:
+Before the lane is "live," confirm all:
 
-- [ ] `ls ~/.codex/automations/$LANE_ID/automation.toml` — TOML file exists
-- [ ] `sqlite3 ~/.codex/sqlite/codex-dev.db "SELECT id FROM automations WHERE id='$LANE_ID';"` — DB row exists
-- [ ] `source scripts/lib/codex-db.sh && codex_verify_tomls` — exits 0
-- [ ] `vidux config check --json` — local config resolves or the example fallback is explicit
-- [ ] `vidux signpost lifecycle-smoke --json` — emits the local `hook.beforeTask` -> `subagent.spawn` -> `task.verify` -> `hook.afterTask` trace shape
-- [ ] `vidux signpost spawned-subagent-smoke --json` — simulates inherited Codex parent env plus Claude/Cursor worker attribution without launching external runtimes
-- [ ] Codex app shows the lane in the Automations UI
-- [ ] After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note; if work shipped, the owning `PLAN.md` plus publish ledger row carries the proof/resume packet
+- [ ] `ls ~/.codex/automations/$LANE_ID/automation.toml` — TOML exists.
+- [ ] `sqlite3 ~/.codex/sqlite/codex-dev.db "SELECT id FROM automations WHERE id='$LANE_ID';"` — DB row exists.
+- [ ] `source scripts/lib/codex-db.sh && codex_verify_tomls` — exits 0.
+- [ ] `vidux config check --json` — local config resolves or example fallback is explicit.
+- [ ] `vidux signpost lifecycle-smoke --json` — emits the local `hook.beforeTask` -> `subagent.spawn` -> `task.verify` -> `hook.afterTask` trace shape.
+- [ ] `vidux signpost spawned-subagent-smoke --json` — simulates inherited Codex parent env plus Claude/Cursor worker attribution without launching external runtimes.
+- [ ] Codex app shows the lane in the Automations UI.
+- [ ] After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note; if work shipped, the owning `PLAN.md` plus publish ledger row carries the proof/resume packet.
 
 If any check fails, re-read [codex-lifecycle.md § Known Bugs](codex-lifecycle.md#known-bugs).
 
 ## Updating an Existing Automation
 
-To change the prompt, schedule, or model of a live lane:
+Edit the TOML and the DB row together (a desync makes the UI show one thing while the runtime fires another), `codex_verify_tomls`, then full-quit + reopen:
 
 ```bash
-# 1. Edit the TOML
 $EDITOR "$HOME/.codex/automations/$LANE_ID/automation.toml"
-
-# 2. Update the DB row (both sources must match)
 NOW=$(python3 -c 'import time; print(int(time.time() * 1000))')
 sqlite3 "$HOME/.codex/sqlite/codex-dev.db" \
   "UPDATE automations SET prompt='{new prompt}', updated_at=$NOW WHERE id='$LANE_ID';"
-
-# 3. Verify
-source scripts/lib/codex-db.sh
-codex_verify_tomls
-
-# 4. Full-quit + reopen (the app caches the prompt at startup)
+source scripts/lib/codex-db.sh && codex_verify_tomls
 osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 ```
-
-Editing the TOML without updating the DB (or vice versa) leaves the two sources out of sync — the UI shows one thing, the runtime fires another.
 
 ## Stopping / Deleting an Automation
 
-**Pause (keep on disk):**
+Set `status='PAUSED'` (pause) or `DELETE` the row (full delete), then full-quit + reopen. On delete, `rm -rf` the `~/.codex/automations/$LANE_ID` dir; the shared-lane-directory instructions + lane-local cycle log are records — keep unless the lane is truly retired.
 
 ```bash
-sqlite3 "$HOME/.codex/sqlite/codex-dev.db" \
-  "UPDATE automations SET status='PAUSED' WHERE id='$LANE_ID';"
-osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
-```
-
-**Full delete:**
-
-```bash
-sqlite3 "$HOME/.codex/sqlite/codex-dev.db" \
-  "DELETE FROM automations WHERE id='$LANE_ID';"
-rm -rf "$HOME/.codex/automations/$LANE_ID"
-# Lane instructions and the lane-local cycle log live in the shared lane
-# directory — keep them as records unless the lane is truly retired.
+# pause:  UPDATE automations SET status='PAUSED' WHERE id='$LANE_ID';
+# delete: DELETE FROM automations WHERE id='$LANE_ID';  then  rm -rf "$HOME/.codex/automations/$LANE_ID"
+sqlite3 "$HOME/.codex/sqlite/codex-dev.db" "UPDATE automations SET status='PAUSED' WHERE id='$LANE_ID';"
 osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 ```
 
 ## See Also
 
 - [Codex Lifecycle](codex-lifecycle.md) — what happens each fire
-- [Platform Comparison](platforms.md) — when to pick Codex vs Claude Code
-- [Prompt Template](../reference/prompt-template.md) — the 8-block prompt structure
-- [Fleet Operations](/fleet/operations) — research and implementation dispatch plus worktree discipline
-- [Recipe Catalog](/fleet/recipes) — reusable automation patterns layered on top
+- [Platform Comparison](platforms.md) — Codex vs Claude Code
+- [Prompt Template](../reference/prompt-template.md) — the 8-block structure
+- [Fleet Operations](/fleet/operations) — dispatch + worktree discipline
+- [Recipe Catalog](/fleet/recipes) — reusable automation patterns

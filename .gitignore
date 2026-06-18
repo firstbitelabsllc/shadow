@@ -14,97 +14,74 @@ QUEUE.jsonl
 # Use `projects/*` (not `projects/`) so subdirectory exceptions can re-include.
 projects/*
 # Exception: vidux-browser is internal-to-vidux tooling, ships with the code.
-!projects/vidux-browser/
 # Exception: _archive/ holds superseded plans (history preserved via git mv).
 # Tracked so cross-repo references and audit history stay intact.
-!projects/_archive/
-!projects/_archive/**
 # Exception: ocr-moat is the post-2.0-launch foundation project for vendor-neutral
 # receipt scanning. Tracked so all agents converge on the same plan.
-!projects/ocr-moat/
 # Exception: higgs-reader-poc is the quality-gate PoC for Higgs Audio V2 TTS —
 # verifying whether it can read out Claude analysis on walks. Tracked so the
 # autonomous /loop cron can resume across sessions / machines.
-!projects/higgs-reader-poc/
 # Exception: voxtral-reader-addon is the active vidux-browse 🔊 Read-aloud
 # add-on plan (Mistral Voxtral 4B WebGPU, browser-local, personal use only).
 # Replaces higgs-reader-poc as the active reader project.
-!projects/voxtral-reader-addon/
 # Exception: moussey-voice-agent is the live-voice agentic command-center plan
 # (mic → Whisper → Claude trigger → Voxtral TTS, ChatGPT-voice-mode parity).
 # Shared with Codex for two-agent execution.
-!projects/moussey-voice-agent/
 # Exception: agentic-command-center is the MEGA-plan parent for moussey-voice-agent
 # + sibling input modalities (text chat, vidux-browse-action, imessage-bridge,
 # gmail-bridge, screen-action, autonomous-trigger-bus). Hosts the goal prompt
 # Codex + Claude paste into every session.
-!projects/agentic-command-center/
 # Exception: brain-dispatcher-shared is the Phase 0 keystone library plan for
 # the agentic-command-center mega-goal — defines the AsyncIterable<BrainChunk>
 # contract every input modality (voice/text/iMessage/Gmail/etc) imports.
-!projects/brain-dispatcher-shared/
 # Exception: intent-router-shared is the Phase 0 sibling library plan — pure
 # decision function (free-text intent → provider+Mac pick). v1 stub ships
 # alongside brain-dispatcher v1 so every input modality has a stable
 # routing interface from day one.
-!projects/intent-router-shared/
 # Exception: agentic-text-chat is the Phase 2 sibling of voice-agent —
 # browser chat at :4321/chat sharing the same brain-dispatcher + intent-router.
 # Fastest UI to ship; validates Phase 0 abstraction via a second consumer.
-!projects/agentic-text-chat/
 # Exception: agentic-coding-workbench is the Phase 2 coding/test harness child
 # for the command-center MVP. It owns Moussey /coding lane execution,
 # worktree/port isolation, and chat-to-coding handoff acceptance.
-!projects/agentic-coding-workbench/
 # Exception: vidux-browse-action is the Phase 3 modality — turns anchored
 # vidux-browse comments into agent triggers via @agent/@claude/@codex prefixes.
 # Loopback hook from :7191 to moussey :4321; replies as child comment threads.
-!projects/vidux-browse-action/
 # Exception: gmail-bridge is the Phase 3 modality — label-triggered (@agent)
 # 5-min polling cron reads inbound, dispatches via brain, drafts reply (never
 # auto-sends, Leo retains send authority).
-!projects/gmail-bridge/
 # Exception: imessage-bridge is the Phase 3 modality — body-prefix `@agent`
 # 5-min cron reads inbound, dispatches via brain. V1 = read-only with GUI
 # surface at :4321/imessage-bridge. V2 = AppleScript/Shortcuts write path
 # (allowlisted, prefixed 🤖, no quiet-hours autoreplies).
-!projects/imessage-bridge/
 # Exception: autonomous-trigger-bus is the Phase 4 modality — config-driven
 # registry routing cron/file-drop/Sentry-webhook events through the same
 # brain dispatcher every other modality uses. Sinks: file / vidux-inbox /
 # follow-up-trigger-claude.
-!projects/autonomous-trigger-bus/
 # Exception: resplit-2-0-localized-screenshots is the multi-day expedition for
 # 9-locale ASC screenshots + Anthropic computer-use verification. Companion to
 # resplit-2-0-weekend-push (bug-fix lane). Tracked so all agents converge on
 # the same plan across machines.
-!projects/resplit-2-0-localized-screenshots/
 # Exception: ui-test-sweep-2026-05-07 is the post-build-2429 P0 iOS UI sweep
 # (Leo verbatim 2026-05-07: "10000% clarity on ui testing"). Sibling of
 # resplit-2-0-1 punch-list. Tracked so sim-walker subagents converge on the
 # same walk plan.
-!projects/ui-test-sweep-2026-05-07/
 # Exception: team-agent-coordination is the cross-skill coordination expedition
 # (cron-registry, claim bus, /auto gate, /nia preflight, phase-shift). Authority
 # Store for the fire-and-forget /goal that drives the fleet to operate as a team
 # rather than as siloed crons. Tracked so all crons + machines see the same plan.
-!projects/team-agent-coordination/
 # Exception: observability-bus is the multi-PR expedition adding a
 # vendor-agnostic ObservabilityBus + N pluggable EventSink adapters
 # (Sentry, PostHog, Console, future vendors) to Resplit iOS. Pivoted
 # from sentry-rum-correlation 2026-05-09 per Leo "tie sessions across
 # all external vendors now and future". Tracked so multi-agent lanes
 # (A/B/C/D) converge on the same plan.
-!projects/observability-bus/
 # Exception: vidux-pilot-merge is a 3-commit expedition to consolidate /pilot
 # and /vidux into a single skill (Leo 2026-05-13). Tracked so the M4 can
 # resume the merge across machines.
-!projects/vidux-pilot-merge/
 # Exception: m1-max-onboarding is the Square M1 Max recommission plan —
 # tracked so Studio + M4 Pro + Nicole MBA can see the parity verification
 # evidence (MDM gate verdict, smoke test, parity F1–F10, iteration log).
-!projects/m1-max-onboarding/
-!projects/m1-max-onboarding/**
 
 # Temp files from checkpoint script
 tmp*.md
@@ -151,11 +128,25 @@ vidux.config.json
 # Exception: moussey-cleaner-ux queues the /cleaner GUI 10x pass (watch strip
 # from ~/.agent-ledger/disk-clean-watch, progressive loading, never-auto labels)
 # paired with the ai-leo /disk-clean watch/safe-auto skill shipped 2026-06-10.
-!projects/moussey-cleaner-ux/
 
-!projects/mom-flushing-home/
-!projects/mom-flushing-home/**
 # Exception: resplit-swappable-persistence — plan to rip Resplit's domain layer
 # free of SwiftData behind a swappable Tuist persistence module (SwiftData/
 # SQLiteData/in-memory adapters). Planning-only goal; test-case-stories-first.
-!projects/resplit-swappable-persistence/
+
+# Local sunset archive of removed code — never ship
+_sunset/
+
+# Local private-operator subsystem — Leo's fleet tooling (firstbite CI health,
+# local-operator goal audit, snowcubes readiness, voxtral/mlx-audio). Kept on
+# disk for local crons; not part of public vidux. See public-ready grep gate.
+scripts/vidux-firstbite-*
+scripts/vidux-local-operator-*
+scripts/vidux-snowcubes-readiness-*
+scripts/install-voxtral-launchagent.sh
+scripts/launchd/com.leokwan.mlx-audio.plist
+tests/test_firstbite_*
+tests/test_local_operator_*
+tests/test_snowcubes_readiness_*
+
+# Local private: crashcourse reading-inbox generator (employer paths)
+scripts/crashcourse-inbox-gen.py

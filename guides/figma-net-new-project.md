@@ -1,6 +1,6 @@
 # Figma — Net New Project Runbook
 
-> **Captured 2026-05-25 from Leo's runbook paste.** Authoritative step-by-step for kicking off Figma work on any new vidux project. Pair with `~/Development/ai/skills/figma/SKILL.md` (the single Figma entry point) for the full skill router.
+> **Captured 2026-05-25 from Leo's runbook paste.** Authoritative step-by-step for kicking off Figma work on any new vidux project. Pair with `your Figma skill runbook` (the single Figma entry point) for the full skill router.
 
 ---
 

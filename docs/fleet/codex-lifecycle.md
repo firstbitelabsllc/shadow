@@ -1,19 +1,19 @@
 # Codex Automation Lifecycle
 
-A native Codex lane is a recurring vidux cycle scheduled via a **TOML file + DB row** read by the Codex Mac desktop app. This page documents the full lifecycle from creation to troubleshooting, including the app-restart discipline that is unique to Codex.
+A native Codex lane is a recurring vidux cycle scheduled via a **TOML file + DB row** read by the Codex Mac desktop app. This page covers creation → fire → troubleshooting, including the app-restart discipline unique to Codex.
 
-The automation guide treats `Chat` as the default for Codex-created automations. Use this lifecycle only when you explicitly want a repo-bound native lane in `Local` or `Worktree`.
+The automation guide defaults Codex-created automations to `Chat`. Use this lifecycle only for a repo-bound native lane in `Local` or `Worktree`.
 
 ## Prerequisites
 
-- Codex Mac desktop app installed (CLI `codex` alone **cannot run automations** — recurring work lives in the desktop app)
-- `~/.codex/config.toml` with `sandbox_mode` + `model` set
-- `sqlite3` CLI for DB operations
-- Local vidux checkout so you can `source scripts/lib/codex-db.sh` and use the shipped helpers (`codex_verify_tomls`, `codex_sync_tomls`, `codex_safe_restart`)
+- Codex Mac desktop app (the `codex` CLI alone **cannot run automations**).
+- `~/.codex/config.toml` with `sandbox_mode` + `model`.
+- `sqlite3` CLI.
+- Local vidux checkout — `source scripts/lib/codex-db.sh` for helpers (`codex_verify_tomls`, `codex_sync_tomls`, `codex_safe_restart`).
 
 ## Lane Files
 
-Every Codex lane has four pieces that must stay in sync:
+Four pieces that must stay in sync:
 
 ```
 ~/.codex/automations/{id}/automation.toml  ← schedule + static shim prompt (UI source)
@@ -22,7 +22,7 @@ Every Codex lane has four pieces that must stay in sync:
 {lane-dir}/{lane-id}/memory.md             ← lane-local cycle log
 ```
 
-**The TOML and DB row register the automation.** `prompt.md` stores lane instructions and `memory.md` stores the lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching publish ledger rows. DB-only inserts are runnable but invisible in the UI (Bug #16). TOML-only files are visible but never fire. The shared lane directory is what makes the next fire pick up prompt edits and cycle history without rewriting the registration.
+TOML + DB row register the automation. `prompt.md` holds instructions; `memory.md` holds the lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching publish ledger rows. DB-only inserts run but stay UI-invisible (Bug #16); TOML-only files show but never fire. The shared lane directory lets the next fire pick up prompt edits and cycle history without re-registering.
 
 ## Creation
 
@@ -44,62 +44,32 @@ created_at = 1744761600000
 updated_at = 1744761600000
 ```
 
-**Required fields** in the public examples and the helper-generated TOMLs (`codex_sync_tomls`) are: `version`, `id`, `kind`, `name`, `prompt`, `status`, `rrule`, `model`, `reasoning_effort`, `execution_environment`, `cwds`, `created_at`, `updated_at`. Missing `created_at` / `updated_at` causes silent failure (Bug #18). The current scheduler rows use **millisecond** epoch integers, not seconds.
+Required fields (public examples + `codex_sync_tomls` output): `version`, `id`, `kind`, `name`, `prompt`, `status`, `rrule`, `model`, `reasoning_effort`, `execution_environment`, `cwds`, `created_at`, `updated_at`. Missing `created_at`/`updated_at` = silent failure (Bug #18); use **millisecond** epoch integers. Sandbox access comes from `sandbox_mode` in `~/.codex/config.toml`. Prompt field is single-line — escape newlines as `\n` (Bug #22).
 
-`execution_environment = "worktree"` is the current registration shape written by the shipped Codex helpers. Sandbox access still comes from `sandbox_mode` in `~/.codex/config.toml`.
+### 2-4. Insert DB row, verify, restart
 
-**Prompt field is single-line.** Escape newlines as `\n` — raw newlines in the TOML break parsing (Bug #22).
-
-### 2. Insert the DB row
-
-```sql
-INSERT INTO automations (id, name, prompt, status, rrule, cwds, model, reasoning_effort, created_at, updated_at)
-VALUES ('project-coordinator', 'project coordinator', '{prompt}', 'ACTIVE',
-        'FREQ=MINUTELY;INTERVAL=30', '["/path/to/repo"]',
-        'gpt-5.4', 'medium', 1744761600000, 1744761600000);
-```
-
-### 3. Verify
-
-```bash
-source scripts/lib/codex-db.sh
-codex_verify_tomls
-```
-
-Exit 0 = safe to reopen. Exit 1 = fix errors before reopening.
-
-This is the repo's lightweight preflight: it confirms that active DB rows have TOML files with prompt lines before reopen. For the full shipped quit → sync → reopen path, use `codex_safe_restart`.
-
-### 4. Full-quit and reopen the Codex app
-
-```bash
-osascript -e 'tell application "Codex" to quit'
-sleep 3
-open -a "Codex"
-```
-
-**`pkill app-server` is insufficient** for new automations (Bug #15). The Electron frontend caches the automation list separately from the server process — only a full quit clears it.
+Insert a matching `automations` row, run `codex_verify_tomls` (exit 0 = safe; the lightweight preflight confirms active DB rows have TOML files with prompt lines), then full-quit + reopen the app — `pkill app-server` is insufficient for new automations (Bug #15: the Electron frontend caches the list separately). `codex_safe_restart` does the full quit → sync → reopen. Step-by-step SQL/verify/restart commands: [codex-setup.md](codex-setup.md).
 
 ## Cycle Execution
 
-Each rrule fire launches a fresh Codex agent in the configured `cwds`. The agent executes one vidux cycle:
+Each rrule fire launches a fresh agent in the configured `cwds` and runs one vidux cycle:
 
 ```
 0. CONFIG   `vidux config check --json`; keep local config separate from checked-in example fallback.
-1. READ     prompt.md -> memory.md (last 3 entries) -> PLAN.md -> INBOX.md
+1. READ     prompt.md -> memory.md (last 3) -> PLAN.md -> INBOX.md
 2. PRE-HOOK Set `VIDUX_SIGNPOST_RUN_ID`; emit `hook.beforeTask`; run `scripts/vidux-doctor.sh --json`.
 3. GATE     Dirty tree not mine? -> [QC] exit. 3x stuck? -> [blocked]. Main CI red? -> fix.
 4. ASSESS   Priority: CI red -> PR fix -> PR merge -> resume in_progress -> next pending -> filler audit
 5. ACT      Worktree per code change. Research dispatch (read-only) / implementation dispatch (workspace-write) per task. Emit `subagent.spawn` and set `VIDUX_RUNTIME=codex` for Codex workers or `VIDUX_RUNTIME=cursor` for Cursor-attributed workers.
-6. VERIFY   Build passes. Tests pass. Visual check for UI. Emit `task.verify` for the proof command or artifact.
+6. VERIFY   Build + tests pass; visual check for UI. Emit `task.verify` for the proof command or artifact.
 7. CHECKPOINT  Emit `hook.afterTask`; Update the owning PLAN.md status/Progress and emit the matching publish ledger row with task id, proof, handoff status, files claimed, and next-agent resume. Append the lane-local memory line; commit/push only after the plan/ledger packet exists.
 ```
 
-Use `vidux signpost trace --run-id <id>` to inspect the ordered call stack. Use `vidux signpost lifecycle-smoke --json` for a disposable trace-shape smoke before depending on a new prompt or hook wrapper. Use `vidux signpost spawned-subagent-smoke --json` for inherited Codex parent env plus spawned Claude/Cursor attribution. The smokes are local proof of event shape and env attribution, not proof that Claude, Codex, or Cursor actually launched.
+Signpost trace/smoke commands behave as in [claude-lifecycle.md](claude-lifecycle.md#cycle-execution): `vidux signpost trace --run-id <id>` inspects the cycle; `vidux signpost lifecycle-smoke --json` and `vidux signpost spawned-subagent-smoke --json` are local-only.
 
 ### Sandbox modes
 
-Codex agents run inside one of three sandboxes, set per-task or per-session in `config.toml`:
+Set per-task or per-session in `config.toml`:
 
 | Mode | Reads | Writes | Use |
 |---|---|---|---|
@@ -107,52 +77,42 @@ Codex agents run inside one of three sandboxes, set per-task or per-session in `
 | `workspace-write` | Yes | Working tree only | Implementation dispatch — code edits |
 | `danger-full-access` | Yes | Anywhere | Trusted automations only |
 
-Research dispatch keeps the parent context small; implementation dispatch hands a bounded write task to a secondary Codex agent. See [Fleet Operations](/fleet/operations) for the docs-site summary of that delegation and coordination model.
+Research dispatch keeps parent context small; implementation dispatch hands a bounded write task to a secondary Codex agent. See [Fleet Operations](/fleet/operations) for the delegation model.
 
 ### Post-push defer
 
-Same as Claude lanes: after pushing a PR, the lane MUST NOT attempt merge in the same cycle. CI and review automation need time to run. Merge eligibility: CI green + ≥1h since last fix-push + no unresolved required findings.
+Same as Claude lanes: no merge in the push cycle. Merge eligibility: CI green + ≥1h since last fix-push + no unresolved required findings.
 
 ## Persistence Model
 
-Codex lanes persist differently from Claude lanes:
+- **TOML + DB row** live on disk; survive app quit, reboot, account changes.
+- **`prompt.md` + `memory.md`** live in the shared lane directory as instructions plus lane-local cycle log; durable shipped work lives in the owning `PLAN.md` plus matching publish ledger rows.
+- **Agent sessions** live in the desktop app process; die on quit.
+- **No session GC** — the Codex app manages its own memory (no growing JSONL files).
 
-- **TOML + DB row** live on disk; they survive app quit, reboot, and account-level changes
-- **`prompt.md` + `memory.md`** live in the shared lane directory as lane instructions plus the lane-local cycle log; durable shipped work lives in the owning `PLAN.md` plus matching publish ledger rows
-- **Agent sessions** live inside the desktop app process; they die when the app quits
-- **No session GC needed** — the Codex app manages its own memory internally (no growing JSONL files to prune)
+On reopen, the app reads the DB, resumes all `ACTIVE` automations, and fires per rrule. Each fire reads the shared `prompt.md`/`memory.md` for lane-local continuity, then uses the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
 
-When the Mac app reopens after a quit, it reads the DB, resumes all `ACTIVE` automations, and fires them per their rrule. Each fire reads the shared `prompt.md` and `memory.md` for lane-local continuity, then uses the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
+**No auto-expire** — automations run until manually stopped (`status = 'PAUSED'` or DB delete) or the app closes permanently.
 
-**No auto-expire.** Codex automations run until manually stopped (`status = 'PAUSED'` or DB delete) or the app is closed permanently.
+## Known Bugs + Troubleshooting
 
-## Known Bugs
+Preflight with `codex_verify_tomls`; full quit → sync → reopen with `codex_safe_restart`.
 
-| # | Symptom | Fix |
-|---|---|---|
-| 14 | New automation invisible after DB insert | Full-quit app (`osascript 'quit'`), not just restart app-server |
-| 15 | `pkill app-server` doesn't pick up new rows | Electron frontend caches automation list separately — full quit required |
-| 16 | TOML files required for UI visibility | DB-only inserts are runnable but hidden — always write both |
-| 18 | Automation fails silently | Missing `created_at` / `updated_at` — both must be set to millisecond epoch integers |
-| 22 | TOML parse failure on multi-line prompts | Raw newlines break parsing — escape as `\n` |
-
-Use `codex_verify_tomls` as the lightweight local preflight, or `codex_safe_restart` for the full shipped quit → sync → reopen path.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Automation not firing | App quit or rrule typo | Reopen app; check `rrule` syntax (RFC 5545) |
-| Automation invisible in UI | TOML missing or DB-only | Write both TOML + DB row, full-quit + reopen |
-| Silent failure on fire | Missing `created_at` / `updated_at` | Fill both with millisecond epoch values; run verify script |
-| Prompt truncated | Raw newline in TOML | Replace `\n` with `\\n` escape; re-verify |
-| Lane can't write files | Sandbox = `read-only` | Switch to `workspace-write` for implementation dispatch tasks |
-| Can't run from CLI | Expected — CLI doesn't support automations | Use Mac desktop app |
+| Bug # | Symptom | Cause | Fix |
+|---|---|---|---|
+| 14 | Automation invisible after DB insert | App caches list | Full-quit (`osascript 'quit'`), not restart app-server |
+| 15 | `pkill app-server` misses new rows | Electron frontend caches separately | Full quit required |
+| 16 | Invisible in UI | TOML missing / DB-only | Write both, full-quit + reopen |
+| 18 | Silent failure on fire | Missing `created_at`/`updated_at` | Set both to millisecond epoch; run verify |
+| 22 | Prompt truncated / parse failure | Raw newline in TOML | Escape as `\n`; re-verify |
+| — | Not firing | App quit or rrule typo | Reopen; check `rrule` (RFC 5545) |
+| — | Lane can't write files | Sandbox = `read-only` | Switch to `workspace-write` |
+| — | Can't run from CLI | Expected — CLI has no automations | Use Mac desktop app |
 
 ## See Also
 
-- [Platform Comparison](platforms.md) — Claude Code vs Codex overview
-- [Claude Code Lifecycle](claude-lifecycle.md) — the Claude equivalent of this page
+- [Platform Comparison](platforms.md) — Claude Code vs Codex
+- [Claude Code Lifecycle](claude-lifecycle.md) — the Claude equivalent
 - [Codex Setup Guide](codex-setup.md) — step-by-step Mac app setup (Task 5)
-- [Fleet Operations](/fleet/operations) — research and implementation dispatch plus worktree discipline
-- [Recipe Catalog](/fleet/recipes) — reusable automation patterns layered on top
+- [Fleet Operations](/fleet/operations) — dispatch + worktree discipline
+- [Recipe Catalog](/fleet/recipes) — reusable automation patterns

@@ -52,7 +52,7 @@ PROOF=""
 RESUME=""
 HANDOFF_STATUS="done"
 LANE="vidux-release"
-LEDGER_EMIT="${LEDGER_EMIT:-${HOME}/Development/ai/hooks/ledger-emit.sh}"
+LEDGER_EMIT="${LEDGER_EMIT:-}"
 PUBLISH_FILES=()
 CLAIMS=()
 PLAN_PATH_ABS=""
@@ -95,8 +95,8 @@ flags:
   --claim <path>       Extra claim/resume path to include in publish ledger
                        rows. Defaults always include the changed release files
                        and scripts/vidux-release.sh.
-  --ledger-emit <path> Ledger emit helper. Defaults to
-                       ~/Development/ai/hooks/ledger-emit.sh or LEDGER_EMIT.
+  --ledger-emit <path> Ledger emit helper (executable taking --event/--summary/
+                       etc.). Optional: publish-ledger rows skip if unset.
   --help, -h           Show this help and exit.
 
 Refuses to run on any branch other than 'main' (override only via
@@ -317,11 +317,14 @@ configure_publish_gate() {
       echo "vidux-release: --task-id must appear in --plan-path as a task row: ${TASK_ID}" >&2
       exit 1
     fi
-    if [[ ! -x "${LEDGER_EMIT}" ]]; then
+    if [[ -z "${LEDGER_EMIT}" ]]; then
+      echo "vidux-release: no ledger emitter configured (set LEDGER_EMIT or --ledger-emit); skipping publish-ledger rows" >&2
+    elif [[ ! -x "${LEDGER_EMIT}" ]]; then
       echo "vidux-release: ledger emit helper is not executable: ${LEDGER_EMIT}" >&2
       exit 1
+    else
+      PUBLISH_LEDGER_ENABLED=1
     fi
-    PUBLISH_LEDGER_ENABLED=1
   fi
 }
 

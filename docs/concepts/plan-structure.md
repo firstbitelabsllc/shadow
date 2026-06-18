@@ -1,6 +1,6 @@
 # PLAN.md Structure
 
-Every project has exactly **one PLAN.md**. Course corrections — even dramatic pivots — update the existing plan's Decision Log. They never spawn a sibling plan.
+Every project has exactly **one PLAN.md**. Course corrections — even dramatic pivots — update the existing plan's Decision Log. They NEVER spawn a sibling plan.
 
 ## Full Template
 
@@ -48,7 +48,7 @@ finding needs a task, promote it to a task.
 
 ## Required Sections
 
-All six sections are required. Missing sections produce known failure modes:
+All six required. Missing sections produce known failure modes:
 
 | Section | What happens without it |
 |---|---|
@@ -69,13 +69,13 @@ pending → in_progress → in_review (optional) → completed
 
 Status rules:
 - Every task starts `[pending]`
-- Only one task per lane should be `[in_progress]` at a time
-- `[in_review]` is optional for PR-backed work; docs-only and local-only plans can stay in the simpler four-state flow
+- Only one task per lane is `[in_progress]` at a time
+- `[in_review]` is optional for PR-backed work; docs-only and local-only plans can stay in the four-state flow
 - `[completed]` is permanent — never revert to `[pending]`
 - `[blocked]` requires a Blocker note and Decision Log entry
 - `[blocked]` is terminal — replace with a new task rather than reviving
 
-The broader docs and adapter layer understand `in_review`, but the current core shell helpers are still four-state-first: `scripts/vidux-status.py`, `scripts/vidux-loop.sh`, and `scripts/vidux-checkpoint.sh` only model `pending`, `in_progress`, `completed`, and `blocked`. Treat `in_review` as opt-in PR-state metadata unless your lane/tooling explicitly handles it.
+The docs and adapter layer understand `in_review`, but the core shell helpers are four-state-first: `scripts/vidux-status.py`, `scripts/vidux-loop.sh`, `scripts/vidux-checkpoint.sh` model only `pending`, `in_progress`, `completed`, `blocked`. Treat `in_review` as opt-in PR-state metadata unless your lane/tooling handles it.
 
 **Inside `## Tasks`, every line starting with `- ` MUST be a task with a status tag.** Use numbered lists (`1. 2. 3.`) or headers for non-task content like rollout strategies or phase preambles.
 
@@ -85,15 +85,15 @@ The broader docs and adapter layer understand `in_review`, but the current core 
 - [pending] Task N: Short description [Evidence: source:line or PR #] [Depends: Task M]
 ```
 
-- **Status tag** — required, one of: `[pending]`, `[in_progress]`, `[in_review]` (optional), `[completed]`, `[blocked]`
+- **Status tag** — required: `[pending]`, `[in_progress]`, `[in_review]` (optional), `[completed]`, `[blocked]`
 - **Task number** — `Task N:` — required for cross-referencing
 - **Description** — short, action-oriented
-- **Evidence citation** — required for all pending tasks before coding begins
-- **Depends** — optional; blocks this task until the dependency is `[completed]`
+- **Evidence citation** — required for all pending tasks before coding
+- **Depends** — optional; blocks until the dependency is `[completed]`
 
 ## The Decision Log
 
-The Decision Log is the most important section for preventing agent loops. Stateless agents have no memory of WHY a previous agent made a choice. Without a Decision Log, an agent that finds "missing" code will re-add it, undoing a deliberate deletion.
+The most important section for preventing agent loops. Stateless agents have no memory of WHY a previous agent chose something. Without it, an agent that finds "missing" code re-adds it, undoing a deliberate deletion.
 
 ```markdown
 ## Decision Log
@@ -103,55 +103,52 @@ The Decision Log is the most important section for preventing agent loops. State
 ```
 
 Entry types:
-- `[DELETION]` — something was removed intentionally; don't re-add it
+- `[DELETION]` — removed intentionally; don't re-add
 - `[DIRECTION]` — a deliberate architectural or approach choice
 - `[BLOCKED]` — a task that can't proceed without human intervention
 - `[PIVOT]` — major direction change; marks obsolete tasks
 
 ## Drift Log
 
-`## Drift Log` is optional but first-class. It is for unavoidable implementation
-drift, not random notes. A good drift entry says:
+`## Drift Log` is optional but first-class. For unavoidable implementation drift, not random notes. A good drift entry says:
 
 - what the plan said would happen
 - what actually changed
 - why the deviation was necessary
 - how the parent plan now adapts
-- what prevention hint should be cached for similar future tasks
+- what prevention hint to cache for similar future tasks
 - which subplans were mirrored
 
-Use `vidux drift <PLAN.md> ...` so the parent plan and any named subplans get
-the same drift id. If the old task is now stale, pass `--block-task`; if the
-drift creates follow-up work, pass one or more `--add-task`.
+Use `vidux drift <PLAN.md> ...` so the parent plan and named subplans get the same drift id. Old task now stale → pass `--block-task`; drift creates follow-up work → pass one or more `--add-task`.
 
 ## Course Correction
 
-When evidence changes, the plan changes. The correct procedure:
+Evidence changes → the plan changes. The procedure:
 
-1. **Update the plan FIRST** — what changed, why, what's the new direction
+1. **Update the plan FIRST** — what changed, why, the new direction
 2. **Record drift when implementation diverged** — `vidux drift` writes the structured log and mirrors subplans
 3. **Add a Decision Log entry** — `[DIRECTION]` or `[PIVOT]` with the reason
 4. **Mark obsolete tasks** — `[blocked]` with a pointer to the new direction
 5. **Add new tasks** — fresh `[pending]` tasks in the queue
 6. **Then update the code** — derived from the new plan state
 
-**Never spawn a sibling plan.** If you catch yourself justifying a new PLAN.md with phrases like "clean slate" or "this rewrite deserves its own home," stop: that's fabricated reasoning. Update the existing plan.
+**NEVER spawn a sibling plan.** Justifying a new PLAN.md with "clean slate" or "this rewrite deserves its own home" is fabricated reasoning — stop. Update the existing plan.
 
-Exception: a new PLAN.md is correct when it's genuinely a new project (different codebase, different product, different problem surface). "Rewrite resplit-web from scratch" is the same project — one plan. "Build a new iOS app for Resplit 2.0" might be a different project.
+Exception: a new PLAN.md is correct for a genuinely new project (different codebase, product, problem surface). "Rewrite resplit-web from scratch" is the same project — one plan. "Build a new iOS app for Resplit 2.0" might be a different project.
 
 ## Compound Tasks and Sub-Plans
 
-Not every task is atomic. When a task needs investigation before code, create a sub-plan:
+A task that needs investigation before code gets a sub-plan:
 
 ```markdown
 - [pending] Task 3: Fix payment flow [Investigation: investigations/payment-flow.md]
 ```
 
-The `[Investigation: ...]` marker tells the agent: read the sub-plan before coding. If the investigation has no Fix Spec yet, the cycle is investigation only — no code.
+The `[Investigation: ...]` marker tells the agent: read the sub-plan before coding. No Fix Spec yet → investigation only, no code.
 
-Sub-plans follow the seven-section investigation template. See [Investigation Template](#investigation-template) below.
+Sub-plans follow the seven-section investigation template (below).
 
-**Status propagation:** When an L2 investigation's Fix Spec is coded, tested, and gated, the parent task in L1 PLAN.md moves to `[completed]`. An L2 with no Fix Spec means the parent stays `[in_progress]`.
+**Status propagation:** L2 investigation's Fix Spec coded, tested, gated → parent task in L1 PLAN.md moves to `[completed]`. L2 with no Fix Spec → parent stays `[in_progress]`.
 
 ## Investigation Template
 
@@ -171,13 +168,13 @@ For complex bugs or surfaces with 2+ tickets:
 
 **No Fix Spec = no code.** The investigation IS the work until Fix Spec is filled.
 
-**Nesting depth:** Max two levels (L1 plan, L2 investigation). If a surface needs deeper decomposition, split it into separate L1 plans.
+**Nesting depth:** Max two levels (L1 plan, L2 investigation). Deeper decomposition → split into separate L1 plans.
 
 ## Garbage Collection
 
-Archive when the plan feels heavy — the agent decides, no fixed threshold. Promoted or skipped INBOX entries are removed inline.
+Archive when the plan feels heavy — agent decides, no fixed threshold. Promoted or skipped INBOX entries are removed inline.
 
-Add a GC task to the plan when it gets large:
+Add a GC task when the plan gets large:
 
 ```markdown
 - [pending] Task GC: Archive completed tasks and prune PLAN.md
@@ -187,7 +184,7 @@ Add a GC task to the plan when it gets large:
 
 `INBOX.md` is where humans or external tools drop findings for agents to act on.
 
-- Agents check INBOX.md during READ, before looking at tasks
+- Agents check INBOX.md during READ, before tasks
 - Promote actionable findings to `[pending]` tasks in PLAN.md
 - Annotate non-actionable ones with `[SKIP: reason]`
 - Max 20 entries — if full, oldest are archived to `evidence/`

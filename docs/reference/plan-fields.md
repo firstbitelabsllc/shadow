@@ -1,10 +1,10 @@
 # PLAN.md Field Reference
 
-Quick reference for every section and annotation a vidux `PLAN.md` uses. For the discipline and cycle, see [Five Principles](/concepts/principles), [The Cycle](/concepts/cycle), and [PLAN.md Structure](/concepts/plan-structure).
+Every section and annotation a vidux `PLAN.md` uses. For the discipline and cycle, see [Five Principles](/concepts/principles), [The Cycle](/concepts/cycle), and [PLAN.md Structure](/concepts/plan-structure).
 
 ## Section Order
 
-A canonical PLAN.md has these sections in this order. Sections marked *optional* may be omitted on small plans, but don't re-order the required ones — tooling and agent muscle memory expect them in sequence.
+A canonical PLAN.md has these sections in this order. *Optional* sections may be omitted on small plans; NEVER re-order the required ones — tooling and agent muscle memory expect them in sequence.
 
 | # | Section | Required | Purpose |
 |---|---|:---:|---|
@@ -33,13 +33,13 @@ A canonical PLAN.md has these sections in this order. Sections marked *optional*
 | `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
 | `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
 
-`[in_review]` is part of the broader plan and adapter model, but the current core shell helpers still center the four-state subset. `scripts/vidux-status.py`, `scripts/vidux-loop.sh`, `scripts/vidux-checkpoint.sh`, and the contract tests all count or transition `pending`, `in_progress`, `completed`, and `blocked`. Use `in_review` when your repo has an explicit PR/review workflow around it; otherwise the simpler four-state flow remains the safest default.
+`[in_review]` is optional. Core shell helpers center the four-state subset: `scripts/vidux-status.py`, `scripts/vidux-loop.sh`, `scripts/vidux-checkpoint.sh`, and the contract tests count or transition `pending`, `in_progress`, `completed`, and `blocked`. Use `in_review` when your repo has an explicit PR/review workflow; otherwise the four-state flow is the safest default.
 
 **Rules:**
 
 - A task is `[in_progress]` for at most one cycle at a time. If the session dies mid-task, the next agent resumes it.
-- A task appears in 3+ Progress entries while still `[in_progress]` → force a surface switch. Default reduce mode reports the next runnable candidate in JSON; auto-blocking and Decision Log writes require explicit opt-in.
-- `[completed]` is earned by verification evidence (a command, screenshot, or build output), not by assertion. Claiming complete without evidence is a lie (SKILL.md Principle 5).
+- 3+ Progress entries while still `[in_progress]` → force a surface switch. Default reduce mode reports the next runnable candidate in JSON; auto-blocking and Decision Log writes require explicit opt-in.
+- `[completed]` is earned by verification evidence (command, screenshot, build output), never assertion. Claiming complete without evidence is a lie (SKILL.md Principle 5).
 - Status flows UP from sub-plans: an L1 task stays `[in_progress]` while its L2 investigation has any `(pending)` section.
 
 ## Task Annotations
@@ -58,7 +58,7 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 
 ## Decision Log Entry Types
 
-The Decision Log is the **lock file** that stops stateless agents from undoing deliberate choices. Every entry opens with a bracketed type tag and a date.
+The Decision Log is the **lock file** that stops stateless agents from undoing prior choices. Every entry opens with a bracketed type tag and a date.
 
 | Type | When to use | Template |
 |---|---|---|
@@ -69,15 +69,14 @@ The Decision Log is the **lock file** that stops stateless agents from undoing d
 | `[CONSTRAINT]` | Discovered a hard constraint (infra limit, compliance, budget) | `[CONSTRAINT] 2026-04-16 Function timeout 300s. Reason: Vercel Fluid Compute ceiling.` |
 | `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] 2026-04-16 Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
 
-**Why the tags matter:** a future agent scanning the Decision Log greps by tag to answer "what's forbidden?" (`[DELETION]`), "what are the architectural choices?" (`[DIRECTION]`), or "what changed recently?" (`[PIVOT]` / `[REVERSAL]`).
+A future agent greps the Decision Log by tag: "what's forbidden?" (`[DELETION]`), "what are the architectural choices?" (`[DIRECTION]`), "what changed recently?" (`[PIVOT]` / `[REVERSAL]`).
 
 ## Progress Entry Format
 
 One line per meaningful cycle. The Progress line orients future agents to the
 owning plan state; the matching publish ledger row carries shipped-cycle proof,
-handoff status, claimed files, and next-agent resume metadata. Git diff/log
-evidence can support the entry, but it does not replace the plan plus ledger
-packet.
+handoff status, claimed files, next-agent resume. Git diff/log evidence can
+support the entry but does not replace the plan plus ledger packet.
 
 ```
 - [YYYY-MM-DD HH:MM] What happened. Next: what's next. Blocker: if any.
@@ -89,15 +88,14 @@ packet.
 - Cite files when the reader needs them: `see fix at src/auth.ts:42`
 
 **Don't:**
-- Treat the diff or git log as the whole handoff — cite the task, proof, and
-  resume point instead
-- Write "everything fine" lines — if there's nothing to report, don't add an entry
-- Paraphrase the plan — reference it by task number instead
+- Treat the diff or git log as the whole handoff — cite the task, proof, resume point
+- Write "everything fine" lines — nothing to report, no entry
+- Paraphrase the plan — reference it by task number
 
 ## Drift Entry Format
 
-Use `vidux drift` when implementation had to diverge from the plan. The helper
-creates `## Drift Log` if needed and writes:
+Use `vidux drift` when implementation diverged from the plan. The helper creates
+`## Drift Log` if needed and writes:
 
 ```
 - [YYYY-MM-DD] D-YYYYMMDD-NN — Task N
@@ -112,12 +110,11 @@ creates `## Drift Log` if needed and writes:
   - Subplans: ...
 ```
 
-If the drift invalidates an existing task, pass `--block-task` so the task gets
-`[blocked] ... [Drift: D-...]`. If it creates new work, pass `--add-task`.
-Named `--subplan` paths receive a mirrored drift entry with the same id.
-When `--cache` is enabled, JSONL rows include `schema_version`, `drift_id`,
+Drift invalidates a task → `--block-task` (`[blocked] ... [Drift: D-...]`). Drift
+creates work → `--add-task`. Named `--subplan` paths get a mirrored entry with
+the same id. With `--cache`, JSONL rows include `schema_version`, `drift_id`,
 `date`, `plan_path`, `task`, `planned`, `actual`, `why`, `cause`, `impact`,
-`plan_update`, `next`, `prevention_hints`, `subplans`, `added_tasks`, and
+`plan_update`, `next`, `prevention_hints`, `subplans`, `added_tasks`,
 `blocked_task`.
 
 ## Evidence Source Tags
@@ -139,7 +136,7 @@ Every item in the Evidence section cites a source. Standard tags:
 
 ## Constraints Block Format
 
-Two subsections — things that must be true, things that are forbidden.
+Two subsections — what must be true, what is forbidden.
 
 ```markdown
 ## Constraints
@@ -149,11 +146,11 @@ Two subsections — things that must be true, things that are forbidden.
 - NEVER: skip pre-commit hooks
 ```
 
-**Rule of thumb:** constraints survive the project. If a rule only applies to one task, put it on the task line, not in Constraints.
+**Rule of thumb:** constraints survive the project. A rule that applies to one task goes on the task line, not in Constraints.
 
 ## Compound Task Sub-Plan Structure
 
-When a task has `[Investigation: investigations/<slug>.md]`, the sub-plan follows this structure:
+A task with `[Investigation: investigations/<slug>.md]` has a sub-plan in this structure:
 
 ```markdown
 # Investigation: <surface name>
@@ -180,7 +177,7 @@ When a task has `[Investigation: investigations/<slug>.md]`, the sub-plan follow
 <build passes, tests pass, visual check (for UI)>
 ```
 
-Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in a single code PR. See [PLAN.md Structure](/concepts/plan-structure) for the docs-site version of that contract.
+Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in one code PR. See [PLAN.md Structure](/concepts/plan-structure) for the docs-site version.
 
 ## See Also
 

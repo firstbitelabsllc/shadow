@@ -4,11 +4,10 @@
 
 ## The Stateless Cycle
 
-Every cron fire is a fresh context. No memory. No carried state. Just repo
-files plus append-only ledger rows.
+Every cron fire is a fresh context: no memory, no carried state. Only repo files plus the append-only ledger. The next agent knows only what's in the files. Design for that.
 
 ```
-[Cron fires] -> [Read PLAN.md] -> [Assess] -> [Act] -> [Checkpoint] -> [Complete]
+[Cron fires] -> READ -> ASSESS -> ACT -> VERIFY -> CHECKPOINT
 ```
 
 ```mermaid
@@ -36,201 +35,150 @@ sequenceDiagram
     Note over Cron,Git: Next fire = brand new agent reading fresh plan + ledger
 ```
 
-The agent that wakes up next time is a different agent. It knows nothing except what's in the files. Design for this. Always.
-
 ## Step 1: Read (30 seconds)
 
-Read these files in order. Stop if any is missing — that's your first task.
+Read in order. Stop if any is missing — that's your first task.
 
-1. `PLAN.md` — the planning authority for the queue, decisions, constraints, and Progress/Drift record. First look for any `[in_progress]` task (resume priority — a prior session may have died mid-task). If none found, find the first `[pending]` task (or unchecked `[ ]` in v1 plans).
-2. **Decision Log** — read the `## Decision Log` section before doing anything else. If `vidux-loop.sh` output has `decision_log_warning: true`, review every entry. You MUST NOT contradict a logged direction. If your next action would, skip that action and move on.
-3. Drift feedback cache, if configured: check whether the current task matches prior drift and apply any prevention hint before editing.
-4. `git log --oneline -10` — what happened recently? Any commits since last checkpoint?
-5. `git diff --stat` — any uncommitted work from a crashed session?
-6. Worktree classifier — before creating a new worktree or leaving an old branch behind:
-   `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`.
-   Resume or record lane-owned `dirty`, `closed_unmerged`, or `unmerged_no_pr`
-   rows before minting another branch. `open_pr` rows are durable handoff;
-   nurse them or leave them recorded. Only `merged_clean` rows are automatic
-   local cleanup candidates.
-7. Ledger (if available): `tail -5 ~/.agent-ledger/activity.jsonl | jq '.summary'`
+1. `PLAN.md` — the queue/decisions/constraints/Progress authority. Take the first `[in_progress]` task (resume priority — a prior session may have died mid-task); else the first `[pending]` (or unchecked `[ ]` in v1).
+2. **Decision Log** — read `## Decision Log` before acting. If `vidux-loop.sh` emits `decision_log_warning: true`, review every entry. You MUST NOT contradict a logged direction; skip any action that would.
+3. Drift feedback cache, if configured: apply any prevention hint matching the current task before editing.
+4. `git log --oneline -10` — commits since last checkpoint?
+5. `git diff --stat` — uncommitted work from a crashed session?
+6. Worktree classifier — before minting a branch or abandoning one: `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`. Resume or record lane-owned `dirty`, `closed_unmerged`, or `unmerged_no_pr` rows first. `open_pr` rows are durable handoff — nurse or record them. Only `merged_clean` rows auto-clean.
+7. Ledger, if available: `tail -5 ~/.agent-ledger/activity.jsonl | jq '.summary'`
 
-If uncommitted work exists from a crash, preserve it first: inspect `git status` and `git diff --stat`, identify the touched files, decide whether the work belongs to the current `PLAN.md` row, and record the recovery path in the owning plan plus a ledger handoff before any commit, push, cleanup, or overwrite. Do not commit unknown WIP just to clean the tree.
+On crash WIP: preserve first. Inspect `git status` + `git diff --stat`, decide whether the work belongs to the current `PLAN.md` row, and record the recovery path in the owning plan plus a ledger handoff before any commit, push, cleanup, or overwrite. NEVER commit unknown WIP to clean the tree.
 
 ## Step 2: Assess (30 seconds)
 
-Ask three questions:
-
 ### Q1: Is the plan ready for code?
 
-Run this readiness checklist. Each item scores 1 point. Minimum 7/10 to start coding.
+Score the checklist. 1 point each, minimum 7/10 to start coding.
 
-**Required (must all be true — 0 points if any fails):**
-- [ ] Purpose section is filled (not empty, not placeholder)
-- [ ] Evidence section has >= 3 cited sources with `[Source:]` markers
-- [ ] Constraints section has at least one ALWAYS and one NEVER
-- [ ] At least one Task exists with evidence cited
-- [ ] No unanswered question is cited as a blocker in the NEXT task's description
+**Required (0 points total if any fails):**
+- [ ] Purpose filled (not empty/placeholder)
+- [ ] Evidence has >= 3 cited sources with `[Source:]` markers
+- [ ] Constraints has >= 1 ALWAYS and >= 1 NEVER
+- [ ] >= 1 Task exists with evidence cited
+- [ ] No unanswered question cited as blocker in the NEXT task
 
-**Quality (each adds 1 point to the score):**
-- [ ] Evidence includes at least one EXTERNAL source (MCP query, web search, not just codebase)
-- [ ] Constraints include at least one stakeholder preference (reviewer, tech lead, PM)
-- [ ] Tasks have dependency markers (`[Depends:]`) where applicable
-- [ ] Decisions section has at least one entry with alternatives and rationale
-- [ ] No task description is vague (no "implement feature" without specifics)
+**Quality (+1 each):**
+- [ ] >= 1 EXTERNAL evidence source (MCP/web, not just codebase)
+- [ ] >= 1 stakeholder preference in Constraints (reviewer, tech lead, PM)
+- [ ] Tasks carry `[Depends:]` markers where applicable
+- [ ] Decisions section has >= 1 entry with alternatives + rationale
+- [ ] No vague task ("implement feature" without specifics)
 
 **Scoring:**
-- **10/10:** Excellent plan. Execute with confidence.
-- **7-9/10:** Good enough. Execute, but expect some surprises.
-- **5-6/10:** Plan needs more evidence. Gather before coding.
-- **0-4/10:** Plan is a sketch. Do NOT code. Spend the entire cycle on plan refinement.
+- **10:** execute with confidence.
+- **7-9:** execute, expect surprises.
+- **5-6:** gather evidence before coding.
+- **0-4:** sketch only. Do NOT code; spend the cycle refining the plan.
 
-**The 50/30/20 rule of thumb:** If your plan scores below 7, the cycle's "one deliverable"
-should be improving the plan — not writing code. This is how the 50% plan refinement
-budget gets enforced naturally.
+Below 7, the cycle's one deliverable is the plan, not code. This enforces the 50% plan-refinement budget.
 
-If the plan is NOT ready, your job is to REFINE THE PLAN, not write code.
-
-### Q2: What's the highest-impact next action?
+### Q2: Highest-impact next action?
 
 Priority order:
-1. **[in_progress] tasks** — resume; a prior session died mid-task
-2. **Task-linked blockers** — if the NEXT pending task cites an unanswered question as a blocker, research it first (per-task gating — a free-floating question list does not block execution)
-3. **[pending] tasks without evidence** — gather evidence for them
-4. **First [pending] task with evidence** — set to [in_progress] and execute it
-5. **All tasks [completed]** — verify final state, update progress, mark mission complete
+1. `[in_progress]` — resume; a prior session died mid-task.
+2. Task-linked blocker — if the NEXT pending task cites an unanswered question, research it first (per-task gating; a free-floating question list does NOT block execution).
+3. `[pending]` without evidence — gather it.
+4. First `[pending]` with evidence — set `[in_progress]`, execute.
+5. All `[completed]` — verify final state, update Progress, mark mission complete.
 
-### Q3: Can I parallelize?
+### Q3: Parallelize?
 
-If the next task benefits from parallel research fan-out, dispatch agents; otherwise do one task at a time.
+If the task benefits from research fan-out, dispatch agents; else one task at a time.
 
 ## Step 3: Act (bulk of the cycle)
 
-### If RESUMING [in_progress] task:
+### Resuming `[in_progress]`:
 
-A prior session died mid-task. Resume it:
+1. Read the task description + partial work in git diff.
+2. Verify partial work (build/test gate): complete -> `[completed]` + checkpoint; incomplete -> continue from where it stopped.
+3. NEVER restart from scratch — check what's done first.
 
-1. **Read** the task description and any partial work in git diff
-2. **Verify** if partial work is complete (build/test gate)
-   - If complete: set to `[completed]` and checkpoint
-   - If incomplete: continue execution from where it stopped
-3. **Do not restart** from scratch — check what was already done first
+### Refining the plan:
 
-### If REFINING THE PLAN:
+**Evidence fan-out** — spawn up to 4 parallel research agents:
+- A: team chat for conventions/decisions
+- B: code reviews for related PRs/feedback
+- C: codebase for existing patterns (grep, glob)
+- D: issue tracker for requirements/constraints
 
-**For evidence gathering (fan-out pattern):**
-```
-Spawn up to 4 research agents in parallel:
-  Agent A: Search team chat for conventions and decisions
-  Agent B: Search code reviews for related PRs and feedback
-  Agent C: Read codebase for existing patterns (grep, glob)
-  Agent D: Search issue tracker for requirements and constraints
+Each returns `{ source, finding, confidence: high|medium|low }`. You synthesize into the Evidence section.
 
-Each returns a structured finding:
-  { source: "...", finding: "...", confidence: high|medium|low }
+**Task-linked blockers** — take the first unanswered question on the next pending task, research it (web/MCP/codebase), write the answer in Evidence, clear the annotation (or convert to constraint/decision).
 
-You synthesize all findings into PLAN.md Evidence section.
-```
+**Adding tasks** — decompose into checkbox tasks, each citing evidence, with `[Depends: Task N]` markers.
 
-**For answering task-linked blockers:**
-- Pick the first unanswered question cited as a blocker on the next pending task
-- Research it (web search, MCP query, codebase read)
-- Write the answer in the Evidence section
-- Clear the blocker annotation (or convert to a constraint/decision)
+### Executing code — compound task (`[Investigation: ...]`):
 
-**For adding tasks:**
-- Based on evidence, decompose work into checkbox tasks
-- Each task must cite its evidence source
-- Add dependency markers `[Depends: Task N]`
+1. Read the investigation file. Fix Spec empty -> this cycle completes the investigation (evidence, root cause, impact map, fix spec), then checkpoint. Fix Spec ready -> execute.
+2. Execute the fix spec. One surface, all tickets.
+3. Verify — run the investigation file's gate.
+4. Update both files: investigation Gate items checked, parent task `[completed]`.
 
-### If EXECUTING CODE (compound task with `[Investigation: ...]`):
+### Executing code — atomic task:
 
-The task links to an investigation file. Follow the compound task protocol:
+1. Locate the task in PLAN.md; read description + evidence.
+2. Scope the files. NEVER touch files outside the task.
+3. Execute one code change. Not two.
+4. Verify — run the task's build/test gate. Pass -> checkpoint. Fail -> retry once with a targeted fix. Still failing -> failure protocol (SKILL.md § Failure Protocol).
+5. Set `[completed]`: `- [completed] Task N: ... [Done: date]`
 
-1. **Read** the investigation file. Check: is the Fix Spec filled in?
-   - If Fix Spec is empty: this cycle's job is to complete the investigation (evidence, root cause, impact map, fix spec). Checkpoint when done.
-   - If Fix Spec is ready: proceed to execute below.
-2. **Execute** the fix spec from the investigation file. One surface, all tickets.
-3. **Verify** — run the gate from the investigation file.
-4. **Update** both the investigation file (mark Gate items checked) and the parent task in PLAN.md (`[completed]`).
+### All tasks done:
 
-### If EXECUTING CODE (atomic task):
-
-Follow the Vidux unidirectional flow:
-
-1. **Locate** the task in PLAN.md. Read its description and evidence.
-2. **Scope** the files. Never touch files not mentioned in the task.
-3. **Execute** the code change. One task. Not two.
-4. **Verify** — run the build/test gate specified in the task.
-   - If pass: proceed to checkpoint.
-   - If fail: retry once with targeted fix.
-   - If still fails: run the failure protocol (SKILL.md § Failure Protocol).
-5. **Update PLAN.md** — set the task to `[completed]`: `- [completed] Task N: ... [Done: date]`
-
-### If ALL TASKS DONE:
-
-1. Run final verification (full build + test suite)
-2. Update Progress section: "All tasks complete. Final verification: [PASS/FAIL]"
-3. If a PR exists, update its description
-4. Mark mission as complete in ledger (if wired)
+1. Run full build + test suite.
+2. Update Progress: "All tasks complete. Final verification: [PASS/FAIL]".
+3. Update the PR description if a PR exists.
+4. Mark mission complete in ledger (if wired).
 
 ## Step 4: Checkpoint (30 seconds)
 
-**A cycle produces a commit only when code changed.** Investigation-only cycles keep their notes on disk — no commit, no PR. The next cycle reads `investigations/<slug>.md` and picks up where this one stopped. If only PLAN.md changed (row flips, Progress entries) bundle it into the next code commit, don't ship it standalone.
+A cycle commits only when code changed. Investigation-only cycles keep notes on disk — no commit, no PR; the next cycle reads `investigations/<slug>.md` and continues. PLAN.md-only changes (row flips, Progress) bundle into the next code commit — never ship standalone.
 
-**Commit message format (when code changed):**
+**Commit message (when code changed):**
 ```
 vidux: [what you did]
 
-Plan: [which task was addressed]
-Evidence: [new evidence gathered, if any]
-Next: [what the next cycle should do]
+Plan: [which task]
+Evidence: [new evidence, if any]
+Next: [next cycle's job]
 Blocker: [if any, or "none"]
 ```
 
-**Update PLAN.md Progress section:**
+**Progress entry:**
 ```
-- [DATE TIME] Cycle N: [what happened]. Next: [what's next]. Blocker: [if any].
+- [DATE TIME] Cycle N: [what happened]. Next: [next]. Blocker: [if any].
 ```
 
-Push when ready — not required per-cycle. A commit is only a local code
-snapshot. The checkpoint for any publishable branch/PR/release is the owning
-PLAN.md update plus `ledger-emit.sh --event publish` with concise summary,
-plan task id, proof, `handoff_status`, files claimed, next-agent resume, and the
-resulting ledger eid carried into the branch/PR/release handoff before the
-publish leaves the machine.
+Push when ready — not required per-cycle. A commit is a local code snapshot only. The checkpoint for any publishable branch/PR/release is the owning PLAN.md update plus `ledger-emit.sh --event publish` carrying summary, plan task id, proof, `handoff_status`, files claimed, next-agent resume, and the resulting ledger eid — emitted into the branch/PR/release handoff before the publish leaves the machine.
 
-**Reconcile planned vs actual:** Compare what the plan said with what the git diff shows. If they diverge, run `vidux drift <PLAN.md> --task ... --planned ... --actual ... --why ... --plan-update ... --next ...` or call `scripts/vidux-drift-log.py` directly. The helper writes `## Drift Log`, appends Progress, and can explicitly block stale tasks, add follow-up tasks, or mirror the drift into subplans. When the drift exposes a reusable prevention, record it with `--prevention`; when telemetry is enabled, emit a local signpost for `drift.record` / `cache.suggest`. The plan always reflects truth.
+**Reconcile planned vs actual:** compare plan text against the git diff. On divergence, run `vidux drift <PLAN.md> --task ... --planned ... --actual ... --why ... --plan-update ... --next ...` or call `scripts/vidux-drift-log.py` directly. It writes `## Drift Log`, appends Progress, and can block stale tasks, add follow-up tasks, or mirror drift into subplans. Record reusable preventions with `--prevention`; emit local signposts for `drift.record` / `cache.suggest` when telemetry is on. The plan always reflects truth.
 
-**Checkpoint script (`vidux-checkpoint.sh`):** handles both v1 checkboxes and v2 FSM states.
-Use `--status` to distinguish outcomes:
-- `--status done` (default) — task verified; marks `[completed]`
-- `--status done_with_concerns` — works but has caveats; marks `[completed]`, adds `[concerns noted]` to Progress
-- `--status done_with_concerns --blocker "note"` — same as above, blocker field surfaced next READ
-- `--status blocked` — external dependency; marks `[blocked]`, adds `[BLOCKED]` to Progress; loop skips to next task next cycle
+**Checkpoint script (`vidux-checkpoint.sh`)** handles v1 checkboxes and v2 FSM states. `--status`:
+- `done` (default) — verified; marks `[completed]`
+- `done_with_concerns` — works with caveats; marks `[completed]` + `[concerns noted]` in Progress
+- `done_with_concerns --blocker "note"` — same, blocker surfaced next READ
+- `blocked` — external dependency; marks `[blocked]` + `[BLOCKED]` in Progress; loop skips next cycle
 
-Git failures propagate — a checkpoint script exit code > 0 means the commit did not land.
+Git failures propagate: checkpoint exit code > 0 means the commit did not land.
 
 ## Step 5: Complete
 
-The cycle is done only after its local worktree lifecycle is closed or explicitly
-recorded. Exit cleanly. The next cron fire will read fresh from files.
+The cycle is done only after its local worktree lifecycle is closed or explicitly recorded. Exit cleanly; the next fire reads fresh from files.
 
 Before exiting:
 
 1. Run `python3 ~/Development/vidux/scripts/vidux-worktree-gc.py --base origin/main <repo>`.
-2. If your lane's worktree is `merged_clean`, remove it with the classifier
-   from outside that worktree path: `--apply --yes`.
-3. If your lane's worktree is `open_pr`, record the PR URL/number in Progress
-   or memory and keep nursing it.
-4. If your lane's worktree is `dirty`, `closed_unmerged`, or `unmerged_no_pr`,
-   inspect/stash/commit/escalate, create a PR, absorb useful commits, or record
-   exactly why the branch is intentionally abandoned.
+2. `merged_clean` -> remove with the classifier from outside that worktree path: `--apply --yes`.
+3. `open_pr` -> record PR URL/number in Progress or memory; keep nursing it.
+4. `dirty`, `closed_unmerged`, or `unmerged_no_pr` -> inspect/stash/commit/escalate, create a PR, absorb useful commits, or record exactly why the branch is intentionally abandoned.
 
-A task is not complete while its only resume point is unrecorded local worktree
-state.
+A task is not complete while its only resume point is unrecorded local worktree state.
 
-Do NOT:
+NEVER:
 - Save state in memory
 - Carry context to the "next step"
 - Start a second task
@@ -239,22 +187,20 @@ Do NOT:
 
 ## Escalation Statuses
 
-Borrowed from PAUL (Execute/Qualify loop). Every task ends in one of:
+From PAUL (Execute/Qualify loop). Every task ends in one:
 
 | Status | Meaning | Next Action |
 |--------|---------|-------------|
-| **DONE** | Task complete, verified | Set to `[completed]` in PLAN.md |
-| **DONE_WITH_CONCERNS** | Works but has caveats | Set to `[completed]` + add concern to Progress entry |
-| **NEEDS_CONTEXT** | Can't proceed without more info | Keep as `[pending]`, note as `[Blocker: need evidence for X]` on the task, skip to next task |
-| **BLOCKED** | External dependency (human, CI, feature flag) | Set to `[blocked]` with `[Blocker: ...]` tag, skip |
+| **DONE** | Complete, verified | Set `[completed]` |
+| **DONE_WITH_CONCERNS** | Works with caveats | Set `[completed]` + concern in Progress |
+| **NEEDS_CONTEXT** | Can't proceed without more info | Keep `[pending]`, note `[Blocker: need evidence for X]`, skip to next task |
+| **BLOCKED** | External dependency (human, CI, feature flag) | Set `[blocked]` with `[Blocker: ...]`, skip |
 
-**Script support (v2):** Pass `--status <done|done_with_concerns|blocked>` to `vidux-checkpoint.sh`. The script handles both v1 (`[ ]`/`[x]`) and v2 FSM states. `NEEDS_CONTEXT` is handled by the agent: keep the task `[pending]`, note the missing evidence as a `[Blocker: ...]` on the task, move on — no checkpoint flag needed.
+**Script (v2):** pass `--status <done|done_with_concerns|blocked>` to `vidux-checkpoint.sh` (handles v1 `[ ]`/`[x]` and v2 FSM). `NEEDS_CONTEXT` is agent-handled: keep `[pending]`, note the missing evidence as `[Blocker: ...]`, move on — no flag needed.
 
 ## Per-Cycle Scorecard
 
-Checkpoint existence is necessary but not sufficient proof of a productive cycle.
-The scorecard makes cycle quality measurable so that `useful`, `busy`, and `blocked_clarified`
-cycles are distinguishable from commit volume alone.
+Checkpoint existence is necessary, not sufficient. The scorecard makes cycle quality measurable so `useful`, `busy`, and `blocked_clarified` are distinguishable from commit volume.
 
 ### Schema
 
@@ -264,10 +210,10 @@ outcome=<useful|busy|blocked_clarified>
   busy              — activity without delta: retries, investigation with no output
   blocked_clarified — blocker identified or scoped; reduces future cycles but no forward progress
 
-blocker_age=<N>     — consecutive cycles the current blocker has been active (0 = no blocker)
-retry=<N>           — times this task was attempted without reaching [completed]
+blocker_age=<N>     — consecutive cycles the current blocker has been active (0 = none)
+retry=<N>           — attempts on this task without reaching [completed]
 evidence=<+N|-N|0>  — net change in cited evidence sources this cycle
-proof=<descriptor>  — verifiable artifact change: "+1 deploy" | "+N tests" | "+1 commit" | "none"
+proof=<descriptor>  — verifiable artifact: "+1 deploy" | "+N tests" | "+1 commit" | "none"
 control_plane=<green|yellow|red|n/a>
   green  — deploy healthy, error rate normal
   yellow — deploy delayed or warnings present
@@ -277,21 +223,20 @@ control_plane=<green|yellow|red|n/a>
 
 ### Format in Progress entries
 
-Append scorecard inline after the cycle summary, before "Next:":
+Inline after the summary, before "Next:":
 
 ```
 - [2026-04-03] Cycle 7: Implemented auth boundary shell. outcome=useful blocker_age=0 retry=0 evidence=+2 proof=+1commit control_plane=green. Next: Task 5. Blocker: none.
 ```
 
-All fields are optional — v1 Progress entries without scorecard remain valid.
-When present, all fields appear on the same Progress line between summary and "Next:".
+All fields optional — v1 Progress entries without scorecard stay valid. When present, all fields go on the same line between summary and "Next:".
 
 ### Interpreting trends
 
 | Pattern | Diagnosis | Action |
 |---------|-----------|--------|
 | `outcome=busy` x 2 | Task harder than planned | Break into sub-tasks |
-| `outcome=busy` x 3 | Stuck loop | Run failure protocol (five-whys) |
+| `outcome=busy` x 3 | Stuck loop | Failure protocol (five-whys) |
 | `blocker_age >= 3` | Blocker not resolving | Force surface switch; mark `[blocked]` with Decision Log entry |
 | `evidence=0` x 3+ | Executing without evidence | Gather evidence before next cycle |
 | `proof=none` x 4+ | Cycles not advancing proof | Re-assess plan readiness |
@@ -299,26 +244,24 @@ When present, all fields appear on the same Progress line between summary and "N
 
 ### How to populate
 
-Scorecard is retrospective — filled at CHECKPOINT time, not at READ time.
-When uncertain, prefer `outcome=busy` over `useful`. Calibration beats optimism.
+Scorecard is retrospective — filled at CHECKPOINT, not READ. When uncertain, prefer `busy` over `useful`. Calibration beats optimism.
 
 ## Stuck-Loop Detection
 
-If the same task has been attempted in 3+ consecutive cycles without progress, force a surface switch. Mark the stuck task `[blocked]` with a one-line Decision Log entry describing what was tried, and move to the next unblocked task. No human hand-off required — the next cycle either finds new evidence that unblocks it (via observed signal, new PR comment, or queue re-sort) or the task stays blocked until replaced.
+Same task attempted in 3+ consecutive cycles without progress -> force a surface switch. Mark it `[blocked]` with a one-line Decision Log entry of what was tried, move to the next unblocked task. No human hand-off: the next cycle either finds unblocking evidence (observed signal, new PR comment, queue re-sort) or it stays blocked until replaced.
 
-**Tooling support (v2):** `vidux-loop.sh` detects stuck loops via the `## Progress` section of PLAN.md — not git commit messages. If the task description (first 40 chars) appears in 3+ Progress entries and the task is still not `[completed]`, the loop sets `stuck: true` and `action: "stuck"`. This survives commit message variation and LLM compaction; the Progress section records the exact task text verbatim via checkpoint.
+**Tooling (v2):** `vidux-loop.sh` detects via the `## Progress` section — not git messages. If the task description (first 40 chars) appears in 3+ Progress entries and the task is not `[completed]`, the loop sets `stuck: true` and `action: "stuck"`. This survives commit-message variation and LLM compaction; Progress records the exact task text verbatim via checkpoint.
 
 ## UNIFY Step (Planned vs Actual)
 
-Borrowed from PAUL. At the end of each cycle, reconcile:
+From PAUL. At each cycle's end, reconcile:
+- What the plan SAID (task description)
+- What ACTUALLY happened (git diff + test results)
 
-- What the plan SAID would happen (the task description)
-- What ACTUALLY happened (the git diff + test results)
-
-If they diverge:
-- Update the plan to reflect reality (not the other way around)
-- Note the divergence in the next Progress entry
-- Decide if downstream tasks need updating
+On divergence:
+- Update the plan to reflect reality (not the reverse).
+- Note the divergence in the next Progress entry.
+- Decide if downstream tasks need updating.
 
 ## Example Cycle
 
@@ -326,25 +269,25 @@ If they diverge:
 Cycle 7 — Cron fires at 03:23
 
 READ:
-  PLAN.md: Task 4 is next ([pending], has evidence, no deps)
-  git log: Last commit was "vidux: complete Task 3"
-  git diff: Clean working tree
+  PLAN.md: Task 4 next ([pending], has evidence, no deps)
+  git log: last commit "vidux: complete Task 3"
+  git diff: clean tree
 
 ASSESS:
-  Plan is ready for code (all readiness checks pass)
-  Highest impact: Task 4 (implement API client boundary shell)
+  Plan ready (all readiness checks pass)
+  Highest impact: Task 4 (API client boundary shell)
   Not parallelizable (depends on Task 3)
 
 ACT:
   Execute Task 4:
-  - Read evidence: "boundary must expose 23 public methods (grep count)"
+  - Evidence: "boundary exposes 23 public methods (grep count)"
   - Write APIClientFeature.swift (229 lines)
-  - Build: run project build — GREEN
-  - Check off Task 4 in PLAN.md
+  - Build: GREEN
+  - Check off Task 4
 
 CHECKPOINT:
   Plan: Task 4 complete with proof. Next: Task 5 (entry-point wiring).
-  Ledger: publish row carries proof, handoff_status, concise summary, plan task id, files claimed, and resume.
+  Ledger: publish row carries proof, handoff_status, summary, plan task id, files claimed, resume.
   Git: commit/push branch only after the plan/ledger packet exists.
 
 COMPLETE.
@@ -352,15 +295,15 @@ COMPLETE.
 
 ## Timing Budget
 
-For a 20-minute cron interval, budget:
+For a 20-minute cron interval:
 
 | Step | Time | Notes |
 |------|------|-------|
 | Read | 30s | File reads are fast |
-| Assess | 30s | Decision is simple if plan is good |
+| Assess | 30s | Simple if the plan is good |
 | Act (plan refinement) | 15 min | Research agents + synthesis |
 | Act (code execution) | 15 min | One task + build/test |
-| Checkpoint | 1 min | Plan update + publish ledger row + resume handoff; git transport follows only when needed |
-| Buffer | 3 min | For retries, errors |
+| Checkpoint | 1 min | Plan update + publish ledger row + resume; git transport follows when needed |
+| Buffer | 3 min | Retries, errors |
 
-If a task will take longer than 15 min, break it into sub-tasks that each fit in one cycle.
+If a task exceeds 15 min, break it into sub-tasks that each fit one cycle.

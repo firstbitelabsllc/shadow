@@ -2,37 +2,25 @@
 
 > Instructions in CLAUDE.md are suggestions. Hooks are enforcement.
 
-A well-written plan means nothing if the agent ignores it. SKILL.md tells the agent what to do. This document describes how to make it _actually do it_ using Claude Code hooks.
+SKILL.md tells the agent what to do. Hooks make it actually do it. Instructions degrade first under token pressure; hooks fire at lifecycle points and inject guidance (or block) regardless of what the agent is "thinking about."
 
-## Why Hooks, Not Just Instructions
-
-Instructions in CLAUDE.md or SKILL.md are context. The agent reads them, weighs them against the current prompt, and decides how much to follow. Under token pressure or complex tasks, instructions degrade first. This is the enforcement gap.
-
-Hooks close the gap. They fire at specific lifecycle points and inject guidance (or block execution) regardless of what the agent is "thinking about." Three enforcement levels exist:
+## Three enforcement levels
 
 | Type | What it does | When to use |
 |------|-------------|-------------|
-| **prompt** | Injects text into the agent's context before it acts | Guide behavior without blocking. The agent sees the reminder and self-corrects. |
-| **command** | Runs a script. Non-zero exit blocks the tool call. | Hard gates: lint, format, destructive command prevention. |
-| **agent** | Spawns a sub-agent to evaluate the situation. | Complex judgment calls that need reasoning, not pattern matching. |
+| **prompt** | Injects text into context before the agent acts | Guide behavior without blocking. Agent sees the reminder and self-corrects. |
+| **command** | Runs a script; non-zero exit blocks the tool call. | Hard gates: lint, format, destructive-command prevention. |
+| **agent** | Spawns a sub-agent to evaluate. | Judgment calls that need reasoning, not pattern matching. |
 
-Vidux uses **prompt** hooks for plan compliance. Here is why:
-
-- Plan compliance is a judgment call, not a binary check. The agent might be editing a file that isn't literally named in PLAN.md but is clearly implied by the task. A `command` hook would hard-block that — frustrating and wrong.
-- Prompt hooks _guide_ the agent back to the plan. They say "hey, this file isn't in the plan — update the plan first if this is intentional." The agent can then choose to update PLAN.md or explain why the edit is covered.
-- The goal is unidirectional flow, not a straitjacket. We want the agent to _want_ to follow the plan because the plan is good, and the hook reminds it when it drifts.
+**Why prompt for all four plan-compliance hooks:** plan compliance is a judgment call, not a binary check — the agent may edit a file that isn't literally in PLAN.md but is implied by the task. A `command` hook can't reliably do that semantic comparison and a hard-block wastes a cycle; the agent has the context to make the call, so prompt hooks delegate the judgment to it and guide it back to the plan when it drifts.
 
 ---
 
 ## Hook 1: PreToolUse — Write/Edit Gate
 
 **Doctrine enforced:** #2 (Unidirectional flow), #1 (Plan authority)
-
-**Trigger:** Before any `Write` or `Edit` tool call.
-
-**What it does:** Checks if the target file path appears in PLAN.md's Tasks section. If not, injects a reminder to update the plan first.
-
-### Configuration
+**Trigger:** Before any `Write` or `Edit`.
+**What it does:** If the target file path isn't in (or implied by) a PLAN.md task, injects a reminder to update the plan first.
 
 ```json
 {
@@ -52,53 +40,17 @@ Vidux uses **prompt** hooks for plan compliance. Here is why:
 }
 ```
 
-### What gets injected
-
-Every time the agent calls `Write` or `Edit`, it sees this before the tool executes:
-
-> VIDUX PLAN CHECK: Before writing or editing a file, verify this file is mentioned in (or clearly implied by) a task in PLAN.md. If this file is NOT covered by any task in the plan:
->
-> 1. STOP -- do not proceed with the edit yet.
-> 2. Update PLAN.md first: add a new task entry (with evidence) that covers this file.
-> 3. Then return to the edit.
-
-### Why prompt, not command
-
-A `command` hook here would need a script that parses PLAN.md, extracts file paths from task descriptions, and compares them to the target path. This is brittle:
-
-- Task descriptions often say "implement the boundary shell" not "write `src/APIClientFeature.swift`"
-- The script would need fuzzy matching, which means false positives and false negatives
-- A blocked edit frustrates the agent and wastes a cycle
-
-A `prompt` hook delegates the judgment to the agent itself. The agent knows what task it is working on. The prompt just reminds it to check. This is the right level of enforcement for a judgment call.
-
-### What good compliance looks like
-
-```
-Agent thinks: "I need to edit utils/helpers.ts"
-Hook fires: "VIDUX PLAN CHECK: verify this file is in PLAN.md..."
-Agent checks: Task 3 says "refactor shared helpers for the new API"
-Agent proceeds: utils/helpers.ts is covered by Task 3. Edit continues.
-```
-
-```
-Agent thinks: "I should also clean up this unrelated test file"
-Hook fires: "VIDUX PLAN CHECK: verify this file is in PLAN.md..."
-Agent checks: No task mentions this test file. Not implied by current task.
-Agent self-corrects: Updates PLAN.md with new task, THEN edits the test file.
-```
+**Compliance examples:**
+- Edit `utils/helpers.ts`; Task 3 says "refactor shared helpers for the new API" → covered, edit proceeds.
+- Clean up an unrelated test file no task mentions → agent updates PLAN.md with a new task, THEN edits.
 
 ---
 
 ## Hook 2: PostToolUse — Drift Detection
 
 **Doctrine enforced:** #2 (Unidirectional flow), #6 (Process fixes > code fixes)
-
-**Trigger:** After any `Write` or `Edit` tool call completes.
-
-**What it does:** Reminds the agent to check whether the change it just made aligns with the task description in PLAN.md. If the actual change diverged from what the plan specified, the agent should run `vidux drift` or `scripts/vidux-drift-log.py` to update the plan and include any prevention hint that would have stopped this drift earlier (UNIFY step from LOOP.md).
-
-### Configuration
+**Trigger:** After any `Write` or `Edit` completes.
+**What it does:** Reminds the agent to reconcile the change against the task description. On divergence, run `vidux drift` / `scripts/vidux-drift-log.py` to update the plan and add a prevention hint (UNIFY step from LOOP.md).
 
 ```json
 {
@@ -118,37 +70,15 @@ Agent self-corrects: Updates PLAN.md with new task, THEN edits the test file.
 }
 ```
 
-### What gets injected
-
-After every `Write` or `Edit`, the agent sees:
-
-> VIDUX DRIFT CHECK: You just modified a file. Reconcile planned vs actual:
->
-> 1. What did the task in PLAN.md say you would do?
-> 2. What did you actually change?
-> 3. If they diverge: run `vidux drift` / `scripts/vidux-drift-log.py` to record planned, actual, why, plan update, next, prevention hints, and any subplans.
-
-### Why this matters
-
-The research is clear: agent code degradation is monotonic (SlopCodeBench, arxiv 2603.24755). Agents don't suddenly break — they drift. Each edit moves slightly further from the spec. By cycle 10, the code bears little resemblance to the plan.
-
-The drift detector catches this per-edit, not per-cycle. It forces the UNIFY step (reconcile planned vs actual) to happen continuously, not just at checkpoint time.
-
-### Why prompt, not command
-
-Same reasoning as Hook 1. Drift is a judgment call. The agent needs to compare the semantic intent of the task ("add error handling to the API client") with the semantic content of the edit (added try/catch blocks). No script can reliably do this comparison. The agent can.
+Catches drift per-edit, not per-cycle. Evidence: agent code degradation is monotonic (SlopCodeBench, arxiv 2603.24755) — agents don't break, they drift; by cycle 10 the code bears little resemblance to the plan.
 
 ---
 
 ## Hook 3: Stop — Checkpoint Enforcement
 
 **Doctrine enforced:** #5 (Design for completion), #2 (Unidirectional flow)
-
-**Trigger:** When the agent session ends (user stops, timeout, or agent completes).
-
-**What it does:** Reminds the agent to write a checkpoint before dying. Every shipped session must leave behind a structured plan/ledger packet so the next session can resume from the owning plan plus the matching ledger row.
-
-### Configuration
+**Trigger:** When the session ends (user stops, timeout, or agent completes).
+**What it does:** Reminds the agent to write a checkpoint before dying. Every shipped session leaves a structured plan/ledger packet so the next session can resume from the owning plan plus the matching ledger row.
 
 ```json
 {
@@ -167,30 +97,9 @@ Same reasoning as Hook 1. Drift is a judgment call. The agent needs to compare t
 }
 ```
 
-### What gets injected
+### Optional command pairing
 
-When the agent is about to stop:
-
-> VIDUX CHECKPOINT: Before this session ends, ensure you have:
->
-> 1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.
-> 2. Emitted a publish ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.
-> 3. Committed only after the plan/ledger packet exists, and only if code changed.
-> 4. If no work shipped, left a plan/ledger handoff or blocker note instead of inventing a commit.
->
-> The next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail.
-
-### Why prompt, not command
-
-A `command` hook on Stop could run `vidux-checkpoint.sh` automatically. But:
-
-- The script needs arguments (plan path, task description, summary) that only the agent knows
-- An automated checkpoint with wrong arguments is worse than no checkpoint
-- The prompt reminds the agent to checkpoint on its own terms, with the right context
-
-However, you CAN pair this prompt hook with a command hook that runs a lightweight check (does `## Progress` have an entry for today?) and prints a warning. The prompt is the primary enforcement; the command is a backup alarm.
-
-### Pairing with a command hook (optional)
+Pair the prompt with an `async` command that warns (does not block) when `## Progress` has no entry for today. The prompt guides; the command alarms.
 
 ```json
 {
@@ -214,19 +123,13 @@ However, you CAN pair this prompt hook with a command hook that runs a lightweig
 }
 ```
 
-The command hook here is `async: true` — it prints a warning but does not block the stop. It is a belt-and-suspenders pattern: the prompt guides, the command alarms.
-
 ---
 
 ## Hook 4: SessionStart — Resume Protocol
 
 **Doctrine enforced:** #5 (Design for completion), #1 (Plan authority)
-
 **Trigger:** When a new session starts.
-
-**What it does:** Injects a directive to read PLAN.md and the latest matching ledger row first. This is the "design for completion" principle in action: every session starts by reading durable files and ledger proof, not by remembering anything.
-
-### Configuration
+**What it does:** Injects a directive to read PLAN.md and the latest matching ledger row first. Every session starts by reading durable files and ledger proof, not by remembering anything. This is the highest-leverage hook: if the agent reads the plan and ledger, the other hooks are safety nets.
 
 ```json
 {
@@ -245,34 +148,9 @@ The command hook here is `async: true` — it prints a warning but does not bloc
 }
 ```
 
-### What gets injected
+### Optional command pairing
 
-When the agent wakes up:
-
-> VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:
->
-> 1. Read PLAN.md -- find the Purpose, then go to the Progress section.
-> 2. Find the last progress entry and matching publish/handoff ledger row -- that's where shipped work resumes.
-> 3. Check for uncommitted work: run git status and git diff --stat.
-> 4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.
-> 5. Find the highest-priority unblocked task -- that's your job this session.
-> 6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.
-
-### Why this is essential
-
-Without this hook, a fresh session starts with whatever the user's prompt says. The agent has no idea there's a plan, a progress log, or a queue of tasks. It will do what the user says — which might be "implement the feature" — and skip straight to code.
-
-The SessionStart hook ensures the agent's FIRST act is reading the plan and newest matching ledger row. This is the highest-leverage enforcement in Vidux. If the agent reads the plan and ledger, the other hooks are safety nets. If the agent skips them, the other hooks are fighting an uphill battle.
-
-### Why prompt, not command
-
-A `command` hook could run `cat PLAN.md` and dump it into context. But:
-
-- PLAN.md might be large. Dumping the whole thing wastes tokens.
-- The agent needs to READ it, not just receive it. Reading means finding the relevant section (Progress, next task), not scanning 200 lines of evidence.
-- The prompt tells the agent WHAT to read and WHERE to look, which is more effective than a raw dump.
-
-If you want both — the directive AND a quick summary — pair with a command:
+Pair with a command that prints a quick PLAN status summary (last Progress line + first few open tasks). The prompt tells the agent WHAT to read and WHERE; the command gives a glance.
 
 ```json
 {
@@ -354,19 +232,13 @@ All four hooks combined in a single `settings.local.json`:
 
 ## Design Principles
 
-### Prompt hooks are the right default for plan compliance
+### Prompt is the right default for plan compliance
 
-Plan compliance is not a binary check. It requires understanding the _intent_ of a task, not just pattern-matching file paths. Prompt hooks delegate this judgment to the agent — the only entity that has enough context to make the call.
-
-Reserve `command` hooks for objective, automatable checks:
-- Lint passes? command.
-- File exists? command.
-- Build succeeds? command.
-- "Does this edit align with the plan?" prompt.
+Plan compliance needs the _intent_ of a task, not file-path matching. Reserve `command` hooks for objective checks: lint passes, file exists, build succeeds. "Does this edit align with the plan?" → prompt.
 
 ### Hooks compose, not compete
 
-Each hook enforces one doctrine principle at one lifecycle point. They do not overlap:
+Each hook enforces one doctrine principle at one lifecycle point; they don't overlap.
 
 | Hook | Lifecycle | Doctrine | Question it asks |
 |------|-----------|----------|-----------------|
@@ -379,24 +251,22 @@ Together they form a closed loop: start from the plan, edit per the plan, verify
 
 ### The enforcement gradient
 
-Not all violations are equal. The hooks apply graduated pressure:
+Graduated pressure, a cascade where each hook catches what the previous missed:
 
 1. **SessionStart** — "Read the plan." (Orientation. Gentle.)
 2. **PreToolUse** — "Is this in the plan?" (Friction before action. Medium.)
 3. **PostToolUse** — "Did you drift?" (Reflection after action. Medium.)
 4. **Stop** — "Did you checkpoint?" (Obligation before death. Firm.)
 
-If the agent follows SessionStart properly, it rarely triggers the PreToolUse reminder. If it follows PreToolUse, it rarely triggers drift detection. The hooks are a cascade — each one catches what the previous one missed.
-
 ### Enforcement limits
 
-Hooks enforce at the AI tool level (Claude Code, Cursor, Codex). They cannot prevent:
-- **Direct git operations** — `git commit`, `git push`, manual file edits bypass all hooks
-- **Non-tool agents** — custom scripts, CI systems, and other tools that don't fire hook events
-- **In-memory drift** — agents can carry context forward within a session if they choose to ignore hook guidance
+Hooks fire at the AI-tool level (Claude Code, Cursor, Codex). They cannot prevent:
+- **Direct git operations** — `git commit`, `git push`, manual edits bypass all hooks.
+- **Non-tool agents** — custom scripts, CI, other tools that don't fire hook events.
+- **In-memory drift** — agents can carry context forward within a session if they ignore hook guidance.
 
-For these cases, rely on:
-- **Git commit hooks** (`pre-commit-plan-check.sh`) — verifies committed files match plan entries
-- **Ledger event logging** — records all work for post-hoc audit, even if hooks were bypassed
-- **Code review** — humans catch drift that automated enforcement misses
-- **Decision Log** — PLAN.md's Decision Log section prevents cron agents from undoing deliberate choices
+For these, rely on:
+- **Git commit hooks** (`pre-commit-plan-check.sh`) — verify committed files match plan entries.
+- **Ledger event logging** — records all work for post-hoc audit even if hooks were bypassed.
+- **Code review** — humans catch drift automated enforcement misses.
+- **Decision Log** — PLAN.md's Decision Log prevents cron agents from undoing deliberate choices.

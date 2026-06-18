@@ -46,7 +46,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_123abc",
                 "event": "publish",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": TEAM_TASK,
                 "summary": DEFAULT_SUMMARY,
                 "plan_path": str(ROOT / TEAM_PLAN),
@@ -61,7 +61,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_ok",
                 "event": "publish",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": VALID_TASK,
                 "summary": DEFAULT_SUMMARY,
                 "plan_path": str(ROOT / VALID_PLAN),
@@ -85,7 +85,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_wrong_task",
                 "event": "publish",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": "5.3.0az",
                 "summary": DEFAULT_SUMMARY,
                 "plan_path": str(ROOT / VALID_PLAN),
@@ -97,7 +97,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_wrong_proof",
                 "event": "publish",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": VALID_TASK,
                 "summary": DEFAULT_SUMMARY,
                 "plan_path": str(ROOT / VALID_PLAN),
@@ -109,7 +109,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_wrong_resume",
                 "event": "publish",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": VALID_TASK,
                 "summary": DEFAULT_SUMMARY,
                 "plan_path": str(ROOT / VALID_PLAN),
@@ -121,7 +121,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_wrong_summary",
                 "event": "publish",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": VALID_TASK,
                 "summary": "old summary",
                 "plan_path": str(ROOT / VALID_PLAN),
@@ -133,7 +133,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_wrong_event",
                 "event": "stop",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": VALID_TASK,
                 "summary": DEFAULT_SUMMARY,
                 "plan_path": str(ROOT / VALID_PLAN),
@@ -145,7 +145,7 @@ class PrBodyTests(unittest.TestCase):
             {
                 "eid": "evt_wrong_files",
                 "event": "publish",
-                "lane": "codex/linear-hardening",
+                "lane": "codex/pr-body-hardening",
                 "task_id": VALID_TASK,
                 "summary": DEFAULT_SUMMARY,
                 "plan_path": str(ROOT / VALID_PLAN),
@@ -168,7 +168,7 @@ class PrBodyTests(unittest.TestCase):
                 {
                     "eid": "evt_archived_ok",
                     "event": "publish",
-                    "lane": "codex/linear-hardening",
+                    "lane": "codex/pr-body-hardening",
                     "task_id": VALID_TASK,
                     "summary": DEFAULT_SUMMARY,
                     "plan_path": str(ROOT / VALID_PLAN),
@@ -192,9 +192,9 @@ class PrBodyTests(unittest.TestCase):
             os.environ["VIDUX_LEDGER_FILE"] = cls._old_vidux_ledger_file
         cls._ledger_tmp.cleanup()
 
-    def test_builds_ready_pr_body_with_linear_ref(self):
+    def test_builds_ready_pr_body_with_publish_ref(self):
         body = pr_body.build_pr_body(
-            lane="codex/linear-hardening",
+            lane="codex/pr-body-hardening",
             task=TEAM_TASK,
             summary=DEFAULT_SUMMARY,
             plan_path=TEAM_PLAN,
@@ -202,15 +202,13 @@ class PrBodyTests(unittest.TestCase):
             handoff_status="needs_review",
             ledger="evt_123abc",
             files_claimed=["scripts/vidux-pr-body.py", "tests/test_pr_body.py"],
-            linear="eve-123",
             resume="nurse CI and reply to review findings",
             changes=["update templates", "add helper"],
             review_passes=REVIEW_PASSES,
         )
 
-        self.assertIn("Lane: codex/linear-hardening", body)
+        self.assertIn("Lane: codex/pr-body-hardening", body)
         self.assertIn(f"Plan task: {TEAM_TASK}", body)
-        self.assertIn("Linear: EVE-123", body)
         self.assertIn("## Publish Propagation", body)
         self.assertIn(f"Summary: {DEFAULT_SUMMARY}", body)
         self.assertIn(f"Plan path: {TEAM_PLAN}", body)
@@ -226,27 +224,10 @@ class PrBodyTests(unittest.TestCase):
         self.assertIn("- update templates", body)
         self.assertTrue(body.endswith("\n"))
 
-    def test_rejects_malformed_linear_ref(self):
-        with self.assertRaises(ValueError):
-            pr_body.build_pr_body(
-                lane="codex/linear-hardening",
-                task=VALID_TASK,
-                summary=DEFAULT_SUMMARY,
-                plan_path=VALID_PLAN,
-                proof="proof",
-                handoff_status="done",
-                ledger="evt_ok",
-                files_claimed=[VALID_PLAN],
-                linear="linear:abc",
-                resume="nurse CI",
-                changes=["update templates"],
-                review_passes=REVIEW_PASSES,
-            )
-
     def test_rejects_missing_file_claims(self):
         with self.assertRaises(ValueError):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -262,7 +243,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_prose_file_claims(self):
         with self.assertRaisesRegex(ValueError, "file/path-like"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -278,7 +259,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_missing_file_claim_path(self):
         with self.assertRaisesRegex(ValueError, "existing path or git-known deleted path"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -314,7 +295,7 @@ class PrBodyTests(unittest.TestCase):
                     {
                         "eid": "evt_deleted_doc",
                         "event": "publish",
-                        "lane": "codex/linear-hardening",
+                        "lane": "codex/pr-body-hardening",
                         "task_id": "LI-5",
                         "summary": DEFAULT_SUMMARY,
                         "plan_path": str(root / "PLAN.md"),
@@ -330,7 +311,7 @@ class PrBodyTests(unittest.TestCase):
             )
 
             body = pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task="LI-5",
                 summary=DEFAULT_SUMMARY,
                 plan_path="PLAN.md",
@@ -350,7 +331,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_invalid_handoff_status(self):
         with self.assertRaises(ValueError):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -366,7 +347,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_non_eid_ledger(self):
         with self.assertRaisesRegex(ValueError, "publish ledger eid"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -382,7 +363,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_missing_ledger_eid(self):
         with self.assertRaisesRegex(ValueError, "hot/archive ledger"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -398,7 +379,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_existing_ledger_for_wrong_task(self):
         with self.assertRaisesRegex(ValueError, "ledger task_id must match"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -414,7 +395,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_existing_ledger_for_wrong_event(self):
         with self.assertRaisesRegex(ValueError, "ledger event must be publish"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -430,7 +411,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_existing_ledger_for_wrong_changed_files(self):
         with self.assertRaisesRegex(ValueError, "ledger files must include"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -446,7 +427,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_existing_ledger_for_wrong_summary(self):
         with self.assertRaisesRegex(ValueError, "ledger summary must match"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -462,7 +443,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_existing_ledger_for_wrong_proof(self):
         with self.assertRaisesRegex(ValueError, "ledger proof must match"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -478,7 +459,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_existing_ledger_for_wrong_resume(self):
         with self.assertRaisesRegex(ValueError, "ledger next_agent_resume must match"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -493,7 +474,7 @@ class PrBodyTests(unittest.TestCase):
 
     def test_accepts_archived_ledger_eid(self):
         body = pr_body.build_pr_body(
-            lane="codex/linear-hardening",
+            lane="codex/pr-body-hardening",
             task=VALID_TASK,
             summary=DEFAULT_SUMMARY,
             plan_path=VALID_PLAN,
@@ -511,7 +492,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_missing_review_passes(self):
         with self.assertRaises(ValueError):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -527,7 +508,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_failing_review_pass(self):
         with self.assertRaises(ValueError):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -546,7 +527,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_duplicate_review_pass(self):
         with self.assertRaises(ValueError):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -562,7 +543,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_missing_plan_path(self):
         with self.assertRaisesRegex(ValueError, "existing plan file"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task=VALID_TASK,
                 summary=DEFAULT_SUMMARY,
                 plan_path="docs/no-such-plan.md",
@@ -578,7 +559,7 @@ class PrBodyTests(unittest.TestCase):
     def test_rejects_task_missing_from_plan(self):
         with self.assertRaisesRegex(ValueError, "task must appear in plan_path"):
             pr_body.build_pr_body(
-                lane="codex/linear-hardening",
+                lane="codex/pr-body-hardening",
                 task="NO-SUCH-TASK",
                 summary=DEFAULT_SUMMARY,
                 plan_path=VALID_PLAN,
@@ -602,7 +583,7 @@ class PrBodyTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "task must appear in plan_path"):
                 pr_body.build_pr_body(
-                    lane="codex/linear-hardening",
+                    lane="codex/pr-body-hardening",
                     task="GHOST-TASK",
                     summary=DEFAULT_SUMMARY,
                     plan_path="PLAN.md",
@@ -629,7 +610,7 @@ class PrBodyTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "task must appear in plan_path"):
                 pr_body.build_pr_body(
-                    lane="codex/linear-hardening",
+                    lane="codex/pr-body-hardening",
                     task="GHOST-TASK",
                     summary=DEFAULT_SUMMARY,
                     plan_path="PLAN.md",
@@ -670,8 +651,6 @@ class PrBodyTests(unittest.TestCase):
                 REVIEW_PASSES[1],
                 "--review-pass",
                 REVIEW_PASSES[2],
-                "--linear",
-                "EVE-456",
                 "--resume",
                 "fix checks",
                 "--change",
@@ -687,7 +666,6 @@ class PrBodyTests(unittest.TestCase):
         self.assertIn("Summary: ship fix", result.stdout)
         self.assertIn(f"Plan path: {VALID_PLAN}", result.stdout)
         self.assertIn("Ledger: evt_456", result.stdout)
-        self.assertIn("Linear: EVE-456", result.stdout)
         self.assertIn("## Self-Scrutiny", result.stdout)
         self.assertIn("- ship fix", result.stdout)
 
@@ -968,8 +946,6 @@ class PrBodyTests(unittest.TestCase):
             REVIEW_PASSES[1],
             "--review-pass",
             REVIEW_PASSES[2],
-            "--linear",
-            "EVE-456",
             "--resume",
             "fix checks",
             "--change",

@@ -348,11 +348,14 @@ main() {
         esac
       done
       if [[ "${dev_bg}" -eq 1 ]]; then
+        export VIDUX_ROOT
         exec "${VIDUX_ROOT}/bin/vidux-browse"
       fi
+      export VIDUX_ROOT
       exec python3 "${VIDUX_ROOT}/scripts/vidux-dev.py"
       ;;
     browse)
+      export VIDUX_ROOT
       exec "${VIDUX_ROOT}/bin/vidux-browse" "$@"
       ;;
     status)

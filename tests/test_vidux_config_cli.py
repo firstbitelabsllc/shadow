@@ -79,7 +79,7 @@ class ViduxConfigCliTests(unittest.TestCase):
             live_path = str((tmp / "vidux.config.json").resolve())
             self.assertEqual(payload["checked"].count(live_path), 1)
 
-    def test_checked_in_example_config_passes_schema_without_leaking_adapter_values(self):
+    def test_checked_in_example_config_passes_schema_without_leaking_private_values(self):
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "check", "--config", str(ROOT / "vidux.config.example.json"), "--json"],
             cwd=ROOT,
@@ -92,15 +92,6 @@ class ViduxConfigCliTests(unittest.TestCase):
         self.assertNotIn("github-owner", result.stdout)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["inbox_sources_total"], 1)
-        source = payload["inbox_sources"][0]
-        self.assertEqual(source["adapter"], "gh_projects")
-        self.assertIn("token_file", source["config_keys"])
-        self.assertTrue(source["token_file"]["redacted"])
-        self.assertEqual(
-            source["token_file"]["resolved_path"],
-            str(Path("~/.config/vidux/gh-project.token").expanduser().resolve()),
-        )
 
     def test_strict_check_requires_live_config(self):
         with tempfile.TemporaryDirectory() as dirname:
@@ -148,13 +139,7 @@ class ViduxConfigCliTests(unittest.TestCase):
             tmp = Path(dirname)
             live = tmp / "vidux.config.json"
             payload = minimal_config()
-            payload["inbox_sources"] = [
-                {
-                    "adapter": "gh_projects",
-                    "enabled": True,
-                    "config": {"token": "super-secret-value"},
-                }
-            ]
+            payload["defaults"] = {"api_token": "super-secret-value"}
             write_config(live, payload)
 
             result = self.run_config(tmp, "show", "--json", "--config", str(live))
@@ -174,17 +159,11 @@ class ViduxConfigCliTests(unittest.TestCase):
             live = tmp / "vidux.config.json"
             payload = minimal_config()
             payload["external_plan_roots"] = ["external"]
-            payload["inbox_sources"] = [
-                {
-                    "adapter": "gh_projects",
-                    "enabled": True,
-                    "config": {
-                        "owner": "demo-owner",
-                        "token": "super-secret-value",
-                        "token_file": "tokens/gh.token",
-                    },
-                }
-            ]
+            payload["defaults"] = {
+                "owner": "demo-owner",
+                "token": "super-secret-value",
+                "token_file": "tokens/gh.token",
+            }
             write_config(live, payload)
 
             result = self.run_config(tmp, "show", "--json", "--config", str(live))
@@ -196,13 +175,6 @@ class ViduxConfigCliTests(unittest.TestCase):
             self.assertEqual(report["plan_store"]["resolved_path"], str((tmp / "projects").resolve()))
             self.assertEqual(report["external_plan_roots"], [str((tmp / "external").resolve())])
             self.assertTrue(report["external_plan_roots_detail"][0]["path_exists"])
-            source = report["inbox_sources"][0]
-            self.assertEqual(source["config_keys"], ["owner", "token", "token_file"])
-            self.assertIn("token", source["secret_fields_redacted"])
-            self.assertIn("token_file", source["secret_fields_redacted"])
-            self.assertEqual(source["token_file"]["resolved_path"], str((tmp / "tokens" / "gh.token").resolve()))
-            self.assertTrue(source["token_file"]["path_exists"])
-            self.assertTrue(source["token_file"]["redacted"])
             self.assertIn("inline_secret_value", {issue["code"] for issue in report["issues"]})
 
     def test_malformed_schema_reports_structured_errors(self):
@@ -215,13 +187,6 @@ class ViduxConfigCliTests(unittest.TestCase):
                     "version": 1,
                     "defaults": [],
                     "external_plan_roots": ["ok", 42],
-                    "inbox_sources": [
-                        {
-                            "adapter": "",
-                            "enabled": "yes",
-                            "config": {"token_file": 123, "auto_promote_target": []},
-                        }
-                    ],
                 },
             )
 
@@ -235,10 +200,6 @@ class ViduxConfigCliTests(unittest.TestCase):
             self.assertIn("version_not_string", codes)
             self.assertIn("defaults_not_object", codes)
             self.assertIn("external_plan_roots_bad_item", codes)
-            self.assertIn("inbox_source_adapter_missing", codes)
-            self.assertIn("inbox_source_enabled_not_bool", codes)
-            self.assertIn("inbox_source_token_file_invalid", codes)
-            self.assertIn("inbox_source_auto_promote_target_invalid", codes)
 
     def test_main_empty_argv_does_not_read_process_argv(self):
         original_argv = sys.argv[:]

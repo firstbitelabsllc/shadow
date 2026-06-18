@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide walks through your first Vidux cycle from install to checkpoint.
+Your first Vidux cycle, install to checkpoint.
 
 ## 1. Install Vidux
 
@@ -17,32 +17,32 @@ Open Claude Code in your project directory and run:
 /vidux "your project description"
 ```
 
-**On the first cycle**, Vidux gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready. This is intentional — "plan first, code second" is the core discipline.
+**On the first cycle**, Vidux gathers evidence and writes a `PLAN.md`. No code until the plan is ready — "plan first, code second" is the core discipline.
 
 ## 3. Understand the Startup Contract
 
-The shipped `/vidux` command resolves state first, then decides whether it needs to plan or execute:
+`/vidux` resolves state first, then decides whether to plan or execute:
 
-1. **Load the skill** and read `vidux.config.json` if the repo has one.
+1. **Load the skill** and read `vidux.config.json` if present.
 2. **Resolve the authority plan store** (`PLAN.md` in the repo, or an external/local plan store from config).
-3. **Read the current state**: authority `PLAN.md`, recent progress, Decision Log, and git diff.
+3. **Read current state**: authority `PLAN.md`, recent progress, Decision Log, git diff.
 4. **Choose the next path**:
    - no authority plan yet -> gather evidence and draft one
    - authority plan exists -> resume `[in_progress]` work first, otherwise pick the next ready `[pending]` task
 
-The public `/vidux` spec does not require an intermediate "amplified prompt" review step or a special "fire" confirmation. What matters is that the command resolves the plan, reads the repo state, and then runs the stateless cycle.
+The public `/vidux` spec requires no intermediate "amplified prompt" review step or "fire" confirmation. The command resolves the plan, reads repo state, runs the stateless cycle.
 
 ## 4. The First Cycle: Evidence Gathering
 
-The first cycle always produces a `PLAN.md`, not code. Vidux follows the rule:
+The first cycle always produces a `PLAN.md`, not code. Rule:
 
 > **A plan entry without evidence is a guess. Guesses cause rework.**
 
-The agent will:
-1. Grep the codebase for relevant patterns
-2. Read related files
-3. Check git log for recent changes
-4. Synthesize findings into a structured PLAN.md
+The agent:
+1. Greps the codebase for relevant patterns
+2. Reads related files
+3. Checks git log for recent changes
+4. Synthesizes findings into a structured PLAN.md
 
 After the first cycle, you'll have a `PLAN.md` that looks like:
 
@@ -66,7 +66,7 @@ Why this exists. One paragraph.
 
 ## 5. Subsequent Cycles: Stateless Execution
 
-On the second `/vidux` invocation:
+On the second `/vidux` invocation (READ → ASSESS → ACT → VERIFY → CHECKPOINT):
 
 1. **READ**: loads PLAN.md, checks for `[in_progress]` tasks (crash recovery)
 2. **ASSESS**: first pending task has evidence → ready to code
@@ -74,7 +74,7 @@ On the second `/vidux` invocation:
 4. **VERIFY**: runs build and tests, shows proof
 5. **CHECKPOINT**: updates the plan/progress record and emits the publish ledger row before any branch/PR/release publish
 
-When code changed, the local commit can still be concise:
+When code changed, the local commit stays concise:
 
 ```
 vidux: add rate limiting to login endpoint
@@ -85,8 +85,7 @@ vidux: add rate limiting to login endpoint
 ```
 
 The durable handoff is the owning `PLAN.md` update plus the matching publish
-ledger row with task id, proof, handoff status, files claimed, and next-agent
-resume.
+ledger row: task id, proof, handoff status, files claimed, next-agent resume.
 
 ## 6. Crash Recovery
 
@@ -100,11 +99,11 @@ Preserving WIP: map changes to the owning PLAN.md row
 Recording: plan + ledger handoff before commit/push/cleanup
 ```
 
-The agent preserves the in-progress work first, records a plan/ledger handoff, then commits only after the plan/ledger packet exists and only if code changed.
+The agent preserves in-progress work first, records a plan/ledger handoff, then commits only after the plan/ledger packet exists and only if code changed.
 
 ## 7. When All Tasks Complete
 
-When the queue empties, the agent doesn't just exit — it scans for new work:
+When the queue empties, the agent scans for new work:
 
 1. Checks `INBOX.md` for unprocessed findings
 2. Scans owned paths for issues
@@ -136,7 +135,7 @@ If nothing is found, it checkpoints and exits with proof of what was scanned.
 /vidux "investigate performance issues in the dashboard. Plan only, no code this cycle."
 ```
 
-There is no documented `/vidux --plan` flag in the shipped command spec. If you want a planning-only pass, say so in the request itself.
+No `/vidux --plan` flag exists in the shipped command spec. For a planning-only pass, say so in the request.
 
 ## Next Steps
 

@@ -1,6 +1,6 @@
 # Commands Reference
 
-The repo ships two command specs in `commands/`: `/vidux` and `/vidux-status`. These files describe interaction contracts, not shell executables.
+The repo ships two command specs in `commands/`: `/vidux` and `/vidux-status`. They describe interaction contracts, not shell executables.
 
 ## `/vidux`
 
@@ -8,7 +8,7 @@ The repo ships two command specs in `commands/`: `/vidux` and `/vidux-status`. T
 
 ### Stages
 
-The command file requires stage markers for the main cycle:
+The command file requires these stage markers for the main cycle:
 
 - `GATHER`
 - `PLAN`
@@ -44,7 +44,7 @@ When a plan exists, `/vidux` resumes `in_progress` work first, then decides whet
 
 ### Output model
 
-The command spec renders two buckets:
+Two buckets:
 
 - Plans tied to the current chat.
 - Other tracked plans.
@@ -58,13 +58,12 @@ It also defines a 10-cell progress bar and rules for hiding stale, inactive plan
 
 ## Shell CLI note
 
-The executable `bin/vidux` also exposes helper subcommands that back the
-discipline:
+`bin/vidux` exposes helper subcommands that back the discipline:
 
 - `vidux config path|check|show|init` resolves and validates the local
   `vidux.config.json`, falling back to `vidux.config.example.json` unless
-  `--strict` is used. JSON output includes redacted inbox-source and token-file
-  metadata for operator checks.
+  `--strict` is used. JSON output includes redacted inbox-source metadata for
+  operator checks.
 - `vidux drift <PLAN.md> ...` records planned-vs-actual deviation in
   `## Drift Log`, appends Progress, and can explicitly block stale tasks, add
   follow-up tasks, or mirror the drift into subplans.

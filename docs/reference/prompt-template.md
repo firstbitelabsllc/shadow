@@ -1,8 +1,8 @@
 # The 8-Block Prompt Template
 
-Every vidux lane — Claude Code or Codex — has a `prompt.md` on disk that drives each cycle. The prompt follows an 8-block structure so any agent picking up the lane knows exactly what to read, when to gate, how to act, and what it owns.
+Every vidux lane — Claude Code or Codex — has a `prompt.md` on disk that drives each cycle. The 8-block structure tells any agent picking up the lane what to read, when to gate, how to act, and what it owns.
 
-For the runtime mechanics of how the prompt is injected each fire, see [claude-lifecycle.md](../fleet/claude-lifecycle.md) and [codex-lifecycle.md](../fleet/codex-lifecycle.md).
+For how the prompt is injected each fire, see [claude-lifecycle.md](../fleet/claude-lifecycle.md) and [codex-lifecycle.md](../fleet/codex-lifecycle.md).
 
 ## The 8 Blocks
 
@@ -17,11 +17,11 @@ For the runtime mechanics of how the prompt is injected each fire, see [claude-l
 8. Checkpoint    — lane-local memory note plus publish packet fields for shipped work
 ```
 
-Every block is required. A lane missing any of them is underspecified and will produce drift.
+Every block is required. A lane missing any is underspecified and will drift.
 
 ## Block 1: Mission
 
-One paragraph. What this lane exists to accomplish, and what "done" looks like.
+One paragraph. What this lane accomplishes, and what "done" looks like.
 
 ```markdown
 ## 1. Mission
@@ -34,13 +34,13 @@ hits its named ship milestone.
 ```
 
 **Rules:**
-- Present-tense and concrete. Not "help with" — state the goal.
+- Present-tense, concrete. Not "help with" — state the goal.
 - Name the PLAN.md path the lane drives.
 - Name the retirement condition. A lane without an exit is a zombie.
 
 ## Block 2: Skills
 
-A list of skill tokens (starting with `/vidux`) that the lane should invoke before acting. Skills load the domain knowledge and discipline each cycle.
+Skill tokens (starting with `/vidux`) the lane invokes before acting. Skills load domain knowledge and discipline each cycle.
 
 ```markdown
 ## 2. Skills
@@ -51,8 +51,8 @@ Activate these skills every cycle, in order:
 
 **Rules:**
 - Put `/vidux` first so the cycle and FSM load before anything else.
-- Add repo-specific brand or domain skills only when the lane genuinely needs them.
-- Avoid loading skills the lane never uses — every token costs context.
+- Add repo-specific brand or domain skills only when the lane needs them.
+- NEVER load skills the lane never uses — every token costs context.
 
 ## Block 3: Read
 
@@ -77,7 +77,7 @@ Read in this order every cycle:
 
 ## Block 4: Gate
 
-Pre-flight checks that can **abort the cycle** before any action. Gates stop bad cycles cheaply.
+Pre-flight checks that **abort the cycle** before any action. Gates stop bad cycles cheaply.
 
 ```markdown
 ## 4. Gate
@@ -96,13 +96,13 @@ Abort this cycle (append `[QC] <reason>` to memory.md and exit) if:
 ```
 
 **Rules:**
-- Gates are binary: trigger → exit. Don't "maybe work around it."
+- Gates are binary: trigger → exit. NEVER "maybe work around it."
 - A concurrent-cycle exit is not a failure — it's the correct move.
 - Keep the list short. Too many gates and cycles never fire.
 
 ## Block 5: Assess
 
-The priority rule for picking **the one thing this cycle will do**. Unified so two agents running the same lane pick the same task.
+The priority rule for picking **the one thing this cycle does**. Unified so two agents on the same lane pick the same task.
 
 ```markdown
 ## 5. Assess
@@ -126,7 +126,7 @@ Priority order (first match wins):
 
 ## Block 6: Act
 
-How to actually do the work. This block holds the heavy rules — worktree discipline, verification commands, merge procedure, and any delegation contracts.
+How to do the work. This block holds the heavy rules — worktree discipline, verification commands, merge procedure, delegation contracts.
 
 ```markdown
 ## 6. Act
@@ -163,31 +163,30 @@ How to actually do the work. This block holds the heavy rules — worktree disci
   delegation in the same runtime, then review the diff before shipping.
 
 ### Long-horizon / multi-agent contract
-- Work expected to span more than one cycle, one day, or one agent must keep
-  one canonical PLAN.md. Use L2 sub-plans only for investigation/Fix Spec work,
-  and link them from the parent task instead of creating sibling plans.
+- Work spanning more than one cycle, day, or agent keeps one canonical PLAN.md.
+  Use L2 sub-plans only for investigation/Fix Spec work, linked from the parent
+  task — NEVER sibling plans.
 - Before editing a shared row, run `claims-bus.sh check <PLAN.md> <row-id>`;
   after a successful claim, record the owner and `files_claimed`.
-- Treat stale-proof as a gate: evidence older than 24h, older than the latest
-  material code/config change, or copied from another agent must be refreshed
-  or explicitly marked stale before publish.
-- At each meter checkpoint (at least every 30-60 minutes, before compaction,
-  and before handoff), update the owning PLAN.md Progress/Tasks/Drift Log with
-  proof, what remains, `handoff_status`, and the next-agent resume point.
-- Before publish, run three self-review passes: invariant audit
-  (plan/ledger/drift/claim propagation), regression runner, and adversarial
-  reviewer. Record the packet with `python3 scripts/vidux-publish-scrutiny.py`
-  using `--summary "<what changed>"`, `--review-pass invariant-audit:pass:"..."`,
-  `--review-pass regression-runner:pass:"..."`, and
-  `--review-pass adversarial-reviewer:pass:"..."`. Fix P0/P1 findings before
-  publishing.
+- Stale-proof is a gate: evidence older than 24h, older than the latest material
+  code/config change, or copied from another agent must be refreshed or marked
+  stale before publish.
+- At each meter checkpoint (every 30-60 min, before compaction, before handoff),
+  update the owning PLAN.md Progress/Tasks/Drift Log with proof, what remains,
+  `handoff_status`, next-agent resume.
+- Before publish, run three self-review passes (invariant audit, regression
+  runner, adversarial reviewer) and record the packet with
+  `python3 scripts/vidux-publish-scrutiny.py --summary "..."
+  --review-pass invariant-audit:pass:"..."
+  --review-pass regression-runner:pass:"..."
+  --review-pass adversarial-reviewer:pass:"..."`. Fix P0/P1 findings first.
 ```
 
 **Rules:**
-- Every verification command is literal — don't paraphrase.
+- Every verification command is literal — NEVER paraphrase.
 - "Never `git add -A`" prevents the classic "accidentally committed .env" bug.
 - Delegation is optional per lane; include the sub-block only if the lane ships code.
-- Long-horizon work is still one canonical plan. Sub-plans explain; they do not
+- Long-horizon work is still one canonical plan. Sub-plans explain; they NEVER
   become competing sources of truth.
 
 ## Block 7: Authority
@@ -216,13 +215,13 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 ```
 
 **Rules:**
-- List the "never touch" paths explicitly — a lane that silently edits out-of-scope files is worse than a lane that does nothing.
-- Cite the **reason** for forbidden paths (historical prose, secrets, cross-lane). Future agents read the reason to judge edge cases.
+- List the "never touch" paths explicitly — a lane that silently edits out-of-scope files is worse than one that does nothing.
+- Cite the **reason** for forbidden paths (historical prose, secrets, cross-lane). Future agents read it to judge edge cases.
 - The push-authorization section is mandatory for any code-writing lane. See SKILL.md for the full contract.
 
 ## Block 8: Checkpoint
 
-The `memory.md` append format. One line per cycle. Future agents scan the last 3 entries to pick up context.
+The `memory.md` append format. One line per cycle. Future agents scan the last 3 entries for context.
 
 ```markdown
 ## 8. Checkpoint
@@ -266,12 +265,12 @@ the last entry already said, skip the entry entirely.
 
 **Rules:**
 - One line, not a paragraph. The owning plan plus matching publish ledger row carries the shipped-cycle story; memory.md only orients the lane-local cycle note.
-- Always tag. Untagged entries are unsearchable by future agents.
+- ALWAYS tag. Untagged entries are unsearchable by future agents.
 - Include the session SHA (`{session-sha}`) when the lane hosts cross-session state.
 
 ## Full Example
 
-A real (abridged) prompt file showing all 8 blocks:
+An abridged prompt file showing all 8 blocks:
 
 ```markdown
 # project-coordinator — lane prompt
@@ -328,11 +327,11 @@ Tags: SHIP / MERGED / FIX / PROMOTE / DEFER / IDLE / QC / AUDIT-N / MILESTONE.
 No "everything fine" entries.
 ```
 
-A prompt.md this tight fits in under ~80 lines and gives any agent everything needed to run one cycle correctly.
+A prompt.md this tight fits under ~80 lines and gives any agent everything needed to run one cycle correctly.
 
 ## Common Failure Modes
 
-Prompts fail in predictable ways. If you hit one of these, add the missing block.
+Prompts fail in predictable ways. Hit one of these → add the missing block.
 
 | Failure | Root cause | Fix |
 |---|---|---|

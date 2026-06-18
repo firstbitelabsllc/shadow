@@ -1,19 +1,14 @@
 # Five Principles
 
-The five principles are the doctrine. They govern every agent decision: what to do next, when to gather evidence, when to stop, and how to leave things for the next agent.
+The doctrine. Governs every agent decision: what to do next, when to gather evidence, when to stop, how to leave things for the next agent.
+
+**publish packet** = ledger row carrying task id, proof, handoff status, files claimed, next-agent resume (defined in [The Cycle](/concepts/cycle)).
 
 ## Principle 1: Plan First, Code Second
 
-PLAN.md is the planning authority for the queue, decisions, constraints, and
-progress. Code is derived from that plan state. To change code, update the plan
-first; to claim a shipped cycle, pair the plan update with a publish ledger row
-that carries proof, handoff status, files claimed, and next-agent resume.
+PLAN.md is the planning authority for queue, decisions, constraints, progress. Code derives from plan state. To change code, update the plan first; to claim a shipped cycle, pair the plan update with the publish packet.
 
-Every plan entry cites evidence — a codebase grep, a PR comment, a design doc quote, a team chat message. **A plan entry without evidence is a guess. Guesses cause rework.**
-
-**Why this matters:** Agents that code without evidence make assumptions. Assumptions are often wrong. Evidence-first coding costs 2-5 minutes of research that saves 15-60 minutes of rework.
-
-**In practice:**
+Every plan entry cites evidence — a codebase grep, PR comment, design doc quote, team chat message. **A plan entry without evidence is a guess. Guesses cause rework.** Evidence: evidence-first coding costs 2-5 min research, saves 15-60 min rework.
 
 ```markdown
 # Bad (no evidence)
@@ -25,39 +20,28 @@ Every plan entry cites evidence — a codebase grep, a PR comment, a design doc 
 
 ## Principle 2: Design for Interruption
 
-Every session ends. Context will be lost. Auth will expire. State lives in repo
-files plus append-only ledger rows, never in memory. Checkpoints are structured
-(not freeform summaries). Any agent can resume from the last plan/ledger packet.
+Every session ends. Context will be lost. Auth will expire. State lives in repo files plus append-only ledger rows, never in memory. Checkpoints are structured, not freeform. Any agent resumes from the last plan/ledger packet.
 
-After any interruption, re-read PLAN.md and evidence/ from disk. Never trust summaries or memory for plan details.
+After any interruption, re-read PLAN.md and evidence/ from disk. NEVER trust summaries or memory for plan details.
 
-**Why this matters:** AI agents are inherently stateless. Building systems that assume continuity — "just pick up where I left off" — always fail at the worst moment.
-
-**In practice:** Every cycle updates the owning plan/progress record. Any
-publishable branch, PR, or release also emits a publish ledger row with the task
-id, proof, handoff status, files claimed, and next-agent resume. A fresh agent
-reads the plan plus ledger packet and knows exactly where things stand.
+Every cycle updates the owning plan/progress record. Any publishable branch, PR, or release also emits the publish packet. A fresh agent reads plan + ledger packet and knows exactly where things stand.
 
 ## Principle 3: Investigate Before Fixing
 
-Bug tickets are not line items. Before coding, map root cause, related surfaces, and impact. A fix without investigation is a guess.
+Bug tickets are not line items. Before coding, map root cause, related surfaces, impact. A fix without investigation is a guess.
 
-When 2+ tickets touch the same surface, bundle them into one investigation. The investigation produces a root cause analysis, an impact map, and a fix spec. Investigation notes live locally in the working tree until the fix ships — they are not a separate deliverable. No investigation PR, no evidence PR, no plan-flip PR. The unit of progress is code change.
-
-**Why this matters:** Surface-level fixes often miss the actual cause. An agent that jumps directly to "fix the auth bug" often patches a symptom while the root cause silently corrupts other surfaces.
-
-**In practice:**
+2+ tickets touch the same surface → bundle into one investigation. It produces a root cause analysis, impact map, fix spec. Investigation notes live locally in the working tree until the fix ships — not a separate deliverable. No investigation PR, no evidence PR, no plan-flip PR. The unit of progress is code change.
 
 ```
 Bug reported: "checkout double-charges on fast retry"
 
-Wrong approach:
+Wrong:
 - Add idempotency check → ship → done
 
-Right approach:
+Right:
 - Investigation: map all checkout code paths
 - Root cause: no in-flight guard + no idempotency key
-- Impact map: affects both web and mobile checkout
+- Impact map: affects web and mobile checkout
 - Fix spec: submit.ts:42 + retry.ts:18
 - Tests: cover the retry race condition
 - Gate: build + test + visual proof
@@ -65,25 +49,19 @@ Right approach:
 
 ## Principle 4: Self-Extend with a Brake
 
-Agents add tasks they discover. When you fix a bug, log the related bugs you saw. When you add a feature, log the edge cases you spotted.
+Agents add tasks they discover. Fix a bug → log the related bugs you saw. Add a feature → log the edge cases you spotted.
 
-But a shipped surface that works is done — stop polishing and move to the next gap. If the overall mission has gaps elsewhere, polish on a done surface is procrastination. Only re-extend plans when investigation reveals new surfaces, not when you find one more thing to tweak on a surface you already finished.
+But a shipped surface that works is done — stop polishing, move to the next gap. Polish on a done surface while the mission has gaps elsewhere is procrastination. Re-extend plans only when investigation reveals new surfaces, never to tweak finished work.
 
-**Why this matters:** Agents left to run freely tend to polish forever. "Self-extend with a brake" creates bounded, directed improvement: grow the queue when you see real gaps, but don't turn finished work into a perfectionism spiral.
+**The brake:** Surface works and tests pass → log what you noticed, move to the next task. Don't re-open completed work to "clean it up."
 
-**The brake:** If a surface is working and tests pass, log what you noticed, move to the next task. Don't re-open completed work to "clean it up."
-
-**If evidence changes mid-cycle, the queue re-sorts.** No permission needed — note the reorder in the next Progress entry.
+**Evidence changes mid-cycle → the queue re-sorts.** No permission needed; note the reorder in the next Progress entry.
 
 ## Principle 5: Prove It Mechanically
 
-Never assert "it works." Run the build, run the tests, show the screenshot. Definition of done for UI work is a visual proof, never just "the build passes."
+Never assert "it works." Run the build, run the tests, show the screenshot. Definition of done for UI work is visual proof, never just "the build passes."
 
-When an audit or grep produces a count or classification, spot-check at least one entry from each category before making decisions on it. A grep hit is not a fact — it's a lead. A line matching "git push" might be a prohibition ("NEVER git push"), not an instruction.
-
-**Why this matters:** "It should work" is the most dangerous statement in software. Agents that skip verification ship silent regressions. Mechanical proof catches them before they compound.
-
-**In practice:**
+When an audit or grep produces a count or classification, spot-check at least one entry from each category before deciding on it. A grep hit is a lead, not a fact — a line matching "git push" might be a prohibition ("NEVER git push"), not an instruction.
 
 ```
 Wrong: "The rate limiter is working — I can see it in the code."
@@ -94,19 +72,19 @@ Right:
 - Manual: curl -X POST /api/login 6x → 6th request returns 429
 ```
 
-**After a failure:** produce two artifacts — a code fix (the immediate repair) and a process fix (a hook, a test, a constraint, a plan update). The process fix is the valuable output; it makes the system smarter for next time.
+**After a failure:** produce two artifacts — a code fix (immediate repair) and a process fix (a hook, test, constraint, or plan update). The process fix is the valuable output; it makes the system smarter next time.
 
 ## The Quick Check / Deep Work Model
 
-Beyond the five principles, Vidux enforces a bimodal execution model. Every agent run is one of two modes:
+Beyond the five principles, every run is one of two modes:
 
 | Mode | Duration | Description |
 |---|---|---|
-| **Quick Check** | < 2 minutes | Nothing to do. Scan 5 surfaces, prove they're clean, exit with evidence. |
-| **Deep Work** | 15+ minutes | Real work. Execute tasks until the queue is empty or a blocker is hit. |
+| **Quick Check** | < 2 min | Nothing to do. Scan 5 surfaces, prove clean, exit with evidence. |
+| **Deep Work** | 15+ min | Real work. Execute tasks until queue empties or a blocker hits. |
 
-**The mid-zone (3-8 min) is the anti-pattern.** An agent that "does a little checking" and "makes a small fix" but doesn't fully commit to either mode produces the worst outcomes: shallow investigation that misses the root cause, partial fixes that leave the codebase in a worse state than before, and checkpoints that don't tell the next agent what actually happened.
+**The mid-zone (3-8 min) is the anti-pattern.** "A little checking" plus "a small fix" without committing to either mode produces the worst outcomes: shallow investigation that misses root cause, partial fixes leaving the codebase worse than before, checkpoints that don't tell the next agent what happened.
 
-**Quick Check exit criteria:** Cite exactly what was scanned (file paths, git log range, grep patterns). A quick check without proof is just an agent that gave up.
+**Quick Check exit criteria:** Cite exactly what was scanned (file paths, git log range, grep patterns). A quick check without proof is an agent that gave up.
 
-**Deep Work exit criteria:** Queue drained, or explicit blocker documented. Never exit deep work just because progress feels slow.
+**Deep Work exit criteria:** Queue drained, or explicit blocker documented. Never exit deep work because progress feels slow.
