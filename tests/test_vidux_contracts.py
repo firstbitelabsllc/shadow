@@ -1642,7 +1642,10 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_team_coordination_skill_push_constraint_is_publish_propagated(self):
         """Authority-plan skill push constraints must not be raw command-only publishes."""
-        plan = _read(ROOT / "projects" / "team-agent-coordination" / "PLAN.md")
+        plan_path = ROOT / "projects" / "team-agent-coordination" / "PLAN.md"
+        if not plan_path.exists():
+            self.skipTest("team-agent-coordination private plan is not present")
+        plan = _read(plan_path)
         self.assertNotIn("committed + pushed via `cd ~/Development/ai && git add -A && git commit && git push`", plan)
         for phrase in [
             "every change to a skill in `~/Development/ai/skills/` is a publish action",
@@ -1656,9 +1659,16 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_project_atomic_claim_protocols_are_publish_propagated(self):
         """Active project claim instructions must not teach plan-silent claim pushes."""
-        command_center = _read(ROOT / "projects" / "agentic-command-center" / "PLAN.md")
-        voice_plan = _read(ROOT / "projects" / "moussey-voice-agent" / "PLAN.md")
-        voice_inbox = _read(ROOT / "projects" / "moussey-voice-agent" / "INBOX.md")
+        required_paths = [
+            ROOT / "projects" / "agentic-command-center" / "PLAN.md",
+            ROOT / "projects" / "moussey-voice-agent" / "PLAN.md",
+            ROOT / "projects" / "moussey-voice-agent" / "INBOX.md",
+        ]
+        if not all(path.exists() for path in required_paths):
+            self.skipTest("private project claim plans are not present")
+        command_center = _read(required_paths[0])
+        voice_plan = _read(required_paths[1])
+        voice_inbox = _read(required_paths[2])
         combined = "\n".join([command_center, voice_plan, voice_inbox])
 
         for stale_phrase in [
@@ -1802,7 +1812,10 @@ class ViduxContractTests(unittest.TestCase):
 
     def test_team_coordination_release_gate_names_resume_packet(self):
         """Team-agent release gate summary must match the current release packet."""
-        plan = _read(ROOT / "projects" / "team-agent-coordination" / "PLAN.md")
+        plan_path = ROOT / "projects" / "team-agent-coordination" / "PLAN.md"
+        if not plan_path.exists():
+            self.skipTest("team-agent-coordination private plan is not present")
+        plan = _read(plan_path)
         row_start = plan.index("T10: **Vidux release publish gate**")
         row_end = plan.index("- [completed] T11:", row_start)
         row = plan[row_start:row_end]
@@ -2940,7 +2953,10 @@ class ViduxContractTests(unittest.TestCase):
 
             self.assertEqual(entry["event"], "vidux_checkpoint")
             self.assertEqual(entry["task_id"], "Task 1")
-            self.assertEqual(entry["handoff_status"], "done")
+            # Harness Contract block 8 (convergence ladder): a checkpoint with no
+            # merge SHA cannot certify a merge, so a legacy "done" demotes to the
+            # honest rung `pr_open`. "done" is no longer a status word.
+            self.assertEqual(entry["handoff_status"], "pr_open")
             self.assertEqual(entry["plan_path"], plan_path)
             self.assertEqual(
                 entry["next_agent_resume"],
@@ -2959,6 +2975,40 @@ class ViduxContractTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=10, cwd=tmpdir,
             )
             self.assertEqual(commit_count.stdout.strip(), "2")
+
+    def test_handoff_status_convergence_ladder(self):
+        """Harness Contract block 8: ledger handoff status is a convergence ladder
+        (branch_pushed < pr_open < merged < findable); 'done' is not a status word
+        and never overclaims a merge without a SHA."""
+        emit = self.SCRIPTS_DIR / "lib" / "ledger-emit.sh"
+        self.assertTrue(emit.exists(), f"missing {emit}")
+
+        def status_for(arg: str, merge_sha: str = "") -> str:
+            sha_clause = f"VIDUX_MERGE_SHA={merge_sha} " if merge_sha else ""
+            script = f'source "{emit}"; {sha_clause}_vidux_handoff_status "{arg}"'
+            res = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(res.returncode, 0, f"bash failed: {res.stderr}")
+            return res.stdout.strip()
+
+        # Ladder rungs pass through unchanged.
+        self.assertEqual(status_for("branch_pushed"), "branch_pushed")
+        self.assertEqual(status_for("pr_open"), "pr_open")
+        self.assertEqual(status_for("merged"), "merged")
+        self.assertEqual(status_for("findable"), "findable")
+        # Legacy "done"/"completed" cannot certify a merge without a SHA -> honest rung.
+        self.assertEqual(status_for("done"), "pr_open")
+        self.assertEqual(status_for("completed"), "pr_open")
+        # With a real merge SHA proving it, legacy "done" stamps the merged rung.
+        self.assertEqual(status_for("done", merge_sha="abc1234"), "merged")
+        # Non-ladder operational states are preserved.
+        self.assertEqual(status_for("blocked"), "blocked")
+        self.assertEqual(status_for("in_progress"), "in_progress")
+        self.assertEqual(status_for("needs_review"), "needs_review")
+        # Unknown input fails safe to needs_review (never to a convergence rung).
+        self.assertEqual(status_for("garbage"), "needs_review")
 
     def test_checkpoint_ledger_failure_blocks_commit(self):
         """checkpoint.sh must not commit if the checkpoint ledger row cannot be written."""
@@ -3047,7 +3097,10 @@ class ViduxContractTests(unittest.TestCase):
             plan_path = str(Path(plan).resolve())
 
             self.assertEqual(entry["task_id"], "Task 1")
-            self.assertEqual(entry["handoff_status"], "done")
+            # Harness Contract block 8 (convergence ladder): no merge SHA in env ->
+            # legacy "done" demotes to the honest rung `pr_open`, never overclaiming
+            # a merge the checkpoint cannot prove.
+            self.assertEqual(entry["handoff_status"], "pr_open")
             self.assertEqual(entry["plan_path"], plan_path)
             self.assertEqual(entry["next_agent_resume"], f"Resume from {plan_path}; next: check plan")
             self.assertIn(plan_path, entry["files"])
