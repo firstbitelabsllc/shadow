@@ -343,7 +343,7 @@ emit_release_publish() {
     --proof "${proof_text}"
     --handoff-status "${status}"
     --resume "${RESUME}"
-    --skills vidux,pilot-leo,ledger
+    --skills "vidux,pilot-leo,ledger"
     --file VERSION
     --file CHANGELOG.md
     --file "${PLAN_PATH_REL}"

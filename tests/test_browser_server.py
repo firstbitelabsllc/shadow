@@ -1441,9 +1441,6 @@ class BrowserPlanBriefTests(unittest.TestCase):
         comment_rail = (
             ROOT / "browser" / "static" / "comment-rail.js"
         ).read_text(encoding="utf-8")
-        markers = (
-            ROOT / "browser" / "static" / "comment-markers.js"
-        ).read_text(encoding="utf-8")
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
         self.assertIn("function renderPlanBrief", app)
@@ -1654,9 +1651,6 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
     def test_readaloud_footer_controls_and_annotation_fab_are_annotation_safe(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
-        markers = (
-            ROOT / "browser" / "static" / "comment-markers.js"
-        ).read_text(encoding="utf-8")
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
         topbar_meta = index.split('<div class="topbar-meta">', 1)[1].split("</div>", 1)[0]

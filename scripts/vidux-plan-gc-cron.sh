@@ -28,7 +28,11 @@ stamp() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
 # Roots to scan. Override with VIDUX_GC_ROOTS (space-separated). Non-existent
 # roots skip silently, so listing extra layouts is harmless.
-ROOTS=(${VIDUX_GC_ROOTS:-"$HOME/Development/vidux" "$HOME/Development/ai/vidux"})
+if [[ -n "${VIDUX_GC_ROOTS:-}" ]]; then
+  read -r -a ROOTS <<< "${VIDUX_GC_ROOTS}"
+else
+  ROOTS=("$HOME/Development/vidux" "$HOME/Development/ai/vidux")
+fi
 
 hard_cap_any=0
 swept=0
