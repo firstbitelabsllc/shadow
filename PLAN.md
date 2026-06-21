@@ -99,7 +99,10 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 4. **Wave 3 — Full fleet.** All push-capable automations on ready-PR flow.
 5. **Wave 4 — Lock the gate.** Branch protection rejects direct-main pushes from automation actors. Never before Wave 3 completes.
 
-Every wave boundary is reversible. Leo gates each transition.
+Every wave boundary is reversible. Agents take safe branch/PR/deploy transitions
+when the owning PLAN or prompt says proof gates are green; Leo approval is only
+required for explicit human decisions, money/credentials, destructive production
+moves, or true product forks.
 
 #### Wave 0 — Plan + audit [completed]
 
