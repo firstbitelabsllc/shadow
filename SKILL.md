@@ -271,7 +271,50 @@ Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet
 
 7. **Closeout per cycle:** decision, risk, blocker, next action — written to the Authority Store. Proof receipts live in the store, not the prompt; the human-facing line helps the reader decide (Closeout Gate stays in /amp). A reader continuing the lane needs decision/risk/blocker, not self-attestation.
 
-Completion claims are governed by the Evaluator Gate (see PLAN.md template: `Accept:` criteria + `[verify]` status flow) — a generator never flips its own row to done.
+8. **CONVERGENCE & FINDABILITY — done means merged + findable, nothing less.**
+   This is the done-state contract. It is the canon amp / leo-flow / ralph cite;
+   they point here, they do not redefine it.
+
+   - **The status ladder is a strict ladder, not a synonym set:**
+     `branch_pushed < pr_open < merged < findable`. You may only claim the rung
+     you can prove. **"done" / "complete" is NOT a status** — it is deleted from
+     the vocabulary. A row stamped `merged` requires a merge SHA reachable from
+     trunk; a row stamped `findable` requires a build/URL locator on top of that.
+   - **Findability gate.** A task is `[completed]` ONLY with BOTH (a) a merge SHA
+     reachable from `origin/<trunk>` AND (b) a typed `[Findable: …]` field naming
+     exactly where Leo opens it:
+     `- [completed] <task> [Findable: merged <sha> -> TestFlight build N | prod URL | preview URL | "in main"]`
+     A green draft PR is `pr_open`, never `[completed]`. A `[completed]` row whose
+     change is not in trunk is a contradiction — reject it.
+     *Findability is ONE typed field a tired human will actually fill, not a form.*
+   - **Honest-status rule.** The words **shipped / done / live / complete /
+     landed** are RESERVED for changes MERGED to trunk. For unmerged work the only
+     legal status words are **drafted / in review / stranded / pending merge**.
+     Say "draft PR #N, unmerged" — never "shipped" — until a merge SHA exists.
+   - **Convergence-pass trap (anti-fragmentation brake).** When **> 3** branches
+     in a repo are stranded (pushed but unmerged) for the lane, the next
+     READ/orient phase MUST run a convergence pass — DRIVE the mergeable ones to
+     trunk — BEFORE fanning out any new feature work. This is symmetric to the
+     Anti-Loop 3-strike brake: that one stops over-polishing, this one stops
+     over-spawning. Threshold default is **3** (conservative on purpose — never
+     tighten it to 1 and put the lane offline).
+   - **Stacking discipline.** If you branch off an UNMERGED base, you OWN driving
+     that base to merge OR integrating both into one branch before handoff. Track
+     merge order (`merge #889 then #891`). A feature stranded behind another
+     unmerged draft is born `[blocked: base #N unmerged]` and is never
+     `[completed]`. Never strand a feature behind an unmerged base on handoff.
+
+   *Why block 8 exists: the system optimizes fan-OUT and had no fan-IN. Every
+   literal gate could be satisfied by a green draft PR + a `COMPLETE` claim, so
+   "built but never merged" features stranded where Leo couldn't find them. The
+   ladder + findability field + convergence trap make convergence structural,
+   not narrative. See `## Trunk-First Rule` (every change merged before done) and
+   Principle 5 (prove the LIVE surface).*
+
+Completion claims are governed by the Evaluator Gate (see PLAN.md template:
+`Accept:` criteria + `[verify]` status flow) — a generator never flips its own
+row to done — AND by block 8 above: the evaluator may flip to `[completed]` only
+when a merge SHA and a `[Findable: …]` locator both exist.
 
 ---
 
@@ -331,7 +374,7 @@ Inside ## Tasks, every line starting with `- ` MUST be a task with a
 status tag. Use numbered lists (1. 2. 3.) or headers for non-task
 content like rollout strategies or phase preambles.
 
-Status FSM: pending -> in_progress -> [in_review] -> completed
+Status FSM: pending -> in_progress -> [in_review] -> [merged] -> completed
                               │                │
                               └───> blocked <───┘  (orthogonal tag on any active
                                                     state — an item can be
@@ -344,6 +387,14 @@ Status FSM: pending -> in_progress -> [in_review] -> completed
 review-bot acks. Skip it for docs, config, or plan-only work that never goes
 through review. Existing 4-state plans (pending / in_progress / completed /
 blocked) remain valid; agents may adopt in_review per-task.
+
+`[merged]` is the convergence rung between `[in_review]` and `[completed]`
+(Harness Contract block 8). A feature-class row may reach `[completed]` ONLY
+once its change is merged to trunk (a merge SHA reachable from `origin/<trunk>`)
+AND it carries a typed `[Findable: …]` locator. A green draft PR is `pr_open`,
+not `[completed]`; an `[in_review]` row with an open/draft PR has NOT converged.
+Non-feature rows (docs/config/refactors that never produce a user-openable
+artifact) skip `[merged]`/`[Findable]` and use the existing gates.
 
 **`[ETA: Xh]` — optional AI-hour estimate.** Completion (X/Y tasks done) is the headline; ETA is supplementary. Use it when tasks are similar-sized and the sum gives a meaningful "AI-hours remaining" read; skip it when tasks vary and the sum becomes fiction. An AI-hour is focused AI-agent work end-to-end, not wall-clock. Calibration: 0.25h trivial / 0.5h simple fix / 1h small feature / 2h moderate / 4h e2e bug / 8h+ multi-phase (promote to compound). ETAs are elastic — log scope moves in `## Decision Log` and update the tag. `/vidux-status` sums ETAs on pending + in_progress tasks; the sum is informational, not a contract. Completed + blocked tasks need no ETA (terminal for this calibration).
 
