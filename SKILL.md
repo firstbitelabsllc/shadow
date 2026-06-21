@@ -156,6 +156,19 @@ Tactical defaults from 30+ plan files across 5 repos. They apply everywhere, reg
 
 ---
 
+## Worktree Lifecycle Contract (WLC)
+
+Every git worktree moves through four states and MUST transition out of the first three. Leaving one stuck is the exact bug that produced **34 orphaned worktrees + a 12-branch unmerged graveyard** across the Resplit fleet (see `resplit-ios/.cursor/plans/WORKTREE-RECOVERY-2026-06-14.md`: 81 worktrees enumerated across 4 repos, 12 held genuinely lost work, all force-recovered to `recover/*` branches but left UNMERGED). The lifecycle is the contract; the GC pipeline is its enforcement — doctrine without a reaper is exactly how the graveyard grew.
+
+1. **CREATE → register.** Create ONLY off `origin/<trunk>`, **into a CONTAINED path — `<repo>-worktrees/<name>/` (preferred, already GC-classified), `<repo>/.claude/worktrees/`, or `/tmp/wt-*`. NEVER directly under a scan root like `~/Development/`.** A worktree at `~/Development/<name>` has a `.git` *file* that the ledger discover scan mis-reads as a repo root, re-enumerating the parent's whole worktree set N× and polluting repo discovery (an ad-hoc campaign's 17 `~/Development/sy-*` strongyes checkouts caused a ~17× rescan + a 53s→8s GC slowdown, 2026-06-20). Always pass an explicit contained absolute path to `git worktree add` — never a bare short slug. Log the creation to the ledger (`~/.agent-ledger/activity.jsonl`) with repo + branch + purpose. Pre-flight budget: if a repo already carries more than ~12 reapable orphan worktrees, run the GC sweep BEFORE adding another — don't grow the graveyard.
+2. **WORK → disposable scratch.** The worktree is a short-lived integration helper, never the source of truth (Trunk-First Rule).
+3. **LAND → same cycle, no open-ended deferral.** The branch is EITHER merged to trunk OR pushed to origin WITH an open draft PR. "Pushed but no PR" (`unmerged_no_pr`) is a BANNED terminal state. A `recover/*` branch is a 72-hour ticket — open a PR, cherry-pick onto current trunk, or log an explicit `ABANDONED: <reason>`; it is never a permanent parking lot.
+4. **TEARDOWN → reclaim.** Once landed, `git worktree remove` + delete the local branch + `git worktree prune`. A plan row / lane / task is NOT done while its work exists only as local worktree state.
+
+**Enforcement:** the `ledger` skill's `worktree_gc.sh` pipeline is the SINGLE cross-repo reaper of record, run by the `com.ai.worktree-gc` LaunchAgent every ~20 min — that cron IS the enforcement (a fast cached SessionStart warning hook exists but is an optional manual opt-in, not auto-wired). GC auto-removes ONLY provably-safe trees (clean / merged / on-origin); trees with unpushed commits, a detached HEAD not merged to base, uncommitted changes, or an unknown source are LISTED for the owner, never auto-deleted. `vidux-worktree-gc.py` is the planning/classifier layer that feeds this reaper — see the Worktree GC mechanics below.
+
+---
+
 ## The Cycle
 
 Every work session follows this loop:
@@ -215,9 +228,9 @@ Vidux defaults to trunk-first:
 - Treat lane branches/worktrees as disposable integration helpers, not the source of truth.
 - Before a job is done, every intended change MUST be merged or cherry-picked back into trunk in the canonical tree, with publish propagation recorded in the owning plan row + publish packet.
 - Run the final proof, release gates, and ship/deploy commands from that merged trunk state. If they publish externally, record the plan + ledger propagation before claiming done.
-- Do not end a job with required work stranded in a side branch/worktree unless a real external blocker prevents merge-back; if so, record the exact blocker and unmerged branch.
+- Do not end a job with required work stranded in a side branch/worktree unless a real external blocker prevents merge-back; if so, the carve-out MUST produce a tracked 72-hour ticket — an open PR against the unresolved question OR an explicit `ABANDONED: <reason>` note in the owning plan + ledger. Silent indefinite deferral on a local branch is banned (it is the `unmerged_no_pr` state the WLC forbids); record the exact blocker and unmerged branch either way.
 
-**Worktree lifecycle:** Before starting new lane work or leaving a branch behind, run `python3 <vidux-dir>/scripts/vidux-worktree-gc.py --base origin/main <repo>`. `merged_clean` is the only guarded cleanup bucket; the top-level `cleanup_decision` says whether guarded removal is available, owner approval is required before apply, or owner review is still required. `--owner-review-markdown` produces a handoff packet for non-removable rows with per-row `review_command` commands, last-activity evidence, and the exact `merged_clean` rows in guarded cleanup. `cleanup_decision`/`safe_cleanup_items` carry `cleanup_approval_status=required_before_apply` — read-only evidence until the owner approves the concrete paths. `open_pr` is durable handoff (nurse or record). `dirty`, `closed_unmerged`, `unmerged_no_pr` are not cleanup — they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
+**Worktree lifecycle:** This is the operational form of the **Worktree Lifecycle Contract (WLC)** above — see it for the four states and the BANNED terminal states. The `ledger` skill's `worktree_gc.sh` pipeline (`com.ai.worktree-gc` LaunchAgent, 20-min sweeps) is the SINGLE cross-repo reaper of record. `python3 <vidux-dir>/scripts/vidux-worktree-gc.py --base origin/main <repo>` is the per-repo planning/classifier layer that feeds (or defers to) that reaper — run it before starting new lane work or leaving a branch behind to classify the tree. `merged_clean` is the only guarded cleanup bucket; the top-level `cleanup_decision` says whether guarded removal is available, owner approval is required before apply, or owner review is still required. `--owner-review-markdown` produces a handoff packet for non-removable rows with per-row `review_command` commands, last-activity evidence, and the exact `merged_clean` rows in guarded cleanup. `cleanup_decision`/`safe_cleanup_items` carry `cleanup_approval_status=required_before_apply` — read-only evidence until the owner approves the concrete paths. `open_pr` is durable handoff (nurse or record). `dirty`, `closed_unmerged`, `unmerged_no_pr` are not cleanup — they require inspect/stash/commit/escalate, PR creation, absorption, or an explicit abandoned note. A task is not done while its work exists only as unrecorded local worktree state.
 
 **Build/test ownership in multi-agent repos:**
 
@@ -499,13 +512,13 @@ Three operations, one script:
 
 **Exit 2** (hard cap exceeded) is the gate signal: coordinators hold ACT and note the bloat in the next checkpoint — the plan needs attention beyond archival (too many completed tasks not split into phases, or Phase rollover overdue).
 
-Worktree GC is separate from plan GC. It classifies local git worktrees by branch/PR state before removing anything:
+Worktree GC is separate from plan GC. **There is one reaper of record, not two:** the `ledger` skill's `worktree_gc.sh` pipeline (`com.ai.worktree-gc` LaunchAgent, ~20-min sweeps) is the SINGLE cross-repo actor that actually removes trees. `vidux-worktree-gc.py` is NOT a competing reaper — it is the per-repo planning/classifier layer that classifies local git worktrees by branch/PR state and feeds (or defers to) the ledger reaper. It never owns the cross-repo sweep:
 
 ```bash
 python3 <vidux-dir>/scripts/vidux-worktree-gc.py --base origin/main [repo-dir]
 ```
 
-Read-only by default; see **Worktree lifecycle** (under Trunk-First Rule) for the bucket semantics and `--owner-review-markdown` packet. JSON top-level: `cleanup_decision.{guarded_removal_available, owner_approval_required_before_apply, cleanup_approval_status}` and `safe_cleanup_items` (removable rows, `cleanup_approval_required=true`, `cleanup_approval_status=required_before_apply` — read-only until owner approval). After approval, `--apply --yes` removes only `merged_clean` worktrees (clean non-primary, branch merged into base or PR merged). Dirty / open-PR / closed-unmerged / no-PR-unmerged are reported but never auto-removed.
+Read-only by default; see **Worktree Lifecycle Contract (WLC)** and **Worktree lifecycle** (under Trunk-First Rule) for the bucket semantics and `--owner-review-markdown` packet. JSON top-level: `cleanup_decision.{guarded_removal_available, owner_approval_required_before_apply, cleanup_approval_status}` and `safe_cleanup_items` (removable rows, `cleanup_approval_required=true`, `cleanup_approval_status=required_before_apply` — read-only until owner approval). After approval, `--apply --yes` removes only `merged_clean` worktrees (clean non-primary, branch merged into base or PR merged) — provably-safe trees only. Dirty / open-PR / closed-unmerged / no-PR-unmerged are reported but never auto-removed by either layer.
 
 ---
 
