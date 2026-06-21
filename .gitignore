@@ -5,6 +5,8 @@ __pycache__/
 *.pyc
 node_modules/
 docs/.vitepress/dist/
+.eve/
+.output/
 .claudux/
 .claudux-state.json
 QUEUE.jsonl

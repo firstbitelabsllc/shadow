@@ -19,6 +19,57 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - NEVER: Use re.sub or sed to patch TOML prompt fields — always regenerate from DB (Bug #22)
 - NEVER: Accept --theirs or --ours blindly in merge conflicts — preserve both sides (Doctrine 16)
 
+## Progress
+
+- [2026-06-20] Added a local-only Eve cockpit for Vidux on branch
+  `codex/eve-studio-vidux-20260620`: root `npm run eve:*` scripts,
+  `agent/` instructions and wrapper skills, read-only `plan-readiness`
+  subagent, local capability checker, generated-artifact ignores, and receiver
+  receipt `evidence/2026-06-20-eve-studio-vidux-receiver-receipt.md`. Proof:
+  `npm ci --dry-run`, `npm run eve:capabilities -- --json`,
+  `npm run eve:info -- --json`, `npm run eve:build`, `node --check
+  scripts/eve-capability-check.mjs`, `git diff --check`, `npm run
+  public-ready:grep`, and `npm test` (Vitest 7/7; Python unittest 470 OK, 1
+  skipped). No package publish, release/tag publish, hosted workflow dispatch,
+  external board sync, credential/config mutation, model/API call, ignored
+  private plan commit, or remote-machine mutation happened.
+- [2026-06-20] Tightened the Eve cockpit for Resplit day-one handoff on the
+  existing `codex/eve-studio-vidux-20260620` branch: added
+  `agent/onboarding/resplit-fleet.md`, Captain and Nia wrapper skills,
+  read-only `resplit-onboarding` subagent, and local
+  `npm run eve:resplit:readiness -- --json` packet check. This ports the
+  portable Captain skill-tier design, Nia read-first discipline, and
+  Resplit-specific ios/web/currency proof specialists into Eve without copying
+  private live state. No commit, push, branch mutation, hosted workflow
+  dispatch, external sync, credential/config mutation, package publish,
+  hosted model/API call, or remote-machine mutation happened in the readiness
+  command.
+- [2026-06-20] Re-proved PR `firstbitelabsllc/vidux#149` for the Eve true
+  integration lane. The Resplit onboarding packet moved from unsupported
+  `agent/onboarding/` into Eve-supported skill resources at
+  `agent/skills/vidux/references/resplit-fleet.md`, and
+  `scripts/eve-capability-check.mjs` now verifies the installed `ai`, `eve`,
+  and `zod` packages in `node_modules` plus `node_modules/.bin/eve`, not only
+  `package.json`. Fresh proof passed `npm ci --dry-run`, `npm ls eve ai zod
+  --depth=0`, `node --check scripts/eve-capability-check.mjs`, `node --check
+  scripts/eve-resplit-readiness.mjs`, `git diff --check`, `npm run
+  eve:capabilities -- --json`, `npm run eve:resplit:readiness -- --json`,
+  `npm run eve:info -- --json` (`ready`, 0 errors, 0 warnings), `npm run
+  eve:build`, `npm run public-ready:grep`, and `npm test` (Vitest 7/7; Python
+  unittest 470 OK, 1 skipped), plus focused contract reproof
+  `python3 -m unittest tests.test_vidux_contracts` (216/216). Moussey coding
+  handoff `0d859a1e-a7e1-4c63-ae22-251916fd344a` was staged and read back for
+  `codex-verifier` follow-up. Commit `91a1ebd` was pushed and PR `#149` was
+  marked ready for review; it is `OPEN`, non-draft, `MERGEABLE`/`UNSTABLE`,
+  with `Graphite / mergeability_check` passing. GitHub-hosted CI jobs did not
+  start because check annotations report failed account payments or a spending
+  limit that needs to be increased; raw job metadata shows empty steps and
+  runner id `0`, so this is recorded as a human billing gate rather than a
+  local code/test failure. No package publish, release/tag publish, manual
+  hosted workflow dispatch, external board sync, credential/config mutation,
+  model/API call, ignored private plan commit, or remote-machine mutation
+  happened.
+
 ## Tasks
 
 ### Phase 1: SKILL.md v3 — core rewrite
