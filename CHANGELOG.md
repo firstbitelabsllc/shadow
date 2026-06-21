@@ -8,6 +8,7 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 ## [Unreleased]
 
 ### Added
+- `scripts/vidux-step-journal.sh` — append-only JSONL step journal for crash-safe intra-row resume (idempotency key = row+step; record/is-done/resume-point/status/clear). Adds STEP-level replay on top of the row-level cycle checkpoint, for crons/lanes lacking top-level idempotency. ShellCheck-clean, jq-only.
 - Snowcubes imagegen Wave 022-033 resume pointers in `PLAN.md`, plus a shorter root `SKILL.md` description for Captain/frontmatter routing.
 - **Harness Contract block 8 — the done-state contract (Phase 1, vidux-amp-10x).**
   Added a CONVERGENCE & FINDABILITY block to `## Harness Contract` in `SKILL.md`
