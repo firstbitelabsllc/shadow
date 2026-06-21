@@ -50,6 +50,7 @@ class WorktreeGcTests(unittest.TestCase):
 
         self.add_worktree("merged-clean")
         self.add_worktree("open-pr")
+        self.add_detached_open_pr_worktree()
         dirty = self.add_worktree("dirty-branch")
         (dirty / "dirty.txt").write_text("local-only\n", encoding="utf-8")
         self.add_unmerged_worktree("closed-unmerged")
@@ -77,6 +78,19 @@ class WorktreeGcTests(unittest.TestCase):
         git(path, "commit", "-m", f"change {branch}")
         return path
 
+    def add_detached_open_pr_worktree(self):
+        branch = "detached-open-pr-source"
+        git(self.repo, "switch", "-c", branch)
+        filename = f"{branch}.txt"
+        (self.repo / filename).write_text(branch + "\n", encoding="utf-8")
+        git(self.repo, "add", filename)
+        git(self.repo, "commit", "-m", "change detached open pr")
+        head = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        git(self.repo, "switch", "main")
+        path = self.worktrees_dir / "detached-open-pr"
+        git(self.repo, "worktree", "add", "--detach", str(path), head)
+        return path
+
     def write_fake_gh(self, path):
         payload = [
             {
@@ -86,6 +100,18 @@ class WorktreeGcTests(unittest.TestCase):
                 "headRefName": "open-pr",
                 "isDraft": False,
                 "url": "https://example.test/pull/12",
+                "headRefOid": git(self.repo, "rev-parse", "open-pr").stdout.strip(),
+                "mergedAt": None,
+                "closedAt": None,
+            },
+            {
+                "number": 14,
+                "state": "OPEN",
+                "title": "detached open work",
+                "headRefName": "detached-open-pr-source",
+                "isDraft": False,
+                "url": "https://example.test/pull/14",
+                "headRefOid": git(self.repo, "rev-parse", "detached-open-pr-source").stdout.strip(),
                 "mergedAt": None,
                 "closedAt": None,
             },
@@ -96,6 +122,7 @@ class WorktreeGcTests(unittest.TestCase):
                 "headRefName": "closed-unmerged",
                 "isDraft": False,
                 "url": "https://example.test/pull/13",
+                "headRefOid": git(self.repo, "rev-parse", "closed-unmerged").stdout.strip(),
                 "mergedAt": None,
                 "closedAt": "2026-04-26T00:00:00Z",
             },
@@ -117,6 +144,7 @@ class WorktreeGcTests(unittest.TestCase):
         result = self.run_gc()
         payload = json.loads(result.stdout)
         by_branch = {item["branch"]: item for item in payload["worktrees"]}
+        detached = next(item for item in payload["worktrees"] if item["path"].endswith("detached-open-pr"))
 
         self.assertEqual("primary", by_branch["main"]["bucket"])
         self.assertIn("protected", by_branch["main"]["next_owner_action"])
@@ -127,6 +155,10 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertEqual(12, by_branch["open-pr"]["pr_number"])
         self.assertIn("review the PR", by_branch["open-pr"]["next_owner_action"])
         self.assertIn("gh pr view 12", by_branch["open-pr"]["review_command"])
+        self.assertIsNone(detached["branch"])
+        self.assertEqual("open_pr", detached["bucket"])
+        self.assertEqual(14, detached["pr_number"])
+        self.assertIn("gh pr view 14", detached["review_command"])
         self.assertEqual("dirty", by_branch["dirty-branch"]["bucket"])
         self.assertIn("preserve WIP", by_branch["dirty-branch"]["next_owner_action"])
         self.assertIn("git -C", by_branch["dirty-branch"]["review_command"])
@@ -148,17 +180,17 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertIn("log --oneline", by_branch["unmerged-no-pr"]["review_command"])
         self.assertIn("origin/main..HEAD", by_branch["unmerged-no-pr"]["review_command"])
         self.assertEqual(1, payload["summary"]["removable"])
-        self.assertEqual(6, payload["summary"]["total"])
+        self.assertEqual(7, payload["summary"]["total"])
         self.assertTrue(payload["cleanup_decision"]["automated_removal_allowed"])
         self.assertTrue(payload["cleanup_decision"]["guarded_removal_available"])
         self.assertTrue(payload["cleanup_decision"]["owner_approval_required_before_apply"])
         self.assertEqual(1, payload["cleanup_decision"]["removable_count"])
-        self.assertEqual(4, payload["cleanup_decision"]["owner_review_required_count"])
+        self.assertEqual(5, payload["cleanup_decision"]["owner_review_required_count"])
         self.assertEqual(
             {
                 "closed_unmerged": 1,
                 "dirty": 1,
-                "open_pr": 1,
+                "open_pr": 2,
                 "unmerged_no_pr": 1,
             },
             payload["cleanup_decision"]["blocked_by_buckets"],
@@ -173,11 +205,11 @@ class WorktreeGcTests(unittest.TestCase):
             payload["cleanup_decision"]["next_action"],
         )
         self.assertEqual(
-            ["closed_unmerged", "dirty", "open_pr", "unmerged_no_pr"],
+            ["closed_unmerged", "dirty", "open_pr", "open_pr", "unmerged_no_pr"],
             [item["bucket"] for item in payload["owner_review_items"]],
         )
         self.assertEqual(
-            ["closed-unmerged", "dirty-branch", "open-pr", "unmerged-no-pr"],
+            ["closed-unmerged", "dirty-branch", None, "open-pr", "unmerged-no-pr"],
             [item["branch"] for item in payload["owner_review_items"]],
         )
         self.assertNotIn("main", [item["branch"] for item in payload["owner_review_items"]])
@@ -208,6 +240,7 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertIn("last_commit_age_days=", result.stdout)
         self.assertIn("last_commit=change closed-unmerged", result.stdout)
         self.assertIn("review: gh pr view 13", result.stdout)
+        self.assertIn("review: gh pr view 14", result.stdout)
         self.assertIn("review: git -C", result.stdout)
         self.assertIn("next: review the PR; merge or close it before cleanup", result.stdout)
         self.assertIn("next: owner review required; open a PR, merge, or archive the branch", result.stdout)
@@ -215,7 +248,7 @@ class WorktreeGcTests(unittest.TestCase):
             "cleanup decision: owner approval required before applying 1 merged_clean worktree(s)",
             result.stdout,
         )
-        self.assertIn("owner review required for 4 non-removable worktree(s)", result.stdout)
+        self.assertIn("owner review required for 5 non-removable worktree(s)", result.stdout)
 
     def test_owner_review_markdown_packet(self):
         result = run(
@@ -241,6 +274,8 @@ class WorktreeGcTests(unittest.TestCase):
         )
         self.assertIn("open-pr", result.stdout)
         self.assertIn("[#12](https://example.test/pull/12)", result.stdout)
+        self.assertIn("(detached)", result.stdout)
+        self.assertIn("[#14](https://example.test/pull/14)", result.stdout)
         self.assertRegex(
             result.stdout,
             r"\| closed_unmerged \| closed-unmerged \| \[#13\]\(https://example\.test/pull/13\) \| 1 \| [^|]+T[^|]+ \| change closed-unmerged \|",
@@ -278,20 +313,21 @@ class WorktreeGcTests(unittest.TestCase):
         payload = json.loads(result.stdout)
 
         self.assertEqual([str((self.worktrees_dir / "merged-clean").resolve())], payload["removed"])
-        self.assertEqual(5, payload["summary"]["total"])
+        self.assertEqual(6, payload["summary"]["total"])
         self.assertEqual(0, payload["summary"]["removable"])
         self.assertFalse(payload["cleanup_decision"]["automated_removal_allowed"])
         self.assertFalse(payload["cleanup_decision"]["guarded_removal_available"])
         self.assertFalse(payload["cleanup_decision"]["owner_approval_required_before_apply"])
         self.assertEqual(0, payload["cleanup_decision"]["removable_count"])
-        self.assertEqual(4, payload["cleanup_decision"]["owner_review_required_count"])
+        self.assertEqual(5, payload["cleanup_decision"]["owner_review_required_count"])
         self.assertEqual("owner_review_required_before_cleanup", payload["cleanup_decision"]["next_action"])
         self.assertFalse(payload["cleanup_decision"]["cleanup_approval_required"])
         self.assertEqual("not_required", payload["cleanup_decision"]["cleanup_approval_status"])
-        self.assertEqual(4, len(payload["owner_review_items"]))
+        self.assertEqual(5, len(payload["owner_review_items"]))
         self.assertEqual([], payload["safe_cleanup_items"])
         self.assertFalse((self.worktrees_dir / "merged-clean").exists())
         self.assertTrue((self.worktrees_dir / "open-pr").exists())
+        self.assertTrue((self.worktrees_dir / "detached-open-pr").exists())
         self.assertTrue((self.worktrees_dir / "dirty-branch").exists())
         self.assertTrue((self.worktrees_dir / "closed-unmerged").exists())
         self.assertTrue((self.worktrees_dir / "unmerged-no-pr").exists())
