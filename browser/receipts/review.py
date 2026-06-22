@@ -31,6 +31,7 @@ DEFAULT_CORPUS = Path(
 RECONCILE_TOL = 0.02
 PROVIDER_ORDER = {"azure": 0, "claude": 1, "qwen": 2, "codex": 3, "gemma3": 4}
 STATE_ORDER = {"needs_review": 0, "ready_candidate": 1, "grounded_consistent": 2, "no_extractions": 3}
+INFORMATIONAL_TAX_KINDS = {"tax"}
 
 
 def _provider_key(provider: str) -> tuple[int, str]:
@@ -54,6 +55,10 @@ def _money_agrees(values: list[float]) -> bool:
     return high - low <= tolerance
 
 
+def _is_informational_tax(extra: dict[str, Any]) -> bool:
+    return str(extra.get("kind") or "").lower() in INFORMATIONAL_TAX_KINDS
+
+
 def reconciles(expected: dict | None) -> bool | None:
     """Return whether subtotal + extras approximately equals total."""
     if not isinstance(expected, dict):
@@ -62,15 +67,34 @@ def reconciles(expected: dict | None) -> bool | None:
     subtotal = _money(expected.get("subtotal"))
     if total is None or subtotal is None:
         return None
+    tolerance = max(RECONCILE_TOL, 0.005 * abs(total))
+    extras = [extra for extra in expected.get("extras", []) if isinstance(extra, dict)]
     extras_sum = sum(
         amount
-        for extra in expected.get("extras", [])
-        if isinstance(extra, dict)
+        for extra in extras
         for amount in [_money(extra.get("amount"))]
         if amount is not None
     )
-    tolerance = max(RECONCILE_TOL, 0.005 * abs(total))
-    return abs(total - (subtotal + extras_sum)) <= tolerance
+    if abs(total - (subtotal + extras_sum)) <= tolerance:
+        return True
+
+    # Some VAT/GST receipts report subtotal as the tax-inclusive amount and
+    # include tax as an informational disclosure. In those cases, subtotal plus
+    # non-tax extras should reconcile to total while tax extras remain present
+    # for evidence and display review.
+    has_tax_extra = any(_is_informational_tax(extra) for extra in extras)
+    if has_tax_extra:
+        non_tax_extras_sum = sum(
+            amount
+            for extra in extras
+            if not _is_informational_tax(extra)
+            for amount in [_money(extra.get("amount"))]
+            if amount is not None
+        )
+        if abs(total - (subtotal + non_tax_extras_sum)) <= tolerance:
+            return True
+
+    return False
 
 
 def extras_signature(expected: dict | None) -> list[str]:
