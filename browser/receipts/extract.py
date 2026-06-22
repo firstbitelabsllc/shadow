@@ -17,7 +17,9 @@ Benchmark finding (2026-05-30 Marathon Cafe receipt): both claude-sonnet and qwe
 a 3% credit-card processing fee that Azure prebuilt dropped — the aggregate signal P7 feeds back
 into Resplit's reconciliation (Azure under-extracts non-tax/tip extras).
 
-LLM providers resize the image to <=1568px first (a 12MP photo makes them crawl / time out).
+Cloud LLM providers resize the image to <=1568px first (a 12MP photo makes them crawl / time
+out). Local Ollama vision uses a smaller <=896px budget because qwen2.5-VL can otherwise stall
+for the full 300s on large phone photos while preserving enough receipt text for comparison.
 Provenance is injected in code; the LLM only extracts the content fields. Each extractor returns:
     {"provider": str, "latency_ms": int, "expected": <ScannedReceipt|None>, "problems": [...], "error": str|None, "raw": str}
 """
@@ -36,7 +38,8 @@ from typing import Any
 
 from receipts import contract, ocr, storage
 
-VISION_MAX_DIM = 1568  # Claude's optimal long-edge; also right-sizes local vision models.
+VISION_MAX_DIM = 1568  # Claude/Codex long-edge budget.
+OLLAMA_VISION_MAX_DIM = 896  # Keeps local qwen receipt probes under the Ollama timeout wall.
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 
@@ -464,7 +467,7 @@ def extract_ollama_vision(image_path: Path, model: str, *, label: str) -> dict:
     is base64-attached. qwen2.5-VL matches the cloud flagship; gemma3 hallucinates (benchmark-only)."""
     import base64
 
-    resized = _resize_for_vision(image_path.read_bytes())
+    resized = _resize_for_vision(image_path.read_bytes(), max_dim=OLLAMA_VISION_MAX_DIM)
     body = json.dumps({
         "model": model,
         "prompt": EXTRACT_PROMPT.format(path="the attached image"),
