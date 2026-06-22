@@ -4,7 +4,7 @@ Every section and annotation a vidux `PLAN.md` uses. For the discipline and cycl
 
 ## Section Order
 
-A canonical PLAN.md has these sections in this order. *Optional* sections may be omitted on small plans; NEVER re-order the required ones — tooling and agent muscle memory expect them in sequence.
+Canonical order below. *Optional* sections may be omitted on small plans; NEVER re-order the required ones — tooling and agent muscle memory expect the sequence.
 
 | # | Section | Required | Purpose |
 |---|---|:---:|---|
@@ -33,7 +33,7 @@ A canonical PLAN.md has these sections in this order. *Optional* sections may be
 | `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
 | `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
 
-`[in_review]` is optional. Core shell helpers center the four-state subset: `scripts/vidux-status.py`, `scripts/vidux-loop.sh`, `scripts/vidux-checkpoint.sh`, and the contract tests count or transition `pending`, `in_progress`, `completed`, and `blocked`. Use `in_review` when your repo has an explicit PR/review workflow; otherwise the four-state flow is the safest default.
+`[in_review]` is optional. Core shell helpers (`scripts/vidux-status.py`, `scripts/vidux-loop.sh`, `scripts/vidux-checkpoint.sh`) and the contract tests center the four-state subset: `pending`, `in_progress`, `completed`, `blocked`. Use `in_review` only when your repo has an explicit PR/review workflow; otherwise the four-state flow is the safest default.
 
 **Rules:**
 
@@ -69,14 +69,11 @@ The Decision Log is the **lock file** that stops stateless agents from undoing p
 | `[CONSTRAINT]` | Discovered a hard constraint (infra limit, compliance, budget) | `[CONSTRAINT] 2026-04-16 Function timeout 300s. Reason: Vercel Fluid Compute ceiling.` |
 | `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] 2026-04-16 Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
 
-A future agent greps the Decision Log by tag: "what's forbidden?" (`[DELETION]`), "what are the architectural choices?" (`[DIRECTION]`), "what changed recently?" (`[PIVOT]` / `[REVERSAL]`).
+Agents grep the log by tag: forbidden (`[DELETION]`), architectural choices (`[DIRECTION]`), recent changes (`[PIVOT]` / `[REVERSAL]`).
 
 ## Progress Entry Format
 
-One line per meaningful cycle. The Progress line orients future agents to the
-owning plan state; the matching publish ledger row carries shipped-cycle proof,
-handoff status, claimed files, next-agent resume. Git diff/log evidence can
-support the entry but does not replace the plan plus ledger packet.
+One line per meaningful cycle. The Progress line orients future agents to plan state; the matching publish ledger row carries shipped-cycle proof, handoff status, claimed files, and next-agent resume. Git diff/log evidence supports but never replaces the plan-plus-ledger packet.
 
 ```
 - [YYYY-MM-DD HH:MM] What happened. Next: what's next. Blocker: if any.
@@ -177,12 +174,12 @@ A task with `[Investigation: investigations/<slug>.md]` has a sub-plan in this s
 <build passes, tests pass, visual check (for UI)>
 ```
 
-Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in one code PR. See [PLAN.md Structure](/concepts/plan-structure) for the docs-site version.
+Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in one code PR.
 
 ## See Also
 
 - [Five Principles](/concepts/principles) — the doctrine behind the queue
 - [The Cycle](/concepts/cycle) — how a plan gets executed each run
-- [PLAN.md Structure](/concepts/plan-structure) — the template shape and section order
+- [PLAN.md Structure](/concepts/plan-structure) — template shape and section order
 - [Prompt Template](prompt-template.md) — the 8-block prompt shape for a vidux worker
 - [Fleet / Claude Lifecycle](../fleet/claude-lifecycle.md) — how a cycle actually fires

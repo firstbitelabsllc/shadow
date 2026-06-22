@@ -1,6 +1,6 @@
 # Recipe: Subagent Delegation (Mode A / Mode B)
 
-Same-tool delegation pattern for distributing work between a **parent agent** and a **child subagent** spawned via the `Agent()` tool. Replaces the pre-2.10.0 cross-tool model (Claude parent → Codex secondary).
+Same-tool delegation between a **parent agent** and a **child subagent** spawned via `Agent()`. Replaces the pre-2.10.0 cross-tool model (Claude parent → Codex secondary).
 
 ---
 
@@ -17,13 +17,13 @@ Same-tool delegation pattern for distributing work between a **parent agent** an
 
 Cross-tool delegation (Claude parent → Codex secondary via `codex exec --sandbox read-only`) was deprecated in 2.10.0 for three reasons:
 
-1. **Prompt-shim fragility.** The Claude parent had to synthesize a shell-escaped prompt, redirect stdin, and parse Codex's stdout back into structured summary. TOML/shell quoting broke on backticks, heredocs, and long prompts.
-2. **Context loss across the boundary.** Codex ran in a fresh process with no memory of the parent's plan state. Every delegation re-explained the mission. Summaries came back stripped of the parent's working hypothesis.
-3. **Egress friction.** Codex ran in a separate sandbox; the parent couldn't reach into the worktree to confirm file edits. Mode B in particular required shared filesystem plus careful sandbox selection — routinely mis-configured.
+1. **Prompt-shim fragility.** The parent had to synthesize a shell-escaped prompt and parse Codex's stdout back into a summary; TOML/shell quoting broke on backticks, heredocs, and long prompts.
+2. **Context loss across the boundary.** Codex ran in a fresh process with no memory of the parent's plan state, so every delegation re-explained the mission and summaries came back stripped of the parent's working hypothesis.
+3. **Egress friction.** Codex ran in a separate sandbox; the parent couldn't reach into the worktree to confirm edits. Mode B required shared filesystem plus careful sandbox selection — routinely mis-configured.
 
 Now delegation is **parent Agent → child `Agent()` subagent, same runtime.** The subagent inherits the parent's environment, gets a fresh context window, and returns via the same tool protocol. No shell escaping, no cross-process coordination, no sandbox mismatch.
 
-If you run Codex as your primary tool, see `guides/recipes/codex-runtime.md` — the same pattern works, but the subagent dispatch primitive is Codex's own equivalent of `Agent()`.
+If you run Codex as your primary tool, see `guides/recipes/codex-runtime.md` — same pattern, but the dispatch primitive is Codex's own equivalent of `Agent()`.
 
 ---
 
@@ -60,7 +60,7 @@ Do not explain your reasoning. Do not echo the task. Do not write code.
 If you find yourself writing more than those three sections, stop.
 ```
 
-The contract is honored reliably across reasoning levels (medium/high/xhigh all return exactly 3 sections with <0.2% token variance).
+Honored reliably across reasoning levels (medium/high/xhigh all return exactly 3 sections, <0.2% token variance).
 
 ---
 
@@ -96,7 +96,7 @@ Every Mode B prompt includes ALL FIVE blocks:
 5. Out of scope: what the secondary must NOT change (prevents refactor creep).
 ```
 
-The "Out of scope" block is load-bearing. Without it, the subagent will often refactor adjacent code it decides "looks wrong" — the parent's diff review then either accepts unasked-for scope (tech debt) or rejects the whole diff (wasted cycle).
+The "Out of scope" block is load-bearing. Without it, the subagent often refactors adjacent code it decides "looks wrong" — the parent's diff review then either accepts unasked-for scope (tech debt) or rejects the whole diff (wasted cycle).
 
 ---
 
@@ -124,9 +124,7 @@ Run `git diff` and verify in this order — stop at the first fail:
 
 ## Measured wins (historical, from cross-tool era)
 
-The 10-110x Mode A savings and ~5x Mode B savings were measured with Claude-as-primary + Codex-as-secondary, where the secondary's baseline cost sat on a **separate token account**. Same-tool subagent dispatch still provides significant savings because the subagent gets a fresh context window — the parent reads only the compressed summary or the diff, never the full working set — but the absolute numbers will differ because both parent and child draw from the same account.
-
-Treat the old tier table as directional:
+The 10-110x Mode A and ~5x Mode B savings were measured with Claude-primary + Codex-secondary, where the secondary's cost sat on a **separate token account**. Same-tool dispatch still saves significantly — the parent reads only the compressed summary or the diff, never the full working set — but absolute numbers differ since parent and child draw from the same account. Treat the old tier table as directional:
 
 | Tier | Source size | Direct-read parent tokens | Delegated parent tokens |
 |---|---:|---:|---:|
@@ -134,7 +132,7 @@ Treat the old tier table as directional:
 | MEDIUM | 160 KB | 40,208 | ~800 |
 | HEAVY | 357 KB | 89,339 | ~800 |
 
-Savings ratio is lower under same-tool dispatch but the bounded-parent-context property still holds — that's the real win for long autonomous cycles.
+Savings ratio is lower under same-tool dispatch, but the bounded-parent-context property still holds — the real win for long autonomous cycles.
 
 ---
 
@@ -152,8 +150,8 @@ Savings ratio is lower under same-tool dispatch but the bounded-parent-context p
 
 ## Deprecated patterns
 
-- **Cross-tool delegation (Claude parent → Codex `codex exec --sandbox read-only` secondary).** Fragile and context-lossy. Retired 2026-04-17 in vidux 2.10.0.
-- **Codex shim prompts** (dynamically assembled shell-escaped prompts piped to `codex exec`). Tolerated for historical lanes during the breadcrumb window, but not for new work. New code-writing lanes spawn same-tool subagents.
+- **Cross-tool delegation** (Claude parent → Codex `codex exec --sandbox read-only` secondary). Fragile and context-lossy. Retired 2026-04-17 in vidux 2.10.0.
+- **Codex shim prompts** (shell-escaped prompts piped to `codex exec`). Tolerated for historical lanes during the breadcrumb window, not for new work — new code-writing lanes spawn same-tool subagents.
 - **Mixed-fleet coordination** (Claude writer + Codex peer writer against the same PLAN.md). Retired. If you run Codex, run Codex-only — see `guides/recipes/codex-runtime.md`.
 
 ---

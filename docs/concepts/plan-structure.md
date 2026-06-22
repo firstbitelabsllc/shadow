@@ -1,6 +1,6 @@
 # PLAN.md Structure
 
-Every project has exactly **one PLAN.md**. Course corrections — even dramatic pivots — update the existing plan's Decision Log. They NEVER spawn a sibling plan.
+Every project has exactly **one PLAN.md**. Course corrections — even dramatic pivots — update the existing plan's Decision Log; they NEVER spawn a sibling plan (see Course Correction).
 
 ## Full Template
 
@@ -33,11 +33,7 @@ Intentional choices that future agents must not undo.
 - [DIRECTION] [date] Chose X over Y. Reason: Z.
 
 ## Drift Log
-Optional structured record of implementation-time deviations. Use `vidux drift`
-when the plan said one thing but the verified implementation had to do another.
-Each entry records planned, actual, why, plan update, next move, and subplans
-that were mirrored. Optional `Prevention:` lines capture what future agents
-should check before repeating the same drift.
+Optional structured record of implementation-time deviations (see Drift Log section below). Use `vidux drift`.
 
 ## Progress
 Living log updated each cycle. Unexpected findings, concerns, and reorder
@@ -85,15 +81,15 @@ The docs and adapter layer understand `in_review`, but the core shell helpers ar
 - [pending] Task N: Short description [Evidence: source:line or PR #] [Depends: Task M]
 ```
 
-- **Status tag** — required: `[pending]`, `[in_progress]`, `[in_review]` (optional), `[completed]`, `[blocked]`
-- **Task number** — `Task N:` — required for cross-referencing
+- **Status tag** (required) — `[pending]`, `[in_progress]`, `[in_review]` (optional), `[completed]`, `[blocked]`
+- **Task number** (required) — `Task N:` for cross-referencing
 - **Description** — short, action-oriented
-- **Evidence citation** — required for all pending tasks before coding
-- **Depends** — optional; blocks until the dependency is `[completed]`
+- **Evidence citation** (required for all pending tasks before coding)
+- **Depends** (optional) — blocks until the dependency is `[completed]`
 
 ## The Decision Log
 
-The most important section for preventing agent loops. Stateless agents have no memory of WHY a previous agent chose something. Without it, an agent that finds "missing" code re-adds it, undoing a deliberate deletion.
+The most important section for preventing agent loops. Stateless agents have no memory of WHY a previous agent chose something — without it, an agent that finds "missing" code re-adds it, undoing a deliberate deletion.
 
 ```markdown
 ## Decision Log
@@ -110,7 +106,7 @@ Entry types:
 
 ## Drift Log
 
-`## Drift Log` is optional but first-class. For unavoidable implementation drift, not random notes. A good drift entry says:
+Optional but first-class. For unavoidable implementation drift, not random notes. A good drift entry says:
 
 - what the plan said would happen
 - what actually changed

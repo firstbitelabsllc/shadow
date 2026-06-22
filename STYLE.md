@@ -9,28 +9,14 @@ Agents follow ~150-200 instructions reliably. Compliance degrades **uniformly** 
 Drop "Why this exists / Why this matters" framing. Keep a story ONLY if it carries a hard number; fold it into a one-clause `Evidence:` tag and move the long version to an appendix.
 
 <bad>
-## 1. Plan is planning authority
-
-PLAN.md is the queue/planning authority for work, decisions, constraints, and progress. Code is derived from that plan state... An agent that edits code without a corresponding plan entry is violating the plan-first rule.
-
-*Why this matters: The Acme iOS fleet drifted 400+ lines from spec in 6 cycles before this rule existed. SlopCodeBench confirms it -- agent code degradation is monotonic.*
+PLAN.md is the queue/planning authority for work, decisions, constraints, and progress. Code is derived from that plan state... *Why this matters: The Acme iOS fleet drifted 400+ lines from spec in 6 cycles before this rule existed.*
 </bad>
 
 <good>
-## 1. Plan is authority
-
 PLAN.md owns work, decisions, constraints, progress. Code derives from it. Edit code with no plan entry = violation. Evidence: Acme drifted 400+ lines in 6 cycles pre-rule; SlopCodeBench: agent degradation is monotonic.
 </good>
 
-Anecdotes with no number are pure decoration — cut them whole:
-
-<bad>
-*Why this matters: Vidux built itself in 56/25/19. swiftify-v4 inverted the ratio. Guess which one shipped clean.*
-</bad>
-
-<good>
-(Vidux built itself at 56/25/19; the inverted ratio shipped dirty.)
-</good>
+Anecdotes with no number are pure decoration — cut them whole.
 
 ---
 
@@ -77,7 +63,7 @@ publish packet = {summary, task-id, plan-path, proof, handoff_status, files, cla
 Parallel prose paragraphs ARE a table. Same shape repeated N times = N rows.
 
 <bad>
-**1. Brainstorm-Plan-Execute-Verify Chain. What it does.** Enforces a strict phase sequence... **How Vidux adopts it.** The Vidux unidirectional flow is a direct descendant... **What we do NOT adopt.** Superpowers' brainstorm phase is interactive...
+**1. Brainstorm-Plan-Execute-Verify Chain. What it does.** Enforces a strict phase sequence... **How Vidux adopts it.** ... **What we do NOT adopt.** Superpowers' brainstorm phase is interactive...
 </bad>
 
 <good>
@@ -109,7 +95,7 @@ Reminds the agent to checkpoint before exit so the next session resumes. Config:
 Move war-stories out of the kernel doc:
 
 <bad>
-**Real-world incident (2026-05-12).** `music-semantic-backend-mvp.html` was dropped into `artifacts/` as a symlink... clicking it rendered 403... Replacing the symlink with a hard link fixed it. {+25 lines of walkthrough}
+**Real-world incident (2026-05-12).** `...html` dropped into `artifacts/` as a symlink... rendered 403... {+25 lines of walkthrough}
 </bad>
 
 <good>
@@ -123,7 +109,7 @@ Artifacts sharing an inode with a canonical source must be HARD links, not symli
 Welded mega-paragraphs hide rules. Split 4 rules into 4 bullets.
 
 <bad>
-Prove it mechanically: hit the live surface not the merge, and spot-check one entry per audit category, and every failure gets a code fix and a process fix, and a wiring PR for a pending path must activate or delete its skipped tests... {354 words, 4 rules}
+Prove it mechanically: hit the live surface not the merge, and spot-check one entry per audit category, and every failure gets a code fix and a process fix, and a wiring PR... {354 words, 4 rules}
 </bad>
 
 <good>
@@ -146,7 +132,6 @@ Prereqs: clone the repo... Verify: resolve the plan path... Safety: do not creat
 
 <good>
 NEVER: duplicate plans, run local-CI lanes, install LaunchAgents, delete worktrees, or push/merge unless plan AND user auth make it explicit.
-
 Prereqs: clone the repo + ~/Development/vidux, install toolchain, read AGENTS.md/PLAN.md.
 Verify: resolve plan path, inspect git state, run the smallest repo-owned proof.
 </good>
@@ -202,4 +187,4 @@ Keep ONE memorable metaphor if it earns its line. Delete the rest. Prefer the ba
 
 ## The mandate
 
-Vidux's own §Voice & Tone says "terse, concrete, evidence-cited, no hedging." The docs violate their own house style. Cutting prose RAISES compliance — it's not just shorter, it's more obeyed.
+Vidux's §Voice & Tone says "terse, concrete, evidence-cited, no hedging." Hold the docs to it. Cutting prose RAISES compliance — shorter is more obeyed.

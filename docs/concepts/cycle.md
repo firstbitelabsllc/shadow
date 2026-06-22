@@ -6,7 +6,7 @@ Every agent session — human-triggered or cron — runs five steps in order. No
 READ → ASSESS → ACT → VERIFY → CHECKPOINT → (next session) → READ → ...
 ```
 
-**publish packet** = ledger row carrying task id, plan path, proof, handoff status, files claimed, path-like claims, next-agent resume. Emitted by `ledger-emit.sh --event publish` for any branch/PR/release cycle.
+**publish packet** = ledger row carrying task id, plan path, proof, handoff status, files claimed, path-like claims, next-agent resume. Emitted by `ledger-emit.sh --event publish` for any branch/PR/release cycle, before the work leaves the machine.
 
 ## Step 1: READ
 
@@ -17,7 +17,7 @@ Read:
 - `git log --oneline -10` — recent history
 - `git diff` — uncommitted work from a crashed session
 
-**Crash recovery:** `git diff` shows uncommitted work from a dead session → inspect it, resume the owning plan row, checkpoint through the plan. Commit only when code changed. Emit the publish packet before any branch/PR/release leaves the machine.
+**Crash recovery:** `git diff` shows uncommitted work from a dead session → inspect it, resume the owning plan row, checkpoint through the plan. Commit only when code changed.
 
 **Time budget:** 60-90s. Longer = plan too large; add a GC task.
 
@@ -32,14 +32,15 @@ ELIF plan has [pending] tasks WITH evidence:
   → Set first [pending] to [in_progress], execute, verify, checkpoint
 
 ELIF plan has [pending] tasks WITHOUT evidence:
-  → Gather evidence locally, update plan in place — no commit until code ships
+  → Gather evidence locally, update plan in place
 
 ELIF plan is empty or missing:
-  → Research locally, draft initial PLAN.md — no commit until code ships
+  → Research locally, draft initial PLAN.md
 
 ELIF all tasks [completed]:
   → Verify final state. Mark mission complete.
 ```
+(Plan/evidence/research updates stay local — no commit until code ships.)
 
 **Readiness score (7/10 threshold).** Before coding:
 - Root cause identified? (+2)
@@ -48,7 +49,7 @@ ELIF all tasks [completed]:
 - Test cases defined? (+2)
 - Known unknowns documented? (+2)
 
-Score ≥ 7 → code. Score < 7 → gather more evidence.
+≥ 7 → code. < 7 → gather more evidence.
 
 ## Step 3: ACT
 
@@ -90,7 +91,7 @@ Never assert "it works." Prove it.
 
 ## Step 5: CHECKPOINT
 
-Every cycle ends with a plan/progress checkpoint. Publishable branch, PR, or release work also emits the publish packet before transport.
+Every cycle ends with a plan/progress checkpoint. Publishable branch, PR, or release work also emits the publish packet.
 
 **Commit format (code changed):**
 ```
@@ -109,7 +110,7 @@ vidux: recover uncommitted work from crashed session
 - [DATE] What happened. Next: what's next. Blocker: if any.
 ```
 
-**Reconcile planned vs actual:** Compare what the plan SAID with what `git diff` SHOWS. Diverge → update plan, note the divergence in the Progress entry. The plan stays queue/planning authority; the publish packet records what shipped.
+**Reconcile planned vs actual:** Compare what the plan SAID with what `git diff` SHOWS. Diverge → update plan, note the divergence in the Progress entry.
 
 ## Stuck Detection
 

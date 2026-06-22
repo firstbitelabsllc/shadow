@@ -8,555 +8,160 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 ## [Unreleased]
 
 ### Added
-- `scripts/vidux-step-journal.sh` — append-only JSONL step journal for crash-safe intra-row resume (idempotency key = row+step; record/is-done/resume-point/status/clear). Adds STEP-level replay on top of the row-level cycle checkpoint, for crons/lanes lacking top-level idempotency. ShellCheck-clean, jq-only.
+- `scripts/vidux-step-journal.sh` — append-only JSONL step journal for crash-safe intra-row resume (idempotency key = row+step; record/is-done/resume-point/status/clear). STEP-level replay on top of the row-level cycle checkpoint, for crons/lanes lacking top-level idempotency. ShellCheck-clean, jq-only.
 - Snowcubes imagegen Wave 022-033 resume pointers in `PLAN.md`, plus a shorter root `SKILL.md` description for Captain/frontmatter routing.
-- **Harness Contract block 8 — the done-state contract (Phase 1, vidux-amp-10x).**
-  Added a CONVERGENCE & FINDABILITY block to `## Harness Contract` in `SKILL.md`
-  defining `done = merged + findable`. Establishes the strict status ladder
-  `branch_pushed < pr_open < merged < findable` ("done"/"complete" deleted from
-  the vocabulary), a findability gate (a row is `[completed]` only with a trunk
-  merge SHA AND a typed `[Findable: …]` locator; a green draft PR is `pr_open`),
-  an honest-status rule (shipped/done/live reserved for merged-to-trunk), a
-  convergence-pass trap (>3 stranded branches blocks new fan-out, default 3),
-  and stacking discipline (own the base's merge or integrate before handoff).
-  Added a `[merged]` rung to the FSM diagram. Motivated by the 2026-06-13
-  stranded-work failure (features stuck in unmerged drafts, none findable).
+- **Harness Contract block 8 — the done-state contract (vidux-amp-10x).** CONVERGENCE & FINDABILITY block in `## Harness Contract` (`SKILL.md`) defining `done = merged + findable`. Status ladder `branch_pushed < pr_open < merged < findable` ("done"/"complete" deleted from the vocabulary); a row is `[completed]` only with a trunk merge SHA AND a typed `[Findable: …]` locator (a green draft PR is `pr_open`); shipped/done/live reserved for merged-to-trunk; convergence-pass trap (>3 stranded branches blocks new fan-out, default 3); stacking discipline (own the base's merge or integrate before handoff). Added a `[merged]` rung to the FSM diagram. Motivated by the 2026-06-13 stranded-work failure.
 - Convergence-ladder unit test `test_handoff_status_convergence_ladder`.
 
 ### Changed
-- `scripts/lib/ledger-emit.sh` `_vidux_handoff_status` now emits the convergence
-  ladder. Ladder rungs (`branch_pushed`/`pr_open`/`merged`/`findable`) pass
-  through; legacy `done`/`completed` can no longer overclaim — they map to
-  `merged` only when `VIDUX_MERGE_SHA` proves the merge, otherwise demote to the
-  honest `pr_open` rung. Updated the two checkpoint contract tests that asserted
-  the old `done` overclaim.
+- `scripts/lib/ledger-emit.sh` `_vidux_handoff_status` now emits the convergence ladder. Ladder rungs pass through; legacy `done`/`completed` map to `merged` only when `VIDUX_MERGE_SHA` proves the merge, otherwise demote to `pr_open`.
 
 ---
 
 ## [2.26.13] - 2026-05-25
 
-Fixed `scripts/vidux-asc-bridge.py` silent skip of bare, paren-wrapped,
-and uppercase-space ASC ID formats now in active use on resplit-ios PR
-titles. LI-15 widened the captured-ID character class to allow hyphens
-inside `[asc-XXX]`, but left the enclosing-syntax requirement bracket-
-only. Real-world title conventions have shifted: 6 distinct ASC IDs
-across 8 PRs in the 2026-05-25T09:45Z `linear-health-watch` 24h sweep
-used `asc-AJS0-cES3` (bare), `(asc-AJS0-cES3)` (paren-wrapped),
-`ASC AMdbXda2` (uppercase + space), and `asc-AKZ_nGumMaY` (underscore)
-— all silently skipped by the bracket-only regex. Every one was
-mechanically verified as missing-from-Linear via `make_live_find_existing_eve`
-(positive control `aitzt9rxyxzunschz` → EVE-316 confirmed). Section 4
-of `linear-health-watch` is the canonical caller; it would have failed
-to surface these gaps until manual inspection without this fix.
+Fixed `scripts/vidux-asc-bridge.py` silent skip of bare, paren-wrapped, and uppercase-space ASC ID formats now in active use on resplit-ios PR titles. Replaced the single bracket-bound `ASC_ID_RE` with two case-bounded regexes used in order by `parse_asc_id`:
 
-Replaced the single bracket-bound `ASC_ID_RE` with two case-bounded
-regexes used in order by `parse_asc_id`:
+- `_DASH_RE = re.compile(r"(?<![A-Za-z0-9])asc-([A-Za-z0-9_-]{3,})", re.IGNORECASE)` — covers `[asc-XXX]`, bare `asc-XXX`, `(asc-XXX)`, trailing text. Literal `-` separator + 3-char min eliminates fuzzy collisions.
+- `_SPACE_RE = re.compile(r"(?<![A-Za-z0-9])ASC[\s]+([A-Za-z0-9_-]{3,})")` — covers manually-typed `ASC <id>`. **No `IGNORECASE`** — the uppercase `ASC` literal blocks lowercase prose from false-matching.
 
-- `_DASH_RE = re.compile(r"(?<![A-Za-z0-9])asc-([A-Za-z0-9_-]{3,})", re.IGNORECASE)`
-  covers `[asc-XXX]`, `[asc-XXX trailing]`, bare `asc-XXX`,
-  `(asc-XXX)`, and `archive asc-XXX foo`. The literal `-` separator
-  plus 3-char minimum eliminates fuzzy collisions.
-- `_SPACE_RE = re.compile(r"(?<![A-Za-z0-9])ASC[\s]+([A-Za-z0-9_-]{3,})")`
-  covers the manually-typed `ASC <id>` shape. **No `IGNORECASE`** —
-  the uppercase `ASC` literal is the disambiguator that blocks
-  lowercase prose like "we should asc up the file" from false-matching.
-
-Both regexes share a `(?<![A-Za-z0-9])` lookbehind so embedded
-sequences like `pasc-foo` cannot match mid-word. The captured ID is
-lowercased before return, matching the LI-15 convention so re-runs
-find the same Linear card. Added 8 unit tests in
-`tests/test_asc_bridge.py::TestParseAscId`: `test_bare_asc_dash_form`
-(PR #753), `test_paren_wrapped_asc_dash_form` (PR #754),
-`test_uppercase_asc_space_form` (PR #749), `test_bare_asc_with_underscore`
-(PR #761), `test_lowercase_space_form_is_not_matched` (prose
-protection), `test_midword_dash_is_not_matched` (lookbehind),
-`test_too_short_id_is_not_matched` (min-length 3), and
-`test_first_match_wins_when_multiple_in_title`. Two pre-existing
-fixtures using `[asc-x]` 1-char IDs (`test_envelope_carries_metadata`,
-`test_returns_parsed_prs_on_success`) were updated to `[asc-xyz]`
-since the new min-length 3 rule correctly rejects them.
-
-Fifth instance of the silent-loss class after LI-12 (hallucinated
-flag), LI-14 (silent token fallback), LI-15 (parser too-strict for
-hyphens), LI-16 (cross-org owner default flip). Detected by
-`linear-health-watch` cycle 211 SOFT-OBS, verified cycle 212, shipped
-cycle 213 per the LI-12 fabrication-prevention discipline of
-claim+ship in separate cycles.
-
-Cap risk: post-merge backfill across the verified-missing IDs would
-exceed Hard NEVER #2 ≤5 cap — this PR ships pure code only; the
-LI-13 (`ASK-LEO-MANDATORY`) dedicated bridge cron and a chunked
-manual backfill handle the live-mutation half separately.
+Both share a `(?<![A-Za-z0-9])` lookbehind so mid-word sequences can't match. Captured ID is lowercased (matches LI-15 convention). Added 8 unit tests in `tests/test_asc_bridge.py::TestParseAscId`. Fifth instance of the silent-loss class (after LI-12/14/15/16). Code-only ship per the LI-12 claim+ship-in-separate-cycles discipline; backfill handled separately to stay under the Hard NEVER #2 ≤5 cap.
 
 ---
 
 ## [2.26.12] - 2026-05-24
 
-Fixed `scripts/vidux-linear-audit.py` silent false-green when fleet repos
-span multiple GitHub orgs. `chore: align vidux first bite metadata`
-(`474eb1d`, 2026-05-23) flipped `DEFAULT_GH_OWNER` from `leojkwan` to
-`firstbitelabsllc`. Three of the five `DEFAULT_REPOS` (`strongyes-web`,
-`resplit-web`, `fcp-workflow`) still live under `leojkwan`, so
-`_live_fetch_open_prs` / `_live_fetch_open_drafts` started 404-ing
-silently against `firstbitelabsllc/<repo>` and the `except` returned
-`[]` — `pr_linear_links` and `draft_age` then false-greened for those
-repos.
-
-Replaced the single `_gh_owner()` default with a per-repo
-`REPO_OWNERS` mapping. Resolution order: `VIDUX_GH_OWNER` env var
-(global override, useful in CI) → `REPO_OWNERS` (per-repo) →
-`DEFAULT_GH_OWNER` (fallback for unknown repos). `--owner` CLI flag
-still works by writing the env override. Added 4 unit tests
-(`tests/test_linear_audit.py::GhOwnerResolutionTests`): mapped repos
-resolve to their owner; unknown repo falls back; env override beats
-mapping; empty-string env does not short-circuit (continues to
-mapping).
-
-Same silent-loss class as LI-12 (hallucinated flag), LI-14 (silent
-token fallback), LI-15 (parser silent-loss in `vidux-asc-bridge.py`)
-— fourth instance. Detected by `linear-health-watch` cycle 162
-on the 30-min sweep after PR #135 merged.
+Fixed `scripts/vidux-linear-audit.py` silent false-green when fleet repos span multiple GitHub orgs. A metadata change flipped `DEFAULT_GH_OWNER` to `firstbitelabsllc`, but three of five `DEFAULT_REPOS` still live under `leojkwan`, so their PR fetches 404'd silently and false-greened. Replaced the single default with a per-repo `REPO_OWNERS` mapping; resolution order `VIDUX_GH_OWNER` env → `REPO_OWNERS` → `DEFAULT_GH_OWNER`. Added 4 unit tests. Fourth instance of the silent-loss class.
 
 ---
 
 ## [2.26.11] - 2026-05-14
 
-Added `apple_asc` adapter — generic read-only feedback-tracker adapter
-that parses ASC-style YAML and returns `ExternalItem` markers for the
-standard `vidux-inbox-sync.py` PULL → auto-promote pipeline. Closes T-4
-of the `asc-eve-autobridge` goal.
+Added `apple_asc` adapter — generic read-only feedback-tracker adapter that parses ASC-style YAML and returns `ExternalItem` markers for the standard `vidux-inbox-sync.py` PULL → auto-promote pipeline. Closes T-4 of the `asc-eve-autobridge` goal.
 
-The adapter parses the `## Open` section of a repo-local tracker file
-(typically `<repo>/.cursor/plans/app-store-feedback.plan.md`,
-maintained out-of-band by `ruby scripts/asc_beta_feedback.rb
-sync-plan`) and returns one `ExternalItem` per row with `external_id
-= "asc:<id>"`. `pull_status` returns `None` and `pull_fields` returns
-`{}` so the sync script treats ASC rows as PENDING without trying to
-write back. `push_task` / `push_status` / `push_fields` all raise
-`NotImplementedError("Apple ASC has no public API for marking
-TestFlight / beta feedback handled; the tracker file is one-way
-READ-only.")` because Apple does not publish a feedback-handling API.
-
-Once paired with the `linear` adapter's `push_only_for_plans`
-mechanism in `vidux.config.json`, every new ASC feedback row flows
-end-to-end from the tracker file → PLAN.md → Linear EVE issue with
-zero manual bridging. This retires the tactical
-`scripts/vidux-asc-bridge.py` one-shot script, which is kept in-tree
-for now during migration — it will be deleted in 2.27.0 once at
-least one cron cycle proves the adapter handles all ASC sources.
+Parses the `## Open` section of a repo-local tracker file, one `ExternalItem` per row with `external_id = "asc:<id>"`. Read-only: `pull_status`→`None`, `pull_fields`→`{}`, all push methods raise `NotImplementedError` (Apple has no feedback-handling API). Paired with the `linear` adapter's `push_only_for_plans`, every ASC feedback row flows tracker file → PLAN.md → Linear EVE with zero manual bridging.
 
 ### Added
-
-- **`adapters/apple_asc.py`** — `AppleAscAdapter` class registered
-  under `name = "apple_asc"`. Config schema: `tracker_file`
-  (required, `~`-expanded path) + `status_filter` (optional list,
-  defaults to `["new", "triaged", "claimed"]`). Terminal states
-  (`fixed`, `verified`, `archived`) are always dropped regardless
-  of filter.
-- **`tests/test_apple_asc.py`** — 22 unit tests covering multi-row
-  parsing, status_filter behavior, terminal-state rejection, empty
-  `## Open` section, multi-line continuation values, git-conflict
-  marker tolerance, write-path `NotImplementedError`, registry
-  resolution, idempotent `external_id` namespacing, missing-file
-  fail-safe, and config validation.
-- **`adapters/__init__.py`** — adds `from adapters import apple_asc`
-  side-effect import so the `@register` decorator populates the
-  registry.
-- **`adapters/README.md`** — apple_asc section documenting the
-  feedback-tracker shape, config schema, tracker file format,
-  parser tolerances, and idempotency guarantees.
-- **`SKILL.md`** — adapter list updated to mention `apple_asc` as
-  live READ-only, with the full config + retire-of-bridge-script
-  plan inline.
+- **`adapters/apple_asc.py`** — `AppleAscAdapter` (`name = "apple_asc"`). Config: `tracker_file` (required) + `status_filter` (optional, default `["new","triaged","claimed"]`). Terminal states (`fixed`/`verified`/`archived`) always dropped.
+- **`tests/test_apple_asc.py`** — 22 unit tests.
+- **`adapters/__init__.py`** side-effect import; **`adapters/README.md`** + **`SKILL.md`** adapter docs.
 
 ### Deprecated
-
-- `scripts/vidux-asc-bridge.py` retire-and-delete — kept for now;
-  removal scheduled for 2.27.0 after one cron cycle of overlap to
-  confirm the adapter path handles every real-world ASC tracker
-  shape we hit in production.
+- `scripts/vidux-asc-bridge.py` — kept during migration; removal scheduled for 2.27.0 after one cron cycle of adapter overlap.
 
 ---
 
 ## [2.26.10] - 2026-05-14
 
 ### Security
-- Untracked `vidux.config.json` — local-config-not-source, properly gitignored now
-- Added `gitleaks` config + GitHub Actions workflow to catch future leaks pre-merge
-- Beefed up `.gitignore` with `*.token`, `*-state.json`, `.netrc` patterns
+- Untracked + gitignored `vidux.config.json` (local-config-not-source); added `gitleaks` config + GitHub Actions workflow; `.gitignore` patterns for `*.token`, `*-state.json`, `.netrc`.
 
 ### Changed
-
-- Parameterized hardcoded paths in `vidux-lane-closeout.py` and `vidux-linear-audit.py` via `VIDUX_ROOT` / `VIDUX_DEV_ROOT` env vars (open-source readiness)
-- Parameterized GitHub owner in `vidux-linear-audit.py` via `VIDUX_GH_OWNER` env or `--owner` flag
-- Added `## Security posture` section to README explaining token storage convention
-- Added `## Multi-platform notes` to README for non-macOS users
-- Updated `adapters/README.md` and `docs/reference/scripts.md` to remove dangling references to the deleted migration script
+- Parameterized hardcoded paths via `VIDUX_ROOT` / `VIDUX_DEV_ROOT` and GitHub owner via `VIDUX_GH_OWNER`/`--owner` (open-source readiness). README gains `## Security posture` + `## Multi-platform notes`.
 
 ### Removed
-
-- `scripts/strip-linear-codec-markers.py` (Leo-specific one-off migration script that already completed its EVE-team rewrite in 2026-04-25; kept locally under `/vidux-leo` skill scope)
+- `scripts/strip-linear-codec-markers.py` (completed one-off migration; kept locally under `/vidux-leo`).
 
 ---
 
 ## [2.26.9] - 2026-05-09
 
-A focused parser fix for `vidux-asc-bridge.py`. The original ASC ID
-regex was `\[asc-([A-Za-z0-9]+)\]` — which silently rejected real-world
-resplit-ios PR title shapes:
-
-- PR #627 used a hyphen *inside* the ID: `[asc-ANPm-HS30l]`.
-- PR #628 carried a Leo annotation after the ID: `[asc-AOgQxkJ7 Leo P0]`.
-
-Both PRs merged on 2026-05-09 and silently fell out of the
-linear-health-watch Section 4 sweep across 5 consecutive cycles
-(18:34Z → 20:42Z), because the bridge's parser saw zero `asc_prs`
-for them. No EVE issue was filed; the /resplit-watch user-feedback
-loop had no Linear visibility for either ASC ID. Same class of
-silent-loss as LI-12 and LI-14 (different mechanism each time).
+Parser fix for `vidux-asc-bridge.py`. The original `\[asc-([A-Za-z0-9]+)\]` silently rejected hyphenated IDs (`[asc-ANPm-HS30l]`) and IDs with trailing annotations (`[asc-AOgQxkJ7 Leo P0]`); both merged 2026-05-09 and fell out of the linear-health-watch sweep. Same silent-loss class as LI-12/14.
 
 ### Changed
-
-- **`scripts/vidux-asc-bridge.py`** — `ASC_ID_RE` widened to
-  `\[asc-([A-Za-z0-9-]+)(?:\s[^\]]*)?\]`. The captured ID now allows
-  hyphens (`A-Z`, `a-z`, `0-9`, `-`), and a single optional
-  whitespace-prefixed trailing segment inside the bracket is tolerated
-  and discarded. Match remains greedy on the ID; the optional trailing
-  group does not slurp into the captured ID. `parse_asc_id` continues
-  to lowercase the captured ID so re-runs hit the same Linear card.
+- `ASC_ID_RE` widened to `\[asc-([A-Za-z0-9-]+)(?:\s[^\]]*)?\]` — captured ID allows hyphens; one optional whitespace-prefixed trailing segment tolerated and discarded. `parse_asc_id` still lowercases.
 
 ### Verified
-
-- 3 new cases in `tests/test_asc_bridge.py::TestParseAscId`:
-  `test_id_may_contain_hyphens`,
-  `test_trailing_space_text_inside_bracket_is_discarded`,
-  `test_hyphenated_id_with_trailing_annotation`. All 31 asc-bridge
-  tests pass; full suite green.
+- 3 new cases in `tests/test_asc_bridge.py::TestParseAscId`; 31 asc-bridge tests pass.
 
 ---
 
 ## [2.26.8] - 2026-05-09
 
-A small but real safety fix to `vidux-asc-bridge.py`. In dry-run mode, if
-the `--token-file` path is missing the script silently fell back to
-`find_existing_eve = lambda _asc: None`, which made every ASC PR appear
-as `would_create` even though matching Linear issues existed. A
-linear-health-watch cycle hit this on 2026-05-09 (`--token-file
-~/.config/linear/leokwan.token` did not exist; bridge reported 3
-would-create rows that were actually all linked to EVE-313/315/316). Same
-class of false-positive as LI-12, different mechanism.
+Safety fix to `vidux-asc-bridge.py`. In dry-run, a missing `--token-file` silently fell back to `find_existing_eve → None`, making every ASC PR appear as `would_create` even though matching Linear issues existed. Same false-positive class as LI-12.
 
 ### Changed
-
-- **`scripts/vidux-asc-bridge.py`** — JSON envelope now always carries a
-  `warnings: []` field. When a dry-run is invoked with a `--token-file`
-  that does not exist, the script populates `warnings` with a single
-  message naming the missing path and noting that `would_create` reflects
-  no-Linear-lookup state. Live mode (no `--dry-run`) still exits 2 on
-  missing token, unchanged. Consumers can gate on
-  `len(envelope["warnings"]) == 0` before treating `would_create` rows
-  as actionable.
+- JSON envelope now always carries `warnings: []`. Dry-run + missing token populates `warnings` and notes `would_create` reflects no-lookup state. Live mode still exits 2 on missing token. Consumers can gate on `len(warnings) == 0`.
 
 ### Verified
-
-- `tests/test_asc_bridge.py` adds 3 cases:
-  (a) dry-run + missing token → warning emitted, all ASC PRs appear as
-  would_create;
-  (b) dry-run + valid token → warnings empty, lookup honored;
-  (c) `BridgeResult.as_dict()` includes `warnings` field by default.
-- 28 helper tests total now (was 25).
+- 3 new cases in `tests/test_asc_bridge.py` (28 helper tests total).
 
 ---
 
 ## [2.26.7] - 2026-05-08
 
-A standalone bridge script lifts resplit-ios `[asc-XXX]` PR titles into
-Linear EVE issues. Resplit ASC bug fixes routinely shipped without a
-matching Linear card, so the `/resplit-watch` user-feedback loop went
-silent for ~10 days even while ASC IDs landed on `main` daily. The
-`/linear-health-watch` Section 4 sweep was added to *detect* this gap;
-this release closes it.
+Standalone bridge script lifts resplit-ios `[asc-XXX]` PR titles into Linear EVE issues. ASC fixes routinely shipped without a Linear card, so `/resplit-watch` went silent ~10 days. Section 4 of `/linear-health-watch` detects the gap; this release remediates it.
 
 ### Added
+- **`scripts/vidux-asc-bridge.py`** — enumerates merged PRs (`gh pr list --state merged`), matches the ASC title regex, queries Linear `searchableContent` for an existing mention, and if none creates an issue (title=PR title, description=ASC ID + PR URL + merged-at, project=`resplit-ios`, state=Done, label=`pr-merged`). Idempotent on re-run. CLI: `--repo`, `--since-hours`, `--dry-run`, `--token-file`, `--project-name`, `--label-name`, `--no-network`. JSON envelope output. Pure stdlib.
+- **`tests/test_asc_bridge.py`** — 25 unit tests; **CI** `asc-bridge-tests` job.
 
-- **`scripts/vidux-asc-bridge.py`** — standalone Python helper that:
-  1. Enumerates merged PRs on a target repo via
-     `gh pr list --state merged --search "merged:>..."`.
-  2. For each PR matching the ASC title regex `\[asc-([A-Za-z0-9]+)\]`,
-     queries Linear (`searchableContent` filter) to see whether an issue
-     already mentions the ASC ID anywhere — title, description, or any
-     comment body.
-  3. If no match, creates a Linear issue with title=PR title, description
-     containing ASC ID + PR URL + merged-at, project=`resplit-ios`,
-     state=Done (resolved via Linear `state.type == "completed"`),
-     label=`pr-merged`.
-
-  Idempotent on re-run: a second invocation finds the issue created on
-  the first pass and skips it. CLI: `--repo`, `--since-hours`,
-  `--dry-run`, `--token-file`, `--project-name`, `--label-name`,
-  `--no-network`. Output is a JSON envelope with `bridge_at`, counts,
-  and per-PR `created` / `skipped` / `would_create` / `errors` lists.
-  Pure stdlib (no third-party deps).
-
-- **`tests/test_asc_bridge.py`** — 25 unit tests covering the regex
-  parser (5), `merged_at_iso` (2), `render_description` (2), the
-  orchestrator (8 — empty/no-asc-prs, missing-EVE-creates,
-  existing-EVE-skips, dry-run, idempotency-on-re-run, dedupe-within-run,
-  create-failure-as-error, envelope-metadata), CLI (3 — `--no-network`
-  envelope, missing-token-file rc=2, default args), and live-fetcher
-  seams (5 — gh subprocess success/failure/JSON branches, Linear
-  finder's match/no-match branches, full create-flow project/state/label
-  resolution).
-
-- **CI** — `asc-bridge-tests` job in `.github/workflows/ci.yml`,
-  mirroring `lane-closeout-tests` / `linear-audit-tests` shape.
-
-**Why:** The ten-day Linear silence between resplit-ios merges and Linear
-visibility was the exact failure mode that motivated codifying
-`/linear-health-watch` Section 4. Section 4 is detection; the bridge is
-remediation. Together they make ASC silence a 30-minute window, not a
-ten-day one.
-
-**Notes:** Hard NEVER #6 of the linear-health-watch lane (no Linear MCP
-cold-path calls *from the cron lane*) is preserved: this script is invoked
-by Leo or by a separate bridge cron, never inline by `linear-health-watch`.
-The lane records observations and can spawn this script via PLAN.md tasks;
-it does not call Linear directly.
+**Notes:** Hard NEVER #6 (no Linear MCP cold-path calls from the cron lane) preserved — this script is invoked by Leo or a separate bridge cron, never inline by `linear-health-watch`.
 
 ---
 
 ## [2.26.6] - 2026-05-07
 
-A standalone closeout helper codifies the three completion gates a lane must
-satisfy before the lane harness can be retired or paused: every PLAN.md task
-is terminal (`completed`/`cancelled`) modulo the closeout task itself,
-`scripts/vidux-linear-audit.py` overall is not `red`, and Linear sync
-dry-runs report zero pushed / zero inbox-appended / zero errors per fleet
-repo. Closes the LI-7 gap that previously required eyeballing PLAN.md +
-running two scripts by hand to know whether the linear-integration-hardening
-lane was ready to wind down.
+Standalone closeout helper codifies the three gates a lane must satisfy before retirement: every PLAN.md task terminal (modulo the closeout task), `vidux-linear-audit.py` not `red`, and Linear sync dry-runs report zero drift per repo. Closes the LI-7 gap.
 
 ### Added
+- **`scripts/vidux-lane-closeout.py`** — runs `tasks_terminal` / `audit_overall` / `sync_drift` gates, emits a JSON envelope (`status: CLOSED|OPEN` + per-gate detail). Pure check functions take injected fetchers (unit-testable); live runners shell out to the audit + inbox-sync scripts. CLI: `--plan` (required), `--self <task-id>`, `--repo`, `--no-network`, `--audit-script`, `--inbox-sync`. Exit 0/1/2.
+- **`tests/test_lane_closeout.py`** — 32 unit tests; **CI** `lane-closeout-tests` job.
 
-- **`scripts/vidux-lane-closeout.py`** — runs three independent gates
-  (`tasks_terminal`, `audit_overall`, `sync_drift`) and emits a JSON
-  envelope of shape:
-
-  ```json
-  {
-    "closeout_at": "<ISO8601>",
-    "plan": "<path>",
-    "self_task": "LI-7" | null,
-    "status": "CLOSED | OPEN",
-    "gates": {
-      "tasks_terminal": {"ok": bool, "blockers": [...]},
-      "audit_overall":  {"ok": bool, "overall": "green|yellow|red|skipped"},
-      "sync_drift":     {"ok": bool, "drift": [...], "errors": [...]}
-    }
-  }
-  ```
-
-  Pure check functions (`assess_tasks_terminal`, `assess_audit`,
-  `assess_sync`) take injected fetchers so the gates are unit-testable
-  without touching Linear or `gh`. Live runners shell out to
-  `scripts/vidux-linear-audit.py` and `scripts/vidux-inbox-sync.py
-  --dry-run --direction=both --only-adapter linear --json` per repo. CLI
-  flags: `--plan` (required), `--self <task-id>` (excuse one task from the
-  terminal gate — typically the closeout task itself), `--repo` (scope
-  sync_drift; repeatable), `--no-network` (skip live calls; the audit and
-  sync gates return `ok=true` with `skipped` reason), `--audit-script`,
-  `--inbox-sync` (path overrides for tests / non-default checkouts). Exit
-  0 on `CLOSED`, 1 on `OPEN`, 2 if `--plan` is missing.
-
-- **`tests/test_lane_closeout.py`** — 32 unit tests covering plan
-  parsing (only `## Tasks` lines, indentation tolerance,
-  blocked/cancelled states), each gate's pass/block branches, the
-  `--self` task-id excuse, drift vs error vs auto_promote handling, the
-  closeout orchestrator, and CLI exit codes (missing plan = 2, closed =
-  0, pending non-self task = 1).
-
-- **`.github/workflows/ci.yml`** — new `lane-closeout-tests` job
-  mirroring the `linear-audit-tests` shape so the helper has CI
-  coverage on every PR.
-
-**Notes:**
-
-- The helper is read-only; it never edits PLAN.md, never closes Linear
-  issues, and never pauses LaunchAgents. Closeout *decisions* (mark
-  LI-7 completed, pause cron) remain operational and are gated on the
-  helper exiting 0.
-- The helper does not invoke Linear's GraphQL API directly; it shells
-  out to `vidux-linear-audit.py` which already encapsulates the
-  network surface.
+**Notes:** Read-only — never edits PLAN.md, closes Linear issues, or pauses LaunchAgents. Closeout decisions stay operational, gated on exit 0. Shells out to `vidux-linear-audit.py` rather than calling Linear GraphQL directly.
 
 ---
 
 ## [2.26.5] - 2026-05-07
 
-A standalone audit script reports Linear coverage health across the vidux
-fleet — repo-config guardrails, no-project issues, label taxonomy coverage,
-PR↔Linear linkage, automation-draft staleness, malformed Linear descriptions,
-and per-repo sync drift — and emits one JSON envelope. Closes the LI-6 gap
-that previously required ad hoc Linear GraphQL + `gh pr list` queries across
-four repos to assess coverage health.
+Standalone audit script reports Linear coverage health across the fleet in one JSON envelope. Closes the LI-6 gap.
 
 ### Added
-
-- **`scripts/vidux-linear-audit.py`** — runs 7 independent checks
-  (`repo_config`, `no_project_issues`, `label_taxonomy`, `pr_linear_links`,
-  `draft_age`, `description_format`, `sync_deltas`) and emits a JSON
-  envelope of shape:
-
-  ```json
-  {
-    "audit_at": "<ISO8601>",
-    "overall": "green | yellow | red",
-    "summary": {"green": N, "yellow": N, "red": N, "skipped": N},
-    "checks": [{"name": "...", "status": "...", "details": "...", "evidence": [...]}, ...]
-  }
-  ```
-
-  Each check is a pure function that takes injected fetchers (for
-  unit-testability) and returns a `CheckResult`. Worst-of semantic across
-  non-skipped results: red beats yellow beats green; skipped is neutral.
-  Exit 0 on green or yellow; exit 1 on red. CLI flags: `--check <name>`
-  (repeatable), `--repo <name>` (repeatable), `--no-network` (skip
-  Linear/gh calls — those checks return SKIPPED).
-
-  This script is for on-demand use by Leo or CI; it is not invoked by the
-  `linear-health-watch` cron lane (which honors Hard NEVER #6 — no Linear
-  MCP cold-path calls from that lane).
-
-- **`tests/test_linear_audit.py`** — 37 unit tests covering each check's
-  green/yellow/red branches via injected fetchers, the worst-of overall
-  semantic, JSON envelope shape, `--check` filter, `--repo` filter,
-  `--no-network` SKIPPED handling, and full-run dispatch. CI job
-  `linear-audit-tests` mirrors the LI-5 / LI-9 / LI-8 test-job shape.
+- **`scripts/vidux-linear-audit.py`** — 7 checks (`repo_config`, `no_project_issues`, `label_taxonomy`, `pr_linear_links`, `draft_age`, `description_format`, `sync_deltas`). Each is a pure function with injected fetchers returning a `CheckResult`. Worst-of overall (red > yellow > green; skipped neutral). Exit 0 on green/yellow, 1 on red. CLI: `--check`, `--repo`, `--no-network`. On-demand/CI use only — not invoked by `linear-health-watch` (Hard NEVER #6).
+- **`tests/test_linear_audit.py`** — 37 unit tests; CI `linear-audit-tests` job.
 
 ---
 
 ## [2.26.4] - 2026-05-07
 
-Launchd cron wrappers can guard against parallel-cycle races by acquiring a
-single-instance lock before invoking Claude or any mutator. Closes the LI-8
-collision-guard gap that surfaced when two `linear-health-watch` cycles
-independently rebased LI-5 and opened PRs #81 and #94 within ~5 seconds of
-each other on 2026-05-07.
+Launchd cron wrappers can guard against parallel-cycle races with a single-instance lock. Closes the LI-8 collision-guard gap (two cycles opened PRs #81 and #94 within ~5s).
 
 ### Added
-
-- **`scripts/launchd-helpers/acquire-cycle-lock.sh`** — atomic file-claim
-  helper with two modes (`--acquire`, `--release`). Lock format is
-  `PID|ISO|EPOCH`; a lock is "fresh" while the recorded PID is alive AND
-  age is below `--max-age-seconds` (default 1500 = 25 min). Stale locks
-  (dead PID OR age >= max) are swept on the next acquire. Acquire returns
-  exit 0 (claimed), 1 (held by fresh process — `LOCKED` token on stderr),
-  or 2 (bad args / IO error). Release is idempotent.
-
-  Caller pattern:
-
-  ```bash
-  LOCK_FILE="$AUTOMATION_DIR/locks/cycle.lock"
-  if ! "$VIDUX/scripts/launchd-helpers/acquire-cycle-lock.sh" \
-       --acquire --lock-file "$LOCK_FILE"; then
-    log "[LOCKED] another cycle in flight; exiting"
-    exit 0
-  fi
-  trap '"$VIDUX/scripts/launchd-helpers/acquire-cycle-lock.sh" \
-       --release --lock-file "$LOCK_FILE" || true' EXIT
-  ```
-
-- **`tests/test_acquire_cycle_lock.py`** — 14 integration tests covering
-  fresh-acquire, held-by-live-recent (LOCKED), held-by-live-but-stale
-  (sweep), held-by-dead-pid (sweep), corrupt-lock (sweep), max-age
-  override, release-existing, release-absent (idempotent), full
-  acquire→release→acquire round-trip, and four argument-validation cases.
-  CI job `cycle-lock-tests` mirrors the LI-5 / LI-9 test-job shape.
-
-### Changed
-
-- ShellCheck CI workflow already scans `scripts/`; the new
-  `scripts/launchd-helpers/` directory is automatically covered.
+- **`scripts/launchd-helpers/acquire-cycle-lock.sh`** — atomic file-claim helper (`--acquire`/`--release`). Lock format `PID|ISO|EPOCH`; fresh while PID alive AND age < `--max-age-seconds` (default 1500). Stale locks swept on next acquire. Acquire exit 0 (claimed) / 1 (held, `LOCKED` on stderr) / 2 (bad args). Release idempotent. Caller pattern: acquire-or-exit-0, release on EXIT trap.
+- **`tests/test_acquire_cycle_lock.py`** — 14 integration tests; CI `cycle-lock-tests` job.
 
 ---
 
 ## [2.26.3] - 2026-05-07
 
-Automation lanes can replace `gh pr merge --auto` with a poll-loop helper
-that explicitly verifies Graphite, Seer, and CI are green on the *latest*
-commit SHA before merging. Closes the LI-9 gap surfaced after PR #81's
-auto-merge bypassed the latest-SHA review-gate (rebase-only that time, but
-unsafe as a default for any patch with content drift).
+Automation lanes can replace `gh pr merge --auto` with a poll-loop helper that verifies Graphite, Seer, and CI are green on the *latest* commit SHA before merging. Closes the LI-9 latest-SHA review-gate gap.
 
 ### Added
-
-- **`scripts/vidux-gh-merge-when-ready.py`** — polls `gh pr view --json
-  headRefOid,statusCheckRollup,reviews` until every required check on the
-  PR's latest commit is green and every required bot (default
-  `graphite-app`) has weighed in on that exact SHA, then runs `gh pr merge
-  --squash --delete-branch`. Caps the wait (default 15 min) and exits with
-  `ACK-PENDING` so the next cron cycle can pick up.
-- **Silent-pass CheckRun fallback** for required bots that ack via a
-  CheckRun rather than a review entry. Graphite only submits a review when
-  it has something to flag; otherwise it acks via the `Graphite / AI
-  Reviews` CheckRun going `SUCCESS`. The helper now treats that signal as
-  a stand-in for a missing `graphite-app` review on the latest SHA, and
-  treats a `FAILURE` on that CheckRun as a hard blocker. Mapping lives in
-  `CHECKRUN_FALLBACK_FOR_BOT` and is extensible to other bots that follow
-  the same pattern.
-- **CI coverage** for the new helper via `tests/test_gh_merge_when_ready.py`
-  (16 tests covering pure `assess()` parsing including the silent-pass
-  fallback, CheckRun-failure-as-blocker, CheckRun-pending-keeps-bot-pending,
-  and review-overrides-CheckRun-failure branches, plus the poll loop with
-  injected fetch/sleep/clock).
+- **`scripts/vidux-gh-merge-when-ready.py`** — polls `gh pr view --json headRefOid,statusCheckRollup,reviews` until every required check on the latest commit is green and every required bot (default `graphite-app`) acked that exact SHA, then `gh pr merge --squash --delete-branch`. Caps the wait (default 15 min), exits `ACK-PENDING` for the next cycle.
+- **Silent-pass CheckRun fallback** — Graphite acks via the `Graphite / AI Reviews` CheckRun (`SUCCESS`) when it has nothing to flag; treated as a stand-in for a missing review, `FAILURE` as a hard blocker. Mapping in `CHECKRUN_FALLBACK_FOR_BOT`.
+- **`tests/test_gh_merge_when_ready.py`** — 16 tests (pure `assess()` parsing incl. silent-pass fallback + poll loop with injected fetch/sleep/clock).
 
 ## [2.26.2] - 2026-05-07
 
-Linear-ready PR handoff templates now have one canonical body builder, so
-automation lanes consistently expose the lane, plan task, resume point, and
-optional public Linear issue id before opening ready-for-review PRs.
+One canonical PR body builder so automation lanes consistently expose lane, plan task, resume point, and optional Linear issue id before opening ready-for-review PRs.
 
 ### Added
-
-- **Canonical automation PR body helper.** `scripts/vidux-pr-body.py` prints the
-  reusable PR body shape for `gh pr create --body-file`, including optional
-  `Linear: EVE-N` when the issue id is already known.
-- **CI coverage for PR body generation.** `tests/test_pr_body.py` is included in
-  `npm test` and in a dedicated GitHub Actions job.
+- **`scripts/vidux-pr-body.py`** — reusable PR body shape for `gh pr create --body-file`, incl. optional `Linear: EVE-N`. **`tests/test_pr_body.py`** in `npm test` + a CI job.
 
 ### Changed
-
-- **Ready-PR and lane prompt templates use the helper.** The ready-PR flow,
-  prompt template reference, lane prompt pattern guide, fleet ops handoff rule,
-  scripts reference, and Linear extension docs now point at the canonical body
-  builder instead of ad hoc body strings.
-
-### Verified
-
-- `python3 -m unittest tests.test_pr_body tests.test_vidux_inbox_sync`
-- `python3 -m py_compile scripts/vidux-pr-body.py scripts/vidux-inbox-sync.py`
-- `npm test`
-- `npm run docs:build`
-- `git diff --check`
+- Ready-PR flow, prompt template reference, lane prompt guide, fleet ops handoff rule, scripts reference, and Linear extension docs all point at the canonical builder.
 
 ---
 
 ## [2.26.1] - 2026-05-01
 
-Patch on the same-day 2.26.0 left-panel rework. Walks the parent chain instead of stopping at one level, then bulk-connects 51 orphan plans across 6 repos so the new traversal has something to walk.
+Patch on the same-day 2.26.0 left-panel rework: walk the full parent chain instead of stopping one level, then bulk-connect orphan plans so the traversal has something to walk.
 
 ### Changed
-
-- **Pane header now shows the full ancestor breadcrumb** instead of a single `← Parent` link. Root → … → leaf (e.g. `← strongyes-web/PLAN.md · vidux/PLAN.md · content-lane/PLAN.md`). Walks `state.plans` with a cycle-safe visited set capped at 8 levels deep. Closes the deep-chain gap where third-level sub-plans could not navigate past their immediate parent.
+- **Pane header shows the full ancestor breadcrumb** (root → … → leaf), walking `state.plans` cycle-safe, capped at 8 levels. Closes the deep-chain navigation gap.
 
 ### Added
-
-- **Bulk parent-link pass.** One-shot Python audit against `/api/plans` filtered orphans (`parent_rel == null`) where the structural parent (`dirname/dirname/PLAN.md`) was also indexed. 51 of 100 orphans matched and got a `> Parent: ../PLAN.md` backlink prepended after the H1. Idempotent — re-running is a no-op (skip if Parent line already present). Landed as `vidux: bulk parent-link pass for orphan PLAN.md files` across `strongyes-web`, `resplit-web`, `resplit-ios`, `fcp-workflow`, `leojkwan`, `revolver` (36 + 7 + 1 + 1 + 1 + 1 = 47 file changes; 4 of the 51 were the same-repo deltas already covered by the 36/7 commits in those repos).
-
-### Verified
-
-- All 6 repos pushed cleanly (leojkwan needed a stash-rebase-pop dance for unrelated INBOX edits).
-- `/api/plans` count of `parent_rel == "../PLAN.md"` jumped from baseline to 51 immediately after the pass.
+- **Bulk parent-link pass** — one-shot audit against `/api/plans` found orphans whose structural parent was also indexed; 51 of 100 got a `> Parent: ../PLAN.md` backlink prepended after the H1. Idempotent. Landed across 6 repos.
 
 ---
 
@@ -565,286 +170,156 @@ Patch on the same-day 2.26.0 left-panel rework. Walks the parent chain instead o
 Browser left-panel rework: recently-viewed at top, recency-based ordering, persistent collapse state, parent backlinks. Plus recursive sub-plan rollup as a first-class second nesting mode.
 
 ### Added
-
-- **Recursive sub-plan rollup.** vidux-browse now parses `> Parent: <relpath>` and `**Parent:** <relpath>` backlinks at the top of child PLAN.md files, builds a parent → children tree post-discovery, and computes `aggregate_stats` recursively across each branch. Sidebar indents children under their parent (`.plan-row.is-child`); parent rows render two stacked progress bars (own tasks + rolled-up sub-plans). Pane gets a "with sub-plans" headline plus a Sub-plans section listing each child with a mini bar and an open button. Cycle-safe via visited-set. (#86)
-- **"← Parent" backlink in pane header for child plans.** Child plans can now navigate to their parent in one click; href is present so cmd-click opens in a new tab. Closes the doubly-linked-list gap.
-- **Recently-viewed section at top of sidebar.** Up to 5 items (mixes plans + artifacts), tracked in localStorage and deduped on click. Survives reloads.
-- **Persisted collapse state.** Click any group header (recents, artifacts, or each repo) and it stays collapsed across reloads via localStorage `vidux:ui-state`. Disclosure caret (▾/▸) makes the affordance visible.
-- **Two nesting modes documented in SKILL.md.** Investigation files (1-level, for compound tasks) and sub-plan rollup (N-level, for multi-phase missions with parallel sub-streams). The discipline doc now matches the browser's actual capability.
+- **Recursive sub-plan rollup.** vidux-browse parses `> Parent:` / `**Parent:**` backlinks, builds a parent→children tree, computes `aggregate_stats` recursively. Sidebar indents children; parent rows render own + rolled-up progress bars; pane gets a Sub-plans section. Cycle-safe via visited-set. (#86)
+- **"← Parent" backlink** in pane header for child plans (cmd-clickable).
+- **Recently-viewed section** (up to 5, localStorage, deduped, survives reloads).
+- **Persisted collapse state** per group header via localStorage `vidux:ui-state`.
+- **Two nesting modes documented in SKILL.md** — investigation files (1-level) and sub-plan rollup (N-level).
 
 ### Changed
-
-- **Sidebar sort: alphabetical → recency.** Repos sort by their freshest plan's mtime; within each repo, plans sort by mtime descending. Active work rises automatically; cold tail sinks. Resolves the "most annoying" friction with the prior alphabetical default.
-- **Repo-root plan labels.** `_root_` slug now renders as `<repo>/PLAN.md` in the sidebar (not the literal "(root)") and the pane header shows just `<repo>` for root-level plans (no `· (root)` suffix).
-- **"modified today ago" → "modified today".** Grammar bug in the pane meta line.
-
-### Verified
-
-- Playwright smoke on Studio: recently-viewed populates after first plan click, parent backlink renders + navigates in-app, VIDUX (30 plans) repo rises above smaller cold repos due to recency sort.
-- Server already exposed `parent_rel` per child plan; the client walks `state.plans` to find the parent (O(n) per lookup, n≈70).
+- **Sidebar sort alphabetical → recency.** Repos sort by freshest plan mtime; plans within a repo by mtime desc. Active work rises, cold tail sinks.
+- **Repo-root plan labels** render as `<repo>/PLAN.md`; pane header shows just `<repo>`.
+- Grammar fix: "modified today ago" → "modified today".
 
 ---
 
 ## [2.25.0] - 2026-04-29
 
-Named annotations for vidux-browse. LAN viewers can now leave comments on a plan tab or artifact without turning comments into plan writes.
+Named annotations for vidux-browse. LAN viewers can leave comments on a plan tab or artifact without turning comments into plan writes.
 
 ### Added
-
-- **Named comments on plan tabs and artifacts.** vidux-browse now renders a compact comments panel with a saved name field and append form for the selected markdown view or HTML artifact.
-- **Append-only comment store.** `GET /api/comments` and `POST /api/comments` read/write `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`. Comments are app data and never mutate `PLAN.md`, `INBOX.md`, source files, task claims, or artifact HTML.
-- **LAN-safe annotation guard.** Comment POSTs may come from LAN users of the vidux-browse UI, but require JSON plus a same-origin `Origin` or `Referer`. Existing artifact and local plan-note write endpoints remain loopback-only.
-- **Docs and skill guidance** for when to use comments versus `INBOX.md`.
-
-### Verified
-
-- `python3 -m unittest tests.test_browser_server`
-- `npm test`
-- `npm run docs:build`
-- `node --check browser/static/app.js`
-- `python3 -m py_compile browser/server.py`
-- `git diff --check`
-- Live API smoke with temp comments file and no `INBOX.md` mutation
-- Playwright desktop/mobile screenshots: `/tmp/vidux-comments-ui.png`, `/tmp/vidux-comments-ui-mobile.png`
+- **Named comments on plan tabs and artifacts** — compact comments panel with saved name field + append form.
+- **Append-only comment store.** `GET`/`POST /api/comments` read/write `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`. Comments are app data; never mutate `PLAN.md`, `INBOX.md`, source, task claims, or artifact HTML.
+- **LAN-safe annotation guard** — comment POSTs require JSON + same-origin `Origin`/`Referer`. Artifact + local plan-note writes stay loopback-only.
+- Docs/skill guidance for comments vs `INBOX.md`.
 
 ---
 
 ## [2.24.1] - 2026-04-27
 
-Auto-promoted external cards now round-trip status without reopening the
-duplicate-card hole that `auto_promote_target` was designed to close.
+Auto-promoted external cards now round-trip status without reopening the duplicate-card hole `auto_promote_target` closed.
 
 ### Fixed
-
-- **`auto_promote_target` still pushes status for linked tasks.** When a
-  Linear/GitHub card has already landed in PLAN.md with a `[Source:
-  <adapter>:<id>]` marker, sync now reconciles status back to the external
-  board/project. A completed imported task no longer leaves the external
-  project stuck in Backlog.
-- **Local-only PLAN rows remain protected.** Auto-promote sources still refuse
-  to create brand-new external issues from unrelated local tasks, avoiding
-  duplicate-card storms in repos with large existing plan stores.
-- **Completed mapped tasks push terminal status.** `push_status(COMPLETED)` now
-  runs for known external ids; completed tasks skip only blocked-field sync.
-
-### Verified
-
-- `python3 -m unittest tests.test_vidux_inbox_sync tests.test_linear_adapter`
-- `python3 -m unittest discover -s tests`
-- `git diff --check`
+- **`auto_promote_target` still pushes status for linked tasks.** A completed imported task (carrying a `[Source: <adapter>:<id>]` marker) now reconciles terminal status back to the external board instead of leaving it stuck in Backlog.
+- **Local-only PLAN rows stay protected** — auto-promote still refuses to create brand-new external issues from unrelated local tasks.
 
 ---
 
 ## [2.24.0] - 2026-04-27
 
-Linear codebase-project guardrails. Repo lanes can now require their Linear
-project binding to be named after the codebase it feeds.
+Linear codebase-project guardrails. Repo lanes can require their Linear project binding to be named after the codebase it feeds.
 
 ### Added
-
-- **`linear.project_name` config validation.** When set beside `project_id`,
-  the Linear adapter looks up the remote project and fails closed unless the
-  remote name matches. This prevents copied repo configs from silently routing
-  a codebase plan into a product bucket such as "Launch Queue".
-- **Docs and example config** for codebase-owned Linear projects, including
-  the recommended repo-intake shape for `auto_promote_target`.
-- **Local policy overlay guidance.** Public docs now describe how teams should
-  keep concrete board ids, repo/project maps, review-tool gates, and fleet
-  cadence in an overlay skill or runbook that loads after `/vidux`.
-- **Auto-promote batch safety.** Direct board-to-plan promotion now defaults
-  to `auto_promote_max_new: 25`, fails closed before appending oversized
-  batches, and recovers missing sidecar mappings from unique title matches in
-  clean worktrees.
-- **Regression coverage** for matching project validation, mismatch
-  fail-closed behavior, missing `project_id`, project lookup, pre-colon task
-  metadata parsing, title-based mapping recovery, and oversized auto-promote
-  batches.
+- **`linear.project_name` config validation** — when set beside `project_id`, the adapter looks up the remote project and fails closed unless names match, preventing copied configs from routing a codebase plan into a product bucket.
+- **Docs + example config** for codebase-owned Linear projects.
+- **Local policy overlay guidance** — keep concrete board ids, repo/project maps, review-tool gates, and fleet cadence in an overlay skill/runbook loaded after `/vidux`.
+- **Auto-promote batch safety** — `auto_promote_max_new: 25` default, fails closed before oversized batches, recovers missing sidecar mappings from unique title matches.
 
 ### Removed
-
-- **Dogfood fleet audit pages from public docs navigation.** Core Vidux keeps
-  the generic adapter contract; operator-specific migration ledgers belong in
-  local overlays.
-
-### Verified
-
-- `python3 -m unittest tests.test_linear_adapter tests.test_vidux_inbox_sync`
-- `python3 -m unittest discover -s tests`
-- `npm ci`
-- `npm run docs:build`
-- `git diff --check`
+- Dogfood fleet audit pages from public docs nav (operator-specific ledgers belong in local overlays).
 
 ---
 
 ## [2.23.0] - 2026-04-27
 
-Canonical-plan dedupe for the local Vidux browser. Legacy copied checkouts no longer hide or mis-group the active plan when the same `PLAN.md` exists under both the old and current repo names.
+Canonical-plan dedupe for the local Vidux browser. Legacy copied checkouts no longer hide or mis-group the active plan when the same `PLAN.md` exists under both old and current repo names.
 
 ### Fixed
-
-- **`mobiledevcombine-web` no longer wins over `strongyes-web` in the browser sidebar.** `discover_plans()` now maps known legacy repo aliases to their canonical repo and keeps the canonical checkout when duplicate plan paths exist.
-- **Regression coverage for duplicate plan discovery.** The browser server test suite now creates both legacy and canonical copies of `vidux/game-plan/PLAN.md` and asserts only `strongyes-web` is surfaced.
-
-### Verified
-
-- `python3 -m unittest tests.test_browser_server`
-- `python3 -m unittest discover -s tests` (178/178)
-- `npm run docs:build`
-- `git diff --check`
-- Local browser API check: `/api/plans` returns `strongyes-web/vidux/game-plan/PLAN.md` for `game-plan`
+- **`mobiledevcombine-web` no longer wins over `strongyes-web`** — `discover_plans()` maps known legacy repo aliases to canonical and keeps the canonical checkout on duplicate paths.
+- Regression coverage for duplicate plan discovery.
 
 ---
 
 ## [2.22.0] - 2026-04-27
 
-Fail-closed auto-promote routing for external board/project tasks. Linear and other project-extension sources now preserve lane ownership when new external cards are added.
+Fail-closed auto-promote routing for external board/project tasks. Linear and other sources preserve lane ownership when new external cards are added.
 
 ### Fixed
-
-- **`auto_promote_target` misconfiguration no longer falls back to INBOX.** If the target plan path is missing or has no `PLAN.md`, `vidux-inbox-sync.py` exits with config error `2` for that source and refuses to append to the first plan's `INBOX.md`.
-- **Import-only sources stay import-only on target failure.** The same failure path also suppresses PLAN-to-board pushes, avoiding accidental mass issue creation when a lane target is typoed or deleted.
+- **`auto_promote_target` misconfiguration no longer falls back to INBOX.** Missing target plan path → config error `2` for that source; refuses to append to the first plan's `INBOX.md`.
+- **Import-only sources stay import-only on target failure** — suppresses PLAN-to-board pushes, avoiding accidental mass issue creation on a typoed/deleted target.
 
 ### Added
-
-- **Main-path regression tests** for successful auto-promotion into the configured target lane and for missing-target fail-closed behavior.
-
-### Verified
-
-- `python3 -m unittest tests.test_vidux_inbox_sync`
-- `python3 -m unittest discover -s tests`
-- `npm run docs:build`
-- `python3 scripts/vidux-inbox-sync.py --config /Users/leokwan/Development/vidux/vidux.config.json --only-adapter linear --direction=both --dry-run --json`
+- Main-path regression tests for successful auto-promotion + missing-target fail-closed.
 
 ---
 
 ## [2.21.0] - 2026-04-27
 
-Read-only Linear/GitHub Projects port audit. This release saves the E2E result from the StrongYes / Resplit / Vidux board-wiring check so the gaps are durable instead of trapped in one chat.
+Read-only Linear/GitHub Projects port audit, saved durably.
 
 ### Added
+- **`docs/fleet/linear-port-audit.md`** records the non-mutating audit across `vidux`, `strongyes-web`, `resplit-web`, `resplit-ios`: dry-run adapter health, Linear coverage, drift, stale mappings, repo-specific next actions. Docs sidebar link under Fleet.
 
-- **`docs/fleet/linear-port-audit.md`** records the non-mutating audit across `vidux`, `strongyes-web`, `resplit-web`, and `resplit-ios`: dry-run adapter health, Linear coverage, title/description drift, stale mappings, and repo-specific next actions.
-- **Docs sidebar link** under Fleet so future agents can find the latest porting audit before changing board sync config.
-
-**Findings:**
-
-- **StrongYes is mostly wired but not fully ported.** Linear team fetch succeeds with 205 issues and 189 active mapped tasks; 22 active PLAN tasks are still unmapped, and 44 mapped issues have stale Purpose/title text.
-- **resplit-web Linear import works, but local plan coverage does not.** The scoped UX Overhaul project fetch returns 7 issues, while 65 active PLAN tasks are unmapped and the `mega-plan` sidecar has 7 mappings whose task ids are no longer parseable from the PLAN.
-- **resplit-web GitHub Projects config is stale.** `gh_projects` dry-run fails because `leojkwan` ProjectV2 number 4 no longer resolves.
-- **resplit-ios is not ported to repo-level Vidux sync.** The primary checkout has no `vidux.config.json`, the top-level `PLAN.md` uses non-canonical task syntax that the parser reads as 0 tasks, and old embedded `ai/skills/vidux` copies remain in the repo.
-- **No Linear HTML-comment codec leak found.** Description drift was title/Purpose mismatch, not the old visible `<!-- vidux:... -->` codec.
-
-### Verified
-
-- `python3 scripts/vidux-worktree-gc.py --base origin/main /Users/leokwan/Development/vidux`
-- `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter linear --direction=both --dry-run --json`
-- `python3 scripts/vidux-inbox-sync.py --config <repo>/vidux.config.json --only-adapter gh_projects --direction=both --dry-run --json`
+**Findings:** StrongYes mostly wired but not fully ported (22 unmapped tasks, 44 stale-text issues); resplit-web Linear import works but local plan coverage doesn't (65 unmapped) and its `gh_projects` config is stale; resplit-ios not ported to repo-level sync (no config, non-canonical task syntax → 0 tasks parsed); no Linear HTML-comment codec leak found.
 
 ---
 
 ## [2.20.0] - 2026-04-27
 
-Worktree lifecycle GC lands in core. Vidux now has a safe, read-only-by-default classifier for local automation worktrees so fleets can clean up after PR handoff without guessing which branches are safe to remove.
+Worktree lifecycle GC lands in core — a safe, read-only-by-default classifier for local automation worktrees so fleets can clean up after PR handoff.
 
 ### Added
-
-- **`scripts/vidux-worktree-gc.py`** classifies local git worktrees into `primary`, `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, and `unknown`.
-- **Safe cleanup mode** via `--apply --yes`. It removes only `merged_clean` worktrees: clean, non-protected worktrees whose branch is already in the base ref or whose PR is merged.
-- **Machine-readable output** via `--json`, including bucket summary, PR metadata, removal list, warnings, and per-worktree reasons.
-- **Regression coverage** in `tests/test_worktree_gc.py` for lifecycle buckets, `--apply --yes`, post-removal summaries, and the linked-worktree invocation safety case.
+- **`scripts/vidux-worktree-gc.py`** classifies worktrees into `primary`, `open_pr`, `merged_clean`, `dirty`, `closed_unmerged`, `unmerged_no_pr`, `unknown`.
+- **Safe cleanup** via `--apply --yes` — removes only `merged_clean` (clean, non-protected, branch in base or PR merged).
+- **`--json`** output; regression coverage in `tests/test_worktree_gc.py`.
 
 ### Changed
-
-- **Worktree doctrine is now PR-first.** `guides/fleet-ops.md` no longer tells automation prompts to merge worktree commits directly back to the default branch. Lanes push branch + PR, record the resume point there, then treat the local worktree as disposable after classification.
-- **Garbage-collection docs now split plan GC from worktree GC.** `SKILL.md` documents that plan cleanup and local worktree cleanup are separate tools with separate safety rules.
-- **Invocation checkout is protected.** QA found that running cleanup from inside a linked worktree could classify that checkout as removable if only the first Git worktree was protected. `2.20.0` protects both the primary Git worktree and the invocation checkout.
-
-### Verified
-
-- `python3 -m unittest tests.test_worktree_gc`
-- `python3 -m py_compile scripts/vidux-worktree-gc.py tests/test_worktree_gc.py`
-- `git diff --check`
-- Disposable clone full suite: `python3 -m unittest discover -s tests` (165/165)
-- GitHub PR #53 CI before merge: Contract tests, Plan GC tests, ShellCheck, Doc structure all passed.
-- Dogfood read-only scan on the Vidux repo after release QA found 17 local worktrees: 7 `dirty`, 7 `closed_unmerged`, 2 `unmerged_no_pr`, 1 `primary`; no removals performed.
+- **Worktree doctrine is now PR-first.** `guides/fleet-ops.md` no longer tells lanes to merge worktree commits directly to default; lanes push branch + PR, record the resume point there, treat the worktree as disposable after classification.
+- **Plan GC and worktree GC are separate tools with separate safety rules** (`SKILL.md`).
+- **Invocation checkout is protected** — both the primary Git worktree and the invocation checkout are guarded from removal.
 
 ---
 
 ## [2.19.0] - 2026-04-26
 
-Ready-PR-first replaces draft-first as the core automation push policy. Operational PRs open ready-for-review by default so configured review bots and preview checks can run immediately; draft is now reserved for true WIP or a missing gate.
+Ready-PR-first replaces draft-first as the core push policy. Operational PRs open ready-for-review by default so review bots and preview checks run immediately; draft is reserved for true WIP or a missing gate.
 
 ### Changed
+- **Core push authorization: ready PRs by default.** `SKILL.md`, `docs/concepts/cycle.md`, prompt templates, recipes, and automation references all align on: push the branch, open a ready PR, use draft only when not ready for review, never push directly to `main`.
+- `guides/draft-pr-flow.md` keeps its path but documents Ready-PR Flow.
+- Lifecycle recipes track all automation PRs, not only drafts; drafts are the exception to flip ready once gates pass.
 
-- **Core push authorization now says ready PRs by default.** `SKILL.md`, `docs/concepts/cycle.md`, prompt templates, recipes, and automation references all align on: push the branch, open a ready PR, use draft only when the PR is not ready for review, and never push directly to `main`.
-- **`guides/draft-pr-flow.md` kept its historical path but now documents Ready-PR Flow.** This preserves existing links while removing the stale `gh pr create --draft` default from live lane-prompt guidance.
-- **Lifecycle recipes now track all automation PRs, not only drafts.** PR manager and reviewer recipes classify drafts as an exception to flip ready once local/remote gates pass.
-
-**Why:** The old draft-first doctrine solved direct-to-main safety but now fights modern review automation: Graphite, Seer-style review, preview comments, and deployment gates often skip or delay drafts. Keeping operational PRs draft made agents look idle and hid the exact feedback they needed to nurse PRs. Ready-first keeps the safety boundary (PRs, not main) while letting the review pipeline run.
+**Why:** Draft-first solved direct-to-main safety but fights modern review automation (Graphite, Seer, preview comments, deploy gates skip/delay drafts), made agents look idle, and hid feedback. Ready-first keeps the PRs-not-main boundary while letting the pipeline run.
 
 ---
 
 ## [2.18.0] - 2026-04-25
 
-ETA tags go back to optional. 2.12.0's "mandatory on every pending + in_progress task" rule is reversed: completion (X/Y tasks done) is the headline metric for a `/vidux` plan; `[ETA: Xh]` is supplementary and useful only when the tasks in a plan are similar-sized so the sum means something. Leo: *"tasks are way fucking harder than each other, ETA is fiction."*
+ETA tags go back to optional. 2.12.0's "mandatory on every pending + in_progress task" rule is reversed: completion (X/Y tasks done) is the headline metric; `[ETA: Xh]` is supplementary and only meaningful when tasks in a plan are similar-sized. Leo: *"tasks are way fucking harder than each other, ETA is fiction."*
 
 ### Changed
+- **`[ETA: Xh]` is OPTIONAL** on `[pending]` + `[in_progress]` tasks. The 2.12.0 "plan defect — fill it in before checkpoint" rule is gone. Tag when tasks are similar-sized and the sum is a meaningful "AI-hours remaining" read; skip when they vary and the sum becomes fiction. `/vidux-status` still sums present ETAs, informationally.
 
-- **`[ETA: Xh]` tag is now OPTIONAL** on `[pending]` + `[in_progress]` tasks (`SKILL.md` `## Tasks` template + the `[ETA: Xh]` paragraph below it; shipped in `cd8beff`). The "plan defect — fill it in before checkpoint" rule from 2.12.0 is gone. New guidance: tag when tasks are similar-sized and the sum gives a meaningful "AI-hours remaining" read; skip when tasks vary in difficulty and the sum becomes fiction. `/vidux-status` continues to sum whatever ETAs are present, but the sum is informational, not a contract.
+**Why:** The 2.12.0 mandate assumed task uniformity that doesn't hold. Summing across a 15-min test fix and a 6-hour migration produces noise. Headline completion carries the signal; ETAs return to a per-task tool for when calibration is meaningful.
 
-**Why:** The 2.12.0 mandate assumed task uniformity that doesn't hold in practice. When a plan mixes a 15-minute test fix with a 6-hour migration, summing `[ETA: Xh]` tags produces a number that looks like progress but is actually noise. Forcing an estimate on every task cost honesty (agents either guessed wildly or copied a default) without giving Leo a useful glance-level read. Headline completion (X/Y tasks done) carries the actual signal; ETAs return to where they belong — a per-task tool when calibration is meaningful. The vidux-browser viewer now renders completion bars, so the SKILL.md framing also matches what Leo sees in the UI.
-
-**Unchanged:**
-
-- 2.12.0's `[FREEFORM]` + `[METER]` cycle-end format stays. The 20-cell meter is the right glance-level read; it doesn't sum ETAs under the hood, so the doctrine reversal doesn't touch it.
-- 2.12.0's CHANGELOG entry stays as-is — accurate history of what shipped at that version.
+**Unchanged:** 2.12.0's `[FREEFORM]` + `[METER]` cycle-end format stays (the 20-cell meter doesn't sum ETAs).
 
 ---
 
 ## [2.17.0] - 2026-04-22
 
-Core docs cleanup: dead-weight kill + personal-reference scrub. Keeps the `/vidux` ↔ `/vidux-leo` boundary clean so OSS readers see only discipline, not one fleet's taste. Driven by a 3-agent doc-review pass + `codex review --uncommitted` as the finalize gate.
+Core docs cleanup: dead-weight kill + personal-reference scrub, keeping the `/vidux` ↔ `/vidux-leo` boundary clean so OSS readers see discipline, not one fleet's taste.
 
 ### Changed
-
-- **Coordinator cadence harmonized to every hour.** `references/automation.md` §5.6 rule 7 was "every 2 hours, not every 30 minutes"; the cadence table at §11 already said 60 min. Fixed the rule, plus the L389 slot-map example (`every 2h` → `every 1h`). The fleet-coordinator cadence guidance is now internally consistent.
-- **Personal refs scrubbed from core** across 7 recipes + `references/automation.md` + `guides/automation.md`. `~/.claude-automations/` → `<lane-dir>/` (19 refs), `~/.codex-automations/` → `<codex-lane-dir>/` (4 refs), Leo lane names (`leojkwan-shipper`, `strongyes-backend-trust`, `leojkwan-coordinator`, `codex-*`) → generic `<project>-*` templates, direct Leo attributions dropped, skill-name refs genericized to tool descriptions, gym-schedule example generalized to "member-only dashboards".
-- **Stale breadcrumbs scrubbed.** "Routines" mention at `references/automation.md:41` removed per 2026-04-15 strip; dated `(updated for Opus 4.7, 2026-04-16)` stripped from §6.5 heading; Framing B / Codex-unlimited bullet removed per 2026-04-18 cross-tool-delegation deprecation; historical `--no-verify` violations example (`strongyes-web PRs #346/#350`) genericized.
+- **Coordinator cadence harmonized to every hour** across `references/automation.md` (rule + slot-map example now match the §11 60-min table).
+- **Personal refs scrubbed from core** across 7 recipes + `references/automation.md` + `guides/automation.md`: `~/.claude-automations/` → `<lane-dir>/`, Leo lane names → generic `<project>-*`, direct attributions dropped, examples generalized.
+- **Stale breadcrumbs scrubbed** — Routines mention, dated Opus-version heading, deprecated cross-tool-delegation bullet, historical `--no-verify` violations example.
 
 ### Removed
-
-- **`references/automation.md` Section 8 (Observer Pairs tombstone).** 7-line stub kept "so cross-references resolve" per the 2026-04-17 direction. SUPERSEDED — the deprecation itself is already documented in Section 3. Section 8.5 (Cross-Fleet Coordination) promoted up to Section 8.
-- **Section 17 (Recommended Agent Config Rules) + Section 18 (Insights Triage Process).** Both were 3-sentence pointer stubs to other docs. Cross-references survive in-line where actually needed. Section 19 (Activation) → Section 17.
-
-**Flagged for later:**
-
-- `guides/recipes.md:29` Fleet Watcher recipe still documents a "every 2 hours" cadence. This is a DEPRECATED recipe (see the ⚠️ blockquote at L23-25) — historical record, not a current rule. Left unchanged so the deprecation breadcrumb stays honest.
-
-### Verified
-
-- Team doc-review: 3 parallel code-reviewers flagged 20+ personal refs in core docs. Post-scrub `grep` returns zero hits except one intentional `e.g.` listing in `guides/recipes/codex-runtime.md:72`.
-- `codex review --uncommitted` (codex-cli 0.119.0) flagged P2 cadence inconsistency at L389 and P3 observer-stub removal impact. Both addressed before commit.
-- Contract tests: 133/136 pass. 3 failures verified pre-existing via `git stash` on clean HEAD (`test_ledger_bimodal_distribution_*` + `test_plan_tasks_have_valid_status`).
-
-**Related ai-repo changes** (committed separately, `ai` repo `54b4124`):
-
-- `/vidux-leo` §2 gained two subsections: Value-mix brake (cite `guides/recipes/user-value-triage.md`) and Branch-drift pre-commit check. Driven by 2026-04-15..22 Claude Code usage-report friction: mid-session pushback on audit/docs PRs outpacing user-visible fixes, and repeated branch drift between active lanes.
-- `/pilot` SKILL.md gained Step 0 "Request Triage (fast-exit)" — ≤50-word copy/wording/naming requests answer inline with 2-3 options, skipping brainstorming + TaskCreate chains. Observed failure: hero-copy request fired heavy planning before being abandoned mid-session.
+- `references/automation.md` Section 8 (Observer Pairs tombstone — deprecation already lives in Section 3; 8.5 Cross-Fleet Coordination promoted up).
+- Sections 17 (Agent Config Rules) + 18 (Insights Triage) — both pointer stubs; cross-refs survive inline.
 
 ---
 
 ## [2.16.0] - 2026-04-18
 
-Audit cleanup — catches the stale "Mode A / Mode B" terminology that 2.15.0 missed in tier-3 docs (`references/` + `docs/fleet/`). 26 occurrences renamed to the `research dispatch / implementation dispatch` terminology that 2.15.0 already shipped in `guides/automation.md` and `SKILL.md`. Also fixes a stale deprecation breadcrumb and archives a completed in-flight plan.
+Audit cleanup catching stale "Mode A / Mode B" terminology 2.15.0 missed in tier-3 docs.
 
 ### Changed
+- **`Mode A / Mode B` → `research dispatch / implementation dispatch`** across 4 files (`references/automation.md`, `docs/fleet/codex-lifecycle.md`, `docs/fleet/codex-setup.md`, `commands/vidux-auto.md`) — the remainder of 2.15.0's core rename. `grep` returns 0 post-rename.
+- **`commands/vidux-auto.md` breadcrumb fix** — now accurately describes the current structure (single entry `/vidux`, Part 1 in SKILL.md, Part 2 in `guides/automation.md`, deep doctrine in `references/automation.md`).
 
-- **`Mode A / Mode B` → `research dispatch / implementation dispatch`** across 4 files: `references/automation.md` (17 occurrences), `docs/fleet/codex-lifecycle.md` (6), `docs/fleet/codex-setup.md` (1), `commands/vidux-auto.md` (2). This was the remainder left over from 2.15.0's core rename — `guides/automation.md` and `SKILL.md` were already clean, but `references/` still carried the old jargon and the `docs/fleet/` files cross-referenced it. Verified: `grep -c 'Mode A\|Mode B'` returns 0 across all 4 files post-rename.
-- **`commands/vidux-auto.md` breadcrumb accuracy fix**. The deprecation breadcrumb claimed `/vidux` has "Part 1 + Part 2 inline" — stale. Per the 2.10.0 structural split, Part 2 moved OUT of SKILL.md to `guides/automation.md`. Breadcrumb now accurately describes the current structure: single entry `/vidux`, Part 1 in SKILL.md, Part 2 in `guides/automation.md`, deep doctrine in `references/automation.md`.
-
-**Moved:**
-
-- **`PLAN-docs-simplify.md` → `projects/docs-simplify/PLAN.md`**. All 8 tasks `[completed]` since 2026-04-16; plan was cluttering repo root. Preserved via `git mv` (history intact) rather than deleted — the Decision Log entries (platform-agnostic core, TOML-first Codex workflow) still have reference value for future doc-simplification work.
+**Moved:** `PLAN-docs-simplify.md` → `projects/docs-simplify/PLAN.md` via `git mv` (all 8 tasks completed; Decision Log retained for reference value).
 
 ---
 
@@ -853,101 +328,74 @@ Audit cleanup — catches the stale "Mode A / Mode B" terminology that 2.15.0 mi
 Doctrine cleanup: plain-English rename of L1/L2 plan nesting, cross-tool delegation removed (not deprecated — removed), vidux.config.json surfaced in core, "markers" jargon dropped. Leo: *"what are markers? … let's kill delegation cross tool concept entirely, 0 deprecation warnings i am sole user."*
 
 ### Changed
-
-- **L1/L2 plan-nesting terminology retired.** SKILL.md now calls it "parent plan + child investigation" in plain English. The concept is unchanged (one parent PLAN.md, one child `investigations/<slug>.md`, no deeper nesting) — the jargon was obscuring it. README.md's one-line nesting rule now reads: "One parent plan, one child investigation per compound task — no deeper nesting."
-- **Cross-tool delegation removed, not deprecated.** All references to Mode A / Mode B / cross-tool / primary-Claude-+-secondary-Codex scrubbed from SKILL.md, README.md, guides/automation.md. The subagent-dispatch doctrine (which was already same-tool by 2.10.0) is renamed to plain "research dispatch" + "implementation dispatch." No deprecation notices — vidux is a single-user project; backwards-compat shims aren't earning their keep.
-- **`[FREEFORM]` / `[METER]` "markers" jargon dropped.** `commands/vidux.md` CHECKPOINT section now calls them "the freeform line" and "the meter bar" — what they literally are. Rule unchanged from 2.13.0 (cycle checkpoints + mission-status replies, not casual chat).
+- **L1/L2 nesting terminology retired** — now "parent plan + child investigation" in plain English (concept unchanged: one parent PLAN.md, one child `investigations/<slug>.md`, no deeper nesting).
+- **Cross-tool delegation removed, not deprecated.** All Mode A / Mode B / cross-tool / Claude-primary-Codex-secondary refs scrubbed. Subagent-dispatch (already same-tool by 2.10.0) renamed to plain "research dispatch" + "implementation dispatch." No deprecation shims — single-user project.
+- **`[FREEFORM]` / `[METER]` "markers" jargon dropped** — `commands/vidux.md` now calls them "the freeform line" and "the meter bar." Rule unchanged from 2.13.0.
 
 ### Added
-
-- **`vidux.config.json` surfaced in core doctrine.** SKILL.md now has a brief "vidux.config.json (where plans live)" section explaining the three plan-store modes (`inline` / `local` / `external`). README.md's new "Status & Config" section shows the same for OSS readers. Previously this only lived in `commands/vidux.md`'s startup flow — SKILL.md readers never encountered it.
-- **README.md "Status & Config" section** — documents `scripts/vidux-status.py` usage and `vidux.config.json` minimal schema.
+- **`vidux.config.json` surfaced in core doctrine** (`SKILL.md` + README) — the three plan-store modes (`inline`/`local`/`external`). Previously only in `commands/vidux.md`.
+- **README "Status & Config" section** — `scripts/vidux-status.py` usage + `vidux.config.json` minimal schema.
 
 ---
 
 ## [2.14.0] - 2026-04-18
 
-Concrete script for `/vidux-status`. The slash command is now backed by a real Python script — deterministic, <5s end-to-end, can be called from cron / bash / other agents / CI.
+Concrete script for `/vidux-status` — deterministic, <5s, callable from cron/bash/agents/CI.
 
 ### Added
-
-- **`scripts/vidux-status.py`** (~230 lines, stdlib-only) — read-only scan of every `PLAN.md` under `~/Development/` (or `--root <path>`). Renders the two-bucket board (`🎯 Tied to this chat` + `📋 Other tracked plans`). Sorts by `%` desc then mtime desc. Filters empty + shipped plans by default (`--all` includes them). Flags: `--json` for machine output, `--focus <repo...>` to override cwd-based classification. Tight worktree + nested-vidux-skill-copy filter (skips `*-worktrees/`, `.claude/worktrees/`, `**/ai/skills/vidux/`).
-
-**Usage:**
-
-```bash
-python3 scripts/vidux-status.py
-python3 scripts/vidux-status.py --all
-python3 scripts/vidux-status.py --focus vidux resplit-web strongyes-web
-python3 scripts/vidux-status.py --json | jq '.tied[].percent'
-```
+- **`scripts/vidux-status.py`** (~230 lines, stdlib-only) — read-only scan of every `PLAN.md` under `~/Development/` (or `--root`). Renders the two-bucket board (🎯 Tied to this chat + 📋 Other tracked plans), sorts by `%` desc then mtime desc, filters empty + shipped by default (`--all`). Flags `--json`, `--focus <repo...>`. Skips `*-worktrees/`, `.claude/worktrees/`, `**/ai/skills/vidux/`.
 
 ---
 
 ## [2.13.0] - 2026-04-18
 
-Durable question queue + tightened marker doctrine. The `[DEFER]` tag in vidux-ship-coordinator was a passive name for an active state — replaced with `[ASK-LEO]` pointing at a new `ASK-LEO.md` queue file where questions accumulate instead of re-summarizing in memory.md every cycle. Also tightened 2.12.0's "every response ends with meter+freeform" rule — the markers are for mission-status moments (cycle ends, progress reports), not casual chat. Leo: *"why are u [METER] [FREEForm] everything?"*
+Durable question queue + tightened marker doctrine. `[DEFER]` (a passive name for an active state) replaced with `[ASK-LEO]` pointing at a new `ASK-LEO.md` queue. Also tightened 2.12.0's "every response ends with meter+freeform" — markers are for mission-status moments, not casual chat. Leo: *"why are u [METER] [FREEForm] everything?"*
 
 ### Added
-
-- **`ASK-LEO.md`** at vidux repo root — durable queue of open questions from automation lanes. Each row: title + opened-ts + status + context + Answer line (inline-editable). Lanes log one-line `[ASK-LEO Q<N>]` pointers in their memory.md; the durable state lives in ASK-LEO.md. Seeds with Q1 (Greptile-bypass on vidux repo) + Q2 (PR #27 scope-split).
-- **`[ASK-LEO]` + `[ACTED]` tags** in vidux-ship-coordinator prompt §8, replacing `[DEFER]`. Distinct from `[BLOCKED]` (hard technical blocker): `[ASK-LEO]` = armed + ready, waits on one Leo answer.
+- **`ASK-LEO.md`** at repo root — durable queue of open questions (title + opened-ts + status + context + inline-editable Answer). Lanes log one-line `[ASK-LEO Q<N>]` pointers in memory.md; durable state lives in `ASK-LEO.md`.
+- **`[ASK-LEO]` + `[ACTED]` tags** in vidux-ship-coordinator §8 replacing `[DEFER]`. `[ASK-LEO]` = armed + ready, waits on one Leo answer (distinct from `[BLOCKED]` = hard technical blocker).
 
 ### Changed
-
-- **Marker rule tightened** in `commands/vidux.md` CHECKPOINT section. Full `[FREEFORM]` + `[METER]` pair applies to cycle checkpoints and mission-status replies. Casual chat, naming/design Q&A, and quick questions skip both. Meter-only is acceptable when you want progress signal without prose.
-- **No-noise rule** in vidux-ship prompt §8 now explicitly covers `[ASK-LEO]`: if the prior entry was `[ASK-LEO Q<N>]` and nothing changed, skip the entry entirely. Re-summarizing the question in memory on every cycle is the anti-pattern this release fixes.
+- **Marker rule tightened** (`commands/vidux.md`) — full `[FREEFORM]` + `[METER]` pair for cycle checkpoints + mission-status replies; casual chat / naming Q&A skip both; meter-only acceptable for progress signal without prose.
+- **No-noise rule** covers `[ASK-LEO]` — skip the entry if the prior was `[ASK-LEO Q<N>]` and nothing changed.
 
 ---
 
 ## [2.12.0] - 2026-04-18
 
-ETAs go mandatory; every cycle ends with a meter. `[ETA: Xh]` tags are now required on `[pending]` and `[in_progress]` tasks — the loose "fill in over time" posture from 2.11 is gone. Every cycle (and every response to the user) now ends with a `[FREEFORM]` line + `[METER]` 20-cell 0–100% bar. Leo: *"vidux plans must have an ETA when planning and every response or automation end needs to express where its at freeform and the 0-100 meter bar, idgaf."*
+ETAs go mandatory; every cycle ends with a meter. (Reversed in 2.18.0.) Leo: *"vidux plans must have an ETA when planning and every response or automation end needs to express where its at freeform and the 0-100 meter bar, idgaf."*
 
 ### Changed
-
-- **`[ETA: Xh]` tag is MANDATORY** on `[pending]` + `[in_progress]` tasks. Dropping a new task into a plan without an ETA is a plan defect — fill it in before checkpoint. Completed + blocked don't need one. 2.11.0's "missing = ∅ AI-hrs not a failure" language softened to "acceptable only on historical tasks pre-2.12.0; new tasks require ETA."
-- **Cycle-end format is `[FREEFORM]` + `[METER]`.** Added to `commands/vidux.md` CHECKPOINT section. FREEFORM = 1–3 plain-English sentences on where the work actually sits. METER = 20-cell bar, cell = 5%, mission-wide (not per-task). Coarse on purpose.
-
-**Why:** Planning without ETAs lets estimates stay vague forever. Making them mandatory captures the moment of honest guessing; the per-project calibration data (was the `[ETA: 2h]` guess on task N actually 4h?) accumulates naturally and gets tuned later. The FREEFORM + METER cycle-end discipline is for humans reading fleet output — the meter gives Leo a glance-level read without parsing checkpoint prose.
+- **`[ETA: Xh]` MANDATORY** on `[pending]` + `[in_progress]` tasks (new task without one = plan defect). Completed + blocked exempt. *(Superseded by 2.18.0 — now optional.)*
+- **Cycle-end format is `[FREEFORM]` + `[METER]`.** FREEFORM = 1–3 plain sentences on where work sits; METER = 20-cell bar, cell = 5%, mission-wide. Coarse on purpose.
 
 ---
 
 ## [2.11.0] - 2026-04-18
 
-Cross-repo plan visibility. New `/vidux-status` command renders a two-bucket status board of every PLAN.md on the machine, with progress bars and AI-hour ETAs. PLAN.md Tasks template grows an optional `[ETA: Xh]` tag documenting the new convention.
+Cross-repo plan visibility. New `/vidux-status` command renders a two-bucket board of every PLAN.md on the machine. PLAN.md Tasks template grows an optional `[ETA: Xh]` tag.
 
 ### Added
-
-- **`/vidux-status` command** (`commands/vidux-status.md`) — read-only scan of every PLAN.md under `~/Development/`, classified into 🎯 Tied to this chat (cwd / session / ledger matches) and 📋 Other tracked plans. Each row renders a 10-cell progress bar + remaining AI-hours + last-Progress timestamp. Never writes, never commits.
-- **`[ETA: Xh]` tag convention** on Task lines. Optional. Calibration table in SKILL.md: 0.25h trivial → 8h+ multi-phase (promote to compound). Missing tags render as `∅ AI-hrs` and back-fill over time — not a failure. ETAs are elastic; scope revisions go in `## Decision Log`.
+- **`/vidux-status` command** (`commands/vidux-status.md`) — read-only scan, classified 🎯 Tied to this chat / 📋 Other tracked plans, with progress bars + remaining AI-hours + last-Progress timestamp. Never writes.
+- **`[ETA: Xh]` tag convention** on Task lines (optional). Calibration table in SKILL.md (0.25h trivial → 8h+ multi-phase). *(See 2.12.0 → 2.18.0 for the mandatory/optional history.)*
 
 ### Changed
-
-- **SKILL.md `## Tasks` template** now shows `[ETA: 0.5h]` and `[ETA: 2h]` on the example rows, with a new paragraph documenting the AI-hour convention.
+- **SKILL.md `## Tasks` template** shows `[ETA: 0.5h]` / `[ETA: 2h]` examples + AI-hour convention paragraph.
 
 ---
 
 ## [2.10.0] - 2026-04-18
 
-Structural refactor. The doctrine machinery shrinks; the recipes layer takes on everything tool-specific, tactical, or customizable. Cross-tool delegation (Claude ↔ Codex) is deprecated — vidux runs single-tool or not at all. Core SKILL.md becomes Part 1 only.
+Structural refactor. Doctrine machinery shrinks; the recipes layer takes on everything tool-specific, tactical, or customizable. Cross-tool delegation (Claude ↔ Codex) deprecated — vidux runs single-tool. Core SKILL.md becomes Part 1 only.
 
 ### Added
-
-- **`guides/automation.md`** — the 24/7 fleet operating model, session-gc, lane management, delegation, lane bootstrap. Previously lived as Part 2 of SKILL.md. Now an opt-in guide; load it when you need automation, not to read vidux.
-- **`guides/recipes/` directory** with 12 new recipes covering tacit knowledge, delegation patterns, and workflow friction categories from production /insights data:
-  - `claude-md-rules.md` — battle-tested CLAUDE.md rules
-  - `lane-prompt-patterns.md` — 8-block prompt structure
-  - `subagent-delegation.md` — same-tool Mode A / Mode B via `Agent()`
-  - `codex-runtime.md` — running vidux natively on Codex Desktop
-  - `user-value-triage.md` / `evidence-discipline.md` / `env-var-forensics.md` / `webfetch-fallback.md` / `proactive-surfacing.md` / `lightweight-first.md` / `visual-proof-required.md` — /insights-derived friction recipes
-  - `README.md` — recipe index
+- **`guides/automation.md`** — the 24/7 fleet operating model (session-gc, lane management, delegation, bootstrap), previously Part 2 of SKILL.md. Now opt-in.
+- **`guides/recipes/` directory** with 12 recipes (CLAUDE.md rules, lane-prompt patterns, subagent-delegation, codex-runtime, + /insights-derived friction recipes) and a README index.
 
 ### Changed
-
-- **SKILL.md shrinks to Part 1 only** (~280 lines, discipline + cycle + PLAN.md + investigations). Part 2 moved to `guides/automation.md`. The Activation section now includes a "Recipes" pointer.
-- **Cross-tool delegation deprecated.** Mode A / Mode B were Claude-primary + Codex-secondary cross-tool handoffs. That pattern created context-loss at the egress boundary, prompt-shim fragility, and state-sync surprises. Modern delegation = same-tool subagent dispatch via `Agent()`. The cross-tool era had measured wins (10–110× Mode A / ~5× Mode B) but the reliability cost exceeded the context savings at fleet scale.
-- **`/vidux-codex` skill (in `~/Development/ai`) deprecated.** Users who want vidux on Codex: see `guides/recipes/codex-runtime.md`. Users who want cross-tool delegation: pattern is retired.
+- **SKILL.md shrinks to Part 1 only** (~280 lines: discipline + cycle + PLAN.md + investigations).
+- **Cross-tool delegation deprecated.** Mode A/B (Claude-primary + Codex-secondary) created context-loss at the egress boundary, shim fragility, and state-sync surprises. Modern delegation = same-tool subagent dispatch via `Agent()`. The cross-tool era had measured wins (10–110× Mode A / ~5× Mode B) but reliability cost exceeded context savings at fleet scale.
+- **`/vidux-codex` skill deprecated** — see `guides/recipes/codex-runtime.md`.
 
 **Migration:**
 
@@ -955,28 +403,19 @@ Structural refactor. The doctrine machinery shrinks; the recipes layer takes on 
 |---|---|
 | `SKILL.md` Part 2 | `guides/automation.md` |
 | Mode A / Mode B (Claude→Codex) | `guides/recipes/subagent-delegation.md` (same-tool via `Agent()`) |
-| Codex shim registration (inline in SKILL.md / vidux-codex skill) | `guides/recipes/codex-runtime.md` |
+| Codex shim registration | `guides/recipes/codex-runtime.md` |
 | `/vidux-codex` skill | Deprecated — see `codex-runtime.md` recipe |
 
-**Versioning note:** This is a minor bump (2.9.0 → 2.10.0) because:
-
-- The five principles, the cycle, and the required PLAN.md sections are unchanged
-- Existing SKILL.md readers get redirected, not broken
-- Lane prompts that reference Mode A / Mode B still work (the pattern name is preserved; only the cross-tool variant is deprecated)
-
-Contract tests pass with the same baseline (133 pass / 3 pre-existing failures).
+Minor bump: the five principles, the cycle, and required PLAN.md sections are unchanged; readers get redirected, not broken.
 
 ---
 
 ## [2.9.0] - 2026-04-17
 
-Doctrine patch with two aims: (1) kill the fleet-scale failure mode where agents picked cheap meta-tasks over real bug fixes, and (2) shift the discipline toward **autonomous adaptive work** — fewer human-gated checkpoints, fewer required sections, fewer ceremonies the agent has to observe. The result is a smaller doctrine that trusts the agent more.
-
-**Net effect on the code base:** substantial net deletion across SKILL.md, DOCTRINE.md, LOOP.md, docs/, guides/, references/, and commands/. The discipline gets smaller, not bigger.
+Doctrine patch with two aims: (1) kill the fleet-scale failure where agents picked cheap meta-tasks over real bug fixes, and (2) shift toward **autonomous adaptive work** — fewer human-gated checkpoints, fewer required sections, fewer ceremonies. Net: substantial deletion across SKILL.md, DOCTRINE.md, LOOP.md, docs/, guides/, references/, commands/.
 
 ### Added
-
-- **`observed` is now a first-class evidence type.** User-observed behavior is citable evidence of equal standing to `codebase grep`, `GitHub PR`, or `design doc`. This closes the ingest path for bugs a human sees in the running app.
+- **`observed` is now a first-class evidence type** — user-observed behavior is citable evidence of equal standing to codebase grep / GitHub PR / design doc. Closes the ingest path for bugs a human sees in the running app.
 
   ```markdown
   ## Evidence
@@ -984,144 +423,68 @@ Doctrine patch with two aims: (1) kill the fleet-scale failure mode where agents
   - [Source: observed] "Remove button silently no-ops during active session"
   ```
 
-  Previously the allowed evidence sources were all document-oriented. If no one had written the bug into a PR, a design doc, or a chat log, the bug had no way to enter the plan. The doctrine now treats the running app as a valid source.
-
 ### Changed
 
 **Core Rule:**
+- **Progress is code change.** A PR that only touches `PLAN.md`, `investigations/`, `evidence/`, or `INBOX.md` without a source-code change is bookkeeping, not progress. Bundle plan updates into the code PR, or keep notes local until a fix is ready. Prohibited as standalone PRs: `flip row to [completed]`, `reconcile Phase N`, `audit already-delivered`, `investigation closeout` without a code fix. **Why:** at fleet scale cheap tasks produce mergeable PRs faster than real fixes; lanes optimizing for merge count pick the cheap path. This takes it off the table.
+- **Investigation-only cycles no longer commit** — if a cycle produces no code, it produces no commit and no PR. The investigation file stays on disk and ships in the same PR as the fix.
+- **LOOP.md checkpoint rule inverted** — *"every cycle MUST produce a checkpoint commit"* → *"a cycle produces a commit only when code changed."*
+- **24/7 lane count simplified** — 2–4 lanes per repo (coordinator + session-gc); the observer slot is gone.
 
-- **Progress is code change.** A PR that only touches `PLAN.md`, `investigations/`, `evidence/`, or `INBOX.md` without a source-code change is bookkeeping, not progress. Bundle plan updates into the code PR that ships the fix, or keep notes local until a fix is ready.
-
-  The following shapes are now prohibited as standalone PRs:
-  - `flip row to [completed]`
-  - `reconcile Phase N`
-  - `audit already-delivered`
-  - `investigation closeout` without a code fix
-
-  **Why:** at fleet scale, the cheap tasks produce mergeable PRs faster than real bug fixes. Lanes that optimize for merge count will consistently pick the cheap path. This rule takes the cheap path off the table — when a lane needs a task, the only moves left are actual code changes.
-
-- **Investigation-only cycles no longer commit.** Previously the doctrine said *"the cycle is investigation only — no code"* in several places, permitting a commit of only the investigation file. The rule is now inverted: if a cycle produces no code, it produces no commit and no PR. The investigation file stays on disk for the next cycle to pick up, and ships in the same PR as the fix.
-
-  Before:
-  > If the Fix Spec is missing, the cycle is investigation only -- no code.
-
-  After:
-  > Investigation notes live locally in the working tree until the fix ships — they are not a separate deliverable.
-
-- **LOOP.md checkpoint rule inverted.** *"Every cycle MUST produce a checkpoint commit, even if no code changed"* → *"A cycle produces a commit only when code changed."*
-
-- **24/7 lane count recommendation simplified.** Was 3–7 lanes per repo (coordinator + optional observer + session-gc). Now 2–4 lanes per repo (coordinator + session-gc). The observer slot is gone.
-
-**Autonomous Adaptive Doctrine:** This section collects the cuts and small rewrites that together shift vidux toward agents that adapt on their own rather than pausing for human-gated ceremony. Every change in this section either deletes a rule outright or replaces it with a more permissive, agent-owned equivalent.
-
-- **Queue re-sort is now agent-owned.** The old "No reordering mid-cycle — to change priority, update the plan with a Decision Log entry" rule is gone. The agent re-sorts the queue when new `[Source: observed]` evidence, a Decision Log entry, or a failing deploy changes priority. The reorder is noted in the next Progress entry, no permission required.
-
-- **Queue selection is impact-weighted, not strict FIFO.** Old: *"[pending] tasks run top-to-bottom — the first eligible task wins."* New: *"Pick the highest-impact unblocked task."* FIFO remains the default; impact-weighting kicks in when the priority signal is obvious.
-
-- **`[P]` parallel marker removed from queue order.** The `[P] tasks may run in parallel — up to 4 concurrent agents, one point guard` rule is gone. Parallel research fan-out still happens where it helps (Mode A delegation, investigation agents), just not via a static marker embedded in every task description.
-
-- **3× stuck rule no longer requires a human.** Old: *"If the same task appears in 3+ Progress entries while still `[in_progress]`, mark it `[blocked]` with a Decision Log entry. Only a human can unblock it."* New: *"3× stuck → force a surface switch to the next unblocked task. Mark the stuck one `[blocked]` with a one-line Decision Log entry. No human hand-off required; next cycle either finds new evidence that unblocks it — via observed signal, new PR comment, or queue re-sort — or the task stays blocked until replaced."* The brake still prevents forever-loops; the human no longer sits in the critical path.
-
-- **Status FSM — `blocked` is now terminal.** The old FSM had a `blocked → pending` reverse transition, implying blocked tasks would automatically revive. Blocked is now terminal; a new task replaces a blocked one (with a Decision Log entry explaining the direction change).
-
-- **L3 investigation escape hatch removed.** The old doctrine allowed "L3 is allowed only when an investigation reveals a nested bug that itself needs investigation -- this is rare." Removed entirely. Max two levels (L1 plan, L2 investigation) is firm. If a surface needs deeper decomposition, split it into separate L1 plans.
-
-- **Push authorization compressed to one rule.** Replaced the three-tier ladder (Draft PRs / Direct-to-main / Destructive) with a single sentence: *"Draft PRs are always safe. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization."* Lane prompts that say "NEVER push" without qualification still allow draft PRs; parking on a safe draft-PR push wastes cycles.
-
-- **Garbage collection thresholds removed.** The old aspirational rules (*"Archive when PLAN.md exceeds 200 lines, prune worktrees older than 24h, rotate Decision Log older than 180 days, clean INBOX entries"*) are gone. Replaced with: *"Archive completed tasks when the plan feels heavy — the agent decides, no fixed threshold."* Nobody ran the thresholds; they were ceremony.
-
-- **"Every agent is a worker" folded into the ACT step.** The standalone section is gone. Its instruction now lives inline in the cycle: *"Empty queue? Scan INBOX, owned paths, git log, blocked tasks. Anything found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit."*
-
-- **Principle 4 addendum — evidence-driven re-sort.** One new line: *"If evidence changes mid-cycle, the queue re-sorts. Observed user behavior, a failing deploy, a new PR comment — any of these can reorder what's next. You don't need permission to reorder. Note the reorder in the next Progress entry so future agents see the why."*
+**Autonomous Adaptive Doctrine** (each item deletes a rule or replaces it with a more permissive, agent-owned equivalent):
+- **Queue re-sort is agent-owned** — re-sort when new `[Source: observed]` evidence, a Decision Log entry, or a failing deploy changes priority; note in next Progress, no permission required.
+- **Queue selection is impact-weighted, not strict FIFO** — "pick the highest-impact unblocked task." FIFO is the default; impact-weighting kicks in when the priority signal is obvious.
+- **`[P]` parallel marker removed from queue order** — parallel research fan-out still happens where it helps, just not via a static per-task marker.
+- **3× stuck rule no longer requires a human** — 3× stuck → force a surface switch to the next unblocked task, mark stuck one `[blocked]` with a one-line Decision Log entry. Next cycle finds new evidence or it stays blocked. Human out of the critical path.
+- **Status FSM — `blocked` is terminal** — no `blocked → pending` reverse transition; a new task replaces a blocked one.
+- **L3 investigation escape hatch removed** — max two levels (L1 plan, L2 investigation) is firm; deeper decomposition splits into separate L1 plans.
+- **Push authorization compressed to one rule** — *"Draft PRs are always safe. Direct-to-main or destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization."*
+- **Garbage-collection thresholds removed** — replaced with *"archive completed tasks when the plan feels heavy — the agent decides, no fixed threshold."*
+- **"Every agent is a worker" folded into the ACT step** — *"Empty queue? Scan INBOX, owned paths, git log, blocked tasks. Anything found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit."*
+- **Principle 4 addendum** — *"If evidence changes mid-cycle, the queue re-sorts… note the reorder in the next Progress entry."*
 
 **PLAN.md Template:**
-
-- **`## Open Questions` section is now optional.** It is no longer listed in the required PLAN.md template and the contract test (`tests/test_vidux_contracts.py` `REQUIRED_PLAN_SECTIONS`) has been loosened to drop it. Plans that already have the section continue to work. New plans can skip it. Promote a question to a `[pending]` research task, or note it on the blocking task as `[Blocker: need evidence for X]` — a dedicated section is no longer required.
-
-- **`## Surprises` section is now optional.** Same treatment. Unexpected findings during execution go into the Progress entry for that cycle, or promote to a new task if actionable. The Decision Log captures intentional pivots. A dedicated Surprises section duplicates both.
-
-- **Status FSM in the template** updated to show `blocked` as terminal (no `blocked → pending` reverse transition).
-
-The contract test `test_plan_has_required_sections` now requires 6 sections: `Purpose`, `Evidence`, `Constraints`, `Decisions`, `Tasks`, `Progress`. Down from 8. Existing plans with Open Questions + Surprises sections remain valid.
+- **`## Open Questions` and `## Surprises` are now optional** — dropped from the required template; contract test loosened. Promote a question to a `[pending]` task or a `[Blocker: ...]` annotation; put surprises in the Progress entry. Existing plans with these sections still work.
+- **Status FSM in the template** updated — `blocked` is terminal.
+- Contract `test_plan_has_required_sections` now requires 6 sections: `Purpose`, `Evidence`, `Constraints`, `Decisions`, `Tasks`, `Progress` (down from 8).
 
 ### Deprecated
+**Observer Lane Pattern** — read-only audit lanes that watch a writer each cycle are an orchestration smell. They add memory.md files, cross-lane reads, and cycle offsets without catching bugs the writer couldn't already see in its own logs. Drift belongs upstream — fix the writer's prompt or the doctrine. Targets: `references/automation.md` §8 (collapsed to a notice), §3 observer subsection (rewritten), §8.5 step 4 (removed); `guides/recipes.md` Recipes 1 + 4 (marked DEPRECATED); `docs/index.md` feature card. Existing observer lanes are not auto-migrated; wind them down at the next maintenance window. **Alternatives:** one-shot manual audits for independent eyes; health checks in the writer's own cycle / `session-gc` for fleet health; fix the writer's prompt for drift.
 
-**Observer Lane Pattern.** Observer lanes (read-only audit lanes that watch a writer each cycle) are deprecated as an orchestration smell. They add memory.md files, cross-lane reads, and cycle offsets without catching bugs that the writer could not already see in its own logs. Drift belongs upstream — fix the writer's prompt or the doctrine producing drift. Don't pay for a second scheduled lane to report it back.
-
-Deprecation targets:
-
-| Location | Change |
-|---|---|
-| `references/automation.md` Section 8 (Observer Pairs) | Full section collapsed to a 3-line deprecation notice |
-| `references/automation.md` Section 3 "The observer" subsection | Rewritten as "Observer lanes are deprecated" |
-| `references/automation.md` Section 8.5 step 4 (Cross-Fleet Coordination) | Observer-as-fleet-health step removed |
-| `guides/recipes.md` Recipe 1 (Fleet Watcher) | Marked DEPRECATED with blockquote warning |
-| `guides/recipes.md` Recipe 4 (Observer Pair) | Marked DEPRECATED with blockquote warning |
-| `docs/index.md` Fleet Intelligence feature card | "Observer pairs" removed from description |
-
-**Alternatives if you need what observers were doing:**
-
-- **Independent eyes on a specific concern.** Run a one-shot audit by hand. A human reading the writer's recent memory.md tail for 5 minutes catches more than a scheduled observer running every cycle.
-- **Fleet health tracking.** Put health checks in the writer's own cycle — it already reads its state each fire. `session-gc` already tracks disk pressure across sessions.
-- **Prompt drift detection.** If a writer keeps producing the wrong thing, fix the writer's prompt. The observer catching the drift does not fix the underlying bug.
-
-Existing observer lanes are not auto-migrated. They will continue to work. Consider winding them down at your next maintenance window.
-
-**Migration Guide:** If your lane prompts, `CLAUDE.md`, `AGENTS.md`, or automation README files reference the old doctrine phrasings, replace them:
+**Migration Guide** (replace old phrasings):
 
 | Old phrasing | New phrasing |
 |---|---|
 | `investigation only — no code` | `no PR until the fix ships` |
 | `no code this cycle` | `no commit until the fix ships` |
 | `Every cycle MUST produce a checkpoint commit` | `A cycle produces a commit only when code changed` |
-| `observer pair`, `fleet watcher` | (deprecated — see alternatives above) |
-| `preemptive observer` | (deprecated) |
-| `No reordering mid-cycle` | `Re-sort the queue when observed evidence changes priority; note in Progress` |
+| `observer pair`, `fleet watcher`, `preemptive observer` | (deprecated — see alternatives) |
+| `No reordering mid-cycle` | `Re-sort when observed evidence changes priority; note in Progress` |
 | `first eligible [pending] wins` | `Pick the highest-impact unblocked task` |
-| `[P] tasks may run in parallel` | (removed from queue order; parallel fan-out still valid for research) |
-| `L3 is allowed only when...` | (removed — max two levels, split into separate L1 plans) |
-| `Only a human can unblock it` (3× stuck rule) | `Force a surface switch; next cycle finds new evidence or task stays blocked` |
-| `blocked → pending` FSM transition | (removed — blocked is terminal, replaced by a new task) |
+| `[P] tasks may run in parallel` | (removed from queue order; research fan-out still valid) |
+| `L3 is allowed only when...` | (removed — max two levels) |
+| `Only a human can unblock it` (3× stuck) | `Force a surface switch; next cycle finds evidence or stays blocked` |
+| `blocked → pending` FSM transition | (removed — blocked is terminal) |
 | `Archive when PLAN.md exceeds 200 lines` | `Archive when the plan feels heavy — agent decides` |
-| `## Open Questions` required section | Optional — promote to `[pending]` task or `[Blocker: ...]` annotation |
-| `## Surprises` required section | Optional — note in Progress entry |
+| `## Open Questions` / `## Surprises` required | Optional — promote to task / `[Blocker:]` / Progress |
 
-No change to:
-
-- The five principles (1–5 all preserved; Principle 4 gained a one-line addendum on queue re-sort).
-- The cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT).
-- Required PLAN.md sections: `Purpose`, `Evidence`, `Constraints`, `Decisions`, `Tasks`, `Progress`. (Open Questions + Surprises moved to optional.)
-- `INBOX.md` ingest pattern.
-- The agent ledger (`.agent-ledger/activity.jsonl`).
-- Planning and nested planning (compound tasks, `[Investigation: ...]` markers, sub-plans).
-- The automation harness (session management, cron scheduling, session-gc).
-- Delegation modes (Mode A research / Mode B implementation).
-- Draft-PR flow.
-- Evidence file naming and format (aside from the new `observed` source type).
-- The 3× stuck-loop detection threshold itself (still 3 consecutive Progress entries) — only the *response* changed from "mark blocked, human unblocks" to "force surface switch, no human required."
+No change to: the five principles (Principle 4 gained the re-sort addendum); the cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT); the 6 required PLAN.md sections; `INBOX.md` ingest; the agent ledger; nested planning; the automation harness; draft-PR flow; the 3× stuck threshold itself (only the response changed).
 
 ### Verified
-
-- `tests/test_vidux_contracts.py` passes at the same level as before: 133 pass / 3 pre-existing failures, none introduced by this release. `REQUIRED_PLAN_SECTIONS` was loosened to drop `Open Questions` and `Surprises` (now 6 required sections down from 8) — this is a contract weakening, not a contract break. All plans that passed the old contract still pass the new one.
+- `tests/test_vidux_contracts.py`: 133 pass / 3 pre-existing failures, none introduced. `REQUIRED_PLAN_SECTIONS` loosened to 6 (a weakening, not a break) — all plans that passed the old contract still pass.
 
 ---
 
 ## [Pre-2.9.0]
 
-Earlier history (2.0.0 through 2.8.0) lives in git. Notable version-marker
-commits walked from `git log`:
+Earlier history (2.0.0–2.8.0) lives in git. Notable version-marker commits:
 
-- **2.8.0** (`d7acca3`) — 5-agent peer review pass; Phase 22 mega task list;
-  trunk health doctrine; Bug #22 prevention.
-- **2.7.0** (`4ddac12`) — Codex skill independence; REDUCE purge;
-  config-authoritative plans; tagged `v2.7.0`.
-- **2.6.0** (`b1c5e96`) — initial public-facing "plan-first expedition
-  orchestration for AI agents" framing; tagged `v2.6.0`.
-- **2.5.x / 2.4.0** — early plan-store + worktree-GC iterations
-  (tagged `v2.5.1`, `v2.5.0`, `v2.4.0` only; no detailed entries).
+- **2.8.0** (`d7acca3`) — 5-agent peer review; Phase 22 mega task list; trunk health doctrine; Bug #22 prevention.
+- **2.7.0** (`4ddac12`) — Codex skill independence; REDUCE purge; config-authoritative plans; tagged `v2.7.0`.
+- **2.6.0** (`b1c5e96`) — initial public "plan-first expedition orchestration for AI agents" framing; tagged `v2.6.0`.
+- **2.5.x / 2.4.0** — early plan-store + worktree-GC iterations (tagged `v2.5.1`, `v2.5.0`, `v2.4.0`; no detailed entries).
 
-For detail before 2.9.0, run `git log --grep "^vidux v[0-9]"` or browse
-the `v2.4.0`..`v2.7.0` tags directly.
+For detail before 2.9.0, run `git log --grep "^vidux v[0-9]"` or browse the `v2.4.0`..`v2.7.0` tags.
 
 ### Versioning Policy
 

@@ -1,15 +1,10 @@
 # Vidux Automation Guide
 
-This guide is for users who run vidux lanes on a schedule or with long-running sessions. Load it only when you need automation. Vidux core works fine without it — the five principles, the cycle, and PLAN.md discipline in `SKILL.md` stand alone.
+For running vidux lanes on a schedule or in long-running sessions. Load only when you need automation — Vidux core (the five principles, the cycle, PLAN.md discipline in `SKILL.md`) stands alone. Automation is additive: it never overrides SKILL.md, it only describes *how* to run workers on a schedule so work progresses while you're away.
 
-Automation is additive. It never overrides the discipline in SKILL.md; it only describes *how* to run vidux workers on a schedule so work progresses even when you're not at the keyboard.
+For Codex-created automations, the default run mode is **Chat**. Treat `Worktree` and `Local` as explicit opt-ins — only when the user asks for repo-bound execution or the task is impossible from chat.
 
-For Codex-created automations, the default run mode is **Chat**. Treat `Worktree` and `Local` as explicit opt-ins only when the user asks for repo-bound execution or the task is impossible to do from chat.
-
-Control-plane overlays are allowed to choose an execution mode, but they do not
-own queue state. A control plane may store provider refs, cadence, last fire,
-next fire, and retirement rules; each fired run must rehydrate from `PLAN.md`,
-`INBOX.md`, evidence, and publish ledger rows before acting.
+Control-plane overlays may choose an execution mode but do not own queue state. A control plane may store provider refs, cadence, last fire, next fire, and retirement rules; each fired run must rehydrate from `PLAN.md`, `INBOX.md`, evidence, and publish ledger rows before acting.
 
 ---
 
@@ -42,7 +37,7 @@ Lanes (persistent)                    Sessions (disposable)
 └── memory.md   (lane-local cycle log) - shipped-work proof never lives here alone
 ```
 
-A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of what session fires them. When a session dies, the files stay; the next session re-schedules the cron, reads memory.md for lane-local orientation, and resumes from the owning PLAN.md plus publish ledger rows for shipped-work proof.
+A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of which session fires them. When a session dies, the files stay; the next session re-schedules the cron, reads memory.md for lane-local orientation, and resumes from the owning PLAN.md plus publish ledger rows for shipped-work proof.
 
 ### Hot vs cold storage
 
@@ -53,7 +48,7 @@ A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of wh
 
 ### session-gc is mandatory for 24/7
 
-A lane at `<lane-dir>/session-gc/prompt.md` fires hourly, runs the operator's JSONL cleanup helper against stale Claude session logs, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. This repo documents the lane pattern, but it does not ship a `scripts/session-prune.py` helper. Without session-gc, JSONLs grow unbounded and `/resume` stops working.
+A lane at `<lane-dir>/session-gc/prompt.md` fires hourly, runs the operator's JSONL cleanup helper against stale Claude session logs, and emits `[CYCLE SIGNAL]` over 40 MB so you know when to `/resume`. This repo documents the lane pattern but does not ship a `scripts/session-prune.py` helper. Without session-gc, JSONLs grow unbounded and `/resume` stops working.
 
 ### Session bloat controls
 
@@ -70,7 +65,7 @@ Every lane must earn its keep. More than 6 lanes per session causes worktree con
 
 ### Coordinator pattern (default for 24/7)
 
-ONE coordinator lane per active repo that owns ALL concerns (ship code, fix CI, archive PLAN.md, watch INBOX). Beats the specialist model (separate shipper/product/a11y/seo lanes) for these reasons:
+ONE coordinator lane per active repo that owns ALL concerns (ship code, fix CI, archive PLAN.md, watch INBOX). Beats the specialist model (separate shipper/product/a11y/seo lanes):
 
 - No PLAN.md stampede (one writer per plan)
 - End-to-end ownership (same lane that shipped fixes the test)
@@ -85,9 +80,7 @@ If your last 3 checkpoints all ship from the same surface, force a surface switc
 
 ## Subagent dispatch (the primary context cutter)
 
-Vidux runs single-tool: Claude parent with Claude subagents, or Codex parent with Codex subagents. The savings come from the subagent's fresh context budget — not from jumping runtimes.
-
-Two dispatch shapes distribute work between the parent (metered, decides/reviews) and a child subagent spawned via `Agent()` in the same runtime:
+Vidux runs single-tool: Claude parent with Claude subagents, or Codex parent with Codex subagents. The savings come from the subagent's fresh context budget — not from jumping runtimes. Two dispatch shapes split work between the parent (metered, decides/reviews) and a child subagent spawned via `Agent()` in the same runtime:
 
 ### Research dispatch
 
@@ -147,9 +140,7 @@ When the user asks to create an automation ("I want a lane that…", "automate t
 
 Default: **Claude-local (CronCreate)**. Simpler to debug, fast feedback, reads memory.md on every fire.
 
-For Codex-created automations, default to **Chat** execution so the lane runs in-conversation rather than in `Worktree` or `Local`. Only choose `Worktree` or `Local` if the user explicitly asks for that execution style or the automation truly needs direct project-folder runtime.
-
-For Codex-native repo-bound lanes (the exception path), see `guides/recipes/codex-runtime.md`. The rest of this guide assumes Claude lanes via `CronCreate` unless a Codex Chat automation is explicitly being set up.
+For Codex-created automations, default to **Chat** execution. Only choose `Worktree` or `Local` if the user explicitly asks or the automation truly needs direct project-folder runtime; for those repo-bound lanes see `guides/recipes/codex-runtime.md`. The rest of this guide assumes Claude lanes via `CronCreate`.
 
 Use this provider-neutral mode table when an overlay asks Vidux how to run:
 
@@ -161,8 +152,7 @@ Use this provider-neutral mode table when an overlay asks Vidux how to run:
 | One-shot research or bounded disagreement audit | Subagent |
 | Small direct task | Inline Vidux loop |
 
-Whichever runtime fires, the state contract is the same: routines drive runs;
-`PLAN.md` and ledger remain the authority.
+Whichever runtime fires, the state contract is the same: routines drive runs; `PLAN.md` and ledger remain the authority.
 
 ### 2. Pick the role
 

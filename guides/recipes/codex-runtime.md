@@ -1,8 +1,8 @@
 # Recipe: Vidux on Codex (Native Runtime)
 
-How to run vidux natively on Codex Desktop, where Codex is the primary (and only) tool. Codex is no longer a delegation target — it's a standalone runtime option with its own scheduling and subagent primitives.
+How to run vidux natively on Codex Desktop as the primary (and only) tool, with its own scheduling and subagent primitives. Codex is no longer a delegation target — it's a standalone runtime.
 
-This recipe is the exception path. In normal vidux automation flow, Codex defaults to **Chat** execution. Use this document only when you explicitly want a Codex automation to run repo-bound in `Local` or `Worktree`.
+This is the exception path. In normal vidux flow, Codex defaults to **Chat** execution. Use this only when you explicitly want a Codex automation to run repo-bound in `Local` or `Worktree`.
 
 ---
 
@@ -11,13 +11,13 @@ This recipe is the exception path. In normal vidux automation flow, Codex defaul
 - You run Codex Desktop (or Cursor's Codex extension) as your primary tool
 - You want vidux's cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT) to run natively on Codex
 - You need Codex's unlimited compute budget for long-cycle or heavy-read work
-- You are **NOT** trying to mix Claude + Codex in one fleet (that pattern is deprecated — see `guides/recipes/subagent-delegation.md`)
+- You are **NOT** mixing Claude + Codex in one fleet (deprecated — see `guides/recipes/subagent-delegation.md`)
 
 ---
 
 ## Runtime parity
 
-Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern all work identically on Codex as on Claude. A Codex-run vidux cycle reads PLAN.md, picks a task, ships code, runs the verification gate, records a lane-local memory note, and, for shipped work, updates the owning plan plus matching publish ledger row before any commit/push transport.
+Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern work identically on Codex and Claude. A Codex-run cycle reads PLAN.md, picks a task, ships code, runs the verification gate, records a lane-local memory note, and — for shipped work — updates the owning plan plus matching publish ledger row before any commit/push.
 
 What differs between runtimes:
 
@@ -29,7 +29,7 @@ What differs between runtimes:
 | Restart requirement | Never — new session re-schedules crons | Full app quit + reopen whenever TOML changes |
 | Subagent dispatch | `Agent()` tool | Codex's equivalent subagent primitive |
 
-Core doctrine stays the same. Only the Part 2 automation mechanics swap out.
+Core doctrine is unchanged; only the Part 2 automation mechanics swap out.
 
 ---
 
@@ -47,7 +47,7 @@ Codex Desktop uses **two sources of truth** for every automation, and both must 
                Scanned ONCE at app startup.
 ```
 
-If the DB row is missing, the automation never fires (no matter how perfect the TOML). If the TOML is missing, the UI won't show it but the scheduler still runs it — invisible-but-live is worse than broken-and-visible. **Keep both in sync.**
+No DB row = never fires (no matter how perfect the TOML). No TOML = UI won't show it but the scheduler still runs it (invisible-but-live, worse than broken-and-visible). **Keep both in sync.**
 
 ### Prerequisites
 
@@ -57,13 +57,13 @@ ls ~/.codex/automations/                # lane directory root
 grep -E "^(model|sandbox_mode)" ~/.codex/config.toml
 ```
 
-The `~/.codex/automations/` directory must be a **real directory, not a symlink**. Codex's startup scan uses `isDirectory()` which filters out symlinks — automations stored behind a symlink never register.
+`~/.codex/automations/` must be a **real directory, not a symlink** — the startup scan uses `isDirectory()`, which filters symlinks, so automations behind one never register.
 
 ---
 
 ## The Dynamic Prompt Shim pattern
 
-Codex caches `automation.toml` at app startup. Editing the TOML normally requires a full-quit + reopen to take effect. The Dynamic Prompt Shim sidesteps this by making the TOML prompt **static** and pointing at an editable `prompt.md` on disk:
+Codex caches `automation.toml` at startup, so editing TOML normally requires a full-quit + reopen. The Dynamic Prompt Shim sidesteps this: keep the TOML prompt **static** and point it at an editable `prompt.md` on disk:
 
 ```
 ~/.codex/automations/<lane-id>/automation.toml  — static shim (changes never)
@@ -79,9 +79,9 @@ Lane instructions and the lane-local cycle log live under a shared `<lane-dir>/`
 prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching publish ledger row before any commit/push."
 ```
 
-The shim points Codex at the real prompt on disk. Edits to `prompt.md` take effect on the **next fire** — no Codex restart needed. This is the primary win: you can iterate on lane behavior without restarting the app every time.
+Edits to `prompt.md` take effect on the **next fire** with no restart — the primary win, letting you iterate on lane behavior freely.
 
-TOML constraint: `prompt` must be **single-line**. Escape newlines as `\n`. Raw newlines break TOML parsing (Bug #22).
+TOML constraint: `prompt` must be **single-line**, newlines escaped as `\n`. Raw newlines break TOML parsing (Bug #22).
 
 ---
 
@@ -123,11 +123,11 @@ INSERT INTO automations (
 - `prompt` — single-line, newlines escaped as `\n`.
 - `rrule` — RFC 5545. Common patterns: `FREQ=MINUTELY;INTERVAL=30`, `FREQ=HOURLY;INTERVAL=1;BYMINUTE=0`, `FREQ=DAILY;BYHOUR=9;BYMINUTE=0`.
 - `cwds` — JSON-style array of absolute paths. Codex runs in the first path by default.
-- `created_at` / `updated_at` — **both required.** Missing either causes silent failure (Bug #18). Use millisecond epoch integers (`python3 -c 'import time; print(int(time.time() * 1000))'`) or `codex_db_epoch_ms` from `scripts/lib/codex-db.sh`.
+- `created_at` / `updated_at` — **both required**; missing either causes silent failure (Bug #18). Use millisecond epoch integers (`python3 -c 'import time; print(int(time.time() * 1000))'`) or `codex_db_epoch_ms` from `scripts/lib/codex-db.sh`.
 
 ### Python batch registration
 
-For registering multiple lanes at once, wrap the INSERT in Python:
+To register multiple lanes at once, wrap the INSERT in Python:
 
 ```python
 import sqlite3, time, os
@@ -149,9 +149,7 @@ conn.commit()
 conn.close()
 ```
 
-After the INSERTs, **full-quit and reopen Codex** before the first fire.
-
-Before the reopen, source `scripts/lib/codex-db.sh` and run `codex_verify_tomls` so broken prompt lines or missing TOMLs fail locally instead of on the next fire.
+After the INSERTs and before the first fire, source `scripts/lib/codex-db.sh` and run `codex_verify_tomls` (so broken prompt lines or missing TOMLs fail locally, not on the next fire), then **full-quit and reopen Codex**.
 
 ---
 
@@ -167,19 +165,19 @@ Before the reopen, source `scripts/lib/codex-db.sh` and run `codex_verify_tomls`
 
 ## Cycling Codex sessions
 
-Claude Code has `/resume` for fresh sessions picking up lanes from disk. Codex's equivalent is a full-quit + reopen — the app restarts, re-reads the DB, and resumes scheduling. Lanes use `prompt.md` plus `memory.md` for local continuity on the next fire, then use the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
+Claude Code's `/resume` picks up lanes from disk for fresh sessions; Codex's equivalent is a full-quit + reopen — the app restarts, re-reads the DB, and resumes scheduling. Lanes use `prompt.md` + `memory.md` for next-fire local continuity, then the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
 
-Codex state GC is managed externally, not by Codex itself. Worktree cleanup for Codex-spawned worktrees is the operator's responsibility — Codex auto-delete is OFF, and a sensible retention policy for `~/Development/<repo>-worktrees/codex-*` is 3h minimum. Without external GC, worktrees accumulate at ~84/day at 10 GB under a heavy-cadence fleet.
+Codex state GC is external, not Codex's job. Worktree cleanup for Codex-spawned worktrees is the operator's responsibility — auto-delete is OFF; use a 3h-minimum retention on `~/Development/<repo>-worktrees/codex-*`. Without external GC, worktrees accumulate at ~84/day, 10 GB, under a heavy-cadence fleet.
 
-There is no Codex equivalent of the Claude-side session-gc JSONL cleanup helper — Codex's conversation logs live elsewhere (Electron's IndexedDB) and are not JSONL-shaped. If you notice Codex slowing down, the fix is a full app restart, not a log-pruning script.
+There is no Codex equivalent of the Claude-side session-gc JSONL helper — Codex conversation logs live in Electron's IndexedDB and aren't JSONL-shaped. If Codex slows down, fix it with a full app restart, not a log-pruning script.
 
 ---
 
 ## Cross-tool delegation IS deprecated
 
-**Do not mix Claude and Codex in one fleet.** If you run Codex, run Codex-only: Codex lanes spawn Codex subagents via Codex's own `Agent()`-equivalent primitive. "Claude directs, Codex executes" was tried and retired in vidux 2.10.0 for context-loss and prompt-shim fragility (see `guides/recipes/subagent-delegation.md` § Deprecated patterns).
+**Do not mix Claude and Codex in one fleet.** Run Codex-only: Codex lanes spawn Codex subagents via Codex's own `Agent()`-equivalent primitive. "Claude directs, Codex executes" was retired in vidux 2.10.0 for context-loss and prompt-shim fragility (see `guides/recipes/subagent-delegation.md` § Deprecated patterns).
 
-The shared `~/.agent-ledger/activity.jsonl` still works for cross-session cross-fleet visibility when both runtimes happen to touch the same repo — that's not delegation, it's just telemetry.
+The shared `~/.agent-ledger/activity.jsonl` still gives cross-session cross-fleet visibility when both runtimes touch the same repo — that's telemetry, not delegation.
 
 ---
 
