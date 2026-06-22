@@ -10,7 +10,7 @@
 
 ## How to adopt
 
-Paste the sections below into your agent instruction file. Keep the heading, trim the prose, keep the rule sentence. Minimum viable skeleton at the bottom.
+Paste the sections below into your agent instruction file. Keep the heading and rule sentence; trim the prose. Minimum viable skeleton at the bottom.
 
 ---
 
@@ -23,7 +23,7 @@ whitespace mismatches and silent corruption. After a failed Edit, never
 guess the fix — re-read the file, then retry with the exact current content.
 ```
 
-**Why:** JSONL and memory files are append-heavy and edited by multiple agents. A cached view from 30 seconds ago is already wrong.
+**Why:** Append-heavy multi-agent files mean a cached view from 30 seconds ago is already wrong.
 
 ## Section: Verify before completing
 
@@ -36,7 +36,7 @@ in the commit or plan note: "pnpm test → 143 passing, 0 failing (abc123)"
 is evidence; "tests pass" is not.
 ```
 
-**Why:** Uverified completion is the #1 source of lost trust between user and fleet.
+**Why:** Unverified completion is the #1 source of lost trust between user and fleet.
 
 ## Section: Simple / creative asks get direct answers
 
@@ -69,7 +69,7 @@ asks. The brand is the builder, not the SaaS showcase. Remove these on
 sight in design PRs.
 ```
 
-**Why:** Tech attribution is a framework-default habit that dilutes personal / product brand. Users rarely notice when it's gone; they always notice when it's there.
+**Why:** A framework-default habit that dilutes the brand. Users rarely notice when it's gone; they always notice when it's there.
 
 ## Section: Git safety — per-action destructive authorization
 
@@ -102,10 +102,8 @@ fix the underlying issue.
 Start every code change from the current trunk (usually `main`). Run
 `git fetch origin && git log origin/main..HEAD` before committing — if
 trunk has moved, rebase or restart from `origin/main`. Worktrees are
-disposable integration helpers, not the source of truth. A merge back to
-trunk is not enough by itself: the publish is done only after the owning
-PLAN.md and ledger row record what changed, what proof passed, the
-handoff_status, files claimed, and the next-agent resume point.
+disposable integration helpers, not the source of truth. A merge to trunk
+is not done until the publish step (see Git safety) records it.
 ```
 
 **Why:** Long-lived feature branches diverge silently. Trunk-first keeps the merge surface small and conflicts local.

@@ -4,7 +4,7 @@
 
 ## The Stateless Cycle
 
-Every cron fire is a fresh context: no memory, no carried state. Only repo files plus the append-only ledger. The next agent knows only what's in the files. Design for that.
+Every cron fire is a fresh context: no memory, no carried state. Only repo files plus the append-only ledger. The next agent knows only what's in the files.
 
 ```
 [Cron fires] -> READ -> ASSESS -> ACT -> VERIFY -> CHECKPOINT
@@ -69,11 +69,7 @@ Score the checklist. 1 point each, minimum 7/10 to start coding.
 - [ ] Decisions section has >= 1 entry with alternatives + rationale
 - [ ] No vague task ("implement feature" without specifics)
 
-**Scoring:**
-- **10:** execute with confidence.
-- **7-9:** execute, expect surprises.
-- **5-6:** gather evidence before coding.
-- **0-4:** sketch only. Do NOT code; spend the cycle refining the plan.
+**Scoring:** 10 = execute with confidence; 7-9 = execute, expect surprises; 5-6 = gather evidence before coding; 0-4 = sketch only (do NOT code; refine the plan).
 
 Below 7, the cycle's one deliverable is the plan, not code. This enforces the 50% plan-refinement budget.
 
@@ -208,17 +204,14 @@ Checkpoint existence is necessary, not sufficient. The scorecard makes cycle qua
 outcome=<useful|busy|blocked_clarified>
   useful            — forward progress: code committed, evidence gathered, blocker resolved
   busy              — activity without delta: retries, investigation with no output
-  blocked_clarified — blocker identified or scoped; reduces future cycles but no forward progress
+  blocked_clarified — blocker identified or scoped; no forward progress but reduces future cycles
 
 blocker_age=<N>     — consecutive cycles the current blocker has been active (0 = none)
 retry=<N>           — attempts on this task without reaching [completed]
 evidence=<+N|-N|0>  — net change in cited evidence sources this cycle
 proof=<descriptor>  — verifiable artifact: "+1 deploy" | "+N tests" | "+1 commit" | "none"
 control_plane=<green|yellow|red|n/a>
-  green  — deploy healthy, error rate normal
-  yellow — deploy delayed or warnings present
-  red    — deploy failed or error rate elevated
-  n/a    — no production control plane for this task
+  green=deploy healthy; yellow=delayed/warnings; red=failed/errors elevated; n/a=no prod control plane
 ```
 
 ### Format in Progress entries
@@ -248,7 +241,7 @@ Scorecard is retrospective — filled at CHECKPOINT, not READ. When uncertain, p
 
 ## Stuck-Loop Detection
 
-Same task attempted in 3+ consecutive cycles without progress -> force a surface switch. Mark it `[blocked]` with a one-line Decision Log entry of what was tried, move to the next unblocked task. No human hand-off: the next cycle either finds unblocking evidence (observed signal, new PR comment, queue re-sort) or it stays blocked until replaced.
+Same task attempted in 3+ consecutive cycles without progress -> force a surface switch. Mark it `[blocked]` with a one-line Decision Log entry of what was tried, move to the next unblocked task. No human hand-off: the next cycle either finds unblocking evidence (observed signal, new PR comment, queue re-sort) or stays blocked until replaced.
 
 **Tooling (v2):** `vidux-loop.sh` detects via the `## Progress` section — not git messages. If the task description (first 40 chars) appears in 3+ Progress entries and the task is not `[completed]`, the loop sets `stuck: true` and `action: "stuck"`. This survives commit-message variation and LLM compaction; Progress records the exact task text verbatim via checkpoint.
 

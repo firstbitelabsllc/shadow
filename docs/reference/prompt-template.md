@@ -1,8 +1,6 @@
 # The 8-Block Prompt Template
 
-Every vidux lane — Claude Code or Codex — has a `prompt.md` on disk that drives each cycle. The 8-block structure tells any agent picking up the lane what to read, when to gate, how to act, and what it owns.
-
-For how the prompt is injected each fire, see [claude-lifecycle.md](../fleet/claude-lifecycle.md) and [codex-lifecycle.md](../fleet/codex-lifecycle.md).
+Every vidux lane — Claude Code or Codex — has a `prompt.md` on disk that drives each cycle. The 8-block structure tells any agent picking up the lane what to read, when to gate, how to act, and what it owns. For how the prompt is injected each fire, see [claude-lifecycle.md](../fleet/claude-lifecycle.md) and [codex-lifecycle.md](../fleet/codex-lifecycle.md).
 
 ## The 8 Blocks
 
@@ -21,7 +19,7 @@ Every block is required. A lane missing any is underspecified and will drift.
 
 ## Block 1: Mission
 
-One paragraph. What this lane accomplishes, and what "done" looks like.
+One paragraph: what this lane accomplishes and what "done" looks like.
 
 ```markdown
 ## 1. Mission
@@ -40,7 +38,7 @@ hits its named ship milestone.
 
 ## Block 2: Skills
 
-Skill tokens (starting with `/vidux`) the lane invokes before acting. Skills load domain knowledge and discipline each cycle.
+Skill tokens the lane invokes before acting, loading domain knowledge and discipline each cycle.
 
 ```markdown
 ## 2. Skills
@@ -56,7 +54,7 @@ Activate these skills every cycle, in order:
 
 ## Block 3: Read
 
-Explicit file-read order. Every cycle reads the same files in the same order, so every agent starts with the same worldview.
+Explicit file-read order — every cycle reads the same files in the same order, so every agent starts with the same worldview.
 
 ```markdown
 ## 3. Read
@@ -102,7 +100,7 @@ Abort this cycle (append `[QC] <reason>` to memory.md and exit) if:
 
 ## Block 5: Assess
 
-The priority rule for picking **the one thing this cycle does**. Unified so two agents on the same lane pick the same task.
+The priority rule for picking **the one thing this cycle does** — unified so two agents on the same lane pick the same task.
 
 ```markdown
 ## 5. Assess
@@ -126,7 +124,7 @@ Priority order (first match wins):
 
 ## Block 6: Act
 
-How to do the work. This block holds the heavy rules — worktree discipline, verification commands, merge procedure, delegation contracts.
+How to do the work — the heavy rules: worktree discipline, verification commands, merge procedure, delegation contracts.
 
 ```markdown
 ## 6. Act
@@ -191,7 +189,7 @@ How to do the work. This block holds the heavy rules — worktree discipline, ve
 
 ## Block 7: Authority
 
-Explicit paths the lane **owns** vs paths it must **never** touch. The authority block is the lane's immune system.
+Explicit paths the lane **owns** vs paths it must **never** touch — the lane's immune system.
 
 ```markdown
 ## 7. Authority
@@ -221,7 +219,7 @@ Explicit paths the lane **owns** vs paths it must **never** touch. The authority
 
 ## Block 8: Checkpoint
 
-The `memory.md` append format. One line per cycle. Future agents scan the last 3 entries for context.
+The `memory.md` append format — one line per cycle. Future agents scan the last 3 entries for context.
 
 ```markdown
 ## 8. Checkpoint
@@ -270,7 +268,7 @@ the last entry already said, skip the entry entirely.
 
 ## Full Example
 
-An abridged prompt file showing all 8 blocks:
+An abridged prompt file showing all 8 blocks assembled:
 
 ```markdown
 # project-coordinator — lane prompt
@@ -331,7 +329,7 @@ A prompt.md this tight fits under ~80 lines and gives any agent everything neede
 
 ## Common Failure Modes
 
-Prompts fail in predictable ways. Hit one of these → add the missing block.
+Prompts fail in predictable ways. Hit one → add the missing block.
 
 | Failure | Root cause | Fix |
 |---|---|---|

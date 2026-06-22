@@ -1,8 +1,6 @@
 # Codex Setup Guide
 
-Create a native Codex automation on Mac: the TOML + DB + app-restart sequence for repo-bound `Local` or `Worktree` lanes.
-
-The automation guide defaults Codex-created automations to `Chat`. Use this flow only when the lane needs native project-folder execution.
+Create a native Codex automation on Mac: the TOML + DB + app-restart sequence for repo-bound `Local` or `Worktree` lanes. Codex-created automations default to `Chat`; use this flow only when the lane needs native project-folder execution.
 
 > **⚠️ The Codex CLI cannot run automations.**
 > The `codex` CLI runs one-shot tasks; recurring jobs require the **Codex Mac desktop app**. On Linux, a remote server, or CI this will not work — use Claude Code `CronCreate` ([claude-lifecycle.md](claude-lifecycle.md)).
@@ -27,7 +25,7 @@ vidux signpost spawned-subagent-smoke --json
 
 ## The Five-Step Setup Flow
 
-Every new automation follows this exact sequence. Skipping steps causes the bugs in [codex-lifecycle.md](codex-lifecycle.md#known-bugs).
+Every new automation follows this exact sequence. Skipping steps causes the [known bugs](codex-lifecycle.md#known-bugs).
 
 ```
 1. Write automation.toml      → disk (UI visibility source)
@@ -73,7 +71,7 @@ Field notes:
 
 ## Step 2 — Insert the DB row
 
-TOML is the UI source; DB is the runtime — both must exist.
+TOML is the UI source; the DB row is the runtime — both must exist.
 
 ```bash
 NOW=$(python3 -c 'import time; print(int(time.time() * 1000))')
@@ -129,7 +127,7 @@ See [prompt-template.md](../reference/prompt-template.md) for the 8-block struct
 
 ## Step 4 — Verify
 
-Run the verifier **before** reopening — the lightweight preflight confirms active DB rows have TOML files with prompt lines.
+Run the verifier **before** reopening — the preflight confirms active DB rows have TOML files with prompt lines.
 
 ```bash
 source scripts/lib/codex-db.sh
@@ -148,7 +146,7 @@ sleep 3
 open -a "Codex"
 ```
 
-`pkill -f codex-app-server` leaves the Electron frontend running and your lane invisible (Bug #15). `sleep 3` lets the app flush DB writes and release locks. After reopen, the Automations panel shows your lane with a countdown to the next fire.
+`pkill -f codex-app-server` leaves the Electron frontend running and your lane invisible (Bug #15). `sleep 3` lets the app flush DB writes and release locks. After reopen, the Automations panel shows the lane with a countdown to the next fire.
 
 ## Verification Checklist
 
@@ -180,7 +178,7 @@ osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 
 ## Stopping / Deleting an Automation
 
-Set `status='PAUSED'` (pause) or `DELETE` the row (full delete), then full-quit + reopen. On delete, `rm -rf` the `~/.codex/automations/$LANE_ID` dir; the shared-lane-directory instructions + lane-local cycle log are records — keep unless the lane is truly retired.
+Set `status='PAUSED'` (pause) or `DELETE` the row (full delete), then full-quit + reopen. On delete, `rm -rf` the `~/.codex/automations/$LANE_ID` dir; the shared-lane prompt + lane-local cycle log are records — keep unless the lane is truly retired.
 
 ```bash
 # pause:  UPDATE automations SET status='PAUSED' WHERE id='$LANE_ID';
@@ -194,5 +192,5 @@ osascript -e 'tell application "Codex" to quit' && sleep 3 && open -a "Codex"
 - [Codex Lifecycle](codex-lifecycle.md) — what happens each fire
 - [Platform Comparison](platforms.md) — Codex vs Claude Code
 - [Prompt Template](../reference/prompt-template.md) — the 8-block structure
-- [Fleet Operations](/fleet/operations) — dispatch + worktree discipline
-- [Recipe Catalog](/fleet/recipes) — reusable automation patterns
+- [Fleet Operations](operations.md) — dispatch + worktree discipline
+- [Recipe Catalog](recipes.md) — reusable automation patterns

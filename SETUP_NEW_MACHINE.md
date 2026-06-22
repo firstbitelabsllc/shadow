@@ -5,8 +5,7 @@
 
 ## 1. Claude Code (`~/.claude/settings.json`)
 
-These settings should already exist if you've synced your dotfiles.
-Verify or add:
+Should already exist if you've synced your dotfiles. Verify or add:
 
 ```json
 {
@@ -42,8 +41,8 @@ Verify or add:
 ```
 
 **What each setting does:**
-- `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50` — fires compaction at 50% context (not the default 85-90%). Gives the summarizer room for a high-quality summary.
-- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` — enables Agent Teams. Each teammate gets its own context window. Natural fit for Vidux's fan-out pattern (4 research agents -> 1 synthesizer -> 1 critic).
+- `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50` — fires compaction at 50% context (not the default 85-90%), giving the summarizer room for a high-quality summary.
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` — enables Agent Teams; each teammate gets its own context window. Natural fit for Vidux's fan-out (4 research agents -> 1 synthesizer -> 1 critic).
 - `PreCompact` hook — reminds the agent to record plan plus publish-ledger state before compaction fires.
 - `PostCompact` hook — reminds the agent to rehydrate from repo files and the centralized ledger, not trust the compressed summary.
 
@@ -51,7 +50,7 @@ Verify or add:
 
 The status line shows context headroom at a glance: `45% until compact · Claude Sonnet 4.6`.
 
-vidux does not ship a `statusline.sh` script. Configure your own per the Claude Code docs (`/config` → status line), or point `statusLine.command` at an existing script in your fleet. The settings shape:
+vidux does not ship a `statusline.sh`. Configure your own (`/config` → status line) or point `statusLine.command` at an existing script in your fleet. The settings shape:
 
 ```json
 {
@@ -63,7 +62,7 @@ vidux does not ship a `statusline.sh` script. Configure your own per the Claude 
 }
 ```
 
-**Why no tilde:** Claude Code does not shell-expand `~/` in command paths. Using `~/.claude/statusline.sh` silently falls back to the built-in status bar. Always use the absolute path.
+**Why no tilde:** Claude Code does not shell-expand `~/` in command paths — `~/.claude/statusline.sh` silently falls back to the built-in status bar. Always use the absolute path.
 
 ## 2. Codex CLI (`~/.codex/config.toml`)
 
@@ -79,7 +78,7 @@ multi_agent = true
 ```
 
 **Why 200k, not matching Claude's 50%?**
-Codex's server-side compaction (`/v1/responses/compact`) produces higher-quality summaries than local compaction, so we can afford a later trigger. 75% is the sweet spot — 85-90% is too late (compaction can fail to fire), 50% wastes context.
+Codex's server-side compaction (`/v1/responses/compact`) produces higher-quality summaries than local compaction, so a later trigger is affordable. 75% is the sweet spot — 85-90% is too late (compaction can fail to fire), 50% wastes context.
 
 **Codex has no PreCompact/PostCompact hooks** (lifecycle hooks are feature-flagged and unstable as of April 2026). The workaround is Vidux discipline:
 - One owned mission/lane per Codex session
@@ -90,7 +89,7 @@ Codex's server-side compaction (`/v1/responses/compact`) produces higher-quality
 
 ## 3. Codex App (Desktop)
 
-The desktop app shares `~/.codex/config.toml` settings, but:
+Shares `~/.codex/config.toml`, but:
 - Auto-compaction is buggy (hangs, triggers too often)
 - No `/compact` manual trigger yet
 - No model-aware settings (switching models can break thresholds)
@@ -112,13 +111,13 @@ git clone git@github.com:leojkwan/vidux.git ~/Development/vidux
 ln -sf ~/Development/vidux ~/.claude/skills/vidux
 ```
 
-Verify the skill loads: start a Claude Code session and type `/vidux` — it should activate.
+Verify: start a Claude Code session and type `/vidux` — it should activate.
 
 ## 5. Local Transcription (Apple Silicon, Optional)
 
 Voice-agent transcription uses `mlx-whisper`, not the `mlx-audio` STT CLI.
 `mlx-audio` remains the local Voxtral TTS server for read-aloud; its
-`mlx_audio.stt.generate --stream` path currently is not the Vidux/Moussey STT
+`mlx_audio.stt.generate --stream` path is not currently the Vidux/Moussey STT
 contract.
 
 Install the two local tools:
@@ -147,21 +146,20 @@ transcript=Hello local transcription smoke test number 472
 
 Model defaults:
 
-- `mlx-community/whisper-base.en-mlx` is the default local STT model. It is a
-  small cached MLX Whisper model, about 146 MB on disk after first download.
-- `mlx-community/whisper-base.en-mlx-q4` is the low-disk fallback, about 77 MB
-  on disk. Use it with `VIDUX_STT_MODEL=mlx-community/whisper-base.en-mlx-q4`.
+- `mlx-community/whisper-base.en-mlx` — default local STT model. Small cached MLX
+  Whisper model, ~146 MB on disk after first download.
+- `mlx-community/whisper-base.en-mlx-q4` — low-disk fallback, ~77 MB. Use it with
+  `VIDUX_STT_MODEL=mlx-community/whisper-base.en-mlx-q4`.
 
-First run can look like buffering because Hugging Face model files are being
-downloaded and the Python CLI process is loading MLX. Warm runs should return
-the whole short-file transcript in a few seconds; the inference progress line
-is usually much faster than real time. UI work must show explicit states:
-recording, converting, loading model on first run, transcribing, and transcript
-ready. Do not leave the mic button in an ambiguous spinner.
+First run can look like buffering while Hugging Face model files download and the
+Python CLI loads MLX. Warm runs return the whole short-file transcript in a few
+seconds; the inference progress line is usually much faster than real time. UI
+work must show explicit states: recording, converting, loading model on first
+run, transcribing, and transcript ready. Do not leave the mic button in an
+ambiguous spinner.
 
 Keep at least 1 GB free for Whisper installs and cache churn. Voxtral TTS is a
-separate, much larger download; keep at least 20 GB free before touching that
-path.
+separate, much larger download; keep at least 20 GB free before touching it.
 
 ## 6. Read-Aloud TTS (Apple Silicon, Optional)
 

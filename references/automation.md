@@ -1,8 +1,8 @@
 # Automation Reference (vidux)
 
-Detailed automation doctrine for vidux — session management, lane operations, delegation modes, fleet ops, PR lifecycle, and platform-specific mechanics for running vidux workers on a schedule. Read this reference from `/vidux` when a task involves creating lanes, managing fleet state, or coordinating cross-session handoff.
+Detailed automation doctrine for vidux — session management, lane operations, delegation modes, fleet ops, PR lifecycle, and platform-specific mechanics for running vidux workers on a schedule. Read this from `/vidux` when a task involves creating lanes, managing fleet state, or coordinating cross-session handoff. Full doctrine merged from the former `/vidux-claude`, `/vidux-codex`, and `/vidux-fleet` skills; SKILL.md carries the condensed overview.
 
-This reference contains the full doctrine merged from the former `/vidux-claude`, `/vidux-codex`, and `/vidux-fleet` companion skills. The core `/vidux` skill (SKILL.md) contains a condensed automation overview; this reference contains the full details.
+> **Durable-recovery shorthand (used throughout):** when a lane resumes or hands off, it reads its own `memory.md` for local orientation, then resumes shipped-work state from the owning PLAN.md plus the latest matching publish ledger row. This is the canonical recovery packet; "resume from disk" below always means this.
 
 ---
 
@@ -21,11 +21,11 @@ Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
 
 **In practice:**
 
-1. **A lane = `prompt.md` + `memory.md` on disk.** These files are NEVER deleted while the assignment is active. When a session dies, the files stay. A new session re-schedules the cron pointing at the same files. The lane reads memory.md for local orientation, then resumes shipped work from the owning PLAN.md plus the latest matching publish ledger row. Work is never lost to a session restart.
-2. **A session = one Claude Code process + its JSONL.** Sessions are disposable. They die for many reasons: account rotation, laptop sleep, compaction pressure, manual restart. Their JSONLs accumulate on disk until GC'd.
-3. **session-gc is the mandatory janitor.** Without it, the 24/7 model breaks. It runs hourly and deletes old session JSONLs (>3 days), subagent JSONLs (>1 day), and reports the current session's growth rate. See Section 2.
+1. **A lane = `prompt.md` + `memory.md` on disk.** NEVER deleted while the assignment is active. When a session dies, the files stay; a new session re-schedules the cron pointing at the same files and the lane resumes from disk. Work is never lost to a session restart.
+2. **A session = one Claude Code process + its JSONL.** Disposable. They die for many reasons: account rotation, laptop sleep, compaction pressure, manual restart. JSONLs accumulate on disk until GC'd.
+3. **session-gc is the mandatory janitor.** Without it, the 24/7 model breaks. Runs hourly, deletes old session JSONLs (>3 days) and subagent JSONLs (>1 day), and reports the current session's growth rate. See Section 2.
 4. **Lane count stays low.** More than 6 lanes per session causes worktree contention and JSONL bloat.
-5. **Cross-session handoff is implicit.** When a session dies at ~50 MB, the next session starts fresh, re-schedules crons, and each lane reads its own memory.md for local orientation plus the owning PLAN.md and latest matching publish ledger row for shipped-work proof/resume. **No state lives in the session.** Durable recovery is on disk: PLAN.md, publish ledger rows, evidence/, investigations/, and lane-local memory.md notes. The session is a transient execution environment, not a database.
+5. **Cross-session handoff is implicit.** When a session dies at ~50 MB, the next session starts fresh, re-schedules crons, and each lane resumes from disk. **No state lives in the session** — durable recovery is on disk (PLAN.md, publish ledger rows, evidence/, investigations/, lane-local memory.md). The session is a transient execution environment, not a database.
 
 ### Hot vs cold storage
 
@@ -38,22 +38,20 @@ Lanes (persistent, never disposed)   Sessions (disposable, GC'd)
 
 ### Why not cloud scheduling?
 
-Cloud-based scheduling primitives are persistent and survive laptop sleep. **Rejected for local-first fleets** because:
+Cloud scheduling primitives are persistent and survive laptop sleep, but **rejected for local-first fleets** because:
 
-- **Per-account binding.** Each routine is bound to one account. Multi-account rotation for quota management breaks routines.
-- **Minimum cadence too long.** Some lanes need 20-30 min cycles (code-writing lanes with tight CI loops). Cloud primitives often enforce 1-hour minimums.
+- **Per-account binding.** Each routine is bound to one account; multi-account rotation for quota management breaks them.
+- **Minimum cadence too long.** Some lanes need 20-30 min cycles (code-writing with tight CI loops); cloud primitives often enforce 1-hour minimums.
 - **No local file access.** Cloud schedules cannot read local automation directories, git worktrees, simulators, or `.env.local`.
 - **No memory.md cross-reads.** Cross-lane coordination via sibling memory files does not work from a cloud sandbox.
 
-**CronCreate + session-gc is the opinionated 24/7 primitive**: local-first, multi-account-compatible, sub-hour cadence, and (with session-gc running) JSONL growth is bounded to ~30-50 MB per active session.
-
-If your constraints differ (single account, no local tooling, hourly cadence is fine), cloud scheduling may work. This skill covers only the local-first path.
+**CronCreate + session-gc is the opinionated 24/7 primitive**: local-first, multi-account-compatible, sub-hour cadence, and (with session-gc running) JSONL growth bounded to ~30-50 MB per active session. If your constraints differ (single account, no local tooling, hourly cadence fine), cloud scheduling may work — this skill covers only the local-first path.
 
 ---
 
 ## 2. Session Management
 
-Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 1 GB in days, and makes `/resume` unusable. **session-gc is mandatory for 24/7 operation.** This repo documents the session-gc lane pattern, but it does not ship a `scripts/session-prune.py` helper; operators provide the JSONL cleanup command that their fleet runs.
+Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 1 GB in days, and makes `/resume` unusable. **session-gc is mandatory for 24/7 operation.** This repo documents the lane pattern but ships no helper; operators provide the JSONL cleanup command their fleet runs.
 
 ### What grows (per 24h with a 5-lane fleet)
 
@@ -73,7 +71,7 @@ Without GC, `~/.claude/projects/` grows 5-10 MB/hour with an active fleet, hits 
 Strips noise categories from a JSONL file. Repairs the `parentUuid` chain so `/resume` still works. Creates a `.bak` backup first. Applied to INACTIVE sessions only — never the live one.
 
 **Level 2 — Old-session GC (`--gc-old [days]`).**
-DELETES main session JSONLs older than N days across all projects. These sessions will never be `/resume`d -- their durable recovery packet has already moved to PLAN.md, the publish ledger, evidence, and lane-local memory notes by design. Default: 3 days.
+DELETES main session JSONLs older than N days across all projects. These sessions will never be `/resume`d -- their recovery packet has already moved to disk by design. Default: 3 days.
 
 **Level 3 — Subagent GC.**
 Same `--gc-old` invocation also deletes ALL subagent JSONL files older than 1 day. Standalone variant: `--gc-subagents [hours]`.
@@ -91,9 +89,7 @@ python3 <your-session-gc-helper> --gc-subagents 1         # DELETE subagents >1 
 
 ### The current session is NEVER pruned while live
 
-The session-gc lane is a subagent inside the parent session. Modifying the parent's JSONL while the parent is live is risky — Claude Code may be mid-read during compaction or `/resume`. **Treat the parent's JSONL as immutable while the parent is running.**
-
-Instead, session-gc **measures the current session's growth rate** and emits a cycle-time signal when the JSONL crosses a threshold:
+The session-gc lane is a subagent inside the parent session. Modifying the parent's JSONL while it is live is risky — Claude Code may be mid-read during compaction or `/resume`. **Treat the parent's JSONL as immutable while the parent is running.** Instead, session-gc **measures the current session's growth rate** and emits a cycle-time signal when the JSONL crosses a threshold:
 
 ```
 - [CYCLE SIGNAL] Current session at 42MB, growing ~5MB/hr. Recommend /resume to a
@@ -103,7 +99,7 @@ Instead, session-gc **measures the current session's growth rate** and emits a c
 The human reads the signal and decides when to restart. On restart:
 1. New session starts (fresh JSONL)
 2. New session re-schedules the crons (CronCreate calls)
-3. Each lane's next fire reads its own `memory.md` for local orientation and resumes shipped work from the owning PLAN.md plus latest matching publish ledger row
+3. Each lane's next fire resumes from disk
 4. The old session's JSONL becomes eligible for `--gc-old` on the next cycle
 
 ### The session-gc lane (mandatory for 24/7)
@@ -163,24 +159,24 @@ A **coordinator** is one lane that owns ALL concerns for one repo: ship code, fi
 
 - **No PLAN.md stampede.** Multiple writers touching the same PLAN.md cause merge races and Progress-log corruption. One coordinator per repo is a natural serialization.
 - **End-to-end ownership.** The coordinator that shipped the code is the same one that fixes the test when it fails. No handoff bugs, no "that's not my lane" gaps.
-- **Simpler mental model.** When something breaks, the operator checks one lane-local memory note stream plus the owning PLAN.md and latest matching publish ledger row, not 5 sibling lane logs.
-- **JSONL savings.** 1 coordinator firing 3x/hour adds ~600KB/hour of JSONL. 5 specialists firing 3x/hour each add ~3MB/hour. Over 10 hours the difference is 24MB vs 6MB.
-- **Works with multi-account rotation.** On account switch, the coordinator's lane-local orientation stays in `memory.md`, while shipped-work state resumes from the owning PLAN.md plus matching publish ledger row. Specialist sprawl multiplies this handoff risk.
+- **Simpler mental model.** When something breaks, the operator checks one lane's memory + owning PLAN.md, not 5 sibling lane logs.
+- **JSONL savings.** 1 coordinator firing 3x/hour adds ~600KB/hour of JSONL. 5 specialists firing 3x/hour each add ~3MB/hour. Over 10 hours: 24MB vs 6MB.
+- **Works with multi-account rotation.** On account switch, the coordinator resumes from disk; specialist sprawl multiplies handoff risk.
 
 ### Observer lanes are deprecated (2026-04-17)
 
-Observers were previously framed as the one exception to "fewer lanes" — read-only lanes that audit the writer each cycle. In practice they are an orchestration smell: extra memory.md files, cross-lane reads, and cycle offsets that rarely catch bugs the writer couldn't already see in its own logs. Drift belongs upstream. If a writer keeps getting stuck or producing wrong flags, fix the writer's prompt or the doctrine that's producing the drift. Do not pay for a second read-only lane to report it back to you. Need independent eyes? Run a one-shot audit by hand. Do not schedule it.
+Observers were once the one exception to "fewer lanes" — read-only lanes that audit the writer each cycle. In practice they are an orchestration smell: extra memory.md files, cross-lane reads, and cycle offsets that rarely catch bugs the writer couldn't already see in its own logs. If a writer keeps getting stuck or producing wrong flags, fix the writer's prompt or the upstream doctrine — don't pay for a second read-only lane to report it back. Need independent eyes? Run a one-shot audit by hand; do not schedule it.
 
 ### Why the hard cap at 6
 
 Measured, not theoretical:
 
 - **Git worktree contention.** With 7+ concurrent lanes on the same repo, `lint-staged` stash collisions and branch-switch data loss become common (verified in overnight ops).
-- **JSONL growth.** Each fire adds ~200KB. 6 lanes x 3 fires x 200KB x 8 hours = 29MB. 15 lanes at the same rate = 72MB. Same session length, **60% less bloat.**
-- **Mental model.** When something goes sideways, the operator needs to scan N memory.md files. 6 files is tractable. 15 is not.
-- **Account rotation.** On account switch, every running cron dies. 6 lanes = 6 crons to re-schedule. Fewer lanes = faster session rotation.
+- **JSONL growth.** Each fire adds ~200KB. 6 lanes x 3 fires x 8 hours = 29MB; 15 lanes = 72MB. Same session length, **60% less bloat.**
+- **Mental model.** Scanning 6 memory.md files is tractable; 15 is not.
+- **Account rotation.** On account switch every cron dies. Fewer lanes = fewer crons to re-schedule = faster rotation.
 
-If your assignment needs more than 6 lanes, the assignment is too big for one session. Split across accounts or across time — do not stack.
+If your assignment needs more than 6 lanes, it's too big for one session. Split across accounts or time — do not stack.
 
 ### Anti-patterns (never do these)
 
@@ -195,7 +191,7 @@ If a lane checkpoints "nothing to do" 3 times in a row, kill it or collapse it i
 
 ### Polish-brake trigger (Principle 4 in practice)
 
-**If your last 3 checkpoint entries all shipped fixes from the same surface pattern** (e.g. 3 review-comment triage fixes in a row, 3 lint polish commits in a row, 3 docstring touchups), **pause polish and force a surface switch.** One of:
+**If your last 3 checkpoint entries all shipped fixes from the same surface pattern** (e.g. 3 review-comment triage fixes, 3 lint polish commits, or 3 docstring touchups in a row), **pause polish and force a surface switch.** One of:
 
 1. Promote the oldest actionable `INBOX.md` finding to a `[pending]` plan task, then execute it.
 2. Advance the first unblocked `[pending]` task in PLAN.md that is NOT on the same surface.
@@ -209,7 +205,7 @@ If a lane checkpoints "nothing to do" 3 times in a row, kill it or collapse it i
 
 ## 4. Delegation (Research + Implementation Dispatch)
 
-Two delegation modes for distributing work between a **primary model** (metered, taste/review/commit) and a **secondary model** (unlimited or cheaper, grunt work). The primary directs; the secondary executes. The knob is whether the secondary produces a summary (research) or a diff (implementation).
+Two modes for splitting work between a **primary model** (metered; taste/review/commit) and a **secondary model** (unlimited or cheaper; grunt work). The primary directs, the secondary executes. The knob: secondary produces a summary (research) or a diff (implementation).
 
 ### Research dispatch — secondary reads, compresses to summary
 
@@ -300,7 +296,7 @@ Is the task substantial code writing (> 10 lines, clear spec)?
 | MEDIUM | 160 KB | 40,208 | 814 | **49.4x** |
 | HEAVY | 357 KB | 89,339 | 814 | **109.7x** |
 
-Delegation cost is ~constant at ~814 primary tokens (~314 compressed summary + ~500 orchestration) because the secondary's baseline cost is on a separate account. Savings grow linearly with source size.
+Delegation cost is ~constant at ~814 primary tokens (~314 summary + ~500 orchestration) because the secondary's baseline runs on a separate account. Savings grow linearly with source size.
 
 ### The compression contract (mandatory on every research dispatch prompt)
 
@@ -330,7 +326,7 @@ Every implementation dispatch prompt includes ALL FIVE blocks:
 5. Out of scope: what the secondary must NOT change (prevents refactor creep).
 ```
 
-The "Out of scope" block is load-bearing. Without it, the secondary will often refactor adjacent code it decides "looks wrong" — the primary's diff review then either accepts unasked-for scope (tech debt) or rejects the whole diff (wasted cycle).
+The "Out of scope" block is load-bearing. Without it, the secondary often refactors adjacent code it decides "looks wrong" — the diff review then either accepts unasked-for scope (tech debt) or rejects the whole diff (wasted cycle).
 
 ### Diff-review checklist (primary's job after implementation dispatch returns)
 
@@ -591,19 +587,15 @@ When a project runs BOTH a Claude writer lane (in `<lane-dir>/`) and a Codex pee
 
 Signal: specialist memory.md stale >24 hrs while coordinator has recent activity AND coordinator prompt says "Replaces prior specialist split".
 
-Fix: hot-edit `<codex-lane-dir>/<lane>/prompt.md` to point at the coordinator. Takes effect on next cron fire, no Codex restart needed:
+Fix: hot-edit `<codex-lane-dir>/<lane>/prompt.md` to point at the coordinator's `memory.md` (takes effect on next cron fire, no Codex restart needed), or retire the specialist entirely if the coordinator now covers its scope:
 
 ```
 Peer Claude lane memory: <lane-dir>/<repo>-coordinator/memory.md
 ```
 
-Worked example: a `<project>-shipper` specialist goes dormant for 24+ hrs while a `<project>-coordinator` lane ships new commits. Fix: edit the specialist's `prompt.md` to point at the coordinator's `memory.md`, or retire the specialist entirely if the coordinator now covers its scope.
-
 ### Symmetric rule: NEVER `--no-verify` across BOTH fleets
 
-Pre-commit hooks (prettier, lint, typecheck, SwiftLint) are the review trail. If a hook fails: document the exact failure in memory.md, write `[BLOCKED-CI-HOOK]`, exit. A human fixes the hook, not the automation. Violates CLAUDE.md discipline on both fleets.
-
-Both fleets carry this rule. Historical violations (one fleet bypassing `prettier --write` hook failures with `--no-verify` to ship faster) are rule breaches — diagnose the hook, never bypass it.
+Pre-commit hooks (prettier, lint, typecheck, SwiftLint) are the review trail. If a hook fails: document the exact failure in memory.md, write `[BLOCKED-CI-HOOK]`, exit. A human fixes the hook, not the automation. Both fleets carry this rule; bypassing a hook with `--no-verify` to ship faster is a rule breach — diagnose the hook, never bypass it.
 
 ### When to add a Codex peer
 
@@ -647,7 +639,7 @@ Husky + lint-staged use `git stash` during pre-commit. On some setups, the stash
 
 - **Disk-persisted instructions.** Crashes, restarts, and Mac sleeps do NOT wipe `prompt.md`. Session-only cron state does. If the cron dies and gets re-scheduled, the new cron can be a thin wrapper pointing at the same on-disk prompt -- zero rework.
 - **Diffable lane evolution.** Edits land, the next cycle picks them up, and memory.md captures lane-local before/after behavior; shipped proof/resume still belongs to the owning plan plus publish ledger packet.
-- **Cross-lane coordination.** Lanes read each other's `memory.md` notes to avoid racing, then verify owning plan and ledger state before changing a shared file. A lane reads a sibling lane's memory before touching a shared file, because the sibling may have an `[in_progress]` task there.
+- **Cross-lane coordination.** A lane reads a sibling lane's `memory.md` before touching a shared file (the sibling may have an `[in_progress]` task there), then verifies owning plan and ledger state.
 
 ### The 8-block structure
 
@@ -737,18 +729,18 @@ Parent cron: [4+ hour autonomous lane running many cycles]
     checkpoints, waits for next cron fire
 ```
 
-**Use for autonomous lanes running 4+ hours.** The skill-only pattern accumulates parent context ~2-5K per cycle; over 12+ hours, the parent hits context limits. The wrapper keeps parent context at ~10K indefinitely.
+**Use for autonomous lanes running 4+ hours.** The skill-only pattern accumulates parent context ~2-5K per cycle and hits limits over 12+ hours; the wrapper keeps parent context at ~10K indefinitely.
 
 Rule of thumb:
 - Interactive session, < 2 hours -> skill-only (cheaper)
-- Autonomous cron, 4+ hours -> agent wrapper (parent context stays bounded)
-- Autonomous cron, 24+ hours -> agent wrapper is mandatory
+- Autonomous cron, 4+ hours -> agent wrapper (bounded parent context)
+- Autonomous cron, 24+ hours -> agent wrapper mandatory
 
 ### Recipe 6: Review-feedback triage (qa-iterator)
 
 A burst lane that fires every ~17 min, scans open PRs for reviewer P1/P2 comments, and lands minimal fixes. Measured: 4 review-comment PRs shipped in 5 cycles, all green CI, each fix under 20 LOC.
 
-**Why this earns a lane:** PR reviewers (bots + humans) drop P1/P2 comments faster than coordinators address them. A 17-min cadence matches the bot re-review window.
+**Why this earns a lane:** reviewers (bots + humans) drop P1/P2 comments faster than coordinators address them; a 17-min cadence matches the bot re-review window.
 
 **Setup:**
 
@@ -809,7 +801,7 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 ### Deleting a lane
 
 1. Remove the cron via `CronDelete`.
-2. Archive `<lane-dir>/<lane-name>/` to `<lane-dir>/_archive/<lane-name>-YYYY-MM-DD/`. Do NOT hard-delete -- `memory.md` is lane-local cycle history, and shipped-work recovery still belongs to the owning PLAN.md plus publish ledger packet.
+2. Archive `<lane-dir>/<lane-name>/` to `<lane-dir>/_archive/<lane-name>-YYYY-MM-DD/`. Do NOT hard-delete -- `memory.md` is lane-local cycle history.
 3. If the plan is complete, update PLAN.md Progress with a "lane closed" entry.
 
 ---
@@ -818,7 +810,7 @@ CronCreate rrule: FREQ=MINUTELY;INTERVAL=17;COUNT=11  # ~3 hours, 11 fires max
 
 **Location:** `<lane-dir>/<lane-name>/memory.md`
 
-Agents have no built-in cross-session memory. The lane's `memory.md` is lane-local orientation only: every cycle reads the last 3 entries before acting, then appends a compact lane-local note. When the cycle ships work, the owning PLAN.md plus matching publish ledger row carries the durable proof, handoff status, files claimed, and next-agent resume.
+Agents have no built-in cross-session memory. The lane's `memory.md` is lane-local orientation only: every cycle reads the last 3 entries before acting, then appends a compact note. Shipped work's durable proof, handoff status, files claimed, and next-agent resume live in the owning PLAN.md plus matching publish ledger row.
 
 ### Entry format
 
@@ -862,7 +854,7 @@ Rules in priority order:
 0. **Hard cap: 6 lanes per session.** More than 6 causes worktree contention, JSONL bloat, PLAN.md stampede, and session-restart friction.
 1. **Max 3-4 parallel agents per wave.** More than 4 simultaneous agents on the same repo causes git worktree contention and branch-switch collisions.
 2. **Fire-and-forget.** Dispatch background agents and move on. Do not block the parent waiting for results.
-3. **Trust lane files for local orientation, then verify plan/ledger.** Do not inject stale briefing state into the agent prompt -- the agent reads `prompt.md` and `memory.md` itself for local orientation, then reads the owning PLAN.md plus latest matching publish ledger row for shipped-work state.
+3. **Trust lane files for local orientation, then verify plan/ledger.** Do not inject stale briefing state into the agent prompt -- the agent reads `prompt.md` and `memory.md` itself, then resumes from disk for shipped-work state.
 4. **Don't bloat parent context.** Agent results are stored as attachments in the parent JSONL. Many agents with large output adds up fast. Keep agent prompts tight (<500 bytes) and let each agent read its own context from disk.
 5. **Absorb duplicate fires.** If a cron fires while the previous cycle's agent is still running, skip it.
 6. **Batch cron waves.** When multiple crons fire at the same minute, dispatch them in a single multi-tool-call message, not sequentially.
@@ -878,9 +870,7 @@ The cron-management tools (`CronCreate`, `CronDelete`, `CronList`) are **deferre
 ToolSearch(query: "select:CronCreate,CronDelete,CronList", max_results: 3)
 ```
 
-This returns the JSONSchema definitions inline and makes the tools callable. A call to `CronCreate` without first running `ToolSearch` will fail with `InputValidationError`. Same pattern applies to `TaskCreate`, `WebFetch`, and any `mcp__*` tools not surfaced at session start.
-
-Always call `ToolSearch` with `select:<tool_name>` before invoking deferred tools.
+This returns the JSONSchema definitions inline and makes the tools callable. A call without first running `ToolSearch` fails with `InputValidationError`. Same pattern for `TaskCreate`, `WebFetch`, and any `mcp__*` tools not surfaced at session start: always `ToolSearch` with `select:<tool_name>` before invoking a deferred tool.
 
 ---
 
@@ -890,11 +880,11 @@ When to pair delegation with external research or amplification tools.
 
 ### Research agent pairing
 
-For external libraries, packages, or public documentation, a dedicated research tool beats the secondary model ~16.5x on token cost for package source lookups. Decision tree:
+For external libraries, packages, or public documentation, a dedicated research tool beats the secondary model ~16.5x on token cost for package source lookups. Decision tree (same as Section 4):
 
-- **Package source / exact types** -> use a package search tool (reads real source)
-- **"Where should I look?" / discovery** -> use quick research mode (citation lists, URL discovery)
-- **Exact API / config syntax** -> use the secondary model (can do live web searches during reasoning)
+- **Package source / exact types** -> package search tool (reads real source)
+- **"Where should I look?" / discovery** -> quick research mode (citation lists, URL discovery)
+- **Exact API / config syntax** -> secondary model (can do live web searches during reasoning)
 
 ### Deep research mode warning
 
@@ -919,7 +909,7 @@ Don't amplify a tight, concrete prompt — the overhead isn't worth it.
 
 ## 17. Activation
 
-Read this reference (loaded on demand from within a `/vidux` session) when:
+Read this reference (loaded on demand from a `/vidux` session) when:
 
 - Setting up or modifying automation lanes (CronCreate, scheduled agents).
 - Diagnosing fleet health, session bloat, or lane contention.
@@ -927,7 +917,7 @@ Read this reference (loaded on demand from within a `/vidux` session) when:
 - Running fleet scans, audits, or prescriptions.
 - Creating or reviewing PRs from automation.
 
-Do NOT activate for core plan-first work (use `/vidux` alone) or for one-off tasks that don't involve automation infrastructure.
+Do NOT activate for core plan-first work (use `/vidux` alone) or one-off tasks with no automation infrastructure.
 
 ---
 

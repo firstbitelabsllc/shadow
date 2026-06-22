@@ -1,223 +1,96 @@
 # Archived Tasks
 
-Tasks completed and archived from PLAN.md to keep context lean.
+Tasks completed and archived from PLAN.md to keep context lean. History only — task + outcome. Verbose test-count/`docs:build`/`git diff --check` receipts trimmed.
 
-## Archived 2026-04-01
-- [x] Write SKILL.md with doctrine, loop mechanics, PLAN.md structure, failure protocol
+## Archived 2026-04-01 — Bootstrap (Phases 1-7)
+- SKILL.md, PLAN.md (meta: Vidux plans itself), DOCTRINE.md, LOOP.md, INGREDIENTS.md (10 OSS patterns), quickstart/architecture/best-practices guides.
+- Core scripts: vidux-loop.sh (stateless cycle, JSON, 7 edge cases), vidux-gather.sh, vidux-checkpoint.sh.
+- ENFORCEMENT.md (4 PreToolUse hooks, three-strike gate) + /harness integration; contract tests (Jeffrey's PR #265 pattern).
+- Plugin manifest, /vidux + /vidux-plan + /vidux-status commands; ledger lifecycle + project build recipe wired; Captain auto-install via symlinks.
+- Cross-tool/cross-machine testing deferred (P2): v1 contract is solo-computer, source-controlled.
 
-## Archived 2026-04-07
-- [x] Write this PLAN.md (meta: Vidux plans itself)
-- [x] Write DOCTRINE.md — standalone principles doc (the 60%) for quick reference
-- [x] Set up hourly cron to iterate on these docs
-- [x] Survey 26 open source skills/plugins for ingredients [Evidence: research agent]
-- [x] Write LOOP.md — detailed loop mechanics (the 30%) with examples [Done: 2026-03-31]
-- [x] Write INGREDIENTS.md — top 10 open source patterns to adopt with attribution [Done: 2026-03-31]
-- [x] Write `vidux-loop.sh` — stateless cycle script (113 lines, JSON output, 7 edge cases) [Done: 2026-04-01]
-- [x] Write `vidux-gather.sh` — fan-out research template generator [Done: 2026-04-01]
-- [x] Write `vidux-checkpoint.sh` — structured checkpoint writer (81 lines, idempotent) [Done: 2026-04-01]
-- [x] Test one full cycle: gather -> plan -> execute -> verify -> checkpoint [Depends: all above] [Done: 2026-04-01]
-- [x] Add PreToolUse hook guidance + full ENFORCEMENT.md (389 lines, 4 hooks, three-strike gate) [Done: 2026-04-01]
-- [x] Add /harness integration for failure protocol (three-strike gate in ENFORCEMENT.md) [Done: 2026-04-01] [Evidence: Jeffrey's PR #265]
-- [x] Add contract tests (10 tests, all passing) [Done: 2026-04-01] [Evidence: Jeffrey's pattern]
-- [x] Create .claude-plugin/plugin.json manifest [Done: 2026-04-01]
-- [x] Create /vidux command wrapper [Done: 2026-04-01]
-- [x] Create /vidux-plan command (plan-only mode) [Done: 2026-04-01]
-- [x] Create /vidux-status command (quick status check) [Done: 2026-04-01]
-- [x] Wire ledger lifecycle events (AGENT_LANE, mission_id) — DONE on main via pilot-ledger-emit.sh [Done: 2026-04-01]
-- [x] Wire project-specific build recipe — DONE on main [Done: 2026-04-01]
-- [x] Wire Captain install — no changes needed, auto-installs via symlinks. Added install-hooks.sh for optional enforcement. [Done: 2026-04-01]
-- [x] [P2 — deferred] Cross-tool and cross-machine testing moved to future scope. Solo-computer, source-controlled is the v1 contract. [Done: 2026-04-01]
-- [x] Expand harness: contract tests for scripts (executable, valid JSON), commands (frontmatter), hooks (valid JSON), ENFORCEMENT.md (4 hooks), INGREDIENTS.md (10 items) [Evidence: Jeffrey's contract-test-as-harness pattern from PR #265] [Done: 2026-04-01]
-- [x] Write quickstart guide: guides/vidux/quickstart.md — activation, installation, first /vidux run [Done: 2026-04-01]
-- [x] Write architecture guide: guides/vidux/architecture.md — two data structures, unidirectional flow, Layer 1 vs Layer 2, Redux analogy [Done: 2026-04-01]
-- [x] Write best practices guide: guides/vidux/best-practices.md — PLAN.md writing, overnight cron, fan-out, common mistakes, Vidux vs Pilot [Done: 2026-04-01]
-- [x] End-to-end verification: run expanded harness, verify all scripts, verify symlinks, checkpoint [Depends: all Phase 6 above] [Done: 2026-04-01]
-- [x] Export the portable Vidux core into its own public repo with docs, commands, scripts, hooks, and tests. [Done: 2026-04-06]
-- [x] Add README, LICENSE, CONTRIBUTING, .github templates. [Done: 2026-04-06]
-- [x] Rewire all paths from `skills/vidux/` to repo-root. [Done: 2026-04-06]
-- [x] Restore full build history PLAN.md to public repo. [Done: 2026-04-06]
-- [x] Bring over vidux-development project evidence (v230, endurance, stress-test). [Done: 2026-04-06]
-- [x] Bring over ARCHIVE.md and SETUP_NEW_MACHINE.md. [Done: 2026-04-06]
-- [x] Build /vidux-loop command — fleet creation, lean prompts, staggered schedules, coordinator pattern, bimodal quality enforcement. [Done: 2026-04-06]
-- [x] Fix "smallest slice" language in /vidux command — agents keep working through queue until real boundary. [Done: 2026-04-06]
-- [x] Absorb Ralph into vidux core — Ralph had no hooks, no commands, just a SKILL.md. Queue contract is PLAN.md task FSM. Removed all references. [Done: 2026-04-06]
-- [completed] Integrate ledger into this repo — built thin integration layer (scripts/lib/ledger-config.sh, ledger-emit.sh, ledger-query.sh) that discovers ~/.agent-ledger/ and provides fleet analysis functions. Wired into vidux-loop.sh (loop_start, conflict check, ledger_available in JSON output) and vidux-checkpoint.sh (checkpoint events). Updated vidux-manager.md to use ledger-query.sh. 83/83 tests pass. [Done: 2026-04-06] [Evidence: real ledger data: 3205 entries, 14 automations, bimodal scores computed]
-- [completed] Retire `ai/skills/vidux/` — all 9 automation.toml files updated to canonical path. Ralph + vidux-amp dead refs removed. ai/skills/vidux symlink removed. [Done: 2026-04-06] [Evidence: `projects/vidux-self-investigation/evidence/2026-04-06-stale-path-audit.md`]
-- [completed] Add bimodal runtime enforcement to vidux-doctor.sh — CHECK 11: flags projects where >30% of runs fall in 3-8 min dead zone. Uses git commit timestamps. [Done: 2026-04-06]
-- [completed] Build automation quality inspector — vidux-fleet-quality.sh reads memory.md files, classifies runs (quick/deep/mid/normal), reports per-automation and fleet-wide bimodal quality. [Done: 2026-04-06]
+## Archived 2026-04-06 — Public export
+- Exported portable Vidux core to its own public repo (README, LICENSE, CONTRIBUTING, .github templates); rewired paths `skills/vidux/` → repo-root; restored full build-history PLAN.md; brought over evidence, ARCHIVE.md, SETUP_NEW_MACHINE.md.
+- /vidux-loop command (fleet creation, lean prompts, staggered schedules, coordinator pattern, bimodal enforcement).
+- Absorbed Ralph into vidux core (Ralph had no hooks/commands; queue contract = PLAN.md task FSM). Removed all Ralph refs.
+- Ledger integration layer (ledger-config/emit/query.sh) discovers ~/.agent-ledger/, wired into loop + checkpoint. 83/83 tests.
+- Retired `ai/skills/vidux/` — 9 automation.toml files repointed to canonical path.
+- vidux-doctor.sh CHECK 11 (bimodal runtime: flags >30% of runs in 3-8min dead zone, uses git commit timestamps); vidux-fleet-quality.sh (per-automation + fleet-wide bimodal classification).
 
-## Archived 2026-04-07 (Cycle 38) — Phases 8-12
+## Archived 2026-04-07 — Phases 8-15
+- **Phase 8 Canonical Unification; Phase 9 Automation Quality** — fleet configs, e2e tests (NextJS 17/20, iOS 19/20).
+- **Phase 10 Visibility/Intelligence/Health** (10.1-10.7): stage indicators, config extensions, ledger integration, dashboard, prune, manager, 30 contract tests.
+- **Phase 11 Dispatch/Reduce + Fleet Hardening** (11.1-11.9): doctrine bake, dispatch.sh, reduce mode, exit-criteria, Codex DB resilience, stale-ref prune, queue-jsonl, lifecycle hooks. 11.5 blocked (Vercel MCP).
+- **Phase 12 Continuous Feedback Loop** (12.1-12.6): merge-gate, auto-pause, bimodal enforcement, witness.sh, self-extension metric, 11 contract tests (149 total).
+- **13.1 Harden json_escape** — added `\r` escape across 5 scripts. Reverted python3 delegation (~80ms/call → 4 test timeouts). Lesson: never spawn subprocesses in hot-path JSON helpers.
+- **13.2 Fix config path injection** — 15 `python3 -c open('$CONFIG')` calls across 6 scripts now pass path via sys.argv[1]; doctor batched 8 calls into 1.
+- **13.3 Fix checkpoint sed metacharacter handling** — grep -Fn line addressing instead of sed regex.
+- **13.4 Portability layer for stat/date** — scripts/lib/compat.sh (file_mtime_epoch, dir_newest_mtime, parse_date_epoch, parse_iso_epoch); OS detection once at source-time; prune + witness source it, no raw stat -f/date -j remain.
+- **13.6-13.10 Contract tests** — witness.sh functional, test-all.sh self-test, compound-task/investigation docs, doctrine content contracts (Principles 5/7/8/9), empty-Tasks edge case.
+- **14.1 Fix cadence-runtime mismatch** — all active automations → 1x/hr staggered BYMINUTE; fleet 46→12 runs/hr.
+- **14.2 REDUCE gate prompt block** — both variants (with-vidux + standalone) shipped to DOCTRINE.md, best-practices.md, 12 automation TOMLs.
+- **14.3-14.5 Fleet cleanup** — acme-android PAUSED (Play Store blocked), 22 ghost rows deleted (dashboard: 12 active/0 paused), 229 worktrees pruned (11GB), 750 browser processes killed (20GB RAM).
+- **14.6 vidux-doctor.sh CHECK 12** — cadence-runtime health (rrule BYMINUTE count + memory runtimes); doctor now 14 checks.
+- **15.1 Circuit breaker in vidux-loop.sh** — scans last N Progress entries for shipping signals; none → `circuit_breaker: open` blocks dispatch. Configurable `backpressure.circuit_breaker_threshold` (default 3).
+- **15.2 Idle-churn detection in vidux-witness.sh** — per-automation `idle_churn_pct` + `total_entries`; counts memory entries with/without shipping signals. Fixed compat.sh nounset guard.
+- **15.3 Radar template** — guides/vidux/radar-template.md: {{placeholder}} harness for read-only radars, REDUCE gate w/ circuit_breaker check, 800-1200 char target.
+- **15.4 Mid-zone enforcement** — "Dispatch-side mid-zone kill" in DOCTRINE.md Principle 10 + best-practices.md: 3+ min no-file-write in dispatch = checkpoint and exit (fleet data: 32% mid-zone, target <15%).
+- **15.5 Circuit-breaker contract tests** — field exists + is open/closed; idle progress triggers open + blocks dispatch.
+- **16.1 Archive phases 8-12** — 38 tasks moved; PLAN.md 230→~130 lines.
+- **16.2 Prune stale project plans** — 2 archived (nextjs-cve-sweep, vidux-stress-test); 7 still active.
+- **16.3 README Phase 13-15 features** — "Fleet Intelligence (v2.3+)" section.
+- **17.1 Fix SIGPIPE in vidux-loop.sh** — wrapped 3 `grep|head` with `|| true` (exit 141 under `set -euo pipefail`); moved CB + auto_pause eval before early exits; added `_FLEET_SUFFIX` to all 4 early-exit JSON paths. 30/30 loop tests.
+- **17.4 Bake ledger into harness template** — radar-template.md + best-practices.md make ledger reads mandatory in READ step + sibling memory scan.
+- **17.5 Blocker dedup gate** — last 3 memory notes same blocker keyword → loop emits `blocker_dedup: true`, REDUCE auto-pauses (prevents acme-launch-loop 5× same-blocker pattern).
+- **17.7 Radar→writer inbox** — radars append to INBOX.md; writers promote to `[pending]` during READ. Breaks observe-but-can't-create deadlock.
+- **17.8 Sub-plan tree traversal** — `[spawns: investigations/foo.md]` tag support; loop traverses sub-plans when parent in_progress, reports aggregate.
+- **17.9 Orchestrator fleet-health mode** — detect fleet-level patterns and act (e.g. 6/11 REDUCE-exit) instead of wordsmithing one radar prompt.
 
-### Phase 8: Canonical Unification
-### Phase 9: Automation Quality — fleet configs, e2e tests (NextJS 17/20, iOS 19/20)
-### Phase 10: Visibility, Intelligence & Health — 7 tasks (10.1-10.7): stage indicators, config extensions, ledger integration, dashboard, prune, manager, 30 contract tests
-### Phase 11: Dispatch/Reduce + Fleet Hardening — 9 tasks (11.1-11.9): doctrine bake, dispatch.sh, reduce mode, exit-criteria, Codex DB resilience, stale ref prune, queue-jsonl, lifecycle hooks. 11.5 blocked (Vercel MCP).
-### Phase 12: Continuous Feedback Loop — 6 tasks (12.1-12.6): merge-gate, auto-pause, bimodal enforcement, witness.sh, self-extension metric, 11 contract tests (149 total)
+## Archived 2026-04-08 — Phases 18-20
+- **18.1 Remove personal data** — untracked 5 files, deleted fleet-rebuild script, genericized 92 private refs → acme/beacon across 10 docs, removed hardcoded paths.
+- **18.2 Diagnose 6 active automations** — found 4 wrong gate files, 1 scanner-as-writer, 2 safety deadlocks (CB + auto_pause).
+- **18.3 Rewrite all automation prompts (v3)** — all 5 use "Quick check gate" (no REDUCE naming); handle find_work state; acme-currency paused/folded.
+- **18.4 Prompt authoring best practices** — best-practices.md §14: structure, before/after (real ASC failure), gate selection, 7 mistakes, skill token format, sizing.
+- **18.5 Fresh acme/PLAN.md** — 9 pending tasks from 4 Cursor plans (ASC bugs, release, ops); INBOX.md for scanner→writer.
+- **18.6 find_work + rename REDUCE→Quick Check** — exit only on action=complete AND type=done AND queue_starved=false; else proceed.
+- **18.7 Verify fleet recovery after Codex restart** — Bugs #14-17: DB-only writes overwritten by Electron cache (full-quit required); TOML files are runtime prompt source (not DB); new rows need TOMLs for UI visibility. 10 automations synced DB+TOML.
+- **18.8 Auto-archive in vidux-loop.sh** — auto-runs checkpoint --archive when cold_tasks > archive_threshold (Beacon: 81 archived, 1061→497 lines).
+- **19.1 resolve_plan_store helper** — scripts/lib/resolve-plan-store.sh: reads config plan_store.path, expands ~, falls back to $VIDUX_ROOT/projects. No jq.
+- **19.3 Stop parsing PLAN.md path from prompt text** — addressed in 20.7 (absolute ~/.vidux/projects/ paths); runtime slug resolution deferred.
+- **19.4 Docs/tests** — vidux.md references config-resolved plan_store.path; test_plan_store_resolvable replaces test_projects_directory_exists.
+- **20.1 Restructure /codex skill** — generic core (DB, memory, Simple/SCAN Gate, fleet ops, `/codex watch`, 13 known bugs) + optional Vidux Integration section.
+- **20.2 Generic gate tiers** — Simple (generic) → SCAN (scanners) → Quick Check (vidux writers).
+- **20.3 Rename vidux-watchdog → codex-watch** — renamed in sqlite, moved memory dir.
 
-## Archived 2026-04-08
-- [completed] **13.1 Harden json_escape** — Added `\r` escape handling across 5 scripts. Attempted python3 delegation but reverted due to ~80ms/call overhead causing 4 test timeouts. Process fix: never spawn subprocesses in hot-path JSON helpers. [Done: 2026-04-07] [Evidence: hardening-audit.md#2]
-- [completed] **13.2 Fix config path injection** — All 15 `python3 -c "...open('$CONFIG')..."` calls across 6 scripts now pass path via sys.argv[1]. vidux-doctor.sh batched 8 calls into 1. [Done: 2026-04-07] [Evidence: hardening-audit.md#5]
-- [completed] **13.3 Fix checkpoint sed metacharacter handling** — Used grep -Fn line addressing instead of sed regex. No regex in the task text path. [Done: 2026-04-07] [Evidence: commit f30b05a]
-- [completed] **13.4 Add portability layer for stat/date** — scripts/lib/compat.sh created (60 lines): file_mtime_epoch, dir_newest_mtime, parse_date_epoch, parse_iso_epoch. OS detection once at source-time. vidux-prune.sh and vidux-witness.sh both source it, no raw stat -f/date -j calls remain. [Done: 2026-04-07] [Evidence: hardening-audit.md#4]
-- [completed] **13.5 Batch config reads into single python3 call** — Merged into 13.2: vidux-doctor.sh now reads all 8 config values in one python3 call. [Done: 2026-04-07] [Evidence: hardening-audit.md#9]
-- [completed] **13.6 Contract tests: witness.sh functional tests** — 2 tests: JSON validity + fleet_grade is A-F letter. [Done: 2026-04-07] [Evidence: coverage-gaps.md#1]
-- [completed] **13.7 Contract tests: test-all.sh self-test** — 1 test: --json produces valid JSON with overall and sections array. [Done: 2026-04-07] [Evidence: coverage-gaps.md#3]
-- [completed] **13.8 Contract tests: compound task / investigation docs** — 2 tests: SKILL.md Compound Tasks section + investigation template required sections. [Done: 2026-04-07] [Evidence: coverage-gaps.md#5]
-- [completed] **13.9 Contract tests: doctrine content contracts** — 4 tests: Principle 5 (compaction in SKILL.md), 7 (investigation/nested), 8 (harness/stateless), 9 (coordinator/subagent). [Done: 2026-04-07] [Evidence: coverage-gaps.md#7,12]
-- [completed] **13.10 Contract tests: edge cases** — 1 test: empty Tasks → valid JSON with hot_tasks=0. [Done: 2026-04-07] [Evidence: coverage-gaps.md#9]
-- [completed] **14.1 Fix cadence-runtime mismatches** — All active automations moved to 1x/hr with staggered BYMINUTE values. Fleet: 46 runs/hr → 12 runs/hr. [Done: 2026-04-07]
-- [completed] **14.2 Design and ship REDUCE gate prompt block** — Both variants (with-vidux + standalone) designed and shipped to DOCTRINE.md, best-practices.md, and all 12 active automation TOMLs. [Done: 2026-04-07]
-- [completed] **14.3 PAUSE blocked lanes** — acme-android PAUSED (Play Store blocked), 14 total automations paused then cleaned. Beacon radars later unpaused after domain fix. [Done: 2026-04-07]
-- [completed] **14.4 Kill ghost fleet rows** — 22 paused/ghost rows deleted from Codex DB. Dashboard clean: 12 active, 0 paused. [Done: 2026-04-07]
-- [completed] **14.5 Clean stale worktrees and browser processes** — 229 worktrees pruned (11GB), 750 browser processes killed (20GB RAM). [Done: 2026-04-07]
-- [completed] **14.6 Add cadence-runtime health check to vidux-doctor.sh** — CHECK 12 added. Reads rrule BYMINUTE count + memory file runtimes. Doctor now has 14 checks. [Done: 2026-04-07]
-- [completed] **14.7 Fleet restructuring contract tests** — 8 new tests (168 total): cadence-runtime check existence, 14+ doctor checks, REDUCE gate in DOCTRINE.md + best-practices.md, compat.sh functions, prune/witness use compat not raw stat/date. [Done: 2026-04-07]
-- [completed] **15.1 Add circuit breaker to vidux-loop.sh** — Scans last N Progress entries for shipping signals (shipped/commit/fixed/merged/etc). If none found, sets `circuit_breaker: open` and blocks dispatch. Configurable via `backpressure.circuit_breaker_threshold` (default 3). 2 contract tests added. [Done: 2026-04-07] [Evidence: agentic-patterns-research.md#5, fleet-loop-analysis.md#4]
+## Archived 2026-04-12 — SKILL v3 split + lane migration
+- **1.1-1.7 SKILL slim** — SKILL-v3.md (208 lines, 6 principles); extracted fleet-ops/investigation/harness/evidence-format guides; SKILL.md 1000→208 lines, 144/144 tests; /claude verified v2-clean.
+- **2.1-2.4 Resplit** — 6 prompts dropped vidux-loop.sh → v3 gate; resplit-web-ux SHIPPED (CTA fix); 394 worktrees removed (33GB), 38 merged branches deleted; disk 2.8GB→147GB free.
+- **3.1-3.4 StrongYes** — 4 prompts → v3 gate; T92 shipped; reverted hallucinated copy (5ef4498c) + added COPY SAFETY constraint.
+- **4.1-4.2 Fleet prompts** — codex-watch + strongyes-content-scanner rewritten.
 
+## Archived 2026-04-15 — Draft-PR groundwork
+- **4.3-4.4** — fleet prompts applied; scan: 1 shipping, 1 watching, 12 idle.
+- **5.0.1-5.0.3** — wave-mapped plan; real fleet count **37 (35 Claude + 2 Codex), ~20 push-capable, 0 create PRs** ("14 automations" was outdated). Leo confirmed: lane-owned PRs, human-click promotion, never auto-merge, vidux fleet only, Leo's personal pushes unchanged, stranded branches left dead.
 
-## Archived 2026-04-08
-## Archived 2026-04-08
-- [completed] **15.2 Add idle-churn detection to vidux-witness.sh** — Per-automation `idle_churn_pct` and `total_entries` in JSON output. Counts memory.md entries with/without shipping signals (shipped/commit/fixed/etc). Also fixed compat.sh nounset guard. [Done: 2026-04-07] [Evidence: fleet-loop-analysis.md#4]
-- [completed] **15.2 Add idle-churn detection to vidux-witness.sh** — Per-automation `idle_churn_pct` and `total_entries` in JSON output. Counts memory.md entries with/without shipping signals (shipped/commit/fixed/etc). Also fixed compat.sh nounset guard. [Done: 2026-04-07] [Evidence: fleet-loop-analysis.md#4]
+## Archived 2026-04-17/26 — Draft-PR pilot
+- **5.0.4 Wave 1 pilot = strongyes-coach-p0** — original pick vidux-core-test invalid (non-git, "NEVER git push").
+- **5.1.1-5.1.3** — coach-p0 prompt: merge-to-main → push branch + draft PR (5-step flow); draft-PR mechanics validated e2e on vidux repo (leojkwan/vidux#4, `gh` clean); guides/draft-pr-flow.md (cloud-agnostic core doctrine). Surprise: coach-p0 plan closed → can't be production pilot.
 
-## Archived 2026-04-08
-- [completed] **15.3 Radar template pattern** — Created guides/vidux/radar-template.md: {{placeholder}}-based harness template for read-only radars. Includes updated REDUCE gate (circuit_breaker check), sizing guidance (800-1200 chars target), examples table. Contract test added. [Done: 2026-04-07] [Evidence: fleet-loop-analysis.md#5, prompt analysis]
-- [completed] **15.4 Mid-zone enforcement in harness prompts** — Added "Dispatch-side mid-zone kill" to DOCTRINE.md Principle 10 and best-practices.md REDUCE gate section. Rule: 3+ minutes with no file write in dispatch = checkpoint and exit. Cited fleet data (32% mid-zone, target <15%). 2 contract tests. [Done: 2026-04-07] [Evidence: fleet-loop-analysis.md#3]
-- [completed] **15.5 Contract tests for circuit breaker** — 2 tests: circuit_breaker field exists and is open/closed, idle progress triggers open + blocks dispatch. Merged into 15.1 delivery. [Done: 2026-04-07] [Evidence: coverage-gaps pattern]
-- [completed] **16.1 Archive phases 8-12 to ARCHIVE.md** — 38 completed tasks moved. PLAN.md dropped from 230 to ~130 lines. Phases 1-7 were already headers-only. Phases 13-15 kept as recent context. [Done: 2026-04-07] [Evidence: loop context_warning]
-- [completed] **16.2 Prune stale project plans** — Scanned 9 project plans. Archived 2 (nextjs-cve-sweep 4/4, vidux-stress-test 6/6). 7 still active with pending tasks. vidux-v230 has 1 in_progress investigation (D3 backpressure). [Done: 2026-04-07] [Evidence: project scan]
-- [completed] **16.3 Update README.md with Phase 13-15 features** — Added "Fleet Intelligence (v2.3+)" section: circuit breaker, idle-churn detection, REDUCE gate, mid-zone kill, radar template, cross-platform compat. Updated "What Ships Here" with scripts/lib/, tests/, radar template. [Done: 2026-04-07] [Evidence: self-extending plan, Doctrine 11]
+## Archived 2026-05-31 — Wave 2 + ready-PR doctrine
+- **5.2.1-5.2.3** — 3 active-plan lanes picked; draft-PR pattern applied. strongyes PASS; resplit-ios BLOCKED: `gh pr create` fails "shared commit overlaps with existing PR" when new branches share ancestry.
+- **5.2.4 Doctrine correction** — ready-PR-first supersedes draft-first for operational PRs (review automation skips/delays drafts); preserved guides/draft-pr-flow.md path for link stability.
 
-## Archived 2026-04-08
-- [completed] **15.3 Radar template pattern** — Created guides/vidux/radar-template.md: {{placeholder}}-based harness template for read-only radars. Includes updated REDUCE gate (circuit_breaker check), sizing guidance (800-1200 chars target), examples table. Contract test added. [Done: 2026-04-07] [Evidence: fleet-loop-analysis.md#5, prompt analysis]
-- [completed] **15.4 Mid-zone enforcement in harness prompts** — Added "Dispatch-side mid-zone kill" to DOCTRINE.md Principle 10 and best-practices.md REDUCE gate section. Rule: 3+ minutes with no file write in dispatch = checkpoint and exit. Cited fleet data (32% mid-zone, target <15%). 2 contract tests. [Done: 2026-04-07] [Evidence: fleet-loop-analysis.md#3]
-- [completed] **15.5 Contract tests for circuit breaker** — 2 tests: circuit_breaker field exists and is open/closed, idle progress triggers open + blocks dispatch. Merged into 15.1 delivery. [Done: 2026-04-07] [Evidence: coverage-gaps pattern]
-- [completed] **16.1 Archive phases 8-12 to ARCHIVE.md** — 38 completed tasks moved. PLAN.md dropped from 230 to ~130 lines. Phases 1-7 were already headers-only. Phases 13-15 kept as recent context. [Done: 2026-04-07] [Evidence: loop context_warning]
-- [completed] **16.2 Prune stale project plans** — Scanned 9 project plans. Archived 2 (nextjs-cve-sweep 4/4, vidux-stress-test 6/6). 7 still active with pending tasks. vidux-v230 has 1 in_progress investigation (D3 backpressure). [Done: 2026-04-07] [Evidence: project scan]
-- [completed] **16.3 Update README.md with Phase 13-15 features** — Added "Fleet Intelligence (v2.3+)" section: circuit breaker, idle-churn detection, REDUCE gate, mid-zone kill, radar template, cross-platform compat. Updated "What Ships Here" with scripts/lib/, tests/, radar template. [Done: 2026-04-07] [Evidence: self-extending plan, Doctrine 11]
+## Archived 2026-06-01 — Worktree finalizer + publish-invariant sweep (5.3.x)
+- **5.3.0 Worktree lifecycle finalizer** — scripts/vidux-worktree-gc.py classifies worktrees by PR/merge/dirty state; safe explicit cleanup so PR-first lanes don't recreate the 130+ stranded-worktree failure (157 found 4/26).
+- **5.3.0a Worktree GC CI + sidecar hygiene** — wired test_worktree_gc.py into CI; `.external-state.json` sidecars actually gitignored even inside tracked project exceptions.
+- **5.3.0b Linear codebase guardrail** — adapters/linear.py requires `project_name` for guarded `project_id`, validates Linear project/team before fetch/create/update, fails closed on mismatch (prevents ingesting product buckets like "UX Overhaul").
 
-## Archived 2026-04-08
-- [completed] **17.1 Fix SIGPIPE in vidux-loop.sh** — Wrapped 3 `grep|head` pipe patterns with `|| true` to prevent exit 141 under `set -euo pipefail`. Moved circuit breaker + auto_pause evaluation before early exits. Added `_FLEET_SUFFIX` to all 4 early-exit JSON paths for consistent schema. Fixed `self.ROOT` test bug and DOCTRINE.md `stateless` keyword. 30/30 loop tests pass. [Done: 2026-04-07] [Evidence: fleet-audit-11-automations.md#systemic-1]
-
-## Archived 2026-04-08
-- [completed] **17.1 Fix SIGPIPE in vidux-loop.sh** — Wrapped 3 `grep|head` pipe patterns with `|| true` to prevent exit 141 under `set -euo pipefail`. Moved circuit breaker + auto_pause evaluation before early exits. Added `_FLEET_SUFFIX` to all 4 early-exit JSON paths for consistent schema. Fixed `self.ROOT` test bug and DOCTRINE.md `stateless` keyword. 30/30 loop tests pass. [Done: 2026-04-07] [Evidence: fleet-audit-11-automations.md#systemic-1]
-
-## Archived 2026-04-08
-- [completed] **17.1 Fix SIGPIPE in vidux-loop.sh** — Wrapped 3 `grep|head` pipe patterns with `|| true` to prevent exit 141 under `set -euo pipefail`. Moved circuit breaker + auto_pause evaluation before early exits. Added `_FLEET_SUFFIX` to all 4 early-exit JSON paths for consistent schema. Fixed `self.ROOT` test bug and DOCTRINE.md `stateless` keyword. 30/30 loop tests pass. [Done: 2026-04-07] [Evidence: fleet-audit-11-automations.md#systemic-1]
-
-
-## Archived 2026-04-08
-## Archived 2026-04-08
-- [completed] **17.4 Bake ledger into harness template** — Update `guides/vidux/radar-template.md` and `guides/vidux/best-practices.md` to make ledger reads mandatory in the READ step, not optional. Include sibling memory scan pattern. [Evidence: fleet-audit-11-automations.md#systemic-2]
-- [completed] **17.4 Bake ledger into harness template** — Update `guides/vidux/radar-template.md` and `guides/vidux/best-practices.md` to make ledger reads mandatory in the READ step, not optional. Include sibling memory scan pattern. [Evidence: fleet-audit-11-automations.md#systemic-2]
-- [completed] **17.5 Blocker dedup gate** — If last 3 memory notes report the same blocker keyword, vidux-loop.sh emits `blocker_dedup: true` and REDUCE gate auto-pauses. Prevents `acme-launch-loop` pattern (5× same ASC key blocker in 6 hours). [Evidence: fleet-audit-11-automations.md#systemic-3]
-- [completed] **17.5 Blocker dedup gate** — If last 3 memory notes report the same blocker keyword, vidux-loop.sh emits `blocker_dedup: true` and REDUCE gate auto-pauses. Prevents `acme-launch-loop` pattern (5× same ASC key blocker in 6 hours). [Evidence: fleet-audit-11-automations.md#systemic-3]
-
-## Archived 2026-04-08
-- [completed] **17.7 Radar→writer inbox pattern** — Radars append findings to `INBOX.md` next to PLAN.md. Writers consume inbox entries and promote to `[pending]` tasks during READ step. Breaks the circular deadlock where radars observe but can't create work. [Evidence: fleet-audit-11-automations.md#systemic-2]
-
-## Archived 2026-04-08
-- [completed] **17.8 Sub-plan tree traversal** — Add `[spawns: investigations/foo.md]` tag support to vidux-loop.sh. Script traverses sub-plans when parent task is in_progress, reports aggregate status. [Evidence: user question "maybe we're not doing a good enough job with keeping the task queue or sub plan tree"]
-- [completed] **17.9 Orchestrator fleet health mode** — Redesign orchestrator from "edit one prompt at a time" to "detect fleet-level patterns and take fleet-level action." When 6/11 automations REDUCE-exit, the orchestrator should notice and act, not wordsmith one radar prompt. [Evidence: fleet-audit-11-automations.md#why-5]
-
-## Archived 2026-04-08
-- [completed] **18.1 Remove personal project data from repo** — Untracked 5 files in projects/, deleted fleet-rebuild script, genericized 92 private project references to acme/beacon across 10 docs, removed hardcoded paths. [Done: 2026-04-08]
-
-## Archived 2026-04-08
-- [completed] **18.2 Diagnose all 6 active automations** — Audited prompts, ran vidux-loop.sh on each plan, read all memory files. Found: 4 wrong gate files, 1 scanner-as-writer, 2 safety deadlocks (CB + auto_pause). [Done: 2026-04-08] [Evidence: automation-prompt-rewrites.md]
-- [completed] **18.3 Rewrite all automation prompts (v3)** — Final rewrite: all 5 active automations use "Quick check gate" (no more REDUCE naming). acme-asc now gates on fresh vidux plan with 9 real tasks. acme-localization-pro uses SCAN gate. All prompts handle find_work state. acme-currency paused (1 task, folded into plan task 7). [Done: 2026-04-08]
-
-## Archived 2026-04-08
-- [completed] **18.4 Write prompt authoring best practices** — Added Section 14 to best-practices.md: prompt structure, before/after example (real ASC failure), gate selection guide, 7 common mistakes, skill token format, size guidance. [Done: 2026-04-08]
-
-## Archived 2026-04-08
-- [completed] **18.5 Create fresh acme/PLAN.md** — Imported real work from 4 Cursor plans: 9 pending tasks across ASC bugs (6 new + 4 triaged + 56 verify + 5 blocked), release (TestFlight + screenshots), and ops (FX docs + migration + web parity). Created INBOX.md for scanner→writer pattern. [Done: 2026-04-08]
-- [completed] **18.6 Handle find_work + rename REDUCE to Quick Check** — All 5 prompts now use "Quick check gate" naming. Exit condition simplified: only exit on action=complete AND type=done AND queue_starved=false. Everything else (dispatch, find_work, gather_evidence) proceeds. [Done: 2026-04-08]
-- [completed] **18.7 Verify fleet recovery after Codex restart** — Codex restarted 3x during session. Discovered Bugs #14-17: DB-only writes get overwritten by Electron cache (must full-quit app); TOML files are the runtime prompt source (not DB); new rows need TOMLs for UI visibility. All 10 automations now have synced DB + TOML with corrected prompts (0 REDUCE, correct plan paths). Awaiting first post-fix cycle for runtime proof. [Done: 2026-04-08] [Evidence: /codex skill Bugs #14-17]
-- [completed] **18.8 Auto-archive in vidux-loop.sh** — vidux-loop.sh now auto-runs vidux-checkpoint.sh --archive when cold_tasks > archive_threshold. Tested on Beacon: 81 tasks archived, 1061→497 lines. Sliding window is now enforced automatically. [Done: 2026-04-08]
-- [completed] **19.1 Add `resolve_plan_store` helper in `scripts/lib/`** — Created `scripts/lib/resolve-plan-store.sh`: reads `vidux.config.json` plan_store.path, expands ~, falls back to `$VIDUX_ROOT/projects`. No jq dependency. [Done: 2026-04-08]
-
-## Archived 2026-04-08
-- [completed] **18.5 Create fresh acme/PLAN.md** — Imported real work from 4 Cursor plans: 9 pending tasks across ASC bugs (6 new + 4 triaged + 56 verify + 5 blocked), release (TestFlight + screenshots), and ops (FX docs + migration + web parity). Created INBOX.md for scanner→writer pattern. [Done: 2026-04-08]
-- [completed] **18.6 Handle find_work + rename REDUCE to Quick Check** — All 5 prompts now use "Quick check gate" naming. Exit condition simplified: only exit on action=complete AND type=done AND queue_starved=false. Everything else (dispatch, find_work, gather_evidence) proceeds. [Done: 2026-04-08]
-- [completed] **18.7 Verify fleet recovery after Codex restart** — Codex restarted 3x during session. Discovered Bugs #14-17: DB-only writes get overwritten by Electron cache (must full-quit app); TOML files are the runtime prompt source (not DB); new rows need TOMLs for UI visibility. All 10 automations now have synced DB + TOML with corrected prompts (0 REDUCE, correct plan paths). Awaiting first post-fix cycle for runtime proof. [Done: 2026-04-08] [Evidence: /codex skill Bugs #14-17]
-- [completed] **18.8 Auto-archive in vidux-loop.sh** — vidux-loop.sh now auto-runs vidux-checkpoint.sh --archive when cold_tasks > archive_threshold. Tested on Beacon: 81 tasks archived, 1061→497 lines. Sliding window is now enforced automatically. [Done: 2026-04-08]
-- [completed] **19.1 Add `resolve_plan_store` helper in `scripts/lib/`** — Created `scripts/lib/resolve-plan-store.sh`: reads `vidux.config.json` plan_store.path, expands ~, falls back to `$VIDUX_ROOT/projects`. No jq dependency. [Done: 2026-04-08]
-
-## Archived 2026-04-09
-- [completed] **19.3 Stop parsing `projects/<name>/PLAN.md` out of prompt text** — Addressed in Phase 20.7: all live automation prompts rewritten with absolute paths to ~/.vidux/projects/ instead of relative repo-local paths. Runtime slug resolution deferred as optional enhancement. [Done: 2026-04-08]
-
-## Archived 2026-04-09
-- [completed] **19.4 Update docs and tests** — Fixed vidux.md to reference config-resolved plan_store.path. Replaced test_projects_directory_exists with test_plan_store_resolvable (tests resolve-plan-store.sh). [Done: 2026-04-08]
-- [completed] **20.1 Restructure /codex skill into generic core + vidux section** — Rewrote SKILL.md: generic core (DB, memory, Simple Gate, SCAN Gate, fleet ops, `/codex watch`, 13 known bugs) + "Vidux Integration (Optional)" section (Quick Check Gate, safety mechanisms, CB guard). [Done: 2026-04-08]
-- [completed] **20.2 Add generic gate pattern for non-vidux automations** — Added "Simple Gate": memory-based exit logic, no external deps. Three tiers: Simple (generic) → SCAN (scanners) → Quick Check (vidux writers). [Done: 2026-04-08]
-- [completed] **20.3 Rename vidux-watchdog → codex-watch in DB** — Killed app-server, renamed ID/name in sqlite, moved memory dir. Prompt: "Fleet health scanner for Codex automations." [Done: 2026-04-08]
-
-## Archived 2026-04-12
-- [completed] 1.1 Draft SKILL-v3.md (220 lines, 6 principles) [Done: 2026-04-09]
-- [completed] 1.2 Extract fleet ops to guides/fleet-ops.md [Done: 2026-04-09]
-- [completed] 1.3 Extract investigation template to guides/investigation.md [Done: 2026-04-09]
-- [completed] 1.4 Extract harness authoring to guides/harness.md [Done: 2026-04-09]
-- [completed] 1.5 Extract evidence format to guides/evidence-format.md [Done: 2026-04-09]
-- [completed] 1.6 Replace SKILL.md with SKILL-v3.md — 1000→208 lines, 14 tests updated, 144/144 pass [Done: 2026-04-09]
-- [completed] 1.7 Verified /claude skill has no v2 references (vidux-loop.sh, Redux jargon, etc.) — already clean [Done: 2026-04-09]
-- [completed] 2.1 Rewrite 6 resplit prompts — drop vidux-loop.sh, use v3 gate [Done: 2026-04-09]
-- [completed] 2.2 Apply prompts to Codex DB + restart [Done: 2026-04-09]
-- [completed] 2.3 Verify: resplit-web-ux SHIPPED (CTA fix, 20min run). Others idle/reset. [Done: 2026-04-09]
-- [completed] 2.4 GC stale worktrees + branches — 394 worktree dirs removed (33GB), 38 merged branches deleted. 130 resplit-ios branches with unmerged work left for trunk guardian. Disk: 2.8GB→147GB free. [Done: 2026-04-09]
-- [completed] 3.1 Rewrite 4 strongyes prompts — drop vidux-loop.sh, use v3 gate [Done: 2026-04-09]
-- [completed] 3.2 Apply prompts to Codex DB + restart [Done: 2026-04-09]
-- [completed] 3.3 Verify: T92 shipped via Claude cron. Vercel build passes. [Done: 2026-04-09]
-- [completed] 3.4 Revert hallucinated copy from remote trigger (5ef4498c). Added COPY SAFETY constraint. [Done: 2026-04-09]
-- [completed] 4.1 Rewrite codex-watch prompt (simplified fleet scan)
-- [completed] 4.2 Rewrite strongyes-content-scanner prompt
-
-## Archived 2026-04-15
-- [completed] 4.3 Apply fleet prompts to DB + restart [Done: 2026-04-09]
-- [completed] 4.4 Fleet scan: 1 shipping (resplit-web-ux), 1 watching (codex-watch), 12 idle. [Done: 2026-04-09]
-- [completed] 5.0.1 Wave-mapped plan with provisional Q answers and Core/Delegation split. [Done: 2026-04-11]
-- [completed] 5.0.2 Audit current push behavior across fleet. Real count: **37 total (35 Claude lanes + 2 Codex observers), ~20 push-capable, 0 currently create PRs.** The "14 automations" from Phases 2-4 is outdated — the fleet migrated to Claude and expanded. Output: `investigations/draft-pr-flow.md`. [Done: 2026-04-11]
-- [completed] 5.0.3 Leo confirmed all provisionals (Q2-Q7): lane-owned PRs, human-click promotion, never auto-merge, vidux fleet only, Leo's personal pushes unchanged, stranded branches left dead. [Done: 2026-04-11]
-
-## Archived 2026-04-17
-- [completed] 5.0.4 Wave 1 pilot: **`strongyes-coach-p0`**. Original pick `vidux-core-test` is invalid — it operates on a non-git experiment dir with explicit "NEVER git push" in its Authority block. Corrected to `strongyes-coach-p0`: currently pushes directly to origin/main (the exact behavior to replace), StrongYes is smaller than Resplit (lower blast radius), lane is P0-active so it exercises real production cycles. [Corrected: 2026-04-11, see Surprise]
-
-## Archived 2026-04-26
-- [completed] 5.1.1 Modified `~/.claude/automations/strongyes-coach-p0/prompt.md`: ACT section changed from "merge to main" to "push branch + draft PR". PUSH POLICY replaced: 5-step flow (push branch → `gh pr create --draft` → never direct-to-main → sync main each cycle → fallback on `gh` failure). PR body template carries lane id, plan task, resume point. [Done: 2026-04-11]
-- [completed] 5.1.2 Draft-PR mechanics validated end-to-end on vidux repo (leojkwan/vidux#4). Branch push → `gh pr create --draft` → `gh pr list` (visible, isDraft: true) → close + cleanup. coach-p0 plan was CLOSED (no work to ship), so tested directly instead. Friction: zero — `gh` CLI worked cleanly. Surprise: coach-p0 can't be the production pilot (plan closed); need a lane with active work for Wave 2. [Done: 2026-04-12]
-- [completed] 5.1.3 Wrote `guides/draft-pr-flow.md` — cloud-agnostic core doctrine: the 5-step flow, branch naming convention, PR body template, recovery via `gh pr list`, fallback on `gh` failure, adoption snippet for lane prompts. [Done: 2026-04-12]
-
-## Archived 2026-05-31
-- [completed] 5.2.1 Picked 3 lanes with active plans: `strongyes-backend-trust` (26p+25ip, high-vol), `strongyes-blog-pipeline` (8p, content), `resplit-revamp-executor` (12p+1ip, iOS shipping). [Done: 2026-04-12]
-
-## Archived 2026-05-31
-- [completed] 5.2.2 Applied draft-PR pattern from `guides/draft-pr-flow.md` to all 3 lane prompts: ACT sections updated (no merge to main, push branch + draft PR), PUSH POLICY replaced with 5-step flow, fallback on `gh` failure. [Done: 2026-04-12]
-- [completed] 5.2.3 Observer-pair audit. strongyes lanes PASS (PR #283 open DRAFT, 10+ merged today by Leo). resplit-ios BLOCKED: `gh pr create` fails 4x with "shared commit overlaps with an existing PR" — lanes are following the draft-PR prompt but `gh` rejects when new branches share ancestry with old branches/PRs. [Done: 2026-04-14]
-
-## Archived 2026-05-31
-- [completed] 5.2.4 Doctrine correction: ready-PR-first supersedes draft-first for operational PRs because review automation skips or delays drafts. Updated core docs/templates while preserving `guides/draft-pr-flow.md` path for link stability. [Done: 2026-04-26]
-
-## Archived 2026-06-01
-- [completed] 5.3.0 Worktree lifecycle finalizer: classify local worktrees by PR state, merge status, and dirty state; provide a safe explicit cleanup path for PR-first lanes so Wave 3 does not recreate the 130+ stranded-worktree failure. [Evidence: 2026-04-26 StrongYes worktree audit found 157 worktrees; `guides/fleet-ops.md` still described direct merge-back despite ready-PR doctrine] [Done: 2026-04-26; shipped `scripts/vidux-worktree-gc.py`, docs, and tests]
-- [completed] 5.3.0a Worktree GC CI + sidecar hygiene: wire `tests/test_worktree_gc.py` into GitHub CI and make `.external-state.json` sidecars actually ignored even inside tracked project exceptions. [Evidence: `.github/workflows/ci.yml` runs contract + plan-GC tests but not `tests/test_worktree_gc.py`; `projects/vidux-browser/.external-state.json` appeared untracked despite `SKILL.md` saying sidecars are gitignored] [Done: 2026-04-26; verified by worktree-GC tests, contract sidecar ignore check, and local contract suite]
-
-## Archived 2026-06-01
-- [completed] 5.3.0b Linear codebase-project guardrail: make repo-owned Linear bindings fail closed when `project_id` points at the wrong project name, so codebase lanes do not ingest product buckets like "UX Overhaul" by accident. [Evidence: observed 2026-04-27 Linear Projects UI shows product buckets; `adapters/linear.py` previously accepted opaque `project_id` with no repo/codebase identity check; cross-repo plan archived at `projects/_archive/linear-codebase-organization/PLAN.md`; `adapters/linear.py` now requires `project_name` for guarded `project_id`, validates Linear project name/team before fetch/create/update, and tests cover mismatch fail-closed behavior plus explicit team-wide/unguarded allowlists. Revalidated 2026-06-01: `python3 -m unittest tests.test_linear_adapter tests.test_vidux_inbox_sync` ran 75 tests OK.]
-
-## Archived 2026-06-01
-- [completed] 5.3.0c PR publish body propagation: `scripts/vidux-pr-body.py` now requires plan path, proof, handoff status, ledger event/dry-run reference, and files claimed; the ready-PR flow, fleet-ops handoff rule, lane prompt pattern, and docs reference now teach the stronger command so branch-push/PR publish artifacts are resumable without chat memory. [Evidence 2026-06-01: `python3 -m py_compile scripts/vidux-pr-body.py`; `python3 -m unittest tests.test_pr_body` passed 5 tests; `python3 -m unittest tests.test_pr_body tests.test_vidux_contracts` ran 146 tests OK; `npm run docs:build` PASS; scoped `git diff --check` PASS; sample CLI body printed Publish Propagation fields]
-- [completed] 5.3.0d Week-long prompt contract: the canonical lane prompt template now requires long-horizon work to keep one canonical PLAN.md, use L2 sub-plans only for investigations, check the claims bus before editing shared rows, record `files_claimed`, refresh or mark stale proof before publish, update the owning plan at meter checkpoints, run invariant/regression/adversarial review passes before publish, and checkpoint `handoff_status` plus next-agent resume fields. [Evidence 2026-06-01: user goal P2 explicitly calls for longer agentic concurrent horizon projects and week-long work; shipped `docs/reference/prompt-template.md` + `tests/test_vidux_contracts.py` contract coverage; `python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_prompt_template_has_long_horizon_contract` PASS; `python3 -m unittest tests.test_vidux_contracts` ran 142 tests OK; `python3 -m unittest tests.test_pr_body tests.test_vidux_claims` ran 9 tests OK; `npm run docs:build` PASS; scoped `git diff --check` PASS.]
-
-## Archived 2026-06-01
-- [completed] 5.3.0e Branch-push publish recipe: close the raw-push fallback gap by making the ready-PR flow update the owning plan and emit the publish ledger row before `git push`, then carry that eid into the PR body and fallback handoff. [Evidence 2026-06-01: shipped `guides/draft-pr-flow.md`, `docs/reference/prompt-template.md`, and `tests/test_vidux_contracts.py` so ready-PR lanes now update the owning plan, emit a publish ledger row, push the branch, carry `$LEDGER_EID` into the PR body, and record `gh pr create` fallback as `handoff_status=needs_review`; safe single-quoted `rg` verification passed; `python3 -m unittest tests.test_vidux_contracts` ran 143 tests OK; `python3 -m unittest tests.test_pr_body tests.test_vidux_claims` ran 9 tests OK; `npm run docs:build` PASS; scoped `git diff --check` PASS; drift D-20260531-01 recorded the earlier rejected accidental push attempts as non-proof/no remote mutation.]
-
-## Archived 2026-06-01
-- [completed] 5.3.0f Hook-install publish recipe: close the remaining optional-hook install gap by requiring hook installation or hook wiring changes to update the owning PLAN.md and emit a publish ledger row with proof, handoff status, and claimed target files before copying or enabling hooks. [Evidence 2026-06-01: shipped `docs/guide/installation.md`, `docs/reference/hooks.md`, and `tests/test_vidux_contracts.py` so hook installation now updates the target repo plan, emits `ledger-emit.sh --event publish` with plan/proof/handoff/file/claim fields, then copies hooks; `python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_hook_install_docs_require_publish_ledger` PASS; `python3 -m unittest tests.test_vidux_contracts` ran 144 tests OK; `python3 -m unittest tests.test_pr_body tests.test_vidux_claims tests.test_release_script` ran 11 tests OK; `npm run docs:build` PASS; scoped `git diff --check` PASS.]
-- [completed] 5.3.0g Secondary publish recipe rollout: make fleet-ops and lane prompt recipe docs carry the same update-plan, emit-publish-ledger, push-branch, PR-body sequence as the canonical ready-PR flow so stale secondary recipes cannot teach plan-silent branch publishes. [Evidence 2026-06-01: shipped `guides/fleet-ops.md`, `guides/recipes/lane-prompt-patterns.md`, and `tests/test_vidux_contracts.py` so secondary recipes now update the owning plan, emit `ledger-emit.sh --event publish`, keep `$LEDGER_EID`, then push/open PRs; incomplete/gated work uses `handoff_status=in_progress` or `needs_review`; focused secondary-recipe contract PASS; `python3 -m unittest tests.test_vidux_contracts` ran 145 tests OK; `python3 -m unittest tests.test_pr_body tests.test_vidux_claims tests.test_release_script` ran 11 tests OK; `npm run docs:build` PASS; scoped `git diff --check` PASS.]
-
-## Archived 2026-06-01
-- [completed] 5.3.0h Top-level recipes publish invariant: close the stale `guides/recipes.md` recipe path so skill-refiner and Vidux self-improvement recipes cannot teach `git push`, `gh pr create`, or direct-main commit paths without first updating the owning plan and emitting a publish ledger row. [Evidence 2026-06-01: D-20260601-02 records the missed surface; shipped `guides/recipes.md` plus `tests/test_vidux_contracts.py`; focused recipe propagation contract PASS; `python3 -m unittest tests.test_vidux_contracts` PASS; `python3 -m unittest tests.test_pr_body tests.test_vidux_claims tests.test_release_script` PASS; `npm run docs:build` PASS; scoped `git diff --check` PASS.]
-
-## Archived 2026-06-01
-- [completed] 5.3.0i Placeholder draft PR publish invariant: close the blocked-exit escape hatch so placeholder draft PRs are explicitly publish actions requiring the owning PLAN.md update, publish ledger row, `handoff_status=needs_review`, files claimed, proof, and next-agent resume point before `gh pr create --draft`. [Evidence 2026-06-01: D-20260601-03 records the missed surface; shipped `SKILL.md` plus `tests/test_vidux_contracts.py`; focused placeholder draft PR contract PASS; `python3 -m unittest tests.test_vidux_contracts` PASS (147/147); `python3 -m unittest tests.test_pr_body tests.test_vidux_claims tests.test_release_script` PASS (12/12); `npm run docs:build` PASS; scoped `git diff --check` PASS; placeholder draft adversarial grep PASS.]
-- [completed] 5.3.0j CLAUDE.md rules publish invariant: close the rules-template path so direct-to-main, trunk merge, and done-language snippets cannot teach a plan-silent publish; copied agent rules must require owning PLAN.md update, publish ledger row, proof, handoff status, files claimed, and next-agent resume before done is claimed. [Evidence 2026-06-01: D-20260601-04 records the missed surface; shipped `guides/recipes/claude-md-rules.md` plus `tests/test_vidux_contracts.py`; focused CLAUDE.md rules contract PASS; `python3 -m unittest tests.test_vidux_contracts` PASS (148/148); `python3 -m unittest tests.test_pr_body tests.test_vidux_claims tests.test_release_script` PASS (12/12); `npm run docs:build` PASS; scoped `git diff --check` PASS; stale direct-main/trunk grep PASS.]
+Publish-invariant sweep — each closed a surface that could teach a plan-silent publish; all now require: update owning PLAN.md, emit publish ledger row (carry `$LEDGER_EID`), proof, handoff_status, files_claimed, next-agent resume — before push/PR/hook-enable.
+- **5.3.0c PR body propagation** — scripts/vidux-pr-body.py requires plan/proof/handoff/ledger/files.
+- **5.3.0d Week-long prompt contract** — docs/reference/prompt-template.md: one canonical PLAN.md, L2 sub-plans for investigations only, check claims bus, record files_claimed, refresh stale proof, checkpoint handoff at meter points, invariant/regression/adversarial passes before publish.
+- **5.3.0e Branch-push publish recipe** — ready-PR flow updates plan + emits publish ledger row before `git push`; eid carried into PR body + fallback handoff. D-20260531-01 recorded earlier rejected push attempts as non-proof.
+- **5.3.0f Hook-install recipe** — hook install/wiring updates target plan + emits publish ledger before copying/enabling.
+- **5.3.0g Secondary recipes** — fleet-ops + lane-prompt-patterns carry the same update-plan/emit-ledger/push/PR sequence; incomplete work → handoff_status in_progress|needs_review.
+- **5.3.0h Top-level recipes invariant** — guides/recipes.md (skill-refiner + self-improvement) can't teach push/PR/direct-main without plan update + publish ledger. (D-20260601-02)
+- **5.3.0i Placeholder draft PR invariant** — placeholder draft PRs are publish actions: require plan update, publish ledger, handoff_status=needs_review, files claimed, proof, resume point before `gh pr create --draft`. (D-20260601-03)
+- **5.3.0j CLAUDE.md rules invariant** — copied agent rules can't teach direct-to-main/trunk-merge/done-language without plan update, publish ledger, proof, handoff, files claimed, resume. (D-20260601-04)

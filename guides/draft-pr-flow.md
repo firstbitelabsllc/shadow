@@ -6,9 +6,9 @@ Cloud-agnostic. Works with any git remote that supports `gh pr create`. No paid-
 
 ## Why
 
-Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. The owning PLAN.md plus matching publish ledger row is the durable shipped-work recovery packet; Pull requests on GitHub are transport/review handles. `gh pr list` shows which branch-backed work needs review or nursing, then the PR body points the next agent back to the owning plan and ledger row.
+Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. The owning PLAN.md plus matching publish ledger row is the durable recovery packet; PRs on GitHub are transport/review handles. `gh pr list` shows which branch-backed work needs review or nursing, and the PR body points the next agent back to the owning plan and ledger row.
 
-Ready-for-review PRs also let configured review bots, preview comments, and CI gates run immediately. Draft PRs are useful only when a real gate is missing and the PR should not yet enter review.
+Ready-for-review PRs also let review bots, preview comments, and CI gates run immediately. Draft PRs are useful only when a real gate is missing and the PR should not yet enter review.
 
 ## The Flow
 
@@ -63,17 +63,9 @@ gh pr create \
   --body-file /tmp/vidux-pr-body.md
 ```
 
-Use `gh pr create --draft` only when the PR is true WIP or a required gate is missing. As soon as the gate passes, run:
+Use `gh pr create --draft` only when the PR is true WIP or a required gate is missing; run `gh pr ready <number>` as soon as the gate passes.
 
-```bash
-gh pr ready <number>
-```
-
-Do not push directly to `origin/main`. Before each cycle, sync the local base:
-
-```bash
-git fetch --prune origin
-```
+Never push directly to `origin/main`. Sync the local base before each cycle with `git fetch --prune origin`.
 
 Delete worktrees only after the plan/ledger packet exists, the PR branch is safely pushed, and the PR body carries the ledger eid plus resume point.
 
@@ -110,17 +102,7 @@ When a worktree is lost:
 gh pr list --state open --json number,title,isDraft,headRefName --jq '.[]'
 ```
 
-Each open PR is a transport/review handle. Before checkout, read the PR body for its plan path and ledger eid, then re-read the owning plan plus matching publish ledger row. To inspect the branch:
-
-```bash
-gh pr checkout <number>
-```
-
-If the PR is draft and no longer blocked, flip it ready:
-
-```bash
-gh pr ready <number>
-```
+Each open PR is a transport/review handle. Before checkout, read the PR body for its plan path and ledger eid, then re-read the owning plan plus matching publish ledger row. Inspect the branch with `gh pr checkout <number>`. If the PR is draft and no longer blocked, flip it ready with `gh pr ready <number>`.
 
 ## Fallback
 
@@ -140,7 +122,7 @@ If `gh pr create` fails (auth issue, network, no `gh` CLI):
 
 ## Adopting This In A Lane Prompt
 
-Replace any existing push policy with:
+Replace any existing push policy with the block below. In particular, replace any "stop after branch push" instruction with "push branch + create ready PR," and any "draft PR only" instruction with "ready PR by default; draft only for WIP/missing gate."
 
 ```markdown
 **PUSH POLICY (ready-PR-first per vidux):**
@@ -155,8 +137,6 @@ After green build + test in the worktree:
 8. Fallback: if `gh pr create` fails, keep the branch plus `$LEDGER_EID`, record the failed PR creation in the owning PLAN.md with `memory.md` only as a lane-local note, and retry PR creation next cycle. Never push main.
 ```
 
-Replace any "stop after branch push" instruction with "push branch + create ready PR." Replace any blanket "draft PR only" instruction with "ready PR by default; draft only for WIP/missing gate."
-
 ## Validated
 
-Draft-first was validated on 2026-04-12 via `leojkwan/vidux#4`. Ready-first supersedes that policy because modern review pipelines skip or delay work on drafts, which hides the feedback automation lanes need to nurse and merge safely.
+Draft-first was validated on 2026-04-12 via `leojkwan/vidux#4`. Ready-first supersedes it because modern review pipelines skip or delay drafts, hiding the feedback automation lanes need to nurse and merge safely.

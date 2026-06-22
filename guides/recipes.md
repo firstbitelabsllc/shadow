@@ -1,14 +1,14 @@
 # Automation Recipes
 
-Opinionated, ready-to-deploy automation patterns for vidux fleets. Each recipe includes: when to use it, the trigger type, a complete prompt template, and the review pipeline it plugs into.
+Ready-to-deploy automation patterns for vidux fleets. Each recipe gives: when to use it, the trigger type, a complete prompt template, and the review pipeline it plugs into.
 
-All recipes follow the ready-PR-first discipline: automation pushes open ready-for-review PRs by default, never direct-to-main. Drafts are reserved for true WIP or missing gates.
+All recipes follow ready-PR-first discipline: automation opens ready-for-review PRs by default, never direct-to-main. Drafts are reserved for true WIP or missing gates.
 
 ---
 
 ## Trigger Types (platform-agnostic)
 
-These recipes describe trigger *patterns*, not specific platforms. Map them to whatever automation primitive your agent platform offers:
+Recipes describe trigger *patterns*, not platforms. Map them to whatever automation primitive your agent platform offers:
 
 | Trigger pattern | Fires when | Example platforms |
 |---|---|---|
@@ -16,53 +16,15 @@ These recipes describe trigger *patterns*, not specific platforms. Map them to w
 | **Event-driven** | External webhook fires (PR, push, issues, deploy, etc.) | GitHub Actions, cloud webhooks, repo hooks |
 | **On-demand** | Triggered by a manual action or another automation | CLI invocation, API POST, another lane's output |
 
-A single lane can combine triggers (e.g., scheduled nightly + fires on every new PR). The mechanics of how your platform wires triggers belong in `/vidux` Part 2 and `references/automation.md` (the platform-specific layer), not in these recipes.
+A single lane can combine triggers (e.g., scheduled nightly + fires on every new PR). Platform-specific trigger wiring belongs in `/vidux` Part 2 and `references/automation.md`, not here.
 
 ---
 
 ## Recipe 1: Fleet Watcher — DEPRECATED (2026-04-17)
 
-> ⚠️ **Deprecated.** Fleet Watcher is an orchestration smell — a scheduled lane that reads other lanes' state to report back drift the writer couldn't self-detect. In practice it adds JSONL, memory.md writes, and cross-lane reads without catching bugs the writer couldn't already see in its own logs. Fleet health belongs in the coordinator's own cycle (it already scans its own queue each fire), or in a one-shot manual audit — not a standing scheduled lane. Keep this recipe for reference only. Do not build new Fleet Watcher lanes.
+> ⚠️ **Deprecated.** Fleet Watcher is an orchestration smell — a scheduled lane reading other lanes' state to report drift the writer couldn't self-detect. It adds JSONL, memory.md writes, and cross-lane reads without catching bugs the writer couldn't already see in its own logs. Fleet health belongs in the coordinator's own cycle (it scans its queue each fire) or a one-shot manual audit — not a standing scheduled lane. **Do not build new Fleet Watcher lanes.**
 
-**What:** Scheduled health check across all automation lanes. Reads memories, classifies fleet state, escalates stuck lanes, detects trunk health issues.
-
-**Trigger:** Scheduled, every 2 hours
-**Role:** Coordinator (read-only analysis, never writes code)
-
-### Prompt Template
-
-```
-Use vidux as coordinator for the full automation fleet.
-
-Mission: Keep the fleet making fire, not rubbing sticks.
-
-READ (every cycle):
-1. Scan ~/.claude-automations/*/memory.md — last 3 entries per lane
-2. Read ledger: tail -100 ~/.agent-ledger/activity.jsonl | jq for current repos
-3. Check trunk health: git status + git rev-list on each target repo
-
-CLASSIFY each lane:
-- SHIPPING: produced commits in last 2 cycles
-- IDLE: gate-exiting with no work, 2+ consecutive
-- BLOCKED: same blocker 2+ cycles
-- CRASHED: auth failure, MCP disconnect, no memory entry in 24h
-- STUCK: 3+ progress entries on same task
-
-ESCALATE:
-- 3+ lanes IDLE on same plan → queue starvation, not lane problem
-- Same blocker across 2+ lanes → infrastructure issue
-- Any CRASHED lane → immediate flag
-- Any lane STUCK → mark [blocked] in plan, flag for human
-
-OUTPUT: Fleet scorecard — N SHIPPING / N IDLE / N BLOCKED / N CRASHED
-One line per lane with status + last action + recommended intervention.
-
-Never edit code. Never edit plans. Report and recommend only.
-```
-
-### When to Use
-
-Any fleet with 3+ active lanes. Without a watcher, stuck lanes burn cycles silently for hours — the Apr 2026 fleet run proved this (300+ re-verifications from a stuck cron).
+**What it was:** Scheduled (every 2h) read-only coordinator that scanned every lane's memory + ledger + trunk, classified each lane (SHIPPING / IDLE / BLOCKED / CRASHED / STUCK), and escalated stuck lanes — never editing code or plans.
 
 ---
 
@@ -115,11 +77,11 @@ Never approve. Never merge. Never mark ready-for-review.
 
 ### When to Use
 
-Every fleet that creates automation PRs. This is the quality gate between "automation wrote code" and "merge." Without it, humans review raw diffs with no context. With it, reviewers get a pre-screened summary and only inspect what matters.
+Every fleet that creates automation PRs. This is the quality gate between "automation wrote code" and "merge" — reviewers get a pre-screened summary instead of a raw diff with no context.
 
 ### Review Bot Setup (optional)
 
-If an AI code-review bot or static-analysis service is wired to the repo, this recipe reads its comments in the Bot review step. Otherwise, the Architecture + Mechanical checks still provide value. Specific review-service wiring lives in `/vidux` Part 2 and `references/automation.md` where platform specifics belong.
+If an AI code-review bot or static-analysis service is wired to the repo, the Bot review step reads its comments; otherwise Architecture + Mechanical checks still provide value. Platform-specific wiring lives in `/vidux` Part 2 and `references/automation.md`.
 
 ---
 
@@ -163,62 +125,15 @@ Never merge a draft, failing PR, or PR with unaddressed required review findings
 
 ### When to Use
 
-Any fleet using ready-PR-first discipline. Without a lifecycle manager, PRs accumulate silently. The fleet keeps creating new PRs while old ones rot.
+Any fleet using ready-PR-first discipline. Without a lifecycle manager, the fleet keeps creating new PRs while old ones rot.
 
 ---
 
 ## Recipe 4: Observer Pair — DEPRECATED (2026-04-17)
 
-> ⚠️ **Deprecated.** Observer Pair is the same orchestration smell as Fleet Watcher applied per-writer. Extra memory.md files, cadence-offset cycles, and cross-lane reads for bugs the writer couldn't see — in practice observers catch far less drift than expected and most of what they do catch is better fixed by editing the writer's prompt. See `references/automation.md` Section 3 / Section 8. Do not build new Observer Pair lanes.
+> ⚠️ **Deprecated.** Observer Pair is the Fleet Watcher smell applied per-writer: extra memory.md files, cadence-offset cycles, and cross-lane reads for bugs the writer couldn't see. Observers catch far less drift than expected, and most of what they catch is better fixed by editing the writer's prompt. See `references/automation.md` Sections 3 / 8. **Do not build new Observer Pair lanes.**
 
-**What:** Read-only audit of a writer lane's plan, progress, and memory files. Catches what the writer can't see from inside its own worldview.
-
-**Trigger:** Scheduled, offset from writer cadence (e.g., writer every 1h, observer every 2h at :30 offset)
-**Role:** Observer (strictly read-only, never edits code or plan)
-
-### Prompt Template
-
-```
-Use vidux as observer for <writer-lane-name>.
-
-Mission: Catch what the writer can't see. Independent eyes on the same files.
-
-READ (fresh each cycle — no memory of prior reads):
-1. Writer's PLAN.md — task statuses, FSM compliance
-2. Writer's PROGRESS.md or Progress section — chronological order, shipping signal
-3. Writer's memory.md — consistency with plan state
-4. Recent git log on writer's repo — do commits match claimed progress?
-5. Latest ledger entries for the writer's agent_id
-
-AUDIT CHECKLIST:
-- [ ] FSM compliance: tasks follow pending → in_progress → completed. No jumps.
-- [ ] Progress is chronological (timestamps in order)
-- [ ] No retroactive rewrites of progress or memory (append-only rule)
-- [ ] Claimed completions match actual git commits
-- [ ] No strategic drift (writer doing polish when queue has gaps elsewhere)
-- [ ] No scope creep (writer touching files outside its role boundary)
-- [ ] Decision Log entries not contradicted by recent actions
-- [ ] Evidence citations still valid (files exist, line numbers correct)
-
-OUTPUT (3-section audit):
-1. Summary: 3 sentences MAX — overall health of the writer lane.
-2. Findings: specific issues with file:line references.
-3. Verdict: SHIPPING | IDLE | WARNING | BLOCKED | CRASHED
-
-Write audit to: evidence/observer-audit-<timestamp>.md in the writer's plan store.
-The writer reads the latest audit at the top of each cycle.
-If verdict=WARNING, the writer addresses the finding before any other task.
-
-NEVER edit code. NEVER edit the plan. NEVER touch the writer's files except the audit output.
-```
-
-### When to Use
-
-Every writer lane that runs unattended for 4+ hours. The Frankenstein experiment (2026-04-11) proved 100% signal-to-noise across 38 audits. Observers catch: wrong flags, non-chronological progress, stale refs, FSM violations, strategic drift.
-
-### Secondary-Model Delegation
-
-For large plan stores (>3 KB), delegate the READ step to a secondary model via `/vidux` Part 2 Mode A. Observer reads the compressed summary instead of the raw files. Keeps the primary model's budget tight.
+**What it was:** Scheduled (offset from writer cadence) strictly read-only audit of a writer lane's PLAN/PROGRESS/memory + git log + ledger. Checked FSM compliance, chronological + append-only progress, completions-match-commits, no strategic drift / scope creep, valid evidence citations; emitted a Summary / Findings / Verdict (SHIPPING | IDLE | WARNING | BLOCKED | CRASHED) audit file the writer read each cycle (WARNING = fix before any other task). Never edited code or plan.
 
 ---
 
@@ -262,7 +177,7 @@ After EXIT, this routine does not fire again until the NEXT push to main.
 
 ### When to Use
 
-Any repo with automated deployments. Without an exit condition, deploy watchers become the #1 source of wasted cycles (proven in production).
+Any repo with automated deployments. Without an exit condition, deploy watchers are the #1 source of wasted cycles (proven in production).
 
 ---
 
@@ -411,7 +326,7 @@ Delegate to a secondary model via `/vidux` Part 2 Mode B for any change >10 line
 
 ## Composing Recipes into a Fleet
 
-A typical production fleet combines 3-5 recipes:
+A typical fleet combines 3-5 recipes:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -433,7 +348,7 @@ A typical production fleet combines 3-5 recipes:
 
 ### Cadence Planning
 
-Every automation platform has caps — daily run limits, webhook-per-hour limits, token budgets, or session lifetime. Plan cadences with headroom:
+Every platform has caps — daily run limits, webhook-per-hour limits, token budgets, session lifetime. Plan cadences with headroom:
 
 | Recipe | Trigger | Est. fires/day | Notes |
 |---|---|---|---|
@@ -475,7 +390,7 @@ Write to memory → re-read memory → compare expected vs actual
 
 **Exit condition:** 3 consecutive edit-verify failures on the same file = lane exits with DEGRADED status. Do not retry indefinitely.
 
-**Why:** Edit whitespace mismatches are the #1 friction type in fleet operations (observed in 2/10 sessions). The re-read step catches stale content before it corrupts state.
+**Why:** Edit whitespace mismatches are the #1 fleet friction type (2/10 sessions). The re-read catches stale content before it corrupts state.
 
 ---
 
@@ -496,7 +411,7 @@ Cycle fails with external_blocker or context_overflow
 
 **Exit condition:** Max 1 retry per failure. Two consecutive failures = blocked. Never retry in a tight loop.
 
-**Why:** Transient failures (auth, rate limits) often resolve within minutes. One retry catches those. Persistent failures (wrong config, missing permissions) need human intervention — retrying wastes cycles.
+**Why:** Transient failures (auth, rate limits) often resolve in minutes — one retry catches them. Persistent failures (wrong config, missing permissions) need a human; retrying wastes cycles.
 
 ---
 
@@ -521,7 +436,7 @@ Cycle fails with external_blocker or context_overflow
 
 **Exit condition:** All PRs either merged or marked `[blocked]` with reason. Never hold a PR queue open indefinitely — if a root PR is blocked for 2+ cycles, escalate.
 
-**Why:** Manual dependency tracking across 5+ PRs causes ordering mistakes (merge consumer before provider → broken build). The DAG makes it mechanical.
+**Why:** Manual dependency tracking across 5+ PRs causes ordering mistakes (merge consumer before provider → broken build). The DAG makes ordering mechanical.
 
 ---
 

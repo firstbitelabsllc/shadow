@@ -8,13 +8,13 @@ Extracted from Vidux core doctrine and loop mechanics.
 ## Doctrine 7: Bug Tickets Are Investigations, Not Tasks
 
 A bug ticket is NOT a task to check off. It is a **nested investigation** -- a plan-within-a-plan
-that follows the same unidirectional flow as the parent. This is the "tree of viduxing":
-the parent plan spawns sub-investigations, each with its own evidence/root-cause/fix cycle.
+that follows the same unidirectional flow as the parent ("tree of viduxing"): the parent plan
+spawns sub-investigations, each with its own evidence/root-cause/fix cycle.
 
-**Why this matters:** When we treated tickets as line items -- "fix AO0: title truncation" --
-agents jumped straight to code. The fix addressed one symptom but missed the root cause.
-Then the next ticket on the same surface regressed it. The popover amount-editor had 8+ tickets
-and 8+ "fixes" that kept undoing each other because no one mapped the full system first.
+**Why this matters:** Treating tickets as line items makes agents jump straight to code, fixing
+one symptom but missing the root cause -- then the next ticket on the same surface regresses it.
+The popover amount-editor had 8+ tickets and 8+ "fixes" that kept undoing each other because no
+one mapped the full system first.
 
 **The rule:** Before writing code for a bug ticket, produce a nested investigation.
 Mark the parent task with `[Investigation: investigations/<slug>.md]`.
@@ -25,8 +25,9 @@ Mark the parent task with `[Investigation: investigations/<slug>.md]`.
 
 - ALWAYS for 2+ tickets on the same surface (bundle them into one investigation)
 - ALWAYS for UI bugs needing runtime/visual verification
-- ALWAYS when root cause is unclear
-- OPTIONAL for pure data/logic bugs with obvious single-file fixes
+- ALWAYS when root cause is unclear ("it's weird", "even buggier than before")
+- ALWAYS three-strike: 3+ prior fixes on the same area
+- OPTIONAL for pure data/logic bugs with obvious single-file fixes (keep atomic)
 
 ---
 
@@ -40,8 +41,8 @@ design problem.
 
 ## Atomic vs Compound Tasks
 
-Not every task is atomic. Some require investigation before code -- root cause analysis,
-impact mapping, evidence gathering across related tickets. These are **compound tasks**.
+Some tasks require investigation before code -- root cause analysis, impact mapping, evidence
+gathering across related tickets. These are **compound tasks**.
 
 ```
 Parent PLAN.md (the expedition)
@@ -62,14 +63,7 @@ Parent PLAN.md (the expedition)
 ```
 
 The `[Investigation: ...]` marker tells the agent: read the sub-plan before coding.
-
-### When to use compound tasks
-
-- 2+ tickets on the same surface (bundle them)
-- UI bug needing runtime/visual verification
-- Unclear root cause ("it's weird", "even buggier than before")
-- Three-strike: 3+ prior fixes on the same area
-- OPTIONAL for pure data/logic bugs with obvious single-file fixes (keep atomic)
+Use compound tasks under the same conditions as "When to Investigate vs Just Fix" above.
 
 ---
 
@@ -131,7 +125,7 @@ Rules:
 - vidux-loop.sh reports sub-plan status in its JSON output when the parent task is `in_progress` or `pending`
 - Sub-plan tasks inherit the parent's priority unless overridden
 - Traversal is 1 level deep (sub-plans do not recurse into their own `[spawns:]` tags)
-- `[spawns:]` and `[Investigation:]` serve the same purpose; `[spawns:]` is the machine-readable form that vidux-loop.sh traverses
+- `[spawns:]` and `[Investigation:]` serve the same purpose; `[spawns:]` is the machine-readable form vidux-loop.sh traverses
 
 ---
 
