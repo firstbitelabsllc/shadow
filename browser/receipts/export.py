@@ -49,7 +49,13 @@ def _yyyymmdd(row: dict) -> str:
     return imported[:10].replace("-", "") if len(imported) >= 10 else ""
 
 
-def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> dict:
+def export_corpus(
+    lab_path: Path,
+    out_path: Path,
+    *,
+    dry_run: bool = False,
+    include_ids: set[str] | None = None,
+) -> dict:
     """Plan + (unless dry_run) apply the lab->repo merge. Returns a summary dict."""
     lab_path = lab_path.expanduser().resolve()
     out_path = out_path.expanduser().resolve()
@@ -71,6 +77,8 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
     for row in storage.read_all(lab_path):
         rid = row.get("id")
         if not rid:
+            continue
+        if include_ids is not None and rid not in include_ids:
             continue
         if rid in repo_ids:
             duplicates += 1
@@ -155,9 +163,14 @@ def main() -> int:
     parser.add_argument("--lab", default=DEFAULT_LAB_CORPUS, type=Path, help="Source: vidux lab corpus.")
     parser.add_argument("--out", default=DEFAULT_REPO_CORPUS, type=Path, help="Destination: repo test fixture.")
     parser.add_argument("--dry-run", action="store_true", help="Print plan without writing.")
+    parser.add_argument("--ids", help="Comma-separated receipt ids to export; omitted means all new rows.")
     args = parser.parse_args()
 
-    result = export_corpus(args.lab, args.out, dry_run=args.dry_run)
+    include_ids = None
+    if args.ids:
+        include_ids = {rid.strip() for rid in args.ids.split(",") if rid.strip()}
+
+    result = export_corpus(args.lab, args.out, dry_run=args.dry_run, include_ids=include_ids)
 
     print(f"plan:  +{result['appended']} new ({result['grounded']} grounded, {result['stubs']} stubs), "
           f"{result['duplicates']} already in repo")
