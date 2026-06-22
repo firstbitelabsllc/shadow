@@ -161,6 +161,8 @@ def _priority(reasons: list[str], state: str) -> int:
         "grounded_subtotal_disagreement": 68,
         "extras_disagreement": 65,
         "grounded_extras_disagreement": 62,
+        "no_total_evidence": 58,
+        "insufficient_total_agreement": 55,
         "insufficient_provider_agreement": 50,
         "no_successful_provider": 45,
         "no_stored_extractions": 40,
@@ -173,6 +175,7 @@ def _priority(reasons: list[str], state: str) -> int:
 def review_row(row: dict[str, Any]) -> dict[str, Any]:
     annotations = row.get("annotations") if isinstance(row.get("annotations"), dict) else {}
     extraction_map = annotations.get("extractions") if isinstance(annotations.get("extractions"), dict) else {}
+    expected = row.get("expected") if isinstance(row.get("expected"), dict) else None
     provider_names = sorted(
         [provider for provider, result in extraction_map.items() if isinstance(result, dict)],
         key=_provider_key,
@@ -205,6 +208,11 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         reasons.append("no_successful_provider")
     if len(successes) == 1:
         reasons.append("insufficient_provider_agreement")
+    if expected is None and successes:
+        if not totals:
+            reasons.append("no_total_evidence")
+        elif len(totals) == 1 and len(successes) > 1:
+            reasons.append("insufficient_total_agreement")
     if totals and not _money_agrees(totals):
         reasons.append("total_disagreement")
     if subtotals and not _money_agrees(subtotals):
@@ -216,7 +224,6 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
     if successes and not any(summary["totalReconciles"] is True for summary in successes):
         reasons.append("no_reconciled_provider")
 
-    expected = row.get("expected") if isinstance(row.get("expected"), dict) else None
     expected_total = _money(expected.get("total")) if expected else None
     expected_subtotal = _money(expected.get("subtotal")) if expected else None
     expected_currency = expected.get("currencyCode") if expected else None
