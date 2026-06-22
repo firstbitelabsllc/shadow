@@ -1,213 +1,41 @@
-name: CI
+# ============================================================================
+# DISABLED / MANUAL-ONLY POLICY 2026-06-22 — local-ci/Moussey own test proof.
+#
+# Why: GitHub Actions minutes were burning through the multi-agent PR fleet.
+# FirstBite/Vidux contract, plan-gc, worktree-gc, PR-body, merge, cycle-lock,
+# and expensive regression proof now happens through local-ci/Moussey evidence,
+# not PR/push GitHub Actions.
+#
+# Binding proof route:
+#   - repo-owned local commands and local-ci/Moussey evidence own test proof
+#   - ledger/plan receipts must cite the local command, result bundle, or
+#     Moussey-held evidence packet
+#   - GitHub checks may report mergeability, security, or cheap lint only
+#
+# To re-enable automated PR/push tests, Leo must name a narrow exception and the
+# /local-ci policy must be updated first.
+# ============================================================================
+
+name: Vidux local-ci pointer
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  contract-tests:
-    name: Contract tests
+  local-ci-pointer:
+    name: Tests run locally
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install test dependencies
-        run: pip install pytest pytest-timeout
-
-      - name: Run contract tests
-        run: python -m pytest tests/test_vidux_contracts.py -v --tb=short --timeout=30
-        timeout-minutes: 8
-
-  plan-gc-tests:
-    name: Plan GC tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install test dependencies
-        run: pip install pytest pytest-timeout
-
-      - name: Run plan-gc tests
-        run: python -m pytest tests/test_plan_gc.py -v --tb=short --timeout=30
-        timeout-minutes: 3
-
-  worktree-gc-tests:
-    name: Worktree GC tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run worktree-gc tests
-        run: python -m unittest tests.test_worktree_gc
-        timeout-minutes: 3
-
-  pr-body-tests:
-    name: PR body tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run PR body tests
-        run: python -m unittest tests.test_pr_body
-        timeout-minutes: 3
-
-  gh-merge-when-ready-tests:
-    name: gh-merge-when-ready tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run gh-merge-when-ready tests
-        run: python -m unittest tests.test_gh_merge_when_ready
-        timeout-minutes: 3
-
-  cycle-lock-tests:
-    name: cycle-lock tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run cycle-lock tests
-        run: python -m unittest tests.test_acquire_cycle_lock
-        timeout-minutes: 3
-
-  shellcheck:
-    name: ShellCheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run ShellCheck on scripts/
-        uses: ludeeus/action-shellcheck@2.0.0
-        with:
-          scandir: scripts
-          severity: warning
-
-      - name: Run ShellCheck on hooks/
-        uses: ludeeus/action-shellcheck@2.0.0
-        with:
-          scandir: hooks
-          severity: warning
-
-  docs-structure:
-    name: Doc structure
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Core docs exist
+      - name: Point to local proof
         run: |
-          missing=0
-          for f in SKILL.md DOCTRINE.md LOOP.md ENFORCEMENT.md INGREDIENTS.md \
-                   README.md CONTRIBUTING.md LICENSE; do
-            if [ ! -f "$f" ]; then
-              echo "MISSING: $f"
-              missing=1
-            else
-              echo "  OK: $f"
-            fi
-          done
-          [ "$missing" -eq 0 ] && echo "All core docs present." || exit 1
+          cat <<'MSG'
+          GitHub PR/push test execution is disabled for this repo.
 
-      - name: Commands have frontmatter
-        run: |
-          errors=0
-          for f in commands/*.md; do
-            if ! head -1 "$f" | grep -q "^---"; then
-              echo "MISSING FRONTMATTER: $f"
-              errors=1
-            else
-              echo "  OK: $f"
-            fi
-          done
-          [ "$errors" -eq 0 ] && echo "All commands have frontmatter." || exit 1
-
-      - name: Scripts are executable
-        run: |
-          errors=0
-          for f in scripts/*.sh; do
-            if [ ! -x "$f" ]; then
-              echo "NOT EXECUTABLE: $f"
-              errors=1
-            else
-              echo "  OK: $f"
-            fi
-          done
-          [ "$errors" -eq 0 ] && echo "All scripts executable." || exit 1
-
-      - name: Issue templates are valid YAML
-        run: |
-          pip install --quiet pyyaml
-          python3 -c "
-          import yaml, pathlib, sys
-          errors = []
-          for p in pathlib.Path('.github/ISSUE_TEMPLATE').glob('*.yml'):
-              try:
-                  yaml.safe_load(p.read_text())
-                  print(f'  OK: {p}')
-              except yaml.YAMLError as e:
-                  errors.append(f'{p}: {e}')
-                  print(f'  FAIL: {p}')
-          if errors:
-              print('\n'.join(errors))
-              sys.exit(1)
-          print('All templates valid.')
-          "
-
-  public-ready-grep:
-    name: Public-ready grep gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run public-ready grep gate
-        run: python3 scripts/vidux-public-ready-grep-gate.py
+          Use local-ci/Moussey or a repo-local command for proof, then cite the
+          local command and evidence path in the PR, plan, or ledger receipt.
+          Do not treat this manual pointer workflow as test proof.
+          MSG

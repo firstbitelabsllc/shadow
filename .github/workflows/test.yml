@@ -1,61 +1,35 @@
-name: Test matrix
+# ============================================================================
+# DISABLED / MANUAL-ONLY POLICY 2026-06-22 — local-ci/Moussey own test proof.
+#
+# The former GitHub test matrix ran npm test across Ubuntu/macOS and multiple
+# Python versions on push and pull_request. That is now intentionally disabled:
+# local-ci/Moussey, local browser/runtime proof, and ledgered artifacts are the
+# proof authority for FirstBite/Vidux work.
+#
+# To re-enable automated PR/push tests, Leo must name a narrow exception and the
+# /local-ci policy must be updated first.
+# ============================================================================
+
+name: Test matrix local-ci pointer
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  npm-test:
-    name: npm test (${{ matrix.os }} / py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+  local-ci-pointer:
+    name: Test matrix runs locally
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - name: Install tomli (py3.10 only)
-        if: matrix.python-version == '3.10'
-        # scripts/vidux-doctor.sh uses `tomllib` (stdlib >= 3.11) and falls
-        # back to the `tomli` backport on 3.10. Without it, reduce-harness
-        # contract tests silently misroute. Stdlib-only repo otherwise.
-        run: python -m pip install --upgrade pip tomli
-
-      - name: Install Node dependencies
+      - name: Point to local proof
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+          cat <<'MSG'
+          GitHub PR/push test execution is disabled for this repo.
 
-      - name: Run npm test
-        env:
-          # browser/server.py imports `receipts` as a sibling package; tests
-          # load server.py via importlib, so add browser/ to sys.path.
-          PYTHONPATH: ./browser
-        run: npm test
+          Run the Vidux proof locally or through local-ci/Moussey, then cite the
+          exact command and evidence path in the PR, plan, or ledger receipt.
+          Do not treat this manual pointer workflow as test proof.
+          MSG
