@@ -62,10 +62,18 @@ class LoopTests(unittest.TestCase):
 
         # 2. OCR (mocked Azure) — stores annotations.azure_response
         sr, sa = handler.ocr.config_ready, handler.ocr.analyze_receipt
+        seen = {}
         handler.ocr.config_ready = lambda: (True, "ok")
-        handler.ocr.analyze_receipt = lambda b: {"analyzeResult": {"documents": [{"fields": {}}]}}
+
+        def fake_analyze_receipt(b, **kwargs):
+            seen["query_fields"] = kwargs.get("query_fields")
+            return {"analyzeResult": {"documents": [{"fields": {}}]}}
+
+        handler.ocr.analyze_receipt = fake_analyze_receipt
         try:
             self.assertEqual(handler.handle_ocr(rid)[0], 200)
+            self.assertIn("TotalBeforeVAT", seen["query_fields"])
+            self.assertIn("VAT", seen["query_fields"])
         finally:
             handler.ocr.config_ready, handler.ocr.analyze_receipt = sr, sa
 
