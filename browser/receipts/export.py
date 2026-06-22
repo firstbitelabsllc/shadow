@@ -15,6 +15,8 @@ id already exists in the repo are skipped (the operator promotes lab->repo manua
 hand-edited `expected`). A non-private row whose image file is missing is SKIPPED + warned —
 a broken row never reaches the iOS corpus. A row whose non-null `expected` fails the
 ScannedReceipt contract is SKIPPED + warned (it would red the whole corpus on decode).
+Private grounded rows also require a paired, already-sanitized Azure response because iOS
+replays them by fixture id with no image bytes.
 
 Usage:
     python3 -m receipts.export --dry-run
@@ -79,7 +81,9 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
         azure = annotations.pop("azure_response", None)  # strip from corpus row
         new_row["annotations"] = annotations
 
-        no_image = bool(new_row.get("private")) or not row.get("image_path")
+        is_private = bool(new_row.get("private"))
+        has_image_path = bool(row.get("image_path"))
+        no_image = is_private or not has_image_path
 
         expected = new_row.get("expected")
         if expected is not None:
@@ -87,11 +91,14 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
             if problems:
                 skipped_bad_expected.append(f"{rid}: {problems[0]}")
                 continue
-            # A grounded row that iOS will actually REPLAY (non-private, has an image) MUST ship
-            # a paired azure response — FixtureReplayProvider reads azure-v4-responses/<id>.json and
-            # a missing file throws, reddening the whole corpus. Skip + warn rather than ship broken.
-            if not no_image and azure is None:
+            # Any grounded row that iOS will assert MUST ship a paired Azure response.
+            # Non-private rows scan by image hash, then replay azure-v4-responses/<id>.json.
+            # Private rows skip image bytes and replay the same cache by fixture id.
+            if azure is None:
                 skipped_missing_azure.append(rid)
+                continue
+            if not is_private and not has_image_path:
+                skipped_missing_image.append(rid)
                 continue
             grounded += 1
         else:
@@ -99,7 +106,9 @@ def export_corpus(lab_path: Path, out_path: Path, *, dry_run: bool = False) -> d
 
         if no_image:
             new_row["image_path"] = None
-            # private rows carry no image bytes AND no azure response (PII); iOS skips them anyway.
+            if is_private and expected is not None and azure is not None:
+                # Private rows carry no image bytes, but iOS still replays their sanitized cache.
+                azure_writes.append((repo_azure / f"{rid}.json", azure))
         else:
             src = storage.safe_image_abs(lab_path.parent, lab_images, row["image_path"])
             if src is None or not src.exists():
