@@ -44,16 +44,33 @@ def extraction_summaries(results: dict) -> dict:
     }
 
 
+def azure_response_from_results(results: dict) -> dict | None:
+    """Return a full Azure analyze response from successful compare results, if present."""
+    azure = results.get("azure")
+    if not isinstance(azure, dict) or azure.get("error"):
+        return None
+    response = azure.get("azure_response")
+    return response if isinstance(response, dict) else None
+
+
+def merge_extraction_annotations(annotations: dict | None, results: dict) -> dict:
+    """Merge lean provider summaries and preserve Azure's exportable raw response."""
+    merged_annotations = dict(annotations) if isinstance(annotations, dict) else {}
+    existing = merged_annotations.get("extractions")
+    merged_extractions = dict(existing) if isinstance(existing, dict) else {}
+    merged_extractions.update(extraction_summaries(results))
+    merged_annotations["extractions"] = merged_extractions
+
+    azure_response = azure_response_from_results(results)
+    if azure_response is not None:
+        merged_annotations["azure_response"] = azure_response
+    return merged_annotations
+
+
 def store_extractions(corpus: Path, row_id: str, results: dict) -> dict | None:
     """Merge provider results into one corpus row without erasing other providers."""
-    updates = extraction_summaries(results)
-
     def _store(row: dict) -> dict:
-        annotations = row.setdefault("annotations", {})
-        existing = annotations.get("extractions")
-        merged = dict(existing) if isinstance(existing, dict) else {}
-        merged.update(updates)
-        annotations["extractions"] = merged
+        row["annotations"] = merge_extraction_annotations(row.get("annotations"), results)
         return row
 
     return storage.update_row(corpus, row_id, _store)

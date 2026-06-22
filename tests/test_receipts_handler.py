@@ -298,10 +298,22 @@ class AnalyzeTests(HandlerTestCase):
     def _fake_compare(self):
         from receipts import compare
         saved = compare.compare_image
-        compare.compare_image = lambda path, providers: {
-            p: {"expected": {"lineItems": [], "extras": [], "total": 9.9}, "latency_ms": 10, "error": None, "problems": []}
-            for p in providers
-        }
+
+        def fake_compare(path, providers):
+            results = {}
+            for p in providers:
+                result = {
+                    "expected": {"lineItems": [], "extras": [], "total": 9.9},
+                    "latency_ms": 10,
+                    "error": None,
+                    "problems": [],
+                }
+                if p == "azure":
+                    result["azure_response"] = {"analyzeResult": {"documents": []}}
+                results[p] = result
+            return results
+
+        compare.compare_image = fake_compare
         return compare, saved
 
     def test_stores_extractions(self):
@@ -313,6 +325,7 @@ class AnalyzeTests(HandlerTestCase):
             self.assertEqual(sorted(out["providers"]), ["azure", "claude"])
             row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, body["id"])
             self.assertEqual(sorted(row["annotations"]["extractions"]), ["azure", "claude"])
+            self.assertEqual(row["annotations"]["azure_response"], {"analyzeResult": {"documents": []}})
         finally:
             compare.compare_image = saved
 
@@ -320,6 +333,7 @@ class AnalyzeTests(HandlerTestCase):
         _, body = self.upload()
         rid = body["id"]
         row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, rid)
+        row.setdefault("annotations", {})["azure_response"] = {"analyzeResult": {"documents": [{"old": True}]}}
         row.setdefault("annotations", {})["extractions"] = {
             "azure": {"expected": {"total": 10}, "latency_ms": 1, "error": None, "problems": []},
             "claude": {"expected": {"total": 10}, "latency_ms": 2, "error": None, "problems": []},
@@ -335,6 +349,7 @@ class AnalyzeTests(HandlerTestCase):
             self.assertEqual(sorted(row["annotations"]["extractions"]), ["azure", "claude", "qwen"])
             self.assertEqual(row["annotations"]["extractions"]["azure"]["expected"]["total"], 10)
             self.assertEqual(row["annotations"]["extractions"]["qwen"]["expected"]["total"], 9.9)
+            self.assertEqual(row["annotations"]["azure_response"], {"analyzeResult": {"documents": [{"old": True}]}})
         finally:
             compare.compare_image = saved
 

@@ -402,7 +402,9 @@ def extract_azure(image_bytes: bytes) -> dict:
         return _finalize("azure", "prebuilt-receipt", None, int((time.monotonic() - t0) * 1000), "", str(exc))
     latency = int((time.monotonic() - t0) * 1000)
     content = azure_to_scanned(analyze, latency)
-    return _finalize("azure", "prebuilt-receipt/2024-11-30", content, latency, json.dumps(analyze)[:2000], None)
+    result = _finalize("azure", "prebuilt-receipt/2024-11-30", content, latency, json.dumps(analyze)[:2000], None)
+    result["azure_response"] = analyze
+    return result
 
 
 # ---------------------------------------------------------------- LLM CLIs

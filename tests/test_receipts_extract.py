@@ -201,6 +201,7 @@ class ExtractAzureTests(unittest.TestCase):
             result = extract.extract_azure(b"\xff\xd8\xff\xe0" + b"x" * 2048)
             self.assertIsNone(result["error"])
             self.assertEqual(seen["query_fields"], extract.ocr.DEFAULT_QUERY_FIELDS)
+            self.assertEqual(result["azure_response"], AZURE_SAMPLE)
         finally:
             extract.ocr.config_ready = saved_ready
             extract.ocr.analyze_receipt = saved_analyze
