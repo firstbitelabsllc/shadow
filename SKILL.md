@@ -90,6 +90,12 @@ But a shipped surface that works is done — stop polishing, move to the next ga
 
 Never assert "it works." Run the build, run the tests, show the screenshot. UI definition-of-done is a visual proof, never just "the build passes."
 
+For Leo's FirstBite repos, GitHub Actions is not the runner for unit, UI, E2E,
+or expensive regression proof. Use repo-owned local-ci lanes, Moussey-held
+evidence, local simulator/browser/device runs, and result bundles. If a needed
+local lane is missing, plan and ship the local-ci/Moussey improvement before
+routing proof back through GitHub Actions.
+
 If the change reaches a **deployed surface**, proof is hitting the LIVE surface — not the merge, upload, or ledger row. A merge is not a deploy; an upload is not a release. Verify the live route/worker/build serves the new code (`curl <route>/api/health` returns the merged SHA; a worker fetch returns the new version; a mobile build number reaches "ready to test"). Can't verify the live surface? Leave the row `[in_review]`, record `deploy unverified` with the exact check command — never mark it done.
 
 When an audit or grep produces a count or classification, **spot-check at least one entry per category** before deciding on it. A grep hit is a lead, not a fact:
@@ -234,6 +240,9 @@ Vidux defaults to trunk-first:
 
 **Build/test ownership in multi-agent repos:**
 
+- Do not burn GitHub Actions minutes for unit/UI/E2E proof in Leo's FirstBite
+  repos. Local-ci and Moussey are the proof authority unless the active plan
+  names a narrow exception.
 - Treat build/test execution as a serial lane unless the repo documents a safe parallel workflow.
 - When the ledger shows active parallel lanes, nominate one build owner before verification churn.
 - If multiple isolated proofs are unavoidable, give each lane its own `-derivedDataPath`; avoid shared package/bootstrap churn.
