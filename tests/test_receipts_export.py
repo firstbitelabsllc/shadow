@@ -100,6 +100,23 @@ class ExportTests(unittest.TestCase):
         self.assertFalse(self.out.exists())
         self.assertFalse((self.out.parent / "images").exists())
 
+    def test_include_ids_exports_only_selected_rows(self):
+        selected = self._add("selected", expected=VALID_EXPECTED, azure={"analyzeResult": {"selected": 1}})
+        skipped_grounded = self._add(
+            "skipped-grounded", expected=VALID_EXPECTED, azure={"analyzeResult": {"skipped": 1}}
+        )
+        skipped_stub = self._add("skipped-stub")
+
+        result = export.export_corpus(self.lab, self.out, include_ids={selected})
+
+        self.assertEqual(result["appended"], 1)
+        self.assertEqual(result["grounded"], 1)
+        self.assertEqual(result["new_ids"], [selected])
+        rows = {r["id"]: r for r in storage.read_all(self.out)}
+        self.assertIn(selected, rows)
+        self.assertNotIn(skipped_grounded, rows)
+        self.assertNotIn(skipped_stub, rows)
+
     def test_grounded_without_azure_is_skipped(self):
         # P1: a grounded, replayable row with no azure response would red the iOS corpus.
         a = self._add("grounded-no-azure", expected=VALID_EXPECTED)  # has image, no azure
