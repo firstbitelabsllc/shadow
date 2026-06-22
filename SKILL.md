@@ -96,6 +96,12 @@ evidence, local simulator/browser/device runs, and result bundles. If a needed
 local lane is missing, plan and ship the local-ci/Moussey improvement before
 routing proof back through GitHub Actions.
 
+When applying that policy, audit `.github/workflows` directly. Convert any
+PR/push unit, UI, E2E, matrix, or expensive regression workflow to a
+`workflow_dispatch` pointer that names the local-ci/Moussey proof route. Cheap
+lint, mergeability, metadata, or security checks may remain only when they do
+not run those suites or burn meaningful runner minutes.
+
 If the change reaches a **deployed surface**, proof is hitting the LIVE surface — not the merge, upload, or ledger row. A merge is not a deploy; an upload is not a release. Verify the live route/worker/build serves the new code (`curl <route>/api/health` returns the merged SHA; a worker fetch returns the new version; a mobile build number reaches "ready to test"). Can't verify the live surface? Leave the row `[in_review]`, record `deploy unverified` with the exact check command — never mark it done.
 
 When an audit or grep produces a count or classification, **spot-check at least one entry per category** before deciding on it. A grep hit is a lead, not a fact:
