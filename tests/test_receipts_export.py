@@ -108,13 +108,29 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(result["appended"], 0)
         self.assertFalse(self.out.exists())
 
-    def test_private_grounded_writes_no_azure(self):
-        # P1: private rows must not leak their azure response (PII) into the repo.
-        self._add("priv-grounded", expected=VALID_EXPECTED, private=True, azure={"analyzeResult": {"pii": 1}})
+    def test_private_grounded_writes_paired_azure_cache(self):
+        # P1: iOS replays private rows by fixture id, so a grounded private
+        # row must carry an already-sanitized Azure cache.
+        rid = self._add("priv-grounded", expected=VALID_EXPECTED, private=True, azure={"analyzeResult": {"x": 1}})
         result = export.export_corpus(self.lab, self.out)
-        self.assertEqual(result["appended"], 1)  # appended (iOS skips private), but...
-        self.assertEqual(result["azure_written"], 0)  # ...no azure file written
-        self.assertEqual(list((self.out.parent / "azure-v4-responses").glob("*.json")), [])
+        self.assertEqual(result["appended"], 1)
+        self.assertEqual(result["grounded"], 1)
+        self.assertEqual(result["images_copied"], 0)
+        self.assertEqual(result["azure_written"], 1)
+
+        repo_dir = self.out.parent
+        self.assertTrue((repo_dir / "azure-v4-responses" / f"{rid}.json").exists())
+        rows = {r["id"]: r for r in storage.read_all(self.out)}
+        self.assertTrue(rows[rid]["private"])
+        self.assertIsNone(rows[rid]["image_path"])
+        self.assertNotIn("azure_response", rows[rid]["annotations"])
+
+    def test_private_grounded_without_azure_is_skipped(self):
+        rid = self._add("priv-grounded-no-azure", expected=VALID_EXPECTED, private=True)
+        result = export.export_corpus(self.lab, self.out)
+        self.assertIn(rid, result["skipped_missing_azure"])
+        self.assertEqual(result["appended"], 0)
+        self.assertFalse(self.out.exists())
 
 
 if __name__ == "__main__":
