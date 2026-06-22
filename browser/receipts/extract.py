@@ -203,6 +203,121 @@ def _has_tax_amount(extras: list[dict], amount: float | None) -> bool:
     return any(e.get("kind") == "tax" and _close(e.get("amount"), amount, tolerance=0.01) for e in extras)
 
 
+def _display_query_label(label: str) -> str:
+    label = re.sub(r"[-_]+", " ", label)
+    label = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", label)
+    return " ".join(label.split()) or label
+
+
+def _extra_kind(label: str) -> str | None:
+    normalized = _display_query_label(label).lower()
+    if any(token in normalized for token in ("discount", "promo", "coupon")):
+        return "discount"
+    if any(token in normalized for token in ("credit", "reward", "loyalty", "gift card")):
+        return "credit"
+    if "service charge" in normalized:
+        return "serviceCharge"
+    if "mandate" in normalized:
+        return "mandate"
+    if "surcharge" in normalized:
+        return "surcharge"
+    if any(token in normalized for token in ("fee", "delivery", "processing", "convenience")):
+        return "fee"
+    if "gratuity" in normalized:
+        return "tip"
+    return None
+
+
+def _looks_like_adjustment_money(raw: str | None) -> bool:
+    if not raw:
+        return False
+    text = raw.strip()
+    if not text or "%" in text:
+        return False
+    if "$" in text:
+        return True
+    if re.search(r"\b[A-Z]{3}\s*[-+]?\(?\d", text, re.I):
+        return True
+    return re.search(r"(^|[^A-Za-z0-9])[-+]?\(?\d+(?:[,.]\d{2})\)?([^A-Za-z0-9]|$)", text) is not None
+
+
+def _money_string(raw: object) -> float | None:
+    if not isinstance(raw, str) or not _looks_like_adjustment_money(raw):
+        return None
+    cleaned = raw.replace(",", "")
+    negative = "-" in cleaned or ("(" in cleaned and ")" in cleaned)
+    tokens = re.findall(r"\d+(?:\.\d+)?", cleaned)
+    if not tokens:
+        return None
+    amount = float(tokens[0])
+    return -amount if negative else amount
+
+
+def _adjustment_amount(field: dict | None) -> float | None:
+    if not isinstance(field, dict):
+        return None
+    if "valueCurrency" in field and isinstance(field["valueCurrency"], dict):
+        amt = field["valueCurrency"].get("amount")
+        if isinstance(amt, (int, float)) and not isinstance(amt, bool):
+            return float(amt)
+    if isinstance(field.get("valueNumber"), (int, float)) and not isinstance(field.get("valueNumber"), bool):
+        return float(field["valueNumber"])
+    return _money_string(field.get("content") or field.get("valueString"))
+
+
+def _should_keep_adjustment(label: str, kind: str, amount: float, total: float | None) -> bool:
+    if kind not in {"discount", "credit"} or total is None or abs(total) <= 0.005:
+        return True
+    if not _close(abs(amount), abs(total), tolerance=0.005):
+        return True
+    normalized = _display_query_label(label).lower()
+    return not (
+        normalized.startswith("total ")
+        or normalized in {"credit", "credits", "gift card"}
+    )
+
+
+def _has_extra_duplicate(extras: list[dict], candidate: dict) -> bool:
+    return any(
+        existing.get("kind") == candidate.get("kind")
+        and str(existing.get("label", "")).lower() == str(candidate.get("label", "")).lower()
+        and _close(existing.get("amount"), candidate.get("amount"), tolerance=0.005)
+        for existing in extras
+    )
+
+
+def _has_native_tax_or_tip_duplicate(extras: list[dict], candidate: dict) -> bool:
+    if candidate.get("kind") not in {"tax", "tip"}:
+        return False
+    return any(
+        existing.get("kind") == candidate.get("kind")
+        and _close(existing.get("amount"), candidate.get("amount"), tolerance=0.005)
+        for existing in extras
+    )
+
+
+def _adjustment_extra(label: str, field: dict, total: float | None) -> dict | None:
+    kind = _extra_kind(label)
+    amount = _adjustment_amount(field)
+    if kind is None or amount is None or not _should_keep_adjustment(label, kind, amount, total):
+        return None
+    return {
+        "label": _display_query_label(label),
+        "amount": amount,
+        "kind": kind,
+    }
+
+
+def _append_adjustment_query_fields(extras: list[dict], fields: dict, total: float | None) -> None:
+    for label in sorted(ocr.DEFAULT_QUERY_FIELDS):
+        candidate = _adjustment_extra(label, fields.get(label), total)
+        if candidate is None:
+            continue
+        if _has_extra_duplicate(extras, candidate) or _has_native_tax_or_tip_duplicate(extras, candidate):
+            continue
+        extras.append(candidate)
+
+
 def azure_to_scanned(analyze: dict, latency_ms: int) -> dict:
     """Map an Azure prebuilt-receipt analyzeResult into a ScannedReceipt-shaped object."""
     result = analyze.get("analyzeResult", analyze)
@@ -238,13 +353,15 @@ def azure_to_scanned(analyze: dict, latency_ms: int) -> dict:
     if _num(fields.get("Tip")) is not None:
         extras.append({"label": "Tip", "amount": _num(fields.get("Tip")), "kind": "tip"})
 
+    total = _num(fields.get("Total"))
+    _append_adjustment_query_fields(extras, fields, total)
+
     total_field = fields.get("Total", {})
     currency = (total_field.get("valueCurrency") or {}).get("currencyCode") if isinstance(total_field, dict) else None
     merchant_address = _str(fields.get("MerchantAddress"))
     if currency in (None, "USD") and _looks_uae(merchant_address):
         currency = "AED"
 
-    total = _num(fields.get("Total"))
     subtotal = _num(fields.get("Subtotal"))
     total_before_tax = (
         _num(fields.get("TotalBeforeVAT"))

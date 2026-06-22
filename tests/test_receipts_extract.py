@@ -98,6 +98,27 @@ class AzureMappingTests(unittest.TestCase):
         self.assertEqual(scanned["total"], 100.0)
         self.assertEqual(scanned["extras"], [{"label": "VAT", "amount": 4.76, "kind": "tax"}])
 
+    def test_maps_adjustment_query_fields_and_rejects_payment_false_positives(self):
+        scanned = extract.azure_to_scanned({
+            "analyzeResult": {"documents": [{"fields": {
+                "Subtotal": {"valueCurrency": {"amount": 285.75}},
+                "Total": {"valueCurrency": {"amount": 373.33, "currencyCode": "USD"}},
+                "Tip": {"valueCurrency": {"amount": 62.22}},
+                "Credit": {"content": "$373.33", "confidence": 0.605},
+                "Discounts": {"content": "$1.60", "confidence": 0.578},
+                "GiftCard": {"content": "xxxxxx4949", "confidence": 0.603},
+                "Gratuity": {"content": "$62.22", "confidence": 0.395},
+                "ProcessingFee": {"content": "$7.42", "confidence": 0.652},
+                "TotalDiscount": {"content": "$373.33", "confidence": 0.304},
+            }}]}
+        }, latency_ms=100)
+
+        self.assertEqual(scanned["extras"], [
+            {"label": "Tip", "amount": 62.22, "kind": "tip"},
+            {"label": "Discounts", "amount": 1.60, "kind": "discount"},
+            {"label": "Processing Fee", "amount": 7.42, "kind": "fee"},
+        ])
+
     def test_finalize_injects_provenance_and_validates(self):
         result = extract._finalize(
             "azure", "prebuilt", extract.azure_to_scanned(AZURE_SAMPLE, 900), 900, "{}", None
