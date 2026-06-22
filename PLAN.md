@@ -19,6 +19,15 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - NEVER: Use re.sub or sed to patch TOML prompt fields — always regenerate from DB (Bug #22)
 - NEVER: Accept --theirs or --ours blindly in merge conflicts — preserve both sides (Doctrine 16)
 
+## Tasks
+- [completed] 5.3.0ad Ready-PR body publish propagation records plan path, task id, proof, publish ledger eid, handoff status, files claimed, last pushed diff, and resume point. [Evidence: tests/test_pr_body.py TEAM_TASK]
+- [completed] 5.3.0am PR body hardening validates publish ledger rows, review passes, file claims, proof, and next-agent resume before push/PR transport. [Evidence: tests/test_pr_body.py VALID_TASK]
+- [completed] 5.3.0ag Restore compact docs-trim contract anchors for Ready-PR plan rows, publish-ledger recovery wording, and guide phrases. [Evidence: npm run test:py; python3 -m unittest tests.test_vidux_contracts tests.test_pr_body]
+- [pending] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Depends: Wave 2 complete; resplit gh pr create overlap issue must be solved first]
+- [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1]
+- [pending] 5.4.1 Branch protection rejects direct-main pushes from automation actors while preserving human pushes. [Depends: Wave 3 complete]
+- [pending] 5.4.2 Smoke test both protected and allowed paths. [Depends: 5.4.1]
+
 
 ## Current State (resume here)
 
@@ -52,6 +61,14 @@ Phases 1-4, 6-18 and Phase 5 Waves 0-2 are complete. Their durable choices live 
 - **Phases 11-16** — Source-grounded public-docs drift guards after successive releases (worktree-GC, hooks, browser/hook-manifest, merged claudux CLI).
 - **Phase 17** — Structured Drift Log helper for adaptive plans.
 - **Phase 18** — Drift feedback cache + signpost telemetry.
+
+### Phase 5: Ready-PR architecture
+
+PRs are transport/review handles for branch-backed in-flight work; durable recovery starts from the owning PLAN.md plus matching publish ledger row. Use `gh pr list` to find work that still needs review or nursing, then read the PR body for the plan path and publish ledger eid. Each PR body carries: automation id, plan path, plan task id, proof, publish ledger eid, handoff status, files claimed, last pushed diff, and resume point.
+
+### Phase 6: Skill consolidation
+
+Skill consolidation reduced the skill inventory and established the brand/craft/figma naming convention without changing the ready-PR recovery contract.
 
 ## Decisions
 (Decision Log — intentional choices that future agents must not undo)
@@ -104,3 +121,6 @@ Phases 1-4, 6-18 and Phase 5 Waves 0-2 are complete. Their durable choices live 
 
 ## Drift Log
 Archived. 244 dated drift entries (the `5.3.0x` invariant-hardening grind) were removed during this trim — drift-tracking and per-row evidence dumps are a known code smell that this repo explicitly does not re-add. The durable lessons survive as Decisions and as the shipped contract tests.
+
+## Progress
+- [2026-06-22] Completed 5.3.0ag: restored the compact Ready-PR contract anchors after the docs trim so contract tests can recover the required plan rows and publish-propagation phrases without reintroducing the archived drift log. Proof: `python3 -m unittest tests.test_vidux_contracts tests.test_pr_body` -> 248 OK (skipped=3); `npm run test:py` -> 491 OK (skipped=4); `npm run test:js` -> 7 OK; `npm run public-ready:grep` -> passed; `python3 -m compileall -q browser tests scripts` -> passed; `git diff --check` -> clean.

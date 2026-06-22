@@ -17,7 +17,7 @@ This is the exception path. In normal vidux flow, Codex defaults to **Chat** exe
 
 ## Runtime parity
 
-Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern work identically on Codex and Claude. A Codex-run cycle reads PLAN.md, picks a task, ships code, runs the verification gate, records a lane-local memory note, and — for shipped work — updates the owning plan plus matching publish ledger row before any commit/push.
+Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern work identically on Codex and Claude. A Codex-run cycle reads PLAN.md, picks a task, ships code, runs the verification gate, records a lane-local memory note, and — for shipped work — updates the owning plan plus matching publish ledger row before any commit/push transport.
 
 What differs between runtimes:
 
@@ -76,7 +76,7 @@ Lane instructions and the lane-local cycle log live under a shared `<lane-dir>/`
 **The static shim prompt** (goes in `automation.toml`):
 
 ```
-prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching publish ledger row before any commit/push."
+prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching publish ledger row before any commit/push transport."
 ```
 
 Edits to `prompt.md` take effect on the **next fire** with no restart — the primary win, letting you iterate on lane behavior freely.

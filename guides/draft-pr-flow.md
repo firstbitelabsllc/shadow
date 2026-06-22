@@ -6,7 +6,7 @@ Cloud-agnostic. Works with any git remote that supports `gh pr create`. No paid-
 
 ## Why
 
-Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. The owning PLAN.md plus matching publish ledger row is the durable recovery packet; PRs on GitHub are transport/review handles. `gh pr list` shows which branch-backed work needs review or nursing, and the PR body points the next agent back to the owning plan and ledger row.
+Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. The owning PLAN.md plus matching publish ledger row is the durable shipped-work recovery packet; Pull requests on GitHub are transport/review handles. `gh pr list` shows which branch-backed work needs review or nursing, and the PR body points the next agent back to the owning plan and ledger row.
 
 Ready-for-review PRs also let review bots, preview comments, and CI gates run immediately. Draft PRs are useful only when a real gate is missing and the PR should not yet enter review.
 
