@@ -24,10 +24,10 @@ from pathlib import Path
 
 DINING_KW = frozenset({
     "server", "table", "guest", "gratuity", "tip", "guest check", "dine in", "dine-in", "to go",
-    "to-go", "check #", "order #", "covers", "party of", "seat", "host", "menu", "appetizer",
+    "to-go", "takeaway", "for here", "check #", "order #", "covers", "party of", "seat", "host", "menu", "appetizer",
     "entree", "entrée", "beverage", "cocktail", "beer", "wine", "soda", "coffee", "tea", "lunch",
     "dinner", "brunch", "kitchen", "grill", "cafe", "café", "bar", "bistro", "pizzeria", "sushi",
-    "ramen", "taco", "diner", "restaurant", "eatery",
+    "ramen", "taco", "diner", "restaurant", "eatery", "kopi", "pasta",
 })
 # A dining verdict REQUIRES >=1 of these unambiguous dining-only tokens. The generic beverage/
 # venue nouns above (coffee/tea/bar/wine/grill) appear on grocery + convenience receipts too and
@@ -35,7 +35,7 @@ DINING_KW = frozenset({
 # itemized receipt and carries zero dining-vs-other signal (the load-bearing false positive).
 STRONG_DINING_KW = frozenset({
     "server", "gratuity", "tip", "table", "guest check", "dine in", "dine-in", "to go", "to-go",
-    "covers", "party of", "entree", "entrée", "waiter", "waitress",
+    "takeaway", "for here", "covers", "party of", "entree", "entrée", "waiter", "waitress",
 })
 RETAIL_KW = frozenset({
     "sku", "upc", "size", "cashier", "store #", "store#", "you saved", "member", "membership",
@@ -74,7 +74,11 @@ def classify_text(text: str) -> dict:
     money = bool(_MONEY.search(low))
     # Dining must clear a real margin over retail AND carry a strong dining-only signal — a
     # grocery/convenience receipt with a couple of generic beverage words can't reach it.
-    if money and d >= 3 and strong >= 1 and d >= r + 2 and d > i:
+    if money and (
+        (d >= 3 and strong >= 1 and d >= r + 2 and d > i)
+        or (strong >= 2 and d >= r + 1 and d >= i + 1)
+        or (strong >= 1 and d >= 2 and r == 0 and i == 0)
+    ):
         verdict = "dining"
     elif i >= 2 and i >= d:
         verdict = "invoice"

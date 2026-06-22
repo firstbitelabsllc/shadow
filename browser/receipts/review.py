@@ -19,7 +19,7 @@ from typing import Any
 if __name__ == "__main__" and __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from receipts import storage
+from receipts import classify, storage
 
 DEFAULT_CORPUS = Path(
     os.environ.get(
@@ -31,6 +31,7 @@ DEFAULT_CORPUS = Path(
 RECONCILE_TOL = 0.02
 PROVIDER_ORDER = {"azure": 0, "claude": 1, "qwen": 2, "codex": 3, "gemma3": 4}
 STATE_ORDER = {"needs_review": 0, "ready_candidate": 1, "grounded_consistent": 2, "no_extractions": 3}
+DOMAIN_ORDER = {"dining": 0, "unsure": 1, "retail": 2, "invoice": 3}
 INFORMATIONAL_TAX_KINDS = {"tax"}
 
 
@@ -120,6 +121,43 @@ def _extras_kinds(expected: dict | None) -> list[str]:
         for extra in expected.get("extras", [])
         if isinstance(extra, dict)
     })
+
+
+def _domain_text(row: dict[str, Any], providers: dict[str, dict[str, Any]]) -> str:
+    """Return stored OCR/provider text used only for read-only domain triage."""
+    annotations = row.get("annotations") if isinstance(row.get("annotations"), dict) else {}
+    azure = annotations.get("azure_response") if isinstance(annotations.get("azure_response"), dict) else {}
+    analyze = azure.get("analyzeResult") if isinstance(azure.get("analyzeResult"), dict) else {}
+    content = analyze.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+
+    parts: list[str] = []
+    for summary in providers.values():
+        merchant = summary.get("merchantName")
+        if isinstance(merchant, str):
+            parts.append(merchant)
+        parts.extend(summary.get("extrasKinds") or [])
+        subtotal = summary.get("subtotal")
+        total = summary.get("total")
+        if isinstance(subtotal, (int, float)):
+            parts.append(f"Subtotal {subtotal:.2f}")
+        if isinstance(total, (int, float)):
+            parts.append(f"Total {total:.2f}")
+    return "\n".join(parts)
+
+
+def domain_summary(row: dict[str, Any], providers: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Classify dining/retail/invoice without running OCR or providers."""
+    domain = classify.classify_text(_domain_text(row, providers))
+    return {
+        "verdict": domain["verdict"],
+        "dining": domain["dining"],
+        "strong": domain["strong"],
+        "retail": domain["retail"],
+        "invoice": domain["invoice"],
+        "money": domain["money"],
+    }
 
 
 def provider_summary(provider: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -231,6 +269,7 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         for provider in provider_names
         if isinstance(extraction_map.get(provider), dict)
     }
+    domain = domain_summary(row, providers)
     successes = [summary for summary in providers.values() if summary["valid"]]
     totals = [summary["total"] for summary in successes if summary["total"] is not None]
     subtotals = [summary["subtotal"] for summary in successes if summary["subtotal"] is not None]
@@ -309,6 +348,7 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         "name": row.get("name"),
         "imagePath": row.get("image_path"),
         "private": bool(row.get("private")),
+        "domain": domain,
         "grounded": expected is not None,
         "state": state,
         "priority": _priority(reasons, state),
@@ -332,10 +372,20 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
 def review_corpus(corpus_path: Path) -> dict[str, Any]:
     rows = storage.read_all(corpus_path)
     reviews = [review_row(row) for row in rows]
-    reviews.sort(key=lambda row: (STATE_ORDER.get(row["state"], 99), -row["priority"], str(row.get("id") or "")))
+    reviews.sort(
+        key=lambda row: (
+            STATE_ORDER.get(row["state"], 99),
+            DOMAIN_ORDER.get(row["domain"]["verdict"], 99),
+            -row["priority"],
+            str(row.get("id") or ""),
+        )
+    )
     counts: dict[str, int] = {}
+    domain_counts: dict[str, int] = {}
     for review in reviews:
         counts[review["state"]] = counts.get(review["state"], 0) + 1
+        verdict = review["domain"]["verdict"]
+        domain_counts[verdict] = domain_counts.get(verdict, 0) + 1
     provider_errors: dict[str, int] = {}
     for review in reviews:
         for provider, summary in review["providers"].items():
@@ -346,6 +396,7 @@ def review_corpus(corpus_path: Path) -> dict[str, Any]:
         "rowCount": len(rows),
         "withExtractions": sum(1 for review in reviews if review["providerCount"]),
         "counts": counts,
+        "domainCounts": domain_counts,
         "providerErrors": provider_errors,
         "rows": reviews,
     }
@@ -355,28 +406,40 @@ def _format_money(value: Any) -> str:
     return "-" if value is None else f"{value:.2f}"
 
 
-def render_table(report: dict[str, Any], *, limit: int | None = 20, state: str | None = None) -> str:
-    rows = [row for row in report["rows"] if state is None or row["state"] == state]
+def render_table(
+    report: dict[str, Any],
+    *,
+    limit: int | None = 20,
+    state: str | None = None,
+    domain: str | None = None,
+) -> str:
+    rows = [
+        row for row in report["rows"]
+        if (state is None or row["state"] == state)
+        and (domain is None or row["domain"]["verdict"] == domain)
+    ]
     if limit is not None:
         rows = rows[:limit]
     lines = [
         f"corpus: {report['corpus']}",
         (
             f"rows: {report['rowCount']}  with_extractions: {report['withExtractions']}  "
-            f"states: {json.dumps(report['counts'], sort_keys=True)}"
+            f"states: {json.dumps(report['counts'], sort_keys=True)}  "
+            f"domains: {json.dumps(report.get('domainCounts', {}), sort_keys=True)}"
         ),
         "",
-        "state                id            providers  total   curr  reasons",
-        "-" * 80,
+        "state                domain    id            providers  total   curr  reasons",
+        "-" * 90,
     ]
     for row in rows:
         consensus = row["consensus"]
         providers = f"{row['successfulProviderCount']}/{row['providerCount']}"
+        domain_text = row["domain"]["verdict"]
         notes = [*row["reasons"], *row.get("warnings", [])]
         reasons = ",".join(notes) or "-"
         name = f"  {row['name']}" if row.get("name") else ""
         lines.append(
-            f"{row['state']:<20} {str(row.get('id') or '-'):<12} {providers:<9} "
+            f"{row['state']:<20} {domain_text:<9} {str(row.get('id') or '-'):<12} {providers:<9} "
             f"{_format_money(consensus['total']):>7} {str(consensus['currencyCode'] or '-'):>5}  "
             f"{reasons}{name}"
         )
@@ -389,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Emit the full review report as JSON.")
     parser.add_argument("--limit", type=int, default=20, help="Table rows to show; use 0 for no limit.")
     parser.add_argument("--state", choices=sorted(STATE_ORDER), help="Only show rows in one state.")
+    parser.add_argument("--domain", choices=sorted(DOMAIN_ORDER), help="Only show rows in one domain.")
     args = parser.parse_args(argv)
 
     corpus = args.corpus.expanduser().resolve()
@@ -397,7 +461,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         limit = None if args.limit == 0 else args.limit
-        print(render_table(report, limit=limit, state=args.state))
+        print(render_table(report, limit=limit, state=args.state, domain=args.domain))
     return 0
 
 

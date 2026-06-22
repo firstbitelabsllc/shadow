@@ -36,13 +36,16 @@ def _result(total=10.0, subtotal=9.0, currency="USD", extras=None, error=None, p
 
 
 class ReviewRowTests(unittest.TestCase):
-    def _row(self, extractions, *, expected=None):
+    def _row(self, extractions, *, expected=None, ocr_text=None):
+        annotations = {"extractions": extractions}
+        if ocr_text is not None:
+            annotations["azure_response"] = {"analyzeResult": {"content": ocr_text}}
         return {
             "id": "abc123",
             "name": "sample",
             "image_path": "images/sample.jpg",
             "expected": expected,
-            "annotations": {"extractions": extractions},
+            "annotations": annotations,
         }
 
     def test_marks_unpromoted_consensus_as_ready_candidate(self):
@@ -184,6 +187,17 @@ class ReviewRowTests(unittest.TestCase):
         self.assertEqual(got["state"], "needs_review")
         self.assertIn("no_reconciled_provider", got["reasons"])
 
+    def test_review_row_classifies_domain_from_stored_ocr_text(self):
+        row = self._row(
+            {"azure": _result()},
+            ocr_text="TAIER\nTable 8\nSubtotal $88.99\nTip $19.58\nCREDIT CARD SALE $116.47",
+        )
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["domain"]["verdict"], "dining")
+        self.assertGreaterEqual(got["domain"]["strong"], 1)
+
 
 class ReviewCorpusCliTests(unittest.TestCase):
     def setUp(self):
@@ -196,7 +210,7 @@ class ReviewCorpusCliTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _append(self, name, extractions, *, expected=None):
+    def _append(self, name, extractions, *, expected=None, ocr_text=None):
         row = storage.make_row(
             image_bytes=SAMPLE_BYTES + name.encode(),
             name=name,
@@ -205,6 +219,8 @@ class ReviewCorpusCliTests(unittest.TestCase):
         )
         row["expected"] = expected
         row["annotations"]["extractions"] = extractions
+        if ocr_text is not None:
+            row["annotations"]["azure_response"] = {"analyzeResult": {"content": ocr_text}}
         storage.append_row(self.corpus, row)
         return row
 
@@ -218,7 +234,25 @@ class ReviewCorpusCliTests(unittest.TestCase):
         self.assertEqual(report["withExtractions"], 2)
         self.assertEqual(report["counts"]["ready_candidate"], 1)
         self.assertEqual(report["counts"]["needs_review"], 1)
+        self.assertEqual(report["domainCounts"], {"unsure": 2})
         self.assertEqual(report["providerErrors"], {"qwen": 1})
+
+    def test_review_corpus_orders_dining_before_retail_within_state(self):
+        self._append(
+            "retail",
+            {"azure": _result(error="timeout")},
+            ocr_text="COSTCO WHOLESALE\nMember 123\nCashier 7\nSKU 001\nTOTAL $40.00",
+        )
+        self._append(
+            "dining",
+            {"azure": _result(error="timeout")},
+            ocr_text="FUZI PASTA\nTable 6\nSubtotal $285.75\nTax $25.36\nTip $62.22\nTotal $373.33",
+        )
+
+        report = review.review_corpus(self.corpus)
+
+        self.assertEqual([row["name"] for row in report["rows"]], ["dining", "retail"])
+        self.assertEqual(report["domainCounts"], {"dining": 1, "retail": 1})
 
     def test_main_json_is_read_only(self):
         self._append("ready", {"azure": _result(), "claude": _result()})
@@ -246,6 +280,27 @@ class ReviewCorpusCliTests(unittest.TestCase):
         self.assertIn("needs_review", out)
         self.assertIn("provider_error", out)
         self.assertNotIn("ready_candidate  ", out)
+
+    def test_main_table_filters_domain(self):
+        self._append(
+            "dining",
+            {"azure": _result(), "claude": _result()},
+            ocr_text="RESTAURANT\nServer: A\nTable 2\nSubtotal $9.00\nTip $1.00\nTotal $10.00",
+        )
+        self._append(
+            "retail",
+            {"azure": _result(), "claude": _result()},
+            ocr_text="STORE #1\nCashier 9\nSKU 12\nReturn policy\nTotal $10.00",
+        )
+
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            rc = review.main(["--corpus", str(self.corpus), "--domain", "dining"])
+
+        self.assertEqual(rc, 0)
+        out = stdout.getvalue()
+        self.assertIn("dining", out)
+        self.assertNotIn("ready_candidate      retail", out)
 
 
 if __name__ == "__main__":

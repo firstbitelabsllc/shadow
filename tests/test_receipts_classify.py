@@ -69,6 +69,13 @@ class ClassifyTests(unittest.TestCase):
         # The strong-keyword + margin gate must not regress a genuine dining receipt.
         self.assertEqual(classify_text(DINING)["verdict"], "dining")
 
+    def test_takeaway_receipt_is_dining_signal(self):
+        receipt = "ORIENTAL KOPI\nTAKEAWAY\nCoffee 43.80\nNasi Lemak 47.80\nNet Total RM 123.40"
+        c = classify_text(receipt)
+
+        self.assertEqual(c["verdict"], "dining")
+        self.assertGreaterEqual(c["strong"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
