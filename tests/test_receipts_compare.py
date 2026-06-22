@@ -50,6 +50,40 @@ class StoreExtractionsTests(unittest.TestCase):
         self.assertEqual(got["annotations"]["extractions"]["azure"]["expected"]["total"], 10.0)
         self.assertEqual(got["annotations"]["extractions"]["qwen"]["latency_ms"], 3)
 
+    def test_store_extractions_stores_azure_response_beside_lean_summary(self):
+        azure_response = {"analyzeResult": {"documents": [{"fields": {"Total": {"valueNumber": 10}}}]}}
+
+        updated = compare.store_extractions(self.corpus, self.row["id"], {
+            "azure": {
+                "expected": {"total": 10.0},
+                "latency_ms": 5,
+                "error": None,
+                "problems": [],
+                "raw": "truncated diagnostic text",
+                "azure_response": azure_response,
+            },
+        })
+
+        self.assertIsNotNone(updated)
+        got = storage.find_by_id(self.corpus, self.row["id"])
+        self.assertEqual(got["annotations"]["azure_response"], azure_response)
+        summary = got["annotations"]["extractions"]["azure"]
+        self.assertEqual(set(summary), {"expected", "latency_ms", "error", "problems"})
+        self.assertEqual(summary["expected"]["total"], 10.0)
+
+    def test_store_extractions_preserves_existing_azure_response_on_non_azure_rerun(self):
+        existing_response = {"analyzeResult": {"documents": [{"fields": {"Total": {"valueNumber": 10}}}]}}
+        row = storage.find_by_id(self.corpus, self.row["id"])
+        row["annotations"]["azure_response"] = existing_response
+        storage.replace_row(self.corpus, self.row["id"], row)
+
+        compare.store_extractions(self.corpus, self.row["id"], {
+            "qwen": {"expected": {"total": 10.0}, "latency_ms": 3, "error": None, "problems": []},
+        })
+
+        got = storage.find_by_id(self.corpus, self.row["id"])
+        self.assertEqual(got["annotations"]["azure_response"], existing_response)
+
 
 class FailedProvidersTests(unittest.TestCase):
     def test_failed_providers_returns_only_error_entries(self):

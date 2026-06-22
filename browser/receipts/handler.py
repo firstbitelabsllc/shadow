@@ -278,19 +278,7 @@ def handle_analyze(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str,
 
     results = compare.compare_image(abs_path, providers)
     extractions = compare.extraction_summaries(results)
-
-    def _store(row: dict[str, Any]) -> dict[str, Any]:
-        annotations = row.setdefault("annotations", {})
-        existing = annotations.get("extractions")
-        if isinstance(existing, dict):
-            merged = dict(existing)
-            merged.update(extractions)
-            annotations["extractions"] = merged
-        else:
-            annotations["extractions"] = extractions
-        return row
-
-    updated = storage.update_row(DEFAULT_CORPUS_PATH, row_id, _store)
+    updated = compare.store_extractions(DEFAULT_CORPUS_PATH, row_id, results)
     if updated is None:
         return 404, {"error": f"row {row_id} deleted during analyze"}
 
