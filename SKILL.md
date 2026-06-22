@@ -146,6 +146,22 @@ Tactical defaults from 30+ plan files across 5 repos. They apply everywhere, reg
 - If a gate is blocked, log: exact command, blocker point, what passed, what's pending.
 - Before coding a similar task, apply any cache-backed drift prevention suggestion that matches the current task.
 
+### Lean plan dirs
+
+- A plan dir holds current state, decisions, and pointers — nothing regenerable. Never let a `venv/`, `node_modules/`, build output, or large binaries live inside a plan dir; gitignore them and don't create them there. (A regenerable virtualenv once accounted for ~98% of a plan dir's size — a one-line delete, zero knowledge lost.)
+- `projects/*` (or the equivalent scratch tree) stays gitignored; only allowlisted, tracked artifacts are committed.
+- Trimming a bloated plan is a first-class chore, not cleanup-when-it-hurts. A plan that has grown to thousands of lines of completed rows + drift logs should be rolled up to current truth; archive or delete the history rather than carrying it.
+
+### Lean on the fact cache
+
+- Durable facts belong in the local fact cache for recall, not in proliferating scratch docs. The plan references them; it does not re-state them.
+- Scratch (drafts, reviews, receipts) is deletable once its conclusion is in the canonical doc + the fact cache. Capture the unique fact first (bookmark it), then delete the file — knowledge survives, footprint drops.
+
+### Don't strand; remote is canonical
+
+- A cycle that edited skills, docs, or durable artifacts ends committed-or-stashed — never silently uncommitted across sessions. Uncommitted work is invisible to the next session and the next machine.
+- On multi-machine work, the remote is the source of truth. Push durable work the same cycle, or treat it as at-risk; a "pull weekend" reconcile is the symptom of work that was left local.
+
 ### Smallest vertical slice
 
 - Model → Service → View → Test, wired end-to-end.
