@@ -74,6 +74,26 @@ class ReviewRowTests(unittest.TestCase):
         self.assertIn("insufficient_total_agreement", got["reasons"])
         self.assertEqual(got["consensus"]["total"], 8.0)
 
+    def test_reconciled_majority_total_can_override_one_provider_outlier(self):
+        # Daesung c04031206c0f has subtotal/tax agreement, but Azure selected
+        # an impossible $44.00 typed total while Claude and Qwen both read the
+        # printed $138.21 total and reconcile it.
+        tax = [{"kind": "tax", "label": "Tax", "amount": 11.27}]
+        row = self._row({
+            "azure": _result(total=44.0, subtotal=126.94, extras=tax),
+            "claude": _result(total=138.21, subtotal=126.94, extras=tax),
+            "qwen": _result(total=138.21, subtotal=126.94, extras=tax),
+        })
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "ready_candidate")
+        self.assertEqual(got["reasons"], [])
+        self.assertEqual(got["warnings"], ["provider_outlier_total"])
+        self.assertEqual(got["consensus"]["total"], 138.21)
+        self.assertEqual(got["consensus"]["totalSupportingProviders"], ["claude", "qwen"])
+        self.assertEqual(got["consensus"]["totalOutlierProviders"], ["azure"])
+
     def test_flags_qwen_extra_amount_disagreement_even_when_total_matches(self):
         row = self._row({
             "azure": _result(),
