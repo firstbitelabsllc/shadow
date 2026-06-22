@@ -19,8 +19,8 @@ SCRIPT = ROOT / "scripts" / "vidux-pr-body.py"
 VALID_PLAN = "PLAN.md"
 VALID_TASK = "5.3.0am"
 DEFAULT_SUMMARY = "update templates"
-TEAM_PLAN = "projects/team-agent-coordination/PLAN.md"
-TEAM_TASK = "T2"
+TEAM_PLAN = VALID_PLAN
+TEAM_TASK = "5.3.0ad"
 REVIEW_PASSES = [
     "invariant-audit:pass:plan row, ledger eid, proof, files, and resume point recorded",
     "regression-runner:pass:python3 -m unittest tests.test_pr_body",

@@ -277,11 +277,7 @@ def handle_analyze(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str,
         providers = DEFAULT_ANALYZE_PROVIDERS
 
     results = compare.compare_image(abs_path, providers)
-    extractions = {
-        p: {"expected": r.get("expected"), "latency_ms": r.get("latency_ms"),
-            "error": r.get("error"), "problems": r.get("problems")}
-        for p, r in results.items()
-    }
+    extractions = compare.extraction_summaries(results)
 
     def _store(row: dict[str, Any]) -> dict[str, Any]:
         annotations = row.setdefault("annotations", {})
