@@ -102,8 +102,9 @@ fix the underlying issue.
 Start every code change from the current trunk (usually `main`). Run
 `git fetch origin && git log origin/main..HEAD` before committing — if
 trunk has moved, rebase or restart from `origin/main`. Worktrees are
-disposable integration helpers, not the source of truth. A merge to trunk
-is not done until the publish step (see Git safety) records it.
+disposable integration helpers, not the source of truth. A merge back to
+trunk is not enough by itself; the publish ledger row with proof, handoff
+status, files claimed, and next-agent resume is the done signal.
 ```
 
 **Why:** Long-lived feature branches diverge silently. Trunk-first keeps the merge surface small and conflicts local.

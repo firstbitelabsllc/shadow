@@ -28,7 +28,7 @@ Every automation MUST read sibling state during its READ step -- structural, not
 
 > A dirty or diverged canonical checkout is a fleet-level infrastructure failure, not a per-task blocker. Detect it in 10 seconds, not after 45 minutes of deep work.
 
-Every automation works in a worktree and must leave a durable handoff packet before the worktree is discarded: owning PLAN.md update plus publish ledger row first, then branch + PR as git transport and review handles. If the canonical checkout is dirty, diverged, or behind origin, that PR flow starts from a stale base and the lane burns time on avoidable conflict resolution.
+Every automation works in a worktree and must leave a durable handoff packet before the local worktree is discarded: owning PLAN.md update plus publish ledger row first, then branch + PR as git transport and review handles. If the canonical checkout is dirty, diverged, or behind origin, that PR flow starts from a stale base and the lane burns time on avoidable conflict resolution.
 
 Overnight this compounds: 10 automations x 8 hours = 80 cycles producing stale branches or PRs nobody can safely land. vidux-loop.sh counts these as "unproductive" because no PLAN.md task state changed, triggering auto-pause, which makes it worse.
 
@@ -121,7 +121,7 @@ WORKTREE RULE: Before stopping, update the plan, emit publish ledger, push the b
 - NEVER exit with only local worktree commits unless the blocker is recorded.
 ```
 
-After a branch is pushed and the resume point recorded, the worktree is disposable. If a lane keeps it for PR nursing, keep its `## Active Worktrees` entry current; otherwise remove the entry and rely on the plan/ledger packet plus `gh pr list` for recovery.
+After a branch is pushed and the resume point recorded, the worktree is disposable. If a lane keeps it for PR nursing, keep its `## Active Worktrees` entry current; otherwise remove the entry and rely on the plan/ledger packet plus `gh pr list` for transport recovery.
 
 **Detecting and classifying local worktrees:**
 ```bash
