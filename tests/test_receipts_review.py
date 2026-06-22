@@ -107,6 +107,48 @@ class ReviewRowTests(unittest.TestCase):
         self.assertEqual(got["state"], "grounded_consistent")
         self.assertTrue(got["grounded"])
 
+    def test_included_tax_reconciles_when_subtotal_already_equals_total(self):
+        included_tax = _result(total=56.0, subtotal=56.0, currency="AUD", extras=[
+            {"kind": "tax", "label": "GST(10%)", "amount": 5.10},
+        ])
+        row = self._row({
+            "azure": included_tax,
+            "claude": included_tax,
+            "qwen": included_tax,
+        }, expected=included_tax["expected"])
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "grounded_consistent")
+        self.assertEqual(got["reasons"], [])
+        self.assertTrue(got["consensus"]["anyReconciles"])
+
+    def test_included_tax_reconciles_with_non_tax_extras_only_once(self):
+        included_tax_with_service = _result(total=102.0, subtotal=100.0, currency="AUD", extras=[
+            {"kind": "serviceCharge", "label": "Service charge", "amount": 2.0},
+            {"kind": "tax", "label": "GST Included In Total", "amount": 9.27},
+        ])
+        row = self._row({
+            "azure": included_tax_with_service,
+            "claude": included_tax_with_service,
+        }, expected=included_tax_with_service["expected"])
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "grounded_consistent")
+        self.assertEqual(got["reasons"], [])
+
+    def test_fee_only_non_reconcile_still_needs_review(self):
+        fee_only = _result(total=56.0, subtotal=56.0, currency="USD", extras=[
+            {"kind": "fee", "label": "Service fee", "amount": 2.0},
+        ])
+        row = self._row({"azure": fee_only, "claude": fee_only})
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "needs_review")
+        self.assertIn("no_reconciled_provider", got["reasons"])
+
 
 class ReviewCorpusCliTests(unittest.TestCase):
     def setUp(self):
