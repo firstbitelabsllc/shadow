@@ -1,63 +1,35 @@
-# Lint workflow — ruff (python) + shellcheck (bash) on PR.
+# ============================================================================
+# DISABLED / MANUAL-ONLY POLICY 2026-06-22 — local-ci/Moussey own lint proof.
 #
-# Soft-fail v1: both jobs use `continue-on-error: true` so findings surface as
-# warnings (annotations on the PR diff) rather than required-check failures.
-# Strict-after-1-green plan: once both jobs have shipped one fully-green run on
-# main, flip `continue-on-error` to `false` and (optionally) add `push` to the
-# trigger so main is gated.
+# The former PR workflow ran ruff and shellcheck on GitHub. That still burns
+# runner minutes in multi-agent swarms and can turn policy-only PRs red. Run
+# these checks locally or through local-ci/Moussey, then cite the evidence in
+# the PR, plan, or ledger receipt.
+#
+# To re-enable automated PR/push lint, Leo must name a narrow exception and the
+# /local-ci policy must be updated first.
+# ============================================================================
 
-name: Lint
+name: Lint local-ci pointer
 
 on:
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  ruff:
-    name: ruff (python)
+  local-ci-pointer:
+    name: Lint runs locally
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    continue-on-error: true
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install ruff
-        run: pip install ruff
-
-      - name: Run ruff check
-        run: ruff check .
-
-  shellcheck:
-    name: shellcheck (bash)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-
-      - name: Run shellcheck on bin/ and scripts/
-        # Globs are quoted to fail loudly if a directory disappears rather than
-        # silently lint nothing. `-f gcc` keeps annotations parseable.
+      - name: Point to local proof
         run: |
-          set -euo pipefail
-          shopt -s nullglob
-          targets=(bin/* scripts/*.sh)
-          if [ ${#targets[@]} -eq 0 ]; then
-            echo "no shell targets found under bin/ or scripts/*.sh — skipping"
-            exit 0
-          fi
-          shellcheck -f gcc "${targets[@]}"
+          cat <<'MSG'
+          GitHub PR/push lint execution is disabled for this repo.
+
+          Run ruff/shellcheck locally or through local-ci/Moussey, then cite the
+          exact command and evidence path in the PR, plan, or ledger receipt.
+          Do not treat this manual pointer workflow as lint proof.
+          MSG
