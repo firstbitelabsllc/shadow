@@ -59,9 +59,30 @@ def _resolve_key() -> str:
 
 
 # P8.4: the v4-supported way to capture "arbitrary key-value post-subtotal" extras on
-# prebuilt-receipt (keyValuePairs is NOT available on this model — queryFields IS). Premium/billed,
-# so pass query_fields explicitly to opt in; default off keeps the bare (free) call.
-DEFAULT_QUERY_FIELDS = ["ServiceCharge", "Gratuity", "Surcharge", "Fee", "Deposit", "DeliveryFee"]
+# prebuilt-receipt (keyValuePairs is NOT available on this model — queryFields IS).
+# Keep this bounded and mirrored with the iOS ReceiptScanner list: this runs on real scans.
+DEFAULT_QUERY_FIELDS = [
+    "Discount",
+    "Discounts",
+    "TotalDiscount",
+    "Credit",
+    "Credits",
+    "LoyaltyCredit",
+    "Reward",
+    "GiftCard",
+    "TotalBeforeVAT",
+    "TotalBeforeTax",
+    "PreTaxAmount",
+    "VAT",
+    "Tax",
+    "ServiceCharge",
+    "ServiceFee",
+    "Surcharge",
+    "ConvenienceFee",
+    "ProcessingFee",
+    "DeliveryFee",
+    "Gratuity",
+]
 
 
 def analyze_receipt(image_bytes: bytes, *, locale: str = "en", query_fields: list[str] | None = None) -> dict[str, Any]:

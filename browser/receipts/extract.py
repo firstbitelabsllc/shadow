@@ -142,6 +142,15 @@ def _json_from_text(text: str) -> dict | None:
 
 # ---------------------------------------------------------------- Azure (prebuilt)
 
+def _num_string(raw: object) -> float | None:
+    if not isinstance(raw, str):
+        return None
+    cleaned = raw.strip().replace(",", "")
+    if not re.fullmatch(r"[-+]?\d+(?:\.\d+)?", cleaned):
+        return None
+    return float(cleaned)
+
+
 def _num(field: dict | None) -> float | None:
     if not isinstance(field, dict):
         return None
@@ -153,6 +162,10 @@ def _num(field: dict | None) -> float | None:
         val = field.get(key)
         if isinstance(val, (int, float)) and not isinstance(val, bool):
             return val
+    for key in ("valueString", "content"):
+        val = _num_string(field.get(key))
+        if val is not None:
+            return val
     return None
 
 
@@ -160,6 +173,34 @@ def _str(field: dict | None) -> str | None:
     if not isinstance(field, dict):
         return None
     return field.get("valueString") or field.get("content")
+
+
+def _close(a: float | None, b: float | None, *, tolerance: float = 0.05) -> bool:
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= tolerance
+
+
+def _looks_uae(text: str | None) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(
+        needle in lowered
+        for needle in (
+            "abu dhabi",
+            "dubai",
+            "united arab emirates",
+            " uae",
+            "uae ",
+        )
+    )
+
+
+def _has_tax_amount(extras: list[dict], amount: float | None) -> bool:
+    if amount is None:
+        return False
+    return any(e.get("kind") == "tax" and _close(e.get("amount"), amount, tolerance=0.01) for e in extras)
 
 
 def azure_to_scanned(analyze: dict, latency_ms: int) -> dict:
@@ -191,21 +232,41 @@ def azure_to_scanned(analyze: dict, latency_ms: int) -> dict:
             emitted_tax = True
     if not emitted_tax and _num(fields.get("TotalTax")) is not None:
         extras.append({"label": "Tax", "amount": _num(fields.get("TotalTax")), "kind": "tax"})
+    vat = _num(fields.get("VAT"))
+    if vat is not None and not _has_tax_amount(extras, vat):
+        extras.append({"label": "VAT", "amount": vat, "kind": "tax"})
     if _num(fields.get("Tip")) is not None:
         extras.append({"label": "Tip", "amount": _num(fields.get("Tip")), "kind": "tip"})
 
     total_field = fields.get("Total", {})
     currency = (total_field.get("valueCurrency") or {}).get("currencyCode") if isinstance(total_field, dict) else None
+    merchant_address = _str(fields.get("MerchantAddress"))
+    if currency in (None, "USD") and _looks_uae(merchant_address):
+        currency = "AED"
+
+    total = _num(fields.get("Total"))
+    subtotal = _num(fields.get("Subtotal"))
+    total_before_tax = (
+        _num(fields.get("TotalBeforeVAT"))
+        or _num(fields.get("TotalBeforeTax"))
+        or _num(fields.get("PreTaxAmount"))
+    )
+    if (
+        total_before_tax is not None
+        and vat is not None
+        and (_close(total_before_tax + vat, total) or _close(subtotal, total))
+    ):
+        subtotal = total_before_tax
 
     return {
         "merchantName": _str(fields.get("MerchantName")),
-        "merchantAddress": _str(fields.get("MerchantAddress")),
+        "merchantAddress": merchant_address,
         "transactionDate": _str(fields.get("TransactionDate")),
         "currencyCode": currency,
         "currencySymbol": None,
         "lineItems": line_items,
-        "subtotal": _num(fields.get("Subtotal")),
-        "total": _num(fields.get("Total")),
+        "subtotal": subtotal,
+        "total": total,
         "extras": extras,
     }
 
@@ -216,7 +277,7 @@ def extract_azure(image_bytes: bytes) -> dict:
         return _finalize("azure", "prebuilt-receipt", None, 0, "", f"not configured: {msg}")
     t0 = time.monotonic()
     try:
-        analyze = ocr.analyze_receipt(image_bytes)
+        analyze = ocr.analyze_receipt(image_bytes, query_fields=ocr.DEFAULT_QUERY_FIELDS)
     except (ocr.OCRConfigError, ocr.OCRRequestError, ocr.OCRPollTimeout) as exc:
         return _finalize("azure", "prebuilt-receipt", None, int((time.monotonic() - t0) * 1000), "", str(exc))
     latency = int((time.monotonic() - t0) * 1000)
