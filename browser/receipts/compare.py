@@ -34,6 +34,30 @@ DEFAULT_CORPUS = Path(
 SCALAR_FIELDS = ["merchantName", "currencyCode", "subtotal", "total"]
 
 
+def extraction_summaries(results: dict) -> dict:
+    """Keep only the stable corpus fields from raw provider results."""
+    return {
+        p: {"expected": r.get("expected"), "latency_ms": r.get("latency_ms"),
+            "error": r.get("error"), "problems": r.get("problems")}
+        for p, r in results.items()
+    }
+
+
+def store_extractions(corpus: Path, row_id: str, results: dict) -> dict | None:
+    """Merge provider results into one corpus row without erasing other providers."""
+    updates = extraction_summaries(results)
+
+    def _store(row: dict) -> dict:
+        annotations = row.setdefault("annotations", {})
+        existing = annotations.get("extractions")
+        merged = dict(existing) if isinstance(existing, dict) else {}
+        merged.update(updates)
+        annotations["extractions"] = merged
+        return row
+
+    return storage.update_row(corpus, row_id, _store)
+
+
 def compare_image(image_path: Path, providers: list[str]) -> dict:
     """Run each provider on the image CONCURRENTLY. Returns {provider: extract-result-dict}.
 
@@ -134,13 +158,9 @@ def main() -> int:
 
     if args.store and args.id:
         corpus = args.corpus.expanduser().resolve()
-        row = storage.find_by_id(corpus, args.id)
-        row.setdefault("annotations", {})["extractions"] = {
-            p: {"expected": r.get("expected"), "latency_ms": r.get("latency_ms"),
-                "error": r.get("error"), "problems": r.get("problems")}
-            for p, r in results.items()
-        }
-        storage.replace_row(corpus, args.id, row)
+        if store_extractions(corpus, args.id, results) is None:
+            print(f"\nerror: row {args.id} deleted during store", file=sys.stderr)
+            return 2
         print(f"\nstored {len(results)} extraction(s) into row {args.id}", file=sys.stderr)
     return 0
 
