@@ -8,6 +8,7 @@ Usage:
     python3 -m receipts.compare --image /path/to/receipt.jpg
     python3 -m receipts.compare --image r.jpg --providers azure,claude
     python3 -m receipts.compare --id <corpus-id> --store     # store results into the corpus row
+    python3 -m receipts.compare --id <corpus-id> --failed-only --store
 """
 
 from __future__ import annotations
@@ -56,6 +57,18 @@ def store_extractions(corpus: Path, row_id: str, results: dict) -> dict | None:
         return row
 
     return storage.update_row(corpus, row_id, _store)
+
+
+def failed_providers(row: dict) -> list[str]:
+    """Return providers whose stored extraction ended in a hard provider error."""
+    extractions = row.get("annotations", {}).get("extractions")
+    if not isinstance(extractions, dict):
+        return []
+    return [
+        provider
+        for provider, result in extractions.items()
+        if isinstance(result, dict) and result.get("error")
+    ]
 
 
 def compare_image(image_path: Path, providers: list[str]) -> dict:
@@ -119,25 +132,37 @@ def render_table(results: dict) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare receipt extractors on one image.")
     parser.add_argument("--image", type=Path, help="Path to a receipt image.")
     parser.add_argument("--id", help="Corpus row id (reads its stored image instead of --image).")
     parser.add_argument("--corpus", default=DEFAULT_CORPUS, type=Path)
     parser.add_argument("--providers", default="azure,claude,qwen",
                         help="Comma list: azure,claude,qwen,gemma3,codex (codex is quota-gated; gemma3 hallucinates).")
+    parser.add_argument("--failed-only", action="store_true",
+                        help="With --id, rerun only providers whose stored extraction has an error.")
     parser.add_argument("--store", action="store_true", help="Store results into the corpus row's annotations.extractions.")
     parser.add_argument("--json", action="store_true", help="Emit raw JSON instead of the table.")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
+    corpus = args.corpus.expanduser().resolve()
     providers = [p.strip() for p in args.providers.split(",") if p.strip()]
 
+    if args.failed_only and not args.id:
+        print("error: --failed-only requires --id", file=sys.stderr)
+        return 2
+
     if args.id:
-        row = storage.find_by_id(args.corpus.expanduser().resolve(), args.id)
+        row = storage.find_by_id(corpus, args.id)
         if not row or not row.get("image_path"):
             print(f"error: row {args.id} not found or has no image", file=sys.stderr)
             return 2
-        image_path = (args.corpus.expanduser().resolve().parent / row["image_path"]).resolve()
+        if args.failed_only:
+            providers = failed_providers(row)
+            if not providers:
+                print(f"no failed providers stored for row {args.id}", file=sys.stderr)
+                return 0
+        image_path = (corpus.parent / row["image_path"]).resolve()
     elif args.image:
         image_path = args.image.expanduser().resolve()
     else:
@@ -157,7 +182,6 @@ def main() -> int:
         print(render_table(results))
 
     if args.store and args.id:
-        corpus = args.corpus.expanduser().resolve()
         if store_extractions(corpus, args.id, results) is None:
             print(f"\nerror: row {args.id} deleted during store", file=sys.stderr)
             return 2
