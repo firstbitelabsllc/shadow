@@ -148,6 +148,52 @@ def _consensus_value(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 2)
 
 
+def _supported_total_consensus(summaries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find a reconciled total supported by at least two providers.
+
+    This catches rows where one provider picked a tip guide/order marker as the
+    total while two independent providers agree on a reconciling printed total.
+    It intentionally only handles total disagreement; subtotal, currency, and
+    extras disagreements still stay on the review pile.
+    """
+    groups: list[dict[str, Any]] = []
+    for summary in summaries:
+        total = summary.get("total")
+        if total is None or summary.get("totalReconciles") is not True:
+            continue
+        group = next(
+            (
+                candidate
+                for candidate in groups
+                if _money_agrees([*candidate["totals"], total])
+            ),
+            None,
+        )
+        if group is None:
+            group = {"totals": [], "providers": []}
+            groups.append(group)
+        group["totals"].append(total)
+        group["providers"].append(summary["provider"])
+
+    groups = [group for group in groups if len(group["providers"]) >= 2]
+    if not groups:
+        return None
+    groups.sort(
+        key=lambda group: (-len(group["providers"]), _provider_key(group["providers"][0]))
+    )
+    best = groups[0]
+    supporting = set(best["providers"])
+    return {
+        "total": round(sum(best["totals"]) / len(best["totals"]), 2),
+        "supportingProviders": best["providers"],
+        "outlierProviders": [
+            summary["provider"]
+            for summary in summaries
+            if summary["provider"] not in supporting
+        ],
+    }
+
+
 def _priority(reasons: list[str], state: str) -> int:
     weights = {
         "provider_error": 100,
@@ -196,8 +242,10 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         for summary in successes
         if summary["extrasSignature"] or summary["total"] is not None
     }
+    supported_total = _supported_total_consensus(successes) if expected is None else None
 
     reasons: list[str] = []
+    warnings: list[str] = []
     if not providers:
         reasons.append("no_stored_extractions")
     if any(summary["error"] for summary in providers.values()):
@@ -214,7 +262,10 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         elif len(totals) == 1 and len(successes) > 1:
             reasons.append("insufficient_total_agreement")
     if totals and not _money_agrees(totals):
-        reasons.append("total_disagreement")
+        if supported_total is not None:
+            warnings.append("provider_outlier_total")
+        else:
+            reasons.append("total_disagreement")
     if subtotals and not _money_agrees(subtotals):
         reasons.append("subtotal_disagreement")
     if len(currencies) > 1:
@@ -230,6 +281,8 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
     expected_signature = extras_signature(expected)
     consensus_total = _consensus_value(totals)
     consensus_subtotal = _consensus_value(subtotals)
+    if consensus_total is None and supported_total is not None:
+        consensus_total = supported_total["total"]
 
     if expected and consensus_total is not None and expected_total is not None:
         if not _money_agrees([expected_total, consensus_total]):
@@ -260,6 +313,7 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         "state": state,
         "priority": _priority(reasons, state),
         "reasons": reasons,
+        "warnings": warnings,
         "providerCount": len(providers),
         "successfulProviderCount": len(successes),
         "providerOrder": provider_names,
@@ -268,6 +322,8 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
             "subtotal": consensus_subtotal,
             "currencyCode": currencies[0] if len(currencies) == 1 else None,
             "anyReconciles": any(summary["totalReconciles"] is True for summary in successes),
+            "totalSupportingProviders": supported_total["supportingProviders"] if supported_total else [],
+            "totalOutlierProviders": supported_total["outlierProviders"] if supported_total else [],
         },
         "providers": providers,
     }
@@ -316,7 +372,8 @@ def render_table(report: dict[str, Any], *, limit: int | None = 20, state: str |
     for row in rows:
         consensus = row["consensus"]
         providers = f"{row['successfulProviderCount']}/{row['providerCount']}"
-        reasons = ",".join(row["reasons"]) or "-"
+        notes = [*row["reasons"], *row.get("warnings", [])]
+        reasons = ",".join(notes) or "-"
         name = f"  {row['name']}" if row.get("name") else ""
         lines.append(
             f"{row['state']:<20} {str(row.get('id') or '-'):<12} {providers:<9} "
