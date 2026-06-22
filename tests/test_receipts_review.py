@@ -59,6 +59,21 @@ class ReviewRowTests(unittest.TestCase):
         self.assertEqual(got["consensus"]["total"], 10.0)
         self.assertTrue(got["consensus"]["anyReconciles"])
 
+    def test_single_provider_total_is_not_ready_candidate(self):
+        # Molly Tea 7bc456d6f7c7 looked ready because Qwen read order "#8"
+        # as an $8 total while Azure and Claude had no amount evidence.
+        row = self._row({
+            "azure": _result(total=None, subtotal=None, currency=None, extras=[]),
+            "claude": _result(total=None, subtotal=None, currency="USD", extras=[]),
+            "qwen": _result(total=8.0, subtotal=8.0, currency="USD", extras=[]),
+        })
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "needs_review")
+        self.assertIn("insufficient_total_agreement", got["reasons"])
+        self.assertEqual(got["consensus"]["total"], 8.0)
+
     def test_flags_qwen_extra_amount_disagreement_even_when_total_matches(self):
         row = self._row({
             "azure": _result(),
