@@ -254,6 +254,67 @@ class ResizeTests(unittest.TestCase):
         w, h = Image.open(io.BytesIO(out)).size
         self.assertEqual((w, h), (50, 100))
 
+    def test_ollama_uses_smaller_local_vision_budget(self):
+        import json
+        import tempfile
+
+        saved_resize = extract._resize_for_vision
+        saved_urlopen = extract.urllib.request.urlopen
+        seen = {}
+
+        def fake_resize(image_bytes, max_dim=extract.VISION_MAX_DIM, quality=88):
+            seen["image_bytes"] = image_bytes
+            seen["max_dim"] = max_dim
+            seen["quality"] = quality
+            return b"scaled-image"
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                payload = {
+                    "response": json.dumps({
+                        "merchantName": "Cafe",
+                        "merchantAddress": None,
+                        "transactionDate": None,
+                        "currencyCode": "AED",
+                        "currencySymbol": None,
+                        "lineItems": [],
+                        "subtotal": 10.0,
+                        "total": 10.0,
+                        "extras": [],
+                    })
+                }
+                return json.dumps(payload).encode("utf-8")
+
+        def fake_urlopen(request, timeout):
+            seen["timeout"] = timeout
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return FakeResponse()
+
+        extract._resize_for_vision = fake_resize
+        extract.urllib.request.urlopen = fake_urlopen
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".jpg") as image:
+                image.write(b"raw-phone-photo")
+                image.flush()
+                result = extract.extract_ollama_vision(Path(image.name), "qwen2.5vl:7b", label="qwen")
+        finally:
+            extract._resize_for_vision = saved_resize
+            extract.urllib.request.urlopen = saved_urlopen
+
+        self.assertEqual(seen["image_bytes"], b"raw-phone-photo")
+        self.assertEqual(seen["max_dim"], extract.OLLAMA_VISION_MAX_DIM)
+        self.assertEqual(seen["quality"], 88)
+        self.assertEqual(seen["timeout"], 300)
+        self.assertEqual(seen["body"]["images"], ["c2NhbGVkLWltYWdl"])
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["expected"]["merchantName"], "Cafe")
+
 
 if __name__ == "__main__":
     unittest.main()
