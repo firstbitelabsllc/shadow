@@ -37,6 +37,33 @@ AZURE_SAMPLE = {
     }
 }
 
+AZURE_KETTLE_QUERY_FIELDS = {
+    "analyzeResult": {
+        "documents": [
+            {
+                "fields": {
+                    "MerchantName": {"valueString": "THE KETTLE CORNER RESTAURANT LLC"},
+                    "MerchantAddress": {"valueString": "Shams Boutik, Al Reem Island, Abu Dhabi"},
+                    "Subtotal": {"valueCurrency": {"amount": 100.0, "currencyCode": "USD"}},
+                    "TotalBeforeVAT": {"valueCurrency": {"amount": 95.24, "currencyCode": "AED"}},
+                    "VAT": {"valueCurrency": {"amount": 4.76, "currencyCode": "AED"}},
+                    "Total": {"valueCurrency": {"amount": 100.0, "currencyCode": "USD"}},
+                    "Items": {
+                        "valueArray": [
+                            {"valueObject": {"Description": {"valueString": "MASALA CHAI REGULAR"},
+                                             "TotalPrice": {"valueNumber": 8.0},
+                                             "Quantity": {"valueNumber": 1}}},
+                            {"valueObject": {"Description": {"valueString": "NILGARI CHICKEN"},
+                                             "TotalPrice": {"valueNumber": 48.0},
+                                             "Quantity": {"valueNumber": 1}}},
+                        ]
+                    },
+                }
+            }
+        ]
+    }
+}
+
 
 class JsonFromTextTests(unittest.TestCase):
     def test_fenced(self):
@@ -63,6 +90,13 @@ class AzureMappingTests(unittest.TestCase):
         self.assertEqual(len(scanned["lineItems"]), 2)
         self.assertEqual(scanned["lineItems"][0]["name"], "Kaffee")
         self.assertEqual([e["kind"] for e in scanned["extras"]], ["tax"])
+
+    def test_prefers_total_before_vat_and_uae_currency(self):
+        scanned = extract.azure_to_scanned(AZURE_KETTLE_QUERY_FIELDS, latency_ms=900)
+        self.assertEqual(scanned["currencyCode"], "AED")
+        self.assertEqual(scanned["subtotal"], 95.24)
+        self.assertEqual(scanned["total"], 100.0)
+        self.assertEqual(scanned["extras"], [{"label": "VAT", "amount": 4.76, "kind": "tax"}])
 
     def test_finalize_injects_provenance_and_validates(self):
         result = extract._finalize(
@@ -128,6 +162,27 @@ class ClaudeResultParseTests(unittest.TestCase):
         self.assertEqual(result["expected"]["lineItems"], [])
         self.assertEqual(result["expected"]["extras"], [])
         self.assertIn("provenance", result["expected"])
+
+
+class ExtractAzureTests(unittest.TestCase):
+    def test_extract_azure_requests_default_query_fields(self):
+        saved_ready = extract.ocr.config_ready
+        saved_analyze = extract.ocr.analyze_receipt
+        seen = {}
+        extract.ocr.config_ready = lambda: (True, "ok")
+
+        def fake_analyze(image_bytes, **kwargs):
+            seen["query_fields"] = kwargs.get("query_fields")
+            return AZURE_SAMPLE
+
+        extract.ocr.analyze_receipt = fake_analyze
+        try:
+            result = extract.extract_azure(b"\xff\xd8\xff\xe0" + b"x" * 2048)
+            self.assertIsNone(result["error"])
+            self.assertEqual(seen["query_fields"], extract.ocr.DEFAULT_QUERY_FIELDS)
+        finally:
+            extract.ocr.config_ready = saved_ready
+            extract.ocr.analyze_receipt = saved_analyze
 
 
 class DispatchTests(unittest.TestCase):

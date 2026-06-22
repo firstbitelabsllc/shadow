@@ -197,7 +197,10 @@ def handle_ocr(row_id: str) -> tuple[int, dict[str, Any]]:
 
     try:
         image_bytes = abs_path.read_bytes()
-        result = ocr.analyze_receipt(image_bytes)  # network I/O — deliberately OUTSIDE the corpus lock
+        result = ocr.analyze_receipt(
+            image_bytes,
+            query_fields=ocr.DEFAULT_QUERY_FIELDS,
+        )  # network I/O — deliberately OUTSIDE the corpus lock
     except (ocr.OCRConfigError, ocr.OCRRequestError, ocr.OCRPollTimeout) as exc:
         return 502, {"error": f"OCR failed: {exc}"}
 
@@ -281,7 +284,14 @@ def handle_analyze(row_id: str, payload: dict[str, Any]) -> tuple[int, dict[str,
     }
 
     def _store(row: dict[str, Any]) -> dict[str, Any]:
-        row.setdefault("annotations", {})["extractions"] = extractions
+        annotations = row.setdefault("annotations", {})
+        existing = annotations.get("extractions")
+        if isinstance(existing, dict):
+            merged = dict(existing)
+            merged.update(extractions)
+            annotations["extractions"] = merged
+        else:
+            annotations["extractions"] = extractions
         return row
 
     updated = storage.update_row(DEFAULT_CORPUS_PATH, row_id, _store)

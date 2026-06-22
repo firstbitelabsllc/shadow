@@ -188,11 +188,18 @@ class OcrTests(HandlerTestCase):
     def test_200_stores_azure_response_when_configured(self):
         _, body = self.upload()
         saved_ready, saved_analyze = handler.ocr.config_ready, handler.ocr.analyze_receipt
+        seen = {}
         handler.ocr.config_ready = lambda: (True, "ok")
-        handler.ocr.analyze_receipt = lambda b: {"analyzeResult": {"documents": []}}
+
+        def fake_analyze(image_bytes, **kwargs):
+            seen["query_fields"] = kwargs.get("query_fields")
+            return {"analyzeResult": {"documents": []}}
+
+        handler.ocr.analyze_receipt = fake_analyze
         try:
             s, out = handler.handle_ocr(body["id"])
             self.assertEqual(s, 200)
+            self.assertEqual(seen["query_fields"], handler.ocr.DEFAULT_QUERY_FIELDS)
             row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, body["id"])
             self.assertIn("azure_response", row["annotations"])
         finally:
@@ -306,6 +313,28 @@ class AnalyzeTests(HandlerTestCase):
             self.assertEqual(sorted(out["providers"]), ["azure", "claude"])
             row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, body["id"])
             self.assertEqual(sorted(row["annotations"]["extractions"]), ["azure", "claude"])
+        finally:
+            compare.compare_image = saved
+
+    def test_subset_analyze_preserves_existing_provider_extractions(self):
+        _, body = self.upload()
+        rid = body["id"]
+        row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, rid)
+        row.setdefault("annotations", {})["extractions"] = {
+            "azure": {"expected": {"total": 10}, "latency_ms": 1, "error": None, "problems": []},
+            "claude": {"expected": {"total": 10}, "latency_ms": 2, "error": None, "problems": []},
+        }
+        storage.replace_row(handler.DEFAULT_CORPUS_PATH, rid, row)
+
+        compare, saved = self._fake_compare()
+        try:
+            s, out = handler.handle_analyze(rid, {"providers": ["qwen"]})
+            self.assertEqual(s, 200)
+            self.assertEqual(out["providers"], ["qwen"])
+            row = storage.find_by_id(handler.DEFAULT_CORPUS_PATH, rid)
+            self.assertEqual(sorted(row["annotations"]["extractions"]), ["azure", "claude", "qwen"])
+            self.assertEqual(row["annotations"]["extractions"]["azure"]["expected"]["total"], 10)
+            self.assertEqual(row["annotations"]["extractions"]["qwen"]["expected"]["total"], 9.9)
         finally:
             compare.compare_image = saved
 
