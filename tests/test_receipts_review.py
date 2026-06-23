@@ -186,6 +186,54 @@ class ReviewRowTests(unittest.TestCase):
         self.assertIn("provider_total_disagreement", got["warnings"])
         self.assertIn("provider_extras_disagreement", got["warnings"])
 
+    def test_repo_grounded_fixture_downgrades_provider_disagreement_to_warning(self):
+        row = self._row({
+            "azure": _result(total=10.0, currency="USD"),
+            "claude": _result(total=12.0, currency="AED"),
+        })
+
+        got = review.review_row(
+            row,
+            repo_fixtures={
+                "abc123": {
+                    "inRepo": True,
+                    "grounded": True,
+                    "imagePath": "Tests/Fixtures/Receipts/images/abc123.jpg",
+                },
+            },
+        )
+
+        self.assertEqual(got["state"], "grounded_consistent")
+        self.assertTrue(got["grounded"])
+        self.assertTrue(got["repoFixture"]["grounded"])
+        self.assertEqual(got["reasons"], [])
+        self.assertIn("in_repo_grounded", got["warnings"])
+        self.assertIn("provider_total_disagreement", got["warnings"])
+        self.assertIn("provider_currency_disagreement", got["warnings"])
+
+    def test_repo_stub_fixture_does_not_downgrade_provider_disagreement(self):
+        row = self._row({
+            "azure": _result(total=10.0, currency="USD"),
+            "claude": _result(total=12.0, currency="AED"),
+        })
+
+        got = review.review_row(
+            row,
+            repo_fixtures={
+                "abc123": {
+                    "inRepo": True,
+                    "grounded": False,
+                    "imagePath": "Tests/Fixtures/Receipts/images/abc123.jpg",
+                },
+            },
+        )
+
+        self.assertEqual(got["state"], "needs_review")
+        self.assertFalse(got["grounded"])
+        self.assertIn("in_repo_stub", got["warnings"])
+        self.assertIn("total_disagreement", got["reasons"])
+        self.assertIn("currency_disagreement", got["reasons"])
+
     def test_grounded_expected_still_flags_true_total_mismatch(self):
         expected = _result(total=11.0, subtotal=9.0)["expected"]
         row = self._row({"azure": _result(), "claude": _result()}, expected=expected)
@@ -194,6 +242,25 @@ class ReviewRowTests(unittest.TestCase):
 
         self.assertEqual(got["state"], "needs_review")
         self.assertIn("grounded_total_disagreement", got["reasons"])
+
+    def test_repo_grounded_fixture_downgrades_stale_local_expected_mismatch(self):
+        expected = _result(total=11.0, subtotal=9.0)["expected"]
+        row = self._row({"azure": _result(), "claude": _result()}, expected=expected)
+
+        got = review.review_row(
+            row,
+            repo_fixtures={
+                "abc123": {
+                    "inRepo": True,
+                    "grounded": True,
+                    "imagePath": "Tests/Fixtures/Receipts/images/abc123.jpg",
+                },
+            },
+        )
+
+        self.assertEqual(got["state"], "grounded_consistent")
+        self.assertEqual(got["reasons"], [])
+        self.assertIn("repo_grounded_total_disagreement", got["warnings"])
 
     def test_included_tax_reconciles_when_subtotal_already_equals_total(self):
         included_tax = _result(total=56.0, subtotal=56.0, currency="AUD", extras=[
@@ -286,6 +353,27 @@ class ReviewCorpusCliTests(unittest.TestCase):
         self.assertEqual(report["counts"]["needs_review"], 1)
         self.assertEqual(report["domainCounts"], {"unsure": 2})
         self.assertEqual(report["providerErrors"], {"qwen": 1})
+
+    def test_review_corpus_uses_ios_fixture_corpus(self):
+        row = self._append("review", {
+            "azure": _result(total=10.0, currency="USD"),
+            "claude": _result(total=12.0, currency="AED"),
+        })
+        ios_corpus = Path(self.tmp.name) / "ios-corpus.jsonl"
+        storage.append_row(ios_corpus, {
+            "id": row["id"],
+            "name": "review",
+            "image_path": "Tests/Fixtures/Receipts/images/review.jpg",
+            "expected": _result()["expected"],
+        })
+
+        report = review.review_corpus(self.corpus, repo_fixture_corpus_path=ios_corpus)
+
+        self.assertEqual(report["repoFixtureCount"], 1)
+        self.assertEqual(report["repoGroundedFixtureCount"], 1)
+        self.assertEqual(report["counts"]["grounded_consistent"], 1)
+        self.assertEqual(report["rows"][0]["state"], "grounded_consistent")
+        self.assertIn("in_repo_grounded", report["rows"][0]["warnings"])
 
     def test_review_corpus_orders_dining_before_retail_within_state(self):
         self._append(

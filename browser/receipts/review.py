@@ -256,17 +256,52 @@ def _priority(reasons: list[str], state: str) -> int:
     return max((weights.get(reason, 10) for reason in reasons), default=10)
 
 
-def _provider_signal(reason: str, expected: dict | None, reasons: list[str], warnings: list[str]) -> None:
-    if expected is None:
+def _provider_signal(reason: str, grounded: bool, reasons: list[str], warnings: list[str]) -> None:
+    if not grounded:
         reasons.append(reason)
     else:
         warnings.append(reason if reason.startswith("provider_") else f"provider_{reason}")
 
 
-def review_row(row: dict[str, Any]) -> dict[str, Any]:
+def _grounded_mismatch_signal(
+    reason: str,
+    repo_grounded: bool,
+    reasons: list[str],
+    warnings: list[str],
+) -> None:
+    if repo_grounded:
+        warnings.append(f"repo_{reason}")
+    else:
+        reasons.append(reason)
+
+
+def load_repo_fixture_index(corpus_path: Path | None) -> dict[str, dict[str, Any]]:
+    if corpus_path is None:
+        return {}
+    fixtures: dict[str, dict[str, Any]] = {}
+    for fixture in storage.read_all(corpus_path):
+        fixture_id = fixture.get("id")
+        if not isinstance(fixture_id, str) or not fixture_id:
+            continue
+        fixtures[fixture_id] = {
+            "inRepo": True,
+            "grounded": isinstance(fixture.get("expected"), dict),
+            "imagePath": fixture.get("image_path"),
+        }
+    return fixtures
+
+
+def review_row(
+    row: dict[str, Any],
+    *,
+    repo_fixtures: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     annotations = row.get("annotations") if isinstance(row.get("annotations"), dict) else {}
     extraction_map = annotations.get("extractions") if isinstance(annotations.get("extractions"), dict) else {}
     expected = row.get("expected") if isinstance(row.get("expected"), dict) else None
+    fixture = (repo_fixtures or {}).get(row.get("id")) or {}
+    repo_grounded = bool(fixture.get("grounded"))
+    grounded = expected is not None or repo_grounded
     provider_names = sorted(
         [provider for provider, result in extraction_map.items() if isinstance(result, dict)],
         key=_provider_key,
@@ -288,21 +323,25 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         for summary in successes
         if summary["extrasSignature"] or summary["total"] is not None
     }
-    supported_total = _supported_total_consensus(successes) if expected is None else None
+    supported_total = _supported_total_consensus(successes) if not grounded else None
 
     reasons: list[str] = []
     warnings: list[str] = []
+    if repo_grounded and expected is None:
+        warnings.append("in_repo_grounded")
+    elif fixture.get("inRepo") and expected is None:
+        warnings.append("in_repo_stub")
     if not providers:
         reasons.append("no_stored_extractions")
     if any(summary["error"] for summary in providers.values()):
-        _provider_signal("provider_error", expected, reasons, warnings)
+        _provider_signal("provider_error", grounded, reasons, warnings)
     if any(summary["problemCount"] for summary in providers.values()):
-        _provider_signal("provider_problem", expected, reasons, warnings)
+        _provider_signal("provider_problem", grounded, reasons, warnings)
     if providers and not successes:
         reasons.append("no_successful_provider")
     if len(successes) == 1:
-        _provider_signal("insufficient_provider_agreement", expected, reasons, warnings)
-    if expected is None and successes:
+        _provider_signal("insufficient_provider_agreement", grounded, reasons, warnings)
+    if not grounded and successes:
         if not totals:
             reasons.append("no_total_evidence")
         elif len(totals) == 1 and len(successes) > 1:
@@ -311,15 +350,15 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         if supported_total is not None:
             warnings.append("provider_outlier_total")
         else:
-            _provider_signal("total_disagreement", expected, reasons, warnings)
+            _provider_signal("total_disagreement", grounded, reasons, warnings)
     if subtotals and not _money_agrees(subtotals):
-        _provider_signal("subtotal_disagreement", expected, reasons, warnings)
+        _provider_signal("subtotal_disagreement", grounded, reasons, warnings)
     if len(currencies) > 1:
-        _provider_signal("currency_disagreement", expected, reasons, warnings)
+        _provider_signal("currency_disagreement", grounded, reasons, warnings)
     if len(extra_signatures) > 1:
-        _provider_signal("extras_disagreement", expected, reasons, warnings)
+        _provider_signal("extras_disagreement", grounded, reasons, warnings)
     if successes and not any(summary["totalReconciles"] is True for summary in successes):
-        _provider_signal("no_reconciled_provider", expected, reasons, warnings)
+        _provider_signal("no_reconciled_provider", grounded, reasons, warnings)
 
     expected_total = _money(expected.get("total")) if expected else None
     expected_subtotal = _money(expected.get("subtotal")) if expected else None
@@ -332,20 +371,20 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
 
     if expected and consensus_total is not None and expected_total is not None:
         if not _money_agrees([expected_total, consensus_total]):
-            reasons.append("grounded_total_disagreement")
+            _grounded_mismatch_signal("grounded_total_disagreement", repo_grounded, reasons, warnings)
     if expected and consensus_subtotal is not None and expected_subtotal is not None:
         if not _money_agrees([expected_subtotal, consensus_subtotal]):
-            reasons.append("grounded_subtotal_disagreement")
+            _grounded_mismatch_signal("grounded_subtotal_disagreement", repo_grounded, reasons, warnings)
     if expected and len(currencies) == 1 and expected_currency and expected_currency != currencies[0]:
-        reasons.append("grounded_currency_disagreement")
+        _grounded_mismatch_signal("grounded_currency_disagreement", repo_grounded, reasons, warnings)
     if expected and expected_signature and extra_signatures and tuple(expected_signature) not in extra_signatures:
-        reasons.append("grounded_extras_disagreement")
+        _grounded_mismatch_signal("grounded_extras_disagreement", repo_grounded, reasons, warnings)
 
     if not providers:
         state = "no_extractions"
     elif reasons:
         state = "needs_review"
-    elif expected:
+    elif grounded:
         state = "grounded_consistent"
     else:
         state = "ready_candidate"
@@ -356,7 +395,8 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         "imagePath": row.get("image_path"),
         "private": bool(row.get("private")),
         "domain": domain,
-        "grounded": expected is not None,
+        "grounded": grounded,
+        "repoFixture": fixture or {"inRepo": False, "grounded": False, "imagePath": None},
         "state": state,
         "priority": _priority(reasons, state),
         "reasons": reasons,
@@ -376,9 +416,14 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def review_corpus(corpus_path: Path) -> dict[str, Any]:
+def review_corpus(
+    corpus_path: Path,
+    *,
+    repo_fixture_corpus_path: Path | None = None,
+) -> dict[str, Any]:
     rows = storage.read_all(corpus_path)
-    reviews = [review_row(row) for row in rows]
+    repo_fixtures = load_repo_fixture_index(repo_fixture_corpus_path)
+    reviews = [review_row(row, repo_fixtures=repo_fixtures) for row in rows]
     reviews.sort(
         key=lambda row: (
             STATE_ORDER.get(row["state"], 99),
@@ -400,6 +445,11 @@ def review_corpus(corpus_path: Path) -> dict[str, Any]:
                 provider_errors[provider] = provider_errors.get(provider, 0) + 1
     return {
         "corpus": str(corpus_path),
+        "repoFixtureCorpus": str(repo_fixture_corpus_path) if repo_fixture_corpus_path else None,
+        "repoFixtureCount": len(repo_fixtures),
+        "repoGroundedFixtureCount": sum(
+            1 for fixture in repo_fixtures.values() if fixture.get("grounded")
+        ),
         "rowCount": len(rows),
         "withExtractions": sum(1 for review in reviews if review["providerCount"]),
         "counts": counts,
@@ -456,6 +506,11 @@ def render_table(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Review stored receipt corpus extraction evidence.")
     parser.add_argument("--corpus", default=DEFAULT_CORPUS, type=Path)
+    parser.add_argument(
+        "--ios-corpus",
+        type=Path,
+        help="Optional resplit-ios fixture corpus; rows grounded there are demoted from active provider-only review noise.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit the full review report as JSON.")
     parser.add_argument("--limit", type=int, default=20, help="Table rows to show; use 0 for no limit.")
     parser.add_argument("--state", choices=sorted(STATE_ORDER), help="Only show rows in one state.")
@@ -463,7 +518,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     corpus = args.corpus.expanduser().resolve()
-    report = review_corpus(corpus)
+    ios_corpus = args.ios_corpus.expanduser().resolve() if args.ios_corpus else None
+    report = review_corpus(corpus, repo_fixture_corpus_path=ios_corpus)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
