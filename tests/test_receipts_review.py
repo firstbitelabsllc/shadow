@@ -77,6 +77,23 @@ class ReviewRowTests(unittest.TestCase):
         self.assertIn("insufficient_total_agreement", got["reasons"])
         self.assertEqual(got["consensus"]["total"], 8.0)
 
+    def test_single_provider_total_without_money_text_is_parked(self):
+        row = self._row(
+            {
+                "azure": _result(total=None, subtotal=None, currency=None, extras=[]),
+                "claude": _result(total=None, subtotal=None, currency="USD", extras=[]),
+                "qwen": _result(total=8.0, subtotal=8.0, currency="USD", extras=[]),
+            },
+            ocr_text="MOLLY TEA\nDELIVERY\n#8\nGardenia Tea\n01/30/2026 11:53AM",
+        )
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "no_extractions")
+        self.assertIn("non_receipt_order_ticket", got["reasons"])
+        self.assertIn("insufficient_total_agreement", got["reasons"])
+        self.assertEqual(got["consensus"]["total"], 8.0)
+
     def test_reconciled_majority_total_can_override_one_provider_outlier(self):
         # Daesung c04031206c0f has subtotal/tax agreement, but Azure selected
         # an impossible $44.00 typed total while Claude and Qwen both read the

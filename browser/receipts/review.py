@@ -232,6 +232,22 @@ def _supported_total_consensus(summaries: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
+def _looks_like_order_ticket_without_amount(
+    *,
+    grounded: bool,
+    domain: dict[str, Any],
+    successes: list[dict[str, Any]],
+    totals: list[float],
+    supported_total: dict[str, Any] | None,
+) -> bool:
+    """Return true when provider money is likely an order number hallucination."""
+    if grounded or supported_total is not None:
+        return False
+    if domain.get("money") is True:
+        return False
+    return len(successes) > 1 and len(totals) == 1
+
+
 def _priority(reasons: list[str], state: str) -> int:
     weights = {
         "provider_error": 100,
@@ -324,6 +340,13 @@ def review_row(
         if summary["extrasSignature"] or summary["total"] is not None
     }
     supported_total = _supported_total_consensus(successes) if not grounded else None
+    order_ticket_without_amount = _looks_like_order_ticket_without_amount(
+        grounded=grounded,
+        domain=domain,
+        successes=successes,
+        totals=totals,
+        supported_total=supported_total,
+    )
 
     reasons: list[str] = []
     warnings: list[str] = []
@@ -346,6 +369,8 @@ def review_row(
             reasons.append("no_total_evidence")
         elif len(totals) == 1 and len(successes) > 1:
             reasons.append("insufficient_total_agreement")
+    if order_ticket_without_amount:
+        reasons.append("non_receipt_order_ticket")
     if totals and not _money_agrees(totals):
         if supported_total is not None:
             warnings.append("provider_outlier_total")
@@ -380,7 +405,9 @@ def review_row(
     if expected and expected_signature and extra_signatures and tuple(expected_signature) not in extra_signatures:
         _grounded_mismatch_signal("grounded_extras_disagreement", repo_grounded, reasons, warnings)
 
-    if not providers:
+    if order_ticket_without_amount:
+        state = "no_extractions"
+    elif not providers:
         state = "no_extractions"
     elif reasons:
         state = "needs_review"
