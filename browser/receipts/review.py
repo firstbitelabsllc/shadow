@@ -30,6 +30,7 @@ DEFAULT_CORPUS = Path(
 
 RECONCILE_TOL = 0.02
 PROVIDER_ORDER = {"azure": 0, "claude": 1, "qwen": 2, "codex": 3, "gemma3": 4}
+TRACKED_PROVIDERS = ("azure", "claude", "qwen")
 STATE_ORDER = {"needs_review": 0, "ready_candidate": 1, "grounded_consistent": 2, "no_extractions": 3}
 DOMAIN_ORDER = {"dining": 0, "unsure": 1, "retail": 2, "invoice": 3}
 INFORMATIONAL_TAX_KINDS = {"tax"}
@@ -419,6 +420,7 @@ def review_row(
     return {
         "id": row.get("id"),
         "name": row.get("name"),
+        "importedAt": annotations.get("imported_at"),
         "imagePath": row.get("image_path"),
         "private": bool(row.get("private")),
         "domain": domain,
@@ -447,8 +449,14 @@ def review_corpus(
     corpus_path: Path,
     *,
     repo_fixture_corpus_path: Path | None = None,
+    imported_since: str | None = None,
 ) -> dict[str, Any]:
     rows = storage.read_all(corpus_path)
+    if imported_since:
+        rows = [
+            row for row in rows
+            if str((row.get("annotations") or {}).get("imported_at") or "") >= imported_since
+        ]
     repo_fixtures = load_repo_fixture_index(repo_fixture_corpus_path)
     reviews = [review_row(row, repo_fixtures=repo_fixtures) for row in rows]
     reviews.sort(
@@ -470,9 +478,11 @@ def review_corpus(
         for provider, summary in review["providers"].items():
             if summary["error"]:
                 provider_errors[provider] = provider_errors.get(provider, 0) + 1
+    provider_coverage = provider_coverage_summary(reviews)
     return {
         "corpus": str(corpus_path),
         "repoFixtureCorpus": str(repo_fixture_corpus_path) if repo_fixture_corpus_path else None,
+        "importedSince": imported_since,
         "repoFixtureCount": len(repo_fixtures),
         "repoGroundedFixtureCount": sum(
             1 for fixture in repo_fixtures.values() if fixture.get("grounded")
@@ -482,8 +492,29 @@ def review_corpus(
         "counts": counts,
         "domainCounts": domain_counts,
         "providerErrors": provider_errors,
+        "providerCoverage": provider_coverage,
         "rows": reviews,
     }
+
+
+def provider_coverage_summary(reviews: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    coverage = {
+        provider: {"present": 0, "success": 0, "error": 0, "missing": 0}
+        for provider in TRACKED_PROVIDERS
+    }
+    for review in reviews:
+        providers = review.get("providers") or {}
+        for provider in TRACKED_PROVIDERS:
+            summary = providers.get(provider)
+            if summary is None:
+                coverage[provider]["missing"] += 1
+                continue
+            coverage[provider]["present"] += 1
+            if summary.get("error"):
+                coverage[provider]["error"] += 1
+            else:
+                coverage[provider]["success"] += 1
+    return coverage
 
 
 def _format_money(value: Any) -> str:
@@ -511,6 +542,7 @@ def render_table(
             f"states: {json.dumps(report['counts'], sort_keys=True)}  "
             f"domains: {json.dumps(report.get('domainCounts', {}), sort_keys=True)}"
         ),
+        f"provider_coverage: {json.dumps(report.get('providerCoverage', {}), sort_keys=True)}",
         "",
         "state                domain    id            providers  total   curr  reasons",
         "-" * 90,
@@ -542,11 +574,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=20, help="Table rows to show; use 0 for no limit.")
     parser.add_argument("--state", choices=sorted(STATE_ORDER), help="Only show rows in one state.")
     parser.add_argument("--domain", choices=sorted(DOMAIN_ORDER), help="Only show rows in one domain.")
+    parser.add_argument(
+        "--imported-since",
+        help="Only review rows whose annotations.imported_at ISO timestamp is >= this value.",
+    )
     args = parser.parse_args(argv)
 
     corpus = args.corpus.expanduser().resolve()
     ios_corpus = args.ios_corpus.expanduser().resolve() if args.ios_corpus else None
-    report = review_corpus(corpus, repo_fixture_corpus_path=ios_corpus)
+    report = review_corpus(
+        corpus,
+        repo_fixture_corpus_path=ios_corpus,
+        imported_since=args.imported_since,
+    )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

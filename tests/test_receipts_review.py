@@ -344,7 +344,7 @@ class ReviewCorpusCliTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _append(self, name, extractions, *, expected=None, ocr_text=None):
+    def _append(self, name, extractions, *, expected=None, ocr_text=None, imported_at=None):
         row = storage.make_row(
             image_bytes=SAMPLE_BYTES + name.encode(),
             name=name,
@@ -353,6 +353,8 @@ class ReviewCorpusCliTests(unittest.TestCase):
         )
         row["expected"] = expected
         row["annotations"]["extractions"] = extractions
+        if imported_at is not None:
+            row["annotations"]["imported_at"] = imported_at
         if ocr_text is not None:
             row["annotations"]["azure_response"] = {"analyzeResult": {"content": ocr_text}}
         storage.append_row(self.corpus, row)
@@ -370,6 +372,48 @@ class ReviewCorpusCliTests(unittest.TestCase):
         self.assertEqual(report["counts"]["needs_review"], 1)
         self.assertEqual(report["domainCounts"], {"unsure": 2})
         self.assertEqual(report["providerErrors"], {"qwen": 1})
+        self.assertEqual(report["providerCoverage"]["azure"], {
+            "present": 2,
+            "success": 2,
+            "error": 0,
+            "missing": 0,
+        })
+        self.assertEqual(report["providerCoverage"]["claude"], {
+            "present": 1,
+            "success": 1,
+            "error": 0,
+            "missing": 1,
+        })
+        self.assertEqual(report["providerCoverage"]["qwen"], {
+            "present": 1,
+            "success": 0,
+            "error": 1,
+            "missing": 1,
+        })
+
+    def test_review_corpus_filters_by_imported_since(self):
+        self._append(
+            "old",
+            {"azure": _result(), "claude": _result(), "qwen": _result()},
+            imported_at="2026-06-01T00:00:00Z",
+        )
+        self._append(
+            "recent",
+            {"azure": _result(), "claude": _result(), "qwen": _result()},
+            imported_at="2026-06-21T18:39:07Z",
+        )
+
+        report = review.review_corpus(self.corpus, imported_since="2026-06-15")
+
+        self.assertEqual(report["importedSince"], "2026-06-15")
+        self.assertEqual(report["rowCount"], 1)
+        self.assertEqual(report["rows"][0]["name"], "recent")
+        self.assertEqual(report["providerCoverage"]["qwen"], {
+            "present": 1,
+            "success": 1,
+            "error": 0,
+            "missing": 0,
+        })
 
     def test_review_corpus_uses_ios_fixture_corpus(self):
         row = self._append("review", {
@@ -433,6 +477,7 @@ class ReviewCorpusCliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         out = stdout.getvalue()
         self.assertIn("needs_review", out)
+        self.assertIn("provider_coverage:", out)
         self.assertIn("provider_error", out)
         self.assertNotIn("ready_candidate  ", out)
 
