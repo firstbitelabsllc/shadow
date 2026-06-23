@@ -256,6 +256,13 @@ def _priority(reasons: list[str], state: str) -> int:
     return max((weights.get(reason, 10) for reason in reasons), default=10)
 
 
+def _provider_signal(reason: str, expected: dict | None, reasons: list[str], warnings: list[str]) -> None:
+    if expected is None:
+        reasons.append(reason)
+    else:
+        warnings.append(reason if reason.startswith("provider_") else f"provider_{reason}")
+
+
 def review_row(row: dict[str, Any]) -> dict[str, Any]:
     annotations = row.get("annotations") if isinstance(row.get("annotations"), dict) else {}
     extraction_map = annotations.get("extractions") if isinstance(annotations.get("extractions"), dict) else {}
@@ -288,13 +295,13 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
     if not providers:
         reasons.append("no_stored_extractions")
     if any(summary["error"] for summary in providers.values()):
-        reasons.append("provider_error")
+        _provider_signal("provider_error", expected, reasons, warnings)
     if any(summary["problemCount"] for summary in providers.values()):
-        reasons.append("provider_problem")
+        _provider_signal("provider_problem", expected, reasons, warnings)
     if providers and not successes:
         reasons.append("no_successful_provider")
     if len(successes) == 1:
-        reasons.append("insufficient_provider_agreement")
+        _provider_signal("insufficient_provider_agreement", expected, reasons, warnings)
     if expected is None and successes:
         if not totals:
             reasons.append("no_total_evidence")
@@ -304,15 +311,15 @@ def review_row(row: dict[str, Any]) -> dict[str, Any]:
         if supported_total is not None:
             warnings.append("provider_outlier_total")
         else:
-            reasons.append("total_disagreement")
+            _provider_signal("total_disagreement", expected, reasons, warnings)
     if subtotals and not _money_agrees(subtotals):
-        reasons.append("subtotal_disagreement")
+        _provider_signal("subtotal_disagreement", expected, reasons, warnings)
     if len(currencies) > 1:
-        reasons.append("currency_disagreement")
+        _provider_signal("currency_disagreement", expected, reasons, warnings)
     if len(extra_signatures) > 1:
-        reasons.append("extras_disagreement")
+        _provider_signal("extras_disagreement", expected, reasons, warnings)
     if successes and not any(summary["totalReconciles"] is True for summary in successes):
-        reasons.append("no_reconciled_provider")
+        _provider_signal("no_reconciled_provider", expected, reasons, warnings)
 
     expected_total = _money(expected.get("total")) if expected else None
     expected_subtotal = _money(expected.get("subtotal")) if expected else None

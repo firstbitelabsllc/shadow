@@ -145,6 +145,56 @@ class ReviewRowTests(unittest.TestCase):
         self.assertEqual(got["state"], "grounded_consistent")
         self.assertTrue(got["grounded"])
 
+    def test_grounded_expected_downgrades_provider_disagreement_to_warning(self):
+        # Marathon 0bbded8cc434 is app-grounded at the corrected payment total.
+        # Azure's old extraction remains useful evidence, but it should not keep
+        # the already-fixed fixture at the top of the active bug queue.
+        expected = _result(
+            total=63.03,
+            subtotal=49.45,
+            extras=[
+                {"kind": "tax", "label": "Tax", "amount": 4.39},
+                {"kind": "tip", "label": "Tip", "amount": 7.42},
+                {"kind": "fee", "label": "Processing Fee", "amount": 1.77},
+            ],
+        )["expected"]
+        row = self._row({
+            "azure": _result(
+                total=53.84,
+                subtotal=49.45,
+                extras=[
+                    {"kind": "tax", "label": "Tax", "amount": 4.39},
+                    {"kind": "tip", "label": "Tip", "amount": 7.42},
+                    {"kind": "fee", "label": "Processing Fee", "amount": 7.42},
+                ],
+            ),
+            "claude": _result(
+                total=63.03,
+                subtotal=49.45,
+                extras=[
+                    {"kind": "tax", "label": "Tax", "amount": 4.39},
+                    {"kind": "tip", "label": "Tip", "amount": 7.42},
+                    {"kind": "fee", "label": "Processing Fee", "amount": 1.77},
+                ],
+            ),
+        }, expected=expected)
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "grounded_consistent")
+        self.assertEqual(got["reasons"], [])
+        self.assertIn("provider_total_disagreement", got["warnings"])
+        self.assertIn("provider_extras_disagreement", got["warnings"])
+
+    def test_grounded_expected_still_flags_true_total_mismatch(self):
+        expected = _result(total=11.0, subtotal=9.0)["expected"]
+        row = self._row({"azure": _result(), "claude": _result()}, expected=expected)
+
+        got = review.review_row(row)
+
+        self.assertEqual(got["state"], "needs_review")
+        self.assertIn("grounded_total_disagreement", got["reasons"])
+
     def test_included_tax_reconciles_when_subtotal_already_equals_total(self):
         included_tax = _result(total=56.0, subtotal=56.0, currency="AUD", extras=[
             {"kind": "tax", "label": "GST(10%)", "amount": 5.10},
