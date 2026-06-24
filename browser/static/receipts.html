@@ -170,14 +170,15 @@ const $ = (id) => document.getElementById(id);
 // Concurrency for batch ops. The local qwen model serializes on the GPU anyway,
 // so a small pool avoids hammering Ollama while still overlapping azure/claude I/O.
 const BATCH_CONCURRENCY = 2;
-// Consensus needs at least this many independent extractors to agree on (currency,total).
-const MIN_CONSENSUS = 2;
+// One-click grounding is intentionally strict: all three extractors must agree
+// on (currency,total) before the UI promotes a provider result to expected.
+const MIN_CONSENSUS = 3;
 
 // Clean, contract-valid provenance for consensus-grounded `expected`.
-// Mirrors receipts/consensus_ground.py CONSENSUS_PROVENANCE: a grounded row is ground
-// truth (not a live scan), so latency/retry are zeroed and provider mirrors the azure-di
-// pipeline the iOS FixtureReplayProvider replays. scannedAt is a TZ ISO with no fractional
-// seconds (Swift .iso8601 decode is strict — see receipts/contract.py).
+// A grounded row is ground truth (not a live scan), so latency/retry are zeroed
+// and provider mirrors the azure-di pipeline the iOS FixtureReplayProvider
+// replays. scannedAt is a TZ ISO with no fractional seconds (Swift .iso8601
+// decode is strict — see receipts/contract.py).
 const CONSENSUS_PROVENANCE = {
   providerName: "azure-di", providerVersion: "4",
   scannedAt: "2026-06-23T00:00:00Z", latencyMs: 0, retryCount: 0,
@@ -217,34 +218,35 @@ function captureState(row) {
 function hasAzureResponse(row) { return !!(row.annotations && row.annotations.azure_response); }
 function extractionsOf(row) { return (row.annotations && row.annotations.extractions) || {}; }
 
-// Coarse agreement key: (UPPER currencyCode, integer cents of total). Mirrors
-// consensus_ground.consensus_key — cents-rounding avoids 49.99 vs 49.990001 splits.
+// Coarse agreement key: (UPPER currencyCode, integer cents of total). Cents
+// rounding avoids 49.99 vs 49.990001 splits.
 function consensusKey(expected) {
   if (!expected || !isNum(expected.total)) return null;
   return `${String(expected.currencyCode || "").toUpperCase()}|${Math.round(expected.total * 100)}`;
 }
-// Returns the largest agreeing set across non-errored providers.
+// Returns a consensus only when every valid provider agrees. A plurality is
+// useful review signal, but it is not strong enough for one-click grounding.
 function consensusOf(row) {
   const ext = extractionsOf(row);
   const groups = {}; // key -> [providers]
+  let total = 0;
   for (const [prov, res] of Object.entries(ext)) {
     if (!res || res.error) continue;
     const k = consensusKey(res.expected);
     if (!k) continue;
+    total++;
     (groups[k] = groups[k] || []).push(prov);
   }
-  let best = { key: null, providers: [], total: ext ? Object.keys(ext).length : 0 };
-  for (const [k, provs] of Object.entries(groups)) {
-    if (provs.length > best.providers.length) best = { key: k, providers: provs, total: best.total };
-  }
-  best.total = Object.values(ext).filter(r => r && !r.error && r.expected).length;
-  return best;
+  const entries = Object.entries(groups);
+  if (total < MIN_CONSENSUS) return { key: null, providers: [], total, split: false };
+  if (entries.length !== 1) return { key: null, providers: [], total, split: true };
+  const [key, providers] = entries[0];
+  return { key, providers, total, split: false };
 }
 // The provider whose extraction we promote to `expected`. ALWAYS azure: the iOS
 // FixtureReplayProvider replays the raw azure_response through the azure mapper and compares
 // to `expected`, so `expected` must come from azure or the iOS corpus test reds. We only
-// ground when azure is IN the largest agreeing set (≥1 other provider corroborates) — an
-// azure outlier is left for human review. Mirrors receipts/consensus_ground.py.
+// ground when all three providers agree and azure is present.
 function groundSource(row) {
   const c = consensusOf(row);
   if (c.providers.length < MIN_CONSENSUS) return null;
@@ -309,9 +311,9 @@ function extractionsHtml(row) {
 function pillsHtml(row) {
   const pills = [];
   const c = consensusOf(row);
-  if (c.providers.length >= 3) pills.push(`<span class="pill consensus">consensus ${c.providers.length}/${c.total} ✓</span>`);
-  else if (c.providers.length >= MIN_CONSENSUS) pills.push(`<span class="pill consensus">agree ${c.providers.length}/${c.total}</span>`);
-  else if (c.total >= 2) pills.push(`<span class="pill split">split — providers disagree</span>`);
+  if (c.providers.length >= MIN_CONSENSUS) pills.push(`<span class="pill consensus">consensus ${c.providers.length}/${c.total} ✓</span>`);
+  else if (c.split) pills.push(`<span class="pill split">split — providers disagree</span>`);
+  else if (c.total > 0) pills.push(`<span class="pill split">needs ${MIN_CONSENSUS} agreeing providers</span>`);
   if (hasAzureResponse(row)) pills.push(`<span class="pill exportable" title="has azure_response → exports to iOS fixtures">exportable</span>`);
   return pills.length ? `<div class="pills">${pills.join("")}</div>` : "";
 }

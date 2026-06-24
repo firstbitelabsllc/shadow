@@ -4,6 +4,7 @@ Runs entirely against tempdirs; the real lab corpus and resplit-ios repo are nev
 """
 
 import sys
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -78,11 +79,35 @@ class ExportTests(unittest.TestCase):
         azure = repo_dir / "azure-v4-responses" / f"{a}.json"
         self.assertTrue(img.exists(), "image copied to repo images/")
         self.assertTrue(azure.exists(), "azure response written")
+        self.assertEqual(json.loads(azure.read_text()), {"x": 1})
 
         rows = {r["id"]: r for r in storage.read_all(self.out)}
         self.assertEqual(rows[a]["image_path"], f"Tests/Fixtures/Receipts/images/{a}-{date}.jpg")
         self.assertNotIn("azure_response", rows[a]["annotations"])  # stripped from corpus row
         self.assertEqual(rows[a]["expected"], VALID_EXPECTED)
+
+    def test_azure_analyze_result_unwraps_operation_envelope(self):
+        inner = {"documents": [{"fields": {"Total": {"valueCurrency": {"amount": 12.34}}}}]}
+        self.assertEqual(
+            export._azure_analyze_result({"status": "succeeded", "analyzeResult": inner}),
+            inner,
+        )
+
+    def test_azure_analyze_result_leaves_inner_shape_unchanged(self):
+        inner = {"documents": [{"fields": {}}]}
+        self.assertIs(export._azure_analyze_result(inner), inner)
+
+    def test_exported_azure_cache_is_swift_replay_shape(self):
+        inner = {"documents": [{"fields": {"MerchantName": {"content": "Cafe"}}}]}
+        rid = self._add("swift-shape", expected=VALID_EXPECTED, azure={"status": "succeeded", "analyzeResult": inner})
+
+        result = export.export_corpus(self.lab, self.out)
+
+        self.assertEqual(result["azure_written"], 1)
+        written = json.loads((self.out.parent / "azure-v4-responses" / f"{rid}.json").read_text())
+        self.assertEqual(written, inner)
+        self.assertIn("documents", written)
+        self.assertNotIn("analyzeResult", written)
 
     def test_idempotent_second_run_appends_nothing(self):
         self._add("grounded", expected=VALID_EXPECTED, azure={"analyzeResult": {}})
