@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>receipts — vidux corpus lab</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>receipts — moussey corpus lab</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
   /* Receipt lab — extends paper-and-ink palette from style.css */
-  main { padding: 16px clamp(16px, 2vw, 32px); max-width: 1200px; margin: 0 auto; }
+  main { padding: 16px clamp(16px, 2vw, 32px); max-width: 1280px; margin: 0 auto; }
   h2 { font-family: var(--serif); margin: 24px 0 8px; }
   .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
   .row label { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
@@ -21,8 +22,11 @@
     border-radius: 3px;
   }
   button:hover { background: var(--select); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
   button.primary { background: var(--accent); color: var(--paper); border-color: var(--accent); }
   button.primary:hover { background: #244e30; }
+  button.local { background: #1f3b52; color: var(--paper); border-color: #1f3b52; }
+  button.local:hover { background: #2a5577; }
   button.danger:hover { background: var(--hot); color: var(--paper); border-color: var(--hot); }
   #dropzone {
     border: 2px dashed var(--rule); border-radius: 6px; padding: 18px;
@@ -30,9 +34,33 @@
     margin-bottom: 12px; transition: background 0.12s, border-color 0.12s;
   }
   #dropzone.drag { background: var(--select); border-color: var(--accent); color: var(--ink); }
+  /* Local-model status pill in the header */
+  .lm-badge {
+    font-family: var(--mono); font-size: 12px; padding: 2px 9px; border-radius: 999px;
+    border: 1px solid var(--rule); color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center;
+  }
+  .lm-badge.up { color: var(--task-completed); border-color: var(--task-completed); }
+  .lm-badge.down { color: var(--hot); border-color: var(--hot); }
+  .lm-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .banner {
+    border: 1px solid var(--warning); background: var(--warning-bg); color: var(--warning-ink);
+    padding: 8px 12px; border-radius: 4px; font-family: var(--mono); font-size: 12px; margin-bottom: 12px;
+  }
+  .banner code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 2px; }
+  .hidden { display: none !important; }
+  /* Toolbar */
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); cursor: pointer;
+  }
+  .chip.active { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  .progress-wrap { flex: 1 1 220px; min-width: 200px; }
+  .progress-track { height: 6px; border-radius: 3px; background: var(--select); overflow: hidden; }
+  .progress-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.18s; }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 12px;
     margin-top: 12px;
   }
@@ -40,6 +68,7 @@
     background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px;
     padding: 12px; display: flex; flex-direction: column; gap: 6px;
   }
+  .card.busy { outline: 2px solid var(--accent); outline-offset: -2px; }
   .card img.thumb {
     width: 100%; max-height: 200px; object-fit: contain; background: var(--paper);
     border: 1px solid var(--rule); border-radius: 3px;
@@ -53,44 +82,83 @@
   }
   .tag-input, .ki-input, .note-input { font-family: var(--mono); font-size: 12px; width: 100%; }
   .note-input { resize: vertical; min-height: 36px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .cap { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 2px; align-self: flex-start; }
   .cap.stub { color: var(--ink-2); border: 1px solid var(--rule); }
   .cap.ocrd { color: #8a5a00; border: 1px solid #d8a23a; background: #fbf3e2; }
   .cap.grounded { color: var(--task-completed); border: 1px solid var(--task-completed); }
+  .pill { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 2px; }
+  .pill.consensus { color: var(--task-completed); border: 1px solid var(--task-completed); }
+  .pill.split { color: #8a5a00; border: 1px solid #d8a23a; background: #fbf3e2; }
+  .pill.exportable { color: var(--cold, #2a5577); border: 1px solid var(--cold, #2a5577); }
+  /* Extractions debug table */
+  .ext { border-top: 1px dashed var(--rule); margin-top: 4px; padding-top: 6px; }
+  .ext table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .ext th, .ext td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--rule); }
+  .ext th { color: var(--ink-2); font-weight: 400; }
+  .ext .prov { font-weight: 600; }
+  .ext .prov.local { color: #2a5577; }
+  .ext .agree { color: var(--task-completed); }
+  .ext .err { color: var(--hot); }
+  .ext .lat { color: var(--ink-2); }
   .card-actions { gap: 6px; margin: 4px 0 0; }
   .card-actions button { padding: 4px 9px; font-size: 12px; }
   .status { font-family: var(--mono); font-size: 12px; color: var(--ink-2); min-height: 18px; }
   .status.error { color: var(--hot); }
   .status.ok { color: var(--task-completed); }
   .private { color: var(--hot); font-family: var(--mono); font-size: 11px; }
+  .muted { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
 </style>
 </head>
 <body>
 
 <header class="topbar">
-  <h1>receipts — vidux corpus lab</h1>
+  <h1>receipts — moussey corpus lab</h1>
   <span style="font-family: var(--mono); font-size: 12px; color: var(--ink-2);">
-    LAN scanner → tag → OCR → export to resplit-ios fixtures
+    LAN scan → local+cloud OCR → consensus → export to resplit-ios fixtures
+  </span>
+  <span id="lm-badge" class="lm-badge" title="Local vision model (Ollama)">
+    <span class="lm-dot"></span><span id="lm-text">local model: checking…</span>
   </span>
 </header>
 
 <main>
-  <h2>Add a receipt</h2>
-  <div id="dropzone">drag &amp; drop a receipt photo here, paste an image (⌘V), or use the file picker below</div>
+  <div id="lm-banner" class="banner hidden"></div>
+
+  <h2>Add receipts</h2>
+  <div id="dropzone">drag &amp; drop receipt photos here (multiple OK), paste an image (⌘V), or pick files below</div>
   <div class="row">
-    <label>name <input type="text" id="upload-name" placeholder="lunch at cafe"></label>
+    <label>name <input type="text" id="upload-name" placeholder="lunch at cafe (single only — batch uses filenames)"></label>
     <label>tags <input type="text" id="upload-tags" placeholder="thermal,USD,short"></label>
     <label><input type="checkbox" id="upload-private"> private (no image saved)</label>
   </div>
   <div class="row">
-    <input type="file" id="upload-file" accept="image/jpeg,image/png">
+    <input type="file" id="upload-file" accept="image/jpeg,image/png" multiple>
     <button class="primary" id="upload-btn">upload + ingest</button>
     <span class="status" id="upload-status"></span>
   </div>
+  <div class="progress-wrap hidden" id="upload-progress">
+    <div class="progress-track"><div class="progress-bar" id="upload-bar"></div></div>
+  </div>
 
-  <h2>Corpus <span id="count" style="font-family: var(--mono); font-size: 13px; color: var(--ink-2);"></span></h2>
-  <div class="row">
+  <h2>Corpus <span id="count" class="muted"></span></h2>
+  <div class="row toolbar">
     <button id="refresh-btn">refresh</button>
+    <span class="chip active" data-filter="all" id="chip-all">all</span>
+    <span class="chip" data-filter="stub" id="chip-stub">stub</span>
+    <span class="chip" data-filter="ocrd" id="chip-ocrd">OCR'd</span>
+    <span class="chip" data-filter="grounded" id="chip-grounded">grounded</span>
+  </div>
+  <div class="row toolbar">
+    <button class="local" id="batch-local">⚡ Local pass (qwen) — all ungrounded</button>
+    <button id="batch-full">☁ OCR + analyze — all ungrounded</button>
+    <button class="primary" id="batch-ground">✓ Ground consensus — all eligible</button>
+    <button class="danger hidden" id="batch-cancel">stop</button>
+  </div>
+  <div class="row">
+    <div class="progress-wrap hidden" id="batch-progress">
+      <div class="progress-track"><div class="progress-bar" id="batch-bar"></div></div>
+    </div>
     <span class="status" id="list-status"></span>
   </div>
   <div class="grid" id="grid"></div>
@@ -99,72 +167,193 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
-// A blank ScannedReceipt skeleton — mirrors receipts/promote.py SKELETON so the
-// "Set expected" editor pre-fills a valid shape (provenance required, ISO-8601 scannedAt).
-const EXPECTED_SKELETON = {
-  merchantName: "", currencyCode: "USD", currencySymbol: "$",
-  lineItems: [{ name: "", amount: 0.0, quantity: 1 }],
-  subtotal: 0.0, total: 0.0,
-  extras: [{ label: "Tax", amount: 0.0, kind: "tax" }],
-  provenance: { providerName: "azure-di", providerVersion: "4", scannedAt: "2026-01-01T00:00:00Z", latencyMs: 0, retryCount: 0 },
+// Concurrency for batch ops. The local qwen model serializes on the GPU anyway,
+// so a small pool avoids hammering Ollama while still overlapping azure/claude I/O.
+const BATCH_CONCURRENCY = 2;
+// Consensus needs at least this many independent extractors to agree on (currency,total).
+const MIN_CONSENSUS = 2;
+
+// Clean, contract-valid provenance for consensus-grounded `expected`.
+// Mirrors receipts/consensus_ground.py CONSENSUS_PROVENANCE: a grounded row is ground
+// truth (not a live scan), so latency/retry are zeroed and provider mirrors the azure-di
+// pipeline the iOS FixtureReplayProvider replays. scannedAt is a TZ ISO with no fractional
+// seconds (Swift .iso8601 decode is strict — see receipts/contract.py).
+const CONSENSUS_PROVENANCE = {
+  providerName: "azure-di", providerVersion: "4",
+  scannedAt: "2026-06-23T00:00:00Z", latencyMs: 0, retryCount: 0,
 };
+// Valid ScannedExtraKind rawValues (resplit-ios ScannedReceipt.swift). Anything else → "unknown".
+const EXTRA_KINDS = new Set(["tax","tip","fee","serviceCharge","mandate","surcharge","discount","credit","unknown"]);
 
-async function refreshList() {
-  const status = $("list-status");
-  status.className = "status";
-  status.textContent = "loading…";
-  try {
-    const r = await fetch("/api/receipts/list");
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    $("count").textContent = `(${data.count})`;
-    renderGrid(data.rows || []);
-    status.className = "status ok";
-    status.textContent = `loaded ${data.count}`;
-  } catch (e) {
-    status.className = "status error";
-    status.textContent = `error: ${e.message}`;
-  }
+let CACHE = [];          // last-loaded rows
+let FILTER = "all";      // all | stub | ocrd | grounded
+let BUSY = new Set();    // row ids currently being analyzed (UI lock)
+let cancelBatch = false; // cooperative cancel flag for batch ops
+
+// ---------------------------------------------------------------- helpers
+function splitCsv(s) { return s.split(",").map(t => t.trim()).filter(Boolean); }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+function isNum(v) { return typeof v === "number" && !Number.isNaN(v); }
+function fmtMoney(total, code) {
+  if (!isNum(total)) return "—";
+  return `${total.toFixed(2)} ${code ? String(code).toUpperCase() : ""}`.trim();
+}
+function setListStatus(msg, ok) {
+  const s = $("list-status");
+  s.className = "status " + (ok === false ? "error" : ok === true ? "ok" : "");
+  s.textContent = msg;
 }
 
+// ---------------------------------------------------------------- state classification
 function captureState(row) {
-  if (row.expected != null) return { cls: "grounded", text: "grounded ✓ (runs a test)" };
-  if (row.annotations && row.annotations.azure_response) return { cls: "ocrd", text: "OCR'd — needs expected" };
-  return { cls: "stub", text: "stub — no OCR yet" };
+  if (row.expected != null) return { key: "grounded", cls: "grounded", text: "grounded ✓ (runs a test)" };
+  if (row.annotations && row.annotations.azure_response) return { key: "ocrd", cls: "ocrd", text: "OCR'd — needs expected" };
+  return { key: "stub", cls: "stub", text: "stub — no OCR yet" };
+}
+function hasAzureResponse(row) { return !!(row.annotations && row.annotations.azure_response); }
+function extractionsOf(row) { return (row.annotations && row.annotations.extractions) || {}; }
+
+// Coarse agreement key: (UPPER currencyCode, integer cents of total). Mirrors
+// consensus_ground.consensus_key — cents-rounding avoids 49.99 vs 49.990001 splits.
+function consensusKey(expected) {
+  if (!expected || !isNum(expected.total)) return null;
+  return `${String(expected.currencyCode || "").toUpperCase()}|${Math.round(expected.total * 100)}`;
+}
+// Returns the largest agreeing set across non-errored providers.
+function consensusOf(row) {
+  const ext = extractionsOf(row);
+  const groups = {}; // key -> [providers]
+  for (const [prov, res] of Object.entries(ext)) {
+    if (!res || res.error) continue;
+    const k = consensusKey(res.expected);
+    if (!k) continue;
+    (groups[k] = groups[k] || []).push(prov);
+  }
+  let best = { key: null, providers: [], total: ext ? Object.keys(ext).length : 0 };
+  for (const [k, provs] of Object.entries(groups)) {
+    if (provs.length > best.providers.length) best = { key: k, providers: provs, total: best.total };
+  }
+  best.total = Object.values(ext).filter(r => r && !r.error && r.expected).length;
+  return best;
+}
+// The provider whose extraction we promote to `expected`. ALWAYS azure: the iOS
+// FixtureReplayProvider replays the raw azure_response through the azure mapper and compares
+// to `expected`, so `expected` must come from azure or the iOS corpus test reds. We only
+// ground when azure is IN the largest agreeing set (≥1 other provider corroborates) — an
+// azure outlier is left for human review. Mirrors receipts/consensus_ground.py.
+function groundSource(row) {
+  const c = consensusOf(row);
+  if (c.providers.length < MIN_CONSENSUS) return null;
+  if (!c.providers.includes("azure")) return null; // azure outlier → human reviews
+  const ext = extractionsOf(row);
+  return (ext.azure && ext.azure.expected) ? "azure" : null;
 }
 
-function renderGrid(rows) {
+// ---------------------------------------------------------------- render
+function refreshList() {
+  setListStatus("loading…");
+  return fetch("/api/receipts/list")
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(data => {
+      CACHE = data.rows || [];
+      renderGrid();
+      updateFilterCounts();
+      setListStatus(`loaded ${data.count}`, true);
+    })
+    .catch(e => setListStatus(`error: ${e.message}`, false));
+}
+
+function updateFilterCounts() {
+  const counts = { all: CACHE.length, stub: 0, ocrd: 0, grounded: 0 };
+  for (const row of CACHE) counts[captureState(row).key]++;
+  $("count").textContent = `(${counts.all} — ${counts.grounded} grounded · ${counts.ocrd} OCR'd · ${counts.stub} stub)`;
+  $("chip-all").textContent = `all ${counts.all}`;
+  $("chip-stub").textContent = `stub ${counts.stub}`;
+  $("chip-ocrd").textContent = `OCR'd ${counts.ocrd}`;
+  $("chip-grounded").textContent = `grounded ${counts.grounded}`;
+}
+
+function extractionsHtml(row) {
+  const ext = extractionsOf(row);
+  const provs = Object.keys(ext);
+  if (!provs.length) return "";
+  const c = consensusOf(row);
+  const order = ["qwen", "azure", "claude"].filter(p => provs.includes(p)).concat(provs.filter(p => !["qwen","azure","claude"].includes(p)));
+  const rows = order.map(p => {
+    const r = ext[p] || {};
+    const local = p === "qwen";
+    const agree = c.providers.includes(p);
+    const label = `${escapeHtml(p)}${local ? " ⚡" : ""}`;
+    if (r.error) {
+      return `<tr><td class="prov ${local ? "local" : ""}">${label}</td><td class="err" colspan="3">${escapeHtml(String(r.error)).slice(0, 80)}</td></tr>`;
+    }
+    const exp = r.expected || {};
+    const items = Array.isArray(exp.lineItems) ? exp.lineItems.length : 0;
+    const lat = isNum(r.latency_ms) ? `${(r.latency_ms / 1000).toFixed(1)}s` : "";
+    return `<tr>
+      <td class="prov ${local ? "local" : ""} ${agree ? "agree" : ""}">${label}${agree ? " ✓" : ""}</td>
+      <td>${escapeHtml(fmtMoney(exp.total, exp.currencyCode))}</td>
+      <td>${items} items</td>
+      <td class="lat">${lat}</td>
+    </tr>`;
+  }).join("");
+  return `<div class="ext"><table>
+    <tr><th>provider</th><th>total</th><th>lines</th><th>lat</th></tr>${rows}
+  </table></div>`;
+}
+
+function pillsHtml(row) {
+  const pills = [];
+  const c = consensusOf(row);
+  if (c.providers.length >= 3) pills.push(`<span class="pill consensus">consensus ${c.providers.length}/${c.total} ✓</span>`);
+  else if (c.providers.length >= MIN_CONSENSUS) pills.push(`<span class="pill consensus">agree ${c.providers.length}/${c.total}</span>`);
+  else if (c.total >= 2) pills.push(`<span class="pill split">split — providers disagree</span>`);
+  if (hasAzureResponse(row)) pills.push(`<span class="pill exportable" title="has azure_response → exports to iOS fixtures">exportable</span>`);
+  return pills.length ? `<div class="pills">${pills.join("")}</div>` : "";
+}
+
+function renderGrid() {
   const grid = $("grid");
   grid.innerHTML = "";
+  const rows = CACHE.filter(r => FILTER === "all" || captureState(r).key === FILTER);
   for (const row of rows) {
     const cap = captureState(row);
     const ann = row.annotations || {};
     const card = document.createElement("div");
-    card.className = "card";
+    card.className = "card" + (BUSY.has(row.id) ? " busy" : "");
+    card.dataset.id = row.id;
     const showImage = !row.private && row.image_path;
+    const canGround = !!groundSource(row);
     card.innerHTML = `
       <div class="id">${row.id}${row.private ? ' <span class="private">PRIVATE</span>' : ''}</div>
       ${showImage ? `<img class="thumb" loading="lazy" src="/api/receipts/${row.id}/image" alt="receipt ${row.id}">` : ''}
       <div class="name">${escapeHtml(row.name || "(unnamed)")}</div>
       <div class="cap ${cap.cls}">${cap.text}</div>
-      <div class="tags">
-        ${(ann.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}
-      </div>
+      ${pillsHtml(row)}
+      ${extractionsHtml(row)}
+      <div class="tags">${(ann.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
       <input class="tag-input" type="text" value="${escapeHtml((ann.tags || []).join(","))}" placeholder="comma,separated,tags">
       <input class="ki-input" type="text" value="${escapeHtml((ann.known_issues || []).join(","))}" placeholder="known issues (comma)">
       <textarea class="note-input" placeholder="leo note">${escapeHtml(ann.leo_note || "")}</textarea>
       <div class="row card-actions">
-        <button data-act="ocr">Run OCR</button>
-        <button data-act="expected">Set expected…</button>
-        <button class="danger" data-act="delete">Delete</button>
+        <button class="local" data-act="local" title="run only the local qwen vision model — free + private">⚡ qwen</button>
+        <button data-act="analyze" title="OCR (stores azure_response for iOS export) then azure + claude + qwen">analyze ▸</button>
+        <button class="primary" data-act="ground" ${canGround ? "" : "disabled"} title="${canGround ? "set expected from the agreeing extraction" : "needs ≥" + MIN_CONSENSUS + " providers to agree"}">✓ ground</button>
+        <button data-act="ocr" title="azure DI only — stores azure_response (needed for iOS export)">OCR</button>
+        <button data-act="expected" title="hand-edit the ground-truth JSON">edit…</button>
+        <button class="danger" data-act="delete">del</button>
       </div>
     `;
-    card.querySelector(".tag-input").addEventListener("change", (e) =>
-      patchTag(row.id, { tags: splitCsv(e.target.value) }));
-    card.querySelector(".ki-input").addEventListener("change", (e) =>
-      patchTag(row.id, { known_issues: splitCsv(e.target.value) }));
-    card.querySelector(".note-input").addEventListener("change", (e) =>
-      patchTag(row.id, { leo_note: e.target.value.trim() || null }));
+    card.querySelector(".tag-input").addEventListener("change", (e) => patchTag(row.id, { tags: splitCsv(e.target.value) }));
+    card.querySelector(".ki-input").addEventListener("change", (e) => patchTag(row.id, { known_issues: splitCsv(e.target.value) }));
+    card.querySelector(".note-input").addEventListener("change", (e) => patchTag(row.id, { leo_note: e.target.value.trim() || null }));
+    card.querySelector('[data-act="local"]').addEventListener("click", () => analyzeRow(row.id, ["qwen"]));
+    card.querySelector('[data-act="analyze"]').addEventListener("click", () => analyzeCardFull(row.id));
+    card.querySelector('[data-act="ground"]').addEventListener("click", () => groundRow(row.id));
     card.querySelector('[data-act="ocr"]').addEventListener("click", () => runOcr(row.id));
     card.querySelector('[data-act="expected"]').addEventListener("click", () => editExpected(row));
     card.querySelector('[data-act="delete"]').addEventListener("click", () => deleteRow(row.id, row.name));
@@ -172,57 +361,77 @@ function renderGrid(rows) {
   }
 }
 
-function splitCsv(s) { return s.split(",").map(t => t.trim()).filter(Boolean); }
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[c]));
-}
-
-function setStatus(msg, ok) {
-  const s = $("list-status");
-  s.className = "status " + (ok ? "ok" : "error");
-  s.textContent = msg;
-}
-
+// ---------------------------------------------------------------- single-row ops
 async function patchTag(id, body) {
   try {
     const r = await fetch(`/api/receipts/${id}/tag`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    refreshList();
-  } catch (e) { setStatus(`update failed: ${e.message}`, false); }
+    await refreshList();
+  } catch (e) { setListStatus(`update failed: ${e.message}`, false); }
 }
 
 async function runOcr(id) {
-  setStatus(`OCR ${id}…`, true);
+  setListStatus(`OCR ${id}…`);
   try {
-    const r = await fetch(`/api/receipts/${id}/ocr`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-    });
+    const r = await fetch(`/api/receipts/${id}/ocr`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     const data = await r.json().catch(() => ({}));
-    if (r.status === 503) { setStatus("OCR not configured (set AZURE_OCR_SUBSCRIPTION_KEY)", false); return; }
+    if (r.status === 503) { setListStatus("OCR not configured (set AZURE_OCR_SUBSCRIPTION_KEY)", false); return; }
     if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-    setStatus(`OCR'd ${id} — now set expected`, true);
-    refreshList();
-  } catch (e) { setStatus(`OCR failed: ${e.message}`, false); }
+    setListStatus(`OCR'd ${id} — azure_response stored`, true);
+    await refreshList();
+  } catch (e) { setListStatus(`OCR failed: ${e.message}`, false); }
 }
 
-async function editExpected(row) {
-  const current = row.expected != null ? row.expected : EXPECTED_SKELETON;
-  const input = prompt(
-    `Ground-truth ScannedReceipt JSON for ${row.id}\n(edit the skeleton, or type "null" to clear):`,
-    JSON.stringify(current, null, 2)
-  );
-  if (input === null) return;
-  let expected;
+// Run the multi-provider extractor (any subset of azure/claude/qwen). Returns the
+// per-provider result map so batch callers can inspect the local-model outcome.
+async function analyzeRow(id, providers) {
+  BUSY.add(id); renderGrid();
+  const local = providers.length === 1 && providers[0] === "qwen";
+  setListStatus(`${local ? "local " : ""}analyze ${id} (${providers.join("+")})…`);
   try {
-    expected = input.trim() === "null" ? null : JSON.parse(input);
-  } catch (e) { setStatus(`invalid JSON: ${e.message}`, false); return; }
+    const r = await fetch(`/api/receipts/${id}/analyze`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providers }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    const ext = data.extractions || {};
+    observeLocalModel(ext.qwen);
+    const qErr = ext.qwen && ext.qwen.error;
+    setListStatus(qErr ? `analyzed ${id} — ⚠ local model errored` : `analyzed ${id} ✓`, qErr ? false : true);
+    return ext;
+  } catch (e) {
+    setListStatus(`analyze failed: ${e.message}`, false);
+    return null;
+  } finally {
+    BUSY.delete(id);
+    await refreshList();
+  }
+}
+
+// Per-card full pass: OCR (captures azure_response for iOS export) then all 3 providers.
+async function analyzeCardFull(id) {
+  BUSY.add(id); renderGrid();
+  setListStatus(`OCR ${id}…`);
   try {
-    const r = await fetch(`/api/receipts/${row.id}/expected`, {
+    const r = await fetch(`/api/receipts/${id}/ocr`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (r.status === 503) setListStatus("azure OCR not configured — analyzing anyway", false);
+  } catch (_) { /* analyze still runs; azure path inside analyze surfaces its own error */ }
+  BUSY.delete(id);
+  await analyzeRow(id, ["azure", "claude", "qwen"]);
+}
+
+// Promote the agreeing extraction to `expected` via the SAME validated endpoint the
+// manual editor uses (server runs contract.validate_expected before writing).
+async function groundRow(id) {
+  const row = CACHE.find(r => r.id === id);
+  if (!row) return;
+  const src = groundSource(row);
+  if (!src) { setListStatus(`cannot ground ${id} — no provider consensus`, false); return; }
+  const expected = buildExpected(extractionsOf(row)[src].expected);
+  try {
+    const r = await fetch(`/api/receipts/${id}/expected`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected }),
     });
     const data = await r.json().catch(() => ({}));
@@ -230,74 +439,261 @@ async function editExpected(row) {
       const probs = (data.problems || []).join("; ");
       throw new Error((data.error || `HTTP ${r.status}`) + (probs ? ` — ${probs}` : ""));
     }
-    setStatus(expected === null ? `cleared expected on ${row.id}` : `expected set on ${row.id} ✓`, true);
-    refreshList();
-  } catch (e) { setStatus(`set expected failed: ${e.message}`, false); }
+    setListStatus(`grounded ${id} from ${src} ✓${hasAzureResponse(row) ? "" : " (run OCR to make it iOS-exportable)"}`, true);
+    await refreshList();
+    return true;
+  } catch (e) { setListStatus(`ground failed: ${e.message}`, false); return false; }
+}
+
+// Build a contract-valid `expected` from a provider extraction: stamp clean provenance,
+// guarantee required arrays, coerce fractional quantity → null (Swift Int?), and clamp
+// unknown extras.kind → "unknown" so the Swift Codable decode never reds the corpus.
+function buildExpected(srcExpected) {
+  const e = JSON.parse(JSON.stringify(srcExpected || {}));
+  e.provenance = JSON.parse(JSON.stringify(CONSENSUS_PROVENANCE));
+  e.lineItems = Array.isArray(e.lineItems) ? e.lineItems : [];
+  e.extras = Array.isArray(e.extras) ? e.extras : [];
+  e.lineItems = e.lineItems.map(it => {
+    const item = { ...it };
+    if (item.quantity != null && !(typeof item.quantity === "number" && Number.isInteger(item.quantity))) {
+      item.quantity = isNum(item.quantity) ? Math.round(item.quantity) : null;
+    }
+    if (typeof item.name !== "string") item.name = String(item.name || "");
+    return item;
+  });
+  e.extras = e.extras
+    .filter(x => x && typeof x === "object")
+    .map(x => ({ ...x, label: typeof x.label === "string" ? x.label : String(x.label || ""), kind: EXTRA_KINDS.has(x.kind) ? x.kind : "unknown" }));
+  return e;
+}
+
+async function editExpected(row) {
+  const current = row.expected != null ? row.expected : buildExpected((extractionsOf(row).azure || {}).expected || {});
+  const input = prompt(`Ground-truth ScannedReceipt JSON for ${row.id}\n(edit, or type "null" to clear):`, JSON.stringify(current, null, 2));
+  if (input === null) return;
+  let expected;
+  try { expected = input.trim() === "null" ? null : JSON.parse(input); }
+  catch (e) { setListStatus(`invalid JSON: ${e.message}`, false); return; }
+  try {
+    const r = await fetch(`/api/receipts/${row.id}/expected`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { const probs = (data.problems || []).join("; "); throw new Error((data.error || `HTTP ${r.status}`) + (probs ? ` — ${probs}` : "")); }
+    setListStatus(expected === null ? `cleared expected on ${row.id}` : `expected set on ${row.id} ✓`, true);
+    await refreshList();
+  } catch (e) { setListStatus(`set expected failed: ${e.message}`, false); }
 }
 
 async function deleteRow(id, name) {
   if (!confirm(`Delete receipt "${name || id}" and its image? This cannot be undone.`)) return;
   try {
-    const r = await fetch(`/api/receipts/${id}/delete`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-    });
+    const r = await fetch(`/api/receipts/${id}/delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    setStatus(`deleted ${id}`, true);
-    refreshList();
-  } catch (e) { setStatus(`delete failed: ${e.message}`, false); }
+    setListStatus(`deleted ${id}`, true);
+    await refreshList();
+  } catch (e) { setListStatus(`delete failed: ${e.message}`, false); }
 }
 
-async function uploadFile(file) {
-  const status = $("upload-status");
-  if (!file) { status.className = "status error"; status.textContent = "pick a file first"; return; }
-  status.className = "status"; status.textContent = "reading…";
+// ---------------------------------------------------------------- batch ops
+function setBatchProgress(done, total, on) {
+  const wrap = $("batch-progress");
+  if (on === false) { wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  $("batch-bar").style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
+}
+function batchButtons(disabled) {
+  ["batch-local", "batch-full", "batch-ground", "refresh-btn", "upload-btn"].forEach(id => { $(id).disabled = disabled; });
+  $("batch-cancel").classList.toggle("hidden", !disabled);
+}
 
+// Run worker over items with a fixed concurrency pool + cooperative cancel.
+async function runPool(items, worker, onProgress) {
+  let i = 0, done = 0;
+  async function lane() {
+    while (i < items.length && !cancelBatch) {
+      const idx = i++;
+      try { await worker(items[idx]); } catch (_) { /* per-item failures already surfaced */ }
+      done++; onProgress(done, items.length);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, items.length) }, lane));
+  return done;
+}
+
+async function batchAnalyze(providers, label, withOcr) {
+  const targets = CACHE.filter(r => captureState(r).key !== "grounded" && !r.private && r.image_path);
+  if (!targets.length) { setListStatus("nothing to analyze (all grounded / private)", true); return; }
+  cancelBatch = false; batchButtons(true); setBatchProgress(0, targets.length);
+  setListStatus(`${label}: 0/${targets.length}…`);
+  const ids = targets.map(t => t.id);
+  await runPool(ids, async (id) => {
+    if (cancelBatch) return;
+    if (withOcr) await ocrQuiet(id); // store azure_response so grounded rows export to iOS
+    await analyzeRowQuiet(id, providers);
+  }, (done, total) => { setBatchProgress(done, total); setListStatus(`${label}: ${done}/${total}${cancelBatch ? " (stopping…)" : ""}`); });
+  batchButtons(false); setBatchProgress(0, 0, false);
+  setListStatus(cancelBatch ? `${label} stopped` : `${label} done`, true);
+  await refreshList();
+}
+
+async function ocrQuiet(id) {
+  try {
+    await fetch(`/api/receipts/${id}/ocr`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  } catch (_) { /* azure_response just won't be captured; surfaced by missing "exportable" pill */ }
+}
+
+// Same as analyzeRow but without per-call list-status churn (batch owns the status line).
+async function analyzeRowQuiet(id, providers) {
+  BUSY.add(id);
+  try {
+    const r = await fetch(`/api/receipts/${id}/analyze`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providers }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) observeLocalModel((data.extractions || {}).qwen);
+  } catch (_) { /* surfaced via local-model banner if qwen */ }
+  finally { BUSY.delete(id); }
+}
+
+async function batchGround() {
+  await refreshList(); // ensure latest extractions
+  const targets = CACHE.filter(r => r.expected == null && groundSource(r));
+  if (!targets.length) { setListStatus("no rows with provider consensus to ground", true); return; }
+  cancelBatch = false; batchButtons(true); setBatchProgress(0, targets.length);
+  let ok = 0;
+  const ids = targets.map(t => t.id);
+  await runPool(ids, async (id) => {
+    if (cancelBatch) return;
+    const done = await groundRowQuiet(id); if (done) ok++;
+  }, (done, total) => { setBatchProgress(done, total); setListStatus(`grounding: ${done}/${total} (${ok} set)`); });
+  batchButtons(false); setBatchProgress(0, 0, false);
+  setListStatus(cancelBatch ? `grounding stopped — ${ok} set` : `grounded ${ok} rows from consensus ✓`, true);
+  await refreshList();
+}
+
+async function groundRowQuiet(id) {
+  const row = CACHE.find(r => r.id === id);
+  if (!row) return false;
+  const src = groundSource(row);
+  if (!src) return false;
+  try {
+    const r = await fetch(`/api/receipts/${id}/expected`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected: buildExpected(extractionsOf(row)[src].expected) }),
+    });
+    return r.ok;
+  } catch (_) { return false; }
+}
+
+// ---------------------------------------------------------------- local-model health
+function setLocalBadge(state, text) {
+  const b = $("lm-badge");
+  b.className = "lm-badge" + (state === "up" ? " up" : state === "down" ? " down" : "");
+  $("lm-text").textContent = text;
+}
+function showLocalBanner(msg) { const el = $("lm-banner"); el.innerHTML = msg; el.classList.remove("hidden"); }
+function hideLocalBanner() { $("lm-banner").classList.add("hidden"); }
+
+// React to a qwen extraction result: a clean result → green badge; an error → red badge
+// + an actionable banner so a dead local model is never silent.
+function observeLocalModel(qwenResult) {
+  if (!qwenResult) return;
+  if (qwenResult.error) {
+    setLocalBadge("down", "local model: offline");
+    showLocalBanner(`⚠ Local vision model (qwen2.5vl) failed: ${escapeHtml(String(qwenResult.error)).slice(0, 120)}<br>Start it on this Mac: <code>ollama serve</code> then <code>ollama run qwen2.5vl:7b</code>`);
+  } else {
+    setLocalBadge("up", "local model: qwen2.5vl ✓");
+    hideLocalBanner();
+  }
+}
+
+// Best-effort proactive probe of Ollama (same Mac). CORS may block from a .local origin —
+// failure is silent and we fall back to reactive health on first analyze.
+async function probeLocalModel() {
+  try {
+    const r = await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2500) });
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    const has = (data.models || []).some(m => String(m.name || "").startsWith("qwen2.5vl"));
+    setLocalBadge(has ? "up" : "down", has ? "local model: qwen2.5vl ✓" : "local model: qwen2.5vl not pulled");
+    if (!has) showLocalBanner(`⚠ Ollama is up but <code>qwen2.5vl:7b</code> is not pulled. Run: <code>ollama pull qwen2.5vl:7b</code>`);
+  } catch (_) {
+    setLocalBadge("", "local model: verify on analyze");
+  }
+}
+
+// ---------------------------------------------------------------- upload (batch)
+async function uploadOne(file, sharedTags, isPrivate, name) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
+  for (let i = 0; i < bytes.length; i += chunkSize) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   const payload = {
-    name: $("upload-name").value.trim() || file.name,
+    name: name || file.name,
     image_base64: btoa(binary),
-    tags: splitCsv($("upload-tags").value),
-    private: $("upload-private").checked,
-    source: "vidux-browse:web-ui",
+    tags: sharedTags,
+    private: isPrivate,
+    source: "moussey:web-ui",
   };
-
-  status.textContent = "uploading…";
-  try {
-    const r = await fetch("/api/receipts/upload", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-    status.className = "status ok";
-    status.textContent = data.duplicate ? `already in corpus: ${data.id}` : `ingested: ${data.id}`;
-    $("upload-name").value = ""; $("upload-tags").value = ""; $("upload-file").value = "";
-    refreshList();
-  } catch (e) { status.className = "status error"; status.textContent = `error: ${e.message}`; }
+  const r = await fetch("/api/receipts/upload", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data; // {ok, id, duplicate}
 }
 
-$("upload-btn").addEventListener("click", () => uploadFile($("upload-file").files[0]));
-$("refresh-btn").addEventListener("click", refreshList);
+async function uploadFiles(fileList) {
+  const files = [...fileList].filter(f => f && /image\/(jpeg|png)/.test(f.type) || /\.(jpe?g|png)$/i.test(f.name || ""));
+  const status = $("upload-status");
+  if (!files.length) { status.className = "status error"; status.textContent = "pick image file(s) first"; return; }
+  const sharedTags = splitCsv($("upload-tags").value);
+  const isPrivate = $("upload-private").checked;
+  const singleName = files.length === 1 ? ($("upload-name").value.trim() || files[0].name) : null;
 
-// Drag & drop
+  let ingested = 0, dupes = 0, failed = 0;
+  status.className = "status"; status.textContent = `uploading 0/${files.length}…`;
+  if (files.length > 1) $("upload-progress").classList.remove("hidden");
+  for (let i = 0; i < files.length; i++) {
+    try {
+      const data = await uploadOne(files[i], sharedTags, isPrivate, singleName);
+      if (data.duplicate) dupes++; else ingested++;
+    } catch (e) { failed++; }
+    status.textContent = `uploading ${i + 1}/${files.length} — ${ingested} new, ${dupes} dup${failed ? `, ${failed} failed` : ""}`;
+    $("upload-bar").style.width = `${Math.round(((i + 1) / files.length) * 100)}%`;
+  }
+  status.className = "status " + (failed ? "error" : "ok");
+  status.textContent = `done: ${ingested} ingested, ${dupes} duplicate${failed ? `, ${failed} failed` : ""}`;
+  $("upload-name").value = ""; $("upload-tags").value = ""; $("upload-file").value = "";
+  setTimeout(() => $("upload-progress").classList.add("hidden"), 1200);
+  await refreshList();
+}
+
+// ---------------------------------------------------------------- wiring
+$("upload-btn").addEventListener("click", () => uploadFiles($("upload-file").files));
+$("refresh-btn").addEventListener("click", refreshList);
+$("batch-local").addEventListener("click", () => batchAnalyze(["qwen"], "⚡ local pass", false));
+$("batch-full").addEventListener("click", () => batchAnalyze(["azure", "claude", "qwen"], "☁ OCR + analyze", true));
+$("batch-ground").addEventListener("click", batchGround);
+$("batch-cancel").addEventListener("click", () => { cancelBatch = true; setListStatus("stopping after in-flight rows…"); });
+
+document.querySelectorAll(".chip").forEach(chip => chip.addEventListener("click", () => {
+  FILTER = chip.dataset.filter;
+  document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c === chip));
+  renderGrid();
+}));
+
 const dz = $("dropzone");
 dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("drag"); });
 dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
-dz.addEventListener("drop", (e) => {
-  e.preventDefault(); dz.classList.remove("drag");
-  const file = e.dataTransfer.files[0];
-  if (file) uploadFile(file);
-});
-// Clipboard paste (⌘V a screenshot)
+dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("drag"); if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
 document.addEventListener("paste", (e) => {
-  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
-  if (item) uploadFile(item.getAsFile());
+  const imgs = [...(e.clipboardData?.items || [])].filter(i => i.type.startsWith("image/")).map(i => i.getAsFile()).filter(Boolean);
+  if (imgs.length) uploadFiles(imgs);
 });
 
+probeLocalModel();
 refreshList();
 </script>
 
