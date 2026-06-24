@@ -82,15 +82,19 @@
   }
   .tag-input, .ki-input, .note-input { font-family: var(--mono); font-size: 12px; width: 100%; }
   .note-input { resize: vertical; min-height: 36px; }
-  .pills { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .pills { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; line-height: 1.2; }
   .cap { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 2px; align-self: flex-start; }
   .cap.stub { color: var(--ink-2); border: 1px solid var(--rule); }
   .cap.ocrd { color: #8a5a00; border: 1px solid #d8a23a; background: #fbf3e2; }
   .cap.grounded { color: var(--task-completed); border: 1px solid var(--task-completed); }
-  .pill { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 2px; }
-  .pill.consensus { color: var(--task-completed); border: 1px solid var(--task-completed); }
-  .pill.split { color: #8a5a00; border: 1px solid #d8a23a; background: #fbf3e2; }
-  .pill.exportable { color: var(--cold, #2a5577); border: 1px solid var(--cold, #2a5577); }
+  .receipt-pill {
+    display: inline-flex; align-items: center; min-height: 18px;
+    font-family: var(--mono); font-size: 10px; padding: 1px 6px;
+    border-radius: 2px; white-space: nowrap;
+  }
+  .receipt-pill.consensus { color: var(--task-completed); border: 1px solid var(--task-completed); }
+  .receipt-pill.split { color: #8a5a00; border: 1px solid #d8a23a; background: #fbf3e2; }
+  .receipt-pill.exportable { color: var(--cold, #2a5577); border: 1px solid var(--cold, #2a5577); }
   /* Extractions debug table */
   .ext { border-top: 1px dashed var(--rule); margin-top: 4px; padding-top: 6px; }
   .ext table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
@@ -311,10 +315,10 @@ function extractionsHtml(row) {
 function pillsHtml(row) {
   const pills = [];
   const c = consensusOf(row);
-  if (c.providers.length >= MIN_CONSENSUS) pills.push(`<span class="pill consensus">consensus ${c.providers.length}/${c.total} ✓</span>`);
-  else if (c.split) pills.push(`<span class="pill split">split — providers disagree</span>`);
-  else if (c.total > 0) pills.push(`<span class="pill split">needs ${MIN_CONSENSUS} agreeing providers</span>`);
-  if (hasAzureResponse(row)) pills.push(`<span class="pill exportable" title="has azure_response → exports to iOS fixtures">exportable</span>`);
+  if (c.providers.length >= MIN_CONSENSUS) pills.push(`<span class="receipt-pill consensus">consensus ${c.providers.length}/${c.total} ✓</span>`);
+  else if (c.split) pills.push(`<span class="receipt-pill split">split — providers disagree</span>`);
+  else if (c.total > 0) pills.push(`<span class="receipt-pill split">needs ${MIN_CONSENSUS} agreeing providers</span>`);
+  if (hasAzureResponse(row)) pills.push(`<span class="receipt-pill exportable" title="has azure_response → exports to iOS fixtures">exportable</span>`);
   return pills.length ? `<div class="pills">${pills.join("")}</div>` : "";
 }
 
