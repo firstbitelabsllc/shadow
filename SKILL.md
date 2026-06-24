@@ -9,6 +9,20 @@ Vidux is a discipline for AI agents: write down what you build before you build 
 
 **publish packet** = the publish ledger row that carries `{summary, task-id, plan-path, proof, handoff_status, files claimed, path-like claims, next-agent resume}`. Named once here; referenced by name below.
 
+## Rising Tide Doctrine (Leo 2026-06-22 — the stapled mantra for /vidux, /leo-flow, /auto)
+
+**A rising tide lifts all boats.** Every cycle improves *everything it touches*, not just the immediate goal row. This is the standing operating philosophy across `/vidux`, `/leo-flow`, and `/auto`.
+
+1. **Drive-by improve everything.** While in a file/surface for the goal, leave it better than you found it: rewrite weak code, delete dead/bad tests and write real ones, reconsider major system design, tighten UI, add/improve unit tests, prune+update docs/READMEs, clean stale Storybook/UI artifacts. The DEFAULT is "improve it now," not "log it for later" — bounded only by the self-improvement brake (name the file + the generic rule + the verify command + the stop condition; never fossilize a one-repo incident into a shared skill; never let "improve" become forever-work).
+
+2. **YOLO because everything reverts.** Any project Leo is working on can be YOLO'd — we can ALWAYS revert (a commit, a closed PR, `git revert`). So the default is *act*, not *ask*; ship the call and revert if wrong. A reverted call costs less than a no-op inbox.
+
+3. **Rewrite human gates by default.** On hitting a human gate (`[ASK-LEO]` tag, approval pause, "Leo-gated" row, "wait for sign-off"), the DEFAULT is to **rewrite it to agent-owned and proceed** — *unless it truly must exist*. The only gates that truly must exist are the hard safety rails: destructive git (force-push to main, branch delete, `reset --hard`, `clean -fd`), real-money spend beyond an existing tier, credential/secret handling, sending messages to external services, irreversible public brand/hero-copy, and prod data loss. Everything else: rewrite the gate, act, stay ready to revert. **Do not lean on Leo as a human gate.**
+
+4. **Never stop while there's a next cycle.** A dynamic-loop goal does not stop because one row landed — if a fresh PLAN sweep finds a next agent-reachable cycle, auto-start it immediately. Stop only when there is genuinely no next cycle (every row shipped-or-parked-at-a-named-hard-rail-gate).
+
+Leo 2026-06-22 verbatim: *"any project i am working on can be yolo and reverted, we can ALWAYS revert … everything and anything driveby improve everything not just the immediate goal."*
+
 ---
 
 ## First-Time Setup
