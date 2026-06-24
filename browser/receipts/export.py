@@ -49,6 +49,24 @@ def _yyyymmdd(row: dict) -> str:
     return imported[:10].replace("-", "") if len(imported) >= 10 else ""
 
 
+def _azure_analyze_result(azure_response: dict) -> dict:
+    """Unwrap the Azure operation envelope down to the inner analyzeResult.
+
+    iOS `FixtureReplayProvider.replay` decodes `azure-v4-responses/<id>.json`
+    DIRECTLY as `AnalyzeResultV4`, so the file must BE the analyzeResult
+    (`documents`/`fields` at the TOP level). The lab stores the full Azure
+    operation response — `{status, createdDateTime, analyzeResult: {...}}` —
+    which is what `ocr.analyze_receipt` returns. Writing that wrapper verbatim
+    decodes to `documents == nil` on the Swift side and throws
+    `.malformedResponse("…no documents/fields to map")`, reddening the whole
+    corpus. Unwrap here. Idempotent: a response already shaped as the inner
+    analyzeResult (no `analyzeResult` key) is returned unchanged.
+    """
+    if isinstance(azure_response, dict) and isinstance(azure_response.get("analyzeResult"), dict):
+        return azure_response["analyzeResult"]
+    return azure_response
+
+
 def export_corpus(
     lab_path: Path,
     out_path: Path,
@@ -116,7 +134,7 @@ def export_corpus(
             new_row["image_path"] = None
             if is_private and expected is not None and azure is not None:
                 # Private rows carry no image bytes, but iOS still replays their sanitized cache.
-                azure_writes.append((repo_azure / f"{rid}.json", azure))
+                azure_writes.append((repo_azure / f"{rid}.json", _azure_analyze_result(azure)))
         else:
             src = storage.safe_image_abs(lab_path.parent, lab_images, row["image_path"])
             if src is None or not src.exists():
@@ -128,7 +146,7 @@ def export_corpus(
             new_row["image_path"] = f"{REPO_IMAGES_PREFIX}/{dest_name}"
             image_copies.append((src, repo_images / dest_name))
             if azure is not None:
-                azure_writes.append((repo_azure / f"{rid}.json", azure))
+                azure_writes.append((repo_azure / f"{rid}.json", _azure_analyze_result(azure)))
 
         appended.append(new_row)
 
