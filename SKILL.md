@@ -9,9 +9,9 @@ Vidux is a discipline for AI agents: write down what you build before you build 
 
 **publish packet** = the publish ledger row that carries `{summary, task-id, plan-path, proof, handoff_status, files claimed, path-like claims, next-agent resume}`. Named once here; referenced by name below.
 
-## Rising Tide Doctrine (Leo 2026-06-22 — the stapled mantra for /vidux, /leo-flow, /auto)
+## Rising Tide Doctrine (Leo 2026-06-22 — the stapled mantra for /vidux and /leo-flow)
 
-**A rising tide lifts all boats.** Every cycle improves *everything it touches*, not just the immediate goal row. This is the standing operating philosophy across `/vidux`, `/leo-flow`, and `/auto`.
+**A rising tide lifts all boats.** Every cycle improves *everything it touches*, not just the immediate goal row. This is the standing operating philosophy across `/vidux` and `/leo-flow`.
 
 1. **Drive-by improve everything.** While in a file/surface for the goal, leave it better than you found it: rewrite weak code, delete dead/bad tests and write real ones, reconsider major system design, tighten UI, add/improve unit tests, prune+update docs/READMEs, clean stale Storybook/UI artifacts. The DEFAULT is "improve it now," not "log it for later" — bounded only by the self-improvement brake (name the file + the generic rule + the verify command + the stop condition; never fossilize a one-repo incident into a shared skill; never let "improve" become forever-work).
 
@@ -19,19 +19,80 @@ Vidux is a discipline for AI agents: write down what you build before you build 
 
 3. **Rewrite human gates by default.** On hitting a human gate (`[ASK-LEO]` tag, approval pause, "Leo-gated" row, "wait for sign-off"), the DEFAULT is to **rewrite it to agent-owned and proceed** — *unless it truly must exist*. The only gates that truly must exist are the hard safety rails: destructive git (force-push to main, branch delete, `reset --hard`, `clean -fd`), real-money spend beyond an existing tier, credential/secret handling, sending messages to external services, irreversible public brand/hero-copy, and prod data loss. Everything else: rewrite the gate, act, stay ready to revert. **Do not lean on Leo as a human gate.**
 
-4. **Never stop while there's a next cycle.** A dynamic-loop goal does not stop because one row landed — if a fresh PLAN sweep finds a next agent-reachable cycle, auto-start it immediately. Stop only when there is genuinely no next cycle (every row shipped-or-parked-at-a-named-hard-rail-gate).
+4. **Never stop while there's a next cycle.** A dynamic-loop goal does not stop because one row landed — if a fresh PLAN sweep finds a next agent-reachable cycle, auto-start it immediately. Stop only when there is genuinely no next cycle (every row shipped-or-parked-at-a-named-hard-rail-gate). **Context-token budget is NEVER a stop condition** (see `/leo-flow` hard stops): the opencode goal-plugin auto-continues on idle and survives compaction, so on a `<budget_wrapup>`/"0s remaining" frame you END THE TURN to auto-continue into a fresh cycle — you never emit a "stopping because budget" message and never cite budget as a `[goal:blocked]` gate. Budget is a pacing hint, not a wall.
+
+   **Reconciliation with the self-extend brake (Principle 4 below / `/leo-flow` P0 Bounded Autonomy).** "Never stop" is NOT a license for forever-work, and the brake is NOT a license to idle — they are one rule from two sides. The cap is on **inventing fake adjacent work** (re-auditing shipped rows, re-polishing a done surface, bookkeeping-only PRs, restating the same skill lesson), never on **continuous real improvement**. Every cycle still ships real artifact(s)/receipt(s) and closes with a precise state, and **every loop traverses the full priority order including planning compound items — it does NOT cap at one bounded move** (this is universal, not resplit-only; the one-bounded-move-per-cycle reflex is a slop mode). Default loop cadence is **~20 min**. Close states (`full_pass_driven` / `planned_compound` / `completed_move` / `blocked_with_resume` / `handoff_ready` / `scheduled_resume`) are used honestly; `scheduled_resume` only when no higher-importance reachable work or plan step remains this pass. With "drive-by improve everything" (rule 1) as the scope, a genuinely-empty queue is now rare. The terminal signal is unchanged: three consecutive cycles with no new code diff, merged/synced artifact, runtime receipt, narrowed blocker, or queue transition is churn — stop broadening and record the exact resume point. A no-op-with-receipt (a heartbeat that checked fresh state and found nothing agent-reachable) is a *healthy* close, not a failure.
 
 Leo 2026-06-22 verbatim: *"any project i am working on can be yolo and reverted, we can ALWAYS revert … everything and anything driveby improve everything not just the immediate goal."*
 
+---
+
+## Goal Navigation Plans
+
+A Vidux goal prompt is a navigation contract, not a frozen task list. It must
+make the next runner faster at choosing the next best move after fresh disk
+state is read; it must not pretend to know every future task before the work has
+taught us what matters.
+
+The durable chain is:
+
+1. `/goal`, `/loop`, or chat launcher is only a compact pointer into Vidux.
+2. The prompt file is also a pointer/control contract, not the goal; it carries
+   standing navigation rules, skill bindings, and the mutation rule.
+3. `PLAN.md` owns the actual goal: mission outcome, queue state, decisions,
+   blockers, evidence, drift, real work rows, exit criteria, and the next action.
+4. Matching publish ledger rows carry shipped-cycle proof, handoff status, files
+   claimed, path-like claims, and next-agent resume.
+
+Canonical Leo control-plane prompt:
+`/Users/leokwan/Development/vidux/prompts/goal-navigation-control-plane.prompt.md`.
+Use it when the mission is to improve the goal/prompt/plan primitives
+themselves, especially before starting broad long-loop work.
+
+Before long-loop work starts, the goal-navigation plan names:
+
+- mission outcome and explicit non-goals;
+- authority chain and first-read rule;
+- how to rank work when state changes, not the exact future task list;
+- hard-blocker move-on rule: park the blocked row with proof and resume, then
+  select the next largest agent-reachable row unless the whole plan has no
+  reachable work;
+- primitive readiness and proof floors for research, review, visual proof,
+  browser/simulator/deploy, vendor tooling, cross-machine access, and skill
+  runtime health;
+- worktree convergence rule: a worktree is nursed until merged, safely parked,
+  or explicitly collapsed; branch/PR transport never replaces plan plus ledger
+  recovery;
+- prompt mutation rule: update the plan first, then mutate the prompt only when
+  the standing instruction changes.
+- completion rule: `/goal` and `/loop` keep appending and executing real work
+  rows until the Vidux plan's exit criteria are satisfied, or every remaining
+  row is parked at a named hard blocker with exact resume proof.
+
+Ownership boundary for this contract:
+
+- **Vidux core** owns the plan/prompt/ledger schema, loop close states, worktree
+  lifecycle, proof packet shape, recovery semantics, and the N-agents-one-PLAN
+  concurrency contract: leases/claims, disjoint file/path ownership, shared
+  progress rows, proof foldback, append/park rules, and resume packets. Vidux
+  core does not choose model-specific leader/follower hierarchies.
+- **Leo Flow** owns Leo-private routing, skill ownership, the active no-wait
+  decision layer formerly split through `/auto`, primitive registry bindings,
+  leader/follower orchestration, Codex/Claude/GLM/Grok runner selection,
+  headless Codex control, and blocker move-on routing. `/auto` is deleted;
+  stale live pointers are repaired at their owning artifact instead of revived
+  as a shim.
+- **Amp** authors and refines goal-navigation prompts and pointer text; it cites
+  Vidux and Flow instead of copying their whole rule banks.
 ---
 
 ## First-Time Setup
 
 NEVER: create duplicate plans, execute local-CI lanes, install LaunchAgents, delete worktrees, or push/merge unless the owning plan AND user authorization make it explicit.
 
-Prereqs: clone the owning repo plus this Vidux checkout, install the repo's declared toolchain, read local `AGENTS.md`/`PLAN.md` before changing code. Load downstream project skills after `/vidux` when the active goal asks.
+Prereqs: clone the owning repo plus this Vidux checkout, install the repo's declared toolchain, and read local `AGENTS.md`/`PLAN.md` before changing code. For Leo's fleet, use `/leo-flow` for lane/proof routing and live no-wait decisions, and `/ledger` for handoff proof when the active goal asks for them. Load downstream project skills after `/vidux` when the active goal asks; use `/captain` only for skill packaging or mount hygiene.
 
-Verify: resolve the canonical plan path, inspect git state, run the smallest repo-owned proof before claiming progress. For local operator work, prefer read-only verified-alive/audit packets before executing lanes or installing LaunchAgents.
+Verify: resolve the canonical plan path, inspect git state, and run the smallest repo-owned proof command before claiming progress. For local operator work, prefer read-only verified-alive/audit packets before executing lanes or installing LaunchAgents.
 
 ## Overlay contract
 
@@ -668,13 +729,16 @@ If the user says `/vidux loop`, `loop`, `don't stop until done`, `keep going`, `
 
 Loop body:
 
-1. Read the queue source (`RALPH.md`, active plans, or inline spec).
-2. Pick the next highest-leverage unblocked step inside the owned lane; execute or delegate.
-3. Run targeted gates for the touched area, then the first viable UI/E2E/manual smoke path for the surface.
-4. Absorb obvious same-slice follow-on fixes the smoke uncovers.
-5. Mark the item done in the queue source; update the active plan.
-6. Checkpoint: update the owning plan/queue note, emit the publish packet, then commit + push the owned branch/PR path.
-7. Repeat until the queue/spec is done.
+Priority-order full drive, not one-bounded:
+
+1. Disk-first full re-read of queue/PLAN sources + ledger + git/deploy status + receipts.
+2. P0 inference by importance (blast radius of largest reachable broken workflow, compounds eligible for planning).
+3. Execute or plan (vidux sub-plan for compound) the current highest-importance unblocked item(s) in strict order.
+4. Proof, land, drive-by, ladder advance.
+5. Repeat inside pass: pick next-highest until no more unblocked priority-reachable work or hard gate.
+6. Checkpoint: update the owning plan/queue note, emit the publish packet with proof, handoff status, files claimed, path-like claims, and next-agent resume, then commit + push the owned branch/PR path only after those breadcrumbs exist.
+7. Record exact state (full_pass_driven / planned_compound / ...). Do not default-scheduled_resume when planning or higher work is viable.
+8. Repeat until the queue/spec is done or every remaining row is parked at a named hard blocker with exact resume proof.
 
 Persistent loop mode is **lane-persistent, not checkbox-persistent**: once vidux owns a feature, surface, or queue lane, keep driving connected follow-on work there until a verified boundary or real blocker. Do not bounce to a second mission because one checkbox landed while the same surface has obvious connected work.
 

@@ -31,7 +31,16 @@ ENFORCEMENT = ROOT / "ENFORCEMENT.md"
 INGREDIENTS = ROOT / "INGREDIENTS.md"
 GITIGNORE = ROOT / ".gitignore"
 AMP_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "amp" / "SKILL.md"
-AUTO_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "auto" / "SKILL.md"
+PRIVATE_AUTO_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "auto" / "SKILL.md"
+SHARED_AUTO_SKILL = Path.home() / "Development" / "ai" / "skills" / "auto" / "SKILL.md"
+ACTIVE_AUTO_SKILL = Path.home() / ".ai" / "skills-active" / "auto" / "SKILL.md"
+FLOW_SKILL = Path.home() / "Development" / "ai" / "skills" / "leo-flow" / "SKILL.md"
+FLOW_YAML = Path.home() / "Development" / "ai" / "skills" / "leo-flow" / "flow.yaml"
+FLOW_CLI = Path.home() / "Development" / "ai" / "skills" / "leo-flow" / "scripts" / "leo-flow"
+SKILLBOX_SKILL = Path.home() / "Development" / "ai" / "skills" / "skillbox" / "SKILL.md"
+GLM_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "glm" / "SKILL.md"
+GROK_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "grok" / "SKILL.md"
+GOAL_NAV_PROMPT = ROOT / "prompts" / "goal-navigation-control-plane.prompt.md"
 
 
 def _read(path: Path) -> str:
@@ -1536,83 +1545,247 @@ class ViduxContractTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, normalized)
 
-    def test_auto_shared_tooling_pushes_use_plan_ledger_packet(self):
-        """Loaded /auto shared-tooling rule must not teach raw commit/push first."""
-        if not AUTO_SKILL.exists():
-            self.skipTest("Leo auto skill is not present")
+    def test_deleted_auto_publish_rules_are_rehomed_without_skip(self):
+        """Deleting /auto must not skip the live publish/decision contracts."""
+        required = [AMP_SKILL, FLOW_SKILL, FLOW_YAML, SKILLBOX_SKILL]
+        missing = [str(path) for path in required if not path.exists()]
+        if missing:
+            self.skipTest("Leo active control-plane skills are not present: " + ", ".join(missing))
 
-        text = _read(AUTO_SKILL)
-        normalized = " ".join(text.split())
+        test_source = _read(Path(__file__))
+        combined = "\n".join(
+            [_read(SKILL), _read(AMP_SKILL), _read(FLOW_SKILL), _read(FLOW_YAML), _read(SKILLBOX_SKILL)]
+        )
+        normalized = " ".join(combined.split())
+
+        self.assertFalse(PRIVATE_AUTO_SKILL.exists(), "private /auto skill should stay deleted")
+        self.assertFalse(SHARED_AUTO_SKILL.exists(), "shared /auto skill should stay deleted")
+        stale_skip = "Leo " + "auto skill is not present"
+        self.assertNotIn(stale_skip, test_source)
 
         for stale_phrase in [
             "Commit to the tooling repo IN THE SAME TURN. Stage the file in repo B",
             "STOP, commit + push the tool repo, THEN report",
             "The local edit IS the bug; the commit IS the fix.",
+            "Commit + push the ai repo per `/captain` rules.",
+        ]:
+            self.assertNotIn(stale_phrase, combined)
+
+        for phrase in [
+            "Decision Layer (Auto Removed)",
+            "Migration rule: reusable decision rules land in Flow core",
+            "Do not add `/auto`; it is intentionally deleted",
+            "State orientation lives in the owning PLAN.md, evidence files, matching publish ledger rows, and lane-local memory notes",
+            "Shipped-work proof/resume belongs to the plan plus publish ledger packet",
+            "Emit publish ledger row before git transport",
+            "Skillbox vs Captain",
+        ]:
+            self.assertIn(phrase, normalized)
+
+    def test_goal_navigation_and_deleted_auto_contract(self):
+        """Goal prompts must navigate work while Flow owns the live decision layer."""
+        required = [AMP_SKILL, FLOW_SKILL, FLOW_YAML, SKILLBOX_SKILL, GOAL_NAV_PROMPT]
+        missing = [str(path) for path in required if not path.exists()]
+        if missing:
+            self.skipTest("Leo active control-plane skills are not present: " + ", ".join(missing))
+
+        vidux = _read(SKILL)
+        prompt = _read(GOAL_NAV_PROMPT)
+        amp = _read(AMP_SKILL)
+        flow = _read(FLOW_SKILL)
+        flow_yaml = _read(FLOW_YAML)
+        skillbox = _read(SKILLBOX_SKILL)
+        combined = "\n".join([vidux, prompt, amp, flow, flow_yaml, skillbox])
+        normalized = " ".join(combined.split())
+
+        for phrase in [
+            "## Goal Navigation Plans",
+            "navigation contract, not a frozen task list",
+            "The prompt file is also a pointer/control contract, not the goal",
+            "`PLAN.md` owns the actual goal",
+            "real work rows, exit criteria, and the next action",
+            "how to rank work when state changes, not the exact future task list",
+            "completion rule: `/goal` and `/loop` keep appending and executing real work rows",
+            "N-agents-one-PLAN concurrency contract",
+            "Vidux core does not choose model-specific leader/follower hierarchies",
+            "leader/follower orchestration",
+            "Codex/Claude/GLM/Grok runner selection",
+            "headless Codex control",
+            "hard-blocker move-on rule",
+            "primitive readiness and proof floors",
+            "worktree convergence rule",
+            "Decision Layer (Auto Removed)",
+            "`/auto` was deleted on 2026-06-26",
+            "Hard blocker move-on",
+            "Primitive registry for broad Leo work",
+            "Graphite/repo review discipline",
+            "do not use GitHub Actions as expensive FirstBite test proof",
+            "Goal Navigation Plan (mandatory before FIRE for Goal Mode or Prompt File Mode)",
+            "Amp does not plan the exact work",
+            "Primitive Readiness Pass",
+            "Nia-first indexed/source research before web fetch",
+            "Worktree convergence",
+            "append real work rows when discovery creates new reachable work",
+            "keep going until the PLAN says the goal is complete",
+            "do not load or restore it",
+            "no `/auto` load or fallback path",
+            "skills: [leo-flow, vidux]",
+            "skills: [amp, leo-flow, vidux]",
+            "Skillbox vs Captain",
+            "Captain decides placement, Skillbox executes the mount",
+            "Leader/follower runner binding",
+            "Flow owns runner assignment and foldback",
+        ]:
+            self.assertIn(phrase, normalized)
+
+        prompt_path = "prompts/goal-navigation-control-plane.prompt.md"
+        self.assertIn(prompt_path, vidux)
+        self.assertIn(prompt_path, amp)
+        self.assertFalse(PRIVATE_AUTO_SKILL.exists(), "private /auto skill should be deleted, not archived")
+        self.assertFalse(SHARED_AUTO_SKILL.exists(), "shared /auto skill should be deleted, not shadowed")
+        self.assertFalse(ACTIVE_AUTO_SKILL.exists(), "active skill farm should not expose /auto")
+
+        for stale_phrase in [
+            "Fleet/review policy lives in `/auto` and `references/fleet-policy.md`",
+            "Full boilerplate only on explicit ask, a runner that can't load `/vidux + /auto`",
+            "Use /vidux + /auto; resume in-progress work first",
+            "project strategy, go-with-flow decisions, PR shape policy | `/auto`",
+            "Goal prompts, living prompt files, prompt-to-plan entrypoints | `/amp` plus `/auto`",
+            "load `/auto` only when",
+            "Add `/auto` only when",
+            "[auto](../auto/SKILL.md)",
+            "skills: [auto, vidux]",
+            "skills: [amp, auto, vidux]",
+        ]:
+            self.assertNotIn(stale_phrase, combined)
+
+    def test_model_worker_delegation_contract_covers_glm_and_grok(self):
+        """Flow must project max GLM and max Grok as bounded sidecar workers."""
+        required = [FLOW_SKILL, FLOW_YAML, FLOW_CLI, GLM_SKILL, GROK_SKILL, SKILLBOX_SKILL]
+        missing = [str(path) for path in required if not path.exists()]
+        if missing:
+            self.skipTest("Leo model-worker skills are not present: " + ", ".join(missing))
+
+        flow = _read(FLOW_SKILL)
+        flow_yaml = _read(FLOW_YAML)
+        glm = _read(GLM_SKILL)
+        grok = _read(GROK_SKILL)
+        skillbox = _read(SKILLBOX_SKILL)
+        combined = "\n".join([flow, flow_yaml, glm, grok, skillbox])
+        normalized = " ".join(combined.split())
+
+        for phrase in [
+            "## Model-Worker Delegation",
+            "`glm_max_worker`",
+            "`grok_max_worker`",
+            "Flow owns routing and foldback",
+            "## Leader/Follower Orchestration",
+            "Flow owns leader/follower orchestration",
+            "Vidux core supports N concurrent agents working on one PLAN",
+            "Codex can run headless as the lead controller",
+            "Claude Code can lead",
+            "Flow writes leader/follower assignments into",
+            "single_plan_rule",
+            "assignment_sink",
+            "lead owns plan/proof/diff",
+            "opencode run --agent build --model zai/glm-5.2 --variant max",
+            "one file/spec",
+            "write_scope: lead_assigned_paths",
+            "explicit allowed paths",
+            "grok -p",
+            "`/loop`",
+            "scheduler_create",
+            "--best-of-n",
+            "`Stop` hook is passive",
+            "The lead owns plan/proof/diff application",
+            "Skillbox only proves the runtime package surface",
+            "Do not put provider credentials, balances, or account-specific auth inside Skillbox docs",
+        ]:
+            self.assertIn(phrase, normalized)
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(FLOW_CLI),
+                "subagents",
+                "delegate max glm and max grok model-worker codegen to subagents for a build proof audit",
+                "--repo",
+                str(ROOT),
+                "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual("leo-flow", payload["leader_follower"]["owner"], payload["leader_follower"])
+        self.assertIn(
+            "Vidux core supports N concurrent agents working on one PLAN",
+            payload["leader_follower"]["authority_boundary"],
+        )
+        self.assertIn("Codex can run headless", payload["leader_follower"]["codex_headless"])
+        self.assertIn("shadow queue", payload["delegation_policy"]["single_plan_rule"])
+        self.assertIn("FLOW.md", payload["delegation_policy"]["assignment_sink"])
+        sidecars = {item["id"]: item for item in payload["sidecars"]}
+        for sidecar_id, skill_name in [("glm_max_worker", "glm"), ("grok_max_worker", "grok")]:
+            self.assertIn(sidecar_id, sidecars, sidecars)
+            self.assertEqual(skill_name, sidecars[sidecar_id]["skill"], sidecars[sidecar_id])
+            self.assertEqual("lead_assigned_paths", sidecars[sidecar_id]["write_scope"], sidecars[sidecar_id])
+            self.assertEqual(["<lead-assigned>"], sidecars[sidecar_id]["allowed_paths"], sidecars[sidecar_id])
+            self.assertEqual("constrained_isolated_lane_only", sidecars[sidecar_id]["lead_eligible"], sidecars[sidecar_id])
+            self.assertTrue(sidecars[sidecar_id]["follower_default"], sidecars[sidecar_id])
+            self.assertIn("max", sidecars[sidecar_id]["model_tier"].lower(), sidecars[sidecar_id])
+            self.assertTrue(sidecars[sidecar_id]["command_hint"], sidecars[sidecar_id])
+            self.assertIn("lead owns plan/proof/diff", sidecars[sidecar_id]["prompt"], sidecars[sidecar_id])
+        self.assertEqual(3, payload["delegation_policy"]["max_sidecars"], payload["delegation_policy"])
+
+    def test_goal_navigation_prompt_file_is_concrete_goal_pointer(self):
+        """The goal-navigation doctrine must have a pasteable prompt artifact."""
+        self.assertTrue(GOAL_NAV_PROMPT.exists(), "missing canonical goal-navigation prompt file")
+        text = _read(GOAL_NAV_PROMPT)
+        normalized = " ".join(text.split())
+
+        for phrase in [
+            "Authority Store: `/Users/leokwan/Development/vidux/PLAN.md`",
+            "Authority layering: this prompt's Authority Store is the Vidux meta/doctrine lane",
+            "Per-project prompts inherit this contract, but own their own product PLAN",
+            "Do not write product state into the Vidux core PLAN",
+            "This file is a pointer, not the goal",
+            "The Vidux PLAN owns the actual goal",
+            "fixed `## Current State (resume here)` header",
+            "Improve the goal before improving the work",
+            "Goal-First Thinking Pass",
+            "append-real-work rule",
+            "Primitive Readiness Matrix",
+            "Worker orchestration",
+            "Flow owns leader/follower orchestration",
+            "Codex headless control",
+            "Goal navigation inference:",
+            "Hard Stops",
+            "Mutation Rule",
+            "`/auto` was deleted on 2026-06-26",
+            "do not load or restore it",
+            "Compact `/goal` Pointer",
+            "This is a pointer; the goal lives in /Users/leokwan/Development/vidux/PLAN.md",
+            "read /Users/leokwan/Development/vidux/prompts/goal-navigation-control-plane.prompt.md",
+            "starting with ## Current State (resume here)",
+            "let /leo-flow choose Codex/Claude/GLM/Grok leader/follower roles",
+            "append/update real PLAN rows when discovery changes what complete means",
+            "continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume",
+            "[METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]",
+        ]:
+            self.assertIn(phrase, normalized)
+
+        for stale_phrase in [
+            "TODO",
+            "TBD",
+            "[PLAN-APPEND-NEEDED]",
         ]:
             self.assertNotIn(stale_phrase, text)
-
-        for phrase in [
-            "Propagate the tooling-repo publish packet, then commit/push in the same turn",
-            "owning PLAN.md plus publish ledger packet before commit/push",
-            "proof, handoff_status, files claimed, changed-file claims, and next-agent resume",
-            "report project A with the publish ledger eid",
-            "update the owning PLAN.md plus publish ledger packet, commit + push the tool repo",
-        ]:
-            self.assertIn(phrase, normalized)
-
-    def test_auto_evolution_rules_use_publish_packet_before_ai_repo_sync(self):
-        """Loaded /auto evolution rules must not bypass publish propagation."""
-        if not AUTO_SKILL.exists():
-            self.skipTest("Leo auto skill is not present")
-
-        text = _read(AUTO_SKILL)
-        normalized = " ".join(text.split())
-        drift_section = re.search(
-            r"### 2\. Drift correction.*?(?=^### What NOT to add)",
-            text,
-            re.DOTALL | re.MULTILINE,
-        )
-        self.assertIsNotNone(drift_section, "/auto missing drift correction section")
-        drift_normalized = " ".join(drift_section.group().split())
-
-        self.assertNotIn("Commit + push the ai repo per `/captain` rules.", text)
-        for phrase in [
-            "update the owning PLAN.md plus publish ledger packet first",
-            "proof, handoff_status, files claimed, changed-file claims, and next-agent resume",
-            "use `/captain` repo-sync discipline for the ai repo transport",
-            "carry the publish ledger eid into the handoff",
-        ]:
-            self.assertIn(phrase, normalized)
-            self.assertIn(phrase, drift_normalized)
-        self.assertIn(
-            "If the drift correction changes `/auto` or any shared skill file",
-            drift_section.group(),
-        )
-
-    def test_auto_dream_memory_is_lane_local_orientation(self):
-        """Loaded /auto dream lane must not make memory durable shipped-work state."""
-        if not AUTO_SKILL.exists():
-            self.skipTest("Leo auto skill is not present")
-
-        text = _read(AUTO_SKILL)
-        normalized = " ".join(text.split())
-        dream_section = re.search(
-            r"### 3\. Dream lane.*?(?=^### Pruning)",
-            text,
-            re.DOTALL | re.MULTILINE,
-        )
-        self.assertIsNotNone(dream_section, "/auto missing dream lane section")
-        dream_normalized = " ".join(dream_section.group().split())
-
-        self.assertNotIn("durable cycle log", dream_section.group())
-        for phrase in [
-            "lane-local weak-signal and cycle-orientation log",
-            "capped 200 entries",
-            "shipped `/auto` changes still use the owning PLAN.md plus publish ledger packet",
-            "before ai repo sync transport",
-        ]:
-            self.assertIn(phrase, normalized)
-            self.assertIn(phrase, dream_normalized)
 
     def test_release_cli_help_describes_plan_ledger_gated_publish(self):
         """Release-facing help/completion text must not advertise raw tag+push."""
