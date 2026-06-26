@@ -157,6 +157,22 @@ class ViduxContractTests(unittest.TestCase):
                 f"PLAN.md missing required section: {section}",
             )
 
+    def test_plan_rolls_up_current_goal_navigation_receipts(self):
+        """PLAN.md must expose the current goal-navigation worker contract."""
+        text = _read(PLAN)
+        for phrase in [
+            "5.3.0fr Model-worker selector bug/docs audit",
+            "5.3.0fs Model-worker intent gate",
+            "5.3.0ft Bounded model-worker writes",
+            "5.3.0fv Parent-backed writable model-worker foldback",
+            "bounded writable GLM/Grok workers",
+            "parent/lead foldback",
+            "Phase 5.3.0fn-fv",
+            "`/auto` is intentionally deleted",
+            "5.3.1 stays parked until Resplit PR-overlap ownership is re-proven",
+        ]:
+            self.assertIn(phrase, text)
+
     def test_plan_evidence_has_citations(self):
         """Every Evidence bullet must contain a [Source: ...] marker."""
         text = _read(PLAN)
@@ -1692,6 +1708,8 @@ class ViduxContractTests(unittest.TestCase):
             "one file/spec",
             "write_scope: lead_assigned_paths",
             "explicit allowed paths",
+            "writable followers",
+            "drive the assigned implementation slice",
             "grok -p",
             "`/loop`",
             "scheduler_create",
@@ -1699,7 +1717,9 @@ class ViduxContractTests(unittest.TestCase):
             "`Stop` hook is passive",
             "The lead owns plan/proof/diff application",
             "Skillbox only proves the runtime package surface",
+            "Skillbox visibility is not write permission",
             "Do not put provider credentials, balances, or account-specific auth inside Skillbox docs",
+            "writable workers edit only allowed_paths",
         ]:
             self.assertIn(phrase, normalized)
 
@@ -1741,7 +1761,12 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn("max", sidecars[sidecar_id]["model_tier"].lower(), sidecars[sidecar_id])
             self.assertTrue(sidecars[sidecar_id]["command_hint"], sidecars[sidecar_id])
             self.assertIn("lead owns plan/proof/diff", sidecars[sidecar_id]["prompt"], sidecars[sidecar_id])
+            self.assertIn("Only write inside the declared write scope", sidecars[sidecar_id]["prompt"], sidecars[sidecar_id])
+            self.assertIn("fold back to the parent/lead", sidecars[sidecar_id]["prompt"], sidecars[sidecar_id])
         self.assertEqual(3, payload["delegation_policy"]["max_sidecars"], payload["delegation_policy"])
+        self.assertIn("writable workers edit only allowed_paths", payload["delegation_policy"]["no_overlap_rule"])
+        self.assertIn("writable followers may drive", payload["lead"]["rule"])
+        self.assertIn("write-scoped worker slices", payload["lead"]["task"])
 
     def test_goal_navigation_prompt_file_is_concrete_goal_pointer(self):
         """The goal-navigation doctrine must have a pasteable prompt artifact."""
@@ -1751,6 +1776,7 @@ class ViduxContractTests(unittest.TestCase):
 
         for phrase in [
             "Authority Store: `/Users/leokwan/Development/vidux/PLAN.md`",
+            "Use `/amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox`",
             "Authority layering: this prompt's Authority Store is the Vidux meta/doctrine lane",
             "Per-project prompts inherit this contract, but own their own product PLAN",
             "Do not write product state into the Vidux core PLAN",
