@@ -23,7 +23,11 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [completed] 5.3.0ad Ready-PR body publish propagation records plan path, task id, proof, publish ledger eid, handoff status, files claimed, last pushed diff, and resume point. [Evidence: tests/test_pr_body.py TEAM_TASK]
 - [completed] 5.3.0am PR body hardening validates publish ledger rows, review passes, file claims, proof, and next-agent resume before push/PR transport. [Evidence: tests/test_pr_body.py VALID_TASK]
 - [completed] 5.3.0ag Restore compact docs-trim contract anchors for Ready-PR plan rows, publish-ledger recovery wording, and guide phrases. [Evidence: npm run test:py; python3 -m unittest tests.test_vidux_contracts tests.test_pr_body]
-- [pending] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Depends: Wave 2 complete; resplit gh pr create overlap issue must be solved first]
+- [completed] 5.3.0fn Goal navigation control-plane invariant: encode goal-navigation prompts, primitive readiness, hard-blocker move-on, worktree convergence, and the `/auto` to `/leo-flow` migration boundary before broad long-loop work starts. [Evidence 2026-06-26: shipped Vidux/Amp/Flow/Skillbox contract wording plus contract tests; `python3 -m unittest tests.test_vidux_contracts` PASS (220/220); skill mount and Flow/Skillbox doctors passed.]
+- [completed] 5.3.0fo Goal prompt artifact correction: add the canonical pasteable pointer prompt so `/goal` and `/loop` rehydrate from the Vidux authority store instead of storing the goal in chat or prompt text. [Evidence 2026-06-26: shipped `prompts/goal-navigation-control-plane.prompt.md`; focused prompt artifact contracts passed.]
+- [completed] 5.3.0fp Deleted-auto + goal-pointer contract gap: keep the active goal-navigation/Amp/Flow/Skillbox contract live when `/auto` is intentionally absent, and make the goal prompt a thin pointer into Vidux instead of a second goal store. [Evidence 2026-06-26: `/auto` removed from shared/private skills and active mount; `/pilot` rehomed to `/leo-flow`; focused pointer/deleted-auto contracts passed; `skillbox doctor --json` reported blocking=0, has_auto=false, has_grok=true.]
+- [completed] 5.3.0fq Model-worker delegation abstraction: encapsulate max GLM and max Grok as Flow sidecar workers, add private `/grok`, and prove Skillbox mounts the new routing surface without restoring `/auto`. [Evidence 2026-06-26: Flow CLI emitted `glm_max_worker` and `grok_max_worker`; focused model-worker contracts passed; active `/grok` readlink points to `/Users/leokwan/Development/ai-leo/skills/grok`; `/auto` remains absent.]
+- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker 2026-06-26: Resplit `gh pr create` overlap gate not proven clear; read-only verification found the resplit-ios attached root still dirty and open PR state not one in-flight PR per active lane. Resume: re-read Resplit RALPH/PLAN/hot/nurse, rerun git/worktree/open-PR state, and only unpark when the overlap owner/gate is clear enough to create or validate the remaining automation PRs without duplicating ownership.]
 - [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1]
 - [pending] 5.4.1 Branch protection rejects direct-main pushes from automation actors while preserving human pushes. [Depends: Wave 3 complete]
 - [pending] 5.4.2 Smoke test both protected and allowed paths. [Depends: 5.4.1]
@@ -31,15 +35,15 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 
 ## Current State (resume here)
 
-- **Active goal:** Phase 5 Ready-PR architecture (Wave 3) + Phase 5.4 observability/config/app-smoke closeout.
+- **Active goal:** Phase 5 Ready-PR architecture (Wave 3) plus the goal-navigation control plane that makes `/goal` and `/loop` point into this Vidux plan instead of storing the goal in prompt text.
 - **Live blocker:** resplit-ios `gh pr create` fails with "shared commit overlaps with an existing PR" — resplit Wave 3 lanes (5.3.1) are PARKED until this is solved or the row is replanned away from local scheduled automation. strongyes unaffected. See Surprises.
 - **Resume pointers:** browser work resumes at `projects/vidux-browser/PLAN.md` `VB-COM-8`. No removed LaunchAgent should be reinstalled without explicit owner opt-in (local recurring automation removed 2026-06-03 by Leo request; future local scheduled automation is opt-in + signposted only).
-- **Last green:** full repo gate passes (`npm test` Vitest 7/7 + Python unittest ~447; Playwright e2e 30/30). Leo Flow demoted to dispatcher + anti-slop gate (5.3.0fn, 2026-06-08).
+- **Last green:** full repo gate passes (`npm test` Vitest 7/7 + Python unittest ~447; Playwright e2e 30/30). Goal-navigation contracts passed 2026-06-26 (`python3 -m unittest tests.test_vidux_contracts` 220/220), active skill mount has no `/auto`, `/grok` is mounted, and Leo Flow owns the decision layer.
 - **Eve cockpit:** local-only Eve cockpit on `codex/eve-studio-vidux-20260620`; PR `firstbitelabsllc/vidux#149` OPEN/non-draft, blocked only by a GitHub billing/spending-limit gate (no local code/test failure).
 
 ## Open work
 
-- [pending] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Depends: Wave 2 ✓ — resplit `gh pr create` overlap must be solved first for resplit lanes]
+- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker: resplit `gh pr create` overlap and attached-root ownership must be re-proven clear before new automation PR transport.]
 - [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1]
 - [pending] 5.4.1 (Wave 4) Branch protection: reject direct-main pushes from automation actors, preserve human pushes. [Depends: Wave 3 complete]
 - [pending] 5.4.2 Smoke test both paths. [Depends: 5.4.1]
@@ -52,6 +56,7 @@ Phases 1-4, 6-18 and Phase 5 Waves 0-2 are complete. Their durable choices live 
 - **Phase 2/3** — Resplit + StrongYes automation revamp to the v3 gate pattern.
 - **Phase 4** — Fleet infrastructure.
 - **Phase 5 (Waves 0-2)** — Ready-PR architecture core: all automation pushes go through PRs (ready-by-default), never direct-to-main. Wave 3 in progress (see Open work).
+- **Phase 5.3.0fn-fq** — Goal-navigation control-plane hardening: `/goal`/`/loop` are pointers, Vidux PLAN owns the actual goal, `/auto` is deleted and routed through `/leo-flow`, and GLM/Grok model-worker sidecars are mounted through Flow/Skillbox.
 - **Phase 5.4** — Five-hour observability/config/app-smoke push: `vidux config`, `vidux doctor` (install vs runtime split), `vidux signpost`, `vidux http-smoke`, browser `/api/vidux/truth`, plus a large publish-propagation / reduce-mode read-only / publish-scrutiny / PR-body / ledger-packet invariant-hardening grind (the `5.3.0x` family) — all completed and gated.
 - **Phase 6** — Skill consolidation 54 → ~42 (Tier 1 deletes, Tier 2 merges, Tier 3 Leo-judged; see Decisions for naming convention).
 - **Phase 7** — First-class automation recipes (`guides/recipes.md`, 8 recipes); Routines direction reversed (cloud-based; core stays local-first).
@@ -123,4 +128,5 @@ Skill consolidation reduced the skill inventory and established the brand/craft/
 Archived. 244 dated drift entries (the `5.3.0x` invariant-hardening grind) were removed during this trim — drift-tracking and per-row evidence dumps are a known code smell that this repo explicitly does not re-add. The durable lessons survive as Decisions and as the shipped contract tests.
 
 ## Progress
+- [2026-06-26] Completed 5.3.0fn-fq: landed the goal-navigation pointer contract on Vidux main without resurrecting the old verbose phase dump. `/goal` and `/loop` now point at `prompts/goal-navigation-control-plane.prompt.md` and this `PLAN.md`; `/auto` is intentionally deleted and stale references route through `/leo-flow`; max GLM/Grok are Flow sidecar workers with private `/grok` mounted. Proof before push: `python3 -m unittest tests.test_vidux_contracts` -> 220 OK; Flow doctor PASS; Skillbox doctor reported blocking=0, has_auto=false, has_grok=true; active skill rebuild PASS. Remaining blocker: 5.3.1 stays parked until Resplit PR-overlap ownership is re-proven.
 - [2026-06-22] Completed 5.3.0ag: restored the compact Ready-PR contract anchors after the docs trim so contract tests can recover the required plan rows and publish-propagation phrases without reintroducing the archived drift log. Proof: `python3 -m unittest tests.test_vidux_contracts tests.test_pr_body` -> 248 OK (skipped=3); `npm run test:py` -> 491 OK (skipped=4); `npm run test:js` -> 7 OK; `npm run public-ready:grep` -> passed; `python3 -m compileall -q browser tests scripts` -> passed; `git diff --check` -> clean.
