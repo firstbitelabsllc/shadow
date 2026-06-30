@@ -5,6 +5,12 @@ description: "Plan-first project router for AI agents. Detects stack, stage, and
 
 # Vidux
 
+> **Opt-in legacy/reference toolkit.** Vidux is no longer a default runtime or
+> router for Leo's Claude/Codex/Cursor/Agents skill farm. Keep this repo for old
+> plans, browser/artifact utilities, scripts, and explicit legacy/reference
+> tasks. Default work should route through `/leo-flow`, repo skills, native host
+> tools, PLAN.md/FLOW.md, `/hook`, and the ledger.
+
 Vidux is a discipline for AI agents: write down what you build before you build it. Plans live in markdown files in git. Agents read the plan, do one piece of work, update the plan, and checkpoint. Any agent resumes where the last left off: the owning plan records queue, decisions, constraints, progress; matching ledger rows carry shipped-cycle proof.
 
 **publish packet** = the publish ledger row that carries `{summary, task-id, plan-path, proof, handoff_status, files claimed, path-like claims, next-agent resume}`. Named once here; referenced by name below.
