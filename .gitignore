@@ -152,3 +152,4 @@ tests/test_snowcubes_readiness_*
 
 # Local private: crashcourse reading-inbox generator (employer paths)
 scripts/crashcourse-inbox-gen.py
+!projects/night-queue/
