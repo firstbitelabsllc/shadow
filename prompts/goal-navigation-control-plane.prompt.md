@@ -13,6 +13,10 @@ Vidux/goal-navigation primitives.
 
 Use `/amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox`. `/auto` was deleted on 2026-06-26; do not load or restore it. If an old artifact cites `/auto`, route the decision through `/leo-flow` and repair the owning live artifact.
 
+Canonical skill bindings for minted goal pointers:
+- Direct Vidux goal pointer: `skills: [leo-flow, vidux]`
+- Amp-authored dynamic prompt pointer: `skills: [amp, leo-flow, vidux]`
+
 This file is a pointer, not the goal. The Vidux PLAN owns the actual goal, task rows, blockers, evidence, exit criteria, and shipped-work proof. The compact `/goal` or `/loop` launcher points here so a future runner can rehydrate the goal from disk, append real work rows when discovery creates new reachable work, and keep going until the PLAN says the goal is complete.
 
 Before parsing long history, read the Authority Store's fixed `## Current State

@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Vidux"
   text: "Plan first, code second."
-  tagline: A lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.
+  tagline: A thin plan/proof control plane for AI coding work that spans multiple sessions, agents, or days.
   actions:
     - theme: brand
       text: Get Started
@@ -27,6 +27,6 @@ features:
     details: Claude Code, Cursor, Codex. Any agent that can read markdown can pick up where the last one stopped. No SDK, no API, no vendor lock-in.
 
   - icon: 🚢
-    title: Fleet Intelligence (opt-in)
-    details: Coordinate multiple agents with writer, radar, and coordinator roles. Ready-PR flows and health checks for 24/7 autonomous operation — loaded from guides/automation.md and guides/recipes/ when needed, not core doctrine.
+    title: Automation Receipts (opt-in)
+    details: Scheduled lanes and subagents still read the same plan/proof packet. Runtime dispatch lives in the host tool or Flow — loaded from guides/automation.md and guides/recipes/ when needed, not core doctrine.
 ---

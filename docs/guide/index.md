@@ -1,6 +1,6 @@
 # What is Vidux?
 
-Vidux orchestrates AI coding work that spans multiple sessions, agents, or days.
+Vidux keeps AI coding work recoverable across sessions, agents, or days by making the plan, proof, decisions, and resume point explicit on disk.
 
 ## The Core Problem
 
@@ -15,7 +15,7 @@ When a session ends, its context is gone. A new session has no idea what the pre
 
 ## The Solution
 
-Vidux makes documentation the planning control plane. The owning `PLAN.md`
+Vidux makes repo-local plan/proof files the recovery packet. The owning `PLAN.md`
 carries the queue, decisions, evidence, and progress. Matching publish ledger
 rows carry the shipped-cycle proof packet: proof, handoff status, claimed files,
 resume metadata. Git stores docs and transport history; it does not replace the
@@ -62,7 +62,7 @@ docs and ledger proof, then continues.
 | **State** | `PLAN.md` in git — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
 | **Multi-agent** | Any agent reads the same files and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
-| **Fleet ops** | Ready-PR flow, session-gc, idle detection | N/A | N/A |
+| **Automation (opt-in)** | Scheduled lanes read the same plan/proof packet | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
 Vidux doesn't replace your coding agent — it gives it a memory that outlasts the session.

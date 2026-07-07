@@ -12,7 +12,7 @@
 
 ![CI](https://github.com/firstbitelabsllc/vidux/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/firstbitelabsllc/vidux?label=version)
 
-**Plan first, code second.** Vidux is a lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.
+**Plan first, code second.** Vidux is a thin plan/proof control plane for AI coding work that spans multiple sessions, agents, or days.
 
 - **One planning authority** — every project has a single `PLAN.md` for the queue, decisions, pivots, and progress.
 - **Proof travels with the handoff** — publish ledger rows record what shipped, how it was proved, which files were claimed, and where the next agent resumes.
@@ -95,7 +95,7 @@ See [`docs/reference/browser.md`](docs/reference/browser.md) for the HTTP surfac
 
 ## How It Works
 
-Every change flows through a four-stage loop. Documentation is the control plane.
+Every change flows through a four-stage loop. Plan/proof files are the control plane.
 
 ```mermaid
 flowchart LR
@@ -146,7 +146,7 @@ Most agent failures are state failures:
 - a later session could not tell what was intentional
 - the same bug got "fixed" three different ways
 
-Vidux makes documentation the planning control plane. `PLAN.md` lives in git; publish ledger rows live in the append-only ledger. No databases, no daemons, no memory tricks.
+Vidux makes repo-local plan/proof files the recovery packet. `PLAN.md` lives in git; publish ledger rows live in the append-only ledger. No databases, no daemons, no memory tricks.
 
 ## How Vidux Compares
 
@@ -155,7 +155,7 @@ Vidux makes documentation the planning control plane. `PLAN.md` lives in git; pu
 | **State** | `PLAN.md` + publish ledger rows — survives sessions, agents, days | Chat history — dies when the window closes | Session-scoped context |
 | **Multi-agent** | Any agent reads the same plan/proof packet and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
-| **Fleet ops** | Ready-PR flow, session-gc, idle detection | N/A | N/A |
+| **Automation (opt-in)** | Scheduled lanes read the same plan/proof packet | N/A | N/A |
 | **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
@@ -202,7 +202,7 @@ Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.c
 | `scripts/lib/` | Shared shell libs (compat, codex-db, ledger, queue, plan-store resolution) |
 | `hooks/` | Prompt-hook nudges for plan discipline |
 | `guides/` | automation, draft-pr-flow, evidence-format, fleet-ops, harness, investigation, recipes/ |
-| `references/` | `automation.md` — deep doctrine (session-gc internals, Codex shim, PR lifecycle) |
+| `references/` | `automation.md` — historical/operator automation details loaded only on demand |
 | `tests/` | Contract and lifecycle tests |
 | `examples/` | Worked examples (start with bug-fix lifecycle) |
 
@@ -217,7 +217,7 @@ Vidux has **one entry point** — `/vidux` — loading the core discipline inlin
 
 ## Automation (opt-in)
 
-The cycle works for humans, one-shot sessions, and cron-scheduled fleets. The automation layer is opt-in — load it only when the task calls for it. It covers session-gc and JSONL growth control, the coordinator pattern and 6-lane cap, subagent dispatch for heavy reads, lane bootstrap, fleet ops, and PR-lifecycle nursing.
+The cycle works for humans, one-shot sessions, and scheduled lanes. The automation layer is opt-in — load it only when the task calls for it. It covers session-gc, JSONL growth control, lane bootstrap, and PR-lifecycle nursing. Runner/model selection belongs to the host runtime or Flow; core Vidux only preserves plan, proof, decision, and resume truth.
 
 Patterns:
 - **Ready-PR-first** — push ready-for-review by default so review bots run; draft is for true WIP or missing gates.

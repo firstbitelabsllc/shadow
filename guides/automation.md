@@ -2,6 +2,8 @@
 
 For running vidux lanes on a schedule or in long-running sessions. Load only when you need automation — Vidux core (the five principles, the cycle, PLAN.md discipline in `SKILL.md`) stands alone. Automation is additive: it never overrides SKILL.md, it only describes *how* to run workers on a schedule so work progresses while you're away.
 
+2026-07-07 boundary: this guide is operator reference, not a second control plane. Vidux owns plan/proof/decision/resume truth. The host runtime or Flow owns runner/model selection, subagent dispatch, and worker foldback.
+
 For Codex-created automations, the default run mode is **Chat**. Treat `Worktree` and `Local` as explicit opt-ins — only when the user asks for repo-bound execution or the task is impossible from chat.
 
 Control-plane overlays may choose an execution mode but do not own queue state. A control plane may store provider refs, cadence, last fire, next fire, and retirement rules; each fired run must rehydrate from `PLAN.md`, `INBOX.md`, evidence, and publish ledger rows before acting.

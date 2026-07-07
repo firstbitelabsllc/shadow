@@ -1579,7 +1579,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .dashboard-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
   gap: 10px;
 }
 .dashboard-card {
@@ -1620,6 +1620,10 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   border: 1px solid var(--rule);
   border-radius: 6px;
   background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  max-height: min(560px, 70vh);
+  overflow: hidden;
 }
 .dashboard-list-head {
   display: flex;
@@ -1641,6 +1645,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .dashboard-items {
   display: grid;
   gap: 0;
+  overflow-y: auto;
 }
 .dashboard-item {
   min-width: 0;

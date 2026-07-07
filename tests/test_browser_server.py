@@ -1046,6 +1046,80 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertEqual(inbox["items"][0]["tab"], "INBOX.md")
         self.assertEqual(ask_leo["items"][0]["tab"], "ASK-LEO.md")
 
+    def test_dashboard_surfaces_recent_decision_directions(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "decision"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "PLAN.md").write_text(
+            "# Decision\n\n"
+            "## Purpose\nMake the pivot visible.\n\n"
+            "## Decisions\n"
+            "- [DIRECTION] [2026-07-01] Keep an older direction.\n"
+            "- [PIVOT] [2026-07-02] Freeze kernel handoff as default route.\n\n"
+            "## Tasks\n"
+            "- [pending] next\n",
+            encoding="utf-8",
+        )
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans())
+        decisions = dashboard["categories"]["decisions"]
+
+        self.assertEqual(decisions["total"], 2)
+        labels = [item["label"] for item in decisions["items"]]
+        self.assertIn("2026-07-02 Freeze kernel handoff as default route.", labels)
+        item = decisions["items"][1]
+        self.assertEqual(item["kind"], "decision")
+        self.assertEqual(item["status"], "pivot")
+        self.assertEqual(item["tab"], "Decision Log")
+        self.assertEqual(item["source_rel"], "repo/projects/decision/PLAN.md")
+        self.assertGreater(item["line"], 0)
+
+    def test_dashboard_surfaces_pe_verdict_receipts(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "verdict"
+        plan_dir.mkdir(parents=True)
+        proof_path = (
+            self.dev_root
+            / "vidux"
+            / "evaluations"
+            / "vidux-vs-native-bakeoff"
+            / "results"
+            / "pe"
+            / "decision.md"
+        )
+        (plan_dir / "PLAN.md").write_text(
+            "# Verdict\n\n"
+            "## Purpose\nMake the bakeoff receipt visible.\n\n"
+            "## Evidence\n"
+            f"- [Source: {proof_path}, 2026-07-03] Full planner-executor matrix wrote 119 rows, "
+            "117 clean after protocol exclusions; H1/H2/H3 all refuted, and kernel handoff "
+            "lost to freeform by 18 percentage points.\n"
+            "- [Source: notes.md] Planner research is still useful.\n\n"
+            "## Tasks\n"
+            "- [pending] next\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        payload = browser_server.plan_list_payload(plans)
+        plan_payload = next(item for item in payload if item["rel"] == "repo/projects/verdict/PLAN.md")
+        dashboard = browser_server.build_dashboard(plans)
+        verdicts = dashboard["categories"]["verdicts"]
+
+        self.assertNotIn("dashboard_verdicts", plan_payload)
+        self.assertEqual(verdicts["total"], 1)
+        item = verdicts["items"][0]
+        self.assertEqual(item["kind"], "verdict")
+        self.assertEqual(item["status"], "refuted")
+        self.assertEqual(item["tab"], "PLAN.md")
+        self.assertEqual(item["source_rel"], "repo/projects/verdict/PLAN.md")
+        self.assertEqual(item["proof_path"], str(proof_path))
+        self.assertEqual(
+            item["proof_rel"],
+            "vidux/evaluations/vidux-vs-native-bakeoff/results/pe/decision.md",
+        )
+        self.assertIn("H1/H2/H3 all refuted", item["label"])
+        self.assertNotIn("[Source:", item["label"])
+        self.assertGreater(item["line"], 0)
+
     def test_dashboard_parses_open_ask_leo_question_blocks(self):
         plan_dir = self.dev_root / "repo" / "projects" / "asks"
         plan_dir.mkdir(parents=True)
@@ -1104,12 +1178,19 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn('"dashboard": build_dashboard(plans)', server)
         self.assertIn("def build_dashboard", server)
         self.assertIn("extract_dashboard_tasks", server)
+        self.assertIn("extract_dashboard_verdicts", server)
         self.assertIn("extract_open_entries", server)
+        self.assertIn('"verdicts": {"label": "Verdicts"', server)
+        self.assertIn('"decisions": {"label": "Decisions"', server)
         self.assertIn("fleetSummary", app)
         self.assertIn("function topbarFleetSummary", app)
         self.assertIn("remaining", app)
         self.assertIn("function renderDashboardPane", app)
         self.assertIn("function selectDashboard", app)
+        self.assertIn('renderDashboardCard("verdicts", "Verdicts")', app)
+        self.assertIn('renderDashboardCard("decisions", "Decisions")', app)
+        self.assertIn('renderDashboardList("verdicts", "Recent Verdicts"', app)
+        self.assertIn('renderDashboardList("decisions", "Recent Decisions"', app)
         self.assertIn('data-kind="dashboard"', app)
         self.assertIn("Cross-plan queue", app)
         self.assertIn('id="sort"', index)
@@ -1135,6 +1216,8 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn(".filter-chip.is-active", style)
         self.assertIn(".progress-row .progress-bar", style)
         self.assertIn(".dashboard-panel", style)
+        self.assertIn("max-height: min(560px, 70vh)", style)
+        self.assertIn("overflow-y: auto", style)
         self.assertIn(".dashboard-item", style)
 
 
