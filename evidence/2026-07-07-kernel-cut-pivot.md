@@ -176,4 +176,17 @@ git add PLAN.md README.md SKILL.md \
   - draft: false.
   - mergeStateStatus: CLEAN.
   - Graphite `mergeability_check`: SUCCESS.
-- Honest status: open PR, unmerged. Do not call this shipped until `main` contains a merge SHA and the plan records the findable state.
+- Honest status at PR-nurse time: open PR, unmerged. Merge/findability truth supersedes this receipt below.
+
+## Merge / Findability Receipt
+
+- PR: https://github.com/firstbitelabsllc/vidux/pull/189.
+- Merge method: GitHub squash merge.
+- Merge commit on `main`: `634bf20efda9295db5a3df1b636055ed5919baf2` (`Cut Vidux kernel to thin cockpit (#189)`).
+- Merged at: 2026-07-07T05:52:57Z.
+- Verification:
+  - `gh pr view 189 --json number,state,mergedAt,mergeCommit,url` reported `state: MERGED` and merge commit `634bf20efda9295db5a3df1b636055ed5919baf2`.
+  - `git fetch origin main` moved `origin/main` from `bf4fcc7` to `634bf20`.
+  - `git merge-base --is-ancestor 634bf20efda9295db5a3df1b636055ed5919baf2 origin/main` PASS.
+- Shipping truth: the kernel-cut pivot is on `main`. Vidux is the thin plan/proof/decision/resume cockpit; it is not the planner-executor kernel.
+- Boundary preserved: untracked `evaluations/` remains excluded and untouched.
