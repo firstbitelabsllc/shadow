@@ -15,6 +15,13 @@ Vidux is a discipline for AI agents: write down what you build before you build 
 
 **publish packet** = the publish ledger row that carries `{summary, task-id, plan-path, proof, handoff_status, files claimed, path-like claims, next-agent resume}`. Named once here; referenced by name below.
 
+**2026-07-07 kernel-cut boundary:** Vidux is a thin planning and proof control
+plane. The planner-executor bakeoff refuted the default handoff bet, so
+Fable/Claude/GLM/Grok/Codex remain bounded workers, eval subjects, or
+Flow-selected sidecars. Vidux keeps the durable surfaces that proved useful:
+one canonical `PLAN.md`, explicit Decision Log, publish packet proof, resume
+metadata, and the read-only browser cockpit.
+
 ## Rising Tide Doctrine (Leo 2026-06-22 — the stapled mantra for /vidux and /leo-flow)
 
 **A rising tide lifts all boats.** Every cycle improves *everything it touches*, not just the immediate goal row. This is the standing operating philosophy across `/vidux` and `/leo-flow`.
@@ -102,7 +109,13 @@ Verify: resolve the canonical plan path, inspect git state, and run the smallest
 
 ## Overlay contract
 
-Vidux is the kernel. A downstream project skill may route org-specific requests on top; it does NOT replace the kernel. Vidux owns the run loop, `PLAN.md`/ledger state, checkpoints, proof lifecycle, resume semantics. Downstream skills own local policy and product-specific routing. If local policy contradicts core plan/proof/checkpoint semantics, fix the local policy.
+Vidux is the thin plan/proof control plane. A downstream project skill may route
+org-specific requests on top; it does NOT replace the `PLAN.md` plus publish
+packet recovery contract. Vidux owns the schema and lifecycle for plan state,
+decision logs, proof packets, checkpoints, resume semantics, and browser
+projection. Downstream skills own local policy and product-specific routing.
+Leo Flow owns model/runner selection and leader/follower foldback. If local
+policy contradicts core plan/proof/checkpoint semantics, fix the local policy.
 
 ## Activation & Triage
 
@@ -756,7 +769,7 @@ Stops only for: an external blocker or missing credential; a real product decisi
 
 ### Anti-Loop Discipline
 
-These rules apply to `/vidux loop`, `/vidux nurse`, and any ORCHESTRATED tracking cycle. They are core loop contract, not optional overlays.
+These rules apply to `/vidux loop`, `/vidux nurse`, and any coordinated tracking cycle. They are core loop contract, not optional overlays.
 
 1. **3-strike escalation.** Before the next slice, check whether the same blocker, failing command, or surface appeared in the last 3 checkpoints (ledger, plan logs, memory). If so: do NOT retry. Write a one-paragraph escalation into the repo plan or nurse log (what's stuck, what was tried, what the human needs to do); move to the next-highest-value unblocked lane.
 
@@ -792,7 +805,12 @@ If the user asks you to nurse, watch, or keep an eye on active work — `/vidux 
 - Intervene only when a lane drifts, blocks, conflicts, or unlocks the next queued slice.
 - Drive queue items directly when the next slice is unblocked and unowned.
 
-Vidux owns the full nursing loop: supervision, coordination, queue advancement, build-owner discipline, plan updates. Ralph remains the repo-level queue contract (`RALPH.md`/`ralph.config.json`); vidux reads it, picks the next item, executes/delegates, marks completion, checks the ledger before deciding what's next.
+Vidux owns nursing state discipline: supervision reads, queue advancement
+records, proof expectations, and plan updates. Ralph remains the repo-level
+queue contract (`RALPH.md`/`ralph.config.json`); vidux reads it, selects the
+next unowned item, records execution/delegation decisions, checks the ledger,
+and writes the weakest truthful state back before deciding what's next. Runner
+selection and model-worker foldback stay with Flow or the repo's own runner.
 
 **Repo-level state rule:** nursing state MUST live in repo-local artifacts, not an ad hoc global handoff file. Preferred sources: `RALPH.md`, repo plan docs, repo nurse logs, the centralized `~/.agent-ledger/activity.jsonl` stream, repo-local `.agent-ledger/` only when documented. Per the Read-the-Room scratch-file rule: don't depend on a one-off `<repo>-loop-state.md` unless the repo committed it as canonical, and never read another repo's state when selecting work. Durable handled-state for external signals (e.g. App Store feedback IDs) goes in a repo plan/tracker file next to the queue.
 
@@ -807,71 +825,31 @@ For any timed or repeated supervision, use a concrete repo-owned runner and reco
 
 ---
 
-## Orchestration Mode
+## Coordination Mode
 
 After detecting stack and stage, determine scale:
 
 | Scale | Signals | Mode |
 |-------|---------|------|
 | **SOLO** | Quick hit/kickoff/mid-flight. <8 files, single concern, serial by nature. | Execute directly — vidux is the worker. Follow the stage playbook. |
-| **ORCHESTRATED** | Expedition-scale. 8+ files, multiple independent concerns, multi-session, cross-tool. | Vidux orchestrates — decompose, delegate, track. |
+| **COORDINATED** | Expedition-scale. 8+ files, multiple independent concerns, multi-session, cross-tool. | Vidux coordinates state; host tools or Flow dispatch workers. |
 
-**ORCHESTRATED triggers** (any two = orchestrate):
+**COORDINATED triggers** (any two = coordinate):
 
 - Multiple file sets with zero overlap.
 - Work splits into independent API + UI + test concerns.
 - User mentions multiple agents, Routines, Cursor, or parallel work.
 - Ledger entries show active lanes from other agents.
 - PLAN.md has a lane table or multi-phase dependency graph.
-- **Multi-prototype gallery / variant fan-out** — PLAN.md has ≥3 prototypes/variants AND user issues a surface-wide directive ("revamp all", "polish every", "team agents split up", "audit each one"). Pre-route to multi-agent fan-out: spawn one Plan agent per prototype/variant, each reads its own surface and returns a task list with `file:line` citations; parent integrates into the single PLAN.md. Surface-disjoint precondition holds (each prototype is its own file). Evidence: 3-5x wall-clock savings vs serial.
+- Surface-wide prototype or variant work where each variant lives in its own file.
 
-### Default Discipline Swarm
+When coordinated, keep the loop small:
 
-For product/UI work spanning multiple concerns, default to a discipline swarm even in an unfamiliar repo (project-agnostic decomposition pattern, not a repo's structure):
-
-- UX / surface behavior
-- copy / localization
-- persistence / data correctness
-- Dev App or preview/manual QA
-- automation / E2E
-
-### Release Swarm (10 roles)
-
-When the user asks for release readiness, a nurse loop, or a last-mile ship push across multiple surfaces, default to a 10-role release swarm:
-
-1. Localization + Copy Sentinel
-2. App Store Connect Feedback Triage
-3. Sentry + Seer Error Hunter
-4. UX Feedback Triage Lead
-5. Code Review + Clipdiff Auditor
-6. UX Uniformity + Canonical Surface Mayor
-7. Dead Code + Drift Analyzer
-8. Architecture + Test Discipline Guardian
-9. Screenshot + Snapshot + UI Test Sheriff
-10. App Store SEO + Metadata God
-
-### Heat scan before spawn
-
-Before spawning, spend 60 seconds on a heat scan: which roles have open items in the queue/plan/ledger? Which had activity in the last 2 runs? Which are blocked by known persistent blockers?
-
-- **Hot** (2-4 roles): open items, recent activity, unblocked. Full inspection + dedicated agent lanes.
-- **Warm** (2-3 roles): no open items but could have drifted. 30-second scan, one-line verdict.
-- **Cold** (rest): confirmed stable in last 2 runs. Single line: "Role N: cold since [date], skipping."
-
-Spawn agents for hot roles only — not 6 when 2 are hot and 4 would idle. Min 1 (single deep lane while coordinator coordinates); max 4-6 for parallel independent work. A cold role goes warm when a new queue item touches its surface, a user mentions it, or 5+ runs pass since last inspection. Preserve the 10-role checklist; cold roles get one line in memory, not a full pass.
-
-### Orchestration loop
-
-When ORCHESTRATED, follow this loop:
-
-1. Classify the mission shape: feature, cleanup, migration, research, or integration.
-2. Decompose into independent lanes with explicit write scopes and dependencies.
-3. Write PLAN.md with the lane table, dependency graph, proof gates, and owner/resume metadata.
-4. Spawn or assign workers only for independent lanes.
-5. Track via the ledger + completion notifications.
-6. Intervene on blockers, drift, discoveries.
-7. Integrate when lanes complete — merge, cross-test, full gates.
-8. Write a handoff packet if work continues.
+1. Refresh or write the single owning `PLAN.md` with independent lanes, write scopes, proof gates, and resume metadata.
+2. Delegate only surface-disjoint work through the current host tool or Flow. Vidux does not choose model tiers or leader/follower bindings.
+3. Integrate returned diffs, proof, blockers, and weakest truthful claims back into the one plan.
+4. Run cross-surface verification before claiming the parent task.
+5. Checkpoint plan plus publish packet if work continues.
 
 ### First-class end-to-end proof
 
@@ -900,7 +878,7 @@ After stack, detect stage from repo state:
 | **MID-FLIGHT** | Existing plan with pending items, branch with changes | Resume `[in_progress]`, reconcile diff, then continue |
 | **LAST MILE** | Most plan items done, user says "ship" / "finish" / "polish" | Verify, close blockers, prepare handoff/release |
 | **QUICK HIT** | Single-screen change, one-sentence description, < 3 files | Execute directly with focused proof |
-| **EXPEDITION** | Touches 5+ files, needs phases, multi-session | Use the full plan-first cycle and orchestration loop |
+| **EXPEDITION** | Touches 5+ files, needs phases, multi-session | Use the full plan-first loop |
 
 Every stage ends with repo-declared verification gates. When no gate exists, define the smallest honest build/test/manual-smoke proof in the PLAN before executing.
 
@@ -915,7 +893,7 @@ Vidux delegates; it never duplicates. Universal companion skills may be availabl
 - `clipdiff` — PR-ready diffs.
 - `captain` — meta/skill maintenance (audit, symlink discipline). Older `skill-manager` prompts route here.
 - `maily` — email cross-referencing.
-- `ledger` — cross-tool coordination (critical for ORCHESTRATED mode).
+- `ledger` — cross-tool coordination (critical for coordinated mode).
 - `nia` — external doc/package source lookup (check before WebFetch).
 - `amp` — prompt amplification for vague tasks (GATHER → steer → fire).
 
@@ -1113,7 +1091,7 @@ Core Vidux references are shipped as docs and guides in this repo:
 
 ## Beyond Core — Automation and Recipes
 
-Everything above is **core vidux** — five principles, cycle, PLAN.md template, investigations, course correction, routing, orchestration. It works for humans, one-shot AI sessions, and cron-scheduled workers alike. Two companion surfaces carry the rest (neither overrides core; both are opt-in layers):
+Everything above is **core vidux** — five principles, cycle, PLAN.md template, investigations, course correction, and routing boundaries. It works for humans, one-shot AI sessions, and scheduled workers alike. Two companion surfaces carry the rest (neither overrides core; both are opt-in layers):
 
 - **[`guides/automation.md`](guides/automation.md)** — 24/7 fleet operating model, session-gc, lane management, subagent delegation, lane bootstrap. Load when running lanes on a schedule.
 - **[`guides/recipes/`](guides/recipes/)** — opt-in tactics: CLAUDE.md rules, lane prompt templates, subagent dispatch, evidence discipline, proactive work surfacing, visual-proof requirements. Load a specific recipe on demand.

@@ -40,6 +40,7 @@ FLOW_CLI = Path.home() / "Development" / "ai" / "skills" / "leo-flow" / "scripts
 SKILLBOX_SKILL = Path.home() / "Development" / "ai" / "skills" / "skillbox" / "SKILL.md"
 GLM_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "glm" / "SKILL.md"
 GROK_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "grok" / "SKILL.md"
+CODEX_SKILL = Path.home() / "Development" / "ai-leo" / "skills" / "codex" / "SKILL.md"
 GOAL_NAV_PROMPT = ROOT / "prompts" / "goal-navigation-control-plane.prompt.md"
 
 
@@ -165,9 +166,10 @@ class ViduxContractTests(unittest.TestCase):
             "5.3.0fs Model-worker intent gate",
             "5.3.0ft Bounded model-worker writes",
             "5.3.0fv Parent-backed writable model-worker foldback",
-            "bounded writable GLM/Grok workers",
+            "5.3.0fw Codex high-fast model-worker skill",
+            "bounded writable GLM/Grok/Codex workers",
             "parent/lead foldback",
-            "Phase 5.3.0fn-fv",
+            "Phase 5.3.0fn-fw",
             "`/auto` is intentionally deleted",
             "5.3.1 stays parked until Resplit PR-overlap ownership is re-proven",
         ]:
@@ -1417,7 +1419,7 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(phrase, loop_normalized)
 
         for phrase in [
-            "planning control plane",
+            "repo-local plan/proof files the recovery packet",
             "owning `PLAN.md`",
             "Matching publish ledger rows carry the shipped-cycle proof packet",
             "handoff status",
@@ -1654,6 +1656,22 @@ class ViduxContractTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, normalized)
 
+        for stale_phrase in [
+            "Vidux is the kernel",
+            "planner-executor kernel",
+            "Vidux owns the full nursing loop",
+            "Vidux owns model-specific leader/follower hierarchies",
+        ]:
+            self.assertNotIn(stale_phrase, combined)
+
+        for phrase in [
+            "Vidux is the thin plan/proof control plane",
+            "Vidux owns the schema and lifecycle for plan state",
+            "Leo Flow owns model/runner selection and leader/follower foldback",
+            "Runner selection and model-worker foldback stay with Flow",
+        ]:
+            self.assertIn(phrase, normalized)
+
         prompt_path = "prompts/goal-navigation-control-plane.prompt.md"
         self.assertIn(prompt_path, vidux)
         self.assertIn(prompt_path, amp)
@@ -1675,9 +1693,58 @@ class ViduxContractTests(unittest.TestCase):
         ]:
             self.assertNotIn(stale_phrase, combined)
 
-    def test_model_worker_delegation_contract_covers_glm_and_grok(self):
-        """Flow must project max GLM and max Grok as bounded sidecar workers."""
-        required = [FLOW_SKILL, FLOW_YAML, FLOW_CLI, GLM_SKILL, GROK_SKILL, SKILLBOX_SKILL]
+    def test_kernel_cut_public_docs_scope_vidux_to_plan_proof_control_plane(self):
+        """Public/core docs must not reintroduce Vidux as the orchestration kernel."""
+        public = "\n".join([
+            _read(ROOT / "README.md"),
+            _read(ROOT / "docs" / "index.md"),
+            _read(ROOT / "docs" / "guide" / "index.md"),
+            _read(SKILL),
+        ])
+        normalized = " ".join(public.split())
+
+        for stale_phrase in [
+            "lightweight orchestration system",
+            "Vidux orchestrates AI coding work",
+            "Documentation is the control plane",
+            "Fleet Intelligence (opt-in)",
+            "ORCHESTRATED",
+            "Orchestration Mode",
+            "Default Discipline Swarm",
+            "Release Swarm",
+            "Vidux orchestrates — decompose, delegate, track",
+        ]:
+            self.assertNotIn(stale_phrase, public)
+
+        for phrase in [
+            "thin plan/proof control plane",
+            "Plan/proof files are the control plane",
+            "repo-local plan/proof files the recovery packet",
+            "routing boundaries",
+            "Vidux coordinates state; host tools or Flow dispatch workers",
+            "host runtime or Flow",
+            "core Vidux only preserves plan, proof, decision, and resume truth",
+        ]:
+            self.assertIn(phrase, normalized)
+
+        automation_boundary = "\n".join([
+            _read(ROOT / "guides" / "automation.md"),
+            _read(ROOT / "references" / "automation.md"),
+            _read(ROOT / "docs" / "fleet" / "index.md"),
+            _read(ROOT / "docs" / "fleet" / "operations.md"),
+        ])
+        boundary_normalized = " ".join(automation_boundary.split())
+        for phrase in [
+            "this guide is operator reference, not a second control plane",
+            "this file is historical/operator detail, not core authority",
+            "Runtime dispatch is owned by the host tool or Flow",
+            "Boundary: these operations are optional scheduling mechanics",
+        ]:
+            self.assertIn(phrase, boundary_normalized)
+
+    def test_model_worker_delegation_contract_covers_glm_grok_and_codex(self):
+        """Flow must project max GLM, max Grok, and high-fast Codex as bounded sidecar workers."""
+        required = [FLOW_SKILL, FLOW_YAML, FLOW_CLI, GLM_SKILL, GROK_SKILL, CODEX_SKILL, SKILLBOX_SKILL]
         missing = [str(path) for path in required if not path.exists()]
         if missing:
             self.skipTest("Leo model-worker skills are not present: " + ", ".join(missing))
@@ -1686,14 +1753,16 @@ class ViduxContractTests(unittest.TestCase):
         flow_yaml = _read(FLOW_YAML)
         glm = _read(GLM_SKILL)
         grok = _read(GROK_SKILL)
+        codex = _read(CODEX_SKILL)
         skillbox = _read(SKILLBOX_SKILL)
-        combined = "\n".join([flow, flow_yaml, glm, grok, skillbox])
+        combined = "\n".join([flow, flow_yaml, glm, grok, codex, skillbox])
         normalized = " ".join(combined.split())
 
         for phrase in [
             "## Model-Worker Delegation",
             "`glm_max_worker`",
             "`grok_max_worker`",
+            "`codex_high_fast_worker`",
             "Flow owns routing and foldback",
             "## Leader/Follower Orchestration",
             "Flow owns leader/follower orchestration",
@@ -1705,6 +1774,10 @@ class ViduxContractTests(unittest.TestCase):
             "assignment_sink",
             "lead owns plan/proof/diff",
             "opencode run --agent build --model zai/glm-5.2 --variant max",
+            "codex exec",
+            "service_tier",
+            "high-fast Codex",
+            "high reasoning and fast service tier",
             "one file/spec",
             "write_scope: lead_assigned_paths",
             "explicit allowed paths",
@@ -1728,7 +1801,7 @@ class ViduxContractTests(unittest.TestCase):
                 "python3",
                 str(FLOW_CLI),
                 "subagents",
-                "delegate max glm and max grok model-worker codegen to subagents for a build proof audit",
+                "delegate max glm, max grok, and high fast /codex model-worker codegen to subagents for a build proof audit",
                 "--repo",
                 str(ROOT),
                 "--json",
@@ -1751,14 +1824,22 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("shadow queue", payload["delegation_policy"]["single_plan_rule"])
         self.assertIn("FLOW.md", payload["delegation_policy"]["assignment_sink"])
         sidecars = {item["id"]: item for item in payload["sidecars"]}
-        for sidecar_id, skill_name in [("glm_max_worker", "glm"), ("grok_max_worker", "grok")]:
+        for sidecar_id, skill_name in [
+            ("glm_max_worker", "glm"),
+            ("grok_max_worker", "grok"),
+            ("codex_high_fast_worker", "codex"),
+        ]:
             self.assertIn(sidecar_id, sidecars, sidecars)
             self.assertEqual(skill_name, sidecars[sidecar_id]["skill"], sidecars[sidecar_id])
             self.assertEqual("lead_assigned_paths", sidecars[sidecar_id]["write_scope"], sidecars[sidecar_id])
             self.assertEqual(["<lead-assigned>"], sidecars[sidecar_id]["allowed_paths"], sidecars[sidecar_id])
             self.assertEqual("constrained_isolated_lane_only", sidecars[sidecar_id]["lead_eligible"], sidecars[sidecar_id])
             self.assertTrue(sidecars[sidecar_id]["follower_default"], sidecars[sidecar_id])
-            self.assertIn("max", sidecars[sidecar_id]["model_tier"].lower(), sidecars[sidecar_id])
+            if sidecar_id == "codex_high_fast_worker":
+                self.assertIn("high-fast", sidecars[sidecar_id]["model_tier"].lower(), sidecars[sidecar_id])
+                self.assertIn("service_tier", sidecars[sidecar_id]["command_hint"], sidecars[sidecar_id])
+            else:
+                self.assertIn("max", sidecars[sidecar_id]["model_tier"].lower(), sidecars[sidecar_id])
             self.assertTrue(sidecars[sidecar_id]["command_hint"], sidecars[sidecar_id])
             self.assertIn("lead owns plan/proof/diff", sidecars[sidecar_id]["prompt"], sidecars[sidecar_id])
             self.assertIn("Only write inside the declared write scope", sidecars[sidecar_id]["prompt"], sidecars[sidecar_id])

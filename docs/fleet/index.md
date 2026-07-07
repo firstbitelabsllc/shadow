@@ -1,6 +1,6 @@
 # Fleet Overview
 
-Vidux automation is opt-in: the core discipline works without long-running lanes. This section adds scheduled runs, fleet coordination, and platform-specific lifecycle for Claude Code and Codex. For Codex these docs cover the native macOS path; the automation guide defaults Codex-created automations to `Chat`, so use the TOML + DB flow only for a repo-bound `Local` or `Worktree` lane.
+Vidux automation is opt-in: the core discipline works without long-running lanes. This section documents scheduled runs, fleet coordination, and platform-specific lifecycle for Claude Code and Codex. Runtime dispatch is owned by the host tool or Flow; Vidux records the plan/proof packet those runs must rehydrate. For Codex these docs cover the native macOS path; the automation guide defaults Codex-created automations to `Chat`, so use the TOML + DB flow only for a repo-bound `Local` or `Worktree` lane.
 
 ## What lives in this section
 

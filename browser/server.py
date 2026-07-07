@@ -603,8 +603,12 @@ DASHBOARD_TASK_RE = re.compile(
 DASHBOARD_OPEN_HEADING_RE = re.compile(r"^[ \t]{0,3}#{3,6}\s+(?P<body>.+?)\s*#*\s*$")
 DASHBOARD_ASK_HEADING_RE = re.compile(r"^[ \t]{0,3}##\s+(?P<body>Q\d+\b.+?)\s*#*\s*$", re.I)
 DASHBOARD_ASK_RESOLVED_RE = re.compile(r"\b(?:resolved:\s*\S+|status:\s*resolved)\b", re.I)
+DASHBOARD_SOURCE_TAG_RE = re.compile(r"\[Source:\s*(?P<source>[^,\]]+)(?:,[^\]]+)?\]", re.I)
 EVIDENCE_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[-_].*)?\.md$")
-DECISION_LOG_HEADING_RE = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marks>#{2,6})\s+decision\s+log\s*#*\s*$", re.I)
+DECISION_LOG_HEADING_RE = re.compile(
+    r"^(?P<indent>[ \t]{0,3})(?P<marks>#{2,6})\s+decision(?:\s+log|s)\s*#*\s*$",
+    re.I,
+)
 MARKDOWN_HEADING_RE = re.compile(r"^[ \t]{0,3}(#{1,6})\s+\S")
 DECISION_ENTRY_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<body>.+?)\s*$")
 DECISION_KIND_RE = re.compile(r"^\[(?P<kind>[A-Z][A-Z0-9_-]{1,31})\]\s*(?P<rest>.*)$")
@@ -1010,6 +1014,7 @@ def plan_list_payload(plans: list[dict]) -> list[dict]:
             if k not in (
                 "children",
                 "dashboard_tasks",
+                "dashboard_verdicts",
                 "dashboard_inbox_entries",
                 "dashboard_ask_leo_entries",
             )
@@ -1066,7 +1071,7 @@ def dashboard_source_rel(path: Path) -> str:
 
 
 def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, tab: str) -> dict:
-    return {
+    item = {
         "kind": kind,
         "repo": plan.get("repo", ""),
         "rel": plan.get("rel", ""),
@@ -1078,12 +1083,24 @@ def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, 
         "label": raw.get("label", ""),
         "status": raw.get("status", ""),
     }
+    proof_path = raw.get("proof_path", "")
+    if proof_path:
+        item["proof_path"] = proof_path
+        if raw.get("proof_rel"):
+            item["proof_rel"] = raw.get("proof_rel")
+        elif Path(str(proof_path)).is_absolute():
+            item["proof_rel"] = dashboard_source_rel(Path(str(proof_path)))
+        else:
+            item["proof_rel"] = proof_path
+    return item
 
 
 def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dict:
     categories: dict[str, dict] = {
         "in_progress": {"label": "In Progress", "items": [], "total": 0},
         "blocked": {"label": "Blocked", "items": [], "total": 0},
+        "verdicts": {"label": "Verdicts", "items": [], "total": 0},
+        "decisions": {"label": "Decisions", "items": [], "total": 0},
         "ask_leo": {"label": "ASK-LEO", "items": [], "total": 0},
         "inbox": {"label": "INBOX", "items": [], "total": 0},
     }
@@ -1100,6 +1117,28 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
             status = task.get("status", "")
             if status in ("in_progress", "blocked"):
                 add(status, dashboard_base_item(plan, plan_path, task, kind="task", tab="PLAN.md"))
+
+        for verdict in plan.get("dashboard_verdicts", []) or []:
+            add("verdicts", dashboard_base_item(plan, plan_path, verdict, kind="verdict", tab="PLAN.md"))
+
+        for entry in (plan.get("decision_log") or {}).get("recent_directions", []) or []:
+            label_parts = [part for part in [entry.get("date"), entry.get("body") or entry.get("raw")] if part]
+            label = clean_plan_brief_text(" ".join(label_parts), 220)
+            if label:
+                add(
+                    "decisions",
+                    dashboard_base_item(
+                        plan,
+                        plan_path,
+                        {
+                            "label": label,
+                            "line": entry.get("line"),
+                            "status": (entry.get("kind") or "decision").lower(),
+                        },
+                        kind="decision",
+                        tab="Decision Log",
+                    ),
+                )
 
         inbox_path = plan_path.parent / "INBOX.md"
         for entry in plan.get("dashboard_inbox_entries", []) or []:
@@ -1314,6 +1353,7 @@ def plan_meta(path: Path) -> dict:
         "evidence": evidence,
         "parent_rel": parent_rel,
         "dashboard_tasks": extract_dashboard_tasks(text),
+        "dashboard_verdicts": extract_dashboard_verdicts(text),
         "dashboard_inbox_entries": dashboard_inbox_entries,
         "dashboard_ask_leo_entries": dashboard_ask_leo_entries,
     }
@@ -1470,6 +1510,55 @@ def extract_dashboard_tasks(text: str) -> list[dict]:
         if label:
             tasks.append({"status": status, "label": label, "line": line_number})
     return tasks
+
+
+def extract_dashboard_verdicts(text: str) -> list[dict]:
+    verdicts: list[dict] = []
+    for line_number, line in markdown_section_lines(text, "Evidence"):
+        m = PLAN_BRIEF_BULLET_RE.match(line)
+        if not m:
+            continue
+        body = m.group("body")
+        lowered = body.lower()
+        has_subject = any(
+            phrase in lowered
+            for phrase in (
+                "planner-executor",
+                "bakeoff",
+                "h1/h2/h3",
+                "kernel handoff",
+                "kernel >= freeform",
+            )
+        )
+        has_verdict = any(
+            phrase in lowered
+            for phrase in (
+                "refuted",
+                "lost to freeform",
+                "kernel-cheaper=false",
+                "decision.md",
+            )
+        )
+        if not (has_subject and has_verdict):
+            continue
+
+        label = clean_plan_brief_text(body, 260)
+        if not label:
+            continue
+        status = "refuted" if ("refuted" in lowered or "lost to freeform" in lowered) else "verdict"
+        source = ""
+        source_match = DASHBOARD_SOURCE_TAG_RE.search(body)
+        if source_match:
+            source = source_match.group("source").strip()
+        verdict = {
+            "status": status,
+            "label": label,
+            "line": line_number,
+        }
+        if source:
+            verdict["proof_path"] = source
+        verdicts.append(verdict)
+    return verdicts
 
 
 def open_entry_lines(text: str) -> list[tuple[int, str]]:

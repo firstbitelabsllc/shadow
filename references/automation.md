@@ -1,6 +1,8 @@
 # Automation Reference (vidux)
 
-Detailed automation doctrine for vidux — session management, lane operations, delegation modes, fleet ops, PR lifecycle, and platform-specific mechanics for running vidux workers on a schedule. Read this from `/vidux` when a task involves creating lanes, managing fleet state, or coordinating cross-session handoff. Full doctrine merged from the former `/vidux-claude`, `/vidux-codex`, and `/vidux-fleet` skills; SKILL.md carries the condensed overview.
+Detailed automation reference for vidux — session management, lane operations, delegation modes, fleet ops, PR lifecycle, and platform-specific mechanics for running workers on a schedule. Read this from `/vidux` only when a task actually involves creating lanes, managing fleet state, or coordinating cross-session handoff. Full doctrine merged from the former `/vidux-claude`, `/vidux-codex`, and `/vidux-fleet` skills; SKILL.md carries the condensed overview.
+
+2026-07-07 boundary: this file is historical/operator detail, not core authority. Vidux owns the plan/proof/decision/resume packet. Runner/model selection, subagent dispatch, and worker foldback belong to the host runtime or Flow. Do not use this reference to recreate a default planner/executor kernel or cross-runtime control plane.
 
 > **Durable-recovery shorthand (used throughout):** when a lane resumes or hands off, it reads its own `memory.md` for local orientation, then resumes shipped-work state from the owning PLAN.md plus the latest matching publish ledger row. This is the canonical recovery packet; "resume from disk" below always means this.
 

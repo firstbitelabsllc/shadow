@@ -544,9 +544,11 @@ function renderDashboardCard(key, label) {
 }
 
 function renderDashboardItem(item) {
+  const proof = item.proof_rel || item.proof_path || "";
   const meta = [
     item.repo || "",
     item.source_rel ? `${item.source_rel}${item.line ? `:${item.line}` : ""}` : "",
+    proof ? `proof ${shortLocalPath(proof)}` : "",
   ].filter(Boolean).join(" · ");
   const status = item.status || item.kind || "open";
   return `
@@ -620,12 +622,16 @@ function renderDashboardPane(opts = {}) {
       <div class="dashboard-cards">
         ${renderDashboardCard("in_progress", "In progress")}
         ${renderDashboardCard("blocked", "Blocked")}
+        ${renderDashboardCard("verdicts", "Verdicts")}
+        ${renderDashboardCard("decisions", "Decisions")}
         ${renderDashboardCard("ask_leo", "ASK-LEO")}
         ${renderDashboardCard("inbox", "INBOX")}
       </div>
       <div class="dashboard-grid">
         ${renderDashboardList("in_progress", "In Progress", "No in-progress tasks found.")}
         ${renderDashboardList("blocked", "Blocked", "No blocked tasks found.")}
+        ${renderDashboardList("verdicts", "Recent Verdicts", "No verdict receipts found.")}
+        ${renderDashboardList("decisions", "Recent Decisions", "No recent decisions found.")}
         ${renderDashboardList("ask_leo", "ASK-LEO", "No open ASK-LEO entries found.")}
         ${renderDashboardList("inbox", "INBOX", "No open INBOX entries found.")}
       </div>
@@ -948,11 +954,13 @@ function renderSidebar() {
     const meta = [
       `${Number(cats.in_progress?.total || 0)} in progress`,
       `${Number(cats.blocked?.total || 0)} blocked`,
+      `${Number(cats.verdicts?.total || 0)} verdicts`,
+      `${Number(cats.decisions?.total || 0)} decisions`,
       `${Number(cats.ask_leo?.total || 0)} ask`,
       `${Number(cats.inbox?.total || 0)} inbox`,
     ].join(" · ");
     return `
-      <div class="plan-row dashboard-row ${active}" data-kind="dashboard" data-path="dashboard" tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Fleet dashboard, ${total} open items`)}">
+      <div class="plan-row dashboard-row ${active}" data-kind="dashboard" data-path="dashboard" tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Fleet dashboard, ${total} items`)}">
         <div class="plan-row-head">
           <span class="pill pill-artifact" title="fleet dashboard"></span>
           <span>Fleet dashboard</span>

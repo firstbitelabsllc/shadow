@@ -2,6 +2,8 @@
 
 Summarizes `guides/automation.md` and `guides/fleet-ops.md` for a multi-lane vidux setup, after the core planning discipline is in place.
 
+Boundary: these operations are optional scheduling mechanics. The host runtime or Flow owns dispatch and foldback; Vidux owns the plan/proof packet every run reads and updates.
+
 ## Operating model
 
 Invariant: lanes persist on disk, sessions are disposable. Durable files live in the lane directory and the project plan store; session logs are hot state expected to cycle or be garbage-collected. `session-gc` is mandatory for 24/7 fleets so session logs don't grow unbounded.
@@ -16,7 +18,7 @@ Default: one coordinator lane per active repo, not a swarm of specialists.
 
 ## Dispatch model
 
-Two subagent shapes:
+Optional runtime dispatch has two common shapes:
 
 - **Research dispatch** — reads a large surface, compresses to a short summary with evidence lines. (read-heavy work)
 - **Implementation dispatch** — edits files from a five-block spec; parent reviews the diff. (bounded code-writing)
