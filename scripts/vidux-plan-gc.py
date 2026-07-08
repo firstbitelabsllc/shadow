@@ -25,6 +25,7 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,24 @@ COMPLETED_TARGET = 20
 COMPLETED_HARD = 50
 INVESTIGATION_AGE_DAYS = 180
 INBOX_CAP = 20
+
+
+def _resnapshot_plan_guard(plan_path):
+    """Archiving legitimately shrinks the live task count -- re-snapshot the
+    vidux-plan-guard.sh sidecar so the next vidux-loop.sh READ doesn't read
+    this GC pass as an unexplained clobber. Best-effort: plan-guard may not
+    exist in older checkouts, and a failure here must never block GC itself.
+    """
+    plan_guard = Path(__file__).resolve().parent / "vidux-plan-guard.sh"
+    if not plan_guard.exists():
+        return
+    try:
+        subprocess.run(
+            ["bash", str(plan_guard), "snapshot", str(plan_path)],
+            capture_output=True, timeout=10, check=False,
+        )
+    except Exception:
+        pass
 
 
 def archive_completed_tasks(plan_path, archive_path, dry_run):
@@ -107,6 +126,7 @@ def archive_completed_tasks(plan_path, archive_path, dry_run):
             new_section.extend(g)
         new_lines = lines[:task_start] + new_section + lines[task_end:]
         plan_path.write_text("".join(new_lines))
+        _resnapshot_plan_guard(plan_path)
 
     return {
         "target": "completed-tasks",

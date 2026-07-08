@@ -19,6 +19,9 @@ The `scripts/` directory is vidux's executable support layer — shell and Pytho
 | `scripts/vidux-publish-scrutiny.py` | Read-only preflight for publish packets. Fails closed unless summary/plan path/checkbox-FSM task row/proof/publish ledger eid/handoff/path-like file+claim/resume metadata exists, claims cover every file-claimed entry, claimed paths resolve to existing paths or git-known deletions, and invariant + regression + adversarial review passes are recorded passing. |
 | `scripts/vidux-release.sh` | Plan/ledger-gated release helper. In `--apply` mode, release publish requires an existing plan path/task row, proof, handoff status, changed-file claims, and next-agent resume before VERSION/CHANGELOG/PLAN/git/ledger mutations; default VERSION/CHANGELOG/PLAN files plus extra `--file` entries are claimed automatically. |
 | `scripts/vidux-claims.py` | Append-only claims bus for claiming, releasing, and listing active repo surfaces in `~/.agent-ledger/claims.jsonl`. |
+| `scripts/vidux-plan-guard.sh` | Detects silent `PLAN.md` task-count drops (a merge, checkout, or stale branch silently deleting tasks). `snapshot <plan>` records the current count to a `.plan-taskcount` sidecar; `verify <plan> [--json]` compares and flags a drop beyond threshold unless authorized by a dated `- [DELETION] [YYYY-MM-DD] ...` Decision Log entry. `vidux-checkpoint.sh` snapshots on every checkpoint; `vidux-loop.sh` verifies on every READ (`plan_integrity_warning`). See `investigations/2026-04-09-plan-clobber-postmortem.md`. |
+| `scripts/vidux-step-journal.sh` | Append-only JSONL step journal for crash-safe intra-row resume (idempotency key = row+step). `record`/`is-done`/`resume-point`/`status`/`clear`. `vidux-checkpoint.sh` archives a task's journal on true completion (preserved on `blocked`); `vidux-loop.sh` surfaces `step_journal.{available,row}` when resuming an `[in_progress]` task with an existing journal. |
+| `scripts/vidux-write-verify.sh` | Mechanizes Recipe 9 (Edit-Then-Verify): `check <file> [--min-bytes N] [--contains STRING] [--json]` re-reads a just-written file and fails closed on missing/empty/truncated/missing-expected-content. Deterministic pass/fail signal for the agent-side retry loop; does not itself retry. |
 
 ## Checkpoint script contract
 
@@ -59,6 +62,12 @@ The runtime doctor keeps macOS memory fields source-specific: `memory_pressure -
 reports `memory_pressure_free_pct`; raw page-derived MB from `vm_stat` reports
 `vm_free_mb` and `vm_speculative_mb`. Legacy aliases remain in JSON for existing
 consumers.
+
+The runtime doctor's `schedulewakeup_doctrine_intact` check verifies the
+`CronCreate` > `ScheduleWakeup` for ≥10 fires rule is still stated in both
+canonical locations (`guides/automation.md`, `docs/fleet/claude-lifecycle.md`).
+This catches silent doctrine drift, not a live violation — vidux cannot observe
+a running session's actual `ScheduleWakeup` tool calls.
 
 ## Codex maintenance scripts
 

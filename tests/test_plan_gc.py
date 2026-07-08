@@ -301,6 +301,28 @@ class PlanGCTests(unittest.TestCase):
         payload = json.loads(out.strip())
         self.assertTrue(payload["hard_cap_exceeded"])
 
+    def test_real_archive_resnapshots_plan_guard_sidecar(self):
+        # Regression from adversarial review: archiving legitimately shrinks
+        # the live task count. Without a re-snapshot, the NEXT
+        # vidux-plan-guard.sh verify would read this mechanical GC pass as an
+        # unexplained clobber and false-positive-warn.
+        make_plan(self.plan_dir, completed=35, pending=1)
+        sidecar = self.plan_dir / ".plan-taskcount"
+        self.assertFalse(sidecar.exists(), "sidecar should not exist before any GC/checkpoint run")
+        rc, _out, _err = run_script(self.plan_dir)
+        self.assertEqual(rc, 0)
+        self.assertTrue(sidecar.exists(), "plan-gc must re-snapshot plan-guard after a real archive")
+        data = json.loads(sidecar.read_text())
+        # 35 completed archived down to 20 target + 1 pending = 21 live tasks.
+        self.assertEqual(data["count"], 21)
+
+    def test_dry_run_does_not_touch_plan_guard_sidecar(self):
+        make_plan(self.plan_dir, completed=35)
+        sidecar = self.plan_dir / ".plan-taskcount"
+        rc, _out, _err = run_script(self.plan_dir, "--dry-run")
+        self.assertEqual(rc, 0)
+        self.assertFalse(sidecar.exists(), "a dry run must not create runtime sidecar state")
+
 
 if __name__ == "__main__":
     unittest.main()

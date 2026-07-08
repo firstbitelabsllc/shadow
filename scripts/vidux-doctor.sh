@@ -96,6 +96,23 @@ _add_check() {
   echo "$1" >> "$CHECKS_FILE"
 }
 
+# Bash-native JSON string escape (mirrors vidux-loop.sh's json_escape). Was
+# called but never defined here -- any warn path embedding a details string
+# (e.g. _check_cadence_runtime, _check_schedulewakeup_doctrine_intact) has
+# been silently emitting an empty details field via a swallowed "command not
+# found" on json_escape since $(...) exit failures don't propagate through
+# set -e when embedded in a larger string argument. Fixed by defining it here
+# instead of relying on a sibling script's function.
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  printf '%s' "$s"
+}
+
 _pipe_list_json() {
   local entries="$1"
   local json="["
@@ -1236,6 +1253,45 @@ _check_cadence_runtime() {
   fi
 }
 
+# ScheduleWakeup-vs-CronCreate doctrine drift check.
+#
+# Honesty note: vidux cannot observe a live session's ScheduleWakeup tool
+# calls -- that state lives entirely inside a running Claude Code session and
+# is never persisted anywhere this repo can read. A "doctor check that flags
+# ScheduleWakeup misuse" would be a fake gate pretending to see something it
+# can't. What IS mechanizable, and what this checks: the two places the
+# CronCreate-over-ScheduleWakeup-for-10+-fires rule is documented
+# (guides/automation.md and docs/fleet/claude-lifecycle.md's troubleshooting
+# table) still state it. This catches silent doctrine drift/deletion, not a
+# live violation -- see guides/recipes.md Recipe 12 note and CHANGELOG for the
+# fuller reasoning.
+_check_schedulewakeup_doctrine_intact() {
+  TOTAL=$((TOTAL + 1))
+  local missing=""
+  local automation_doc="$VIDUX_ROOT/guides/automation.md"
+  local lifecycle_doc="$VIDUX_ROOT/docs/fleet/claude-lifecycle.md"
+
+  # A deleted/renamed doc must flag too -- `-f` short-circuiting the check
+  # means a whole-file deletion silently read as "doctrine intact" (adversarial
+  # review, 2026-07-08), the same fail-open class as the plan-guard corrupt-
+  # sidecar bug this facelift already closed.
+  if [[ ! -f "$automation_doc" ]] || ! grep -qE 'CronCreate.{0,10}over.{0,10}ScheduleWakeup' "$automation_doc"; then
+    missing="${missing:+$missing, }guides/automation.md"
+  fi
+  if [[ ! -f "$lifecycle_doc" ]] || ! grep -qE 'CronCreate.{0,10}over.{0,10}ScheduleWakeup' "$lifecycle_doc"; then
+    missing="${missing:+$missing, }docs/fleet/claude-lifecycle.md"
+  fi
+
+  if [[ -n "$missing" ]]; then
+    _warn "ScheduleWakeup-vs-CronCreate doctrine missing/reworded in: $missing"
+    _add_check "{\"id\":\"schedulewakeup_doctrine_intact\",\"category\":\"quality\",\"status\":\"warn\",\"details\":\"$(json_escape "$missing")\"}"
+  else
+    _ok "ScheduleWakeup-vs-CronCreate doctrine intact in both canonical locations"
+    PASS_COUNT=$((PASS_COUNT + 1))
+    _add_check "{\"id\":\"schedulewakeup_doctrine_intact\",\"category\":\"quality\",\"status\":\"pass\"}"
+  fi
+}
+
 # ============================================================================ #
 # MAIN
 # ============================================================================ #
@@ -1285,6 +1341,7 @@ fi
 
 _check_bimodal_runtime
 _check_cadence_runtime
+_check_schedulewakeup_doctrine_intact
 
 # --- summary ---------------------------------------------------------------- #
 WARN_COUNT=$((TOTAL - PASS_COUNT))

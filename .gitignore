@@ -113,6 +113,9 @@ secrets/
 # Leo's local vidux config — must stay local, never tracked
 vidux.config.json
 
+# vidux-plan-guard.sh sidecar (task-count baseline, per-plan-dir local cache)
+.plan-taskcount
+
 # Browser runtime artifacts (user-generated HTML, not source)
 browser/artifacts/*
 !browser/artifacts/.gitkeep
