@@ -410,6 +410,8 @@ AUTO_PAUSE_RECOMMENDED=false; UNPRODUCTIVE_STREAK=0
 BIMODAL_SCORE=-1; BIMODAL_GATE="pass"
 CIRCUIT_BREAKER="closed"; CIRCUIT_BREAKER_STREAK=0
 BLOCKER_DEDUP=false; QUEUE_STARVED=false
+PLAN_INTEGRITY_WARNING=false
+STEP_JOURNAL_AVAILABLE=false; STEP_JOURNAL_ROW=""
 EARLY_HANDOFF_SUFFIX='"handoff_contract": {"long_horizon": false, "handoff_required": true, "stale_proof_gate": false, "stale_proof_dates": [], "meter_checkpoint_required": true, "required_fields": ["plan_row_moved", "task_id", "ledger", "proof", "files_claimed", "handoff_status", "next_agent_resume"]}, '"$REDUCE_CONTRACT_JSON"
 
 # Circuit breaker: if last N Progress entries show no shipping signals, block dispatch.
@@ -459,6 +461,24 @@ if grep -q '^## Progress' "$PLAN" 2>/dev/null; then
   fi
 fi
 
+# --- plan-integrity check (silent clobber detection) ----------------------- #
+# Compares PLAN.md's current task count against the .plan-taskcount sidecar
+# left by the last vidux-checkpoint.sh run. An unexplained drop between
+# cycles means a merge, checkout, or stale-branch overwrite silently deleted
+# tasks (investigations/2026-04-09-plan-clobber-postmortem.md). Warn-only:
+# never blocks a read, but folds into auto-pause so a clobbered plan doesn't
+# keep dispatching against a queue that no longer reflects reality.
+_PLAN_GUARD="$SCRIPT_DIR/vidux-plan-guard.sh"
+if [ -f "$_PLAN_GUARD" ]; then
+  _PLAN_GUARD_JSON="$(bash "$_PLAN_GUARD" verify "$PLAN" --json 2>/dev/null || true)"
+  if [ -n "$_PLAN_GUARD_JSON" ]; then
+    PLAN_INTEGRITY_WARNING="$(python3 -c "import json,sys;print('true' if json.loads(sys.argv[1]).get('integrity_warning') else 'false')" "$_PLAN_GUARD_JSON" 2>/dev/null || echo false)"
+    if [ "$PLAN_INTEGRITY_WARNING" = "true" ]; then
+      AUTO_PAUSE_RECOMMENDED=true
+    fi
+  fi
+fi
+
 # --- read: find first actionable task ------------------------------------- #
 # Priority 1: resume an in_progress task (session may have died mid-task)
 TASK_LINE="$(_first_in_progress_task_line)"
@@ -480,7 +500,7 @@ if [ -z "$TASK_LINE" ]; then
       QUEUE_STARVED=true
     fi
   fi
-  _FLEET_SUFFIX="\"runnable_tasks\": $RUNNABLE_TASKS, \"auto_pause_recommended\": $AUTO_PAUSE_RECOMMENDED, \"unproductive_streak\": $UNPRODUCTIVE_STREAK, \"bimodal_score\": $BIMODAL_SCORE, \"bimodal_gate\": \"$BIMODAL_GATE\", \"circuit_breaker\": \"$CIRCUIT_BREAKER\", \"circuit_breaker_streak\": $CIRCUIT_BREAKER_STREAK, \"blocker_dedup\": $BLOCKER_DEDUP, \"queue_starved\": $QUEUE_STARVED, \"sub_plan\": null, $EARLY_HANDOFF_SUFFIX"
+  _FLEET_SUFFIX="\"runnable_tasks\": $RUNNABLE_TASKS, \"auto_pause_recommended\": $AUTO_PAUSE_RECOMMENDED, \"unproductive_streak\": $UNPRODUCTIVE_STREAK, \"bimodal_score\": $BIMODAL_SCORE, \"bimodal_gate\": \"$BIMODAL_GATE\", \"circuit_breaker\": \"$CIRCUIT_BREAKER\", \"circuit_breaker_streak\": $CIRCUIT_BREAKER_STREAK, \"blocker_dedup\": $BLOCKER_DEDUP, \"queue_starved\": $QUEUE_STARVED, \"plan_integrity_warning\": $PLAN_INTEGRITY_WARNING, \"step_journal\": {\"available\": false, \"row\": \"\"}, \"sub_plan\": null, $EARLY_HANDOFF_SUFFIX"
   # Check if there are blocked tasks left (not "done" — escalate)
   BLOCKED_COUNT="$(grep -nE '^\- \[blocked\] ' "$PLAN" | _exclude_ec_lines | grep -c '.' || true)"
   if [ "$BLOCKED_COUNT" -gt 0 ]; then
@@ -513,6 +533,20 @@ TASK_DESC="$(echo "$TASK_REST" | sed -E 's/^- \[([^]]*)\] //')"
 PROCESS_FIX_DECLARED="$({ echo "$TASK_DESC" | grep -oE '\[ProcessFix: ?[a-z_]+\]' || true; } | head -1 | sed -E 's/\[ProcessFix: ?([a-z_]+)\]/\1/' || true)"
 DRIFT_SUGGESTIONS_JSON="$(python3 "$SCRIPT_DIR/vidux-drift-log.py" suggest "$PLAN" --task-text "$TASK_DESC" --limit 3 --json 2>/dev/null || printf '%s' "$DRIFT_SUGGESTIONS_JSON")"
 [ -z "$DRIFT_SUGGESTIONS_JSON" ] && DRIFT_SUGGESTIONS_JSON='{"schema_version":1,"source":"vidux-drift-log.py","suggestions":[]}'
+
+# --- step-journal awareness (crash-safe intra-row resume) ------------------ #
+# If vidux-step-journal.sh already recorded steps for this task (row), surface
+# that on resume so the agent doesn't blindly restart from scratch after a
+# SIGTERM/crash mid-task. Only meaningful when resuming an in_progress task --
+# a fresh pending task has no journal yet. See SKILL.md (Step journal).
+_STEP_JOURNAL="$SCRIPT_DIR/vidux-step-journal.sh"
+if [ "$IS_RESUMING" = true ] && [ -f "$_STEP_JOURNAL" ] && command -v jq >/dev/null 2>&1; then
+  _SJ_STATUS="$(bash "$_STEP_JOURNAL" status "$TASK_DESC" 2>/dev/null || true)"
+  if [ -n "$_SJ_STATUS" ] && ! printf '%s' "$_SJ_STATUS" | grep -q '^(no journal'; then
+    STEP_JOURNAL_AVAILABLE=true
+    STEP_JOURNAL_ROW="$TASK_DESC"
+  fi
+fi
 
 # --- sub-plan traversal ([spawns:] tag) ----------------------------------- #
 # If the current task links to a sub-plan via [spawns: path], count its tasks.
@@ -912,6 +946,11 @@ cat <<ENDJSON
   "circuit_breaker_streak": $CIRCUIT_BREAKER_STREAK,
   "blocker_dedup": $BLOCKER_DEDUP,
   "queue_starved": $QUEUE_STARVED,
+  "plan_integrity_warning": $PLAN_INTEGRITY_WARNING,
+  "step_journal": {
+    "available": $STEP_JOURNAL_AVAILABLE,
+    "row": "$(json_escape "$STEP_JOURNAL_ROW")"
+  },
   "sub_plan": $SUB_PLAN_JSON,
   "handoff_contract": {
     "long_horizon": $LONG_HORIZON_TASK,

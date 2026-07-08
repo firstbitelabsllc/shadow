@@ -42,7 +42,24 @@ require_jq() {
   command -v jq >/dev/null 2>&1 || { echo "vidux step-journal: jq is required" >&2; exit 3; }
 }
 
-sanitize() { printf '%s' "$1" | tr '/ ' '__'; }
+# Real PLAN.md task lines carry trailing annotation tags that get added/edited
+# WHILE a task is [in_progress] -- exactly the crash-resume window this journal
+# exists for (e.g. "API-1: Add an endpoint. [Evidence: fixture]",
+# "Task foo [ETA: 1h]"). vidux-loop.sh's TASK_DESC retains these tags; callers
+# of `clear`/`record` (vidux-checkpoint.sh, agents) commonly pass the bare
+# description without them. Without normalization the two resolve to different
+# sanitized filenames, so a checkpoint's clear silently orphans the tagged
+# journal instead of archiving it (adversarial review, 2026-07-08). Strip
+# trailing "[...]" tags before hashing so both forms key to the same row.
+normalize_row() {
+  local r="$1"
+  while [[ "$r" =~ ^(.*[^[:space:]])[[:space:]]*\[[^]]*\][[:space:]]*$ ]]; do
+    r="${BASH_REMATCH[1]}"
+  done
+  printf '%s' "$r"
+}
+
+sanitize() { printf '%s' "$(normalize_row "$1")" | tr '/ ' '__'; }
 journal_file() { printf '%s/%s.jsonl' "$JOURNAL_DIR" "$(sanitize "$1")"; }
 
 last_status() {

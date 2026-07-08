@@ -324,6 +324,27 @@ if ! git commit -m "vidux: ${SUMMARY}"; then
   exit 1
 fi
 
+# --- Refresh the plan-integrity baseline (warn-only; never blocks checkpoint) ---
+# Every legitimate checkpoint is a new "known-good" task count. vidux-loop.sh's
+# next READ compares against this sidecar to catch a silent clobber between
+# cycles (investigations/2026-04-09-plan-clobber-postmortem.md, R2).
+_PLAN_GUARD="$SCRIPT_DIR/vidux-plan-guard.sh"
+if [ -f "$_PLAN_GUARD" ]; then
+  bash "$_PLAN_GUARD" snapshot "$PLAN" 2>/dev/null || true
+fi
+
+# --- Retire the step journal on true completion (warn-only) ---------------- #
+# A [blocked] task may resume later, so its step journal stays. A [done] or
+# [done_with_concerns] task is terminal -- archive its journal so resumed-task
+# lookups in vidux-loop.sh don't surface stale steps from a prior, unrelated
+# occurrence of the same task text.
+if [[ "$STATUS" != "blocked" ]]; then
+  _STEP_JOURNAL="$SCRIPT_DIR/vidux-step-journal.sh"
+  if [ -f "$_STEP_JOURNAL" ]; then
+    bash "$_STEP_JOURNAL" clear "$TASK" >/dev/null 2>&1 || true
+  fi
+fi
+
 echo "Checkpoint complete. Cycle ${CYCLE}: ${SUMMARY}${STATUS_NOTE}"
 echo "Next: ${NEXT_TASK}"
 [[ "$BLOCKER" != "none" ]] && echo "Blocker: ${BLOCKER}"

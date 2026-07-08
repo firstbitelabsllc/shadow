@@ -1,0 +1,8 @@
+# PLAN.md is the fleet's single source of truth (Doctrine 1: "Plan is the
+# store"). A merge conflict resolved wrong must never silently drop tasks --
+# union-merge keeps both sides on conflict; duplicates are visible and
+# fixable, deleted tasks are not. Paired with scripts/vidux-plan-guard.sh
+# (task-count drift detection) and guides/fleet-ops.md's Worktree Handoff
+# Protocol (main-authoritative merge-back rule).
+# See investigations/2026-04-09-plan-clobber-postmortem.md (R1).
+PLAN.md merge=union

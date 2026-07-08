@@ -219,6 +219,10 @@ Never force-push. Never delete branches without confirmation. Never reset --hard
 Recommend actions; let the fleet watcher or a human execute.
 ```
 
+### Parallel variant (fan-out per repo)
+
+The CHECK loop above is written serially ("for each repo... 1, 2, 3, 4, 5") — on a fleet of N repos that's N sequential round-trips of read-only checks that don't depend on each other. Apply Principle 9 (DOCTRINE.md — read-only fan-out is safe because there are no merge conflicts, and vidux has run 9 concurrent research agents without incident): dispatch one agent per repo to run checks 1-5 and return its CLASSIFY verdict, then fan in through one synthesizer that assembles the dashboard and files the CRITICAL/WARNING actions. Same checks, same classification thresholds, same never-force-push guardrails — only the scheduling changes, from N sequential passes to one wall-clock pass. See Recipe 12 for the general pattern this is an instance of.
+
 ---
 
 ## Recipe 7: Skill Refiner
@@ -377,7 +381,7 @@ Use persistent cloud lanes (or a persistent local runner) for:
 
 ## Recipe 9: Edit-Then-Verify
 
-**When to use:** Any automation lane that edits state files (memory.md, PLAN.md, JSONL) where concurrent writers exist.
+**When to use:** Any automation lane that edits state files (memory.md, PLAN.md, JSONL) where concurrent writers exist, or any lane writing a report/artifact file another agent or a human will trust.
 
 **Pattern:** After every file edit, immediately re-read the file to verify the change applied. If the re-read shows unexpected content, log the mismatch to memory and retry with fresh content.
 
@@ -388,9 +392,15 @@ Write to memory → re-read memory → compare expected vs actual
   3 failures → mark lane degraded, checkpoint, exit
 ```
 
+**Mechanized check:** `scripts/vidux-write-verify.sh check <file> [--min-bytes N] [--contains STRING] [--json]` gives the re-read-and-compare step a deterministic pass/fail signal instead of "looked fine to me" — non-zero exit means the write didn't land as expected. The retry loop stays agent-side (the script can't regenerate content); it just tells you when to fire it.
+
+```bash
+bash scripts/vidux-write-verify.sh check evidence/report.md --min-bytes 200 --contains "## Summary"
+```
+
 **Exit condition:** 3 consecutive edit-verify failures on the same file = lane exits with DEGRADED status. Do not retry indefinitely.
 
-**Why:** Edit whitespace mismatches are the #1 fleet friction type (2/10 sessions). The re-read catches stale content before it corrupts state.
+**Why:** Edit whitespace mismatches and 0-byte/truncated writes are a recurring fleet friction type. The re-read catches stale or empty content before it corrupts state or gets reported as done.
 
 ---
 
@@ -437,6 +447,33 @@ Cycle fails with external_blocker or context_overflow
 **Exit condition:** All PRs either merged or marked `[blocked]` with reason. Never hold a PR queue open indefinitely — if a root PR is blocked for 2+ cycles, escalate.
 
 **Why:** Manual dependency tracking across 5+ PRs causes ordering mistakes (merge consumer before provider → broken build). The DAG makes ordering mechanical.
+
+---
+
+## Recipe 12: Parallel Assessor Fan-Out for Health Checks
+
+**When to use:** Any "confirm everything is still green" pass that reads N independent, read-only surfaces before deciding whether to act — CI status across repos, PR-queue dedup, test-depth/coverage drift, plan/state reconciliation across lanes. Recipe 6 (Trunk Health) is a worked instance of this.
+
+**Pattern:** Applies DOCTRINE.md Principle 9 (Subagent coordinator pattern) to the specific shape of "poll several independent things, then decide." Serial polling of N surfaces costs N round-trips even though the surfaces don't depend on each other; a single fan-out dispatch costs one wall-clock pass.
+
+```
+1. Enumerate the independent read-only lanes to check (repos, PR queues, plan
+   files, test-coverage reports — whatever the health pass covers).
+2. Dispatch one read-only assessor per lane IN A SINGLE FAN-OUT (not a loop
+   that spawns and waits one at a time). Each assessor returns a small
+   structured verdict: { lane, status: HEALTHY|WARNING|CRITICAL, finding }.
+3. Fan in through ONE synthesizer that merges the verdicts into a single
+   dashboard/report and decides what, if anything, needs action.
+4. Only the synthesizer acts (files a blocked task, posts a comment, etc.) --
+   assessors are read-only and never write, so there is no merge-conflict
+   risk from running them concurrently (Principle 9).
+```
+
+**Cap:** Principle 9's existing ceiling applies — vidux has run 9 concurrent read-only research agents without conflict; that's the proven envelope, not a hard platform limit. Coding/writing agents stay capped at 4 with a point guard; this recipe is read-only assessors only.
+
+**Exit condition:** A lane whose assessor fails to return (timeout, error) is reported as `UNKNOWN`, not silently dropped — the synthesizer's dashboard must account for every dispatched lane, matching the "no silent caps" discipline elsewhere in vidux (don't let a quiet failure read as "covered and healthy").
+
+**Why:** The insights-report friction this closes: serial "confirm all green" polling is slow by construction, and a cron/coordinator lane re-deriving each surface one at a time burns cycles that a single concurrent pass would not. Precedent already exists (Principle 9, Recipe 6 Trunk Health, Evidence fan-out in LOOP.md Step 2) — this recipe just names the pattern once so a future lane reaches for it instead of writing another serial loop.
 
 ---
 

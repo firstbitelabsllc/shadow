@@ -170,6 +170,8 @@ Hard rules that prevent the most common stateless-agent failures:
 
 **Append-only logs** — `## Progress`, the optional `## Drift Log`, and each lane's `memory.md` are append-only. Corrections go in new entries. Use `vidux drift` when implementation diverges from the plan.
 
+**A merge never silently deletes tasks** — `.gitattributes` unions `PLAN.md` conflicts, and `scripts/vidux-plan-guard.sh` records the task count at every checkpoint and flags an unexplained drop on the next read (`plan_integrity_warning` in `vidux-loop.sh`'s JSON). Intentional cuts are authorized with a dated `- [DELETION] [YYYY-MM-DD] ...` Decision Log entry. See `investigations/2026-04-09-plan-clobber-postmortem.md`.
+
 **3x stuck rule** — same task in 3+ consecutive progress entries while in-progress = auto-exit. Brake, not kill.
 
 ## Status & Config
