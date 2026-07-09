@@ -179,39 +179,56 @@ hermeticity claim. Not yet remediated.
 
 ## Process notes
 
-- **2 of 20 lens agents degenerated rather than producing real findings.**
-  `naming-branding-collision` explicitly errored (`StructuredOutput retry cap
-  (5) exceeded`). `positioning-honesty` returned a real JSON envelope but
-  with placeholder content (`title`/`detail`/`summary` all literally `"test"`)
-  — almost certainly a truncated/malfunctioning run, not a genuine finding.
-  **Neither should be counted as a trustworthy NO-GO vote.** Effective round-4
-  signal is closer to 5 GO / 13 real NO-GO / 2 degenerate-needs-rerun.
+- **3 of 20 lens agents degenerated or cross-contaminated rather than
+  producing real findings about this repo.** `naming-branding-collision`
+  explicitly errored (`StructuredOutput retry cap (5) exceeded`).
+  `positioning-honesty` returned a real JSON envelope but with placeholder
+  content (`title`/`detail`/`summary` all literally `"test"`) — almost
+  certainly a truncated/malfunctioning run, not a genuine finding.
+  `simplicity-niche-fit` is **confirmed cross-contaminated**: independently
+  verified against the actual vidux repo (2026-07-09) — `nicole-readiness-
+  packet.mjs` does not exist anywhere in vidux, `/coder-nicole` appears
+  nowhere except this evidence file's own citation of the finding, vidux has
+  362 markdown files (not the claimed 1,350), and `.claude-plugin/` contains
+  only a bare `plugin.json` (no `marketplace.json`, no README with the
+  claimed "Dormant by decision 2026-07-02" note). All 5 of that lens's
+  blockers describe a different repo entirely (almost certainly
+  trysnowcubes-web, which does have all of those exact files/paths/counts)
+  mapped onto vidux by mistake. **None of these 3 should be counted as
+  trustworthy NO-GO votes.** Effective round-4 signal is closer to 5 GO /
+  12 real NO-GO / 3 degenerate-or-contaminated-needs-rerun.
 - A prior round's own `test-suite-trust` lens said GO while `smoke.spec.ts:123`
   (stale sort-label assertion, unrelated to any of this session's changes)
   was already failing — confirmed via `git stash` to predate this session's
-  work. Correctly not fixed as part of unrelated remediation; tracked as its
-  own P1 test-infra finding, still open.
-- `simplicity-niche-fit` lens output (read before this round, not detailed
-  here) cited file counts/paths (`nicole-readiness-packet.mjs`,
-  `/coder-nicole`, `.claude-plugin`, 1,350 markdown files) that match
-  `trysnowcubes-web`, not `vidux` — apparent cross-contamination. Not yet
-  independently re-verified; do not act on that specific finding until
-  re-checked against the actual vidux repo.
+  work. Fixed in the round-4 P1 remediation batch (see below).
+- All 3 degenerate/contaminated lenses (`naming-branding-collision`,
+  `positioning-honesty`, `simplicity-niche-fit`) were re-run standalone
+  after this checkpoint — see the follow-up note appended below once
+  results land.
 
 ## Next actions (in order)
 
-1. Fix the concrete P1 items (2-4, 6) — small, low-risk, well-scoped.
+1. Fix the concrete P1 items (2-4, 6) — small, low-risk, well-scoped. DONE
+   2026-07-09 (commit `b5323825`), plus SUPPORT.md/CODE_OF_CONDUCT.md/
+   README.md fixes and a stale-label test fix bundled into the same batch.
 2. Fix the `SCAN_TARGETS` allowlist gap properly this time: switch to
    "everything tracked minus a documented denylist" instead of adding
    `AGENTS.md`/`CHANGELOG.md`/`.gitignore` as three more allowlist entries
-   (which just reproduces the same bug class a fourth time).
+   (which just reproduces the same bug class a fourth time). DONE 2026-07-09.
 3. Fix `worktree-gc.py`'s two new bugs (P0-2): recurse into ignored
    directories instead of trusting the collapsed top-level line; drop the
-   dead `.DS_Store` suffix check in favor of a basename check.
-4. Fix `playwright.config.ts` hermeticity (P0-3).
-5. Re-run `naming-branding-collision` and `positioning-honesty` standalone
-   (not a full 20-lens round) to get real signal before folding them into
-   round 5's count.
+   dead `.DS_Store` suffix check in favor of a basename check. DONE
+   2026-07-09 — used `-z --untracked-files=all` (not `--ignored=matching`,
+   which was tried first and empirically confirmed NOT to force recursion
+   for a directory-pattern ignore rule) plus a HUMAN_AUTHORED_SUFFIXES
+   override that beats the directory-name fast path.
+4. Fix `playwright.config.ts` hermeticity (P0-3). DONE 2026-07-09 —
+   `reuseExistingServer: false` unconditionally; Playwright's webServer API
+   has no content-verification hook for the reuse path, so never-reuse is
+   the only actual fix.
+5. Re-run `naming-branding-collision`, `positioning-honesty`, and
+   `simplicity-niche-fit` standalone (not a full 20-lens round) to get real
+   signal before folding them into round 5's count. IN PROGRESS 2026-07-09.
 6. Raise P0-1 (`refs/pull/*` leak) to Leo directly in chat with the
    escalated, concrete framing — not just left in this file.
 7. Round 5 once 1-4 are shipped.
