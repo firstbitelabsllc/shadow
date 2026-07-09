@@ -24,4 +24,22 @@ test.describe('receipts corpus filter accessibility', () => {
     await expect(page.locator('#chip-stub')).toHaveClass(/active/);
     await expect(page.locator('#chip-all')).not.toHaveClass(/active/);
   });
+
+  // Round-4 panel finding (accessibility lens, non-blocking): the button
+  // conversion above fixed keyboard reachability but never set aria-pressed,
+  // unlike the identical toggle-chip pattern in sidebar-filters.js's
+  // syncButtons(). Screen readers had no way to announce which filter was
+  // currently selected.
+  test('filter chips announce pressed state via aria-pressed', async ({ page }) => {
+    await page.goto('/static/receipts.html');
+    await page.waitForSelector('#chip-stub');
+
+    await expect(page.locator('#chip-all')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#chip-stub')).toHaveAttribute('aria-pressed', 'false');
+
+    await page.locator('#chip-stub').click();
+
+    await expect(page.locator('#chip-stub')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#chip-all')).toHaveAttribute('aria-pressed', 'false');
+  });
 });
