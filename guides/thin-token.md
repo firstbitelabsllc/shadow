@@ -33,9 +33,10 @@
 
 ```bash
 cd ~/Development/vidux
-npm run test:js
-python3 -m unittest tests.test_plan_guard tests.test_write_verify \
-  tests.test_step_journal tests.test_browser_server -q
+# one command = focused gate + Simple/thin-token structure checks
+bash scripts/vidux-thin-loop-verify.sh
+# deeper when UI server changed:
+# python3 -m unittest tests.test_browser_server -q
 ```
 
 Broader `npm run test:py` may show **2 known `/auto` failures** if a private `/auto` skill still exists on the machine — treat as env, not facelift regressions, until rehomed.

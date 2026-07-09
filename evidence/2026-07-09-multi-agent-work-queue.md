@@ -1,38 +1,32 @@
-# Multi-agent work queue — 2026-07-09 (loop 5)
+# Multi-agent work queue — 2026-07-09 (loop 6)
 
-**Weakest truthful claim:** `runtime-proven` for browser health + static Simple wiring; `unit-proven` for Simple-default contract. No Playwright pixel toggle screenshot.
+**Weakest truthful claim:** `runtime-proven` focused suites green on main `34c77dd`; Resplit 5.3.1 **re-blocked** with live probe (not unparked). No pixel toggle.
 
-## Steady state on main
+## Steady state (shipped)
 
-| Item | Status |
-|------|--------|
-| Simple-default cockpit | shipped #191 |
-| Thin-token + Recipe 13 | shipped #191 |
-| Setup/Proof thin | shipped #195 |
-| Thin-token contracts | shipped #193 |
-| `/auto` off farm | archived ai-leo |
-| **vidux-main-active** | → `Development/vidux@main` (live tip tracked) |
-| **Tests** | loop5: test:js **8/8**, focused py **46 PASS**, health **200** |
+Simple-default · thin-token · Setup/Proof · contracts · main-active mount · `scripts/vidux-thin-loop-verify.sh` (new)
 
 ## Ranked next
 
-| Pri | ID | Slice | Notes |
-|-----|-----|-------|-------|
-| **P1** | **V-PIXEL** | Optional Playwright Simple↔Advanced pixel smoke | only if visual regression risk rises |
-| **P2** | **5.3.1** | Ready-PR automations | blocked on Resplit overlap |
-| **P2** | **5.4.x** | Branch protection for automation actors | depends Wave 3 |
-| **P2** | Farm OCCUPIED | Skillbox doctor noise | document-only |
+| Pri | ID | Slice | Status |
+|-----|-----|-------|--------|
+| **P0** | **V-GREEN** | Each 30m loop: `bash scripts/vidux-thin-loop-verify.sh` | **green this cycle** |
+| **P2** | **5.3.1** | Ready-PR automations | **blocked** — resplit-ios dirty + behind ~2654 + multi open PRs (2026-07-09 probe) |
+| **P2** | **5.3.2 / 5.4.x** | Depends 5.3.1 / Wave 3 | parked |
+| **P3** | **V-PIXEL** | Playwright Simple↔Advanced pixel | optional only |
 
-## Multi-agent posture (steady state)
+## Multi-agent rule (all boats)
 
-- **Do not** fan out kernel/PE sidecars.
-- Default load: `guides/thin-token.md` + PLAN Current State + one Open work row.
-- Max 2–3 workers only when a **new** path-disjoint product slice appears.
-- Rising-tide default: keep tests green; prefer docs/test contracts over SKILL bloat.
+- **Default: 1 agent.** Fan-out only for path-disjoint product slices.
+- **Never** PE kernel / full SKILL for nurse cycles.
+- Load: `guides/thin-token.md` + PLAN Current State + this queue.
+- Proof: `scripts/vidux-thin-loop-verify.sh` (+ `tests.test_browser_server` when browser code changes).
 
-## Proof this cycle
+## Resplit probe (5.3.1)
 
-```bash
-npm run test:js   # 8 tests incl. Simple/Advanced default contract
-# live: python3 browser/server.py --port 7193 → GET /api/health 200; app.js serves isAdvancedMode
 ```
+resplit-ios: main ahead 7 behind ~2654, dirty ledger/plans
+open PRs: 1891, 1888, 1887, 1886, 1871, …
+```
+
+Unpark 5.3.1 only when: clean attached root (or isolated worktree), trunk not wildly diverged for the lane, and ≤1 automation PR per active lane.
