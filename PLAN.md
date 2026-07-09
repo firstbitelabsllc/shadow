@@ -47,17 +47,17 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [completed] 5.5.8 Kernel-cut branch transport: create an owned branch from detached HEAD, commit the exact kernel-cut package, rebase onto current `origin/main`, and confirm no `evaluations/` files enter the commit. [Evidence 2026-07-07: branch `codex/kernel-cut-cockpit-20260707`; package commit `8591c98`; clean rebase onto `origin/main` (`bf4fcc7`); `git status --short` shows only `?? evaluations/` outside the branch commit; post-rebase gates passed.]
 - [completed] 5.5.9 Kernel-cut PR nurse: push the branch, open or update the review path, and leave merge/findability status explicit. [Evidence 2026-07-07: branch pushed; PR #189 opened at https://github.com/firstbitelabsllc/vidux/pull/189; GitHub reported OPEN/non-draft, mergeStateStatus=CLEAN, Graphite mergeability_check=SUCCESS; merge/findability completed in 5.5.10.]
 - [completed] 5.5.10 Kernel-cut merge/findability nurse: after review/merge authority is clear, merge PR #189 or record the exact remaining merge blocker; do not claim shipped until main contains the merge SHA. [Evidence 2026-07-07: PR #189 squash-merged to `main` as `634bf20efda9295db5a3df1b636055ed5919baf2`; `origin/main` contains that merge SHA; findability recorded in `evidence/2026-07-07-kernel-cut-pivot.md`.]
-- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker 2026-06-26: Resplit `gh pr create` overlap gate not proven clear; read-only verification found the resplit-ios attached root still dirty and open PR state not one in-flight PR per active lane. Resume: re-read Resplit RALPH/PLAN/hot/nurse, rerun git/worktree/open-PR state, and only unpark when the overlap owner/gate is clear enough to create or validate the remaining automation PRs without duplicating ownership.]
-- [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1]
+- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker 2026-07-09 Leo: **do not work on Resplit.** Row frozen out of nurse/loop scope. Do not probe resplit-ios, open automation PRs for Resplit, or unpark until Leo explicitly re-enables Resplit work.]
+- [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1 — also frozen while Resplit is out of scope]
 - [pending] 5.4.1 Branch protection rejects direct-main pushes from automation actors while preserving human pushes. [Depends: Wave 3 complete]
 - [pending] 5.4.2 Smoke test both protected and allowed paths. [Depends: 5.4.1]
 
 
 ## Current State (resume here)
 
-- **Active goal:** post-kernel-cut **steady state** — keep green with thin-token load; no PE kernel. Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
-- **Live blocker:** none hard on Vidux product. Soft: **5.3.1 blocked** on Resplit overlap (re-probed 2026-07-09 loop6).
-- **Resume pointers:** run `bash scripts/vidux-thin-loop-verify.sh` each nurse cycle; unpark 5.3.1 only when Resplit trunk+PR topology is clean. Thin-token: `guides/thin-token.md`. Do not reopen 5.5 kernel-cut.
+- **Active goal:** post-kernel-cut **steady state** — keep Vidux green with thin-token load; no PE kernel; **no Resplit work** (Leo 2026-07-09). Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
+- **Live blocker:** none on Vidux product. **5.3.1 frozen** (Resplit out of scope — do not probe or unpark).
+- **Resume pointers:** `npm run test:thin` / `bash scripts/vidux-thin-loop-verify.sh` only. Thin-token: `guides/thin-token.md`. Never open resplit-ios for this goal. Do not reopen 5.5 kernel-cut.
 - **PE result:** bakeoff H1/H2/H3 all REFUTED (see evaluations/.../decision.md).
 - **Last green:** 2026-07-09 loop6 — thin-loop-verify PASS; browser_server 69 PASS; tip `34c77dd`+.
 - **Worker-family proof 2026-06-28:** Phase 5.3.0fn-fw extends the worker family by adding `/codex` and `codex_high_fast_worker`; focused contracts, active skill rebuild, worker-family YAML parse, Codex read/write smoke, and GLM/Grok route smokes all passed. `TERM=xterm-256color codex doctor --json --summary` exits 0 with auth/config/network/websocket/sandbox/runtime OK and only the pre-existing stale rollout DB parity warning; unrelated active-skill YAML errors remain outside `/glm`/`/grok`/`/codex`/`/delegate`.
@@ -76,8 +76,8 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [completed] 5.5.8 Kernel-cut branch transport. [Proof 2026-07-07: branch `codex/kernel-cut-cockpit-20260707` created from detached HEAD, package committed as `8591c98`, rebased cleanly onto current `origin/main`, and `evaluations/` remains untracked/uncommitted.]
 - [completed] 5.5.9 Kernel-cut PR nurse. [Proof 2026-07-07: branch pushed and PR #189 opened; GitHub reported OPEN/non-draft, mergeStateStatus=CLEAN, Graphite mergeability_check=SUCCESS; merge/findability completed in 5.5.10.]
 - [completed] 5.5.10 Kernel-cut merge/findability nurse. [Proof 2026-07-07: PR #189 squash-merged to `main` as `634bf20efda9295db5a3df1b636055ed5919baf2`; `origin/main` contains that merge SHA; findability recorded in evidence.]
-- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker 2026-07-09 loop6 re-probe: resplit-ios `main` ahead 7 / behind ~2654, dirty agent-ledger + plan files, ≥5 open PRs (1891/1888/1887/1886/1871) — overlap gate still not clear. Resume: re-read Resplit RALPH/hot when trunk converges; do not open more automation PRs until one-PR-per-lane holds.]
-- [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1]
+- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker 2026-07-09 Leo: **do not work on Resplit.** Frozen; no resplit-ios probes, no automation PR transport for Resplit until Leo re-enables.]
+- [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1 — frozen while Resplit out of scope]
 - [pending] 5.4.1 (Wave 4) Branch protection: reject direct-main pushes from automation actors, preserve human pushes. [Depends: Wave 3 complete]
 - [pending] 5.4.2 Smoke test both paths. [Depends: 5.4.1]
 - [completed] 5.6.0 Thin-token / multi-agent queue (2026-07-09). Ranked slices in `evidence/2026-07-09-multi-agent-work-queue.md`. Default agent load = PLAN + proof + resume only; no kernel handoff. [validation: queue file present; test:js + focused py green 2026-07-09 loop]
