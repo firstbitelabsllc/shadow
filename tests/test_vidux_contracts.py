@@ -8,10 +8,12 @@ Expanded for v1: covers docs, scripts, commands, hooks, enforcement, ingredients
 Runs on stdlib unittest — zero-bootstrap, no pip install needed.
 """
 
+import http.client
 import json
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import subprocess
 import tempfile
@@ -4314,6 +4316,68 @@ class ViduxContractTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("does not match this Vidux checkout/root", result.stderr)
+
+    def test_vidux_browse_self_locates_when_invoked_via_symlink_outside_checkout(self):
+        """Round-1 open-source panel finding: bin/vidux-browse hardcoded ROOT to
+        $HOME/Development/vidux with no BASH_SOURCE self-location (unlike
+        bin/vidux, which resolves correctly). README.md's own "Vidux Browse"
+        section documents running this script directly -- for any stranger not
+        physically cloned to ~/Development/vidux, that crashed with a raw
+        FileNotFoundError trying to stat a browser/server.py that doesn't exist
+        at the wrong, hardcoded path. Reproduced here via a symlink into the
+        real checkout from a HOME with no Development/vidux at all -- the same
+        deployment shape bin/vidux itself is normally used in (globally
+        symlinked into PATH)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            scratch_home = tmp / "home"
+            scratch_bin = tmp / "elsewhere" / "bin"
+            scratch_dev_root = scratch_home / "Development"
+            scratch_bin.mkdir(parents=True)
+            scratch_dev_root.mkdir(parents=True)
+            (scratch_bin / "vidux-browse").symlink_to(ROOT / "bin" / "vidux-browse")
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                free_port = s.getsockname()[1]
+
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(scratch_home),
+                "VIDUX_DEV_ROOT": str(scratch_dev_root),
+                "VIDUX_BROWSER_PORT": str(free_port),
+            })
+            env.pop("VIDUX_ROOT", None)
+
+            proc = subprocess.Popen(
+                ["bash", str(scratch_bin / "vidux-browse"), "--no-open", "--foreground"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+            )
+            health_payload = None
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+                self.fail(f"vidux-browse exited early (rc={proc.returncode}): stdout={stdout!r} stderr={stderr!r}")
+            except subprocess.TimeoutExpired:
+                # Still running after 5s == the server actually started and is
+                # serving (matches --foreground's exec into a blocking server).
+                conn = http.client.HTTPConnection("127.0.0.1", free_port, timeout=5)
+                try:
+                    conn.request("GET", "/api/health")
+                    health_payload = json.loads(conn.getresponse().read())
+                finally:
+                    conn.close()
+                proc.terminate()
+                try:
+                    stdout, stderr = proc.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    stdout, stderr = proc.communicate()
+
+            self.assertNotIn("Traceback", stderr)
+            self.assertNotIn("FileNotFoundError", stderr)
+            self.assertIn("vidux browser", stderr)
+            self.assertIsNotNone(health_payload)
+            self.assertEqual(health_payload["repo_root"], str(ROOT.resolve()))
 
     def test_vidux_browse_launcher_parses_flags_instead_of_silently_ignoring(self):
         """browse flags should affect launcher behavior or fail loudly."""

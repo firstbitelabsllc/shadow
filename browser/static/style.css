@@ -2183,8 +2183,19 @@ body.is-annotation-mode #filter {
   :root {
     --pane-footer-reserve: 24px;
   }
+  /* h1's flex-shrink:0 (kept at wider widths so the title never gets
+     starved by topbar-meta) plus the 44px WCAG touch-target padding on
+     #mode-toggle above no longer both fit on one line at iPhone SE/12/13/14
+     widths -- title and button pixel-overlap instead of one shrinking.
+     .topbar-meta itself is the actual offender: it shrinks to whatever
+     space is left (flex:1; min-width:0) so the OUTER .topbar never thinks
+     it needs to wrap, but its own children (#meta-count text + 3 buttons)
+     keep their natural min-content width and overflow past their now-too-
+     narrow parent, back over the title. Let topbar-meta's own children
+     wrap onto a second row instead. */
+  .topbar { flex-wrap: wrap; row-gap: 8px; }
   .topbar h1 { font-size: 16px; }
-  .topbar-meta { font-size: 11px; gap: 8px; }
+  .topbar-meta { flex-wrap: wrap; row-gap: 6px; font-size: 11px; gap: 8px; }
   .ops-truth-grid {
     grid-template-columns: 1fr;
   }

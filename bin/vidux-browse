@@ -7,7 +7,20 @@
 #   vidux-browse --foreground / -f  # don't background; stream logs
 set -euo pipefail
 
-ROOT="${VIDUX_ROOT:-$HOME/Development/vidux}"
+# Self-locate like bin/vidux does, rather than assuming the checkout lives at
+# $HOME/Development/vidux -- a stranger's fresh clone (or a worktree, or a
+# differently-named clone) invoking this script directly (as README.md's own
+# "Vidux Browse" section documents) would otherwise crash with a raw
+# FileNotFoundError trying to reach browser/server.py under the wrong path.
+VIDUX_BROWSE_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "${VIDUX_BROWSE_SOURCE}" ]]; do
+  VIDUX_BROWSE_SOURCE_DIR="$(cd -P "$(dirname "${VIDUX_BROWSE_SOURCE}")" && pwd)"
+  VIDUX_BROWSE_SOURCE="$(readlink "${VIDUX_BROWSE_SOURCE}")"
+  [[ "${VIDUX_BROWSE_SOURCE}" != /* ]] && VIDUX_BROWSE_SOURCE="${VIDUX_BROWSE_SOURCE_DIR}/${VIDUX_BROWSE_SOURCE}"
+done
+VIDUX_BROWSE_BIN_DIR="$(cd -P "$(dirname "${VIDUX_BROWSE_SOURCE}")" && pwd)"
+
+ROOT="${VIDUX_ROOT:-$(cd "${VIDUX_BROWSE_BIN_DIR}/.." && pwd)}"
 PORT="${VIDUX_BROWSER_PORT:-7191}"
 HOST="${VIDUX_BROWSER_HOST:-127.0.0.1}"
 OPEN_HOST="${VIDUX_BROWSER_OPEN_HOST:-127.0.0.1}"

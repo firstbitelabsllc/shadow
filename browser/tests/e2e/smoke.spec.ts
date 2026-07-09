@@ -490,4 +490,27 @@ test.describe('artifact styling', () => {
     }));
     expect(paneMetrics.scrollWidth).toBeLessThanOrEqual(paneMetrics.clientWidth);
   });
+
+  // Round-1 open-source panel finding: at iPhone SE/12/13/14 widths, the
+  // title (.topbar h1, flex-shrink:0) and #mode-toggle pixel-overlapped --
+  // "vidux browser" rendered as "vidux brows" with the button drawn on top.
+  // Root cause was .topbar-meta's own children (text + 3 buttons) keeping
+  // their natural min-content width and overflowing their shrunk parent,
+  // not the outer .topbar itself. Covers the exact widths the panel measured.
+  for (const width of [375, 390, 414]) {
+    test(`topbar title and mode-toggle do not overlap at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/');
+      const h1 = await page.locator('.topbar h1').boundingBox();
+      const toggle = await page.locator('#mode-toggle').boundingBox();
+      expect(h1).not.toBeNull();
+      expect(toggle).not.toBeNull();
+      if (h1 && toggle) {
+        const sameRow = Math.abs(h1.y - toggle.y) < h1.height;
+        if (sameRow) {
+          expect(h1.x + h1.width).toBeLessThanOrEqual(toggle.x);
+        }
+      }
+    });
+  }
 });
