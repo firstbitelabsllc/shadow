@@ -55,14 +55,11 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 
 ## Current State (resume here)
 
-- **Active goal:** post-kernel-cut adoption — Simple-default + thin-token are **on main** (PR #191 `a434e13`, hardening #190, niche docs #192). Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
-- **Live blocker:** none hard. Soft: open PR #177 (Readiness & Proof Contract docs) needs nurse; private `/auto` archived off farm 2026-07-09 (`ai-leo/skills/_archive/auto`).
-- **Resume pointers:** next = (1) land or close #177, (2) keep contracts green after thin-token phrase realignment, (3) optional Simple toggle smoke. Thin-token path: `guides/thin-token.md`. Do not reopen 5.5 kernel-cut. Browser is currently runnable at `http://127.0.0.1:7192` if this session is still alive; otherwise restart with `python3 browser/server.py --host 127.0.0.1 --port 7192 --root ~/Development`. Findability: PR #189 is https://github.com/firstbitelabsllc/vidux/pull/189 and merge SHA is `634bf20efda9295db5a3df1b636055ed5919baf2` on `origin/main`. Do not delete or stage `evaluations/` as routine cleanup: it is an untracked 84M stale/partial copy of `~/Development/vidux/evaluations/vidux-vs-native-bakeoff`, and `diff -qr` shows differing run artifacts. No removed LaunchAgent should be reinstalled without explicit owner opt-in (local recurring automation removed 2026-06-03 by Leo request; future local scheduled automation is opt-in + signposted only).
-- **PE result:** ~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/decision.md reports 117 clean rows; H1 plan lift, H2 Fable > Sonnet, and H3 kernel >= freeform are all REFUTED.
-- **Live blocker:** none hard. Soft: optional Simple toggle smoke; parked Resplit automation 5.3.1.
-- **Resume pointers:** next = optional V-SMOKE (Simple↔Advanced) or unpark 5.3.1 when Resplit overlap clear. Setup/Proof Contract thin-landed on main (supersedes conflicting #177). Thin-token: `guides/thin-token.md`. Do not reopen 5.5 kernel-cut. Browser is currently runnable at `http://127.0.0.1:7192` if this session is still alive; otherwise restart with `python3 browser/server.py --host 127.0.0.1 --port 7192 --root ~/Development`. Findability: PR #189 is https://github.com/firstbitelabsllc/vidux/pull/189 and merge SHA is `634bf20efda9295db5a3df1b636055ed5919baf2` on `origin/main`. Do not delete or stage `evaluations/` as routine cleanup: it is an untracked 84M stale/partial copy of `~/Development/vidux/evaluations/vidux-vs-native-bakeoff`, and `diff -qr` shows differing run artifacts. No removed LaunchAgent should be reinstalled without explicit owner opt-in (local recurring automation removed 2026-06-03 by Leo request; future local scheduled automation is opt-in + signposted only).
-- **PE result:** ~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/decision.md reports 117 clean rows; H1 plan lift, H2 Fable > Sonnet, and H3 kernel >= freeform are all REFUTED.
-- **Last green:** 2026-07-07 merge/findability closeout passed `git diff --check`, `python3 -m py_compile browser/server.py`, stale public/core wording `rg` guard clean, local browser `/api/health`, `python3 -m unittest tests.test_browser_server` (69 tests, skipped=1), and `python3 -m unittest tests.test_vidux_contracts` (220 tests, skipped=3) after PLAN/evidence updates.
+- **Active goal:** post-kernel-cut **steady state** — Simple-default, thin-token, Setup/Proof thin, contracts green on main (`cac4369`+). Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
+- **Live blocker:** none hard. Soft only: parked Resplit automation 5.3.1.
+- **Resume pointers:** unpark 5.3.1 only when Resplit overlap clear; optional pixel toggle smoke. Thin-token: `guides/thin-token.md`. `vidux-main-active` → Development/vidux@main. Do not reopen 5.5 kernel-cut.
+- **PE result:** bakeoff H1/H2/H3 all REFUTED (see evaluations/.../decision.md).
+- **Last green:** 2026-07-09 loop5 — `npm run test:js` 8/8 (incl. Simple-mode contract); focused contracts/plan 46 PASS; browser `:7193/api/health` 200.
 - **Worker-family proof 2026-06-28:** Phase 5.3.0fn-fw extends the worker family by adding `/codex` and `codex_high_fast_worker`; focused contracts, active skill rebuild, worker-family YAML parse, Codex read/write smoke, and GLM/Grok route smokes all passed. `TERM=xterm-256color codex doctor --json --summary` exits 0 with auth/config/network/websocket/sandbox/runtime OK and only the pre-existing stale rollout DB parity warning; unrelated active-skill YAML errors remain outside `/glm`/`/grok`/`/codex`/`/delegate`.
 - **Eve cockpit:** local-only Eve cockpit on `codex/eve-studio-vidux-20260620`; PR `firstbitelabsllc/vidux#149` OPEN/non-draft, blocked only by a GitHub billing/spending-limit gate (no local code/test failure).
 
@@ -91,7 +88,8 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [completed] 5.6.5 Align goal-nav contract phrases with thin-token live corpus (stop requiring pre-kernel-cut strings). [validation: goal_navigation_and_deleted_auto_contract]
 - [completed] 5.6.6 Setup/Proof Contract thin-landed in SKILL Cycle + PLAN template (supersedes conflicting PR #177). [validation: SKILL sections present]
 - [completed] 5.6.8 PR #193 thin-token contracts merged (`49ea5e0`). [validation: on origin/main]
-- [pending] 5.6.7 Optional: Simple↔Advanced browser toggle smoke screenshot on :7192. [validation: evidence png]
+- [completed] 5.6.7 Simple-mode smoke: unit contract (default Simple / Advanced opt-in) + live browser /api/health + static app.js on :7193 (2026-07-09 loop5). Pixel screenshot still optional. [validation: npm run test:js; curl health 200]
+- [completed] 5.6.9 vidux-main-active points at Development/vidux@main (`cac4369`+); thin-token + Setup/Proof present. [validation: readlink skills-active/vidux]
 
 ## Completed (rolled up)
 
