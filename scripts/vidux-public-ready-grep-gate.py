@@ -148,6 +148,24 @@ HISTORICAL_TARGETS = {
     "ARCHIVE.md",
     "CHANGELOG.md",
 }
+# Round-7 panel finding (P1, documented, NOT fixed): "PLAN.md" and "projects"
+# are whole-file/whole-directory HYGIENE_PATTERNS exemptions, but a PLAN.md
+# is not append-only-by-design the way CHANGELOG.md/ARCHIVE.md genuinely
+# are -- it's a living document with LIVE sections (Purpose, Constraints,
+# Tasks, Open work) interleaved with append-only sections (Decision Log,
+# Progress, Drift Log). Reproduced live: injecting a HYGIENE_PATTERNS
+# violation into projects/artifact-self-improvement/PLAN.md's ACTIVE Tasks
+# section still reports "passed", because the whole file (root PLAN.md and
+# every projects/*/PLAN.md alike) is exempted regardless of which section a
+# line falls in. PRIVACY_PATTERNS still catch a real leak anywhere in these
+# files (see docstring above) -- this gap is HYGIENE_PATTERNS only (retired-
+# terminology accuracy, not a privacy/security leak). A correct fix needs
+# section-aware scanning (treat only recognized append-only headings --
+# "Decision Log", "Progress", "Drift Log" -- as historical, scan everything
+# else in a PLAN.md normally) rather than whole-file classification. Not
+# implemented yet: it changes scanning behavior for every PLAN.md in the
+# repo and deserves its own dedicated verification pass rather than a rushed
+# change alongside this round's other fixes.
 
 
 # Files where "linear"/"Linear" is unrelated domain vocabulary (a CSS
