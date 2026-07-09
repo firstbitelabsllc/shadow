@@ -85,7 +85,18 @@ PRIVACY_PATTERNS = (
     # path boundary is also a \b boundary) while also catching every bare
     # mention.
     ("private username", re.compile(r"\b(?:leokwan|redacted-operator)\b")),
-    ("employer source path", re.compile(r"\bREDACTED-EMPLOYER-PATH/Dev\b")),
+    # Round-3 panel finding: this rule's own regex had been over-redacted to
+    # the literal placeholder text "REDACTED-EMPLOYER-PATH" -- a string that
+    # never appears in real content, so the check was a permanent silent
+    # no-op. It missed a live leak: this session's own evidence file quoting
+    # `/Users/lkwan/Snapchat/...` and `lkwan@snapchat.com` verbatim while
+    # documenting a confidentiality finding about that exact content.
+    ("employer source path", re.compile(r"\b(?:lkwan|Snapchat/Dev)\b")),
+    # Bare-domain form, not just the `@`-prefixed email form -- a real
+    # instance found live was an internal registry hostname
+    # (registry.snapchat.com/mirror-proxy/...), which has no `@`.
+    ("employer email or domain", re.compile(r"\bsnapchat\.com\b", re.IGNORECASE)),
+    ("employer internal hostname", re.compile(r"\bsc-corp\.net\b", re.IGNORECASE)),
     ("private skills repo path", re.compile(r"\bDevelopment/ai(?:-leo)?/(?:hooks|skills)\b")),
 )
 

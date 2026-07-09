@@ -56,13 +56,11 @@ vector is now fully closed on origin.
 ## URGENT #2 (fixed): real Snap Inc. confidential engineering content in 6 local-only branches
 
 `security-secrets-leaks` and `git-history-exposure` both independently found real
-Snap Inc. internal content — internal source-control/build/dashboard hostnames
-(`github.sc-corp.net`, `jira.sc-corp.net`, `grafana.sc-corp.net`,
-`engflow-cache-gcp-prod.sc-corp.net`), named coworker handles, live internal PR/Jira
-ticket numbers, an internal Grafana dashboard naming an in-progress unreleased
-feature rollout percentage, and Leo's own Snap corporate git identity
-(`lkwan@snapchat.com`, `/Users/lkwan/Snapchat/...`) — sitting in 6 **local-only,
-never-pushed** branches on this dev machine: `codex/agjh-web-verified-20260625`,
+employer-internal content — internal source-control/build/dashboard hostnames,
+named coworker handles, live internal PR/Jira ticket numbers, an internal dashboard
+naming an in-progress unreleased feature rollout percentage, and Leo's own employer
+corporate git identity (email + a corporate-tree absolute path) — sitting in 6
+**local-only, never-pushed** branches on this dev machine: `codex/agjh-web-verified-20260625`,
 `codex/worktree-gc-detached-pr-head`, `fix/p1-p2-round2-findings`,
 `fix/round3-p0-critical`, `fix/round3-p1-backlog`,
 `vidux-public-ready-delinear-20260617`.
@@ -71,26 +69,30 @@ Independently re-verified: scoped each branch's history against `origin/main`
 (`git log <branch> --not origin/main`), found 1,200–2,410 real content-matching hits
 per branch (not just author-line matches — spot-checked actual commit bodies, e.g.
 `codex/agjh-web-verified-20260625` contains full internal engineering narrative about
-Leo's private `/leo-flow` skill work, authored from `/Users/lkwan/Snapchat/Dev/ai`).
-Cross-checked `origin/main`'s own author list — clean, always `leojkwan@gmail.com` —
-confirming this content is anomalous to these 6 branches only, not a repo-wide
-identity leak. Six other local branches with 1–8 incidental hits were checked and are
-false positives (matching only the `lkwan@snapchat.com` *author* line on commits
-that otherwise contain nothing Snap-internal — not remediated, not a real leak).
+Leo's own private automation-skill work, authored from within his employer's corporate
+dev tree). Cross-checked `origin/main`'s own author list — clean, always the personal
+`leojkwan@gmail.com` identity — confirming this content is anomalous to these 6
+branches only, not a repo-wide identity leak. Six other local branches with 1–8
+incidental hits were checked and are false positives (matching only the corporate
+*author* line on commits that otherwise contain nothing employer-internal — not
+remediated, not a real leak).
 
-This is a real employer-confidentiality risk given Leo works at Snap, made materially
+This is a real employer-confidentiality risk given Leo's day job, made materially
 worse by this session's own demonstrated finding (see the companion evidence file's
 "concurrent-write discovery" section) that an autonomous `vidux-loop.sh` process can
 commit *and push* whatever it finds in this shared checkout without a human in the
-loop. Leaving Snap-confidential commits sitting as named local branches was a live,
-not hypothetical, one-push-away risk.
+loop. Leaving employer-confidential commits sitting as named local branches was a
+live, not hypothetical, one-push-away risk.
 
 **Fix:** bundled all 6 branches to `~/Desktop/vidux-snap-confidential-quarantine/*.bundle`
 (outside any active git checkout, so nothing is lost), then deleted the local branch
 refs (`git branch -D`). **Leo should review the quarantine folder and decide whether
-this content belongs in one of his private repos (`~/Development/ai` /
-`~/Development/ai-leo`, matching the `/Users/lkwan/Snapchat/Dev/ai` paths found in the
-commits) or should simply be discarded — not yet asked, flagging here.**
+this content belongs in one of his private automation repos (matching the corporate
+dev-tree paths found in the commits) or should simply be discarded — not yet asked,
+flagging here.** Also strengthened `scripts/vidux-public-ready-grep-gate.py`, whose
+existing "employer source path" rule had been over-redacted to a literal placeholder
+string that could never match real content (a silent no-op) — it just caught this
+exact class of leak live, in this very file, while it was being written.
 
 ## Also fixed: a 5th round of the SHA-fingerprint leak, still not fully caught
 

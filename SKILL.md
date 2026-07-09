@@ -18,7 +18,7 @@ Vidux is a discipline for AI agents: write down what you build before you build 
 
 **2026-07-07 kernel-cut boundary:** Vidux is a thin planning and proof control
 plane. The planner-executor bakeoff refuted the default handoff bet, so
-Fable/Claude/GLM/Grok/Codex remain bounded workers, eval subjects, or
+Fable (a Claude model variant)/Claude/GLM/Grok/Codex remain bounded workers, eval subjects, or
 Flow-selected sidecars. Vidux keeps the durable surfaces that proved useful:
 one canonical `PLAN.md`, explicit Decision Log, publish packet proof, resume
 metadata, and the read-only browser cockpit.
@@ -713,7 +713,7 @@ The plan is a living document: evidence changes → plan changes → work change
 
 When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle does **not** exit "drained" while agent-doable surface remains. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in + documented in the PR body, so the conversation moves on concrete artifacts, not speculative chat.
 
-A placeholder draft PR is still a publish action. Emit the publish packet with `handoff_status=needs_review` (`ledger-emit.sh --event publish` with non-empty `--summary`/`--task-id`/`--plan-path`/`--proof`/`--handoff-status needs_review`/`--resume`/`--file`/`--claim`), record the blocked question + assumptions in the owning PLAN.md Progress/Tasks or Drift Log, then carry that ledger eid into the PR body before `gh pr create --draft`. Defaults: every flag default-off/zero, isolated worktree off `origin/master`, no reviewers, no `@`-mentions. Core owns the publish/proof principle; downstream repos own reviewer taste and merge policy.
+A placeholder draft PR is still a publish action. Emit the publish packet with `handoff_status=needs_review` (`ledger-emit.sh --event publish` with non-empty `--summary`/`--task-id`/`--plan-path`/`--proof`/`--handoff-status needs_review`/`--resume`/`--file`/`--claim`), record the blocked question + assumptions in the owning PLAN.md Progress/Tasks or Drift Log, then carry that ledger eid into the PR body before `gh pr create --draft`. Defaults: every flag default-off/zero, isolated worktree off `origin/<trunk>` (see the Trunk-First Rule — detect the actual trunk, never assume the name), no reviewers, no `@`-mentions. Core owns the publish/proof principle; downstream repos own reviewer taste and merge policy.
 
 ### Plan archival pattern (parallel-session reconciliation)
 
@@ -1036,7 +1036,7 @@ rm <vidux-dir>/browser/artifacts/<slug>.html
 ln <canonical-path>.html <vidux-dir>/browser/artifacts/<slug>.html   # no -s
 ```
 
-Constraints: same filesystem only (the home volume shares one volume on stock macOS; cross-volume `ln` fails). `Path.resolve()` does NOT cross hard links so the check passes; canonical-file updates reflect instantly. Verify: `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove shared data. Evidence (2026-05-12): a symlinked `artifacts/music-semantic-backend-mvp.html` rendered only H1 + `403`; hard link fixed it. Memory: `reference_vidux_artifacts_hardlink_rule.md`.
+Constraints: same filesystem only (the home volume shares one volume on stock macOS; cross-volume `ln` fails). `Path.resolve()` does NOT cross hard links so the check passes; canonical-file updates reflect instantly. Verify: `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove shared data. Evidence: a symlinked artifact rendered only its H1 plus a 403 in the console (`failed to load comments: forbidden`); switching to a hard link fixed it immediately, confirming the root cause was exactly `safe_resolve_any()`'s symlink-outside-`ARTIFACTS_DIR` guard described above.
 
 ### Named comments / annotations
 
