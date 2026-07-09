@@ -180,3 +180,59 @@ throughout all of this work. A literal "20/20 GO" may be unreachable without eit
 flipped." Not yet raised to Leo as an explicit framing question — deferred until the
 round-2 panel count comes back, so the framing question can be asked with a concrete
 number attached instead of in the abstract.
+
+## Panel round-2 remediation: all 4 concrete CLI bugs now fixed
+
+Since the section above was written, all four concrete (non-git-history) panel
+round-2 findings have been fixed, tested, and shipped:
+
+1. `bin/vidux-browse` self-location crash — fixed via the same `BASH_SOURCE`
+   resolution pattern `bin/vidux` already uses. Regression test:
+   `test_vidux_browse_self_locates_when_invoked_via_symlink_outside_checkout`.
+2. `vidux dev` restart-loop-forever — fixed via `FAST_FAIL_SECONDS`/
+   `MAX_FAST_FAILURES` backoff-and-give-up in `scripts/vidux-dev.py`.
+   Regression tests: `tests/test_vidux_dev.py` (new file).
+3. Mobile header overlap — fixed via `flex-wrap` on both `.topbar` and
+   `.topbar-meta` (the inner element whose own children were overflowing).
+   Regression: 3 Playwright width checks appended to
+   `browser/tests/e2e/smoke.spec.ts`.
+4. `scripts/vidux-plan-gc.py` fenced-code-block blindness — fixed, but with a
+   correction worth recording. The first fix attempt (adding an `in_fence`
+   guard to the group-*start* condition only) was insufficient: the later
+   `completed_groups` filter re-derived "is this a real completed task" by
+   re-matching regex text against each group's first line, with no memory of
+   whether that group had been created inside a fence. A fenced
+   `- [completed] Example ...` line still built its own standalone group and
+   still text-matched the completed-task regex downstream, so the original
+   "fix" would have still archived the fenced example (proven empirically
+   with a manual trace before writing the test, not assumed). The working fix
+   tags each group `is_task: True/False` **at creation time** (mirroring the
+   pattern `trim_inbox()` already used correctly via its `prunable` flag) so
+   the downstream filter checks the tag, not re-derived text. Regression test:
+   `test_fenced_example_completed_lines_are_never_archived` — proven to fail
+   against the pre-fix source via `git stash` (falsely counted 75 completed
+   instead of 35, tripped the hard-cap warning) before being proven to pass.
+
+**Process note — concurrent-write discovery.** This fix (`83e0370a`) reached
+`origin/main` directly, not through this session's usual branch → PR → merge
+flow. While iterating in the shared `~/Development/vidux` checkout (on `main`,
+not a worktree), a separately-running `scripts/vidux-loop.sh` invocation
+(pid 31516, pointed at an ephemeral tempfile plan, exited and self-cleaned by
+the time this was noticed) picked up the working-tree edits and committed +
+pushed them autonomously before this session ran `git add`/`git commit`
+itself. Content was verified byte-identical to what was authored here (full
+`git show` diff inspected), and the full suite (699 Python + 8 JS tests) was
+green on the resulting `main` tip both locally and on `origin`, so no
+correctness issue resulted. But it's a live instance of the exact
+"multi-agent main contention" pattern documented for this fleet elsewhere:
+editing directly on `main` in a shared checkout — instead of an isolated
+worktree — leaves a window where a concurrent autonomous process can commit
+(and here, push) uncommitted edits under its own commit message before the
+authoring session gets to. No action needed on this specific commit; noted
+here so future edits in this checkout default to a worktree when any
+`vidux-loop.sh`/cron-style process might be concurrently active, rather than
+editing `main` directly.
+
+All four round-2 CLI bugs are now closed. Remaining round-2 items: the
+SKILL.md unverifiable cross-product citation finding (not yet touched), and
+the standing repo-recreation decision above (still Leo's call, unchanged).
