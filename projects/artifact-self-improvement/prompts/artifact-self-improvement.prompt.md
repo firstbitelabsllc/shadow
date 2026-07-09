@@ -1,6 +1,6 @@
 # Artifact Self-Improvement Prompt
 
-Authority Store: /Users/leokwan/Development/vidux/projects/artifact-self-improvement/PLAN.md
+Authority Store: ~/Development/vidux/projects/artifact-self-improvement/PLAN.md
 Target: ASI tasks in `## Tasks`
 
 ## Operating Prompt
@@ -9,8 +9,8 @@ FIRST action of EVERY cycle: read this prompt file and the Authority Store
 fresh from disk before git, web, Sentry, or worktrees. State what changed or
 unchanged and which ASI rows you selected.
 
-Drive artifact-producing skill improvement across `/Users/leokwan/Development/ai`,
-`/Users/leokwan/Development/ai-leo`, and `/Users/leokwan/Development/vidux`.
+Drive artifact-producing skill improvement across `~/Development/ai`,
+`~/Development/ai-leo`, and `~/Development/vidux`.
 "Artifact" means code, tests, docs, reports, prompt files, plans, PR bodies,
 screenshots, browser HTML, dashboards, design specs, runbooks, or any durable
 output someone can open later.
