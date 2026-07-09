@@ -29,10 +29,23 @@ One vote (`code-quality-architecture`) returned a degenerate non-answer (`"test"
 
 All fixes verified: `tests/test_vidux_contracts.py` (220 tests), `tests/test_public_ready_grep_gate.py`, `tests/test_browser_server.py` (69 tests), and `npm run test:js` all green after the combined change.
 
+## P0 closed: git history purge (2026-07-09)
+
+Leo authorized this explicitly ("Do it now"). Executed as a bounded, verified operation:
+
+1. Fresh single-branch clone of `main` to a scratch directory (isolated from the working repo other lanes were actively committing to).
+2. `git filter-repo --path projects/night-queue/backups/qwen-wip-2026-07-07 --invert-paths --force` — 729 commits rewritten to 728 (one fully-empty commit pruned), 0.74s.
+3. Verified clean before pushing: no blob in the rewritten history matches the leaked filenames (`embed_qwen_metadata.py`, `music_qwen_metadata_embedding_daily.py`, etc.) or the leaked endpoint string; `git merge-base --is-ancestor 51c4dbe <new-history>` returns false.
+4. Force-pushed the rewritten `main` to origin (`7cc3c5b` → `2bd4362`).
+5. Re-verified against `origin/main` post-push (not just the local scratch clone): confirmed clean, `51c4dbe` no longer an ancestor.
+6. Checked every branch (local + remote) that existed at purge time for the old commit: after pruning already-deleted/merged stale refs, **zero remaining branches anywhere contain it.** No follow-up branch cleanup needed.
+7. Full test suite (223 tests) and the public-ready grep gate both green on the rewritten history — the rewrite didn't damage anything functional.
+
+This is genuinely destructive by design (every commit hash on `main` from `51c4dbe` forward changed) — any other clone/worktree of this repo whose local `main` predates the rewrite will diverge and need `git fetch && git reset --hard origin/main` to recover. The repo was still private throughout, so no public exposure window existed at any point.
+
 ## Still open — prioritized
 
-**P0 — blocks any public flip:**
-- Git history purge for the Snap-confidential content (see #1 above). Requires an explicit decision from Leo on how to coordinate it with any other active lane on this repo.
+No remaining P0. Everything below is P1/P2 — real, named, none of it a confidentiality risk.
 
 **P1 — real findings, not yet fixed, need a deliberate call rather than a rushed edit:**
 - `evidence/`, `investigations/`, and root `PLAN.md` still fail the widened grep gate (~316 matches — mostly Leo's own operational history: absolute paths, private skill names). Recommend the same treatment as `projects/*` — gitignore by default with named tracked exceptions — rather than line-by-line redaction of hundreds of historical files. This is architecture, not typo-fixing; it should be a deliberate decision, not something I forced through under time pressure.
@@ -71,4 +84,4 @@ Round 2's other 13 NOT_READY votes substantially re-confirm round 1's P1/P2 find
 
 ## Bottom line
 
-Real, structural progress landed this session — including catching and fixing two rounds of genuine confidentiality exposure before either one ever went public, and structurally closing the class of bug that let the second one hide (an excluded-by-default directory silently shipping a leak with a green gate). But the honest panel verdict, checked twice, is **not yet releasable**. The one hard blocker (git history purge) is unchanged from round 1 and is Leo's call, not mine to execute unilaterally. Everything else is a named, evidenced, actionable backlog — none of it secret, none of it requiring another panel to rediscover.
+Real, structural progress landed this session — including catching and fixing two rounds of genuine confidentiality exposure before either one ever went public, structurally closing the class of bug that let the second one hide (an excluded-by-default directory silently shipping a leak with a green gate), and — with Leo's explicit go-ahead — closing the P0 git history purge cleanly and verifiably (see above). No remaining confidentiality risk is known. What's left is a named, evidenced P1/P2 backlog (positioning framing details, GUI jargon in the persistent footer, browser GUI security hardening against DNS rebinding, `npm audit` CVEs in devDependencies, an accessibility keyboard-trap on collapse headers, docs/ contradicting README, duplicate issue templates, `vidux.ai` naming collision) — real, worth doing, but not confidentiality-shaped and not requiring another full panel to rediscover. The repo visibility flip itself remains Leo's explicit, separate call.
