@@ -78,6 +78,29 @@ class DriftLogTests(unittest.TestCase):
             self.assertIn("- [pending] T-2: Wire CLI docs [Source: Drift D-20260522-01]", text)
             self.assertIn("Drift D-20260522-01: Replaced it with a smaller CLI helper.", text)
 
+    def test_empty_add_task_raises_and_leaves_plan_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "PLAN.md"
+            original = base_plan()
+            plan.write_text(original, encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                drift.record_drift(
+                    plan,
+                    drift.DriftEntry(
+                        task="T-1",
+                        planned="Implement the original API.",
+                        actual="Replaced it with a smaller CLI helper.",
+                        why="The integration point was a script, not an HTTP surface.",
+                        plan_update="Parent plan now tracks the CLI helper.",
+                        next_step="Run the helper tests.",
+                        today="2026-05-22",
+                    ),
+                    add_tasks=[""],
+                )
+
+            self.assertEqual(plan.read_text(encoding="utf-8"), original)
+
     def test_records_cache_prevention_hints_and_signpost(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

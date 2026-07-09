@@ -74,8 +74,6 @@ vidux is developed on macOS but core scripts are POSIX-compatible:
 - `vidux-browse` is `http.server` + plain HTML/JS — runs anywhere Python runs
 - Cron integration: macOS uses launchd plists; Linux users should adapt to systemd timers or cron
 
-`scripts/launchd/` contains macOS-specific plists; use as templates.
-
 ## Vidux Browse
 
 A local browser surface for reading plans, scanning the fleet queue, reviewing HTML artifacts, and leaving comments without editing source files:

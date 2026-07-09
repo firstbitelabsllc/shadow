@@ -105,7 +105,7 @@ The Vidux skill lives in its own repo. On a new machine:
 
 ```bash
 # Clone the canonical repo:
-git clone git@github.com:leojkwan/vidux.git ~/Development/vidux
+git clone https://github.com/firstbitelabsllc/vidux.git ~/Development/vidux
 
 # Symlink into Claude Code's skills directory:
 ln -sf ~/Development/vidux ~/.claude/skills/vidux

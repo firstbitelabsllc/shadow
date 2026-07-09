@@ -355,6 +355,7 @@ def record_drift(
     prevention_hints = [_clean(value, field="prevention") for value in (prevention_hints or [])]
     evidence_refs = [_clean(value, field="evidence_ref") for value in (evidence_refs or [])]
     tags = [_clean(value, field="tag") for value in (tags or [])]
+    add_tasks = [_clean(value, field="add_task") for value in (add_tasks or [])]
     entry = DriftEntry(
         task=_clean(entry.task, field="task"),
         planned=_clean(entry.planned, field="planned"),

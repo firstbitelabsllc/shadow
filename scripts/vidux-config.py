@@ -137,6 +137,8 @@ def load_config(path: Path) -> tuple[dict[str, Any] | None, list[dict[str, str]]
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None, [_issue("error", "config_missing", f"config not found: {path}")]
+    except IsADirectoryError:
+        return None, [_issue("error", "config_is_directory", f"config path is a directory, not a file: {path}")]
     except json.JSONDecodeError as exc:
         return None, [_issue("error", "json_parse_error", f"{path}:{exc.lineno}:{exc.colno} {exc.msg}")]
     if not isinstance(payload, dict):
