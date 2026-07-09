@@ -303,6 +303,38 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(matches[0]["file"], "CHANGELOG.md")
         self.assertEqual(matches[0]["pattern"], "private vidux overlay name")
 
+    def test_tests_dir_exemption_is_narrow_not_the_whole_directory(self):
+        # Round-5 panel finding (found independently by 2 lenses): the
+        # exemption used to be the bare directory `Path("tests")`, which
+        # exempted every tracked file under tests/ -- not just the 2 files
+        # whose comments justify it (this file, for self-reference, and
+        # test_vidux_contracts.py, for pinned fixture strings). A leak
+        # pasted into any OTHER test file shipped with zero gate coverage.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("Clean.\n", encoding="utf-8")
+            tests_dir = root / "tests"
+            tests_dir.mkdir()
+            tests_dir.joinpath("test_vidux_contracts.py").write_text(
+                "PINNED = '/leo-flow'  # required fixture, exempt\n", encoding="utf-8",
+            )
+            tests_dir.joinpath("test_some_unrelated_thing.py").write_text(
+                "LEAK = '/leo-flow'  # should NOT be exempt\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        files_matched = {m["file"] for m in payload["matches"]}
+        self.assertEqual(files_matched, {"tests/test_some_unrelated_thing.py"})
+
 
 if __name__ == "__main__":
     unittest.main()
