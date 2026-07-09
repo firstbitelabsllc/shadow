@@ -168,8 +168,25 @@ origin-side audits rounds 1-6 have run.
    `6b91725f`.
 5. Raise the NEW commit-authorship leak (P0-1) and the Snap-email
    local-only near-miss to Leo directly, alongside the existing refs/pull/*
-   decision — not resolving either myself. **Not yet done as of this
-   update** — surfacing next.
-6. Re-run `skill-doctrine-coherence-verify` standalone before folding into
-   round 7's count. **Not yet done as of this update** — next.
-7. Round 7 once 1-6 are shipped/resolved.
+   decision — not resolving either myself. **Raised 2026-07-09** in chat,
+   alongside the pre-existing refs/pull/* and vidux.ai/private-fleet-content
+   decisions.
+6. **DONE 2026-07-09** — Re-ran `skill-doctrine-coherence-verify`
+   standalone. Clean this time (real findings, not the round-6 placeholder
+   degeneration): verdict GO, 3 concrete + 2 informational findings.
+   Fixed the 2 cheapest concrete ones: `.claude-plugin/plugin.json` still
+   shipped the exact banned pre-kernel-cut description string (missed by
+   the contract test's hand-maintained scan list — widened it, same
+   allowlist-drift class as this session's grep-gate fixes); SKILL.md
+   never cross-referenced `DOCTRINE.md` despite `guides/recipes.md` citing
+   "DOCTRINE.md Principle 9" as load-bearing justification for two
+   recipes — added a one-line pointer. Commit `a07085c4`. **Deferred to
+   round 7** (lower severity, need more surgery): a dead Voxtral read-aloud
+   backend route in `browser/server.py` contradicts SKILL.md's "removed
+   from core" claim and cites a `projects/voxtral-reader-addon/PLAN.md`
+   path that doesn't exist (loopback-gated, not a security hole, but dead
+   code with a broken doc pointer); SKILL.md's Automation Entrypoints table
+   is behind `guides/recipes.md` (8 rows shown vs. 13 that exist) and
+   `guides/thin-token.md` is never cross-referenced from SKILL.md despite
+   PLAN.md leaning on it as the primary resume pointer.
+7. Round 7 — ready to launch now that 1-6 are shipped/resolved/raised.
