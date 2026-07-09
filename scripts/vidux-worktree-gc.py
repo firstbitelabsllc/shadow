@@ -68,6 +68,40 @@ OWNER_REVIEW_BUCKETS = {
 # ephemeral worktree copy doesn't. This is consistent with the tier's
 # purpose -- these are the directories a package manager fully owns and can
 # reproduce -- but is worth knowing before adding a new name here.
+#
+# Round-7 panel finding (P0, REPRODUCED, NOT FIXED -- see below for why no
+# code fix exists): on a case-insensitive-but-case-preserving filesystem
+# (APFS/macOS default, also Windows), `mkdir("Node_Modules/x")` when
+# `node_modules/` already exists does not create a second directory -- it
+# silently succeeds by resolving into the SAME existing inode, with no
+# error. Live-reproduced: after `mkdir node_modules; mkdir -p
+# Node_Modules/nested; echo x > Node_Modules/nested/human-note.txt`, both
+# `ls`/`find` AND `git status --porcelain --ignored` report the human file
+# at `node_modules/nested/human-note.txt` -- the TRUE, correctly-cased,
+# on-disk path. This means `rel_path.parts[0]` here is not lying and is not
+# case-folded; it faithfully reports "node_modules", so the directory-trust
+# check below is not buggy in isolation. The round-7 lens's proposed fix
+# ("verify the real on-disk directory name via os.scandir instead of
+# trusting git's output") was tested against this exact repro and does
+# nothing: `os.scandir` reports the identical single "node_modules" entry
+# git already reported, because there never was a second, differently-cased
+# directory to distinguish -- the filesystem merged them before either tool
+# ever looked. Once merged, there is no remaining filesystem metadata
+# recording which path a given file was originally created through, so no
+# introspection-based check (this script or any other) can tell a
+# human-deposited file in this state apart from genuine package-manager
+# output after the fact. The only mitigations that would actually close
+# this are (a) disable directory-level blanket trust entirely whenever the
+# worktree's filesystem is case-insensitive -- which would force manual
+# review of every node_modules/__pycache__/.venv/etc. on every macOS/
+# Windows machine, defeating this tier's purpose on its primary runtime
+# platform, or (b) a content-heuristic denylist -- already established
+# above (round-4/5/6 history) as never exhaustive. Neither is a clean fix;
+# this is left as a documented, narrow, accepted residual risk (it requires
+# a coincidental case-varied write into a name that ALSO exact-matches an
+# UNAMBIGUOUS_REGENERABLE_DIR_NAMES entry) pending an explicit call from the
+# maintainer on whether the manual-review cost of option (a) is worth
+# paying.
 UNAMBIGUOUS_REGENERABLE_DIR_NAMES = {
     "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv",
     ".next", ".turbo", ".mypy_cache", ".ruff_cache",
