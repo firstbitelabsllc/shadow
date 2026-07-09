@@ -23,18 +23,26 @@ SCAN_TARGETS = (
     "prompts",
     "evidence",
     "investigations",
+    "projects",
     ".github",
     "package.json",
     # Deliberately NOT scanned:
-    # - "projects" is the private plan store (.gitignore's `projects/*` with
-    #   named tracked exceptions); historical plan dirs stay out of scope by
-    #   design (see test_historical_plan_dirs_are_out_of_scope).
     # - "tests" is excluded: tests/test_vidux_contracts.py legitimately pins
     #   some of these strings as required test content (see the private-path
     #   contract tests); scanning it would flag the test file, not a leak.
     # - History/changelog files (ARCHIVE.md, CHANGELOG.md, ASK-LEO.md) record
     #   retired terms (e.g. "Linear") in legitimate past tense; scanning them
     #   against FORBIDDEN_PATTERNS produces noise, not real findings.
+    #
+    # "projects" IS scanned (added after a 2026-07-09 panel round found a
+    # live leak in a tracked exception: `!projects/night-queue/` shipped
+    # Snap-corporate paths untouched because the gate skipped the whole
+    # directory). `_drop_git_ignored` already keeps this safe: the untracked
+    # bulk of the private plan store (`projects/*` minus named exceptions)
+    # never reaches the scan, only what's actually going to ship does. It's
+    # also in HISTORICAL_TARGETS below, so retired-terminology hygiene
+    # patterns still don't fire on old plan dirs (test_historical_plan_dirs_
+    # are_out_of_scope covers exactly this).
 )
 
 EXCLUDED_DIR_NAMES = {".git", "__pycache__", "node_modules"}
@@ -79,7 +87,7 @@ FORBIDDEN_PATTERNS = PRIVACY_PATTERNS + HYGIENE_PATTERNS
 # Historical-record targets: chronological, dated, append-only-by-design.
 # HYGIENE_PATTERNS are skipped here (retired terms in past tense are the
 # record working correctly); PRIVACY_PATTERNS still apply everywhere.
-HISTORICAL_TARGETS = {"evidence", "investigations", "PLAN.md"}
+HISTORICAL_TARGETS = {"evidence", "investigations", "PLAN.md", "projects"}
 
 
 def _is_historical(rel: Path) -> bool:
