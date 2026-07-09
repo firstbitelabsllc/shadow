@@ -10,12 +10,14 @@
 
 # Vidux
 
-![CI](https://github.com/firstbitelabsllc/vidux/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/firstbitelabsllc/vidux?label=version)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/firstbitelabsllc/vidux?label=version)
+
+Tests run locally (`npm run verify`) before every merge — GitHub Actions CI is intentionally manual-only (see `CHANGELOG.md`), so there's no live CI badge here rather than a stale one.
 
 **Plan first, code second.** AI coding agents forget everything when the chat window closes. Vidux gives them a paper trail instead — one plain-text file that survives sessions, tools, and days, so the next agent (or the next you) never starts blind.
 
-- **One file holds the whole plan** — every project gets a single `PLAN.md`: what's queued, what's decided, what's done. No database, no app to sign into.
-- **Nothing gets lost between sessions** — when one AI work session ends and a new one starts later, a written record says what got done, how to double-check it actually works, and exactly where to pick up (`publish ledger` rows, in vidux's own vocabulary).
+- **One planning authority** — every project gets a single `PLAN.md`: what's queued, what's decided, what's done. No database, no app to sign into.
+- **Proof travels with the handoff** — when one AI work session ends and a new one starts later, `PLAN.md` + publish ledger rows say what got done, how to double-check it actually works, and exactly where to pick up.
 - **Every run starts clean** — each session reads the plan, does one task, writes down what happened, and exits. No hidden memory, no drift between what an agent "remembers" and what's actually true.
 - **Works with whatever you already use** — Claude Code, Cursor, Codex, or anything else that can read a markdown file.
 
@@ -26,12 +28,14 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/firstbitelabsllc/vidux.git ~/path/to/vidux
-ln -sf <vidux-dir>/bin/vidux /usr/local/bin/vidux
+git clone https://github.com/firstbitelabsllc/vidux.git ~/vidux
+ln -sf ~/vidux/bin/vidux /usr/local/bin/vidux
 vidux dev
 ```
 
-Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/` changes. Use `vidux help` for the full command list.
+Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/` changes.
+
+Want a real plan instead of the browser's own example plans? `vidux init my-project` scaffolds a first `PLAN.md` with zero extra dependencies — no AI coding agent or API key required. Use `vidux help` for the full command list.
 
 ## Install
 
@@ -171,7 +175,7 @@ None of this makes vidux "better" — it makes it narrower on purpose. If the jo
 | **Multi-agent** | Any agent reads the same plan/proof packet and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
 | **Automation (opt-in)** | Scheduled lanes read the same plan/proof packet | N/A | N/A |
-| **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | OpenAI / Anthropic |
+| **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | Provider-agnostic (LiteLLM/OpenRouter, 75-100+ providers) |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
 
