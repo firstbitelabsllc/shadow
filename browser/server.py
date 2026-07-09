@@ -2355,7 +2355,9 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/artifact":
             if not self._require_json_write():
                 return
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             if length <= 0 or length > ARTIFACT_MAX_BYTES + 1024:
                 self._send(400, "missing or oversized body")
                 return
@@ -2378,7 +2380,9 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/local-plan-note":
             if not self._require_json_write():
                 return
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             if length <= 0 or length > PLAN_NOTE_MAX_BYTES + 2048:
                 self._send(400, "missing or oversized body")
                 return
@@ -2413,7 +2417,9 @@ class Handler(BaseHTTPRequestHandler):
             # See projects/voxtral-reader-addon/PLAN.md M8.
             if not self._require_json_write():
                 return
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             # 15 MB cap — 30s of 24kHz 16-bit mono WAV is ~1.4 MB; large stereo
             # 48kHz samples can hit 5-8 MB; 15 MB has comfortable headroom.
             if length <= 0 or length > 15 * 1024 * 1024:
@@ -2479,7 +2485,9 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/comments":
             if not self._require_comment_write():
                 return
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             if length <= 0 or length > COMMENT_BODY_MAX_BYTES + 2048:
                 self._send(400, "missing or oversized body")
                 return
@@ -2511,7 +2519,9 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/receipts/upload":
             if not self._require_json_write():
                 return
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             # Cap matches handler.MAX_IMAGE_BYTES (15 MB) + base64 overhead (~33%) + JSON wrapper.
             if length <= 0 or length > 22 * 1024 * 1024:
                 self._send(400, "missing or oversized body (22 MB cap for base64-wrapped JSON)")
@@ -2528,7 +2538,9 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_json_write():
                 return
             row_id = url.path[len("/api/receipts/"):-len("/tag")]
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             if length <= 0 or length > 16 * 1024:
                 self._send(400, "missing or oversized body (16 KB cap for tag payload)")
                 return
@@ -2550,7 +2562,9 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_json_write():
                 return
             row_id = url.path[len("/api/receipts/"):-len("/expected")]
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             if length <= 0 or length > 64 * 1024:
                 self._send(400, "missing or oversized body (64 KB cap for expected payload)")
                 return
@@ -2572,7 +2586,9 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_json_write():
                 return
             row_id = url.path[len("/api/receipts/"):-len("/analyze")]
-            length = int(self.headers.get("Content-Length", "0"))
+            length = self._content_length()
+            if length is None:
+                return
             if length > 4 * 1024:  # reject oversized — don't silently treat it as an empty body
                 self._send(413, "analyze body too large")
                 return
@@ -2642,6 +2658,18 @@ class Handler(BaseHTTPRequestHandler):
         if require_origin:
             return False, "Origin or Referer required"
         return True, ""
+
+    def _content_length(self) -> int | None:
+        """Parse the Content-Length header, sending a 400 and returning None
+        on anything non-numeric (e.g. a hand-crafted "abc" or "1;2" header)
+        instead of letting int() raise and crash the request out from under
+        the handler with no response sent."""
+        raw = self.headers.get("Content-Length", "0")
+        try:
+            return int(raw)
+        except ValueError:
+            self._send(400, "invalid Content-Length header")
+            return None
 
     def _serve_static(self, name: str, ctype: str | None = None):
         if not name:

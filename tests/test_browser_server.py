@@ -262,6 +262,31 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertTrue((self.artifacts_dir / "safe-artifact.html").is_file())
 
+    def test_artifact_post_rejects_malformed_content_length_header(self):
+        """Round-1 open-source panel finding: every write route parsed
+        Content-Length with a bare int() call, so a hand-crafted non-numeric
+        header (e.g. "abc") raised an uncaught ValueError deep inside the
+        request handler -- no HTTP response sent, traceback dumped to the
+        server's stderr instead. Must degrade to a clean 400."""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request(
+            "POST",
+            "/api/artifact",
+            body=b'{"slug": "x", "html": "<h1>x</h1>"}',
+            headers={
+                "Content-Type": "application/json",
+                "Origin": self.origin(),
+                "Content-Length": "not-a-number",
+            },
+        )
+        res = conn.getresponse()
+        text = res.read().decode("utf-8", errors="replace")
+        conn.close()
+
+        self.assertEqual(res.status, 400, text)
+        self.assertIn("Content-Length", text)
+        self.assertFalse((self.artifacts_dir / "x.html").exists())
+
     def test_artifact_post_rejects_lan_client(self):
         sent = []
         handler = object.__new__(browser_server.Handler)
