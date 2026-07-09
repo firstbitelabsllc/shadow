@@ -21,7 +21,7 @@
     "test:js": "vitest run",
     "test:js:watch": "vitest",
     "test:py": "python3 -m unittest discover -s tests -p 'test_*.py'",
-    "public-ready:grep": "python3 scripts/vidux-public-ready-grep-gate.py",
+    "public-ready:grep": "python3 scripts/vidux-public-ready-grep-gate.py --tracked-only",
     "verify": "npm test && npm run public-ready:grep",
     "eve:info": "eve info",
     "eve:build": "rm -rf .eve/compile .eve/discovery && eve build",
@@ -30,7 +30,7 @@
     "eve:resplit:readiness": "node scripts/eve-resplit-readiness.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:visual:update": "playwright test --update-snapshots browser/tests/e2e/visual.spec.ts",
+    "test:visual:update": "playwright test browser/tests/e2e/visual.spec.ts --update-snapshots=all",
     "test:pixel": "playwright test browser/tests/e2e/mode-pixel.spec.ts --project=desktop-chromium",
     "playwright:install": "playwright install --with-deps chromium",
     "test:thin": "bash scripts/vidux-thin-loop-verify.sh"

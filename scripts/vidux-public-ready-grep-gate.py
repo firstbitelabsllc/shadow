@@ -216,7 +216,27 @@ def _drop_git_ignored(repo_root: Path, files: list[Path]) -> list[Path]:
         return files
 
 
-def _iter_files(repo_root: Path) -> list[Path]:
+def _tracked_files(repo_root: Path) -> list[Path]:
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-files", "--cached", "-z"],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("--tracked-only requires a git worktree")
+    files = []
+    for raw_rel in proc.stdout.split(b"\0"):
+        if not raw_rel:
+            continue
+        path = repo_root / raw_rel.decode("utf-8", errors="surrogateescape")
+        if not _is_excluded(path, repo_root):
+            files.append(path)
+    return sorted(files)
+
+
+def _iter_files(repo_root: Path, *, tracked_only: bool = False) -> list[Path]:
+    if tracked_only:
+        return _tracked_files(repo_root)
     files = [
         child
         for child in repo_root.rglob("*")
@@ -225,9 +245,32 @@ def _iter_files(repo_root: Path) -> list[Path]:
     return _drop_git_ignored(repo_root, sorted(files))
 
 
-def run_gate(repo_root: Path) -> dict[str, Any]:
+def _read_scanned_lines(path: Path, repo_root: Path, *, tracked_only: bool) -> list[str]:
+    if not tracked_only:
+        return path.read_text(encoding="utf-8").splitlines()
+    rel = path.relative_to(repo_root).as_posix()
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "show", f":{rel}"],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise OSError(f"cannot read staged content for {rel}")
+    return proc.stdout.decode("utf-8").splitlines()
+
+
+def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
     matches: list[dict[str, Any]] = []
-    scanned_files = _iter_files(repo_root)
+    try:
+        scanned_files = _iter_files(repo_root, tracked_only=tracked_only)
+    except RuntimeError as exc:
+        return {
+            "status": "failed",
+            "scope": "tracked" if tracked_only else "working-tree",
+            "scanned_files": 0,
+            "matches": [],
+            "errors": [str(exc)],
+        }
     for path in scanned_files:
         rel = path.relative_to(repo_root)
         # Round-7 panel finding: this loop only ever checked file *content*
@@ -257,7 +300,7 @@ def run_gate(repo_root: Path) -> dict[str, Any]:
             else FORBIDDEN_PATTERNS
         )
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = _read_scanned_lines(path, repo_root, tracked_only=tracked_only)
         except UnicodeDecodeError:
             continue
         except OSError:
@@ -283,8 +326,10 @@ def run_gate(repo_root: Path) -> dict[str, Any]:
 
     return {
         "status": "failed" if matches else "passed",
+        "scope": "tracked" if tracked_only else "working-tree",
         "scanned_files": len(scanned_files),
         "matches": matches,
+        "errors": [],
     }
 
 
@@ -292,8 +337,11 @@ def _human(payload: dict[str, Any]) -> str:
     lines = [
         "Vidux public-ready grep gate",
         f"status: {payload['status']}",
+        f"scope: {payload['scope']}",
         f"scanned_files: {payload['scanned_files']}",
     ]
+    for error in payload.get("errors", []):
+        lines.append(f"error: {error}")
     if payload["matches"]:
         lines.append("matches:")
         for match in payload["matches"]:
@@ -313,12 +361,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Vidux repo root. Defaults to this script's parent repo.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text.")
+    parser.add_argument(
+        "--tracked-only",
+        action="store_true",
+        help="Scan the tracked/staged shipping set instead of every unignored worktree file.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    payload = run_gate(args.repo_root.resolve())
+    payload = run_gate(args.repo_root.resolve(), tracked_only=args.tracked_only)
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:

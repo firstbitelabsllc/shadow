@@ -57,9 +57,10 @@ describe('app.js source health (smoke)', () => {
   it('app.js exists and has expected size', () => {
     const stat = fs.statSync(APP_JS);
     expect(stat.size).toBeGreaterThan(40_000);
-    // Soft budget: Simple/Advanced mode (2026-07) legitimately grew the
-    // default plan browser; fail only on runaway bloat past 110k.
-    expect(stat.size).toBeLessThan(110_000);
+    // Soft budget: the focused mission/proof/resume cockpit remains a small
+    // dependency-free script. Leave headroom for the accessibility and proof
+    // contracts, while still catching an accidental bundled dependency.
+    expect(stat.size).toBeLessThan(125_000);
   });
   it('fmtAge is defined in app.js', () => {
     const src = fs.readFileSync(APP_JS, 'utf8');

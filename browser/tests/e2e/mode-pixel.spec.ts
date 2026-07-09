@@ -14,8 +14,7 @@ async function openFirstPlan(page: Page) {
   await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().waitFor();
   await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
   if (await sidebarToggle.isVisible()) {
-    await sidebarToggle.click();
-    await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+    await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
   }
 }
 
@@ -31,15 +30,17 @@ test.describe('Simple ↔ Advanced mode pixel/contract smoke', () => {
 
     const toggle = page.locator('#mode-toggle');
     await expect(toggle).toBeVisible();
-    await expect(toggle).toHaveText('Advanced view');
+    await expect(toggle).toHaveText('Advanced');
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('#sort')).toBeHidden();
+    await expect(page.locator('.sidebar-filter-chips')).toBeHidden();
 
     // Main shell no longer mounts operator FAB / read-aloud footer.
     await expect(page.locator('#root-annotation-toggle')).toHaveCount(0);
     await expect(page.locator('#readaloud-player')).toHaveCount(0);
 
     await openFirstPlan(page);
-    await expect(page.locator('.pane-tabs button', { hasText: 'Decision Log' })).toHaveCount(0);
+    await expect(page.locator('.pane-tabs button', { hasText: 'Decision Log' })).toBeVisible();
     await expect(page.locator('.pane-tabs button', { hasText: 'Sessions' })).toHaveCount(0);
     await expect(page.locator('.pane-tabs button', { hasText: 'Ledger' })).toHaveCount(0);
 
@@ -68,9 +69,11 @@ test.describe('Simple ↔ Advanced mode pixel/contract smoke', () => {
 
     await page.locator('#mode-toggle').click();
     await expect(page.locator('html')).toHaveClass(/advanced-mode/);
-    await expect(page.locator('#mode-toggle')).toHaveText('Simple view');
+    await expect(page.locator('#mode-toggle')).toHaveText('Simple');
     await expect(page.locator('#mode-toggle')).toHaveAttribute('aria-pressed', 'true');
     expect(await page.evaluate(() => localStorage.getItem('vidux:advancedMode'))).toBe('1');
+    await expect(page.locator('#sort')).toBeVisible();
+    await expect(page.locator('.sidebar-filter-chips')).toBeVisible();
 
     // Still no FAB/player after Advanced — they were deleted, not mode-gated.
     await expect(page.locator('#root-annotation-toggle')).toHaveCount(0);
@@ -84,24 +87,24 @@ test.describe('Simple ↔ Advanced mode pixel/contract smoke', () => {
     await page.reload();
     await page.locator('#sidebar-list .plan-row').first().waitFor();
     await expect(page.locator('html')).toHaveClass(/advanced-mode/);
-    await expect(page.locator('#mode-toggle')).toHaveText('Simple view');
+    await expect(page.locator('#mode-toggle')).toHaveText('Simple');
   });
 
-  test('drop to Simple while on advanced-only tab snaps to PLAN.md', async ({ page }) => {
+  test('drop to Simple while on advanced-only Sessions tab snaps to PLAN.md', async ({ page }) => {
     await page.goto('/');
     await page.locator('#mode-toggle').click();
     await expect(page.locator('html')).toHaveClass(/advanced-mode/);
     await openFirstPlan(page);
 
-    await page.locator('.pane-tabs button', { hasText: 'Decision Log' }).click();
-    await expect(page.locator('.pane-tabs button.is-active', { hasText: 'Decision Log' })).toBeVisible();
+    await page.locator('.pane-tabs button', { hasText: 'Sessions' }).click();
+    await expect(page.locator('.pane-tabs button.is-active', { hasText: 'Sessions' })).toBeVisible();
 
     await page.locator('#mode-toggle').click();
     await expect(page.locator('html')).not.toHaveClass(/advanced-mode/);
-    await expect(page.locator('#mode-toggle')).toHaveText('Advanced view');
+    await expect(page.locator('#mode-toggle')).toHaveText('Advanced');
     expect(await page.evaluate(() => localStorage.getItem('vidux:advancedMode'))).toBe('0');
 
-    await expect(page.locator('.pane-tabs button', { hasText: 'Decision Log' })).toHaveCount(0);
+    await expect(page.locator('.pane-tabs button', { hasText: 'Decision Log' })).toBeVisible();
     await expect(page.locator('.pane-tabs button.is-active', { hasText: 'PLAN.md' })).toBeVisible();
   });
 });

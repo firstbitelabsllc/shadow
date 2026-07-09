@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from datetime import date
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -607,6 +608,24 @@ DASHBOARD_OPEN_HEADING_RE = re.compile(r"^[ \t]{0,3}#{3,6}\s+(?P<body>.+?)\s*#*\
 DASHBOARD_ASK_HEADING_RE = re.compile(r"^[ \t]{0,3}##\s+(?P<body>Q\d+\b.+?)\s*#*\s*$", re.I)
 DASHBOARD_ASK_RESOLVED_RE = re.compile(r"\b(?:resolved:\s*\S+|status:\s*resolved)\b", re.I)
 DASHBOARD_SOURCE_TAG_RE = re.compile(r"\[Source:\s*(?P<source>[^,\]]+)(?:,[^\]]+)?\]", re.I)
+OPERATOR_BRIEF_ROW_RE = re.compile(
+    r"^\s*[-*+]\s+(?P<key>[A-Za-z][A-Za-z _-]{0,31}):\s*(?P<value>.*?)\s*$"
+)
+OPERATOR_BRIEF_KEYS = frozenset({
+    "status",
+    "priority",
+    "outcome",
+    "next",
+    "why",
+    "validation",
+    "cost",
+    "evidence",
+    "updated",
+})
+OUTCOME_SCORECARD_HEADERS = ("metric", "baseline", "current", "target", "status", "proof")
+PROOF_FILE_RE = re.compile(
+    r"(?P<path>(?:(?:\.\.?/)?[^\s|]+/)*(?:evidence|investigations)/[^\s|]+\.md)"
+)
 EVIDENCE_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[-_].*)?\.md$")
 DECISION_LOG_HEADING_RE = re.compile(
     r"^(?P<indent>[ \t]{0,3})(?P<marks>#{2,6})\s+decision(?:\s+log|s)\s*#*\s*$",
@@ -1060,7 +1079,7 @@ def build_fleet_summary(plans: list[dict]) -> dict:
         "tasks_total": total,
         "completion_pct": pct,
         "eta_remaining_hours": eta_remaining,
-        "eta_remaining_label": f"{format_eta_hours(eta_remaining)} remaining",
+        "eta_remaining_label": f"{format_eta_hours(eta_remaining)} tagged estimate",
         "eta_tagged": eta_tagged,
         "eta_eligible": eta_eligible,
     }
@@ -1071,6 +1090,48 @@ def dashboard_source_rel(path: Path) -> str:
         return str(path.resolve().relative_to(DEV_ROOT))
     except (OSError, ValueError):
         return str(path)
+
+
+def resolve_plan_proof(plan_path: Path, raw: object) -> dict:
+    """Classify a proof cell without allowing it to escape the owning plan."""
+    value = str(raw or "").strip()
+    if not value:
+        return {"state": "needed", "label": "Proof needed"}
+
+    match = PROOF_FILE_RE.search(value)
+    if not match:
+        return {"state": "needed", "label": "Proof needed", "note": value[:160]}
+
+    reference = match.group("path").rstrip(".,;:)")
+    plan_dir = plan_path.parent.resolve(strict=False)
+    candidate = Path(reference)
+    if not candidate.is_absolute():
+        candidate = plan_dir / candidate
+    candidate = candidate.resolve(strict=False)
+
+    try:
+        candidate.relative_to(plan_dir)
+    except ValueError:
+        return {"state": "invalid", "label": "Proof path rejected"}
+
+    if not is_allowed_file_target(str(candidate)):
+        return {"state": "invalid", "label": "Proof path rejected"}
+
+    rel = str(candidate.relative_to(plan_dir))
+    if not candidate.is_file():
+        return {
+            "state": "missing",
+            "label": "Proof missing",
+            "rel": rel,
+        }
+
+    return {
+        "state": "available",
+        "label": "Open proof",
+        "path": str(candidate),
+        "rel": rel,
+        "tab": f"EVD:{candidate}",
+    }
 
 
 def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, tab: str) -> dict:
@@ -1096,6 +1157,49 @@ def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, 
         else:
             item["proof_rel"] = proof_path
     return item
+
+
+def build_mission_control(plans: list[dict]) -> dict:
+    candidates: list[dict] = []
+    mtime_by_rel = {plan.get("rel", ""): plan.get("mtime") or 0 for plan in plans}
+    for plan in plans:
+        brief = plan.get("operator_brief") or {}
+        if not brief or not (brief.get("outcome") or brief.get("next")):
+            continue
+        plan_path = Path(plan.get("path", ""))
+        item = {
+            **copy.deepcopy(brief),
+            "repo": plan.get("repo", ""),
+            "rel": plan.get("rel", ""),
+            "path": plan.get("path", ""),
+            "source_path": str(plan_path),
+            "source_rel": dashboard_source_rel(plan_path),
+            "tab": "PLAN.md",
+            "scorecard": copy.deepcopy(plan.get("outcome_scorecard") or []),
+        }
+        item["evidence_target"] = resolve_plan_proof(plan_path, item.get("evidence"))
+        for metric in item["scorecard"]:
+            metric["proof_target"] = resolve_plan_proof(plan_path, metric.get("proof"))
+        item["freshness"] = operator_brief_freshness(item.get("updated", ""))
+        candidates.append(item)
+
+    candidates.sort(
+        key=lambda item: (
+            -int(item.get("priority") or 0),
+            -float(mtime_by_rel.get(item.get("rel", ""), 0)),
+            str(item.get("rel") or ""),
+        )
+    )
+    selected = candidates[0] if candidates else None
+    if selected:
+        selected["selection_reason"] = (
+            f"priority {int(selected.get('priority') or 0)} · newest of {len(candidates)} "
+            f"current goal{'s' if len(candidates) != 1 else ''}"
+        )
+    return {
+        "briefs_total": len(candidates),
+        "selected": selected,
+    }
 
 
 def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dict:
@@ -1160,6 +1264,7 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
         "plans_scanned": len(plans),
         "repos": len({plan.get("repo", "") for plan in plans if plan.get("repo")}),
         "limit": limit,
+        "mission_control": build_mission_control(plans),
         "categories": categories,
     }
 
@@ -1355,6 +1460,8 @@ def plan_meta(path: Path) -> dict:
         "investigations": investigations,
         "evidence": evidence,
         "parent_rel": parent_rel,
+        "operator_brief": parse_operator_brief(text),
+        "outcome_scorecard": parse_outcome_scorecard(text),
         "dashboard_tasks": extract_dashboard_tasks(text),
         "dashboard_verdicts": extract_dashboard_verdicts(text),
         "dashboard_inbox_entries": dashboard_inbox_entries,
@@ -1470,6 +1577,112 @@ def clean_plan_brief_text(value: str, limit: int = 180) -> str:
         return text
     clipped = text[: max(0, limit - 3)].rsplit(" ", 1)[0].strip()
     return f"{clipped or text[: max(0, limit - 3)].strip()}..."
+
+
+def normalize_structured_status(value: object) -> str:
+    status = re.sub(r"[^a-z0-9_-]+", "-", str(value or "").strip().lower())
+    return status.strip("-") or "unknown"
+
+
+def clean_structured_value(value: object, limit: int = 500) -> str:
+    text = str(value or "").strip()
+    text = PLAN_BRIEF_LINK_RE.sub(r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    clipped = text[: max(0, limit - 3)].rsplit(" ", 1)[0].strip()
+    return f"{clipped or text[: max(0, limit - 3)].strip()}..."
+
+
+def parse_operator_brief(text: str) -> dict:
+    brief: dict[str, object] = {}
+    for line_number, line in markdown_section_lines(text, "Operator Brief"):
+        match = OPERATOR_BRIEF_ROW_RE.match(line)
+        if not match:
+            continue
+        key = re.sub(r"[ -]+", "_", match.group("key").strip().lower())
+        if key not in OPERATOR_BRIEF_KEYS:
+            continue
+        value = clean_structured_value(match.group("value"))
+        if not value:
+            continue
+        if "line" not in brief:
+            brief["line"] = line_number
+        if key == "priority":
+            try:
+                priority = int(value)
+            except ValueError:
+                priority = 0
+            brief[key] = max(0, min(100, priority))
+        elif key == "status":
+            brief[key] = normalize_structured_status(value)
+        else:
+            brief[key] = value
+    if brief and "priority" not in brief:
+        brief["priority"] = 0
+    if brief and "status" not in brief:
+        brief["status"] = "unknown"
+    return brief
+
+
+def split_markdown_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if not (stripped.startswith("|") and stripped.endswith("|")):
+        return []
+    cells = re.split(r"(?<!\\)\|", stripped[1:-1])
+    return [clean_structured_value(cell.replace(r"\|", "|"), 400) for cell in cells]
+
+
+def parse_outcome_scorecard(text: str) -> list[dict]:
+    lines = markdown_section_lines(text, "Outcome Scorecard")
+    header_index = None
+    for index, (_, line) in enumerate(lines):
+        cells = split_markdown_table_row(line)
+        if tuple(cell.lower() for cell in cells) == OUTCOME_SCORECARD_HEADERS:
+            header_index = index
+            break
+    if header_index is None or header_index + 1 >= len(lines):
+        return []
+
+    separator = split_markdown_table_row(lines[header_index + 1][1])
+    if len(separator) != len(OUTCOME_SCORECARD_HEADERS) or not all(
+        re.fullmatch(r":?-{3,}:?", cell) for cell in separator
+    ):
+        return []
+
+    rows: list[dict] = []
+    for line_number, line in lines[header_index + 2:]:
+        cells = split_markdown_table_row(line)
+        if not cells:
+            if rows and not line.strip():
+                break
+            continue
+        if len(cells) != len(OUTCOME_SCORECARD_HEADERS):
+            continue
+        row = dict(zip(OUTCOME_SCORECARD_HEADERS, cells))
+        if not row["metric"]:
+            continue
+        row["status"] = normalize_structured_status(row["status"])
+        row["line"] = line_number
+        rows.append(row)
+        if len(rows) >= 12:
+            break
+    return rows
+
+
+def operator_brief_freshness(updated: object, today: date | None = None) -> dict:
+    raw = str(updated or "").strip()
+    try:
+        updated_date = date.fromisoformat(raw)
+    except ValueError:
+        return {"status": "unknown", "age_days": None}
+    age_days = max(0, ((today or date.today()) - updated_date).days)
+    return {
+        "status": "fresh" if age_days <= 7 else "stale",
+        "age_days": age_days,
+    }
 
 
 def markdown_section_lines(text: str, heading: str) -> list[tuple[int, str]]:

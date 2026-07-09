@@ -1009,7 +1009,7 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(summary["tasks_total"], 7)
         self.assertEqual(summary["completion_pct"], 29)
         self.assertEqual(summary["eta_remaining_hours"], 4.0)
-        self.assertEqual(summary["eta_remaining_label"], "4h remaining")
+        self.assertEqual(summary["eta_remaining_label"], "4h tagged estimate")
         self.assertEqual(summary["eta_tagged"], 3)
         self.assertEqual(summary["eta_eligible"], 4)
 
@@ -1320,6 +1320,135 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertEqual(labels, ["Q2 — open explicit question", "Q3 — implicit open question"])
         self.assertTrue(all(item["tab"] == "ASK-LEO.md" for item in ask_leo["items"]))
 
+    def test_mission_control_parses_and_ranks_operator_briefs(self):
+        low_dir = self.dev_root / "repo" / "projects" / "low"
+        high_dir = self.dev_root / "other" / "projects" / "high"
+        low_dir.mkdir(parents=True)
+        high_dir.mkdir(parents=True)
+        (low_dir / "PLAN.md").write_text(
+            "# Low\n\n"
+            "## Operator Brief\n"
+            "- Status: watching\n"
+            "- Priority: 10\n"
+            "- Outcome: Keep a background lane healthy.\n"
+            "- Next: Run the small check.\n\n"
+            "## Tasks\n- [pending] check\n",
+            encoding="utf-8",
+        )
+        (high_dir / "PLAN.md").write_text(
+            "# High\n\n"
+            "## Operator Brief\n"
+            "- Status: SHIPPING\n"
+            "- Priority: 250\n"
+            "- Outcome: Prove the cockpit earns its overhead.\n"
+            "- Next: Ship mission control.\n"
+            "- Why: Operators cannot see the value gap.\n"
+            "- Validation: API and rendered-browser proof.\n"
+            "- Cost: One bounded advisor call.\n"
+            "- Evidence: evidence/decision.md\n"
+            "- Updated: 2026-07-09\n"
+            "- Unknown field: ignored\n\n"
+            "## Outcome Scorecard\n"
+            "| Metric | Baseline | Current | Target | Status | Proof |\n"
+            "|---|---|---|---|---|---|\n"
+            "| Resolution | 76% | 59% | >= 76% | LOSING | decision.md |\n"
+            "| Net wins | 0 | 0 | >= 3 | unproven | benchmark v2 |\n\n"
+            "## Tasks\n- [in_progress] ship\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        payload = browser_server.plan_list_payload(plans)
+        dashboard = browser_server.build_dashboard(plans)
+        selected = dashboard["mission_control"]["selected"]
+        high_payload = next(item for item in payload if item["repo"] == "other")
+
+        self.assertEqual(dashboard["mission_control"]["briefs_total"], 2)
+        self.assertEqual(selected["repo"], "other")
+        self.assertEqual(selected["status"], "shipping")
+        self.assertEqual(selected["priority"], 100)
+        self.assertEqual(selected["outcome"], "Prove the cockpit earns its overhead.")
+        self.assertEqual(selected["next"], "Ship mission control.")
+        self.assertEqual(selected["source_rel"], "other/projects/high/PLAN.md")
+        self.assertEqual(selected["tab"], "PLAN.md")
+        self.assertEqual(selected["selection_reason"], "priority 100 · newest of 2 current goals")
+        self.assertEqual(selected["evidence_target"]["state"], "missing")
+        self.assertEqual(len(selected["scorecard"]), 2)
+        self.assertEqual(selected["scorecard"][0]["status"], "losing")
+        self.assertEqual(selected["scorecard"][0]["proof_target"]["state"], "needed")
+        self.assertGreater(selected["scorecard"][0]["line"], selected["line"])
+        self.assertEqual(high_payload["operator_brief"]["priority"], 100)
+        self.assertEqual(high_payload["outcome_scorecard"][1]["metric"], "Net wins")
+        self.assertNotIn("unknown field", high_payload["operator_brief"])
+
+    def test_mission_control_has_explicit_empty_shape_and_ignores_bad_table_rows(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "empty"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "PLAN.md").write_text(
+            "# Empty\n\n"
+            "## Outcome Scorecard\n"
+            "| Wrong | Columns |\n"
+            "|---|---|\n"
+            "| should | disappear |\n\n"
+            "## Tasks\n- [pending] next\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        plan = plans[0]
+        mission = browser_server.build_dashboard(plans)["mission_control"]
+
+        self.assertEqual(plan["operator_brief"], {})
+        self.assertEqual(plan["outcome_scorecard"], [])
+        self.assertEqual(mission, {"briefs_total": 0, "selected": None})
+
+    def test_operator_brief_freshness_is_explicit_and_deterministic(self):
+        today = browser_server.date(2026, 7, 9)
+
+        self.assertEqual(
+            browser_server.operator_brief_freshness("2026-07-02", today),
+            {"status": "fresh", "age_days": 7},
+        )
+        self.assertEqual(
+            browser_server.operator_brief_freshness("2026-07-01", today),
+            {"status": "stale", "age_days": 8},
+        )
+        self.assertEqual(
+            browser_server.operator_brief_freshness("not-a-date", today),
+            {"status": "unknown", "age_days": None},
+        )
+
+    def test_plan_proof_resolution_is_inspectable_and_cannot_escape_owner(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "proof"
+        evidence_dir = plan_dir / "evidence"
+        evidence_dir.mkdir(parents=True)
+        plan_path = plan_dir / "PLAN.md"
+        plan_path.write_text("# Proof\n", encoding="utf-8")
+        receipt = evidence_dir / "receipt.md"
+        receipt.write_text("# Receipt\n", encoding="utf-8")
+
+        available = browser_server.resolve_plan_proof(
+            plan_path,
+            "evidence/receipt.md H3 counts",
+        )
+        missing = browser_server.resolve_plan_proof(plan_path, "evidence/missing.md")
+        note = browser_server.resolve_plan_proof(plan_path, "benchmark v2 required")
+        escaped = browser_server.resolve_plan_proof(
+            plan_path,
+            "../../other/evidence/receipt.md",
+        )
+
+        self.assertEqual(available["state"], "available")
+        self.assertEqual(available["path"], str(receipt))
+        self.assertEqual(available["tab"], f"EVD:{receipt}")
+        self.assertEqual(missing, {
+            "state": "missing",
+            "label": "Proof missing",
+            "rel": "evidence/missing.md",
+        })
+        self.assertEqual(note["state"], "needed")
+        self.assertEqual(escaped["state"], "invalid")
+
     def test_dashboard_limit_marks_truncated_categories(self):
         plan_dir = self.dev_root / "repo" / "projects" / "many"
         plan_dir.mkdir(parents=True)
@@ -1351,6 +1480,9 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn("def build_fleet_summary", server)
         self.assertIn('"dashboard": build_dashboard(plans)', server)
         self.assertIn("def build_dashboard", server)
+        self.assertIn("def build_mission_control", server)
+        self.assertIn("def parse_operator_brief", server)
+        self.assertIn("def parse_outcome_scorecard", server)
         self.assertIn("extract_dashboard_tasks", server)
         self.assertIn("extract_dashboard_verdicts", server)
         self.assertIn("extract_open_entries", server)
@@ -1358,8 +1490,16 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn('"decisions": {"label": "Decisions"', server)
         self.assertIn("fleetSummary", app)
         self.assertIn("function topbarFleetSummary", app)
-        self.assertIn("remaining", app)
+        self.assertIn("tagged estimate", app)
+        self.assertIn("open tasks estimated", app)
         self.assertIn("function renderDashboardPane", app)
+        self.assertIn("function renderMissionControl", app)
+        empty_pane = app[app.index("function renderEmptyPane()") : app.index("function updateOpsTruthSurface")]
+        self.assertIn("${renderMissionControl()}", empty_pane)
+        self.assertIn("renderSimpleHomeQueue()", empty_pane)
+        self.assertIn("setupDashboardPane();", empty_pane)
+        self.assertNotIn("state.devRoot", empty_pane)
+        self.assertIn("else renderEmptyPane();", app)
         self.assertIn("function selectDashboard", app)
         self.assertIn('renderDashboardCard("verdicts", "Verdicts")', app)
         self.assertIn('renderDashboardCard("decisions", "Decisions")', app)
@@ -1368,6 +1508,7 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn('data-kind="dashboard"', app)
         self.assertIn("Cross-plan queue", app)
         self.assertIn('id="sort"', index)
+        self.assertIn('<link rel="icon" href="data:," />', index)
         self.assertIn('/static/sidebar-sort.js', index)
         self.assertIn('/static/sidebar-filters.js', index)
         self.assertIn('/static/annotation-state.js', index)
@@ -1393,6 +1534,7 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn("max-height: min(560px, 70vh)", style)
         self.assertIn("overflow-y: auto", style)
         self.assertIn(".dashboard-item", style)
+        self.assertIn(".mission-control", style)
 
 
 class BrowserLedgerTests(unittest.TestCase):
@@ -1693,7 +1835,7 @@ class BrowserPlanBriefTests(unittest.TestCase):
         self.assertEqual(brief["latest_progress"], "[2026-05-24] Shipped the first cockpit slice.")
         self.assertIn("Keep PLAN.md canonical", brief["latest_decision"])
 
-    def test_plan_brief_and_steering_static_contract(self):
+    def test_plan_brief_is_read_only_and_surfaces_core_truth(self):
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
         comment_rail = (
             ROOT / "browser" / "static" / "comment-rail.js"
@@ -1701,22 +1843,24 @@ class BrowserPlanBriefTests(unittest.TestCase):
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
         self.assertIn("function renderPlanBrief", app)
-        self.assertIn("function setupPlanSteering", app)
-        self.assertIn("Steer this plan", app)
-        self.assertIn("function codingWorkbenchUrl", app)
-        self.assertIn("viduxPlan", app)
-        self.assertIn("Code lane", app)
-        self.assertIn("@pm", app)
-        self.assertIn("plan-steering", app)
+        self.assertIn('const tabs = ["PLAN.md", DECISION_LOG_TAB', app)
+        self.assertIn("showEvidenceStrip", app)
+        self.assertIn("No proof files yet", app)
+        self.assertNotIn("function setupPlanSteering", app)
+        self.assertNotIn("Steer this plan", app)
+        self.assertNotIn("function codingWorkbenchUrl", app)
+        self.assertNotIn("Code lane", app)
+        self.assertNotIn("/api/coding-handoff", app)
+        self.assertNotIn("plan-steering", app)
         self.assertIn("is-steering", comment_rail)
         for klass in [
             "plan-brief",
             "plan-brief-task",
-            "plan-brief-code-link",
-            "plan-steering",
             "comment-item.is-steering",
         ]:
             self.assertIn(klass, style)
+        self.assertNotIn(".plan-steering", style)
+        self.assertNotIn(".plan-brief-code-link", style)
 
 
 class BrowserSubplanRollupTests(unittest.TestCase):
