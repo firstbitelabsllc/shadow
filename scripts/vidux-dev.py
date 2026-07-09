@@ -27,6 +27,12 @@ BROWSE = ROOT / "bin" / "vidux-browse"
 WATCH = ROOT / "browser"
 POLL = float(os.environ.get("VIDUX_DEV_POLL_INTERVAL", "0.5"))
 
+# A child that exits before running this long never got a chance to serve --
+# treat it as a failed start, not a normal restart, for backoff/give-up purposes.
+FAST_FAIL_SECONDS = 2.0
+# Consecutive fast failures before giving up instead of looping forever.
+MAX_FAST_FAILURES = 5
+
 # Excluded dirs/extensions — avoid restart loops from cache / log / artifact churn.
 EXCLUDE_DIR_PARTS = {"__pycache__", ".pytest_cache", "node_modules", ".git"}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".log", ".swp", ".tmp"}
@@ -101,6 +107,8 @@ def main() -> int:
         flush=True,
     )
     child = start_child()
+    child_started_at = time.monotonic()
+    consecutive_fast_failures = 0
     last_snap = snapshot(WATCH)
 
     def shutdown(_signum, _frame):
@@ -115,12 +123,32 @@ def main() -> int:
         while True:
             time.sleep(POLL)
             if child.poll() is not None:
+                alive_seconds = time.monotonic() - child_started_at
+                if alive_seconds < FAST_FAIL_SECONDS:
+                    consecutive_fast_failures += 1
+                else:
+                    consecutive_fast_failures = 0
+                if consecutive_fast_failures >= MAX_FAST_FAILURES:
+                    print(
+                        f"vidux dev: vidux-browse exited (status {child.returncode}) "
+                        f"{consecutive_fast_failures} times in a row within "
+                        f"{FAST_FAIL_SECONDS}s each -- giving up instead of looping "
+                        f"forever. Common cause: another process already holds the "
+                        f"port (default 7191; override with --port or "
+                        f"VIDUX_BROWSER_PORT). Check what's listening with "
+                        f"`lsof -nP -iTCP:7191` or run `vidux browse --foreground` "
+                        f"directly to see the underlying error.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    return 1
                 print(
                     f"vidux dev: vidux-browse exited (status {child.returncode}), restarting",
                     file=sys.stderr,
                     flush=True,
                 )
                 child = start_child()
+                child_started_at = time.monotonic()
                 last_snap = snapshot(WATCH)
                 continue
             new_snap = snapshot(WATCH)
@@ -129,6 +157,7 @@ def main() -> int:
                 print(f"vidux dev: {summary} — restarting", file=sys.stderr, flush=True)
                 stop_child(child)
                 child = start_child()
+                child_started_at = time.monotonic()
                 last_snap = new_snap
     except Exception as e:  # pragma: no cover — defensive
         print(f"vidux dev: error: {e}", file=sys.stderr)
