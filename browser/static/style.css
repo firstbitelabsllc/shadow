@@ -243,6 +243,21 @@ body {
   opacity: 0.45;
   cursor: not-allowed;
 }
+#mode-toggle {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* Simple/Advanced mode: the read-aloud player and the annotation FAB are
+   operator-only chrome (a local TTS model server, a code-review-style
+   comment system) with no meaning until you're in Advanced view -- default
+   them hidden so a fresh visitor's first paint is just the plan browser.
+   html.advanced-mode is set by the inline FOUC guard in index.html's <head>
+   before first paint, so there's no hidden-then-shown flash. */
+html:not(.advanced-mode) .readaloud-player,
+html:not(.advanced-mode) .annotation-fab {
+  display: none;
+}
 
 .annotation-fab {
   position: fixed;

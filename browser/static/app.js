@@ -172,10 +172,7 @@ function fmtAge(days) {
   return `${(days / 365).toFixed(1)}y`;
 }
 
-// ─── UI state (per-browser, localStorage) ───────────────────────────────────
-// Persists sidebar expand/collapse + recently-viewed across page reloads.
-// Schema: { collapsed: ["repo:resplit-ios", "section:artifacts", ...],
-//           recents:   [{id: "plan:<rel>"|"artifact:<slug>", ts: <ms>}] }
+// UI state (localStorage): collapsed sidebar keys + recent views.
 const UI_STATE_KEY = "vidux:ui-state";
 const RECENTS_MAX = 5;
 const uiState = (() => {
@@ -238,9 +235,7 @@ function applyTheme(stored) {
   }
 }
 function cycleTheme() {
-  // 2-step toggle: light → dark → light. (System default is the unset state;
-  // explicit click takes ownership.) If you want a "back to system" affordance
-  // later, expand to a 3-state cycle.
+  // light ↔ dark; system is only the unset default.
   const current = resolveTheme(getStoredTheme());
   const next = current === "dark" ? "light" : "dark";
   try { localStorage.setItem(THEME_KEY, next); }
@@ -256,9 +251,52 @@ if (window.matchMedia) {
   });
 }
 
-// Find the plan that lists `child` in its children array. O(n) per lookup but
-// n=70 in practice, fine. Returns null if no parent indexed (parent_rel pointed
-// at a path the discovery sweep didn't pick up, or there's no parent_rel).
+// Simple/Advanced mode — default Simple. vidux started as a plan browser and
+// accreted AI-agent-operator tooling (raw session transcripts, JSONL ledger
+// rows, local-runtime diagnostics, a cross-repo fleet view) into the same
+// default surface; someone who isn't the engineer who built it should be
+// able to open this and see their plan/tasks/progress without wading through
+// any of that. Advanced mode restores it all for the operator use case.
+const ADVANCED_MODE_KEY = "vidux:advancedMode";
+function isAdvancedMode() {
+  try { return localStorage.getItem(ADVANCED_MODE_KEY) === "1"; }
+  catch (e) { return false; }
+}
+function applyAdvancedModeUI() {
+  const advanced = isAdvancedMode();
+  // Toggle on <html> (documentElement), matching the inline FOUC guard in
+  // index.html's <head> -- that guard sets the class before <body> exists,
+  // so both must target the same element or the class fights itself.
+  document.documentElement.classList.toggle("advanced-mode", advanced);
+  const btn = document.getElementById("mode-toggle");
+  if (btn) {
+    btn.textContent = advanced ? "Simple view" : "Advanced view";
+    btn.setAttribute("aria-pressed", String(advanced));
+    btn.title = advanced
+      ? "Switch to the simple plan/progress view"
+      : "Switch to the advanced view (session logs, ledger, local diagnostics, fleet dashboard)";
+  }
+}
+function toggleAdvancedMode() {
+  const next = !isAdvancedMode();
+  try { localStorage.setItem(ADVANCED_MODE_KEY, next ? "1" : "0"); }
+  catch (e) { /* localStorage full or disabled */ }
+  applyAdvancedModeUI();
+  // Dropping to Simple while parked on an advanced-only tab would otherwise
+  // still render that tab's content with no visible tab button pointing at
+  // it (the tabs array excludes it, but activeTab/isSessionActive etc. don't
+  // know that) — snap back to PLAN.md so the UI stays consistent.
+  if (!next && [DECISION_LOG_TAB, SESSION_TAB, LEDGER_TAB].includes(state.activeTab)) {
+    state.activeTab = "PLAN.md";
+  }
+  // Re-render whatever's on screen so the newly shown/hidden panels take
+  // effect immediately instead of waiting for the next navigation.
+  if (state.active && state.active.kind === "dashboard") selectDashboard({ skipUrl: true, preserveScroll: true });
+  else if (state.active && state.active.kind === "plan") renderPane({ preserveScroll: true, preserveAnnotation: true });
+}
+applyAdvancedModeUI();
+
+// Parent plan that lists `child` in children, or null.
 function findParentPlan(child) {
   if (!child || !child.parent_rel) return null;
   for (const p of state.plans) {
@@ -267,10 +305,7 @@ function findParentPlan(child) {
   return null;
 }
 
-// Walk up the parent chain from `plan` to root. Returns the ancestor list
-// in root → leaf order (so [root, A, B] for a leaf C). Cycle-safe via
-// visited-set; bails after 8 levels because deeper than that is almost
-// certainly a config bug, not a real plan tree.
+// Root→leaf ancestor chain; cycle-safe, max depth 8.
 function ancestorChain(plan) {
   const chain = [];
   const seen = new Set();
@@ -285,8 +320,7 @@ function ancestorChain(plan) {
   return chain;
 }
 
-// Completion bar — per /vidux, completion (X/Y) is the headline. Bar segments
-// are proportional to status counts. 100% gets a "shipped" gold treatment.
+// Completion bar: segments by status; 100% = shipped gold.
 const PROGRESS_ORDER = ["completed", "in_progress", "in_review", "blocked", "pending"];
 const PROGRESS_LABELS = {
   completed: "done",
@@ -413,6 +447,7 @@ function shortLocalPath(path) {
 }
 
 function renderOpsTruth() {
+  if (!isAdvancedMode()) return "";
   const truth = state.opsTruth;
   if (!truth) {
     return `
@@ -948,6 +983,9 @@ function renderSidebar() {
   }
 
   function dashboardRow() {
+    // Fleet dashboard spans every PLAN.md vidux can find under
+    // ~/Development/ -- i.e. every project, not "my plan." Advanced-only.
+    if (!isAdvancedMode()) return "";
     const active = state.active && state.active.kind === "dashboard" ? "is-active" : "";
     const total = dashboardTotalOpen();
     const cats = dashboardCategories();
@@ -1274,8 +1312,13 @@ async function loadAll(opts = {}) {
         }
       }
     } else {
-      // Restore selection from URL on initial load.
-      if (!applyUrlSelection()) selectDashboard({ skipUrl: true });
+      // Restore selection from URL on initial load. In Simple mode, don't
+      // default-land on the fleet dashboard (every plan across every repo
+      // vidux can find under ~/Development/) -- that's an operator console
+      // view, not "see my plan." Leave the sidebar-prompt empty state
+      // (already in the static HTML) so the first thing anyone sees is
+      // "pick a plan," not 40 unrelated engineering projects.
+      if (!applyUrlSelection() && isAdvancedMode()) selectDashboard({ skipUrl: true });
     }
     refreshOpsTruth();
   } catch (e) {
@@ -1369,19 +1412,11 @@ async function renderArtifactPane(opts = {}) {
       return;
     }
     const html = await res.text();
-    // Render artifacts inside a sandboxed iframe so their <style> rules can't
-    // leak global selectors (e.g. `body { color: ... }`) onto the host page
-    // and stomp the topbar/sidebar theme. `srcdoc` keeps everything same-
-    // origin-ish without an extra fetch; the sandbox attr blocks form-submit
-    // and scripts the artifact might inline (defense-in-depth; artifacts are
-    // local files but we still don't want one with a stray <script> running
-    // in the host scope). `allow-same-origin` keeps the artifact able to use
-    // its own relative URLs.
+    // Sandboxed iframe so artifact <style>/<script> can't leak into host.
     const body = document.getElementById("md-body");
     body.innerHTML = `<iframe class="artifact-frame" sandbox="allow-same-origin allow-popups" srcdoc="${escapeAttr(html)}" title="Artifact: ${escapeAttr(a.title || a.slug)}"></iframe>`;
     const frame = body.querySelector("iframe.artifact-frame");
-    // Auto-grow iframe to its content height so the host page scrolls, not
-    // the frame. Re-measure on load + when content fonts settle.
+    // Auto-grow frame so host page scrolls (re-measure after fonts settle).
     const resizeFrame = () => {
       try {
         const doc = frame.contentDocument;
@@ -1416,7 +1451,7 @@ async function renderPane(opts = {}) {
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
   const plan = state.active;
-  const tabs = ["PLAN.md", DECISION_LOG_TAB, SESSION_TAB, LEDGER_TAB, ...plan.siblings];
+  const tabs = ["PLAN.md", ...(isAdvancedMode() ? [DECISION_LOG_TAB, SESSION_TAB, LEDGER_TAB] : []), ...plan.siblings];
   const investigations = plan.investigations || [];
   const evidence = plan.evidence || [];
   const decisionLog = plan.decision_log || { present: false, count: 0, entries: [], recent_directions: [] };
@@ -1427,7 +1462,9 @@ async function renderPane(opts = {}) {
   const isLedgerActive = activeTab === LEDGER_TAB;
   const isInvActive = activeTab.startsWith("INV:");
   const isEvidenceActive = activeTab.startsWith("EVD:");
-  const showFileStrips = !isDecisionLogActive && !isSessionActive && !isLedgerActive;
+  // Investigations/evidence strips are agent-forensics artifacts (INV:/EVD:
+  // file conventions, raw bullet parsing) -- audit-flagged hide_behind_advanced_mode.
+  const showFileStrips = isAdvancedMode() && !isDecisionLogActive && !isSessionActive && !isLedgerActive;
   const activeInvPath = isInvActive ? state.activeTab.slice(4) : null;
   const activeEvidencePath = isEvidenceActive ? state.activeTab.slice(4) : null;
 
@@ -1485,10 +1522,11 @@ async function renderPane(opts = {}) {
       <div class="breadcrumb">${escapeText(plan.rel)}</div>
       <div class="pane-title-row">
         <h2>${escapeText(plan.slug === "_root_" ? plan.repo : `${plan.repo} · ${plan.slug}`)}</h2>
+        ${isAdvancedMode() ? `
         <div class="pane-coding-actions">
           <button type="button" id="pane-coding-button" class="pane-coding-button" title="Open in Moussey coding workbench">Code</button>
           <span id="pane-coding-status" class="pane-coding-status" role="status" aria-live="polite"></span>
-        </div>
+        </div>` : ""}
       </div>
       <div class="meta">
         <span><span class="pill pill-${plan.status}"></span>${plan.status}</span>
@@ -2441,6 +2479,11 @@ if (sidebarToggleBtn && sidebarEl) {
 const themeToggleBtn = document.getElementById("theme-toggle");
 if (themeToggleBtn) themeToggleBtn.addEventListener("click", cycleTheme);
 
+// Simple/Advanced mode toggle wiring — applyAdvancedModeUI() was already
+// called at script load; this hooks the button the same way as theme.
+const modeToggleBtn = document.getElementById("mode-toggle");
+if (modeToggleBtn) modeToggleBtn.addEventListener("click", toggleAdvancedMode);
+
 document.addEventListener("click", e => {
   if (!state.annotation.capture) return;
   const anchorTarget = e.target && e.target.closest ? e.target.closest("[data-vidux-anchor]") : null;
@@ -2500,7 +2543,8 @@ document.addEventListener("keydown", e => {
 window.addEventListener("popstate", () => {
   const matched = applyUrlSelection();
   if (!matched) {
-    selectDashboard({ skipUrl: true });
+    if (isAdvancedMode()) selectDashboard({ skipUrl: true });
+    else { state.active = null; state.activeTab = "PLAN.md"; renderSidebar(); renderEmptyPane(); }
   }
 });
 
