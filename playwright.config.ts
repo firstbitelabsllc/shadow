@@ -40,7 +40,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `python3 browser/server.py --root browser/tests/fixtures/fake-dev-root --port ${PORT} --comments-path browser/tests/fixtures/comments.jsonl`,
+    command: `python3 browser/server.py --root browser/tests/fixtures/fake-dev-root --port ${PORT} --comments-path browser/tests/fixtures/comments.jsonl --artifacts-dir browser/tests/fixtures/artifacts`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
