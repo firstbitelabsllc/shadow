@@ -1089,6 +1089,7 @@ Default: terse, concrete, evidence-cited; one decision per paragraph; named file
 Core Vidux references are shipped as docs and guides in this repo:
 
 - **[`README.md`](README.md)** — public overview, quick start, CLI/browser install.
+- **[`DOCTRINE.md`](DOCTRINE.md)** — the numbered 12-principle reference some guides cite by number (e.g. "Principle 9, Subagent coordinator pattern"); this file (`SKILL.md`) is the five-principle core walkthrough, not a restatement of it.
 - **[`guides/automation.md`](guides/automation.md)** — recurring lane and automation doctrine.
 - **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and lane prompt patterns.
 - **[`docs/reference/`](docs/reference/)** — CLI, config, hooks, scripts, browser, and PLAN field references.

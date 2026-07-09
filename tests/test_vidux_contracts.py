@@ -1847,6 +1847,14 @@ class ViduxContractTests(unittest.TestCase):
             _read(SKILL),
             _read(ROOT / "bin" / "vidux"),
             _read(ROOT / "package.json"),
+            # Round-6 panel finding (skill-doctrine-coherence-verify
+            # re-run): this scan list is itself a hand-maintained allowlist
+            # -- .claude-plugin/plugin.json shipped the exact banned
+            # pre-kernel-cut phrase for weeks, unscanned, because nobody
+            # added it here when package.json's sibling description field
+            # was fixed. It's the first thing a plugin-marketplace install
+            # surface shows a public user.
+            _read(ROOT / ".claude-plugin" / "plugin.json"),
         ])
         normalized = " ".join(public.split())
 
