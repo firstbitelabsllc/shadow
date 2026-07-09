@@ -379,8 +379,13 @@ class WorktreeGcTests(unittest.TestCase):
         # (build/, dist/, target/, vendor/ -- all common English/business
         # words too) was trusted wholesale regardless of its actual
         # contents. A hand-authored file living inside it was silently
-        # deleted with zero warning. The directory-name fast path must never
-        # override a human-authored file extension.
+        # deleted with zero warning. Round-4's first fix (a suffix-based
+        # override) itself had gaps found in round 5 (extensionless files,
+        # case-sensitive matching) -- the round-5 fix removes directory-name
+        # trust for ambiguous names entirely rather than trying to enumerate
+        # every possible human-authored suffix. This test still exercises
+        # the same original scenario; see the two round-5 tests below for
+        # the specific gaps that motivated the redesign.
         path = self.worktrees_dir / "merged-clean"
         (path / ".gitignore").write_text("build/\n", encoding="utf-8")
         git(path, "add", ".gitignore")
@@ -420,6 +425,95 @@ class WorktreeGcTests(unittest.TestCase):
         git(path, "commit", "-m", "ignore ds_store")
         git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
         (path / ".DS_Store").write_text("binary-ish", encoding="utf-8")
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("merged_clean", item["bucket"])
+        self.assertTrue(item["removable"])
+        self.assertEqual([], item["ignored_risk_files"])
+
+    def test_extensionless_file_in_ambiguous_dir_blocks_removal(self):
+        # Round-5 panel finding: round-4's HUMAN_AUTHORED_SUFFIXES override
+        # only matches files WITH one of a fixed set of extensions --
+        # Path('AUTHORS').suffix == '', so a Makefile-style extensionless
+        # hand-authored file (AUTHORS, NOTES, Dockerfile, ...) fell straight
+        # through to directory-name trust and was permanently deleted.
+        # Reproduced live by the panel 3 times (top-level, 3-levels-deep,
+        # unicode filename); this test covers the same class.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore vendor")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / "vendor").mkdir()
+        (path / "vendor" / "AUTHORS").write_text("irreplaceable text", encoding="utf-8")
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("dirty", item["bucket"])
+        self.assertFalse(item["removable"])
+        self.assertIn("vendor/AUTHORS", item["ignored_risk_files"])
+
+        apply = self.run_gc("--apply", "--yes")
+        apply_payload = json.loads(apply.stdout)
+        self.assertEqual([], apply_payload["removed"])
+        self.assertTrue(
+            (path / "vendor" / "AUTHORS").exists(),
+            "extensionless hand-authored file inside an ambiguous dir must survive --apply",
+        )
+
+    def test_uppercase_extension_file_in_ambiguous_dir_blocks_removal(self):
+        # Round-5 panel finding: round-4's HUMAN_AUTHORED_SUFFIXES check was
+        # a case-sensitive set lookup -- Path('Terms.PDF').suffix == '.PDF',
+        # not in the (all-lowercase) set, so an uppercase-extension file
+        # also fell through to directory-name trust and was permanently
+        # deleted. Reproduced live by the panel.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text("dist/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore dist")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / "dist").mkdir()
+        (path / "dist" / "Client-Deal-Terms.PDF").write_text(
+            "irreplaceable deal terms", encoding="utf-8",
+        )
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("dirty", item["bucket"])
+        self.assertFalse(item["removable"])
+        self.assertIn("dist/Client-Deal-Terms.PDF", item["ignored_risk_files"])
+
+        apply = self.run_gc("--apply", "--yes")
+        apply_payload = json.loads(apply.stdout)
+        self.assertEqual([], apply_payload["removed"])
+        self.assertTrue(
+            (path / "dist" / "Client-Deal-Terms.PDF").exists(),
+            "uppercase-extension hand-authored file inside an ambiguous dir must survive --apply",
+        )
+
+    def test_unambiguous_tool_dir_still_auto_cleans_without_per_file_check(self):
+        # Sanity check for the round-5 redesign's OTHER direction: dirs no
+        # human ever hand-populates (node_modules, __pycache__, .venv, ...)
+        # must keep blanket directory-level trust -- a real node_modules
+        # tree has thousands of files with every extension imaginable
+        # (including extensionless bin scripts), and per-file suffix
+        # checking would make it permanently unremovable.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore node_modules")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / "node_modules" / "some-pkg").mkdir(parents=True)
+        (path / "node_modules" / "some-pkg" / "index.js").write_text("module.exports = {}", encoding="utf-8")
+        (path / "node_modules" / "some-pkg" / "bin").write_text("#!/usr/bin/env node", encoding="utf-8")
+        (path / "node_modules" / "some-pkg" / "README.md").write_text("pkg readme", encoding="utf-8")
 
         result = self.run_gc()
         payload = json.loads(result.stdout)

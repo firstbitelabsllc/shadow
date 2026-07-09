@@ -30,7 +30,17 @@ EXCLUDED_RELATIVE_PATHS = {
     # tests/test_vidux_contracts.py legitimately pins some of these strings
     # as required test content (the private-path contract tests) -- scanning
     # it would flag the test file, not a leak.
-    Path("tests"),
+    #
+    # Round-5 panel finding (found independently by 2 lenses): this used to
+    # be the bare directory `Path("tests")`, exempting all 36 tracked files
+    # under tests/ -- not just these 2 -- from every FORBIDDEN_PATTERN,
+    # including PRIVACY_PATTERNS. Reproduced live: a scratch file dropped
+    # into tests/ containing real employer-path/email leak-class strings
+    # passed the gate with zero matches. Same "allowlist only protects what
+    # someone remembered to add" failure the round-4 SCAN_TARGETS redesign
+    # was built to eliminate, reintroduced one directory level down via an
+    # over-broad denylist entry. Narrowed to exactly the 2 files that need it.
+    Path("tests/test_vidux_contracts.py"),
 }
 
 # Privacy/PII/confidentiality patterns: enforced everywhere scanned,

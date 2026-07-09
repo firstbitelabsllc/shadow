@@ -35,28 +35,35 @@ OWNER_REVIEW_BUCKETS = {
 # blind spot, so it doesn't even require --force). Only content matching
 # these well-known regenerable-artifact patterns is safe to ignore for this
 # check; anything else gitignored-but-present blocks auto-removal.
-REGENERABLE_IGNORED_DIR_NAMES = {
+#
+# Round-4 and round-5 panel findings, both reproduced as real permanent data
+# loss via the actual `--apply --yes` path, converged on the same root
+# cause: trusting an ENTIRE directory by name is only safe for names no
+# human would ever pick to store real content in. "dist"/"build"/"target"/
+# "vendor" are common English/business words as well as build-tool
+# conventions, so blanket-trusting them was never actually safe -- round 4's
+# attempted fix (an allowlist of "human-authored" suffixes that override the
+# directory trust) just moved the same failure mode one layer down: it
+# missed extensionless files (Path('AUTHORS').suffix == '') and
+# case-variant extensions (.PDF vs .pdf), both reproduced causing permanent
+# deletion. No suffix-based denylist of "things that look human" can ever be
+# exhaustive -- the only durable fix is to stop blanket-trusting ambiguous
+# directory names at all. UNAMBIGUOUS_REGENERABLE_DIR_NAMES (dirs no human
+# ever hand-populates with real content -- exclusively package-manager/tool
+# managed) keep full-directory trust with no per-file check, same as
+# before. Everything else -- including former members dist/build/target/
+# vendor -- gets zero directory-based trust; a file there is only skipped
+# if it individually matches REGENERABLE_IGNORED_FILE_SUFFIXES/NAMES below.
+# This trades some manual-review false positives (a real dist/ full of
+# genuine build output now needs owner review instead of auto-cleanup) for
+# eliminating the false-negative/data-loss direction entirely -- the correct
+# trade for a tool whose failure mode is irreversible deletion.
+UNAMBIGUOUS_REGENERABLE_DIR_NAMES = {
     "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv",
-    "dist", "build", ".next", ".turbo", "target", ".mypy_cache",
-    ".ruff_cache", "vendor",
+    ".next", ".turbo", ".mypy_cache", ".ruff_cache",
 }
 REGENERABLE_IGNORED_FILE_SUFFIXES = {".pyc", ".pyo", ".log"}
 REGENERABLE_IGNORED_FILE_NAMES = {".DS_Store"}
-
-# Round-4 panel finding: several of the names above (dist, build, target,
-# vendor) are common English/business words as well as build-tool
-# conventions -- a hand-authored file living inside a directory that merely
-# shares one of those names was treated as fully regenerable no matter what
-# it actually contained. Reproduced live: a `build/client-handoff-notes.txt`
-# with irreplaceable text got silently deleted via `--apply --yes`, zero
-# warning. Directory-name trust alone is not enough; a file whose own
-# extension signals hand-authored prose/document content is never trusted
-# via the directory-name fast path, even inside an otherwise-regenerable
-# directory.
-HUMAN_AUTHORED_SUFFIXES = {
-    ".md", ".txt", ".doc", ".docx", ".pdf", ".rtf", ".pages", ".key",
-    ".numbers", ".csv",
-}
 
 
 class CommandError(RuntimeError):
@@ -174,20 +181,20 @@ def non_regenerable_ignored_paths(path: Path) -> List[str]:
     """Gitignored-but-present paths NOT matching a known regenerable-artifact
     pattern. Non-empty means real content `git status --porcelain` and git's
     own worktree-remove dirty-check both silently miss -- see the module-level
-    comment on REGENERABLE_IGNORED_DIR_NAMES for why this exists.
+    comment on UNAMBIGUOUS_REGENERABLE_DIR_NAMES for why this exists and why
+    directory-name trust is now tiered rather than a single denylist-overridable
+    allowlist.
 
     Uses `-z --ignored --untracked-files=all` rather than the plain
     `--ignored` default for two reasons found by round-4 panel review:
     (1) `-z` emits NUL-terminated, unquoted paths -- the default mode
-    C-style-quotes any path with a space or special character, which
-    silently defeated the exact-suffix-match allowlist below; (2) without
+    C-style-quotes any path with a space or special character, which would
+    silently defeat exact-match suffix/name checks; (2) without
     `--untracked-files=all`, git collapses a wholly-ignored directory into
     one summary line instead of listing its contents (confirmed empirically
     -- `--ignored=matching` alone does NOT fix this for a directory-pattern
     ignore rule like `build/`; `--untracked-files=all` is the flag that
-    actually forces per-file recursion), which is required for the
-    HUMAN_AUTHORED_SUFFIXES check below to ever see the files it needs to
-    see."""
+    actually forces per-file recursion)."""
     result = run(
         [
             "git", "-C", str(path), "status", "--porcelain", "-z",
@@ -205,13 +212,7 @@ def non_regenerable_ignored_paths(path: Path) -> List[str]:
             continue
         if rel_path.suffix in REGENERABLE_IGNORED_FILE_SUFFIXES:
             continue
-        if rel_path.suffix in HUMAN_AUTHORED_SUFFIXES:
-            # Never trust the directory-name fast path for a file whose own
-            # extension signals hand-authored content, even inside an
-            # otherwise-regenerable directory (build/, dist/, vendor/, ...).
-            risky.append(rel)
-            continue
-        if any(part in REGENERABLE_IGNORED_DIR_NAMES for part in rel_path.parts[:-1]):
+        if any(part in UNAMBIGUOUS_REGENERABLE_DIR_NAMES for part in rel_path.parts[:-1]):
             continue
         risky.append(rel)
     return risky
