@@ -26,7 +26,7 @@ Publish scrutiny:
 
 Ledger:
 - `evt_codex_20260603_5e30eq_post_completion_targets_packaged_gate`
-  verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5937`.
+  verified at `~/.agent-ledger/activity.jsonl:5937`.
 ```
 
 ## Non-Claims

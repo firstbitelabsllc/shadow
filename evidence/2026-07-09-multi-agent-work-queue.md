@@ -1,43 +1,41 @@
-# Multi-agent work queue — 2026-07-09 (loop 3)
+# Multi-agent work queue — 2026-07-09 (loop 4)
 
-**Weakest truthful claim:** `source-proven` + focused test green on **main**. Simple/thin-token **shipped** (#191). Private `/auto` archived (content kept). Goal-nav contract phrases realigned to thin corpus. No browser toggle smoke screenshot.
+**Weakest truthful claim:** `source-proven` — tests green on main; #193 **merged**; #177 **closed superseded**; #195 open for Setup/Proof thin land (not yet merged). No Simple toggle smoke.
 
-## Shipped (do not re-open)
+## Shipped / closed this cycle
 
-| ID | Result |
-|----|--------|
-| V-SIMPLE-1 / 5.6.1 | Merged #191 Simple-default cockpit |
-| V-TOKEN-1 / 5.6.2 | Merged thin-token.md + Recipe 13 |
-| V-FACELIFT-1 | Merged #190 hardening + #191 + #192 on main |
-| V-TEST-1 | loop3: test:js + 113 py PASS on main |
-| V-AUTO-1 (partial) | `/auto` off active farm → `_archive/auto` |
+| Item | Result |
+|------|--------|
+| V-193 | **MERGED** #193 thin-token contracts + public-readiness (`49ea5e0`) |
+| V-177 | **CLOSED** superseded (CONFLICTING vs main) |
+| V-195 | **OPEN** https://github.com/firstbitelabsllc/vidux/pull/195 — thin Setup/Proof Contract |
+| V-TEST | loop4: test:js 7/7 + 46 focused py PASS |
 
-## Ranked next (dispatch)
+## Ranked next
 
 | Pri | ID | Slice | Agents | Proof |
 |-----|-----|-------|--------|-------|
-| **P0** | V-177 | Nurse **PR #177** readiness/proof PLAN template — merge if still valuable vs Flow P0 contracts, else close as superseded | 1 nurse | PR merged/closed |
-| **P0** | V-CONTRACT | Land contract phrase realignment on a branch/PR so CI matches thin-token | 1 test | `test_goal_navigation_and_deleted_auto_contract` PASS on CI |
-| **P1** | V-SMOKE | Simple↔Advanced toggle Playwright smoke + evidence png | 1 UI | screenshot under evidence/ |
-| **P1** | V-AUTO-PUSH | Commit ai-leo archive of `/auto` so Studio pulls same farm shape | 1 farm | push ai-leo |
+| **P0** | **V-195** | Merge #195 Setup/Proof thin | 1 nurse | merged to main |
+| **P1** | **V-SMOKE** | Simple↔Advanced toggle smoke + png | 1 UI | evidence/ screenshot |
+| **P1** | **V-MAIN-ACTIVE** | Point `vidux-main-active` at updated main (skill mount freshness) | 1 farm | `git -C vidux-main-active pull` or re-link |
 | **P2** | V-5.3.1 | Ready-PR automations | blocked Resplit | leave |
-| **P2** | FARM | Skillbox OCCUPIED / chezmoi apply | deferred | leave |
+| **P2** | FARM OCCUPIED | Skillbox doctor noise | deferred | leave |
 
 ## Fan-out (≤3)
 
-1. **Lead:** PR for contract test fix + PLAN resume update  
-2. **Nurse:** #177 triage  
-3. **Optional UI:** toggle smoke  
+1. **Nurse** — merge #195 when checks green  
+2. **UI** — optional toggle smoke  
+3. **Farm** — refresh vidux-main-active checkout  
 
-## Load set (token budget)
+## Token rule
 
-`guides/thin-token.md` + this queue + one PLAN row. **Not** full SKILL / archived `/auto`.
+`guides/thin-token.md` + one PLAN row. Setup/Proof detail lives in thin Cycle bullets — full multi-modal doctrine stays in host `/leo-flow` P0, not reloaded into every Vidux session.
 
 ## Tests this cycle
 
 ```bash
-cd ~/Development/vidux
 npm run test:js   # PASS
-python3 -m unittest tests.test_plan_guard tests.test_write_verify \
-  tests.test_step_journal tests.test_browser_server -q  # 113 PASS
+python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_deleted_auto_publish_rules_are_rehomed_without_skip \
+  tests.test_vidux_contracts.ViduxContractTests.test_goal_navigation_and_deleted_auto_contract \
+  tests.test_plan_guard tests.test_write_verify tests.test_step_journal -q  # 46 PASS
 ```

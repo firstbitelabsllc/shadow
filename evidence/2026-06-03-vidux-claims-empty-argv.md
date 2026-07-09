@@ -41,7 +41,7 @@ missing-required `SystemExit(2)` without stdout or a created claims file.
 - `git diff --check -- PLAN.md scripts/vidux-claims.py tests/test_vidux_claims.py` PASS.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30ea_claims_empty_argv` verified at
-  `/Users/leokwan/.agent-ledger/activity.jsonl:5814`.
+  `~/.agent-ledger/activity.jsonl:5814`.
 
 ## Non-claims
 

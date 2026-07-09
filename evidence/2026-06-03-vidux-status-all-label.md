@@ -31,10 +31,10 @@ python3 -m unittest <nearby status contract slice>
 Ran 6 tests in 0.548s
 OK
 
-bin/vidux status --root /Users/leokwan/Development/vidux --focus vidux
+bin/vidux status --root ~/Development/vidux --focus vidux
 Other tracked plans  (45 active)
 
-bin/vidux status --root /Users/leokwan/Development/vidux --focus vidux --all
+bin/vidux status --root ~/Development/vidux --focus vidux --all
 Other tracked plans  (67 tracked)
 
 git diff --check -- scripts/vidux-status.py tests/test_vidux_contracts.py
@@ -42,7 +42,7 @@ PASS
 ```
 
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30ei_status_all_label` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5870`.
+- Publish ledger `evt_codex_20260603_5e30ei_status_all_label` verified at `~/.agent-ledger/activity.jsonl:5870`.
 
 ## Non-claims
 

@@ -12,7 +12,7 @@ Smoked the user-facing `vidux config` CLI without creating or mutating a live
 
 ```text
 bin/vidux config path
-PASS; /Users/leokwan/Development/vidux/vidux.config.example.json
+PASS; ~/Development/vidux/vidux.config.example.json
 
 bin/vidux config show --json
 PASS; status=ok, source=example, using_example=true,
@@ -29,8 +29,8 @@ PASS expected failure; exit=1, status=fail, issue code=live_config_missing.
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fd ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fd_config_cli_smoke ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6029.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fd_config_cli_smoke ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6029.
 ```
 
 ## Non-Claims

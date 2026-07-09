@@ -10,10 +10,10 @@ Initial overcount smoke, stopped after two rows once agent-mirror noise was iden
 
 ```bash
 python3 scripts/vidux-plan-bank-audit.py \
-  /Users/leokwan/Development/vidux \
-  /Users/leokwan/Development/strongyes-web \
-  /Users/leokwan/Development/resplit-web \
-  /Users/leokwan/Development/resplit-ios \
+  ~/Development/vidux \
+  ~/Development/strongyes-web \
+  ~/Development/resplit-web \
+  ~/Development/resplit-ios \
   --watch-iterations 9 \
   --watch-interval-seconds 900 \
   --issue-limit 0 \
@@ -24,10 +24,10 @@ Corrected observe-only long smoke:
 
 ```bash
 python3 scripts/vidux-plan-bank-audit.py \
-  /Users/leokwan/Development/vidux \
-  /Users/leokwan/Development/strongyes-web \
-  /Users/leokwan/Development/resplit-web \
-  /Users/leokwan/Development/resplit-ios \
+  ~/Development/vidux \
+  ~/Development/strongyes-web \
+  ~/Development/resplit-web \
+  ~/Development/resplit-ios \
   --watch-iterations 9 \
   --watch-interval-seconds 900 \
   --issue-limit 0 \
@@ -64,23 +64,23 @@ Root breakdown on the final row:
 
 | Root | Plans | Archived | Critical | High | Medium |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `/Users/leokwan/Development/vidux` | 90 | 22 | 87 | 179 | 465 |
-| `/Users/leokwan/Development/strongyes-web` | 77 | 0 | 0 | 122 | 315 |
-| `/Users/leokwan/Development/resplit-web` | 31 | 27 | 54 | 26 | 82 |
-| `/Users/leokwan/Development/resplit-ios` | 4 | 0 | 0 | 6 | 12 |
+| `~/Development/vidux` | 90 | 22 | 87 | 179 | 465 |
+| `~/Development/strongyes-web` | 77 | 0 | 0 | 122 | 315 |
+| `~/Development/resplit-web` | 31 | 27 | 54 | 26 | 82 |
+| `~/Development/resplit-ios` | 4 | 0 | 0 | 6 | 12 |
 
 Stable counts across all nine rows mean the audit is useful for observe-only drift and backlog triage. The issue counts are still too broad for fail-on enforcement.
 
 ## Representative Issues
 
-- `temporary_proof_path`: `/Users/leokwan/Development/resplit-ios/PLAN.md:131` references `/tmp/resplit-session-screens/current-100225.png`.
-- `missing_terminal_closeout_section`: `/Users/leokwan/Development/resplit-ios/PLAN.md`.
-- `missing_drift_log_section`: `/Users/leokwan/Development/resplit-ios/PLAN.md`.
-- `archived_non_terminal_row`: `/Users/leokwan/Development/resplit-web/_archive/vidux/mega-plan/PLAN.md:103`.
-- `blocked_without_since`: `/Users/leokwan/Development/resplit-ios/ai/skills/vidux/PLAN.md:116`.
-- `missing_evidence_section` and `missing_constraints_section`: `/Users/leokwan/Development/resplit-ios/ai/skills/vidux/projects/scan-index/PLAN.md`.
-- `unchecked_gate_checkbox`: `/Users/leokwan/Development/strongyes-web/vidux/content-lane/blog-mobile-aiml/PLAN.md:88`.
-- `missing_tasks_section`: `/Users/leokwan/Development/strongyes-web/PLAN.md`.
+- `temporary_proof_path`: `~/Development/resplit-ios/PLAN.md:131` references `/tmp/resplit-session-screens/current-100225.png`.
+- `missing_terminal_closeout_section`: `~/Development/resplit-ios/PLAN.md`.
+- `missing_drift_log_section`: `~/Development/resplit-ios/PLAN.md`.
+- `archived_non_terminal_row`: `~/Development/resplit-web/_archive/vidux/mega-plan/PLAN.md:103`.
+- `blocked_without_since`: `~/Development/resplit-ios/ai/skills/vidux/PLAN.md:116`.
+- `missing_evidence_section` and `missing_constraints_section`: `~/Development/resplit-ios/ai/skills/vidux/projects/scan-index/PLAN.md`.
+- `unchecked_gate_checkbox`: `~/Development/strongyes-web/vidux/content-lane/blog-mobile-aiml/PLAN.md:88`.
+- `missing_tasks_section`: `~/Development/strongyes-web/PLAN.md`.
 
 ## Product Repo Mutation Check
 

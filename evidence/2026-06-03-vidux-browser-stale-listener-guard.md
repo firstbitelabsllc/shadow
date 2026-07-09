@@ -48,7 +48,7 @@ PASS before restart; health had ok/dev_root/port/artifacts_dir but no repo_root.
 bin/vidux-browse --no-open
 PASS expected refusal; exit=1 with:
 port 7191 is already in use, but http://127.0.0.1:7191/api/health does not match this Vidux checkout/root
-expected repo_root=/Users/leokwan/Development/vidux dev_root=/Users/leokwan/Development
+expected repo_root=~/Development/vidux dev_root=~/Development
 
 kill 12559
 PASS; stopped the stale 7191 listener only.
@@ -60,11 +60,11 @@ lsof -nP -iTCP:7191 -sTCP:LISTEN
 PASS; fresh listener PID 71935.
 
 curl -fsS http://127.0.0.1:7191/api/health
-PASS; includes repo_root=/Users/leokwan/Development/vidux,
-dev_root=/Users/leokwan/Development, port=7191.
+PASS; includes repo_root=~/Development/vidux,
+dev_root=~/Development, port=7191.
 
 curl -fsS 'http://127.0.0.1:7191/api/vidux/truth?refresh=sync' | python3 -c '...compact projection...'
-PASS; ok=True, repo_root=/Users/leokwan/Development/vidux,
+PASS; ok=True, repo_root=~/Development/vidux,
 config source=example, runtime=warn 11/14,
 warnings=orphan_automations,stale_in_progress,bimodal_runtime,
 blockers=[], signposts=24,
@@ -73,8 +73,8 @@ call_stack="codex > claude > cursor > codex", complete_lifecycle=True.
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fe ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fe_browser_stale_listener_guard ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6030.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fe_browser_stale_listener_guard ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6030.
 ```
 
 ## Non-Claims

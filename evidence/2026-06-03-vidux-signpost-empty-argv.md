@@ -41,7 +41,7 @@ missing-required `SystemExit(2)` without stdout or a created signpost log.
 - `git diff --check -- PLAN.md scripts/vidux_signpost.py tests/test_signpost.py` PASS.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30dz_signpost_empty_argv` verified at
-  `/Users/leokwan/.agent-ledger/activity.jsonl:5813`.
+  `~/.agent-ledger/activity.jsonl:5813`.
 
 ## Non-claims
 

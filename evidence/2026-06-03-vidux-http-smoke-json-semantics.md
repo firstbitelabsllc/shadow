@@ -28,7 +28,7 @@ Updated:
 - `npm run docs:build` PASS.
 - `git diff --check -- README.md PLAN.md docs/reference/commands.md docs/reference/scripts.md scripts/vidux-http-smoke.py tests/test_http_smoke.py tests/test_vidux_contracts.py evidence/2026-06-03-vidux-http-smoke-json-semantics.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dp_http_smoke_json_semantics` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5803`.
+- Publish ledger `evt_codex_20260603_5e30dp_http_smoke_json_semantics` verified at `~/.agent-ledger/activity.jsonl:5803`.
 
 ## Live JSON Smoke
 

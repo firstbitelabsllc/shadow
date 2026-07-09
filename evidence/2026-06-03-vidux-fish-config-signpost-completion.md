@@ -52,14 +52,14 @@ bin/vidux signpost lifecycle-smoke --json
 PASS; emitted ordered Codex beforeTask, Claude subagent spawn, Cursor verify,
 and Codex afterTask events under one run id.
 
-bin/vidux status --root /Users/leokwan/Development/vidux --focus vidux
+bin/vidux status --root ~/Development/vidux --focus vidux
 PASS; root vidux row rendered at 98% with [3p/1b].
 
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0et ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30et_fish_config_signpost_completion ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 5955.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30et_fish_config_signpost_completion ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 5955.
 ```
 
 ## Non-Claims

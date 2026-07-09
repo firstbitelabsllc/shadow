@@ -34,7 +34,7 @@ Goal: fix source-drift in current config, commands, hooks/scripts, browser, and 
 - `bash -n scripts/vidux-checkpoint.sh` PASS.
 - `npm run docs:build` PASS, VitePress build complete.
 - `git diff --check -- commands/vidux.md docs/reference/commands.md SETUP_NEW_MACHINE.md docs/reference/browser.md scripts/vidux-checkpoint.sh tests/test_vidux_contracts.py PLAN.md evidence/2026-06-03-vidux-doc-bug-sweep-smoke.md` PASS.
-- Publish ledger `evt_codex_20260603_5e30dh_docs_bug_sweep` verified in `/Users/leokwan/.agent-ledger/activity.jsonl:5793`.
+- Publish ledger `evt_codex_20260603_5e30dh_docs_bug_sweep` verified in `~/.agent-ledger/activity.jsonl:5793`.
 - `python3 scripts/vidux-publish-scrutiny.py --json ... --ledger evt_codex_20260603_5e30dh_docs_bug_sweep ...` PASS with `ready=true`.
 
 ## Proof hygiene note

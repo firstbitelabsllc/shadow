@@ -26,8 +26,8 @@ OK
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0ey ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30ey_post_browser_truth_packaged_gate ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6008.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30ey_post_browser_truth_packaged_gate ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6008.
 ```
 
 ## Non-Claims

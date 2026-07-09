@@ -38,7 +38,7 @@ OK
 ```
 
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30ef_packaged_test_gate` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5867`.
+- Publish ledger `evt_codex_20260603_5e30ef_packaged_test_gate` verified at `~/.agent-ledger/activity.jsonl:5867`.
 
 ## Non-claims
 

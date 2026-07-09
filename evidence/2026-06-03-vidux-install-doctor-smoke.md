@@ -28,14 +28,14 @@ bin/vidux help doctor
 PASS; help explains that `vidux doctor` is the terminal install/readiness
 probe and `scripts/vidux-doctor.sh --json` is the hook-safe runtime doctor.
 
-bin/vidux status --root /Users/leokwan/Development/vidux --focus vidux
+bin/vidux status --root ~/Development/vidux --focus vidux
 PASS; root vidux row rendered at 98% with [3p/1b].
 
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fc ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fc_install_doctor_smoke ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6028.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fc_install_doctor_smoke ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6028.
 ```
 
 ## Non-Claims

@@ -48,8 +48,8 @@ PASS; VitePress build completed in 1.96s.
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fg ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fg_browser_launcher_flags ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6048.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fg_browser_launcher_flags ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6048.
 ```
 
 ## Non-Claims

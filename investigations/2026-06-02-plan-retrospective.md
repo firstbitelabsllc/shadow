@@ -124,4 +124,4 @@ If only one thing ships: **#2** (gated `[completed]`) — it touches the trust c
 - 94 PLAN.md files total; 61 top-level project plans + 33 task subplans.
 - 26 active projects under `projects/`; ~30 archived under `projects/_archive/2026-05-01/`; 4 resplit-2.0 archives (one with 9 task subplans).
 - Doctrine layer: SKILL.md (1,282 ln), DOCTRINE.md (180), ENFORCEMENT.md (402), LOOP.md (359), INGREDIENTS.md (166), root PLAN.md (798), CHANGELOG.md (1,109), plus 23 files under `guides/` and the prior postmortem in `investigations/`.
-- Environmental note: three live clones (`~/REDACTED-EMPLOYER-PATH/Dev/vidux`, `~/Development/vidux`, `~/vidux`→`~/.vidux`); docs reference stale paths (`~/Development/vidux`, `/Users/leokwan/…`). Minor, but it's drift in the meta-layer itself.
+- Environmental note: three live clones (`~/work/Dev/vidux`, `~/Development/vidux`, `~/vidux`→`~/.vidux`); docs reference stale paths (`~/Development/vidux`, `~/…`). Minor, but it's drift in the meta-layer itself.

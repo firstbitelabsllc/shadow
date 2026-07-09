@@ -47,9 +47,9 @@ kill 71935
 PASS; replacement listener PID 31495 on 7191.
 
 curl -fsS http://127.0.0.1:7191/api/health
-PASS; payload included repo_root=/Users/leokwan/Development/vidux,
-dev_root=/Users/leokwan/Development, port=7191,
-server_path=/Users/leokwan/Development/vidux/browser/server.py, and
+PASS; payload included repo_root=~/Development/vidux,
+dev_root=~/Development, port=7191,
+server_path=~/Development/vidux/browser/server.py, and
 server_mtime_ns=1780472614203589519.
 
 curl -fsS 'http://127.0.0.1:7191/api/vidux/truth?refresh=sync'
@@ -60,8 +60,8 @@ and signpost latest_run complete_lifecycle=true.
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fk ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fk_browser_server_fingerprint_guard ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6082.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fk_browser_server_fingerprint_guard ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6082.
 ```
 
 ## Non-Claims

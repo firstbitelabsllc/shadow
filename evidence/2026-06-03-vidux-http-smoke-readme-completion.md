@@ -24,7 +24,7 @@ Updated:
 - `npm run docs:build` PASS.
 - `git diff --check -- README.md PLAN.md tests/test_http_smoke.py tests/test_vidux_contracts.py evidence/2026-06-03-vidux-http-smoke-readme-completion.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dn_http_smoke_readme_completion` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5801`.
+- Publish ledger `evt_codex_20260603_5e30dn_http_smoke_readme_completion` verified at `~/.agent-ledger/activity.jsonl:5801`.
 
 ## Live Completion Smoke
 

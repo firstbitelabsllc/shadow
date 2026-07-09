@@ -31,7 +31,7 @@ Updated:
 - Direct programmatic smoke PASS: with `sys.argv` poisoned to include a URL, `main([])` returned `rc=2` and printed `vidux-http-smoke: at least one URL is required`.
 - `git diff --check -- PLAN.md scripts/vidux-http-smoke.py tests/test_http_smoke.py evidence/2026-06-03-vidux-http-smoke-empty-argv.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dt_http_smoke_empty_argv` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5807`.
+- Publish ledger `evt_codex_20260603_5e30dt_http_smoke_empty_argv` verified at `~/.agent-ledger/activity.jsonl:5807`.
 
 ## Non-claims
 

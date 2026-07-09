@@ -33,7 +33,7 @@ Running 30 tests using 12 workers
 ```
 
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30eg_playwright_e2e_smoke` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5868`.
+- Publish ledger `evt_codex_20260603_5e30eg_playwright_e2e_smoke` verified at `~/.agent-ledger/activity.jsonl:5868`.
 
 ## Warnings
 

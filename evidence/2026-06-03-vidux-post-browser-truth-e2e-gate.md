@@ -19,13 +19,13 @@ Playwright:
 
 Web server:
 vidux browser -> http://127.0.0.1:7291
-dev_root=/Users/leokwan/Development/vidux/browser/tests/fixtures/fake-dev-root
+dev_root=~/Development/vidux/browser/tests/fixtures/fake-dev-root
 
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fb ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fb_post_browser_truth_e2e_gate ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6027.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fb_post_browser_truth_e2e_gate ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6027.
 ```
 
 ## Notes

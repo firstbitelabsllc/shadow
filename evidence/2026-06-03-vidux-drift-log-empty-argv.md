@@ -42,7 +42,7 @@ missing-required `SystemExit(2)` without stdout or any plan mutation.
 - `git diff --check -- PLAN.md scripts/vidux-drift-log.py tests/test_drift_log.py` PASS.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30eb_drift_log_empty_argv` verified at
-  `/Users/leokwan/.agent-ledger/activity.jsonl:5815`.
+  `~/.agent-ledger/activity.jsonl:5815`.
 
 ## Non-claims
 

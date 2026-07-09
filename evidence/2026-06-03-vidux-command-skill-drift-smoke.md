@@ -18,7 +18,7 @@ Post-argv-sweep command and app-adjacent smoke pass:
 | --- | --- | --- |
 | Install doctor | PASS | `VIDUX_DOCTOR_SKIP_NPM_TEST=1 bin/vidux doctor` passed 7/7. |
 | Runtime doctor | WARN | `scripts/vidux-doctor.sh --json` passed 11/14 checks. Warnings: `orphan_automations` count 2 (`codex-plans-auditor`, `strongyes-10m-cleanup`), `stale_in_progress` count 6, `bimodal_runtime` count 5. |
-| Status board | PASS | `bin/vidux status --root /Users/leokwan/Development/vidux --focus vidux --json` returned the root plan with pending 3, in_progress 0, completed 148, blocked 1. |
+| Status board | PASS | `bin/vidux status --root ~/Development/vidux --focus vidux --json` returned the root plan with pending 3, in_progress 0, completed 148, blocked 1. |
 | Config check | PASS | `bin/vidux config check --json` returned `status=ok`, `source=example`, `live_config_present=false`, redacted token metadata, and no issues. |
 | Lifecycle signpost | PASS | `bin/vidux signpost lifecycle-smoke --json` emitted 4 ordered events: codex beforeTask, claude spawn, cursor verify, codex afterTask. |
 | Spawned-subagent signpost | PASS | `bin/vidux signpost spawned-subagent-smoke --json` emitted 4 ordered events with inherited Codex thread attribution for Claude/Cursor worker simulation. |
@@ -38,9 +38,9 @@ FAILED (failures=4)
 
 The failing contracts caught stale Leo-private skill wording:
 
-- `/Users/leokwan/Development/ai-leo/skills/amp/SKILL.md` still framed Harness Mode state as `PLAN.md`, evidence, and `memory.md`.
-- `/Users/leokwan/Development/ai-leo/skills/auto/SKILL.md` still told agents to commit and push the ai repo after observed-decision capture.
-- `/Users/leokwan/Development/ai-leo/skills/auto/SKILL.md` still called auto-dream `memory.md` a durable cycle log.
+- `~/<private-skill-root>/skills/amp/SKILL.md` still framed Harness Mode state as `PLAN.md`, evidence, and `memory.md`.
+- `~/<private-skill-root>/skills/auto/SKILL.md` still told agents to commit and push the ai repo after observed-decision capture.
+- `~/<private-skill-root>/skills/auto/SKILL.md` still called auto-dream `memory.md` a durable cycle log.
 
 Fixes:
 
@@ -51,15 +51,15 @@ Fixes:
 ## Regression Proof
 
 - Stale skill grep PASS with no hits:
-  `rg -n 'State lives in PLAN\\.md|state lives in files|state lives in the PLAN\\.md|\\+ commit SHA|\\[Evidence: <proof/SHA>\\]|Commit \\+ push the ai repo per \`/captain\` rules|durable cycle log|STOP, commit \\+ push|The local edit IS the bug|commit IS the fix' /Users/leokwan/Development/ai-leo/skills/amp/SKILL.md /Users/leokwan/Development/ai-leo/skills/auto/SKILL.md`
+  `rg -n 'State lives in PLAN\\.md|state lives in files|state lives in the PLAN\\.md|\\+ commit SHA|\\[Evidence: <proof/SHA>\\]|Commit \\+ push the ai repo per \`/captain\` rules|durable cycle log|STOP, commit \\+ push|The local edit IS the bug|commit IS the fix' ~/<private-skill-root>/skills/amp/SKILL.md ~/<private-skill-root>/skills/auto/SKILL.md`
 - Focused skill drift contracts PASS 4/4:
   `python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_amp_harness_goal_mode_uses_plan_ledger_state tests.test_vidux_contracts.ViduxContractTests.test_auto_shared_tooling_pushes_use_plan_ledger_packet tests.test_vidux_contracts.ViduxContractTests.test_auto_evolution_rules_use_publish_packet_before_ai_repo_sync tests.test_vidux_contracts.ViduxContractTests.test_auto_dream_memory_is_lane_local_orientation`
 - Broader rerun PASS 279/279:
   `python3 -m unittest tests.test_browser_server tests.test_vidux_config_cli tests.test_signpost tests.test_http_smoke tests.test_vidux_contracts`
 - `npm run docs:build` PASS.
-- `git -C /Users/leokwan/Development/ai-leo diff --check -- skills/amp/SKILL.md skills/auto/SKILL.md` PASS.
+- `git -C ~/Development/ai-leo diff --check -- skills/amp/SKILL.md skills/auto/SKILL.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30ee_command_skill_drift_smoke` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5850`.
+- Publish ledger `evt_codex_20260603_5e30ee_command_skill_drift_smoke` verified at `~/.agent-ledger/activity.jsonl:5850`.
 
 ## Non-claims
 

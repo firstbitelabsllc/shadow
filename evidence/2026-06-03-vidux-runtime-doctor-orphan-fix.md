@@ -63,7 +63,7 @@ PASS
 ```
 
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30eh_runtime_doctor_orphan_fix` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5869`.
+- Publish ledger `evt_codex_20260603_5e30eh_runtime_doctor_orphan_fix` verified at `~/.agent-ledger/activity.jsonl:5869`.
 
 ## Non-claims
 
