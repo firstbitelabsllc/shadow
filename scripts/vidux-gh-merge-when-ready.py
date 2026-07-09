@@ -12,6 +12,12 @@ on a fixed interval, checks readiness against the latest commit SHA, and
 only invokes `gh pr merge --squash --delete-branch` when every gate is
 green. If the cap is reached without going green, exits with the
 `ACK-PENDING` token so the next 30-min cron cycle can pick up.
+
+Exit codes: 0 merged/ready, 1 ACK-PENDING (not green within --max-wait,
+retry next cycle), 2 BLOCKED (CHANGES_REQUESTED or a failed check, will not
+resolve on retry), 3 GH-ERROR (the `gh` CLI call itself failed -- auth,
+network, or PATH problem, not a readiness signal; distinct from 1 so a
+caller doesn't mistake a broken tool for "not ready yet" and retry forever).
 """
 
 from __future__ import annotations
@@ -201,17 +207,32 @@ def poll_until_ready(
     sleep=time.sleep,
     clock=time.monotonic,
 ) -> tuple[int, ReadinessReport]:
-    """Poll until ready, blocked, or cap reached.
+    """Poll until ready, blocked, cap reached, or the gh CLI call fails.
 
     Returns (exit_code, last_report). Exit code semantics:
       0  ready (caller should call merge_now)
       1  ack-pending (timed out)
       2  blocked (CHANGES_REQUESTED or FAILURE)
+      3  gh-error (the `gh` CLI call itself failed -- not a readiness signal)
+
+    `fetch` (== `gh pr view`) used to run with check=True and no surrounding
+    try/except, so any transient gh failure (auth expiry, rate limit, network
+    blip, gh not on PATH) raised uncaught out of this loop, out of main(), and
+    crashed with a raw traceback instead of one of the three documented exit
+    codes above -- a cron lane checking `rc == 1` for "not ready, retry next
+    cycle" saw Python's traceback-triggered exit code 1 and treated a broken
+    gh CLI as an ordinary pending state, which never resolves on retry (round-3
+    readiness panel, code-quality-scripts lens). Exit code 3 is new and
+    deliberately distinct from 1/2 so callers can tell "the tool is broken"
+    from "not ready yet" / "reviewer said no" and stop retrying blindly.
     """
     deadline = clock() + max_wait_s
     last: ReadinessReport | None = None
     while True:
-        view = fetch(pr, repo)
+        try:
+            view = fetch(pr, repo)
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            return 3, ReadinessReport(ready=False, reason=f"gh-error: {exc}")
         view["__required_bots"] = list(required_bots)
         last = assess(view)
         if last.ready:
@@ -254,12 +275,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.no_merge:
             print("READY: would merge (--no-merge set)", file=sys.stderr)
             return 0
-        merge_now(args.pr, args.repo)
+        try:
+            merge_now(args.pr, args.repo)
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(f"GH-ERROR: merge command failed for PR #{args.pr}: {exc}", file=sys.stderr)
+            return 3
         print(f"MERGED: PR #{args.pr}", file=sys.stderr)
         return 0
     if code == 1:
         print(f"ACK-PENDING: PR #{args.pr} not green within {args.max_wait}s", file=sys.stderr)
         return 1
+    if code == 3:
+        print(f"GH-ERROR: PR #{args.pr} — {report.reason}", file=sys.stderr)
+        return 3
     print(f"BLOCKED: PR #{args.pr} — {report.reason}", file=sys.stderr)
     return 2
 

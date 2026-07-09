@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -310,6 +311,78 @@ class PollLoopTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertTrue(report.blockers)
         self.assertEqual(sleeps, [])
+
+    def test_returns_three_when_gh_cli_call_fails(self):
+        # Round-3 readiness panel finding (code-quality-scripts lens):
+        # fetch_view() ran `gh pr view` with check=True and no surrounding
+        # try/except, so a transient gh failure (auth expiry, rate limit,
+        # network blip) raised uncaught out of this loop and crashed with a
+        # raw traceback instead of one of the documented exit codes -- a
+        # cron lane checking `rc == 1` for "not ready yet" would misread
+        # Python's traceback-triggered exit code 1 as an ordinary pending
+        # state and retry a problem that will never resolve on retry.
+        def raising_fetch(pr, repo):
+            raise subprocess.CalledProcessError(1, ["gh", "pr", "view"], stderr="HTTP 401: Bad credentials")
+
+        sleeps: list[float] = []
+        code, report = mod.poll_until_ready(
+            42,
+            repo=None,
+            max_wait_s=900,
+            poll_interval_s=30,
+            required_bots=["graphite-app"],
+            fetch=raising_fetch,
+            sleep=sleeps.append,
+            clock=lambda: 0.0,
+        )
+        self.assertEqual(code, 3)
+        self.assertFalse(report.ready)
+        self.assertIn("gh-error", report.reason)
+        self.assertEqual(sleeps, [])
+
+    def test_returns_three_when_gh_cli_missing(self):
+        def raising_fetch(pr, repo):
+            raise FileNotFoundError("gh")
+
+        code, report = mod.poll_until_ready(
+            42,
+            repo=None,
+            max_wait_s=900,
+            poll_interval_s=30,
+            required_bots=["graphite-app"],
+            fetch=raising_fetch,
+            sleep=lambda s: None,
+            clock=lambda: 0.0,
+        )
+        self.assertEqual(code, 3)
+        self.assertIn("gh-error", report.reason)
+
+
+class MainTests(unittest.TestCase):
+    def test_main_returns_three_when_merge_command_fails(self):
+        # Same finding as above, at the merge_now() call site: gates were
+        # green (code 0 from poll_until_ready) but the actual `gh pr merge`
+        # invocation itself failed (e.g. a merge conflict introduced between
+        # the last poll and the merge attempt). That must not crash with a
+        # raw traceback either, and must not report "MERGED".
+        # poll_until_ready binds its `fetch` default at definition time, so
+        # patching mod.fetch_view wouldn't reach it here; patch
+        # poll_until_ready itself to short-circuit straight to "ready".
+        original_poll = mod.poll_until_ready
+        original_merge_now = mod.merge_now
+        try:
+            mod.poll_until_ready = lambda *a, **kw: (0, mod.ReadinessReport(ready=True, reason="all gates green"))
+
+            def raising_merge_now(pr, repo):
+                raise subprocess.CalledProcessError(1, ["gh", "pr", "merge"], stderr="merge conflict")
+
+            mod.merge_now = raising_merge_now
+            code = mod.main(["42", "--repo", "leojkwan/vidux"])
+        finally:
+            mod.poll_until_ready = original_poll
+            mod.merge_now = original_merge_now
+
+        self.assertEqual(code, 3)
 
 
 if __name__ == "__main__":

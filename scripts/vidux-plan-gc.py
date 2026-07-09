@@ -165,9 +165,14 @@ def trim_inbox(plan_dir, dry_run):
 
     # Group inbox entries the same way as tasks: a line starting '- ' owns
     # following indented/blank lines until the next '- ' or a non-indented
-    # non-blank line.
+    # non-blank line. Non-list content encountered mid-list (e.g. a "##"
+    # section header, a stray note paragraph) becomes its own STICKY group
+    # -- never prunable, never merged into whichever entry happened to
+    # precede it. The old code glued trailing content onto groups[-1], so
+    # trimming the oldest N groups could silently carry a header into the
+    # archive along with an unrelated entry it happened to trail.
     preamble = []
-    groups = []
+    groups = []  # [{"lines": [...], "prunable": bool}, ...] in document order
     current = None
     in_list = False
     for line in lines:
@@ -175,17 +180,18 @@ def trim_inbox(plan_dir, dry_run):
             in_list = True
             if current is not None:
                 groups.append(current)
-            current = [line]
+            current = {"lines": [line], "prunable": True}
         elif in_list and current is not None and (line.startswith((" ", "\t")) or line.strip() == ""):
-            current.append(line)
+            current["lines"].append(line)
         elif in_list:
             if current is not None:
                 groups.append(current)
                 current = None
-            # trailing non-entry content after the list ends — preserve in place
-            # by attaching to the most recent group.
+            # trailing non-entry content after the list ends — its own
+            # sticky group so it survives trimming regardless of which
+            # entry preceded it.
             if groups:
-                groups[-1].append(line)
+                groups.append({"lines": [line], "prunable": False})
             else:
                 preamble.append(line)
         else:
@@ -193,12 +199,20 @@ def trim_inbox(plan_dir, dry_run):
     if current is not None:
         groups.append(current)
 
-    if len(groups) <= INBOX_CAP:
-        return {"target": "inbox", "trimmed": 0, "entry_count": len(groups)}
+    prunable_count = sum(1 for g in groups if g["prunable"])
+    if prunable_count <= INBOX_CAP:
+        return {"target": "inbox", "trimmed": 0, "entry_count": prunable_count}
 
-    to_remove = len(groups) - INBOX_CAP
-    dropped = groups[:to_remove]
-    kept = groups[to_remove:]
+    to_remove = prunable_count - INBOX_CAP
+    dropped = []
+    kept = []
+    remaining_to_drop = to_remove
+    for g in groups:
+        if g["prunable"] and remaining_to_drop > 0:
+            dropped.append(g)
+            remaining_to_drop -= 1
+        else:
+            kept.append(g)
 
     if not dry_run:
         evidence_dir = plan_dir / "evidence"
@@ -210,10 +224,10 @@ def trim_inbox(plan_dir, dry_run):
                 f.write(f"# INBOX archive {stamp}\n\n"
                         f"Oldest {to_remove} inbox entries rolled off the 20-entry cap.\n\n")
             for g in dropped:
-                f.writelines(g)
+                f.writelines(g["lines"])
             f.write("\n")
 
-        new_text = "".join(preamble) + "".join(line for g in kept for line in g)
+        new_text = "".join(preamble) + "".join(line for g in kept for line in g["lines"])
         inbox.write_text(new_text)
 
     return {"target": "inbox", "trimmed": to_remove, "entry_count_after": INBOX_CAP}

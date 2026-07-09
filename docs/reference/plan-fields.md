@@ -58,16 +58,16 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 
 ## Decision Log Entry Types
 
-The Decision Log is the **lock file** that stops stateless agents from undoing prior choices. Every entry opens with a bracketed type tag and a date.
+The Decision Log is the **lock file** that stops stateless agents from undoing prior choices. Every entry opens with a bracketed type tag and a bracketed date — `[TAG] [YYYY-MM-DD]` — matching the canonical form in `SKILL.md`'s `## Decision Log` section. `scripts/vidux-plan-guard.sh`'s `has_authorizing_deletion()` specifically requires the bracketed-date form on `[DELETION]` entries to authorize a task-count drop; an unbracketed date is not recognized and will not silence an integrity warning.
 
 | Type | When to use | Template |
 |---|---|---|
-| `[DELETION]` | Removed something deliberately — future agents must not re-add it | `[DELETION] 2026-04-16 Removed X-endpoint. Reason: deprecated by Y. Do not re-add.` |
-| `[DIRECTION]` | Chose approach X over Y for a stated reason | `[DIRECTION] 2026-04-16 Chose idempotency key over distributed lock. Reason: lock adds 80ms p99.` |
-| `[SCOPE]` | Cut scope — what's in, what's explicitly out | `[SCOPE] 2026-04-16 Email notifications deferred to v2. Reason: requires SES provisioning.` |
-| `[PIVOT]` | Course correction — old direction obsolete, new direction active | `[PIVOT] 2026-04-16 Was targeting Postgres; now targeting Cloudflare D1. Reason: edge-compatible.` |
-| `[CONSTRAINT]` | Discovered a hard constraint (infra limit, compliance, budget) | `[CONSTRAINT] 2026-04-16 Function timeout 300s. Reason: Vercel Fluid Compute ceiling.` |
-| `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] 2026-04-16 Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
+| `[DELETION]` | Removed something deliberately — future agents must not re-add it | `[DELETION] [2026-04-16] Removed X-endpoint. Reason: deprecated by Y. Do not re-add.` |
+| `[DIRECTION]` | Chose approach X over Y for a stated reason | `[DIRECTION] [2026-04-16] Chose idempotency key over distributed lock. Reason: lock adds 80ms p99.` |
+| `[SCOPE]` | Cut scope — what's in, what's explicitly out | `[SCOPE] [2026-04-16] Email notifications deferred to v2. Reason: requires SES provisioning.` |
+| `[PIVOT]` | Course correction — old direction obsolete, new direction active | `[PIVOT] [2026-04-16] Was targeting Postgres; now targeting Cloudflare D1. Reason: edge-compatible.` |
+| `[CONSTRAINT]` | Discovered a hard constraint (infra limit, compliance, budget) | `[CONSTRAINT] [2026-04-16] Function timeout 300s. Reason: Vercel Fluid Compute ceiling.` |
+| `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] [2026-04-16] Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
 
 Agents grep the log by tag: forbidden (`[DELETION]`), architectural choices (`[DIRECTION]`), recent changes (`[PIVOT]` / `[REVERSAL]`).
 

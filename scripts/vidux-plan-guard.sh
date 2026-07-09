@@ -77,7 +77,13 @@ has_authorizing_deletion() {
   local plan="$1" since_date="$2"
   [ -z "$since_date" ] && return 1
   # Canonical Decision Log format (SKILL.md): - [DELETION] [YYYY-MM-DD] ...
-  grep -oE '^-\ \[DELETION\]\ \[[0-9]{4}-[0-9]{2}-[0-9]{2}\]' "$plan" 2>/dev/null \
+  # The date bracket is optional here (round-3 panel finding: docs/reference/
+  # plan-fields.md's own template table taught an unbracketed
+  # "[DELETION] YYYY-MM-DD ..." form for years before that doc was fixed to
+  # match the canonical bracketed form) -- accept both so an entry written
+  # against either doc still authorizes the drop instead of producing a
+  # false-positive integrity warning.
+  grep -oE '^-\ \[DELETION\]\ \[?[0-9]{4}-[0-9]{2}-[0-9]{2}\]?' "$plan" 2>/dev/null \
     | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
     | awk -v since="$since_date" '$1 >= since { found=1 } END { exit !found }'
 }

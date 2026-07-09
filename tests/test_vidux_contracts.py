@@ -11,6 +11,7 @@ Runs on stdlib unittest — zero-bootstrap, no pip install needed.
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -485,6 +486,45 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(" 50%", rendered.stdout)
             self.assertIn("[1b]", rendered.stdout)
 
+    def test_vidux_status_recognizes_fsm_extension_tags_as_not_shipped(self):
+        """Round-3 panel finding (code-quality-scripts lens): [in_review]/
+        [verify]/[merged] -- SKILL.md's own documented status FSM extension
+        tags -- didn't match TASK_LINE_RE at all, so tasks carrying them were
+        silently excluded from every count. A plan with all its live work
+        sitting in [in_review] reported pending=0/in_progress=0/blocked=0 and
+        misreported as 100% shipped."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            plan_dir = root / "fsm-extension"
+            plan_dir.mkdir()
+            (plan_dir / "PLAN.md").write_text(textwrap.dedent("""\
+                # FSM Extension Plan
+                ## Tasks
+                - [completed] Task A: shipped part
+                - [in_review] Task B: PR open, awaiting CI + review acks
+                - [verify] Task C: generator finished, awaiting evaluator verdict
+                - [merged] Task D: merged to trunk, not yet Findable
+                ## Progress
+            """), encoding="utf-8")
+
+            result = subprocess.run(
+                ["python3", str(self.SCRIPTS_DIR / "vidux-status.py"), "--root", str(root), "--json"],
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, f"vidux-status.py failed: {result.stderr}")
+            data = json.loads(result.stdout)
+            rows = data["tied"] + data["other"]
+            row = next(row for row in rows if row["short"] == "fsm-extension")
+            self.assertEqual(row["completed"], 1)
+            # All three FSM extension tags fold into in_progress -- none of
+            # them are terminal, so none may silently vanish from the count.
+            self.assertEqual(row["in_progress"], 3)
+            self.assertEqual(row["pending"], 0)
+            self.assertEqual(row["blocked"], 0)
+            self.assertEqual(row["completed"] + row["in_progress"], 4)
+            names = {row["short"] for row in rows}
+            self.assertIn("fsm-extension", names)
+
     def test_vidux_status_counts_prose_blocked_pending_rows(self):
         """Status counts must match reducer-visible explicit blocker prose."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -740,6 +780,63 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("vidux status --json", status_spec)
         self.assertNotIn("~/Development/vidux/projects/*/PLAN.md", status_spec)
         self.assertNotIn("No other arguments", status_spec)
+
+    def test_vidux_cli_gives_authored_error_for_broken_vidux_root(self):
+        """Round-3 panel finding (error-messages-ux lens): every subcommand
+        exec's straight into python3/bash/awk against VIDUX_ROOT with no
+        preflight, so a broken/misdirected VIDUX_ROOT leaked a raw
+        interpreter error ("python3: can't open file ...", "awk: can't open
+        file ...") instead of a vidux-authored message naming the actual
+        problem."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            broken_root = Path(tmpdir) / "not-a-vidux-checkout"
+            broken_root.mkdir()
+            env = os.environ.copy()
+            env["VIDUX_ROOT"] = str(broken_root)
+
+            for args in (["status"], ["--version"], ["init", "demo"]):
+                result = subprocess.run(
+                    [str(ROOT / "bin" / "vidux"), *args],
+                    capture_output=True, text=True, timeout=10, env=env,
+                )
+                self.assertEqual(result.returncode, 127, result.stderr)
+                self.assertIn("does not look like a vidux checkout", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertNotIn("can't open file", result.stderr)
+
+            # help/-h stay exempt -- pure static text, no filesystem access,
+            # must still work even from a broken VIDUX_ROOT.
+            help_result = subprocess.run(
+                [str(ROOT / "bin" / "vidux"), "--help"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            self.assertEqual(help_result.returncode, 0, help_result.stderr)
+            self.assertIn("vidux — plan-first control plane", help_result.stdout)
+
+    def test_vidux_cli_gives_authored_error_when_python3_missing(self):
+        """Same finding, the python3-on-PATH half: a python3-dispatching
+        subcommand (status/drift/config/signpost/http-smoke/dev) used to
+        leak "bash: exec: python3: not found" instead of a vidux-authored
+        message."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fakebin = Path(tmpdir) / "fakebin"
+            fakebin.mkdir()
+            # Symlink every tool bin/vidux's preamble + require_python3 need,
+            # except python3 itself.
+            for tool in ("bash", "sh", "dirname", "readlink", "cat", "awk", "cut"):
+                real = shutil.which(tool)
+                if real:
+                    (fakebin / tool).symlink_to(real)
+            env = os.environ.copy()
+            env["PATH"] = str(fakebin)
+
+            result = subprocess.run(
+                [str(ROOT / "bin" / "vidux"), "status"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            self.assertEqual(result.returncode, 127, result.stderr)
+            self.assertIn("python3 not found on PATH", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
 
     def test_vidux_completion_command_completes_shell_targets(self):
         """The completion subcommand should complete target shells, not Vidux commands."""

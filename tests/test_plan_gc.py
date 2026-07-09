@@ -247,6 +247,42 @@ class PlanGCTests(unittest.TestCase):
         for i in range(1, 6):
             self.assertIn(f"- entry {i}:", arch_text)
 
+    def test_inbox_trim_never_drops_mid_list_header(self):
+        # Round-3 readiness panel finding (code-quality-scripts lens):
+        # trim_inbox() used to attach trailing non-list content (e.g. a
+        # "## Process Notes" header) to whichever entry group preceded it.
+        # If that entry landed among the oldest-N dropped for the cap, the
+        # header silently went to the archive with it -- a live doc-loss
+        # bug, not just a cosmetic one.
+        make_plan(self.plan_dir, completed=1)
+        inbox = self.plan_dir / "INBOX.md"
+        lines = ["# Inbox", ""]
+        for i in range(1, 4):
+            lines.append(f"- entry {i}: triage item {i}")
+        lines.append("")
+        lines.append("## Process Notes")
+        lines.append("")
+        lines.append("Ongoing note that must never be silently archived.")
+        lines.append("")
+        for i in range(4, 26):
+            lines.append(f"- entry {i}: triage item {i}")
+        lines.append("")
+        inbox.write_text("\n".join(lines))
+
+        rc, _, _ = run_script(self.plan_dir)
+        self.assertEqual(rc, 0)
+        after = inbox.read_text()
+        self.assertIn("## Process Notes", after)
+        self.assertIn("Ongoing note that must never be silently archived.", after)
+        self.assertEqual(after.count("\n- entry"), 20)
+
+        archives = list((self.plan_dir / "evidence").glob("*-inbox-archive.md"))
+        self.assertEqual(len(archives), 1)
+        arch_text = archives[0].read_text()
+        self.assertNotIn("## Process Notes", arch_text)
+        for i in range(1, 4):
+            self.assertIn(f"- entry {i}:", arch_text)
+
     def test_inbox_preserves_preamble(self):
         make_plan(self.plan_dir, completed=1)
         inbox = self.plan_dir / "INBOX.md"

@@ -957,19 +957,21 @@ function renderSidebar() {
 
   // Helpers for collapsible group headers — used by recents, artifacts, repos.
   // Disclosure caret on left, count on right. Click toggles persisted state.
+  // Keyboard parity (WCAG 2.1.1): tabindex + role=button + Enter/Space toggle
+  // the same as click, matching the .plan-row keyboard-activation pattern.
   function groupHeaderHTML(key, label, count) {
     const collapsed = isCollapsed(key);
     const caret = collapsed ? "▸" : "▾";
     const cls = collapsed ? "is-collapsed" : "";
     return `<div class="repo-group ${cls}" data-collapse-key="${escapeAttr(key)}">
-      <h2><span class="caret">${caret}</span>${escapeText(label)} <span class="repo-count">(${count})</span></h2>
+      <h2 tabindex="0" role="button" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${escapeAttr(`${label}, ${count} items, ${collapsed ? "collapsed" : "expanded"}`)}"><span class="caret">${caret}</span>${escapeText(label)} <span class="repo-count">(${count})</span></h2>
     </div>`;
   }
   function artifactRow(a) {
     const active = state.active && state.active.kind === "artifact" && state.active.path === a.path ? "is-active" : "";
     const fullSlug = `${a.slug}.html`;
     return `
-      <div class="plan-row ${active}" data-kind="artifact" data-path="${escapeAttr(a.path)}" tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Artifact: ${a.title || a.slug}, ${fmtAge(a.age_days)}`)}">
+      <div class="plan-row ${active}" data-kind="artifact" data-path="${escapeAttr(a.path)}" tabindex="${active ? "0" : "-1"}" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Artifact: ${a.title || a.slug}, ${fmtAge(a.age_days)}`)}">
         <div class="plan-row-head">
           <span class="pill pill-artifact" title="artifact · ${fmtAge(a.age_days)}"></span>
           <span>${escapeText(a.title || a.slug)}</span>
@@ -998,7 +1000,7 @@ function renderSidebar() {
       `${Number(cats.inbox?.total || 0)} inbox`,
     ].join(" · ");
     return `
-      <div class="plan-row dashboard-row ${active}" data-kind="dashboard" data-path="dashboard" tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Fleet dashboard, ${total} items`)}">
+      <div class="plan-row dashboard-row ${active}" data-kind="dashboard" data-path="dashboard" tabindex="${active ? "0" : "-1"}" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Fleet dashboard, ${total} items`)}">
         <div class="plan-row-head">
           <span class="pill pill-artifact" title="fleet dashboard"></span>
           <span>Fleet dashboard</span>
@@ -1091,7 +1093,7 @@ function renderSidebar() {
           </div>`;
     const ariaSummary = `${plan.status} plan: ${slug}${plan.purpose ? `, ${plan.purpose.slice(0, 80)}` : ""}, ${fmtAge(plan.age_days)}${hasChildren ? `, ${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}` : ""}`;
     const rowHTML = `
-      <div class="plan-row ${active} ${childModifier}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle} tabindex="0" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(ariaSummary)}" title="${escapeAttr(slug)}">
+      <div class="plan-row ${active} ${childModifier}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle} tabindex="${active ? "0" : "-1"}" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(ariaSummary)}" title="${escapeAttr(slug)}">
         <div class="plan-row-head">
           <span class="pill pill-${plan.status}" title="${plan.status} · ${fmtAge(plan.age_days)}"></span>
           <span>${escapeText(slug)}</span>
@@ -1130,9 +1132,29 @@ function renderSidebar() {
 
   els.list.innerHTML = dashboardRow() + recentsHTML + artifactsHTML + plansHTML;
 
+  // Roving tabindex (ARIA APG listbox pattern): rows render tabindex="-1"
+  // except the active one, so Tab has exactly one stop for the whole list
+  // (arrow keys move within it) instead of stopping at every row. Nothing is
+  // active on first load / after a filter clears the active row, so fall
+  // back to the first row -- otherwise the list has zero tab stops and
+  // becomes keyboard-unreachable.
+  if (!els.list.querySelector('.plan-row[tabindex="0"]')) {
+    els.list.querySelector(".plan-row")?.setAttribute("tabindex", "0");
+  }
+
   // Click on group header → toggle collapsed state for that section/repo.
+  // Enter/Space does the same (WCAG 2.1.1) -- these headers were mouse-only
+  // before despite carrying role=button.
   els.list.querySelectorAll(".repo-group[data-collapse-key]").forEach(grp => {
-    grp.querySelector("h2")?.addEventListener("click", () => {
+    const h2 = grp.querySelector("h2");
+    if (!h2) return;
+    h2.addEventListener("click", () => {
+      const key = grp.getAttribute("data-collapse-key");
+      if (key) { toggleCollapsed(key); renderSidebar(); }
+    });
+    h2.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
       const key = grp.getAttribute("data-collapse-key");
       if (key) { toggleCollapsed(key); renderSidebar(); }
     });
@@ -1175,7 +1197,13 @@ function renderSidebar() {
         const delta = e.key === "ArrowDown" ? 1 : -1;
         next = rows[Math.max(0, Math.min(rows.length - 1, idx + delta))];
       }
-      if (next) { e.preventDefault(); next.focus(); }
+      if (next) {
+        e.preventDefault();
+        // Move the roving tabindex with focus (ARIA APG listbox pattern) --
+        // exactly one row is a tab stop at any time.
+        rows.forEach(r => r.setAttribute("tabindex", r === next ? "0" : "-1"));
+        next.focus();
+      }
     });
   }
   refreshAnnotationTargetsIfNeeded();

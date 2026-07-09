@@ -43,7 +43,19 @@ SKIP_PARTS = {
 SKIP_SUBSTRINGS = ("-worktrees/", "/.agents/skills/vidux/", "/ai/skills/vidux/")
 
 STATUS_TAGS = ("pending", "in_progress", "completed", "blocked")
-TASK_LINE_RE = re.compile(r"^-\s+\[(pending|in_progress|completed|blocked)\]\s+(.*)$")
+# SKILL.md's "## Tasks" status FSM documents an optional extended flow --
+# pending -> in_progress -> [in_review] -> [merged] -> completed, plus a
+# separate [verify] rung for the generator/evaluator pattern -- and real
+# plans use these tags. None of them are terminal, so for board-counting
+# purposes they fold into the same "in_progress" bucket completed tasks are
+# not. Without this alias these tags simply failed to match TASK_LINE_RE and
+# were silently excluded from every count: a plan with all its live work
+# sitting in [in_review] reported pending=0/in_progress=0/blocked=0 and
+# misreported as 100% shipped.
+IN_PROGRESS_ALIAS_TAGS = ("in_review", "verify", "merged")
+TASK_LINE_RE = re.compile(
+    r"^-\s+\[(pending|in_progress|completed|blocked|in_review|verify|merged)\]\s+(.*)$"
+)
 ETA_RE = re.compile(r"\[ETA:\s*(\d+(?:\.\d+)?)h\]")
 PROGRESS_LINE_RE = re.compile(r"^-\s*\[?(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?Z?)?)")
 NEGATIVE_PROSE_BLOCKER_RE = re.compile(r"\b(?:not|no longer|not currently)\s+blocked\s+by\b", re.I)
@@ -142,6 +154,8 @@ def task_has_prose_blocker(text: str) -> bool:
 
 
 def status_for_task(tag: str, task_text: str) -> str:
+    if tag in IN_PROGRESS_ALIAS_TAGS:
+        tag = "in_progress"
     if tag in {"pending", "in_progress"} and task_has_prose_blocker(task_text):
         return "blocked"
     return tag
@@ -215,7 +229,7 @@ def claims_board_task_counts(text: str) -> tuple[dict[str, int], float, dict[str
         status = cells[status_col].strip()
         if status.startswith("[") and status.endswith("]"):
             tag = status[1:-1]
-            if tag in counts:
+            if tag in counts or tag in IN_PROGRESS_ALIAS_TAGS:
                 task_text = " ".join(cell for idx, cell in enumerate(cells) if idx != status_col)
                 counted_tag = record_task(counts, buckets, tag, task_text)
                 if counted_tag in {"pending", "in_progress"}:

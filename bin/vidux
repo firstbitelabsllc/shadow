@@ -313,6 +313,34 @@ stub_exit() {
   exit 1
 }
 
+# Round-3 readiness panel finding (error-messages-ux lens): every subcommand
+# below exec's straight into python3/bash/awk against ${VIDUX_ROOT}/scripts
+# with no preflight, so a missing python3 or a broken/misdirected VIDUX_ROOT
+# (e.g. an env var pointing at an unrelated or incomplete checkout) leaked a
+# raw interpreter error ("bash: exec: python3: not found",
+# "python3: can't open file ...", "awk: can't open file ...") instead of a
+# vidux-authored message. require_vidux_checkout runs once before dispatch
+# (help/-h stay exempt -- pure static text, no filesystem access) so every
+# subcommand gets the same clear message for the same root cause.
+require_vidux_checkout() {
+  if [[ ! -f "${VIDUX_ROOT}/VERSION" || ! -d "${VIDUX_ROOT}/scripts" ]]; then
+    echo "vidux: VIDUX_ROOT does not look like a vidux checkout: ${VIDUX_ROOT}" >&2
+    echo "  Expected a VERSION file and a scripts/ directory under it." >&2
+    echo "  If VIDUX_ROOT is set in your environment, unset it or point it at a real vidux checkout." >&2
+    exit 127
+  fi
+}
+
+require_python3() {
+  local cmd="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "vidux ${cmd}: python3 not found on PATH." >&2
+    echo "  This subcommand requires Python 3.10+. Install it, then re-run." >&2
+    echo "  'vidux doctor' runs a full readiness check once python3 is installed." >&2
+    exit 127
+  fi
+}
+
 main() {
   if [[ $# -eq 0 ]]; then
     print_top_help
@@ -321,6 +349,10 @@ main() {
 
   local cmd="$1"
   shift || true
+
+  if [[ "${cmd}" != "--help" && "${cmd}" != "-h" && "${cmd}" != "help" ]]; then
+    require_vidux_checkout
+  fi
 
   case "${cmd}" in
     --version|-v)
@@ -352,6 +384,7 @@ main() {
         exec "${VIDUX_ROOT}/bin/vidux-browse"
       fi
       export VIDUX_ROOT
+      require_python3 "dev"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-dev.py"
       ;;
     browse)
@@ -359,6 +392,7 @@ main() {
       exec "${VIDUX_ROOT}/bin/vidux-browse" "$@"
       ;;
     status)
+      require_python3 "status"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-status.py" "$@"
       ;;
     init)
@@ -366,15 +400,19 @@ main() {
       exec bash "${VIDUX_ROOT}/scripts/vidux-init.sh" "$@"
       ;;
     drift)
+      require_python3 "drift"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-drift-log.py" "$@"
       ;;
     config)
+      require_python3 "config"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-config.py" "$@"
       ;;
     signpost)
+      require_python3 "signpost"
       exec python3 "${VIDUX_ROOT}/scripts/vidux_signpost.py" "$@"
       ;;
     http-smoke)
+      require_python3 "http-smoke"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-http-smoke.py" "$@"
       ;;
     doctor)

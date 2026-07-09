@@ -67,13 +67,16 @@ The stdlib-only server exposes these routes:
 
 The server is narrow:
 
+- **Every request's `Host` header is checked against an allowlist before anything else runs** — independent of, and prior to, the `Origin`/`Referer` matching described below. This closes DNS rebinding: a page served from an attacker-registered domain that resolves to `127.0.0.1` (or the LAN bind address) presents a `Host` header equal to that attacker domain, and its `Origin`/`Referer` headers agree with that same `Host` — so an Origin-must-match-Host check alone can't tell the rebound request apart from a legitimate one. The Host allowlist accepts loopback identities (`127.0.0.1`, `localhost`, `::1`) plus, in `VIDUX_BROWSER_HOST=0.0.0.0` LAN-bind mode, the machine's actual LAN IP/hostname — never an arbitrary registered domain.
+- `POST /api/comments` is the one write route that intentionally accepts real cross-machine LAN peers (see below), so it can't rely on a loopback-TCP-peer backstop the way every other write route does. It instead requires the `Host` header to be a private-use IP literal (RFC 1918/4193) when the peer isn't loopback — a DNS-rebound domain's `Host` header is never a raw private-IP literal, since there's no reason for an attacker to own a private-range IP.
 - Reads are limited to `DEV_ROOT` and an allowlist of plan-adjacent files: `PLAN.md`, `PROGRESS.md`, `INBOX.md`, `ASK-LEO.md`, `DOCTRINE.md`, and `README.md`.
 - Markdown under `investigations/` and `evidence/` is also allowed.
 - HTML reads are limited to `browser/artifacts/`.
 - `node_modules` paths are rejected even if the filename matches the allowlist.
 - Artifact writes and local plan-note writes are loopback-only, require `Content-Type: application/json`, and reject cross-origin posts.
 - Receipt writes, receipt OCR/analyze mutations, and read-aloud reference-audio upload are loopback-only JSON writes with explicit size caps.
-- Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header.
+- Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header, on top of the Host-allowlist check above.
+- Markdown rendered client-side (`marked.js` output) is sanitized through a locally-vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM — closes stored-XSS via a crafted `PLAN.md`/comment/artifact body.
 - Comments NEVER edit plan files, `INBOX.md`, or artifact HTML — they append JSONL to the comments store; optional anchors point back to rendered elements only.
 - The local truth band is read-only: `GET /api/vidux/truth` returns cached/warming state quickly, then refreshes `vidux config check --json`, `scripts/vidux-doctor.sh --json`, and `vidux signpost summary --json` in the background. Use `?refresh=sync` for the synchronous path. Neither route runs `vidux doctor` or runtime doctor `--fix`; warning-only runtime state stays a warning, never proof of a clean fleet.
 - When system-memory truth is available, the band renders the runtime warning/blocker summary alongside the `memory_pressure` free percentage; the title preserves the `memory_pressure -Q` / `vm_stat` source split.

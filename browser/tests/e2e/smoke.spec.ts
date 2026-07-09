@@ -249,6 +249,36 @@ test.describe('vidux-browse smoke', () => {
     expect(aria!.length).toBeGreaterThan(5);
   });
 
+  test('plan-rows use a roving tabindex (exactly one tab stop)', async ({ page }) => {
+    // Round-3 readiness panel finding (accessibility lens): every sidebar
+    // row carried tabindex="0", violating the ARIA APG single-tab-stop
+    // listbox pattern (Tab should stop once for the whole list; arrow keys
+    // move within it). Exactly one row may be a tab stop at a time.
+    await page.goto('/');
+    const rows = page.locator('#sidebar-list .plan-row');
+    await rows.first().waitFor();
+    const tabbable = page.locator('#sidebar-list .plan-row[tabindex="0"]');
+    await expect(tabbable).toHaveCount(1);
+  });
+
+  test('collapse-group headers are keyboard-operable (WCAG 2.1.1)', async ({ page }) => {
+    // Round-3 readiness panel finding (accessibility lens): the "repo-group"
+    // collapse/expand headers were mouse-only -- no tabindex, no role, no
+    // keydown handler -- despite toggling visible content.
+    await page.goto('/');
+    const header = page.locator('#sidebar-list .repo-group[data-collapse-key] h2').first();
+    await header.waitFor();
+    await expect(header).toHaveAttribute('tabindex', '0');
+    await expect(header).toHaveAttribute('role', 'button');
+    const expandedBefore = await header.getAttribute('aria-expanded');
+    await header.focus();
+    await page.keyboard.press('Enter');
+    // renderSidebar() rebuilds the list on toggle, so re-query rather than
+    // reuse the stale `header` locator handle.
+    const headerAfter = page.locator('#sidebar-list .repo-group[data-collapse-key] h2').first();
+    await expect(headerAfter).toHaveAttribute('aria-expanded', expandedBefore === 'true' ? 'false' : 'true');
+  });
+
   test('skip-link is present and anchors to #pane', async ({ page }) => {
     await page.goto('/');
     const link = page.locator('a.skip-link');
