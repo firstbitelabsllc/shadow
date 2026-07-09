@@ -140,20 +140,36 @@ origin-side audits rounds 1-6 have run.
 
 ## Next actions (in order)
 
-1. Fix `worktree-gc`'s nested-ancestor bypass (P0-2) — narrow the
-   directory-trust check to the top-level path segment only (`parts[0]`),
-   not any ancestor segment. Remove `.log` from the global suffix
-   allowlist (P1) — too plausible a hand-authored filename to blanket-trust
-   outside a verified tool directory.
-2. Fix the `docs/.vitepress` grep-gate exemption (P1-1) — same narrowing
-   pattern as the `tests/` fix.
-3. Fix the README Hermes/OpenCode citations properly this time — verify
-   exact current primary-source language before shipping a replacement
-   number/name, or drop the specific figure if it can't be pinned down.
-4. Add the node_modules-hand-patched-content doc caveat (P2, cheap).
+1. **DONE 2026-07-09** — Fixed `worktree-gc`'s nested-ancestor bypass
+   (P0-2): directory trust now checks `rel_path.parts[0]` only, not any
+   ancestor segment. Removed `.log` from the global suffix allowlist (P1).
+   3 new regression tests added, all confirmed fail pre-fix via
+   `git stash`. Commit `a0240a2c` (landed by a concurrent lane running the
+   identical fix; verified byte-identical via `git diff HEAD` before
+   confirming, not duplicated).
+2. **DONE 2026-07-09** — Fixed the `docs/.vitepress` grep-gate exemption
+   (P1-1): the bare directory entry is removed outright (not narrowed —
+   the only tracked file there, `config.ts`, needed no exemption at all;
+   `dist/` is already git-ignored and dropped separately). Regression test
+   added, confirmed fails pre-fix. Commit `845c632b`.
+3. **DONE 2026-07-09** — Redid the README Hermes/OpenCode citations against
+   verified primary sources fetched live: `hermes-agent.nousresearch.com/
+   docs` (install is a single script, no separate Python/Node.js step;
+   Nous Portal states "300+ frontier agentic models" via one OAuth login —
+   no clean single "N providers" count exists to cite, so the cell now
+   quotes the actual setup flow instead); `opencode.ai/docs/providers`
+   (AI SDK + Models.dev, 75+ providers — confirmed, kept); Aider uses
+   LiteLLM, a distinct mechanism from OpenCode's — split into two clauses
+   instead of one merged imprecise number. Commit `3e1cc38d`.
+4. **DONE 2026-07-09** — Added the node_modules-hand-patched-content doc
+   caveat (P2): documents that the `patch-package` workflow hand-edits
+   files inside `node_modules/`, without changing behavior (still correctly
+   regenerable from the committed `.patch` + `package.json`). Commit
+   `6b91725f`.
 5. Raise the NEW commit-authorship leak (P0-1) and the Snap-email
    local-only near-miss to Leo directly, alongside the existing refs/pull/*
-   decision — not resolving either myself.
+   decision — not resolving either myself. **Not yet done as of this
+   update** — surfacing next.
 6. Re-run `skill-doctrine-coherence-verify` standalone before folding into
-   round 7's count.
-7. Round 7 once 1-4 are shipped.
+   round 7's count. **Not yet done as of this update** — next.
+7. Round 7 once 1-6 are shipped/resolved.
