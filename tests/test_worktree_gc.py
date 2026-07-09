@@ -434,6 +434,45 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertTrue(item["removable"])
         self.assertEqual([], item["ignored_risk_files"])
 
+    def test_missing_gh_cli_fails_cleanly_instead_of_crashing(self):
+        # Round-5 panel finding: load_prs() shells out to `gh pr list`
+        # unconditionally; with no `gh` executable on PATH this raised an
+        # unhandled FileNotFoundError and a raw Python traceback before any
+        # classification was attempted -- a first-time-open-source-cloner
+        # trap, since the script is documented for direct invocation with
+        # zero mention that `gh` (and auth) is a prerequisite.
+        #
+        # `git` and `gh` are frequently installed into the SAME bin
+        # directory (e.g. Homebrew's /opt/homebrew/bin) -- stripping PATH
+        # down to that directory would not actually remove `gh`. Instead,
+        # build a scratch bin/ containing only a symlink to the real git
+        # binary.
+        import shutil
+
+        real_git = Path(shutil.which("git")).resolve()
+        fake_bin = self.root / "gh-free-bin"
+        fake_bin.mkdir()
+        (fake_bin / "git").symlink_to(real_git)
+        env = os.environ.copy()
+        env["PATH"] = str(fake_bin)
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--base", "origin/main", "--json", str(self.repo)],
+            cwd=str(self.repo),
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertTrue(
+            any("gh" in w for w in payload.get("warnings", [])),
+            payload.get("warnings"),
+        )
+
     def test_extensionless_file_in_ambiguous_dir_blocks_removal(self):
         # Round-5 panel finding: round-4's HUMAN_AUTHORED_SUFFIXES override
         # only matches files WITH one of a fixed set of extensions --

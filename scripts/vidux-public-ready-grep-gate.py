@@ -195,6 +195,15 @@ def run_gate(repo_root: Path) -> dict[str, Any]:
             lines = path.read_text(encoding="utf-8").splitlines()
         except UnicodeDecodeError:
             continue
+        except OSError:
+            # Round-5 panel finding: an unreadable file (permissions) or one
+            # deleted between _iter_files() listing and this read (plausible
+            # if the gate runs while other automation is writing to
+            # evidence/) previously propagated as an unhandled traceback --
+            # exit 1 either way, indistinguishable from a real leak match to
+            # a caller checking only the exit code, and --json mode emitted
+            # no parseable output at all. Treat as unscannable, not fatal.
+            continue
         for lineno, line in enumerate(lines, start=1):
             for label, pattern in patterns:
                 if pattern.search(line):

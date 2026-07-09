@@ -111,14 +111,26 @@ class WorktreeInfo:
 
 
 def run(command: List[str], cwd: Optional[Path] = None, check: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        command,
-        cwd=str(cwd) if cwd else None,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=str(cwd) if cwd else None,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        # Round-5 panel finding: load_prs() shells out to `gh` unconditionally
+        # and only guarded against non-zero exit codes -- a missing `gh`
+        # executable raised FileNotFoundError here, uncaught, before any
+        # classification was attempted. This script is documented for direct
+        # invocation with zero mention that `gh` is a prerequisite. 127
+        # ("command not found") lets existing `check=False` callers handle
+        # it via their normal returncode!=0 path with no call-site changes.
+        result = subprocess.CompletedProcess(
+            command, 127, stdout="", stderr=f"{command[0]}: command not found ({exc})",
+        )
     if check and result.returncode != 0:
         raise CommandError(command, result.returncode, result.stderr)
     return result
