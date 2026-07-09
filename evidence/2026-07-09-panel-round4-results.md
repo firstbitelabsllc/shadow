@@ -21,8 +21,9 @@ each did a fresh `git clone --bare` (not the working checkout) and confirmed:
 - `refs/pull/1/head` through `refs/pull/5/head` are live, GitHub-owned refs on
   `firstbitelabsllc/vidux`. All 7 PRs on this repo are MERGED.
 - Commit `baeb3ce7b4d3c054e5093e4871c82ab309db1610` (reachable via PRs #1-#5)
-  has a commit message containing, in cleartext: `http://agi-inference.snap/v1/embeddings`
-  — a real internal Snap endpoint hostname, not an abstract "SHA fingerprint."
+  has a commit message containing, in cleartext, a real internal Snap-hosted
+  endpoint hostname (same class as the `redacted-internal-endpoint` finding
+  below) — not an abstract "SHA fingerprint."
 - `51c4dbe`/`fb673ed` (the file content itself) are confirmed genuinely purged
   from every live ref, local and remote — the round-3 content purge was real.
 - But 3 *other* commits still carry the leaked-SHA text in commit-message
@@ -192,9 +193,10 @@ hermeticity claim. Not yet remediated.
   362 markdown files (not the claimed 1,350), and `.claude-plugin/` contains
   only a bare `plugin.json` (no `marketplace.json`, no README with the
   claimed "Dormant by decision 2026-07-02" note). All 5 of that lens's
-  blockers describe a different repo entirely (almost certainly
-  trysnowcubes-web, which does have all of those exact files/paths/counts)
-  mapped onto vidux by mistake. **None of these 3 should be counted as
+  blockers describe a different repo entirely (almost certainly the
+  maintainer's other e-commerce-site repo, which does have all of those
+  exact files/paths/counts) mapped onto vidux by mistake. **None of these 3
+  should be counted as
   trustworthy NO-GO votes.** Effective round-4 signal is closer to 5 GO /
   12 real NO-GO / 3 degenerate-or-contaminated-needs-rerun.
 - A prior round's own `test-suite-trust` lens said GO while `smoke.spec.ts:123`
