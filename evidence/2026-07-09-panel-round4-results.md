@@ -203,8 +203,55 @@ hermeticity claim. Not yet remediated.
   work. Fixed in the round-4 P1 remediation batch (see below).
 - All 3 degenerate/contaminated lenses (`naming-branding-collision`,
   `positioning-honesty`, `simplicity-niche-fit`) were re-run standalone
-  after this checkpoint — see the follow-up note appended below once
-  results land.
+  after this checkpoint — results below.
+
+## Standalone re-runs of the 3 degenerate/contaminated lenses (2026-07-09)
+
+**`naming-branding-collision` — real, informational, not blocking.**
+`vidux.ai` is a live, active AI video-generation product ("Vidux AI",
+self-claimed 50M+ users, text-to-video/upscaling) in the adjacent AI-tooling
+space — the strongest confusion vector, since someone hearing "vidux" in an
+AI-dev context is likely to hit that product first. "Vidux Kft" is also a
+real, unrelated Hungarian software company (~21 employees). npm package name
+`vidux` is actually available (a 2023 publish was later removed) — moot
+either way since `package.json` has `"private": true` and no publish script.
+GitHub bare handle `github.com/vidux` is taken by an unrelated personal
+account, but irrelevant since the repo lives at its own org path
+(`firstbitelabsllc/vidux`), unaffected. Net: real brand-confusion risk in
+the AI-tooling space specifically, weak/moot namespace risk. Rename is the
+maintainer's call, not something this session is deciding or acting on.
+
+**`simplicity-niche-fit` — clean re-run, partial-delivery verdict, not the
+contaminated NO-GO.** Confirmed only real vidux-repo facts this time (362
+markdown files, 61 scripts/ files, 347 tracked files total — nothing like
+the fabricated 1,350/nicole-readiness-packet.mjs from the contaminated run).
+Zero hardcoded personal paths ship in tracked, live-facing files (the only
+maintainer-home-path hits are inside the grep-gate script and its own test
+fixtures — the leak-detector itself, not a leak). Genuine MIT LICENSE, clean
+repo root, no checked-in venvs or loose screenshots. The browser GUI was
+actually launched and exercised: real Simple/Advanced mode toggle
+(Simple by default), real progress bars/status/filter chips reading live
+`PLAN.md` data. This genuinely delivers the "see a GUI, see progress" half
+of the maintainer's stated goal for a non-technical operator. The gap: the
+GUI is deliberately read/comment-only (README and code are explicit —
+"never mutate PLAN.md"); authoring or editing a plan still requires
+terminal + hand-edited markdown (`vidux init`, then edit by hand). So
+"Nicole can watch and comment on the work" is real today; "Nicole can plan
+the work" through the GUI is not yet. This is a real, named product-scope
+gap worth tracking, not a release blocker on its own — the repo itself is
+clean, honest, and licensed. Minor unrelated note from the same re-run:
+`browser/static/index.html` loads the `marked` markdown library from a CDN
+(with a documented offline fallback), which slightly dents the "runs
+anywhere Python runs, no external deps" framing if that claim exists
+verbatim anywhere — worth a grep before the next round.
+
+**`positioning-honesty` — did not produce a usable report on re-run either**
+(went idle with no findings after the same brief that produced a real
+result from the other two re-runs). Genuinely unresolved — needs a third
+attempt, ideally with a more constrained/shorter brief, before its original
+finding ("false citation backing the CI manual-only claim" — check whether
+CHANGELOG.md actually backs the "GitHub Actions CI is intentionally
+manual-only" README claim) can be trusted either way.
 
 ## Next actions (in order)
 
