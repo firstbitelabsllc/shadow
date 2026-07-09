@@ -179,15 +179,30 @@ decisions already tracked.
 ## Next actions (in order)
 
 1. Fix the P0 worktree-gc extensionless/case-sensitivity gap immediately —
-   real, reproduced, ongoing data-loss risk in currently-shipped code.
+   real, reproduced, ongoing data-loss risk in currently-shipped code. DONE
+   2026-07-09 (commit `b6d1109d`, landed by a concurrent lane running the
+   same fix; verified byte-identical) — redesigned as a two-tier trust
+   model (`UNAMBIGUOUS_REGENERABLE_DIR_NAMES` keeps blanket directory trust;
+   ambiguous former members dist/build/target/vendor get zero directory
+   trust, evaluated purely per-file) rather than patching the suffix
+   allowlist a third time.
 2. Fix the grep-gate `tests/` over-exclusion (P1-1) — narrow scope, high
-   confidence.
+   confidence. DONE 2026-07-09 (same commit) — narrowed to the 2 files
+   that actually need it.
 3. Fix the small, unambiguous P1s: ASK-LEO.md scrub, GitHub topics,
    SKILL.md automation-entrypoints table, README comparison-table
-   corrections, receipts.html upload-input label.
+   corrections, receipts.html upload-input label. DONE 2026-07-09 (commit
+   `ce12667d`), plus the two crash-hardening P2s (grep-gate OSError
+   handling, worktree-gc missing-`gh` preflight) bundled into the same
+   batch — 7 new/updated regression tests, all confirmed fail-pre-fix/
+   pass-post-fix, full suite green (717 tests).
 4. Raise the private-fleet-ecosystem finding (P0-2) to Leo directly —
    this is a scope decision (strip vs. anonymize vs. keep), not something
-   to unilaterally resolve.
-5. Time permitting: the two crash-hardening P2s and the P2 accessibility
-   items.
-6. Round 6 once 1-3 are shipped.
+   to unilaterally resolve. Raised in chat 2026-07-09, awaiting his call.
+   Not blocking round 6 — everything else in this round's queue is
+   independent of this decision.
+5. Remaining, not yet done: the P2 accessibility items (sidebar listbox
+   dead tabindex, pane focus-management gap, comment-marker hover-only
+   preview, placeholder-only annotation-input labels), `SETUP_NEW_MACHINE.md`
+   discoverability, vendoring `marked.js`.
+6. Round 6 once P0-2 is resolved or explicitly deferred by Leo.
