@@ -42,7 +42,21 @@ export default defineConfig({
   webServer: {
     command: `python3 browser/server.py --root browser/tests/fixtures/fake-dev-root --port ${PORT} --comments-path browser/tests/fixtures/comments.jsonl --artifacts-dir browser/tests/fixtures/artifacts`,
     url: `http://127.0.0.1:${PORT}/api/health`,
-    reuseExistingServer: !process.env.CI,
+    // Round-4 panel finding: `reuseExistingServer: !process.env.CI` only
+    // verifies the health URL is *reachable* -- it never checks WHICH
+    // server answered. Playwright skips running `command` entirely when
+    // something already responds on the port, so any stray process bound
+    // to this port (a leftover `vidux dev`, another checkout's test run)
+    // gets silently adopted as "the fixture server", contradicting the
+    // hermeticity this config's own header comment promises and risking
+    // real ~/Development content leaking into traces/screenshots.
+    // Playwright's webServer has no content-verification hook for the
+    // reuse path (the check is skip-command-if-URL-responds, full stop),
+    // so the only way to actually close this is to never reuse: always
+    // start a fresh, fixture-scoped server for every run. The dedicated
+    // test port (7291, distinct from the 7191 default) already makes a
+    // same-port collision unlikely; not reusing removes it entirely.
+    reuseExistingServer: false,
     timeout: 30_000,
   },
   // Visual specs are gated by env — skip on Mac (font drift), enable in CI.

@@ -8,7 +8,7 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 ## [Unreleased]
 
 ### Added
-- **Setup & Proof Contract (thin)** in The Cycle + PLAN template: ASSESS requires green `## Setup Contract` before ACT on major goals; VERIFY demands `[validation:]` multi-modal evidence on the real surface (pairs with host `/leo-flow` P0 contracts; closes the intent of PR #177 without the stale conflicting branch).
+- **Setup & Proof Contract (thin)** in The Cycle + PLAN template: ASSESS requires green `## Setup Contract` before ACT on major goals; VERIFY demands `[validation:]` multi-modal evidence on the real surface (closes the intent of PR #177 without the stale conflicting branch).
 - **Insights-driven hardening pass (5 changes).** A Claude Code usage-insights report surfaced five recurring friction patterns in automated coordinator/standby loops; each change below closes one, grounded in receipts already in this repo (postmortems, an already-decided-but-unshipped fix, an unwired script) rather than new ceremony — consistent with the 2026-07-07 kernel-cut's thin-cockpit direction.
   - **Plan-integrity guard (`scripts/vidux-plan-guard.sh`, new) + `.gitattributes`.** Mechanizes the 3 P0 fixes from `investigations/2026-04-09-plan-clobber-postmortem.md` that a later retrospective (`2026-06-02-plan-retrospective.md`) found still unshipped ~8 weeks later: `.gitattributes` unions `PLAN.md` merge conflicts (R1); `vidux-plan-guard.sh snapshot` records the task count to a `.plan-taskcount` sidecar on every `vidux-checkpoint.sh` run (R2); `vidux-plan-guard.sh verify` compares the live count against that sidecar and flags a silent drop unless authorized by a same-or-later-dated `- [DELETION] [YYYY-MM-DD] ...` Decision Log entry (R3). Wired into `vidux-loop.sh`'s READ step as `plan_integrity_warning` in the JSON output, folded into `auto_pause_recommended`. Task-count regex only matches known FSM/checkbox states — a naive `grep -c '^- \['` (as used by the existing prose-only fleet-ops.md Rule 5 snippet) also counts Decision Log/Progress bullets like `[DELETION]`, the same false-positive class `2026-06-02-plan-retrospective.md` found in `vidux-plan-bank-audit.py`'s original scanner. 10 unit tests (`tests/test_plan_guard.py`).
   - **`scripts/vidux-step-journal.sh` wired into the cycle.** The script shipped in this same Unreleased section with zero call sites; now: `vidux-checkpoint.sh` archives (`clear`) a task's journal on true completion (`done`/`done_with_concerns`) but preserves it on `blocked` (may resume later); `vidux-loop.sh` surfaces `step_journal.{available,row}` in its JSON when resuming an `[in_progress]` task with an existing journal, so a resuming agent knows to check it instead of restarting from scratch. 13 tests (`tests/test_step_journal.py`), covering the primitive (previously untested) and both wiring points.
@@ -79,7 +79,7 @@ Parses the `## Open` section of a repo-local tracker file, one `ExternalItem` pe
 - Parameterized hardcoded paths via `VIDUX_ROOT` / `VIDUX_DEV_ROOT` and GitHub owner via `VIDUX_GH_OWNER`/`--owner` (open-source readiness). README gains `## Security posture` + `## Multi-platform notes`.
 
 ### Removed
-- `scripts/strip-linear-codec-markers.py` (completed one-off migration; kept locally under `/vidux-leo`).
+- `scripts/strip-linear-codec-markers.py` (completed one-off migration; kept in a private local overlay, not this repo).
 
 ---
 
@@ -317,7 +317,7 @@ ETA tags go back to optional. 2.12.0's "mandatory on every pending + in_progress
 
 ## [2.17.0] - 2026-04-22
 
-Core docs cleanup: dead-weight kill + personal-reference scrub, keeping the `/vidux` ↔ `/vidux-leo` boundary clean so OSS readers see discipline, not one fleet's taste.
+Core docs cleanup: dead-weight kill + personal-reference scrub, keeping the public/private overlay boundary clean so OSS readers see discipline, not one fleet's taste.
 
 ### Changed
 - **Coordinator cadence harmonized to every hour** across `references/automation.md` (rule + slot-map example now match the §11 60-min table).

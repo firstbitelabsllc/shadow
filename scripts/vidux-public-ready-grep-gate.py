@@ -11,56 +11,26 @@ from pathlib import Path
 from typing import Any
 
 
-SCAN_TARGETS = (
-    "SKILL.md",
-    "README.md",
-    "CONTRIBUTING.md",
-    "PLAN.md",
-    "ASK-LEO.md",
-    "commands",
-    "docs",
-    "guides",
-    "scripts",
-    "prompts",
-    "evidence",
-    "investigations",
-    "projects",
-    ".github",
-    "package.json",
-    # Deliberately NOT scanned:
-    # - "tests" is excluded: tests/test_vidux_contracts.py legitimately pins
-    #   some of these strings as required test content (see the private-path
-    #   contract tests); scanning it would flag the test file, not a leak.
-    # - True history/changelog files (ARCHIVE.md, CHANGELOG.md) record
-    #   retired terms (e.g. "Linear") in legitimate past tense; scanning them
-    #   against FORBIDDEN_PATTERNS produces noise, not real findings.
-    #
-    # "projects" IS scanned (added after a 2026-07-09 panel round found a
-    # live leak in a tracked exception: `!projects/night-queue/` shipped
-    # Snap-corporate paths untouched because the gate skipped the whole
-    # directory). `_drop_git_ignored` already keeps this safe: the untracked
-    # bulk of the private plan store (`projects/*` minus named exceptions)
-    # never reaches the scan, only what's actually going to ship does. It's
-    # also in HISTORICAL_TARGETS below, so retired-terminology hygiene
-    # patterns still don't fire on old plan dirs (test_historical_plan_dirs_
-    # are_out_of_scope covers exactly this).
-    #
-    # ASK-LEO.md IS scanned (added after the same 2026-07-09 panel round):
-    # it was previously grouped with ARCHIVE.md/CHANGELOG.md as a "history
-    # file", but per its own header it's a LIVE, ongoing queue ("durable
-    # queue of questions the fleet has for Leo") that accumulates new
-    # entries, not a closed historical record -- and a real private
-    # home-path + private-overlay-name leak sat in it, unscanned, the whole
-    # time. It's in HISTORICAL_TARGETS below so its resolved Q&A entries
-    # don't trip HYGIENE_PATTERNS, but PRIVACY_PATTERNS apply to it like
-    # everything else.
-)
-
+# Round-4 panel finding (2026-07-09): SCAN_TARGETS used to be a
+# hand-maintained ALLOWLIST of top-level files/dirs. That design has already
+# let a real, live leak ship unscanned twice before (ASK-LEO.md, `projects/`)
+# and recurred a third time (AGENTS.md, CHANGELOG.md were simply never named
+# here) -- an allowlist only protects what someone remembered to add, and a
+# new/renamed top-level file ships unscanned by default until a future panel
+# round notices. Scanning is now DEFAULT-ON: everything tracked is scanned
+# unless it's named in the denylist below, so a new file is covered the
+# moment it's created.
 EXCLUDED_DIR_NAMES = {".git", "__pycache__", "node_modules"}
 EXCLUDED_RELATIVE_PATHS = {
     Path("docs/.vitepress"),
+    # This script's own comments and the test file below intentionally pin
+    # the forbidden strings verbatim as documentation/fixtures, not leaks.
     Path("scripts/vidux-public-ready-grep-gate.py"),
     Path("tests/test_public_ready_grep_gate.py"),
+    # tests/test_vidux_contracts.py legitimately pins some of these strings
+    # as required test content (the private-path contract tests) -- scanning
+    # it would flag the test file, not a leak.
+    Path("tests"),
 }
 
 # Privacy/PII/confidentiality patterns: enforced everywhere scanned,
@@ -122,11 +92,46 @@ FORBIDDEN_PATTERNS = PRIVACY_PATTERNS + HYGIENE_PATTERNS
 # Historical-record targets: chronological, dated, append-only-by-design.
 # HYGIENE_PATTERNS are skipped here (retired terms in past tense are the
 # record working correctly); PRIVACY_PATTERNS still apply everywhere.
-HISTORICAL_TARGETS = {"evidence", "investigations", "PLAN.md", "projects", "ASK-LEO.md"}
+#
+# ARCHIVE.md and CHANGELOG.md were previously excluded from scanning
+# entirely on the theory that "true history/changelog files record retired
+# terms in legitimate past tense". That's a real concern (both files do
+# legitimately mention retired terms like "Linear" many times in past
+# tense) but full exclusion also hid real PRIVACY_PATTERNS leaks in
+# CHANGELOG.md (found in the same 2026-07-09 panel round) -- the fix is the
+# same one already applied to PLAN.md/ASK-LEO.md/projects: HISTORICAL_
+# TARGETS membership, not exclusion. Privacy leaks aren't legitimate in any
+# tense; retired-terminology hygiene noise is the only thing past tense
+# excuses.
+HISTORICAL_TARGETS = {
+    "evidence",
+    "investigations",
+    "PLAN.md",
+    "projects",
+    "ASK-LEO.md",
+    "ARCHIVE.md",
+    "CHANGELOG.md",
+}
+
+
+# Files where "linear"/"Linear" is unrelated domain vocabulary (a CSS
+# gradient/timing-function keyword, a secret-scanner rule name describing
+# what it detects) rather than a mention of the retired Linear.app board
+# integration. Found by the round-4 default-on scan surfacing 9 new matches
+# the moment style/tooling-config files were scanned for the first time --
+# all 9 were this class, zero were real. PRIVACY_PATTERNS still apply to
+# these files (a leaked path/username is not exempt just because the file
+# is CSS); only the retired-terminology HYGIENE_PATTERNS are skipped.
+HYGIENE_EXEMPT_SUFFIXES = {".css", ".svg"}
+HYGIENE_EXEMPT_NAMES = {".gitignore", ".gitleaks.toml"}
 
 
 def _is_historical(rel: Path) -> bool:
     return rel.parts[0] in HISTORICAL_TARGETS
+
+
+def _hygiene_exempt(rel: Path) -> bool:
+    return rel.suffix in HYGIENE_EXEMPT_SUFFIXES or rel.name in HYGIENE_EXEMPT_NAMES
 
 
 def _is_excluded(path: Path, repo_root: Path) -> bool:
@@ -158,18 +163,11 @@ def _drop_git_ignored(repo_root: Path, files: list[Path]) -> list[Path]:
 
 
 def _iter_files(repo_root: Path) -> list[Path]:
-    files: list[Path] = []
-    for target in SCAN_TARGETS:
-        path = repo_root / target
-        if not path.exists():
-            continue
-        if path.is_file():
-            if not _is_excluded(path, repo_root):
-                files.append(path)
-            continue
-        for child in path.rglob("*"):
-            if child.is_file() and not _is_excluded(child, repo_root):
-                files.append(child)
+    files = [
+        child
+        for child in repo_root.rglob("*")
+        if child.is_file() and not _is_excluded(child, repo_root)
+    ]
     return _drop_git_ignored(repo_root, sorted(files))
 
 
@@ -178,7 +176,11 @@ def run_gate(repo_root: Path) -> dict[str, Any]:
     scanned_files = _iter_files(repo_root)
     for path in scanned_files:
         rel = path.relative_to(repo_root)
-        patterns = PRIVACY_PATTERNS if _is_historical(rel) else FORBIDDEN_PATTERNS
+        patterns = (
+            PRIVACY_PATTERNS
+            if _is_historical(rel) or _hygiene_exempt(rel)
+            else FORBIDDEN_PATTERNS
+        )
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except UnicodeDecodeError:

@@ -197,6 +197,112 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "passed")
 
+    def test_new_top_level_file_not_named_in_any_allowlist_is_still_scanned(self):
+        # Round-4 panel finding: SCAN_TARGETS was a hand-maintained allowlist.
+        # AGENTS.md and CHANGELOG.md were both tracked, shipped, and leaked
+        # real private strings for weeks because neither was ever added to
+        # the list. The fix replaces the allowlist with default-on scanning
+        # (everything minus a documented denylist) -- this proves a brand
+        # new, never-named file is caught automatically, not just the two
+        # specific files the round-4 panel happened to find.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("Clean.\n", encoding="utf-8")
+            (root / "NOTES-NOBODY-NAMED-YET.md").write_text(
+                "Use `/leo-flow` for lane routing.\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["file"], "NOTES-NOBODY-NAMED-YET.md")
+
+    def test_css_and_svg_linear_keyword_is_not_a_false_positive(self):
+        # Round-4 panel finding: switching to default-on scanning surfaced 9
+        # new HYGIENE_PATTERNS matches, all false positives -- "linear" as a
+        # CSS gradient/timing-function keyword has nothing to do with the
+        # retired Linear.app board integration the pattern exists to catch.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "style.css").write_text(
+                "a { background: linear-gradient(180deg, #fff, #000); "
+                "transition: all 1.5s linear infinite; }\n",
+                encoding="utf-8",
+            )
+            (root / "banner.svg").write_text(
+                "<style>.x { animation: flow 1.5s linear infinite; }</style>\n",
+                encoding="utf-8",
+            )
+            (root / ".gitignore").write_text(".linear-state.json\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "passed")
+
+    def test_css_file_still_catches_a_real_privacy_leak(self):
+        # The hygiene exemption for CSS/SVG must not become a privacy
+        # loophole -- PRIVACY_PATTERNS still apply to every scanned file.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "style.css").write_text(
+                "/* generated from /vidux-leo/tokens.json */\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "private vidux overlay name")
+
+    def test_changelog_is_privacy_scanned_but_hygiene_exempt(self):
+        # Round-4 panel finding: CHANGELOG.md was excluded outright and
+        # leaked '/leo-flow' and '/vidux-leo' in cleartext. The fix moves it
+        # into HISTORICAL_TARGETS (like PLAN.md/ARCHIVE.md) rather than
+        # excluding it: PRIVACY_PATTERNS still apply, HYGIENE_PATTERNS don't
+        # (a changelog legitimately mentions retired terms in past tense).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("Clean.\n", encoding="utf-8")
+            (root / "CHANGELOG.md").write_text(
+                "## [1.0.0]\n- Migrated off Linear.\n- Kept locally under /vidux-leo.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        matches = payload["matches"]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["file"], "CHANGELOG.md")
+        self.assertEqual(matches[0]["pattern"], "private vidux overlay name")
+
 
 if __name__ == "__main__":
     unittest.main()
