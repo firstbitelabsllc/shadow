@@ -40,7 +40,23 @@ REGENERABLE_IGNORED_DIR_NAMES = {
     "dist", "build", ".next", ".turbo", "target", ".mypy_cache",
     ".ruff_cache", "vendor",
 }
-REGENERABLE_IGNORED_FILE_SUFFIXES = {".pyc", ".pyo", ".log", ".DS_Store"}
+REGENERABLE_IGNORED_FILE_SUFFIXES = {".pyc", ".pyo", ".log"}
+REGENERABLE_IGNORED_FILE_NAMES = {".DS_Store"}
+
+# Round-4 panel finding: several of the names above (dist, build, target,
+# vendor) are common English/business words as well as build-tool
+# conventions -- a hand-authored file living inside a directory that merely
+# shares one of those names was treated as fully regenerable no matter what
+# it actually contained. Reproduced live: a `build/client-handoff-notes.txt`
+# with irreplaceable text got silently deleted via `--apply --yes`, zero
+# warning. Directory-name trust alone is not enough; a file whose own
+# extension signals hand-authored prose/document content is never trusted
+# via the directory-name fast path, even inside an otherwise-regenerable
+# directory.
+HUMAN_AUTHORED_SUFFIXES = {
+    ".md", ".txt", ".doc", ".docx", ".pdf", ".rtf", ".pages", ".key",
+    ".numbers", ".csv",
+}
 
 
 class CommandError(RuntimeError):
@@ -158,20 +174,44 @@ def non_regenerable_ignored_paths(path: Path) -> List[str]:
     """Gitignored-but-present paths NOT matching a known regenerable-artifact
     pattern. Non-empty means real content `git status --porcelain` and git's
     own worktree-remove dirty-check both silently miss -- see the module-level
-    comment on REGENERABLE_IGNORED_DIR_NAMES for why this exists."""
+    comment on REGENERABLE_IGNORED_DIR_NAMES for why this exists.
+
+    Uses `-z --ignored --untracked-files=all` rather than the plain
+    `--ignored` default for two reasons found by round-4 panel review:
+    (1) `-z` emits NUL-terminated, unquoted paths -- the default mode
+    C-style-quotes any path with a space or special character, which
+    silently defeated the exact-suffix-match allowlist below; (2) without
+    `--untracked-files=all`, git collapses a wholly-ignored directory into
+    one summary line instead of listing its contents (confirmed empirically
+    -- `--ignored=matching` alone does NOT fix this for a directory-pattern
+    ignore rule like `build/`; `--untracked-files=all` is the flag that
+    actually forces per-file recursion), which is required for the
+    HUMAN_AUTHORED_SUFFIXES check below to ever see the files it needs to
+    see."""
     result = run(
-        ["git", "-C", str(path), "status", "--porcelain", "--ignored"],
+        [
+            "git", "-C", str(path), "status", "--porcelain", "-z",
+            "--ignored", "--untracked-files=all",
+        ],
         check=True,
     )
     risky: List[str] = []
-    for line in result.stdout.splitlines():
-        if not line.strip() or not line.startswith("!!"):
+    for entry in result.stdout.split("\0"):
+        if not entry or not entry.startswith("!!"):
             continue
-        rel = line[3:].strip()
-        parts = Path(rel).parts
-        if any(part in REGENERABLE_IGNORED_DIR_NAMES for part in parts):
+        rel = entry[3:]
+        rel_path = Path(rel)
+        if rel_path.name in REGENERABLE_IGNORED_FILE_NAMES:
             continue
-        if Path(rel).suffix in REGENERABLE_IGNORED_FILE_SUFFIXES:
+        if rel_path.suffix in REGENERABLE_IGNORED_FILE_SUFFIXES:
+            continue
+        if rel_path.suffix in HUMAN_AUTHORED_SUFFIXES:
+            # Never trust the directory-name fast path for a file whose own
+            # extension signals hand-authored content, even inside an
+            # otherwise-regenerable directory (build/, dist/, vendor/, ...).
+            risky.append(rel)
+            continue
+        if any(part in REGENERABLE_IGNORED_DIR_NAMES for part in rel_path.parts[:-1]):
             continue
         risky.append(rel)
     return risky

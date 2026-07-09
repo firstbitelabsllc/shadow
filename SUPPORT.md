@@ -1,10 +1,10 @@
 # Getting Help
 
 ## I think I found a bug
-File a [bug report](https://github.com/firstbitelabsllc/vidux/issues/new?template=bug.yml).
+File a [bug report](https://github.com/firstbitelabsllc/vidux/issues/new?template=bug-report.yml).
 
 ## I have a question or feature request
-- For feature ideas: [Feature request](https://github.com/firstbitelabsllc/vidux/issues/new?template=feature.yml).
+- For feature ideas: [Feature request](https://github.com/firstbitelabsllc/vidux/issues/new?template=feature-request.yml).
 - For open-ended questions: [GitHub Discussions](https://github.com/firstbitelabsllc/vidux/discussions) if enabled, else file as an issue with the "question" label.
 
 ## Security

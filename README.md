@@ -28,10 +28,17 @@ Tests run locally (`npm run verify`) before every merge — GitHub Actions CI is
 ## Quick Start
 
 ```bash
-git clone https://github.com/firstbitelabsllc/vidux.git ~/vidux
-ln -sf ~/vidux/bin/vidux /usr/local/bin/vidux
+git clone https://github.com/firstbitelabsllc/vidux.git ~/Development/vidux
+ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
 vidux dev
 ```
+
+The clone target matters: the browser's default scan root is `~/Development`
+(see below), so cloning vidux as a **child** of `~/Development` — not as a
+sibling like `~/vidux` — is what makes "your plans show up automatically"
+literally true with zero extra config. Keep your dev tree somewhere else?
+Set `VIDUX_DEV_ROOT=/path/to/your/dev-root` before `vidux dev`/`vidux browse`
+instead of relocating vidux itself.
 
 `/usr/local/bin` is root-owned by default on most current macOS and Linux
 installs, so that `ln -sf` can fail with `Permission denied`. If it does, skip
@@ -40,7 +47,7 @@ needed) and re-run `vidux dev`.
 
 Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/` changes.
 
-Want a real plan instead of the browser's own example plans? `vidux init my-project` scaffolds a first `PLAN.md` **inside this vidux checkout**, at `projects/my-project/PLAN.md` — not in whatever directory you happen to run it from. Because the browser scans your whole dev-root tree (`~/Development` by default, wherever you cloned vidux), that new plan shows up automatically without any extra wiring. Vidux works this way so one vidux install can act as a single dashboard over many separate projects' plans; if you'd rather a project's `PLAN.md` live directly in that project's own git repo, just create `PLAN.md` by hand at its root (see `plan_store` under [Status & Config](#status--config) for how agents resolve which `PLAN.md` is authoritative). Use `vidux help` for the full command list.
+Want a real plan instead of the browser's own example plans? `vidux init my-project` scaffolds a first `PLAN.md` **inside this vidux checkout**, at `projects/my-project/PLAN.md` — not in whatever directory you happen to run it from. Because the browser scans your whole dev-root tree (`~/Development` by default, or `VIDUX_DEV_ROOT` if you set it), that new plan shows up automatically without any extra wiring, as long as vidux itself was cloned inside that tree. Vidux works this way so one vidux install can act as a single dashboard over many separate projects' plans; if you'd rather a project's `PLAN.md` live directly in that project's own git repo, just create `PLAN.md` by hand at its root (see `plan_store` under [Status & Config](#status--config) for how agents resolve which `PLAN.md` is authoritative). Use `vidux help` for the full command list.
 
 ## Install
 
@@ -209,7 +216,7 @@ vidux doctor
 vidux http-smoke --json --timeout 3 http://127.0.0.1:4400/api/health
 ```
 
-Scans every `PLAN.md` under a scan root (default `~/path/to/projects`), renders a two-bucket board: plans tied to the current repo vs everything else on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags), last activity. Flags: `--all`, `--json`, `--focus <repo...>`, `--root <path>`.
+Scans every `PLAN.md` under a scan root (default `~/Development`, or `VIDUX_DEV_ROOT`/`--root` if set), renders a two-bucket board: plans tied to the current repo vs everything else on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags), last activity. Flags: `--all`, `--json`, `--focus <repo...>`, `--root <path>`.
 
 Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.config.example.json` as the shape). The only required key is `plan_store`, whose `mode` is `inline` (repo-local `PLAN.md`, the default), `local` (a configured path), or `external` (a path outside the scan root). Agents resolve the authority `PLAN.md` from this at session start. Use `vidux config init` to seed a local config; full schema in [`docs/reference/config.md`](docs/reference/config.md).
 
@@ -225,7 +232,7 @@ Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.c
 | `ENFORCEMENT.md` | Claude Code hook configuration |
 | `INGREDIENTS.md` | Design lineage (10 patterns from 26 surveyed tools) |
 | `CHANGELOG.md` | Release notes and migration notes |
-| `commands/` | `/vidux` single entry point |
+| `commands/` | `/vidux` (main cycle) and `/vidux-status` (read-only board) |
 | `scripts/` | Cycle, status, config, doctor, drift, signpost, HTTP smoke, GC, worktree, and migration helpers |
 | `scripts/lib/` | Shared shell libs (compat, codex-db, ledger, queue, plan-store resolution) |
 | `hooks/` | Prompt-hook nudges for plan discipline |
@@ -236,11 +243,12 @@ Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.c
 
 ## Ecosystem
 
-Vidux has **one entry point** — `/vidux` — loading the core discipline inline.
+Vidux's main entry point is `/vidux`, loading the core discipline inline. `/vidux-status` is a second, narrower shipped command — a read-only status board, not an alternate way to run the cycle.
 
 | Skill | What it does | Ships here? |
 |---|---|---|
 | `/vidux` | Plan-first cycle — read, assess, act, verify, checkpoint. Automation + recipes loaded on demand | Yes |
+| `/vidux-status` | Read-only scan of `PLAN.md` files across the machine, rendered as a status board | Yes |
 | `/ledger` | Append-only JSONL activity log for multi-agent coordination | No (separate) |
 
 ## Automation (opt-in)

@@ -168,9 +168,8 @@ But a shipped surface that works is done — stop polishing, move to the next ga
 
 Never assert "it works." Run the build, run the tests, show the screenshot. UI definition-of-done is a visual proof, never just "the build passes."
 
-For repos where GitHub Actions minutes are constrained or intentionally disabled
-(a real example: the maintainer's own FirstBite repos), GitHub Actions is not the
-runner for unit, UI, E2E, or expensive regression proof. Use repo-owned local-ci
+For repos where GitHub Actions minutes are constrained or intentionally disabled,
+GitHub Actions is not the runner for unit, UI, E2E, or expensive regression proof. Use repo-owned local-ci
 lanes, locally-held evidence, local simulator/browser/device runs, and result
 bundles. If a needed
 local lane is missing, plan and ship the local-ci improvement before

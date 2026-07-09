@@ -120,7 +120,7 @@ test.describe('vidux-browse smoke', () => {
     await page.locator('#sort').selectOption('eta');
     await expect(page.locator('#sidebar-list .plan-row[data-kind="plan"]').first()).toHaveAttribute('title', /proj-beta/);
     await expect(page.locator('#sort')).toHaveValue('eta');
-    await expect(page.locator('#sort option')).toHaveText(['mtime', 'ETA', 'status']);
+    await expect(page.locator('#sort option')).toHaveText(['Recently updated', 'ETA', 'Status']);
 
     await page.reload();
     await expect(page.locator('#sort')).toHaveValue('eta');

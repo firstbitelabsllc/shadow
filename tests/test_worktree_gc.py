@@ -373,6 +373,62 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertEqual([], apply_payload["removed"])
         self.assertTrue(path.exists(), "worktree with gitignored .env must survive --apply")
 
+    def test_hand_authored_file_inside_regenerable_named_dir_blocks_removal(self):
+        # Round-4 panel finding, reproduced live by the reviewing lens: a
+        # directory whose NAME matches a regenerable-artifact convention
+        # (build/, dist/, target/, vendor/ -- all common English/business
+        # words too) was trusted wholesale regardless of its actual
+        # contents. A hand-authored file living inside it was silently
+        # deleted with zero warning. The directory-name fast path must never
+        # override a human-authored file extension.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text("build/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore build")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / "build").mkdir()
+        (path / "build" / "client-handoff-notes.txt").write_text(
+            "irreplaceable text", encoding="utf-8",
+        )
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("dirty", item["bucket"])
+        self.assertFalse(item["removable"])
+        self.assertIn("build/client-handoff-notes.txt", item["ignored_risk_files"])
+
+        apply = self.run_gc("--apply", "--yes")
+        apply_payload = json.loads(apply.stdout)
+        self.assertEqual([], apply_payload["removed"])
+        self.assertTrue(
+            (path / "build" / "client-handoff-notes.txt").exists(),
+            "hand-authored file inside a regenerable-named dir must survive --apply",
+        )
+
+    def test_ds_store_alone_does_not_block_merged_clean_removal(self):
+        # Round-4 panel finding: `.DS_Store` was listed in
+        # REGENERABLE_IGNORED_FILE_SUFFIXES, but Path('.DS_Store').suffix is
+        # '' (pathlib treats a leading-dot-only filename as extensionless),
+        # so the entry could never match -- every worktree ever opened in
+        # macOS Finder was permanently misclassified dirty and blocked from
+        # legitimate automated cleanup.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text(".DS_Store\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore ds_store")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / ".DS_Store").write_text("binary-ish", encoding="utf-8")
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("merged_clean", item["bucket"])
+        self.assertTrue(item["removable"])
+        self.assertEqual([], item["ignored_risk_files"])
+
     def test_invocation_worktree_is_never_removed(self):
         linked = self.worktrees_dir / "merged-clean"
         result = run(

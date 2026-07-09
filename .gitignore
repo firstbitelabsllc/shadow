@@ -148,7 +148,7 @@ scripts/vidux-firstbite-*
 scripts/vidux-local-operator-*
 scripts/vidux-snowcubes-readiness-*
 scripts/install-voxtral-launchagent.sh
-scripts/launchd/com.leokwan.mlx-audio.plist
+scripts/launchd/*.plist
 tests/test_firstbite_*
 tests/test_local_operator_*
 tests/test_snowcubes_readiness_*
