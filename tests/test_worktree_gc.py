@@ -537,6 +537,93 @@ class WorktreeGcTests(unittest.TestCase):
             "uppercase-extension hand-authored file inside an ambiguous dir must survive --apply",
         )
 
+    def test_nested_unambiguous_dir_name_under_an_untrusted_parent_still_blocks_removal(self):
+        # Round-6 panel finding, reproduced live causing permanent deletion:
+        # the directory-trust check used to match a trusted name ANYWHERE
+        # in the path (`parts[:-1]`), so `stuff/node_modules/IMPORTANT.txt`
+        # -- where `stuff/` is itself gitignored and is NOT a trusted name
+        # -- was fully trusted purely because "node_modules" appears
+        # somewhere in its ancestry. The actual ignored boundary here is
+        # `stuff/`, an untrusted name; trust must be judged by the
+        # OUTERMOST path segment only.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text("stuff/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore stuff")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / "stuff" / "node_modules").mkdir(parents=True)
+        (path / "stuff" / "node_modules" / "IMPORTANT.txt").write_text(
+            "irreplaceable text", encoding="utf-8",
+        )
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("dirty", item["bucket"])
+        self.assertFalse(item["removable"])
+        self.assertIn("stuff/node_modules/IMPORTANT.txt", item["ignored_risk_files"])
+
+        apply = self.run_gc("--apply", "--yes")
+        apply_payload = json.loads(apply.stdout)
+        self.assertEqual([], apply_payload["removed"])
+        self.assertTrue(
+            (path / "stuff" / "node_modules" / "IMPORTANT.txt").exists(),
+            "a trusted dir name nested under an untrusted ignored parent must survive --apply",
+        )
+
+    def test_log_suffix_outside_trusted_dir_blocks_removal(self):
+        # Round-6 panel finding: `.log` was globally trusted regardless of
+        # location, but a hand-authored `cache/diary.log` (a very plausible
+        # real filename -- a diary, meeting notes) inside a correctly
+        # untrusted ambiguous directory was silently treated as regenerable
+        # by suffix match alone and permanently deleted.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text("cache/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore cache")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / "cache").mkdir()
+        (path / "cache" / "diary.log").write_text(
+            "DO NOT DELETE - unpublished pricing analysis", encoding="utf-8",
+        )
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("dirty", item["bucket"])
+        self.assertFalse(item["removable"])
+        self.assertIn("cache/diary.log", item["ignored_risk_files"])
+
+        apply = self.run_gc("--apply", "--yes")
+        apply_payload = json.loads(apply.stdout)
+        self.assertEqual([], apply_payload["removed"])
+        self.assertTrue(
+            (path / "cache" / "diary.log").exists(),
+            "a hand-authored .log file outside a trusted dir must survive --apply",
+        )
+
+    def test_log_suffix_inside_trusted_dir_still_auto_cleans(self):
+        # .log files remain trusted when they genuinely sit inside an
+        # unambiguous tool-managed directory -- only the blanket,
+        # location-independent trust for `.log` was removed.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore pycache")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / "__pycache__").mkdir()
+        (path / "__pycache__" / "build.log").write_text("pip install log", encoding="utf-8")
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        item = {i["branch"]: i for i in payload["worktrees"]}["merged-clean"]
+
+        self.assertEqual("merged_clean", item["bucket"])
+        self.assertTrue(item["removable"])
+        self.assertEqual([], item["ignored_risk_files"])
+
     def test_unambiguous_tool_dir_still_auto_cleans_without_per_file_check(self):
         # Sanity check for the round-5 redesign's OTHER direction: dirs no
         # human ever hand-populates (node_modules, __pycache__, .venv, ...)
