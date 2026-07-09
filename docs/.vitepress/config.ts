@@ -54,7 +54,7 @@ const sidebar = [
 
 export default {
   title: 'Vidux',
-  description: 'Plan first, code second. A lightweight orchestration system for AI coding work that spans multiple sessions, agents, or days.',
+  description: 'Plan first, code second. A plan-first control plane for AI coding work that spans multiple sessions, agents, or days.',
   base: process.env.DOCS_BASE || '/',
   cleanUrls: true,
 
@@ -84,16 +84,16 @@ export default {
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/leojkwan/vidux' },
+      { icon: 'github', link: 'https://github.com/firstbitelabsllc/vidux' },
     ],
 
     footer: {
       message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2024-present Leo Kwan',
+      copyright: 'Copyright © 2026-present First Bite Labs LLC',
     },
 
     editLink: {
-      pattern: 'https://github.com/leojkwan/vidux/edit/main/docs/:path',
+      pattern: 'https://github.com/firstbitelabsllc/vidux/edit/main/docs/:path',
       text: 'Edit this page on GitHub',
     },
 
