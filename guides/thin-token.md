@@ -57,7 +57,7 @@ Broader `npm run test:py` may show **2 known `/auto` failures** if a private `/a
 ## Browser: Simple vs Advanced
 
 - **Simple (default):** plan browser + progress — what most humans/agents need.
-- **Advanced (toggle):** fleet dashboard, ops truth, Decision/Session/Ledger tabs, readaloud/annotation chrome.
+- **Advanced (toggle):** fleet dashboard, ops truth, Decision/Session/Ledger tabs.
 
 Operators who need fleet/ops switch Advanced; everyone else stays Simple and keeps context small.
 

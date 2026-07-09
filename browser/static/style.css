@@ -32,7 +32,8 @@
   --shadow-sm: 0 2px 6px rgba(28, 26, 22, 0.06);
   --shadow-md: 0 8px 22px rgba(28, 26, 22, 0.10);
   --shadow-lg: 0 14px 36px rgba(28, 26, 22, 0.14);
-  /* App chrome zoning: header/nav, footer player, page actions, annotation popover. */
+  /* App chrome zoning: header/nav, annotation popover. Footer player + FAB
+     were removed from the main shell (2026-07); tokens kept for fixture CSS. */
   --z-mobile-sidebar: 18;
   --z-header: 20;
   --z-footer-player: 30;
@@ -42,7 +43,7 @@
   --footer-player-bottom: 14px;
   --footer-player-block-size: 70px;
   --floating-action-footer-gap: 18px;
-  --pane-footer-reserve: 116px;
+  --pane-footer-reserve: 32px;
   /* Task states (vidux FSM) */
   --task-pending: #d2cab2;
   --task-in-progress: #c89548;
@@ -248,17 +249,8 @@ body {
   font-size: 11px;
 }
 
-/* Simple/Advanced mode: the read-aloud player and the annotation FAB are
-   operator-only chrome (a local TTS model server, a code-review-style
-   comment system) with no meaning until you're in Advanced view -- default
-   them hidden so a fresh visitor's first paint is just the plan browser.
-   html.advanced-mode is set by the inline FOUC guard in index.html's <head>
-   before first paint, so there's no hidden-then-shown flash. */
-html:not(.advanced-mode) .readaloud-player,
-html:not(.advanced-mode) .annotation-fab {
-  display: none;
-}
-
+/* Annotation FAB + read-aloud player styles remain for fixture pages
+   (readaloud-fixture.html). The main shell no longer mounts either control. */
 .annotation-fab {
   position: fixed;
   right: 18px;
@@ -2485,7 +2477,7 @@ body.is-annotation-mode #filter {
 
 @media (max-width: 768px) {
   :root {
-    --pane-footer-reserve: 126px;
+    --pane-footer-reserve: 28px;
   }
   .topbar {
     min-height: 76px;
@@ -2561,7 +2553,7 @@ body.is-annotation-mode #filter {
     --footer-player-bottom: 10px;
     --footer-player-block-size: 118px;
     --floating-action-footer-gap: 22px;
-    --pane-footer-reserve: 148px;
+    --pane-footer-reserve: 24px;
   }
   .topbar h1 { font-size: 16px; }
   .topbar-meta { font-size: 11px; gap: 8px; }

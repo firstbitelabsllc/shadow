@@ -17,7 +17,7 @@ test.describe('vidux-browse smoke', () => {
     await expect(page.locator('.topbar h1')).toHaveText('vidux browser');
   });
 
-  test('app-action zones keep annotate controls clear of the read-aloud footer', async ({ page }) => {
+  test('core app zones remain present without FAB/player chrome', async ({ page }) => {
     await page.goto('/');
     const sidebarToggle = page.locator('#sidebar-toggle');
     if (await sidebarToggle.isVisible()) {
@@ -29,27 +29,23 @@ test.describe('vidux-browse smoke', () => {
       await sidebarToggle.click();
       await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
     }
-    await expect(page.locator('#root-annotation-toggle')).toBeEnabled();
     await expect(page.locator('[data-vidux-zone="status-header"]')).toBeVisible();
     await expect(page.locator('[data-vidux-zone="content-pane"]')).toBeVisible();
     await expect(page.locator('[data-vidux-zone="mode-detail"]')).toBeVisible();
-    await expect(page.locator('[data-vidux-zone="floating-action"]')).toBeVisible();
-    await expect(page.locator('[data-vidux-zone="footer-player"]')).toBeVisible();
+    // Deleted from main shell (2026-07).
+    await expect(page.locator('#root-annotation-toggle')).toHaveCount(0);
+    await expect(page.locator('#readaloud-player')).toHaveCount(0);
+    await expect(page.locator('[data-vidux-zone="floating-action"]')).toHaveCount(0);
+    await expect(page.locator('[data-vidux-zone="footer-player"]')).toHaveCount(0);
 
     const zones = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
       return {
         header: root.getPropertyValue('--z-header').trim(),
-        footer: root.getPropertyValue('--z-footer-player').trim(),
-        action: root.getPropertyValue('--z-floating-action').trim(),
         popover: root.getPropertyValue('--z-mode-popover').trim(),
-        gap: root.getPropertyValue('--floating-action-footer-gap').trim(),
       };
     });
-    expect(Number(zones.header)).toBeLessThan(Number(zones.footer));
-    expect(Number(zones.footer)).toBeLessThan(Number(zones.action));
-    expect(Number(zones.action)).toBeLessThan(Number(zones.popover));
-    expect(zones.gap).toMatch(/px$/);
+    expect(Number(zones.header)).toBeLessThan(Number(zones.popover));
 
     const boxes = await page.evaluate(() => {
       function box(selector: string) {
@@ -67,115 +63,13 @@ test.describe('vidux-browse smoke', () => {
       }
       return {
         header: box('[data-vidux-zone="status-header"]'),
-        footer: box('[data-vidux-zone="footer-player"]'),
-        fab: box('[data-vidux-zone="floating-action"]'),
         pane: box('[data-vidux-zone="content-pane"]'),
         bodyWidth: document.documentElement.clientWidth,
         scrollWidth: document.documentElement.scrollWidth,
       };
     });
-    expect(boxes.fab.bottom).toBeLessThanOrEqual(boxes.footer.top - 8);
-    expect(boxes.header.bottom).toBeLessThan(boxes.footer.top);
-    expect(boxes.fab.right).toBeLessThanOrEqual(boxes.bodyWidth);
     expect(boxes.pane.bottom).toBeGreaterThan(boxes.header.bottom);
     expect(boxes.scrollWidth).toBeLessThanOrEqual(boxes.bodyWidth);
-
-    await page.locator('#root-annotation-toggle').click();
-    await page.locator('.pane-header h2').click();
-    await expect(page.locator('[data-vidux-zone="mode-popover"]')).toBeVisible();
-    const popoverZ = await page.locator('[data-vidux-zone="mode-popover"]').evaluate(el => Number(getComputedStyle(el).zIndex));
-    expect(popoverZ).toBeGreaterThan(Number(zones.action));
-  });
-
-  test('annotation FAB exposes capture, composer, saving, saved, and error states', async ({ page }) => {
-    let postCount = 0;
-    let releaseFirstPost: (() => void) | undefined;
-    await page.route('**/api/comments**', async route => {
-      const request = route.request();
-      if (request.method() === 'POST') {
-        postCount += 1;
-        if (postCount === 1) {
-          await new Promise<void>(resolve => { releaseFirstPost = resolve; });
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ ok: true }),
-          });
-          return;
-        }
-        await route.fulfill({
-          status: 500,
-          contentType: 'text/plain',
-          body: 'forced comment failure',
-        });
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ comments: [] }),
-      });
-    });
-
-    await page.goto('/');
-    const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
-    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
-    }
-
-    const fab = page.locator('#root-annotation-toggle');
-    const popover = page.locator('#annotation-popover');
-    await expect(fab).toBeEnabled();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
-    await expect(fab).toHaveAttribute('aria-pressed', 'false');
-
-    await fab.click();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'capture-active');
-    await expect(fab).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('body')).toHaveClass(/is-annotation-mode/);
-    await fab.click();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
-
-    await page.keyboard.press('Control+Shift+C');
-    await expect(fab).toHaveAttribute('data-annotation-state', 'capture-active');
-    await page.locator('.pane-header h2').click();
-    await expect(popover).toBeVisible();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'composer-open');
-
-    const bodyInput = page.locator('#annotation-popover-body');
-    await bodyInput.fill('state machine smoke');
-    await bodyInput.focus();
-    await page.keyboard.press('Control+Shift+C');
-    await expect(popover).toBeVisible();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'composer-open');
-
-    await page.locator('#annotation-popover-form button[type="submit"]').click();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'saving');
-    await expect(page.locator('#annotation-popover-status')).toHaveAttribute('data-state', 'saving');
-    releaseFirstPost?.();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'saved');
-    await expect(page.locator('#annotation-popover-status')).toHaveAttribute('data-state', 'saved');
-    await expect(popover).toHaveCount(0, { timeout: 1_500 });
-    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
-
-    await fab.click();
-    await page.locator('.pane-header h2').click();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'composer-open');
-    await page.locator('#annotation-popover-body').fill('state machine failure smoke');
-    await page.locator('#annotation-popover-form button[type="submit"]').click();
-    await expect(fab).toHaveAttribute('data-annotation-state', 'error');
-    await expect(page.locator('#annotation-popover-status')).toHaveAttribute('data-state', 'error');
-    await expect(page.locator('#annotation-popover-status')).toContainText('forced comment failure');
-    await expect(popover).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(popover).toHaveCount(0);
-    await expect(fab).toHaveAttribute('data-annotation-state', 'idle');
   });
 
   test('sidebar lists plans from fixture root', async ({ page }) => {
