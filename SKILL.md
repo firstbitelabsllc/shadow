@@ -987,7 +987,7 @@ What it shows:
 - Sidebar grouped by repo, with hot/stale/cold pills (≤7d / 7-30d / >30d by mtime).
 - Selected plan rendered as markdown, with sibling tabs for sibling `.md` files in the plan dir (e.g. `PROGRESS.md`, `INBOX.md`; per-owner `ASK-<OWNER>.md` supported).
 - Named comments on the selected plan tab or artifact, stored separately from source files.
-- Anchored annotations: top-bar `Annotate` control or `Cmd/Ctrl+Shift+C`, then click the exact rendered element.
+- Anchored annotations: `Cmd/Ctrl+Shift+C`, then click the exact rendered element (no FAB in the main shell).
 - Filter box across repo / slug / purpose.
 
 Discovery globs: `<repo>/ai/plans/<slug>/PLAN.md`, `<repo>/vidux/<slug>/PLAN.md`, `<repo>/projects/<slug>/PLAN.md`, `<repo>/PLAN.md`.
@@ -1047,7 +1047,7 @@ Key contract:
 - Comments NEVER mutate `PLAN.md`, `INBOX.md`, repo files, task claims, or artifact HTML.
 - Cross-machine LAN viewers may comment via the UI, but POSTs must be JSON + same-origin (`Origin`/`Referer` must match the browser host).
 - Use comments for human feedback, review notes, annotations, LAN collaboration; use `INBOX.md` only when a local agent needs the note inside vidux state.
-- For precise comments: `Annotate` control or `Cmd/Ctrl+Shift+C`, then click the rendered element → a sanitized anchor (selector, label, excerpt, tag, index). The `Target` pill scrolls back. Anchors are best-effort UI pointers, not plan authority. Annotation/filter shortcuts are ignored while typing in inputs, textareas, selects, contenteditable.
+- For precise comments: `Cmd/Ctrl+Shift+C`, then click the rendered element → a sanitized anchor (selector, label, excerpt, tag, index). The comment-rail empty state names the chord. Anchors are best-effort UI pointers, not plan authority. Annotation/filter shortcuts are ignored while typing in inputs, textareas, selects, contenteditable.
 
 ### Local plan notes (loopback-only)
 
@@ -1063,7 +1063,7 @@ Rejects non-loopback clients: even when bound to `0.0.0.0` for home-LAN reading,
 
 ### Optional local audio add-ons
 
-The browser footer has an optional read-aloud player + an optional local-transcription path for voice notes. Both rely on a local Apple-Silicon MLX speech backend that is **out of core scope** — install/wire it from your own overlay or runbook. Core vidux ships the browser client only.
+Read-aloud player + Voxtral MLX footer chrome were **removed from core** (2026-07). Do not expect a browser player or `browser/scripts/start-voxtral-mlx-server.sh`. Local transcription (if any) stays an optional overlay outside this package.
 
 ## Voice & Tone
 

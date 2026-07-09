@@ -62,7 +62,7 @@
 
   function renderList(comments) {
     if (!comments.length) {
-      return `<div class="comment-empty" data-comment-empty="true">No comments yet.</div>`;
+      return `<div class="comment-empty" data-comment-empty="true">No comments yet. Press <kbd>Cmd/Ctrl+Shift+C</kbd> then click a target to annotate.</div>`;
     }
     return comments.map(renderComment).join("");
   }
