@@ -47,7 +47,9 @@ The primary security surface is:
 - Scripts that could execute arbitrary code from untrusted plan files
 - Git operations that could overwrite or delete user data
 - Prompt injection vectors in plan/evidence files that could alter agent behavior
-- Credential leakage in git history (audited clean as of 2026-05-13)
+- Credential leakage in git history — audited repeatedly, not a one-time
+  point-in-time claim (see `evidence/*-panel-*.md` for the dated audit trail
+  and any open findings)
 
 ## Supported versions
 

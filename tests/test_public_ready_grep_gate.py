@@ -129,6 +129,55 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["pattern"], "private username")
 
+    def test_employer_source_path_pattern_was_a_silent_noop_now_catches_real_leaks(self):
+        # Round-3 panel finding: the "employer source path" rule's regex had
+        # been over-redacted to the literal placeholder text
+        # "REDACTED-EMPLOYER-PATH" -- a string that never appears in real
+        # content, so the rule matched nothing, ever. It missed a live leak:
+        # this session's own evidence file quoting a real employer corporate
+        # dev-tree path and email verbatim while documenting a
+        # confidentiality finding about that exact content.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Evidence: /Users/lkwan/Snapchat/Dev/ai/skills\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "employer source path")
+
+    def test_employer_email_and_hostname_patterns_catch_real_leaks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Author: jchen3@snapchat.com; registry.snapchat.com and "
+                "engflow-cache-gcp-prod.sc-corp.net were referenced.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        patterns_matched = {m["pattern"] for m in payload["matches"]}
+        self.assertIn("employer email or domain", patterns_matched)
+        self.assertIn("employer internal hostname", patterns_matched)
+
     def test_historical_plan_dirs_are_out_of_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

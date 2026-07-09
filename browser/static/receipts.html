@@ -53,6 +53,10 @@
   .chip {
     font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 999px;
     border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); cursor: pointer;
+    /* Chips are real <button> elements (keyboard-focusable/activatable by
+       default) -- reset button-specific line-height so they still match the
+       span-based sizing the rest of the layout was built against. */
+    line-height: normal;
   }
   .chip.active { background: var(--accent); color: var(--paper); border-color: var(--accent); }
   .progress-wrap { flex: 1 1 220px; min-width: 200px; }
@@ -148,10 +152,10 @@
   <h2>Corpus <span id="count" class="muted"></span></h2>
   <div class="row toolbar">
     <button id="refresh-btn">refresh</button>
-    <span class="chip active" data-filter="all" id="chip-all">all</span>
-    <span class="chip" data-filter="stub" id="chip-stub">stub</span>
-    <span class="chip" data-filter="ocrd" id="chip-ocrd">OCR'd</span>
-    <span class="chip" data-filter="grounded" id="chip-grounded">grounded</span>
+    <button type="button" class="chip active" data-filter="all" id="chip-all">all</button>
+    <button type="button" class="chip" data-filter="stub" id="chip-stub">stub</button>
+    <button type="button" class="chip" data-filter="ocrd" id="chip-ocrd">OCR'd</button>
+    <button type="button" class="chip" data-filter="grounded" id="chip-grounded">grounded</button>
   </div>
   <div class="row toolbar">
     <button class="local" id="batch-local">⚡ Local pass (qwen) — all ungrounded</button>
