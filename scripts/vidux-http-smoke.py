@@ -87,7 +87,7 @@ def smoke_url(url: str, *, timeout: float = 3.0, max_sample_bytes: int = 512) ->
     except (TimeoutError, socket.timeout):
         timed_out = True
         error = f"timed out after {timeout:g}s"
-    except OSError as exc:
+    except (OSError, http.client.HTTPException) as exc:
         error = str(exc)
     finally:
         if conn is not None:

@@ -82,6 +82,15 @@ class HttpSmokeTests(unittest.TestCase):
         self.assertGreater(result["bytes_read"], 0)
         self.assertFalse(result["timed_out"])
 
+    def test_control_characters_in_url_fail_cleanly_instead_of_raising(self):
+        url = self.url("/fast") + "\x01\x02"
+
+        result = http_smoke.smoke_url(url, timeout=0.3)
+
+        self.assertEqual(result["verdict"], "fail_transport")
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["error"])
+
     def test_partial_timeout_is_warning(self):
         result = http_smoke.smoke_url(self.url("/partial"), timeout=0.2)
 

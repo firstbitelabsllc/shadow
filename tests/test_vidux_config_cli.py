@@ -201,6 +201,21 @@ class ViduxConfigCliTests(unittest.TestCase):
             self.assertIn("defaults_not_object", codes)
             self.assertIn("external_plan_roots_bad_item", codes)
 
+    def test_explicit_config_pointing_at_a_directory_fails_cleanly(self):
+        with tempfile.TemporaryDirectory() as dirname:
+            tmp = Path(dirname)
+            a_directory = tmp / "not-a-file"
+            a_directory.mkdir()
+
+            result = self.run_config(tmp, "check", "--json", "--config", str(a_directory))
+
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("Traceback", result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["status"], "fail")
+            codes = {issue["code"] for issue in payload["issues"]}
+            self.assertIn("config_is_directory", codes)
+
     def test_main_empty_argv_does_not_read_process_argv(self):
         original_argv = sys.argv[:]
         stderr = io.StringIO()
