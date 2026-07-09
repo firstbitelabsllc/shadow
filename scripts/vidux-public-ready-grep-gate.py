@@ -230,6 +230,27 @@ def run_gate(repo_root: Path) -> dict[str, Any]:
     scanned_files = _iter_files(repo_root)
     for path in scanned_files:
         rel = path.relative_to(repo_root)
+        # Round-7 panel finding: this loop only ever checked file *content*
+        # -- the relative path/filename itself was never matched against
+        # any pattern. Reproduced live: an evidence file's body was
+        # redacted but its filename still carried a leak-class string
+        # verbatim, which renders unredacted in any GitHub directory
+        # listing regardless of what's inside the file. PRIVACY_PATTERNS
+        # (not HYGIENE_PATTERNS -- a filename containing "linear" is noise,
+        # not a leak) apply to every filename unconditionally, including
+        # historical/hygiene-exempt files: a leak in a filename is exactly
+        # as visible whether or not the file's own content is exempt.
+        rel_str = str(rel)
+        for label, pattern in PRIVACY_PATTERNS:
+            if pattern.search(rel_str):
+                matches.append(
+                    {
+                        "file": rel_str,
+                        "line": 0,
+                        "pattern": f"{label} (in filename)",
+                        "text": rel_str,
+                    }
+                )
         patterns = (
             PRIVACY_PATTERNS
             if _is_historical(rel) or _hygiene_exempt(rel)

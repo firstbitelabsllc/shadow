@@ -55,7 +55,6 @@ The stdlib-only server exposes these routes:
 - `POST /api/artifact` writes a bounded HTML artifact (`slug` + `html` JSON payload).
 - `POST /api/comments` appends a bounded named or anchored comment to the separate comments store.
 - `POST /api/local-plan-note` appends a bounded local note to a plan directory's `INBOX.md`.
-- `POST /api/upload-ref-audio` saves a bounded temporary read-aloud reference-audio sample for local voice cloning.
 - `POST /api/receipts/upload` writes a bounded receipt-corpus row from base64 JPEG/PNG input.
 - `POST /api/receipts/<id>/tag` patches receipt tags, known issues, or Leo notes.
 - `POST /api/receipts/<id>/ocr` runs configured OCR for a stored receipt image.
@@ -74,7 +73,7 @@ The server is narrow:
 - HTML reads are limited to `browser/artifacts/`.
 - `node_modules` paths are rejected even if the filename matches the allowlist.
 - Artifact writes and local plan-note writes are loopback-only, require `Content-Type: application/json`, and reject cross-origin posts.
-- Receipt writes, receipt OCR/analyze mutations, and read-aloud reference-audio upload are loopback-only JSON writes with explicit size caps.
+- Receipt writes and receipt OCR/analyze mutations are loopback-only JSON writes with explicit size caps.
 - Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header, on top of the Host-allowlist check above.
 - Markdown rendered client-side (`marked.js` output) is sanitized through a locally-vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM — closes stored-XSS via a crafted `PLAN.md`/comment/artifact body.
 - Comments NEVER edit plan files, `INBOX.md`, or artifact HTML — they append JSONL to the comments store; optional anchors point back to rendered elements only.
