@@ -58,6 +58,16 @@ OWNER_REVIEW_BUCKETS = {
 # genuine build output now needs owner review instead of auto-cleanup) for
 # eliminating the false-negative/data-loss direction entirely -- the correct
 # trade for a tool whose failure mode is irreversible deletion.
+# Round-6 panel finding (P2, documented, not changing behavior): "no human
+# ever hand-populates" above is not literally true for node_modules under
+# the common `patch-package` workflow, where a developer DOES hand-edit a
+# file inside node_modules/ and commits the resulting .patch alongside it.
+# The design still deletes that content on --apply: node_modules is
+# regenerable by `npm install` from the committed .patch + package.json, so
+# the underlying intent (the patch itself) survives even though the
+# ephemeral worktree copy doesn't. This is consistent with the tier's
+# purpose -- these are the directories a package manager fully owns and can
+# reproduce -- but is worth knowing before adding a new name here.
 UNAMBIGUOUS_REGENERABLE_DIR_NAMES = {
     "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv",
     ".next", ".turbo", ".mypy_cache", ".ruff_cache",
