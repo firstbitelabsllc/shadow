@@ -49,6 +49,26 @@ All fixes verified: `tests/test_vidux_contracts.py` (220 tests), `tests/test_pub
 - Naming: `vidux.ai` is a live, actively-marketed AI video-generation product with the identical bare name — worth knowing before deeper brand investment, not necessarily a blocker depending on what firstbitelabsllc/vidux is judged to be adjacent to.
 - Duplicate/un-deduped GitHub issue templates; repo-root clutter (`ASK-LEO.md`, root `PLAN.md`, `SETUP_NEW_MACHINE.md`) reads as operator scratch to a first-time visitor scanning the file tree.
 
+## Round 2 (same day, after remediation)
+
+Re-ran the full 20-lens panel after landing PRs #193, #194, #196, #197 (round-1 fixes, the evidence/investigations/PLAN.md privacy sweep, and the positioning-honesty reconciliation). Each lens was told what had changed and instructed to independently verify rather than trust the summary.
+
+| Verdict | Count |
+|---|---|
+| NOT_READY | 14 |
+| READY_WITH_CONDITIONS | 5 |
+| READY | 1 (naming-trademark-collision) |
+
+Numerically worse than round 1 — expected, because the panel is genuinely adversarial and this round it earned that by finding something real and new: **`projects/night-queue/**` (tracked via the sole `!projects/night-queue/` gitignore exception) shipped more Snap-corporate paths and an internal project codename, untouched, because the public-ready grep gate's `SCAN_TARGETS` excluded `projects/` entirely.** The gate reported green; the leak's location was just structurally out of scope. `projects/artifact-self-improvement/prompts/*.prompt.md` (another tracked exception) had the same class of leak.
+
+Fixed immediately (PR #199, merged `a6de226`): widened the gate to scan `projects/` (safe — `_drop_git_ignored` already means only tracked exceptions are ever actually scanned, not the private bulk of the plan store), added `projects` to `HISTORICAL_TARGETS` so retired-terminology hygiene patterns still don't false-positive on old plan dirs, redacted the 5 newly-caught files with the same mechanical substitution as round 1's sweep.
+
+Also independently reconfirmed by round 2's `secrets-credentials` lens: the git-history purge is still required (same P0 as round 1) — `git merge-base --is-ancestor 51c4dbe main` still returns true. One sub-finding from that lens (a second copy of the leaked commits sitting on a pushed branch `origin/fix/thin-token-contract-phrases`) is now stale — that branch was deleted when PR #193 merged with `--delete-branch`; the underlying commit objects may still be fetchable by SHA until GitHub garbage-collects, which the eventual history purge will resolve along with everything else.
+
+Round 2's other 13 NOT_READY votes substantially re-confirm round 1's P1/P2 findings (positioning framing, Nicole-readability gaps in the GUI itself, test-suite trust, browser GUI security, npm audit CVEs) rather than surfacing large new categories — those remain open, see the P1/P2 lists above (P1's "evidence/investigations/PLAN.md privacy sweep" line item is now done; the rest of P1/P2 stands as written).
+
+**Decision: not launching a round 3 full panel this session.** Two consecutive 20-agent runs (~4M tokens combined) each surfaced genuine, fixable findings, which is the process working — but the one item both rounds agree is the actual gate (the git history purge) isn't something a third panel round resolves; it needs Leo's explicit go-ahead on a destructive rewrite of shared history, not more review. Further panel rounds without that unblocking first would likely just re-confirm the same P1/P2 backlog at high token cost.
+
 ## Bottom line
 
-Real, structural progress landed this session — including catching and fixing a genuine confidentiality exposure before it ever went public. But the honest panel verdict is **not yet releasable**, and the P0/P1 items above are why. None of them are secret; they're all named, evidenced, and actionable.
+Real, structural progress landed this session — including catching and fixing two rounds of genuine confidentiality exposure before either one ever went public, and structurally closing the class of bug that let the second one hide (an excluded-by-default directory silently shipping a leak with a green gate). But the honest panel verdict, checked twice, is **not yet releasable**. The one hard blocker (git history purge) is unchanged from round 1 and is Leo's call, not mine to execute unilaterally. Everything else is a named, evidenced, actionable backlog — none of it secret, none of it requiring another panel to rediscover.
