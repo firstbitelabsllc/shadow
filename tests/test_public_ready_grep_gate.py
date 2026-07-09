@@ -365,6 +365,40 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         files_matched = {m["file"] for m in payload["matches"]}
         self.assertEqual(files_matched, {"tests/test_some_unrelated_thing.py"})
 
+    def test_docs_vitepress_dir_is_no_longer_bare_exempt(self):
+        # Round-6 panel finding: EXCLUDED_RELATIVE_PATHS used to have a bare
+        # `Path("docs/.vitepress")` entry -- the same whole-directory
+        # exemption bug just fixed for tests/, one entry over -- that
+        # exempted the entire tree from every FORBIDDEN_PATTERN. Nothing
+        # leaked through it in the live repo (the only tracked file there,
+        # config.ts, has no leak-class content, and dist/ is git-ignored),
+        # but a new file dropped into that tree with a real leak string
+        # would have shipped unscanned. Confirm it's now caught.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("Clean.\n", encoding="utf-8")
+            vitepress_dir = root / "docs" / ".vitepress"
+            vitepress_dir.mkdir(parents=True)
+            vitepress_dir.joinpath("config.ts").write_text(
+                "export default { title: 'Vidux' }\n", encoding="utf-8",
+            )
+            vitepress_dir.joinpath("theme.ts").write_text(
+                "// LEAK = '/leo-flow'\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        files_matched = {m["file"] for m in payload["matches"]}
+        self.assertEqual(files_matched, {"docs/.vitepress/theme.ts"})
+
 
 if __name__ == "__main__":
     unittest.main()

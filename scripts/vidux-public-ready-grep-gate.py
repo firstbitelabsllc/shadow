@@ -22,7 +22,15 @@ from typing import Any
 # moment it's created.
 EXCLUDED_DIR_NAMES = {".git", "__pycache__", "node_modules"}
 EXCLUDED_RELATIVE_PATHS = {
-    Path("docs/.vitepress"),
+    # Round-6 panel finding: a bare `Path("docs/.vitepress")` entry used to
+    # sit here, exempting the entire tree -- the identical "whole directory,
+    # not the one file that needs it" bug just fixed for tests/, one entry
+    # over. Checked: docs/.vitepress/dist/ is already git-ignored (dropped
+    # by _drop_git_ignored below without needing an exemption) and
+    # docs/.vitepress/config.ts -- the only tracked file in the tree --
+    # contains zero content that trips any FORBIDDEN_PATTERN. No exemption
+    # is actually needed here; the entry is removed rather than narrowed.
+    #
     # This script's own comments and the test file below intentionally pin
     # the forbidden strings verbatim as documentation/fixtures, not leaks.
     Path("scripts/vidux-public-ready-grep-gate.py"),
