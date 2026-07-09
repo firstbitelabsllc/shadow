@@ -10,10 +10,6 @@ export default defineConfig({
     coverage: {
       reporter: ['text', 'lcov'],
       include: ['browser/static/**/*.{js,mjs}'],
-      exclude: [
-        'browser/static/readaloud.js',
-        'browser/static/readaloud-kokoro.js',
-      ],
     },
   },
 });
