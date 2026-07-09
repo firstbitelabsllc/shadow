@@ -85,6 +85,24 @@ PRIVACY_PATTERNS = (
     # (registry.snapchat.com/mirror-proxy/...), which has no `@`.
     ("employer email or domain", re.compile(r"\bsnapchat\.com\b", re.IGNORECASE)),
     ("employer internal hostname", re.compile(r"\bsc-corp\.net\b", re.IGNORECASE)),
+    # Round-7 panel finding: no rule existed for the employer's internal
+    # `.snap` TLD (distinct from the public `snapchat.com` domain above) --
+    # a real instance (an internal inference-service hostname) shipped
+    # unredacted in a tracked evidence file and this gate reported "passed"
+    # with zero matches.
+    ("employer internal .snap TLD", re.compile(r"\.snap\b", re.IGNORECASE)),
+    # Round-7 panel finding: no rule existed for a gmail address or the
+    # maintainer's separate small consumer-goods business name -- both
+    # leaked live in commit-message quotes inside tracked evidence files,
+    # unscanned because PRIVACY_PATTERNS had no entry for either.
+    # `leojkwan@gmail.com` is excluded: it's the maintainer's permanent,
+    # by-design public commit-author identity on every commit on
+    # `origin/main` today (confirmed via `git log --format='%ae'`) -- unlike
+    # every other gmail address, it isn't slated for removal/rewrite, so
+    # quoting it in evidence prose adds no incremental exposure.
+    ("gmail address other than the maintainer's public commit identity",
+     re.compile(r"\b(?!leojkwan@gmail\.com\b)[\w.+-]+@gmail\.com\b", re.IGNORECASE)),
+    ("maintainer's other business name", re.compile(r"\btrysnowcubes\b", re.IGNORECASE)),
     ("private skills repo path", re.compile(r"\bDevelopment/ai(?:-leo)?/(?:hooks|skills)\b")),
 )
 
