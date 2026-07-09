@@ -813,6 +813,48 @@ class ViduxContractTests(unittest.TestCase):
             self.assertEqual(help_result.returncode, 0, help_result.stderr)
             self.assertIn("vidux — plan-first control plane", help_result.stdout)
 
+    def test_doctor_passes_resolved_vidux_root_through_to_doctor_cli(self):
+        """Round-1 open-source panel finding: `bin/vidux doctor` exec'd
+        vidux-doctor-cli.sh without exporting the VIDUX_ROOT it had already
+        resolved. vidux-doctor-cli.sh falls back to a hardcoded
+        $HOME/Development/vidux when VIDUX_ROOT isn't in its environment, so
+        running `vidux doctor` from any other checkout (a worktree, a
+        differently-named clone, CI) silently validated the WRONG checkout.
+        Proven here by running a copy of bin/vidux from a fake checkout that
+        deliberately omits scripts/vidux-config.py: if VIDUX_ROOT isn't
+        passed through, the config check falls back to the real dev
+        checkout (which has vidux-config.py) and passes instead of naming
+        the fake root as broken."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_root = Path(tmpdir) / "fake-checkout"
+            (fake_root / "bin").mkdir(parents=True)
+            (fake_root / "scripts").mkdir()
+            (fake_root / "VERSION").write_text("0.0.0-test\n", encoding="utf-8")
+            shutil.copy2(ROOT / "bin" / "vidux", fake_root / "bin" / "vidux")
+            (fake_root / "bin" / "vidux").chmod(0o755)
+            shutil.copy2(
+                ROOT / "scripts" / "vidux-doctor-cli.sh",
+                fake_root / "scripts" / "vidux-doctor-cli.sh",
+            )
+            # scripts/vidux-config.py is deliberately NOT copied in.
+
+            env = os.environ.copy()
+            env.pop("VIDUX_ROOT", None)
+            env["VIDUX_DOCTOR_SKIP_NPM_TEST"] = "1"
+
+            result = subprocess.run(
+                [str(fake_root / "bin" / "vidux"), "doctor"],
+                capture_output=True, text=True, timeout=30, env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn(
+                f"{fake_root}/scripts/vidux-config.py missing",
+                result.stdout,
+                "doctor-cli.sh did not validate the checkout bin/vidux resolved "
+                "-- VIDUX_ROOT was not passed through to the exec'd subprocess",
+            )
+
     def test_vidux_cli_gives_authored_error_when_python3_missing(self):
         """Same finding, the python3-on-PATH half: a python3-dispatching
         subcommand (status/drift/config/signpost/http-smoke/dev) used to

@@ -416,6 +416,7 @@ main() {
       exec python3 "${VIDUX_ROOT}/scripts/vidux-http-smoke.py" "$@"
       ;;
     doctor)
+      export VIDUX_ROOT
       exec bash "${VIDUX_ROOT}/scripts/vidux-doctor-cli.sh" "$@"
       ;;
     build)
