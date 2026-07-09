@@ -160,12 +160,16 @@ Vidux is the middle: more structure than bare chat, meaningfully less than an or
 
 | | Vidux | Orchestration frameworks (Hermes Agent, LangGraph, CrewAI...) |
 |---|---|---|
-| **Concepts to learn** | 3 — a plan file, an append-only proof log, one 5-step cycle | 4–6+ — e.g. Hermes Agent's Skills/Memory/Toolsets/Gateway/Context Files/Personalities across 3 layers; CrewAI's Agent/Task/Tool/Crew plus a Process concept |
+| **Concepts to start**\* | 3 — a plan file, an append-only proof log, one 5-step cycle | 4–6+ — e.g. Hermes Agent's Skills/Memory/Toolsets/Gateway/Context Files/Personalities across 3 layers; CrewAI's Agent/Task/Tool/Crew plus a Process concept |
 | **Required infra** | None beyond git + Python's standard library | Often a database and a service: LangGraph's production path needs Docker, Postgres, and a `pgvector` extension; Hermes Agent runs as a systemd service |
 | **Setup to first run** | `git clone` + one symlink + `vidux dev` | Hermes Agent's installer bundles Python, Node.js, and more before an interactive setup wizard covering 17+ model providers |
 | **Where state lives** | A markdown file and a JSONL log, readable by any human or agent | Often inside a database schema (e.g. Postgres JSONB/BYTEA columns) that needs a driver to inspect |
 
-None of this makes vidux "better" — it makes it narrower on purpose. If the job is a persistent multi-platform agent or a complex conditional graph, reach for one of those frameworks. If the job is "don't let this coding plan fall apart across sessions," that's what vidux is for.
+\* Enough to write and run your first `PLAN.md`. `SKILL.md` (the full doctrine, including scheduling, multi-agent lanes, and edge cases) is much longer — most of it is reference material you'll never need to read.
+
+None of this makes vidux "better" — it's a different set of tradeoffs. Vidux's core actually does support scheduled/persistent loops, multi-agent lane coordination, and PR-nursing (see `guides/`) — it just does it with cron/launchd, plain files, and git instead of a framework's built-in Agent/Task/Crew abstractions or a hosted service. If you want those abstractions doing the wiring for you, or need dozens of coordinated roles out of the box, reach for one of those frameworks. If you want the same capabilities built from primitives you can read in a text editor, that's what vidux is for.
+
+**This design isn't a guess — it's the result of measuring a fancier version and cutting it.** Vidux used to also try to structure *how* work handed off between a planning step and an executing step (a "kernel" transport format). A 2026-07-03 evaluation (119 runs, 117 clean after protocol exclusions) tested that structured handoff against just letting an agent work freeform off the same plan file, and freeform won — 76% resolved vs. 59%. So the structured-handoff layer was cut. What's left, and what this README describes, is what actually earned its keep: one plan file, one proof log, one cycle. See the 2026-07-07 Decision Log entry in `PLAN.md` and `evidence/2026-07-07-kernel-cut-pivot.md` for the full writeup (the evaluation harness itself is a local-only, unshipped tool — this repo carries the result, not the harness).
 
 ## How Vidux Compares
 
