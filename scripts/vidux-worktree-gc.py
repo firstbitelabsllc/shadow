@@ -62,7 +62,15 @@ UNAMBIGUOUS_REGENERABLE_DIR_NAMES = {
     "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv",
     ".next", ".turbo", ".mypy_cache", ".ruff_cache",
 }
-REGENERABLE_IGNORED_FILE_SUFFIXES = {".pyc", ".pyo", ".log"}
+# Only the compiled-bytecode suffixes: never a plausible hand-authored
+# filename regardless of location. Round-6 panel finding: `.log` was here
+# too, but a hand-authored `cache/diary.log` (a diary, meeting notes) is an
+# entirely plausible real filename inside a directory that isn't one of the
+# unambiguous names above -- reproduced causing permanent deletion. `.log`
+# files are still trusted when they sit inside an unambiguous directory
+# (via the directory check below), same as any other file there; this only
+# removes the blanket trust for `.log` OUTSIDE one.
+REGENERABLE_IGNORED_FILE_SUFFIXES = {".pyc", ".pyo"}
 REGENERABLE_IGNORED_FILE_NAMES = {".DS_Store"}
 
 
@@ -206,7 +214,23 @@ def non_regenerable_ignored_paths(path: Path) -> List[str]:
     one summary line instead of listing its contents (confirmed empirically
     -- `--ignored=matching` alone does NOT fix this for a directory-pattern
     ignore rule like `build/`; `--untracked-files=all` is the flag that
-    actually forces per-file recursion)."""
+    actually forces per-file recursion).
+
+    Directory-name trust checks ONLY `rel_path.parts[0]` (the outermost
+    path segment relative to the worktree root), not any ancestor segment.
+    Round-6 panel finding, reproduced causing permanent deletion: checking
+    `any(part in UNAMBIGUOUS_REGENERABLE_DIR_NAMES for part in
+    rel_path.parts[:-1])` matches a trusted name ANYWHERE in the path, so
+    `stuff/node_modules/IMPORTANT.txt` -- where `stuff/` is itself
+    gitignored and is NOT an unambiguous name -- was fully trusted purely
+    because "node_modules" appears somewhere in its ancestry, even though
+    the actual ignored boundary is `stuff/`, an untrusted name. Restricting
+    to parts[0] means a file is only trusted when the outermost gitignored
+    container itself is one of the unambiguous names -- a legitimate
+    deeply-nested node_modules (e.g. `packages/foo/node_modules/bar.js` in
+    a monorepo) now requires manual review instead of auto-cleanup, which
+    is the accepted trade (more false-positive manual review, zero
+    false-negative data loss) already established for the ambiguous tier."""
     result = run(
         [
             "git", "-C", str(path), "status", "--porcelain", "-z",
@@ -224,7 +248,7 @@ def non_regenerable_ignored_paths(path: Path) -> List[str]:
             continue
         if rel_path.suffix in REGENERABLE_IGNORED_FILE_SUFFIXES:
             continue
-        if any(part in UNAMBIGUOUS_REGENERABLE_DIR_NAMES for part in rel_path.parts[:-1]):
+        if rel_path.parts[0] in UNAMBIGUOUS_REGENERABLE_DIR_NAMES:
             continue
         risky.append(rel)
     return risky
