@@ -17,15 +17,30 @@ release cycle.
 
 ## Scope
 
-Vidux is an orchestration tool that reads and writes markdown files. It does not:
-- Handle authentication or user credentials
-- Run a web server or accept network connections
-- Store or transmit sensitive data
+Vidux's core is a discipline for reading and writing markdown plan files; it
+does not handle authentication or user credentials, and does not transmit
+data anywhere by itself. It does not run a network service by default beyond
+the one named below.
+
+Vidux does ship one local HTTP server: `browser/server.py` (`vidux dev` /
+`vidux browse`), a stdlib `http.server`-based read/annotate UI for plan files.
+Its threat model:
+- Binds to `127.0.0.1` by default; a Host-header allowlist (independent of
+  Origin/Referer matching) rejects any request whose Host doesn't present as
+  a loopback identity, closing DNS-rebinding-class bypasses. See
+  `docs/reference/browser.md`'s safety-model section for the full mechanism.
+- `VIDUX_BROWSER_HOST=0.0.0.0` is an explicit, documented opt-in for
+  trusted-LAN read access (README.md); write endpoints stay loopback-gated
+  in that mode with one documented exception (comments).
+- Serves only files resolved through an allowlist jail (`safe_resolve`/
+  `is_allowed_file_target`) under the configured `dev_root` — no arbitrary
+  filesystem read.
 
 The primary security surface is:
-- **Automation prompts** — lane prompts in `~/.claude-automations/` that drive agent behavior
+- **Automation prompts** — repo-local lane prompts that drive agent behavior
 - **Git operations** — scripts that commit, push, and create PRs
 - **Shell scripts** — `scripts/` directory executed by agents
+- **The local browser UI** — `browser/server.py` and `browser/static/*.js`
 
 ## What We Watch For
 

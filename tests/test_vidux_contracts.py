@@ -1651,8 +1651,8 @@ class ViduxContractTests(unittest.TestCase):
             "keep going until the PLAN says the goal is complete",
             "do not load or restore it",
             "stale live pointers are repaired at their owning artifact",
-            "skills: [leo-flow, vidux]",
-            "skills: [amp, leo-flow, vidux]",
+            "skills: [<your-private-dispatcher>, vidux]",
+            "skills: [amp, <your-private-dispatcher>, vidux]",
             "Skillbox vs Captain",
             "Captain decides placement, Skillbox executes the mount",
             "Flow owns leader/follower orchestration",
@@ -1704,6 +1704,8 @@ class ViduxContractTests(unittest.TestCase):
             _read(ROOT / "docs" / "index.md"),
             _read(ROOT / "docs" / "guide" / "index.md"),
             _read(SKILL),
+            _read(ROOT / "bin" / "vidux"),
+            _read(ROOT / "package.json"),
         ])
         normalized = " ".join(public.split())
 
@@ -1717,6 +1719,15 @@ class ViduxContractTests(unittest.TestCase):
             "Default Discipline Swarm",
             "Release Swarm",
             "Vidux orchestrates — decompose, delegate, track",
+            # Round-3 panel finding: README explicitly says vidux is
+            # "meaningfully less than an orchestration platform" (line 159),
+            # while bin/vidux's own --help banner and package.json's own
+            # description both self-described using the exact word the
+            # README positions vidux against -- a reader typing
+            # `vidux --help` saw language directly undercutting the README's
+            # own differentiation claim.
+            "expedition orchestration",
+            "Plan-first orchestration for long-running AI coding loops",
         ]:
             self.assertNotIn(stale_phrase, public)
 
@@ -1861,7 +1872,7 @@ class ViduxContractTests(unittest.TestCase):
 
         for phrase in [
             "Authority Store: `PLAN.md` (this repo's root)",
-            "Use `/amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox`",
+            "Use `/amp + /vidux + /<your-private-dispatcher> + /nia + /glm + /grok + /skillbox`",
             "Authority layering: this prompt's Authority Store is the Vidux meta/doctrine lane",
             "Per-project prompts inherit this contract, but own their own product PLAN",
             "Do not write product state into the Vidux core PLAN",
@@ -1873,8 +1884,8 @@ class ViduxContractTests(unittest.TestCase):
             "append-real-work rule",
             "Primitive Readiness Matrix",
             "Worker orchestration",
-            "Flow owns leader/follower orchestration",
-            "Codex headless control",
+            "Your dispatcher owns leader/follower orchestration",
+            "headless model-worker control",
             "Goal navigation inference:",
             "Hard Stops",
             "Mutation Rule",
@@ -1884,7 +1895,7 @@ class ViduxContractTests(unittest.TestCase):
             "This is a pointer; the goal lives in this repo's PLAN.md",
             "read this repo's prompts/goal-navigation-control-plane.prompt.md",
             "starting with ## Current State (resume here)",
-            "let /leo-flow choose Codex/Claude/GLM/Grok leader/follower roles",
+            "let /<your-private-dispatcher> choose Codex/Claude/GLM/Grok leader/follower roles",
             "append/update real PLAN rows when discovery changes what complete means",
             "continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume",
             "[METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]",

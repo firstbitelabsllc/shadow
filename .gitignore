@@ -155,13 +155,19 @@ tests/test_snowcubes_readiness_*
 
 # Local private: crashcourse reading-inbox generator (employer paths)
 scripts/crashcourse-inbox-gen.py
-!projects/night-queue/
-# night-queue/backups/ has held Snap-internal-confidential source (Airflow
-# DAGs, BigQuery SQL, an internal redacted-internal-endpoint.example endpoint) from an
-# untracked working-copy sync at least twice (2026-07-08, PR #193). Re-exclude
-# it even though the parent dir above is un-ignored — never track this again,
-# and never "restore" a future deletion of it without checking why first.
-projects/night-queue/backups/
+
+# night-queue/ (Leo's personal day-job task tracker, not vidux content) was
+# briefly un-ignored via `!projects/night-queue/` (see git history, PR #193)
+# specifically to keep its backups/ subdir excluded after that subdir leaked
+# Snap-confidential source twice. That fix was incomplete: the un-ignore also
+# re-tracked PLAN.md/handoffs/prompts under night-queue/, which independently
+# contain real Snap-internal business detail (named coworkers, internal
+# GitHub Enterprise/Grafana URLs, project code names) -- found by the
+# 2026-07-09 round-3 readiness panel. Removed the un-ignore entirely: this
+# whole directory now falls under the blanket `projects/*` rule above like
+# every other private project plan. Never re-add a project-specific carve-out
+# to projects/* without confirming every tracked file under it is actually
+# public-safe content, not just re-excluding the one subdir that leaked last.
 
 # Local skill installs (e.g. `npx impeccable install`) — third-party skill
 # reference/scripts trees, not vidux's own content. Never ship in the public

@@ -13,7 +13,7 @@ Options:
   a) Authorize OWNER-merge on #26 (matches PR #25 precedent)
   b) Require explicit "ship it" comment from you on each PR
   c) Gate on a different reviewer (Sentry / Claude-code-review / none)
-Answer: (a) — codified durably in `/vidux-leo` skill (`~/Development/ai/skills/vidux-leo/SKILL.md`) Section 1 "Tier B — neither Greptile nor Claude-code-review configured → OWNER-merge on the repo's documented precedent". PR #26 merged `b6a4aec` 2026-04-18T16:11Z per this policy.
+Answer: (a) — codified durably in the maintainer's private overlay skill (Section 1 "Tier B — neither Greptile nor Claude-code-review configured → OWNER-merge on the repo's documented precedent"). PR #26 merged `b6a4aec` 2026-04-18T16:11Z per this policy.
 
 ## Q2 — PR #27 scope-split: accept bundle or split?
 Opened: 2026-04-18T09:45Z | Updated: 2026-04-18T19:15Z | Resolved: 2026-04-18T16:21Z | Status: resolved | Lane: vidux-ship-coordinator

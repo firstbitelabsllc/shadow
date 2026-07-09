@@ -1,5 +1,15 @@
 title = "vidux gitleaks config"
 
+# Round-3 readiness panel finding: without this, gitleaks treats the 3
+# custom rules below as the ENTIRE ruleset -- silently REPLACING its own
+# ~150+ built-in detectors (AWS/GCP/Slack/private-key/generic-password/etc.)
+# rather than extending them. secret-scan.yml is the one workflow that runs
+# automatically on every push/PR; verified empirically (synthetic secrets
+# file) that without this line, gitleaks misses a Slack bot token and an RSA
+# private key its own defaults would catch.
+[extend]
+useDefault = true
+
 [[rules]]
 id = "linear-api-key"
 description = "Linear personal API key"
