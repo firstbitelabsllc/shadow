@@ -1,6 +1,6 @@
 # Thin-token Vidux (use the cockpit, not the corpus)
 
-**Why this exists:** The 2026-07 planner-executor bakeoff (117 clean rows) refuted kernel handoff — freeform beat kernel by ~18pp. Loading full SKILL/orchestration into every agent cycle burns tokens without improving outcomes. Vidux’s high-value surface is **one plan, decisions, proof, resume** — not a second control plane.
+**Why this exists:** The 2026-07 planner-executor bakeoff (117 clean rows) refuted kernel handoff; the strongest direct pairing had freeform beating kernel by ~18pp (76% vs. 59% resolved, 17 runs each). Loading full SKILL/orchestration into every agent cycle burns tokens without improving outcomes. Vidux’s high-value surface is **one plan, decisions, proof, resume** — not a second control plane.
 
 ## Load this (≤1 screen)
 

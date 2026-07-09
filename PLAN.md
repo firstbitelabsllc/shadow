@@ -13,7 +13,7 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [Source: nia_research, 2026-04-12] Anthropic Claude Code best practices: "Start minimal, add skills after 2 weeks of production use proves the need." OpenAI Codex best practices: "Test skills with evals to find overlap."
 - [Source: ai/skills/ inventory, 2026-04-12] 54 skills, 12,830 total lines. 8 skills are bulk-import cruft with zero project references. 5 skill pairs overlap.
 - [Source: design skill audit, 2026-04-12] Naming convention shipped: brand-* (identity), craft-* (platform), figma-* (workflow). 4 renames + 1 new (brand-leojkwan). All cross-refs updated (11 lane prompts, 4 skill files). Zero stale references.
-- [Source: ~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/RUN-SUMMARY.md, 2026-07-03] Full planner-executor matrix wrote 119 rows, 117 clean after protocol exclusions; H1/H2/H3 all refuted, and kernel handoff lost to freeform by 18 percentage points.
+- [Source: ~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/RUN-SUMMARY.md, 2026-07-03] Full planner-executor matrix wrote 119 rows, 117 clean after protocol exclusions; H1/H2/H3 all refuted. The strongest direct pairing (fable_freeform_glm vs. fable_kernel_glm, 17 runs each) had kernel handoff losing to freeform by 18 percentage points (59% vs. 76% resolved) — not a full-117-row aggregate, the single clearest head-to-head.
 - [Source: evidence/2026-07-07-kernel-cut-pivot.md] Current official Codex, Claude Code, and Cursor guidance all points the same way: keep persistent rules short, use plans for complex tasks, delegate bounded side work, preserve proof, and avoid turning tool orchestration into the product.
 
 ## Constraints
