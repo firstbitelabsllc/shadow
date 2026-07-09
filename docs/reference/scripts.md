@@ -92,6 +92,6 @@ a running session's actual `ScheduleWakeup` tool calls.
 ## How to navigate the directory
 
 - Start with the header comment in each script — purpose and usage sit at the top of the file.
-- `scripts/vidux-worktree-gc.py` is covered by `tests/test_worktree_gc.py`; CI runs that suite in the dedicated `worktree-gc-tests` job.
+- `scripts/vidux-worktree-gc.py` is covered by `tests/test_worktree_gc.py`, run locally via `npm run test:py` (GitHub Actions test execution is disabled repo-wide; see `.github/workflows/test.yml`).
 - Use [Configuration](/reference/config) when a script reads defaults from `vidux.config.json`.
 - Use [Hooks](/reference/hooks) if you want lightweight git-based enforcement instead of a full automation lane.
