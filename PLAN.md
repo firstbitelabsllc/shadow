@@ -55,9 +55,10 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 
 ## Current State (resume here)
 
-- **Active goal:** post-kernel-cut **steady state** — keep Vidux green with thin-token load; no PE kernel; **no Resplit work** (Leo 2026-07-09). Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
-- **Live blocker:** none on Vidux product. **5.3.1 frozen** (Resplit out of scope — do not probe or unpark).
-- **Resume pointers:** `npm run test:thin` / `bash scripts/vidux-thin-loop-verify.sh` only. Thin-token: `guides/thin-token.md`. Never open resplit-ios for this goal. Do not reopen 5.5 kernel-cut.
+- **Active goal:** post-kernel-cut **steady state** — keep Vidux green with thin-token load; no PE kernel; **no Resplit work on this Mac** (Leo 2026-07-09). Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
+- **Machine split:** **Mac Studio owns Resplit** (ios/web automation, Ready-PR lanes, 5.3.1-class work). **M4 Pro does not** probe or edit `resplit-ios` / `resplit-web` for nurse loops — Studio is doing that.
+- **Live blocker:** none on Vidux product. **5.3.1 frozen on M4** (Studio-owned, not this machine).
+- **Resume pointers:** `npm run test:thin` / `bash scripts/vidux-thin-loop-verify.sh` only. Thin-token: `guides/thin-token.md`. Never open resplit-ios on M4 for this goal. Do not reopen 5.5 kernel-cut.
 - **PE result:** bakeoff H1/H2/H3 all REFUTED (see evaluations/.../decision.md).
 - **Last green:** 2026-07-09 loop6 — thin-loop-verify PASS; browser_server 69 PASS; tip `34c77dd`+.
 - **Worker-family proof 2026-06-28:** Phase 5.3.0fn-fw extends the worker family by adding `/codex` and `codex_high_fast_worker`; focused contracts, active skill rebuild, worker-family YAML parse, Codex read/write smoke, and GLM/Grok route smokes all passed. `TERM=xterm-256color codex doctor --json --summary` exits 0 with auth/config/network/websocket/sandbox/runtime OK and only the pre-existing stale rollout DB parity warning; unrelated active-skill YAML errors remain outside `/glm`/`/grok`/`/codex`/`/delegate`.
