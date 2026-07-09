@@ -25,6 +25,17 @@
         // (avoids briefly showing the wrong icon).
         window.__viduxInitialTheme = resolved;
       } catch (e) { /* localStorage disabled — fall back to @media */ }
+      try {
+        // Same FOUC guard, for Simple/Advanced mode: apply the class to
+        // <html> before first paint (document.body doesn't exist yet this
+        // early in <head> -- documentElement does, same reason the theme
+        // guard above uses it) so the read-aloud player bar and annotation
+        // FAB (static markup below, CSS-hidden outside .advanced-mode)
+        // don't flash visible then disappear once app.js runs.
+        if (localStorage.getItem('vidux:advancedMode') === '1') {
+          document.documentElement.classList.add('advanced-mode');
+        }
+      } catch (e) { /* localStorage disabled -- defaults to Simple, which is safe */ }
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" async></script>
@@ -43,6 +54,7 @@
     <h1>vidux browser</h1>
     <div class="topbar-meta">
       <span id="meta-count">…</span>
+      <button id="mode-toggle" type="button" aria-pressed="false">Advanced view</button>
       <button id="theme-toggle" type="button" title="Toggle light/dark theme" aria-label="Toggle light or dark theme"></button>
       <button id="refresh" type="button" title="Re-scan">↻ refresh</button>
     </div>

@@ -477,6 +477,29 @@ Cycle fails with external_blocker or context_overflow
 
 ---
 
+## Recipe 13: Thin-Token Multi-Agent Product Slice (post kernel-cut)
+
+**When to use:** Shipping Vidux product/cockpit work (or any plan-first repo) with multiple agents after the PE bakeoff refuted kernel handoff as the default. Goal is parallel progress **without** reloading full doctrine or inventing a second control plane.
+
+**Load:** `guides/thin-token.md` + owning `PLAN.md` row only. Do not load full `SKILL.md` for routine slices.
+
+```
+1. Lead picks one agent-reachable PLAN row and splits into ≤3 path-disjoint slices
+   (example: tests/size | Simple UI | one guide file).
+2. Each worker gets: cwd, branch/worktree, allowed paths, proof command, foldback target.
+3. Workers implement + run their proof floor; return {paths, commands, weakest_claim, blockers}.
+4. Lead merges foldback, updates PLAN, runs the combined focused suite once.
+5. Stop when the row's validation is met — do not open PE kernel sidecars.
+```
+
+**Cap:** 1 lead + 2–3 workers. Coding writers stay path-disjoint. Prefer Recipe 12 assessors for pure read-only health; this recipe is for **implementation** slices.
+
+**Exit condition:** Row has a weakest truthful claim and a resume pointer; green focused tests or a named known-red exception (e.g. env `/auto` contracts).
+
+**Why:** Token burden after kernel-cut is mostly context bloat (full skill + orchestration), not missing agents. Many agents help only when scope is bounded and doctrine stays thin.
+
+---
+
 ## Anti-Patterns
 
 **1. Unsafe auto-merge.** Never merge a draft, failing PR, or PR with unaddressed required review findings. Personal overlays may authorize auto-merge after checks are green and findings are acked/resolved.
