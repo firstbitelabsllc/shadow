@@ -34,6 +34,34 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "passed")
         self.assertEqual(payload["matches"], [])
 
+    def test_privacy_leak_in_filename_is_caught_even_in_historical_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            evidence.mkdir()
+            # A leak-class string in the FILENAME, with clean redacted body
+            # content -- reproduces the round-7 finding that content-only
+            # scanning missed a real leak sitting in a tracked filename,
+            # which renders unredacted in any GitHub directory listing
+            # regardless of what's inside the file or its historical status.
+            (evidence / "2026-06-08-leo-flow-anti-slop.md").write_text(
+                "Redacted body, no leak here.\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        match = payload["matches"][0]
+        self.assertEqual(match["line"], 0)
+        self.assertIn("in filename", match["pattern"])
+
     def test_forbidden_term_in_current_surface_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

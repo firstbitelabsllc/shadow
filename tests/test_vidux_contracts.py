@@ -2512,14 +2512,13 @@ class ViduxContractTests(unittest.TestCase):
             "GET /receipts",
             "GET /api/receipts/list",
             "GET /api/receipts/<id>/image",
-            "POST /api/upload-ref-audio",
             "POST /api/receipts/upload",
             "POST /api/receipts/<id>/tag",
             "POST /api/receipts/<id>/ocr",
             "POST /api/receipts/<id>/expected",
             "POST /api/receipts/<id>/delete",
             "POST /api/receipts/<id>/analyze",
-            "Receipt writes, receipt OCR/analyze mutations, and read-aloud reference-audio upload are loopback-only JSON writes",
+            "Receipt writes and receipt OCR/analyze mutations are loopback-only JSON writes",
         ]:
             self.assertIn(route, browser)
 
