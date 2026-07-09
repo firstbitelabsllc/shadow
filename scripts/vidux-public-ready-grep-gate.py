@@ -76,7 +76,15 @@ PRIVACY_PATTERNS = (
     ("private Leo Flow lane", re.compile(r"\bLeo[ -]Flow\b", re.IGNORECASE)),
     ("private slop lane", re.compile(r"/ai-slop\b")),
     ("private vidux overlay name", re.compile(r"/vidux-leo\b")),
-    ("private home path", re.compile(r"/Users/(?:leokwan|redacted-operator)\b")),
+    # Round-3 panel finding: the old pattern only matched the /Users/leokwan
+    # PATH form and missed the maintainer's bare username elsewhere -- a
+    # historical evidence file leaked 26 `com.leokwan.<private-project>`
+    # macOS LaunchAgent labels (naming several unrelated private repos) and
+    # a live setup doc leaked one more, both unscanned because neither is a
+    # /Users/ path. \bleokwan\b / \bredacted-operator\b subsumes the old path form (a
+    # path boundary is also a \b boundary) while also catching every bare
+    # mention.
+    ("private username", re.compile(r"\b(?:leokwan|redacted-operator)\b")),
     ("employer source path", re.compile(r"\bREDACTED-EMPLOYER-PATH/Dev\b")),
     ("private skills repo path", re.compile(r"\bDevelopment/ai(?:-leo)?/(?:hooks|skills)\b")),
 )

@@ -168,17 +168,27 @@ Vidux read-aloud uses the repo-owned Voxtral MLX script server on
 browser reader; the browser path is only ready after `/v1/audio/speech` returns
 a playable WAV/blob.
 
-Install or repair the LaunchAgent:
+**License note:** `browser/scripts/start-voxtral-mlx-server.sh` pulls
+`redseaplume/Voxtral-4B-TTS-2603-MLX` at run time via `uv run --with`. That
+project's code is MIT (compatible with Vidux's own MIT license), but the
+Voxtral model weights it downloads are Mistral's
+**CC-BY-NC-4.0 — non-commercial only**. This entire feature is optional and
+off by default; enabling it pulls in weights under a license Vidux's own MIT
+grant does not cover. Do not enable it in a commercial deployment without
+separately licensing the weights, or swap in a TTS backend with terms that
+fit your use.
+
+Run it directly in the foreground (no LaunchAgent installer ships in this
+repo):
 
 ```bash
 cd ~/Development/vidux
-scripts/install-voxtral-launchagent.sh
+browser/scripts/start-voxtral-mlx-server.sh
 ```
 
-Verify:
+Verify, from another terminal:
 
 ```bash
-launchctl print gui/$(id -u)/com.leokwan.vidux-voxtral-mlx
 curl http://127.0.0.1:8765/health
 ```
 
@@ -207,9 +217,8 @@ which mlx_whisper                             # should show ~/.local/bin/mlx_whi
 which ffmpeg                                  # should show Homebrew/system ffmpeg
 ~/Development/vidux/scripts/smoke-local-transcription.sh
 
-# Read-aloud TTS
-~/Development/vidux/scripts/install-voxtral-launchagent.sh --lint
-~/Development/vidux/scripts/install-voxtral-launchagent.sh
+# Read-aloud TTS (optional -- see the license note in step 6)
+~/Development/vidux/browser/scripts/start-voxtral-mlx-server.sh &
 curl http://127.0.0.1:8765/health
 
 # Status line

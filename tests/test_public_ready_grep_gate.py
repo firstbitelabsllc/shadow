@@ -79,7 +79,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         files_matched = {m["file"] for m in payload["matches"]}
         self.assertEqual(files_matched, {"ASK-LEO.md"})
         patterns_matched = {m["pattern"] for m in payload["matches"]}
-        self.assertEqual(patterns_matched, {"private home path"})
+        self.assertEqual(patterns_matched, {"private username"})
 
     def test_leo_flow_pattern_catches_hyphenated_slash_command_form(self):
         # Round-3 panel finding: the original pattern only matched the
@@ -103,6 +103,31 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["pattern"], "private Leo Flow lane")
+
+    def test_username_pattern_catches_bare_mentions_not_just_home_paths(self):
+        # Round-3 panel finding: the old pattern only matched the
+        # /Users/leokwan PATH form. A historical evidence file leaked 26
+        # bare `com.leokwan.<private-project>` macOS LaunchAgent labels
+        # (naming several unrelated private repos), unscanned because none
+        # of them is a /Users/ path.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "launchctl print gui/501/com.leokwan.some-private-service\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "private username")
 
     def test_historical_plan_dirs_are_out_of_scope(self):
         with tempfile.TemporaryDirectory() as tmp:

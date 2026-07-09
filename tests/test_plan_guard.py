@@ -117,6 +117,26 @@ class PlanGuardTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertFalse(json.loads(out)["integrity_warning"])
 
+    def test_verify_authorized_by_bare_date_deletion_entry(self):
+        # Round-3 readiness panel finding (code-quality-scripts lens):
+        # docs/reference/plan-fields.md's own template table taught an
+        # unbracketed "[DELETION] YYYY-MM-DD ..." form (now fixed to match
+        # the canonical bracketed form), so has_authorizing_deletion() must
+        # tolerate an entry written against either doc rather than
+        # false-positive an integrity warning on it.
+        write_plan(self.plan, ["pending"] * 6)
+        run_guard("snapshot", str(self.plan))
+        data = json.loads(self.sidecar.read_text())
+        snapshot_date = data["timestamp"][:10]
+        write_plan(
+            self.plan,
+            ["pending"],
+            decision_log=[f"- [DELETION] {snapshot_date} intentional scope cut"],
+        )
+        rc, out, _err = run_guard("verify", str(self.plan), "--json")
+        self.assertEqual(rc, 0)
+        self.assertFalse(json.loads(out)["integrity_warning"])
+
     def test_verify_not_authorized_by_stale_deletion_entry(self):
         write_plan(self.plan, ["pending"] * 6)
         run_guard("snapshot", str(self.plan))

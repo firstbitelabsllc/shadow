@@ -4,49 +4,21 @@ Date: 2026-06-03
 
 ## Intent
 
-Leo asked to delete local automations running on this computer without his knowledge, then align the remaining Vidux signposting and core-finalization work.
+The maintainer asked to delete local automations running on this computer without their knowledge, then align the remaining Vidux signposting and core-finalization work.
 
 ## Removed From This Mac
 
-Stopped with `launchctl bootout`, disabled with `launchctl disable`, and deleted from `~/Library/LaunchAgents`:
-
-- `com.leokwan.resplit-watch`
-- `com.leokwan.resplit-2-0-loop`
-- `com.leokwan.linear-health-watch`
-- `com.leokwan.moussey-slack-listener`
-
-Also deleted stale cron-like backup/disabled plist files so they cannot be accidentally reloaded:
-
-- `com.leokwan.resplit-watch.plist.bak`
-- `com.leokwan.resplit-2-0-loop.plist.bak`
-- `com.leokwan.resplit-2-0-loop.plist.disabled-20260526220855`
-- `com.leokwan.linear-health-watch.plist.bak`
-- `com.leokwan.autobot-resplit-web.plist.disabled-20260526220855`
-- `com.leokwan.lead-cron.plist.disabled-20260526220855`
-- `com.leokwan.grafana-observability.plist.disabled`
-- `com.leokwan.deploy-watcher.plist.bak`
+Stopped with `launchctl bootout`, disabled with `launchctl disable`, and deleted from `~/Library/LaunchAgents`: 4 LaunchAgents unrelated to Vidux (other private-repo watch/loop/health-check/chat-listener jobs the maintainer had running without realizing it), plus their stale backup/disabled plist copies so none could be accidentally reloaded.
 
 ## Verification
 
-- `launchctl list | rg 'com\.leokwan\.(resplit-watch|resplit-2-0-loop|linear-health-watch|moussey-slack-listener|autobot-resplit-web|lead-cron|deploy-watcher|grafana-observability)'` returned no matches.
-- `zsh -f -c 'setopt null_glob; ... ~/Library/LaunchAgents/com.leokwan.<target>*'` returned no matching target plist files.
-- `crontab -l` returned `crontab: no crontab for leokwan`.
-- `launchctl print-disabled gui/$(id -u)` now shows the targeted labels as disabled: `resplit-watch`, `resplit-2-0-loop`, `linear-health-watch`, `moussey-slack-listener`, `autobot-resplit-web`, `lead-cron`, `deploy-watcher`, and `grafana-observability`.
+- `launchctl list | rg 'com\.<operator>\.(...)'` (naming the 4 removed labels) returned no matches.
+- `zsh -f -c 'setopt null_glob; ... ~/Library/LaunchAgents/com.<operator>.<target>*'` returned no matching target plist files.
+- `crontab -l` returned `crontab: no crontab for <operator>`.
+- `launchctl print-disabled gui/$(id -u)` now shows the 4 targeted labels as disabled.
 - `pmset -g sched` shows only an Apple invisible wake alarm: `com.apple.alarm.user-invisible-com.apple.acmd.alarm`.
 
-Remaining Leo-owned launchd files after cleanup:
-
-- `com.leokwan.codex-lb.plist`
-- `com.leokwan.mlx-audio.plist`
-- `com.leokwan.moussey-kokoro-tts.plist`
-- `com.leokwan.moussey-mlx-lm.plist`
-- `com.leokwan.moussey-parakeet-stt.plist`
-- `com.leokwan.moussey-server.plist`
-- `com.leokwan.moussey-server.plist.bak-20260530T035247Z`
-- `com.leokwan.vidux-browser.plist`
-- `com.leokwan.vidux-voxtral-mlx.plist`
-
-These were left in place because they are local services or backups, not scheduled recurring automation rows. In particular, `com.leokwan.vidux-browser` keeps the current Vidux browser surface available for real UI proof.
+Remaining launchd files after cleanup (kept because they are local services or backups, not scheduled recurring automation rows): a handful of other private-repo local services, plus Vidux's own `com.<operator>.vidux-browser` and `com.<operator>.vidux-voxtral-mlx`. `vidux-browser` keeps the current Vidux browser surface available for real UI proof.
 
 ## Alignment
 
@@ -70,7 +42,7 @@ Vidux signposting support already exists for local proof:
 
 Remaining signposting/core finalization work:
 
-- keep root `5.3.1` parked unless the Resplit `gh pr create` overlap is solved or the row is explicitly replanned away from local scheduled automation;
+- keep root `5.3.1` parked unless the other-repo `gh pr create` overlap it depends on is solved, or the row is explicitly replanned away from local scheduled automation;
 - add any future local automation only behind the opt-in/signposted/visible policy above;
 - decide whether a hook installer/runner belongs in core, because current proof is local smoke and does not claim real external Codex/Claude/Cursor launches;
 - keep browser UI work on `projects/vidux-browser/PLAN.md` at `VB-COM-8` for anchor markers and target map;
