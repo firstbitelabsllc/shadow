@@ -2132,7 +2132,14 @@ body.is-annotation-mode #filter {
   .sidebar-toggle { display: inline-block; }
   .sidebar {
     position: fixed;
-    top: 77px;
+    /* --topbar-rendered-height is kept in sync by a ResizeObserver in app.js
+       against .topbar's real measured height -- .topbar wraps to 2-3 rows at
+       narrower widths (see the 540px breakpoint below), so a single hardcoded
+       offset here has already broken twice as topbar content/wrapping
+       changed. The 77px fallback only matters before JS first paints (or if
+       ResizeObserver is unavailable) and matches .topbar's single-row height
+       at this breakpoint. */
+    top: var(--topbar-rendered-height, 77px);
     left: 0;
     bottom: 0;
     width: min(85vw, 360px);

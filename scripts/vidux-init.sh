@@ -121,7 +121,7 @@ main() {
   local target_file="${target_dir}/PLAN.md"
 
   if [[ -e "${target_file}" ]]; then
-    echo "vidux init: projects/${slug}/PLAN.md already exists — refusing to overwrite" >&2
+    echo "vidux init: ${target_file} already exists — refusing to overwrite" >&2
     exit 1
   fi
 
@@ -131,7 +131,13 @@ main() {
   title="$(slug_to_title "${slug}")"
   emit_template "${title}" > "${target_file}"
 
-  echo "created projects/${slug}/PLAN.md"
+  # Print the real absolute path, not a bare "projects/<slug>/PLAN.md" --
+  # that reads as relative to $PWD but it's actually relative to VIDUX_ROOT
+  # (this vidux checkout), which is the exact confusion a round-3
+  # open-source-readiness panel caught: a user running this from their own
+  # project directory saw a misleading message and no file where they
+  # expected one.
+  echo "created ${target_file}"
 }
 
 main "$@"

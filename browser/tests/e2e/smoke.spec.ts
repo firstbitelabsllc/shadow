@@ -513,4 +513,32 @@ test.describe('artifact styling', () => {
       }
     });
   }
+
+  // Round-3 panel finding: the round-1 topbar-wrap fix above made .topbar
+  // grow taller at <=540px (up to 3 wrapped rows), but .sidebar's mobile
+  // drawer kept a hardcoded `top: 77px` sized for the old single-row height
+  // -- so opening the drawer at these widths rendered its own search/sort/
+  // filter controls completely hidden underneath the topbar. Fixed via a
+  // ResizeObserver-synced --topbar-rendered-height custom property instead of
+  // another hardcoded constant (a magic-number offset here has now broken
+  // twice from unrelated topbar content changes). Covers widths where the
+  // topbar wraps differently (3 rows, 2 rows, 1 row) to catch the offset
+  // going stale at any of them, not just the narrowest.
+  for (const width of [375, 414, 540, 768]) {
+    test(`mobile drawer search input is not hidden under the topbar at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/');
+      const toggle = page.locator('#sidebar-toggle');
+      if (await toggle.isVisible()) {
+        await toggle.click();
+      }
+      const topbarBox = await page.locator('.topbar').boundingBox();
+      const searchBox = await page.locator('#filter').boundingBox();
+      expect(topbarBox).not.toBeNull();
+      expect(searchBox).not.toBeNull();
+      if (topbarBox && searchBox) {
+        expect(searchBox.y).toBeGreaterThanOrEqual(topbarBox.y + topbarBox.height);
+      }
+    });
+  }
 });
