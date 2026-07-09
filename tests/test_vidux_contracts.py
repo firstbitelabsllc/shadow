@@ -1855,6 +1855,17 @@ class ViduxContractTests(unittest.TestCase):
             # was fixed. It's the first thing a plugin-marketplace install
             # surface shows a public user.
             _read(ROOT / ".claude-plugin" / "plugin.json"),
+            # Round-7 panel finding: same allowlist-drift bug, 3rd instance.
+            # docs/.vitepress/config.ts's own SEO meta description, VERSION,
+            # and SUPPORT.md all still shipped stale pre-kernel-cut phrases,
+            # unscanned. A maintainer's manual `rg` verification also missed
+            # config.ts because plain `rg` skips dot-directories without
+            # `--hidden` -- the manual spot-check itself was a false
+            # negative, which is exactly why this is an enforced test, not
+            # a one-off command.
+            _read(ROOT / "docs" / ".vitepress" / "config.ts"),
+            _read(ROOT / "VERSION"),
+            _read(ROOT / "SUPPORT.md"),
         ])
         normalized = " ".join(public.split())
 
