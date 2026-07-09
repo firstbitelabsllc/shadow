@@ -55,11 +55,11 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 
 ## Current State (resume here)
 
-- **Active goal:** post-kernel-cut **steady state** — Simple-default, thin-token, Setup/Proof thin, contracts green on main (`cac4369`+). Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
-- **Live blocker:** none hard. Soft only: parked Resplit automation 5.3.1.
-- **Resume pointers:** unpark 5.3.1 only when Resplit overlap clear; optional pixel toggle smoke. Thin-token: `guides/thin-token.md`. `vidux-main-active` → Development/vidux@main. Do not reopen 5.5 kernel-cut.
+- **Active goal:** post-kernel-cut **steady state** — keep green with thin-token load; no PE kernel. Queue: `evidence/2026-07-09-multi-agent-work-queue.md`.
+- **Live blocker:** none hard on Vidux product. Soft: **5.3.1 blocked** on Resplit overlap (re-probed 2026-07-09 loop6).
+- **Resume pointers:** run `bash scripts/vidux-thin-loop-verify.sh` each nurse cycle; unpark 5.3.1 only when Resplit trunk+PR topology is clean. Thin-token: `guides/thin-token.md`. Do not reopen 5.5 kernel-cut.
 - **PE result:** bakeoff H1/H2/H3 all REFUTED (see evaluations/.../decision.md).
-- **Last green:** 2026-07-09 loop5 — `npm run test:js` 8/8 (incl. Simple-mode contract); focused contracts/plan 46 PASS; browser `:7193/api/health` 200.
+- **Last green:** 2026-07-09 loop6 — thin-loop-verify PASS; browser_server 69 PASS; tip `34c77dd`+.
 - **Worker-family proof 2026-06-28:** Phase 5.3.0fn-fw extends the worker family by adding `/codex` and `codex_high_fast_worker`; focused contracts, active skill rebuild, worker-family YAML parse, Codex read/write smoke, and GLM/Grok route smokes all passed. `TERM=xterm-256color codex doctor --json --summary` exits 0 with auth/config/network/websocket/sandbox/runtime OK and only the pre-existing stale rollout DB parity warning; unrelated active-skill YAML errors remain outside `/glm`/`/grok`/`/codex`/`/delegate`.
 - **Eve cockpit:** local-only Eve cockpit on `codex/eve-studio-vidux-20260620`; PR `firstbitelabsllc/vidux#149` OPEN/non-draft, blocked only by a GitHub billing/spending-limit gate (no local code/test failure).
 
@@ -76,7 +76,7 @@ Strip vidux down to its essence: plan first, code second. Remove Redux jargon, c
 - [completed] 5.5.8 Kernel-cut branch transport. [Proof 2026-07-07: branch `codex/kernel-cut-cockpit-20260707` created from detached HEAD, package committed as `8591c98`, rebased cleanly onto current `origin/main`, and `evaluations/` remains untracked/uncommitted.]
 - [completed] 5.5.9 Kernel-cut PR nurse. [Proof 2026-07-07: branch pushed and PR #189 opened; GitHub reported OPEN/non-draft, mergeStateStatus=CLEAN, Graphite mergeability_check=SUCCESS; merge/findability completed in 5.5.10.]
 - [completed] 5.5.10 Kernel-cut merge/findability nurse. [Proof 2026-07-07: PR #189 squash-merged to `main` as `634bf20efda9295db5a3df1b636055ed5919baf2`; `origin/main` contains that merge SHA; findability recorded in evidence.]
-- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker: resplit `gh pr create` overlap and attached-root ownership must be re-proven clear before new automation PR transport; parked behind 5.5.]
+- [blocked] 5.3.1 Remaining ~10 automations onto ready-PR flow. [Blocker 2026-07-09 loop6 re-probe: resplit-ios `main` ahead 7 / behind ~2654, dirty agent-ledger + plan files, ≥5 open PRs (1891/1888/1887/1886/1871) — overlap gate still not clear. Resume: re-read Resplit RALPH/hot when trunk converges; do not open more automation PRs until one-PR-per-lane holds.]
 - [pending] 5.3.2 Validate `gh pr list` shows in-flight PR per active lane. [Depends: 5.3.1]
 - [pending] 5.4.1 (Wave 4) Branch protection: reject direct-main pushes from automation actors, preserve human pushes. [Depends: Wave 3 complete]
 - [pending] 5.4.2 Smoke test both paths. [Depends: 5.4.1]
