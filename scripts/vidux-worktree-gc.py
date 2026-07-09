@@ -27,6 +27,21 @@ OWNER_REVIEW_BUCKETS = {
     "unmerged_no_pr",
 }
 
+# `git status --porcelain` (used by dirty_file_count below) never reports
+# gitignored paths -- that's correct default git behavior, but it means a
+# worktree with real uncommitted content sitting under a gitignored path
+# (a stray .env, a scratch note, anything not git-added) reads as clean and
+# gets silently destroyed by `git worktree remove` (which has the same
+# blind spot, so it doesn't even require --force). Only content matching
+# these well-known regenerable-artifact patterns is safe to ignore for this
+# check; anything else gitignored-but-present blocks auto-removal.
+REGENERABLE_IGNORED_DIR_NAMES = {
+    "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv",
+    "dist", "build", ".next", ".turbo", "target", ".mypy_cache",
+    ".ruff_cache", "vendor",
+}
+REGENERABLE_IGNORED_FILE_SUFFIXES = {".pyc", ".pyo", ".log", ".DS_Store"}
+
 
 class CommandError(RuntimeError):
     def __init__(self, command: List[str], returncode: int, stderr: str) -> None:
@@ -56,6 +71,7 @@ class WorktreeInfo:
     head: Optional[str]
     bucket: str
     dirty_files: int
+    ignored_risk_files: List[str]
     commits_not_in_base: Optional[int]
     last_commit_subject: Optional[str]
     last_commit_date: Optional[str]
@@ -136,6 +152,29 @@ def load_worktrees(repo: Path) -> List[Dict[str, Any]]:
 def dirty_file_count(path: Path) -> int:
     result = run(["git", "-C", str(path), "status", "--porcelain"], check=True)
     return len([line for line in result.stdout.splitlines() if line.strip()])
+
+
+def non_regenerable_ignored_paths(path: Path) -> List[str]:
+    """Gitignored-but-present paths NOT matching a known regenerable-artifact
+    pattern. Non-empty means real content `git status --porcelain` and git's
+    own worktree-remove dirty-check both silently miss -- see the module-level
+    comment on REGENERABLE_IGNORED_DIR_NAMES for why this exists."""
+    result = run(
+        ["git", "-C", str(path), "status", "--porcelain", "--ignored"],
+        check=True,
+    )
+    risky: List[str] = []
+    for line in result.stdout.splitlines():
+        if not line.strip() or not line.startswith("!!"):
+            continue
+        rel = line[3:].strip()
+        parts = Path(rel).parts
+        if any(part in REGENERABLE_IGNORED_DIR_NAMES for part in parts):
+            continue
+        if Path(rel).suffix in REGENERABLE_IGNORED_FILE_SUFFIXES:
+            continue
+        risky.append(rel)
+    return risky
 
 
 def is_ancestor(repo: Path, head: Optional[str], base: str) -> bool:
@@ -319,6 +358,12 @@ def classify_worktree(
         warnings.append(f"could not read status for {path}: {exc.stderr}")
         dirty_count = -1
 
+    try:
+        ignored_risk = [] if is_primary else non_regenerable_ignored_paths(path)
+    except CommandError as exc:
+        warnings.append(f"could not read ignored status for {path}: {exc.stderr}")
+        ignored_risk = []
+
     in_base = is_ancestor(repo, head, base)
     commits_not_in_base = commit_count_not_in_base(repo, head, base, warnings)
     subject = last_commit_subject(repo, head, warnings)
@@ -340,6 +385,12 @@ def classify_worktree(
     elif dirty_count > 0:
         bucket = "dirty"
         reason = f"{dirty_count} uncommitted file(s)"
+    elif ignored_risk:
+        bucket = "dirty"
+        reason = (
+            f"{len(ignored_risk)} gitignored file(s) present that `git status` "
+            f"can't see but removal would still delete, e.g. {ignored_risk[0]!r}"
+        )
     elif pr and pr.state == "OPEN":
         bucket = "open_pr"
         reason = f"open PR #{pr.number}"
@@ -356,13 +407,19 @@ def classify_worktree(
         bucket = "unmerged_no_pr"
         reason = "branch has commits not in base and no PR"
 
-    removable = bucket == SAFE_BUCKET and not is_primary and dirty_count == 0
+    removable = (
+        bucket == SAFE_BUCKET
+        and not is_primary
+        and dirty_count == 0
+        and not ignored_risk
+    )
     return WorktreeInfo(
         path=str(path),
         branch=branch,
         head=head,
         bucket=bucket,
         dirty_files=dirty_count,
+        ignored_risk_files=ignored_risk,
         commits_not_in_base=commits_not_in_base,
         last_commit_subject=subject,
         last_commit_date=commit_date,
@@ -666,6 +723,20 @@ def remove_worktrees(
     removed: List[str] = []
     for worktree in worktrees:
         if not worktree.removable:
+            continue
+        # Re-check right before the destructive call, not just at classify
+        # time -- cheap, and closes any window where content appeared between
+        # classification and removal in the same run.
+        try:
+            recheck = non_regenerable_ignored_paths(Path(worktree.path))
+        except CommandError as exc:
+            warnings.append(f"skipped removal for {worktree.path}: re-check failed: {exc.stderr}")
+            continue
+        if recheck:
+            warnings.append(
+                f"skipped removal for {worktree.path}: gitignored content appeared "
+                f"since classification (e.g. {recheck[0]!r}) -- re-run to reclassify"
+            )
             continue
         try:
             run(["git", "-C", str(repo), "worktree", "remove", worktree.path])

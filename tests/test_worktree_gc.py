@@ -332,6 +332,47 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertTrue((self.worktrees_dir / "closed-unmerged").exists())
         self.assertTrue((self.worktrees_dir / "unmerged-no-pr").exists())
 
+    def test_gitignored_non_regenerable_files_block_merged_clean_removal(self):
+        # git status --porcelain misses gitignored paths; git worktree remove
+        # can still delete them. A merged_clean tree with a stray .env must
+        # classify dirty and stay off safe_cleanup_items / --apply.
+        path = self.worktrees_dir / "merged-clean"
+        (path / ".gitignore").write_text(".env\n__pycache__/\n", encoding="utf-8")
+        git(path, "add", ".gitignore")
+        git(path, "commit", "-m", "ignore env")
+        # Re-sync origin/main to this tip so HEAD is still "merged" into base;
+        # the dirty signal should come from ignored risk, not unmerged commits.
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "merged-clean")
+        (path / ".env").write_text("SECRET=1\n", encoding="utf-8")
+        # Regenerable ignored noise must not poison the risk list.
+        (path / "__pycache__").mkdir()
+        (path / "__pycache__" / "x.pyc").write_text("x", encoding="utf-8")
+
+        # Sanity: porcelain (no --ignored) stays clean; only --ignored sees .env.
+        porcelain = git(path, "status", "--porcelain").stdout.strip()
+        self.assertEqual("", porcelain, f"unexpected tracked dirt: {porcelain!r}")
+
+        result = self.run_gc()
+        payload = json.loads(result.stdout)
+        by_branch = {item["branch"]: item for item in payload["worktrees"]}
+        item = by_branch["merged-clean"]
+
+        self.assertEqual("dirty", item["bucket"])
+        self.assertFalse(item["removable"])
+        self.assertEqual(0, item["dirty_files"])
+        self.assertIn(".env", item["ignored_risk_files"])
+        self.assertTrue(
+            all("pycache" not in p and not p.endswith(".pyc") for p in item["ignored_risk_files"]),
+            item["ignored_risk_files"],
+        )
+        self.assertIn("gitignored file", item["reason"])
+        self.assertEqual([], payload["safe_cleanup_items"])
+
+        apply = self.run_gc("--apply", "--yes")
+        apply_payload = json.loads(apply.stdout)
+        self.assertEqual([], apply_payload["removed"])
+        self.assertTrue(path.exists(), "worktree with gitignored .env must survive --apply")
+
     def test_invocation_worktree_is_never_removed(self):
         linked = self.worktrees_dir / "merged-clean"
         result = run(
