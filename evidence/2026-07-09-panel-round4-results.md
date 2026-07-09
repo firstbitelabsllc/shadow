@@ -245,13 +245,26 @@ clean, honest, and licensed. Minor unrelated note from the same re-run:
 anywhere Python runs, no external deps" framing if that claim exists
 verbatim anywhere — worth a grep before the next round.
 
-**`positioning-honesty` — did not produce a usable report on re-run either**
-(went idle with no findings after the same brief that produced a real
-result from the other two re-runs). Genuinely unresolved — needs a third
-attempt, ideally with a more constrained/shorter brief, before its original
-finding ("false citation backing the CI manual-only claim" — check whether
-CHANGELOG.md actually backs the "GitHub Actions CI is intentionally
-manual-only" README claim) can be trusted either way.
+**`positioning-honesty` — third attempt (after a direct follow-up ask)
+produced a real, confirmed finding.** README.md's original wording pointed
+readers to `CHANGELOG.md` to verify "GitHub Actions CI is intentionally
+manual-only" — independently verified this citation is broken: `CHANGELOG.md`
+says nothing about the policy and actually shows the opposite impression
+(CI jobs being added across 2.26.x). The real evidence lives in
+`.github/workflows/{ci,lint,test}.yml`'s `DISABLED / MANUAL-ONLY POLICY
+2026-06-22` header comments — confirmed directly. One precision gap also
+confirmed: `secret-scan.yml` still runs automatically on every push/PR, so
+"CI is manual-only" was slightly over-broad. Fixed 2026-07-09: README now
+cites the workflow headers directly instead of CHANGELOG.md, and calls out
+the secret-scan exception. Everything else this lens checked (the `npm run
+verify` claim, the Hermes Agent comparison table, the kernel-cut eval
+numbers, the LangGraph/CrewAI characterizations) was independently verified
+accurate and fairly framed — no other positioning-honesty issues found.
+
+All 3 originally-degenerate/contaminated round-4 lenses are now resolved:
+2 GO-worthy re-runs (naming-branding-collision: real but informational,
+not blocking; simplicity-niche-fit: partial-delivery, not blocking) and
+1 real fixable defect found and shipped (positioning-honesty).
 
 ## Next actions (in order)
 
