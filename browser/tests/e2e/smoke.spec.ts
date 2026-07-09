@@ -72,6 +72,28 @@ test.describe('vidux-browse smoke', () => {
     expect(boxes.scrollWidth).toBeLessThanOrEqual(boxes.bodyWidth);
   });
 
+  test('Cmd/Ctrl+Shift+C starts annotation capture without FAB', async ({ page }) => {
+    await page.goto('/');
+    const sidebarToggle = page.locator('#sidebar-toggle');
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
+    }
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
+    if (await sidebarToggle.isVisible()) {
+      await sidebarToggle.click();
+      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+    }
+    await expect(page.locator('[data-comment-empty]')).toContainText('Cmd/Ctrl+Shift+C');
+    await page.keyboard.press('Control+Shift+C');
+    await expect(page.locator('body')).toHaveClass(/is-annotation-mode/);
+    await page.locator('.pane-header h2').click();
+    await expect(page.locator('#annotation-popover')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#annotation-popover')).toHaveCount(0);
+    await expect(page.locator('body')).not.toHaveClass(/is-annotation-mode/);
+  });
+
   test('sidebar lists plans from fixture root', async ({ page }) => {
     await page.goto('/');
     const rows = page.locator('#sidebar-list .plan-row');
@@ -312,7 +334,7 @@ test.describe('auto-refresh polling', () => {
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-scope', 'current-view');
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-state', 'ready');
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-count', '0');
-    await expect(page.locator('[data-comment-empty]')).toHaveText('No comments yet.');
+    await expect(page.locator('[data-comment-empty]')).toContainText('No comments yet.');
     await expect(page.locator('[data-comment-filter="all"]')).toHaveClass(/is-active/);
     await expect(page.locator('#comment-target-map')).toHaveAttribute('data-comment-target-count', '0');
 

@@ -161,40 +161,12 @@ ambiguous spinner.
 Keep at least 1 GB free for Whisper installs and cache churn. Voxtral TTS is a
 separate, much larger download; keep at least 20 GB free before touching it.
 
-## 6. Read-Aloud TTS (Apple Silicon, Optional)
+## 6. Read-Aloud TTS — removed from core (2026-07)
 
-Vidux read-aloud uses the repo-owned Voxtral MLX script server on
-`127.0.0.1:8765`. Do not use `127.0.0.1:8000 /v1/models` as readiness for the
-browser reader; the browser path is only ready after `/v1/audio/speech` returns
-a playable WAV/blob.
-
-**License note:** `browser/scripts/start-voxtral-mlx-server.sh` pulls
-`redseaplume/Voxtral-4B-TTS-2603-MLX` at run time via `uv run --with`. That
-project's code is MIT (compatible with Vidux's own MIT license), but the
-Voxtral model weights it downloads are Mistral's
-**CC-BY-NC-4.0 — non-commercial only**. This entire feature is optional and
-off by default; enabling it pulls in weights under a license Vidux's own MIT
-grant does not cover. Do not enable it in a commercial deployment without
-separately licensing the weights, or swap in a TTS backend with terms that
-fit your use.
-
-Run it directly in the foreground (no LaunchAgent installer ships in this
-repo):
-
-```bash
-cd ~/Development/vidux
-browser/scripts/start-voxtral-mlx-server.sh
-```
-
-Verify, from another terminal:
-
-```bash
-curl http://127.0.0.1:8765/health
-```
-
-The first real synthesis may download or load Voxtral weights. The Vidux footer
-must show explicit cache/generating/buffering/decoding/playback states instead
-of an ambiguous spinner.
+The browser footer player, `readaloud.js`, fixtures, and
+`browser/scripts/start-voxtral-mlx-server.sh` were deleted from this repo.
+Do not install a Voxtral/MLX TTS stack for Vidux core. If you still need
+local speech, keep it in a private overlay outside this package.
 
 ## 7. Verification Checklist
 
@@ -216,10 +188,6 @@ ls ~/.claude/skills/vidux/SKILL.md           # should exist
 which mlx_whisper                             # should show ~/.local/bin/mlx_whisper
 which ffmpeg                                  # should show Homebrew/system ffmpeg
 ~/Development/vidux/scripts/smoke-local-transcription.sh
-
-# Read-aloud TTS (optional -- see the license note in step 6)
-~/Development/vidux/browser/scripts/start-voxtral-mlx-server.sh &
-curl http://127.0.0.1:8765/health
 
 # Status line
 test -x ~/.claude/statusline.sh && echo "OK" || echo "MISSING"

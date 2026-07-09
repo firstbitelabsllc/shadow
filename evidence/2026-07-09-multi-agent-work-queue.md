@@ -18,6 +18,7 @@
 - Spec: `browser/tests/e2e/mode-pixel.spec.ts` via `npm run test:pixel`
 - Full cut: no FAB/player in shell; deleted `readaloud.js` / kokoro / fixtures / voxtral scripts + CSS
 - Comment rail + Cmd/Ctrl+Shift+C annotation capture remain (no FAB entry)
+- Fable consult (2026-07-09): full-stack delete correct; chord needs in-product name → empty-state hint + smoke; thin green
 - Intentionally **outside** the ~5s thin nurse gate
 
 ## Multi-agent
