@@ -18,9 +18,8 @@ content — something no prior round did. Finding:
   is reachable from `origin/main` (`git merge-base --is-ancestor` confirms)
   and is tagged in `v2.23.0` (confirmed via `git ls-remote --tags origin`)
   — the exact tag this session cut earlier today to match `package.json`.
-- Its author email is `trysnowcubes@gmail.com` — the maintainer's separate
-  small consumer-goods business, entirely unrelated to First Bite Labs or
-  vidux.
+- Its author email is a real address at the maintainer's separate small
+  consumer-goods business, entirely unrelated to First Bite Labs or vidux.
 - **No tool in this repo could ever catch this.** `vidux-public-ready-
   grep-gate.py`'s `PRIVACY_PATTERNS` only scan tracked *file content*;
   `.gitleaks.toml`'s detectors target credential *patterns*, not personal
