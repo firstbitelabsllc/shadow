@@ -71,15 +71,14 @@ describe('app.js source health (smoke)', () => {
       fileURLToPath(new URL('../../static/index.html', import.meta.url)),
       'utf8',
     );
-    const style = fs.readFileSync(
-      fileURLToPath(new URL('../../static/style.css', import.meta.url)),
-      'utf8',
-    );
     expect(app).toContain('function isAdvancedMode(');
     expect(app).toContain('vidux:advancedMode');
     // FOUC + runtime both treat Advanced as opt-in (=== '1'), so default is Simple.
     expect(indexHtml).toContain("getItem('vidux:advancedMode') === '1'");
     expect(indexHtml).toContain('id="mode-toggle"');
-    expect(style).toMatch(/html:not\(\.advanced-mode\)/);
+    // Main shell no longer mounts FAB / read-aloud player.
+    expect(indexHtml).not.toContain('id="root-annotation-toggle"');
+    expect(indexHtml).not.toContain('id="readaloud-player"');
+    expect(indexHtml).not.toContain('readaloud.js');
   });
 });

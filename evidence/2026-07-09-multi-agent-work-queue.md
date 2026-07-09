@@ -9,8 +9,16 @@
 | Pri | ID | Slice | Status |
 |-----|-----|-------|--------|
 | **P0** | **V-GREEN** | `npm run test:thin` | nurse only |
-| **P3** | **V-PIXEL** | Optional Simple↔Advanced pixel smoke | optional, Vidux UI only |
+| **P3** | **V-PIXEL** | Simple↔Advanced mode smoke (`npm run test:pixel`) | **shipped** — opt-in; not in `test:thin` |
+| **DONE** | **V-CHROME-CUT** | Delete annotation FAB + read-aloud player from main shell | **shipped** 2026-07-09 |
 | **STUDIO** | **5.3.1 / 5.3.2** | Ready-PR / Resplit-coupled automation | **Studio only — never on M4** |
+
+### V-PIXEL / chrome-cut receipt (2026-07-09)
+
+- Spec: `browser/tests/e2e/mode-pixel.spec.ts` via `npm run test:pixel`
+- Main shell: no `#root-annotation-toggle`, no `#readaloud-player`, no `readaloud.js` load
+- Fixture pages + `readaloud.js` engine kept for offline story/fixture use
+- Intentionally **outside** the ~5s thin nurse gate
 
 ## Multi-agent
 

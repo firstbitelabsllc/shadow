@@ -29,9 +29,7 @@
         // Same FOUC guard, for Simple/Advanced mode: apply the class to
         // <html> before first paint (document.body doesn't exist yet this
         // early in <head> -- documentElement does, same reason the theme
-        // guard above uses it) so the read-aloud player bar and annotation
-        // FAB (static markup below, CSS-hidden outside .advanced-mode)
-        // don't flash visible then disappear once app.js runs.
+        // guard above uses it).
         if (localStorage.getItem('vidux:advancedMode') === '1') {
           document.documentElement.classList.add('advanced-mode');
         }
@@ -46,7 +44,6 @@
   <script src="/static/comment-rail.js" defer></script>
   <script src="/static/comment-markers.js" defer></script>
   <script src="/static/app.js" defer></script>
-  <script type="module" src="/static/readaloud.js" defer></script>
 </head>
 <body>
   <a href="#pane" class="skip-link">Skip to content</a>
@@ -90,21 +87,5 @@
       </div>
     </section>
   </main>
-
-  <button id="root-annotation-toggle" class="annotation-fab" type="button" title="Select a plan or artifact to annotate" aria-label="Select a plan or artifact to annotate" aria-pressed="false" data-vidux-zone="floating-action" data-annotation-state="unavailable" disabled>Annotate</button>
-
-  <div id="readaloud-player" class="readaloud-player" role="region" aria-label="Read-aloud player" aria-describedby="readaloud-player-status" data-vidux-zone="footer-player">
-    <button id="root-readaloud-toggle" class="root-readaloud-toggle readaloud-player-read" type="button" title="Read selected text or current pane aloud" aria-label="Read current selection or pane aloud">Read</button>
-    <button id="readaloud-player-toggle" class="readaloud-player-toggle" type="button" title="Play or pause read-aloud" aria-label="Play read-aloud" aria-pressed="false">▶</button>
-    <div class="readaloud-player-main">
-      <div id="readaloud-player-status" class="readaloud-player-status" role="status" aria-live="polite" aria-atomic="true">Ready</div>
-      <button id="readaloud-server-command" class="readaloud-server-command" type="button" title="Copy local Voxtral MLX server command" aria-label="Copy local Voxtral MLX server command" hidden>browser/scripts/start-voxtral-mlx-server.sh</button>
-      <input id="readaloud-player-seek" class="readaloud-player-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Read-aloud position" />
-    </div>
-    <span id="readaloud-player-time" class="readaloud-player-time">0:00 / 0:00</span>
-    <button id="root-readaloud-engine" class="root-readaloud-engine" type="button" title="Read-aloud voice status. Click for the local setup command." aria-label="Read-aloud voice status. Click for the local setup command.">Voice</button>
-    <button id="readaloud-cache-clear" class="readaloud-cache-clear" type="button" title="No cached read-aloud segments for the current playback" aria-label="No cached read-aloud segments to clear" disabled>Cache</button>
-    <button id="root-readaloud-speed" class="root-readaloud-speed" type="button" title="Read-aloud speed" aria-label="Read-aloud speed: 1.12x. Click to cycle.">1.12x</button>
-  </div>
 </body>
 </html>

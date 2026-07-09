@@ -1928,24 +1928,24 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertFalse(any(key.startswith("@storybook/") for key in deps))
         self.assertNotIn("storybook", scripts)
 
-    def test_readaloud_simple_mode_hides_voxtral_mlx_jargon(self):
-        # Round-2 readiness panel finding: the persistent read-aloud footer
-        # showed "Voxtral MLX" / a raw shell script path even in Simple mode.
-        # Nicole-readable Simple mode must not print the product/vendor name
-        # or the setup command by default -- only Advanced mode should.
+    def test_main_shell_has_no_fab_or_readaloud_player(self):
+        # 2026-07 product cut: annotation FAB + read-aloud footer removed from
+        # the main browser shell. Fixture pages may still mount them.
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("root-annotation-toggle", index)
+        self.assertNotIn("annotation-fab", index)
+        self.assertNotIn("readaloud-player", index)
+        self.assertNotIn("root-readaloud", index)
+        self.assertNotIn("readaloud.js", index)
+        self.assertNotIn("floating-action", index)
+        self.assertNotIn("footer-player", index)
+        self.assertNotIn("Voxtral", index)
+
+    def test_readaloud_js_still_gates_voxtral_jargon_for_fixture_use(self):
+        # Engine file kept for fixture/story pages; jargon remains Advanced-gated.
         readaloud = (ROOT / "browser" / "static" / "readaloud.js").read_text(
             encoding="utf-8",
         )
-
-        # Static (pre-JS, Simple-mode-default) markup carries plain labels.
-        footer = index.split('id="readaloud-player" class="readaloud-player"', 1)[1]
-        footer = footer.split("</div>\n</body>", 1)[0]
-        self.assertNotIn("Voxtral", footer.split('id="readaloud-server-command"')[0])
-        self.assertIn(">Voice</button>", footer)
-
-        # The gating mechanism itself is real, not just the static default --
-        # readaloudAdvanced() must gate every jargon-bearing string.
         self.assertIn("function readaloudAdvanced()", readaloud)
         self.assertIn("window.isAdvancedMode", readaloud)
         jargon_sites = [
@@ -1956,53 +1956,10 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         for site in jargon_sites:
             self.assertIn(site, readaloud)
 
-    def test_readaloud_footer_controls_and_annotation_fab_are_annotation_safe(self):
-        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
-        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+    def test_fixture_styles_keep_fab_and_player_classes(self):
+        # CSS for fixture-only chrome stays; main shell no longer mounts it.
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
-
-        topbar_meta = index.split('<div class="topbar-meta">', 1)[1].split("</div>", 1)[0]
-        self.assertIn('id="meta-count"', topbar_meta)
-        self.assertIn('id="refresh"', topbar_meta)
-        self.assertNotIn("root-readaloud", topbar_meta)
-        self.assertNotIn("root-annotation-toggle", topbar_meta)
-
-        player_idx = index.index('id="readaloud-player" class="readaloud-player"')
-        self.assertNotIn('id="readaloud-player" class="readaloud-player" hidden', index)
-        self.assertIn('role="region" aria-label="Read-aloud player"', index)
-        self.assertIn('aria-describedby="readaloud-player-status"', index)
-        self.assertIn('role="status" aria-live="polite" aria-atomic="true"', index)
-        self.assertIn('aria-label="Read current selection or pane aloud"', index)
-        self.assertIn('aria-label="Play read-aloud" aria-pressed="false"', index)
-        self.assertIn('aria-label="Read-aloud speed: 1.12x. Click to cycle."', index)
-        self.assertIn('id="root-readaloud-engine" class="root-readaloud-engine" type="button"', index)
-        self.assertIn("Click for the local setup command", index)
-        self.assertIn('id="readaloud-server-command"', index)
-        self.assertIn('hidden>browser/scripts/start-voxtral-mlx-server.sh</button>', index)
-        self.assertIn('id="readaloud-cache-clear"', index)
-        self.assertIn('aria-label="No cached read-aloud segments to clear"', index)
-        self.assertGreater(index.index('id="root-readaloud-toggle"'), player_idx)
-        self.assertGreater(index.index('id="root-readaloud-engine"'), player_idx)
-        self.assertGreater(index.index('id="readaloud-cache-clear"'), player_idx)
-        self.assertGreater(index.index('id="root-readaloud-speed"'), player_idx)
-        self.assertIn('class="annotation-fab"', index)
-
-        ids = [
-            "root-annotation-toggle",
-            "root-readaloud-toggle",
-            "root-readaloud-engine",
-            "readaloud-server-command",
-            "readaloud-cache-clear",
-            "root-readaloud-speed",
-            "readaloud-player",
-            "readaloud-player-toggle",
-            "readaloud-player-seek",
-            "readaloud-player-status",
-            "readaloud-player-time",
-        ]
-        for control_id in ids:
-            self.assertIn(f'id="{control_id}"', index)
-            self.assertIn(f'"#{control_id}"', app)
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
 
         for klass in [
             "annotation-fab",
@@ -2021,6 +1978,14 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         ]:
             self.assertIn(klass, style)
 
+        # App still knows the old control ids for capture-exclude / null-safe hooks.
+        for control_id in [
+            "root-annotation-toggle",
+            "root-readaloud-toggle",
+            "readaloud-player",
+        ]:
+            self.assertIn(f'"#{control_id}"', app)
+
     def test_app_action_zoning_contract_names_chrome_layers(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
@@ -2031,8 +1996,8 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn('data-vidux-zone="app-shell"', index)
         self.assertIn('data-vidux-zone="navigation-sidebar"', index)
         self.assertIn('data-vidux-zone="content-pane"', index)
-        self.assertIn('data-vidux-zone="floating-action"', index)
-        self.assertIn('data-vidux-zone="footer-player"', index)
+        self.assertNotIn('data-vidux-zone="floating-action"', index)
+        self.assertNotIn('data-vidux-zone="footer-player"', index)
         self.assertIn('data-vidux-zone", "mode-popover"', app)
         self.assertNotIn("root-annotation-toggle", topbar_meta)
         self.assertNotIn("readaloud-player", topbar_meta)
@@ -2057,7 +2022,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("z-index: var(--z-floating-action)", style)
         self.assertIn("z-index: var(--z-mode-popover)", style)
 
-    def test_annotation_fab_state_machine_contract_is_named(self):
+    def test_annotation_state_helper_contract_is_named(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
         annotation_helper = (
@@ -2067,9 +2032,8 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
 
         self.assertIn('/static/annotation-state.js', index)
         self.assertLess(index.index('/static/annotation-state.js'), index.index('/static/app.js'))
-        self.assertIn('data-annotation-state="unavailable"', index)
-        self.assertIn('aria-label="Select a plan or artifact to annotate"', index)
-        self.assertIn('aria-pressed="false"', index)
+        # FAB mount removed; helper + popover state machine remain.
+        self.assertNotIn('id="root-annotation-toggle"', index)
         self.assertIn("ViduxAnnotationState", app)
         self.assertIn("ANNOTATION_STATES", app)
         for state_name in [
@@ -2305,6 +2269,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertNotIn("readaloud", topbar_meta)
         self.assertNotIn("annotation", topbar_meta)
 
+        # Main shell no longer mounts player/FAB; engine + exclude selectors remain.
         for control_id in [
             "readaloud-player",
             "root-readaloud-toggle",
@@ -2315,7 +2280,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
             "root-readaloud-speed",
             "root-annotation-toggle",
         ]:
-            self.assertIn(f'id="{control_id}"', index)
+            self.assertNotIn(f'id="{control_id}"', index)
             self.assertIn(f'"#{control_id}"', app)
 
         for fn in [

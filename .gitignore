@@ -175,3 +175,8 @@ scripts/crashcourse-inbox-gen.py
 # accidentally staged.
 .github/skills/
 .github/hooks/
+
+# Playwright local run artifacts
+test-results/
+playwright-report/
+blob-report/
