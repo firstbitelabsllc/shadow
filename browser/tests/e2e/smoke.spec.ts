@@ -1,4 +1,51 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function openDrawerIfNeeded(page: Page) {
+  const toggle = page.locator('#sidebar-toggle');
+  if (await toggle.isVisible() && await toggle.getAttribute('aria-expanded') !== 'true') {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  }
+}
+
+async function expandGroup(page: Page, name: string) {
+  await openDrawerIfNeeded(page);
+  const button = page.locator('.repo-disclosure', { hasText: name }).first();
+  await button.waitFor();
+  if (await button.getAttribute('aria-expanded') !== 'true') {
+    await button.click();
+  }
+  await expect(page.locator('.repo-disclosure', { hasText: name }).first()).toHaveAttribute('aria-expanded', 'true');
+}
+
+async function expandProjectGroups(page: Page) {
+  await openDrawerIfNeeded(page);
+  const names = await page.locator('.repo-disclosure').allTextContents();
+  for (const raw of names) {
+    const name = raw.replace(/[▾▸]/g, '').replace(/\d+\s*$/, '').trim();
+    if (name && name !== 'artifacts' && name !== 'recently viewed') {
+      await expandGroup(page, name);
+    }
+  }
+}
+
+async function toggleAdvanced(page: Page) {
+  const topbar = page.locator('#mode-toggle');
+  if (await topbar.isVisible()) {
+    await topbar.click();
+  } else {
+    await openDrawerIfNeeded(page);
+    await page.locator('#sidebar-mode-toggle').click();
+  }
+  await expect(page.locator('html')).toHaveClass(/advanced-mode/);
+}
+
+async function visibleThemeToggle(page: Page) {
+  const topbar = page.locator('#theme-toggle');
+  if (await topbar.isVisible()) return topbar;
+  await openDrawerIfNeeded(page);
+  return page.locator('#sidebar-theme-toggle');
+}
 
 // Hermetic smoke specs — talk to the fixture-root server booted by
 // playwright.config.ts. They prove: server boots, html renders, sidebar
@@ -14,20 +61,54 @@ test.describe('vidux-browse smoke', () => {
 
   test('GET / renders topbar', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.topbar h1')).toHaveText('vidux browser');
+    await expect(page.locator('.topbar h1')).toHaveText('Vidux');
+  });
+
+  test('simple mode leads with inspectable mission proof and opens its plan', async ({ page }) => {
+    await page.goto('/');
+
+    const mission = page.locator('.mission-control');
+    await expect(mission).toBeVisible();
+    await expect(mission.locator('h2')).toHaveText(
+      'Prove the browser leads with one evidence-backed mission.',
+    );
+    await expect(mission.locator('.mission-metric.status-winning')).toHaveCount(1);
+    await expect(mission.locator('.mission-metric.status-losing')).toHaveCount(1);
+    await expect(mission.locator('.mission-scorecard-tally')).toHaveAttribute(
+      'aria-label',
+      '1 winning, 1 losing, 0 unproven',
+    );
+    await expect(mission.locator('.mission-metric .mission-proof-link')).toHaveCount(2);
+    await expect(mission.locator('.mission-details .mission-proof-link')).toHaveCount(1);
+    await expect(mission.locator('.freshness-fresh')).toContainText('fresh');
+    await expect(page.locator('.dashboard-panel')).toHaveCount(0);
+
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+
+    await mission.locator('.mission-open-plan').click();
+    await expect(page).toHaveURL(/plan=proj-alpha%2FPLAN\.md/);
+    await expect(page.locator('.pane-header h2')).toHaveText('proj-alpha');
+  });
+
+  test('mission proof opens the validated evidence file', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.mission-proof-link').first().click();
+    await expect(page).toHaveURL(/tab=EVD%3A/);
+    await expect(page.locator('.pane-header h2')).toHaveText('proj-alpha');
+    await expect(page.locator('#md-body')).toContainText('Mission Control Proof');
   });
 
   test('core app zones remain present without FAB/player chrome', async ({ page }) => {
     await page.goto('/');
     const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await openDrawerIfNeeded(page);
     await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
     if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+      await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
     }
     await expect(page.locator('[data-vidux-zone="status-header"]')).toBeVisible();
     await expect(page.locator('[data-vidux-zone="content-pane"]')).toBeVisible();
@@ -75,14 +156,10 @@ test.describe('vidux-browse smoke', () => {
   test('Cmd/Ctrl+Shift+C starts annotation capture without FAB', async ({ page }) => {
     await page.goto('/');
     const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await openDrawerIfNeeded(page);
     await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
     if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+      await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
     }
     await expect(page.locator('[data-comment-empty]')).toContainText('Cmd/Ctrl+Shift+C');
     await page.keyboard.press('Control+Shift+C');
@@ -94,21 +171,26 @@ test.describe('vidux-browse smoke', () => {
     await expect(page.locator('body')).not.toHaveClass(/is-annotation-mode/);
   });
 
-  test('sidebar lists plans from fixture root', async ({ page }) => {
+  test('project navigator indexes fixture plans and expands them on demand', async ({ page }) => {
     await page.goto('/');
-    const rows = page.locator('#sidebar-list .plan-row');
-    await expect(rows.first()).toBeVisible({ timeout: 5_000 });
-    expect(await rows.count()).toBeGreaterThanOrEqual(2);
+    await openDrawerIfNeeded(page);
+    await expect(page.locator('#sidebar-list .repo-disclosure')).toHaveCount(3);
+    await expect(page.locator('.plan-row[title="proj-alpha/PLAN.md"]')).toBeVisible();
+    await expect(page.locator('.plan-row[title="proj-beta/PLAN.md"]')).toHaveCount(0);
+
+    await expandGroup(page, 'proj-beta');
+    await expect(page.locator('.plan-row[title="proj-beta/PLAN.md"]')).toBeVisible();
   });
 
   test('filter narrows the sidebar', async ({ page }) => {
     await page.goto('/');
-    await page.locator('#sidebar-list .plan-row').first().waitFor();
-    const before = await page.locator('#sidebar-list .plan-row').count();
+    await openDrawerIfNeeded(page);
+    await page.locator('#sidebar-list .repo-disclosure').first().waitFor();
+    const before = await page.locator('#sidebar-list .repo-disclosure').count();
     await page.locator('#filter').fill('alpha');
     // give the filter a beat to re-render
     await page.waitForTimeout(150);
-    const after = await page.locator('#sidebar-list .plan-row').count();
+    const after = await page.locator('#sidebar-list .repo-disclosure').count();
     expect(after).toBeLessThan(before);
     expect(after).toBeGreaterThanOrEqual(1);
   });
@@ -116,65 +198,62 @@ test.describe('vidux-browse smoke', () => {
   test('sidebar sort menu orders by ETA and persists', async ({ page }) => {
     await page.goto('/');
     await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().waitFor();
+    await expect(page.locator('#sort')).toBeHidden();
+    await toggleAdvanced(page);
+    await expect(page.locator('#sort')).toBeVisible();
     await expect(page.locator('#sort')).toHaveValue('mtime');
     await page.locator('#sort').selectOption('eta');
-    await expect(page.locator('#sidebar-list .plan-row[data-kind="plan"]').first()).toHaveAttribute('title', /proj-beta/);
+    await expect(page.locator('#sidebar-list .repo-disclosure').first()).toContainText('proj-beta');
     await expect(page.locator('#sort')).toHaveValue('eta');
     await expect(page.locator('#sort option')).toHaveText(['Recently updated', 'ETA', 'Status']);
 
     await page.reload();
     await expect(page.locator('#sort')).toHaveValue('eta');
-    await expect(page.locator('#sidebar-list .plan-row[data-kind="plan"]').first()).toHaveAttribute('title', /proj-beta/);
+    await expect(page.locator('#sidebar-list .repo-disclosure').first()).toContainText('proj-beta');
     expect(await page.evaluate(() => localStorage.getItem('vidux:sidebar-sort'))).toBe('eta');
   });
 
   test('filter chips narrow by ETA and persist', async ({ page }) => {
     await page.goto('/');
-    const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
-    const rows = page.locator('#sidebar-list .plan-row[data-kind="plan"]');
-    await rows.first().waitFor();
-    const before = await rows.count();
+    await toggleAdvanced(page);
+    const groups = page.locator('#sidebar-list .repo-disclosure');
+    await groups.first().waitFor();
+    const before = await groups.count();
     expect(before).toBeGreaterThanOrEqual(3);
 
     const etaChip = page.locator('[data-filter-chip="eta"]');
     await etaChip.click();
     await expect(etaChip).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#sidebar-list .plan-row[title="proj-gamma"]')).toHaveCount(0);
-    const after = await rows.count();
+    await expect(page.locator('.repo-disclosure', { hasText: 'proj-gamma' })).toHaveCount(0);
+    const after = await groups.count();
     expect(after).toBeLessThan(before);
     expect(after).toBeGreaterThanOrEqual(1);
 
     await page.reload();
     await expect(page.locator('[data-filter-chip="eta"]')).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#sidebar-list .plan-row[title="proj-gamma"]')).toHaveCount(0);
+    await expect(page.locator('.repo-disclosure', { hasText: 'proj-gamma' })).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem('vidux:sidebar-filter-chips'))).toBe('["eta"]');
   });
 
-  test('plan-row has WCAG attrs (tabindex, role, aria-label)', async ({ page }) => {
+  test('plan rows are native links with useful accessible names', async ({ page }) => {
     await page.goto('/');
-    const first = page.locator('#sidebar-list .plan-row').first();
+    const first = page.locator('#sidebar-list .plan-row[data-kind="plan"]').first();
     await first.waitFor();
-    await expect(first).toHaveAttribute('tabindex', '0');
-    await expect(first).toHaveAttribute('role', 'option');
+    expect(await first.evaluate(el => el.tagName)).toBe('A');
+    await expect(first).toHaveAttribute('href', /plan=/);
+    await expect(first).not.toHaveAttribute('role', 'option');
     const aria = await first.getAttribute('aria-label');
     expect(aria).toBeTruthy();
     expect(aria!.length).toBeGreaterThan(5);
   });
 
-  test('plan-rows use a roving tabindex (exactly one tab stop)', async ({ page }) => {
-    // Round-3 readiness panel finding (accessibility lens): every sidebar
-    // row carried tabindex="0", violating the ARIA APG single-tab-stop
-    // listbox pattern (Tab should stop once for the whole list; arrow keys
-    // move within it). Exactly one row may be a tab stop at a time.
+  test('project navigator uses native nav semantics instead of a mixed listbox', async ({ page }) => {
     await page.goto('/');
-    const rows = page.locator('#sidebar-list .plan-row');
-    await rows.first().waitFor();
-    const tabbable = page.locator('#sidebar-list .plan-row[tabindex="0"]');
-    await expect(tabbable).toHaveCount(1);
+    const nav = page.locator('#sidebar-list');
+    await nav.locator('.plan-row').first().waitFor();
+    expect(await nav.evaluate(el => el.tagName)).toBe('NAV');
+    await expect(nav).not.toHaveAttribute('role', 'listbox');
+    await expect(nav.locator('[role="option"]')).toHaveCount(0);
   });
 
   test('collapse-group headers are keyboard-operable (WCAG 2.1.1)', async ({ page }) => {
@@ -182,16 +261,16 @@ test.describe('vidux-browse smoke', () => {
     // collapse/expand headers were mouse-only -- no tabindex, no role, no
     // keydown handler -- despite toggling visible content.
     await page.goto('/');
-    const header = page.locator('#sidebar-list .repo-group[data-collapse-key] h2').first();
+    await openDrawerIfNeeded(page);
+    const header = page.locator('#sidebar-list .repo-disclosure').first();
     await header.waitFor();
-    await expect(header).toHaveAttribute('tabindex', '0');
-    await expect(header).toHaveAttribute('role', 'button');
+    expect(await header.evaluate(el => el.tagName)).toBe('BUTTON');
     const expandedBefore = await header.getAttribute('aria-expanded');
     await header.focus();
     await page.keyboard.press('Enter');
     // renderSidebar() rebuilds the list on toggle, so re-query rather than
     // reuse the stale `header` locator handle.
-    const headerAfter = page.locator('#sidebar-list .repo-group[data-collapse-key] h2').first();
+    const headerAfter = page.locator('#sidebar-list .repo-disclosure').first();
     await expect(headerAfter).toHaveAttribute('aria-expanded', expandedBefore === 'true' ? 'false' : 'true');
   });
 
@@ -204,7 +283,7 @@ test.describe('vidux-browse smoke', () => {
 
   test('theme toggle cycles light/dark and persists', async ({ page, context }) => {
     await page.goto('/');
-    const btn = page.locator('#theme-toggle');
+    const btn = await visibleThemeToggle(page);
     await btn.waitFor();
     await btn.click();
     const themeAfter1 = await page.evaluate(() => localStorage.getItem('vidux:theme'));
@@ -218,6 +297,7 @@ test.describe('vidux-browse smoke', () => {
 test.describe('keyboard navigation', () => {
   test('ArrowDown/ArrowUp move focus across plan-rows', async ({ page }) => {
     await page.goto('/');
+    await expandProjectGroups(page);
     const rows = page.locator('#sidebar-list .plan-row');
     await rows.first().waitFor();
     await rows.first().focus();
@@ -230,6 +310,7 @@ test.describe('keyboard navigation', () => {
 
   test('Home/End jump to first/last', async ({ page }) => {
     await page.goto('/');
+    await expandProjectGroups(page);
     const rows = page.locator('#sidebar-list .plan-row');
     await rows.first().waitFor();
     const total = await rows.count();
@@ -398,16 +479,13 @@ test.describe('auto-refresh polling', () => {
     }];
 
     const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await expandGroup(page, 'artifacts');
     const artifactRow = page.locator('#sidebar-list .plan-row[data-kind="artifact"]').first();
     await artifactRow.click();
-    await expect(page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first()).toBeVisible();
+    const activeArtifactRow = page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first();
+    await expect(activeArtifactRow).toHaveClass(/is-active/);
     if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+      await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
     }
     await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version A');
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-target-count', '1');
@@ -419,7 +497,7 @@ test.describe('auto-refresh polling', () => {
     artifactBody = '<!doctype html><html><body><main><h1 id="artifact-title">artifact version B</h1><button id="artifact-action">Inspect</button></main></body></html>';
 
     await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version B', { timeout: 3_000 });
-    await expect(page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first()).toBeVisible();
+    await expect(activeArtifactRow).toHaveClass(/is-active/);
   });
 });
 
@@ -473,11 +551,7 @@ test.describe('artifact styling', () => {
     });
 
     await page.goto('/');
-    const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await expandGroup(page, 'artifacts');
     await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
     const body = page.frameLocator('iframe.artifact-frame').locator('body');
     await expect(body).toContainText('shared artifact theme');
@@ -491,26 +565,17 @@ test.describe('artifact styling', () => {
     expect(paneMetrics.scrollWidth).toBeLessThanOrEqual(paneMetrics.clientWidth);
   });
 
-  // Round-1 open-source panel finding: at iPhone SE/12/13/14 widths, the
-  // title (.topbar h1, flex-shrink:0) and #mode-toggle pixel-overlapped --
-  // "vidux browser" rendered as "vidux brows" with the button drawn on top.
-  // Root cause was .topbar-meta's own children (text + 3 buttons) keeping
-  // their natural min-content width and overflowing their shrunk parent,
-  // not the outer .topbar itself. Covers the exact widths the panel measured.
-  for (const width of [375, 390, 414]) {
-    test(`topbar title and mode-toggle do not overlap at ${width}px`, async ({ page }) => {
+  for (const width of [320, 375, 390, 414]) {
+    test(`mobile shell stays one row at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.goto('/');
-      const h1 = await page.locator('.topbar h1').boundingBox();
-      const toggle = await page.locator('#mode-toggle').boundingBox();
-      expect(h1).not.toBeNull();
-      expect(toggle).not.toBeNull();
-      if (h1 && toggle) {
-        const sameRow = Math.abs(h1.y - toggle.y) < h1.height;
-        if (sameRow) {
-          expect(h1.x + h1.width).toBeLessThanOrEqual(toggle.x);
-        }
-      }
+      const topbar = await page.locator('.topbar').boundingBox();
+      expect(topbar).not.toBeNull();
+      expect(topbar!.height).toBeLessThanOrEqual(64);
+      await expect(page.locator('#mode-toggle')).toBeHidden();
+      await expect(page.locator('#theme-toggle')).toBeHidden();
+      await expect(page.locator('#sidebar-toggle')).toBeVisible();
+      await expect(page.locator('#refresh')).toBeVisible();
     });
   }
 
@@ -541,4 +606,51 @@ test.describe('artifact styling', () => {
       }
     });
   }
+
+  test('mobile drawer is inert while closed and restores focus on Escape', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const toggle = page.locator('#sidebar-toggle');
+    const sidebar = page.locator('#sidebar');
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+    await expect(sidebar).toHaveAttribute('inert', '');
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(sidebar).toHaveAttribute('aria-hidden', 'false');
+    await expect(page.locator('#filter')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(sidebar).toHaveAttribute('inert', '');
+    await expect(toggle).toBeFocused();
+  });
+
+  test('mobile selection closes the drawer and keeps mission proof first', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const toggle = page.locator('#sidebar-toggle');
+    await toggle.click();
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#sidebar')).toHaveAttribute('inert', '');
+
+    await page.goto('/');
+    await expect(page.locator('.mission-control')).toBeVisible();
+    await expect(page.locator('.mission-next')).toBeVisible();
+    await expect(page.locator('.mission-scorecard')).toBeVisible();
+    await expect(page.locator('.mission-details')).toBeVisible();
+    const positions = await page.evaluate(() => {
+      const top = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().top;
+      return {
+        next: top('.mission-next'),
+        results: top('.mission-scorecard'),
+        details: top('.mission-details'),
+      };
+    });
+    expect(positions.next).toBeLessThan(positions.results);
+    expect(positions.results).toBeLessThan(positions.details);
+  });
 });

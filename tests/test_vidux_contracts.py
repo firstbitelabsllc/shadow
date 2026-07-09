@@ -1819,7 +1819,11 @@ class ViduxContractTests(unittest.TestCase):
 
         prompt_path = "prompts/goal-navigation-control-plane.prompt.md"
         self.assertIn(prompt_path, vidux)
-        self.assertIn(prompt_path, amp)
+        # The public Vidux suite must not require a Leo-private router to name
+        # this repo's prompt literally. Pin the shared capability boundary:
+        # Vidux owns its canonical pointer; Amp owns generic prompt-file mode.
+        self.assertIn("Prompt File Mode", amp)
+        self.assertIn("one PLAN path", amp)
         self.assertFalse(PRIVATE_AUTO_SKILL.exists(), "private /auto skill should be deleted, not archived")
         self.assertFalse(SHARED_AUTO_SKILL.exists(), "shared /auto skill should be deleted, not shadowed")
         self.assertFalse(ACTIVE_AUTO_SKILL.exists(), "active skill farm should not expose /auto")

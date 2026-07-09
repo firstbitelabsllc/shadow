@@ -15,6 +15,52 @@ SCRIPT = ROOT / "scripts" / "vidux-public-ready-grep-gate.py"
 
 
 class PublicReadyGrepGateTests(unittest.TestCase):
+    def test_tracked_only_scans_the_shipping_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / "README.md").write_text("Vidux is markdown-plan-first.\n", encoding="utf-8")
+            leak = root / "LOCAL-NOTES.md"
+            leak.write_text("Use `/leo-flow` locally.\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+
+            clean = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo-root",
+                    str(root),
+                    "--tracked-only",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            subprocess.run(["git", "-C", str(root), "add", "LOCAL-NOTES.md"], check=True)
+            leak.write_text("Clean worktree copy.\n", encoding="utf-8")
+            leaking = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo-root",
+                    str(root),
+                    "--tracked-only",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        clean_payload = json.loads(clean.stdout)
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertEqual(clean_payload["scope"], "tracked")
+        self.assertEqual(clean_payload["scanned_files"], 1)
+        self.assertEqual(leaking.returncode, 1)
+        leaking_payload = json.loads(leaking.stdout)
+        self.assertEqual(leaking_payload["matches"][0]["file"], "LOCAL-NOTES.md")
+
     def test_clean_current_surface_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

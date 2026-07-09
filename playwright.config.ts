@@ -17,7 +17,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // The suite shares one fixture server and a few mutable receipt/comment
+  // fixtures. Keep local runs bounded so `npm run test:e2e` does not fan out
+  // to every CPU, overload the server, and close browser contexts mid-test.
+  workers: process.env.CI ? 1 : 3,
   reporter: process.env.CI ? [['github'], ['html']] : 'list',
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,

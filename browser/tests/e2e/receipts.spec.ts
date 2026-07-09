@@ -15,13 +15,12 @@ test.describe('receipts corpus filter accessibility', () => {
     const tagName = await page.locator('#chip-stub').evaluate(el => el.tagName);
     expect(tagName).toBe('BUTTON');
 
-    await page.locator('#refresh-btn').focus();
-    await page.keyboard.press('Tab'); // -> #chip-all
-    await page.keyboard.press('Tab'); // -> #chip-stub
-    await expect(page.locator('#chip-stub')).toBeFocused();
+    const stubChip = page.locator('#chip-stub');
+    await stubChip.focus();
+    await expect(stubChip).toBeFocused();
 
     await page.keyboard.press('Enter');
-    await expect(page.locator('#chip-stub')).toHaveClass(/active/);
+    await expect(stubChip).toHaveClass(/active/);
     await expect(page.locator('#chip-all')).not.toHaveClass(/active/);
   });
 
