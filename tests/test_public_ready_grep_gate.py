@@ -208,6 +208,70 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertIn("employer email or domain", patterns_matched)
         self.assertIn("employer internal hostname", patterns_matched)
 
+    def test_employer_snap_tld_pattern_catches_real_leak(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Endpoint: http://agi-inference.snap/v1/embeddings\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        patterns_matched = {m["pattern"] for m in payload["matches"]}
+        self.assertIn("employer internal .snap TLD", patterns_matched)
+
+    def test_gmail_and_other_business_name_patterns_catch_real_leaks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Author: trysnowcubes@gmail.com, business: trysnowcubes.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        patterns_matched = {m["pattern"] for m in payload["matches"]}
+        self.assertIn(
+            "gmail address other than the maintainer's public commit identity",
+            patterns_matched,
+        )
+        self.assertIn("maintainer's other business name", patterns_matched)
+
+    def test_maintainers_own_public_commit_identity_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Every commit on origin/main is authored as leojkwan@gmail.com.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "passed")
+
     def test_historical_plan_dirs_are_out_of_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
