@@ -1,41 +1,38 @@
-# Multi-agent work queue — 2026-07-09 (loop 4)
+# Multi-agent work queue — 2026-07-09 (loop 5)
 
-**Weakest truthful claim:** `source-proven` — tests green on main; #193 **merged**; #177 **closed superseded**; #195 open for Setup/Proof thin land (not yet merged). No Simple toggle smoke.
+**Weakest truthful claim:** `runtime-proven` for browser health + static Simple wiring; `unit-proven` for Simple-default contract. No Playwright pixel toggle screenshot.
 
-## Shipped / closed this cycle
+## Steady state on main
 
-| Item | Result |
+| Item | Status |
 |------|--------|
-| V-193 | **MERGED** #193 thin-token contracts + public-readiness (`49ea5e0`) |
-| V-177 | **CLOSED** superseded (CONFLICTING vs main) |
-| V-195 | **OPEN** https://github.com/firstbitelabsllc/vidux/pull/195 — thin Setup/Proof Contract |
-| V-TEST | loop4: test:js 7/7 + 46 focused py PASS |
+| Simple-default cockpit | shipped #191 |
+| Thin-token + Recipe 13 | shipped #191 |
+| Setup/Proof thin | shipped #195 |
+| Thin-token contracts | shipped #193 |
+| `/auto` off farm | archived ai-leo |
+| **vidux-main-active** | → `Development/vidux@main` (live tip tracked) |
+| **Tests** | loop5: test:js **8/8**, focused py **46 PASS**, health **200** |
 
 ## Ranked next
 
-| Pri | ID | Slice | Agents | Proof |
-|-----|-----|-------|--------|-------|
-| **P0** | **V-195** | Merge #195 Setup/Proof thin | 1 nurse | merged to main |
-| **P1** | **V-SMOKE** | Simple↔Advanced toggle smoke + png | 1 UI | evidence/ screenshot |
-| **P1** | **V-MAIN-ACTIVE** | Point `vidux-main-active` at updated main (skill mount freshness) | 1 farm | `git -C vidux-main-active pull` or re-link |
-| **P2** | V-5.3.1 | Ready-PR automations | blocked Resplit | leave |
-| **P2** | FARM OCCUPIED | Skillbox doctor noise | deferred | leave |
+| Pri | ID | Slice | Notes |
+|-----|-----|-------|-------|
+| **P1** | **V-PIXEL** | Optional Playwright Simple↔Advanced pixel smoke | only if visual regression risk rises |
+| **P2** | **5.3.1** | Ready-PR automations | blocked on Resplit overlap |
+| **P2** | **5.4.x** | Branch protection for automation actors | depends Wave 3 |
+| **P2** | Farm OCCUPIED | Skillbox doctor noise | document-only |
 
-## Fan-out (≤3)
+## Multi-agent posture (steady state)
 
-1. **Nurse** — merge #195 when checks green  
-2. **UI** — optional toggle smoke  
-3. **Farm** — refresh vidux-main-active checkout  
+- **Do not** fan out kernel/PE sidecars.
+- Default load: `guides/thin-token.md` + PLAN Current State + one Open work row.
+- Max 2–3 workers only when a **new** path-disjoint product slice appears.
+- Rising-tide default: keep tests green; prefer docs/test contracts over SKILL bloat.
 
-## Token rule
-
-`guides/thin-token.md` + one PLAN row. Setup/Proof detail lives in thin Cycle bullets — full multi-modal doctrine stays in host `/leo-flow` P0, not reloaded into every Vidux session.
-
-## Tests this cycle
+## Proof this cycle
 
 ```bash
-npm run test:js   # PASS
-python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_deleted_auto_publish_rules_are_rehomed_without_skip \
-  tests.test_vidux_contracts.ViduxContractTests.test_goal_navigation_and_deleted_auto_contract \
-  tests.test_plan_guard tests.test_write_verify tests.test_step_journal -q  # 46 PASS
+npm run test:js   # 8 tests incl. Simple/Advanced default contract
+# live: python3 browser/server.py --port 7193 → GET /api/health 200; app.js serves isAdvancedMode
 ```

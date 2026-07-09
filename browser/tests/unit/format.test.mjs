@@ -65,4 +65,21 @@ describe('app.js source health (smoke)', () => {
     const src = fs.readFileSync(APP_JS, 'utf8');
     expect(src).toContain('function fmtAge(');
   });
+  it('Simple/Advanced mode defaults off until advancedMode=1', () => {
+    const app = fs.readFileSync(APP_JS, 'utf8');
+    const indexHtml = fs.readFileSync(
+      fileURLToPath(new URL('../../static/index.html', import.meta.url)),
+      'utf8',
+    );
+    const style = fs.readFileSync(
+      fileURLToPath(new URL('../../static/style.css', import.meta.url)),
+      'utf8',
+    );
+    expect(app).toContain('function isAdvancedMode(');
+    expect(app).toContain('vidux:advancedMode');
+    // FOUC + runtime both treat Advanced as opt-in (=== '1'), so default is Simple.
+    expect(indexHtml).toContain("getItem('vidux:advancedMode') === '1'");
+    expect(indexHtml).toContain('id="mode-toggle"');
+    expect(style).toMatch(/html:not\(\.advanced-mode\)/);
+  });
 });
