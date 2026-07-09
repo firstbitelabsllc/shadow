@@ -88,6 +88,34 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         self.assertTrue(browser_server.is_loopback_host("::1"))
         self.assertFalse(browser_server.is_loopback_host("192.0.2.55"))
 
+    def test_allowed_request_host_accepts_loopback_identities(self):
+        for host in ("127.0.0.1:7191", "localhost:7191", "[::1]:7191", "127.0.0.1"):
+            self.assertTrue(
+                browser_server.is_allowed_request_host(host, "127.0.0.1"),
+                f"expected {host!r} to be allowed",
+            )
+
+    def test_allowed_request_host_rejects_dns_rebound_hostname(self):
+        # A rebound page presents Host and Origin that agree with EACH OTHER
+        # (both "evil.example") -- origin_matches_host alone would pass this.
+        # The Host allowlist must reject it independently of Origin.
+        self.assertFalse(
+            browser_server.is_allowed_request_host("evil.example:7191", "127.0.0.1")
+        )
+        self.assertTrue(
+            browser_server.origin_matches_host(
+                "http://evil.example:7191", "evil.example:7191"
+            ),
+            "sanity check: Origin==Host agreement alone is not a defense",
+        )
+
+    def test_allowed_request_host_permits_lan_bind_for_documented_read_mode(self):
+        # 0.0.0.0/:: is the explicit, documented trusted-LAN opt-in
+        # (README.md, SKILL.md) -- arbitrary LAN Host headers are expected.
+        self.assertTrue(
+            browser_server.is_allowed_request_host("192.168.1.50:7191", "0.0.0.0")
+        )
+
 
 class BrowserWriteEndpointHTTPTests(unittest.TestCase):
     def setUp(self):
@@ -145,6 +173,14 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         conn.close()
         return res.status, text
 
+    def get_with_headers(self, path: str, headers: dict[str, str]):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("GET", path, headers=headers)
+        res = conn.getresponse()
+        text = res.read().decode("utf-8", errors="replace")
+        conn.close()
+        return res.status, text
+
     def head(self, path: str):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         conn.request("HEAD", path)
@@ -181,6 +217,25 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(body, b"")
         self.assertEqual(headers["Content-Type"], "text/plain; charset=utf-8")
         self.assertGreater(int(headers["Content-Length"]), 0)
+
+    def test_get_rejects_dns_rebound_host_header(self):
+        # Simulates a DNS-rebound page: Host and Origin both present as the
+        # attacker's domain (so they agree with each other), but the TCP
+        # connection still lands on this loopback server. Must be blocked
+        # by the Host allowlist, not by Origin==Host agreement.
+        status, text = self.get_with_headers(
+            "/api/health",
+            {"Host": "evil.example:1234", "Origin": "http://evil.example:1234"},
+        )
+
+        self.assertEqual(status, 403, text)
+
+    def test_get_accepts_legitimate_loopback_host_header(self):
+        status, text = self.get_with_headers(
+            "/api/health", {"Host": f"127.0.0.1:{self.port}"}
+        )
+
+        self.assertEqual(status, 200, text)
 
     def test_artifact_post_accepts_same_origin_json(self):
         status, text = self.post(
@@ -1731,6 +1786,34 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertFalse(any(key.startswith("@storybook/") for key in deps))
         self.assertNotIn("storybook", scripts)
 
+    def test_readaloud_simple_mode_hides_voxtral_mlx_jargon(self):
+        # Round-2 readiness panel finding: the persistent read-aloud footer
+        # showed "Voxtral MLX" / a raw shell script path even in Simple mode.
+        # Nicole-readable Simple mode must not print the product/vendor name
+        # or the setup command by default -- only Advanced mode should.
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        readaloud = (ROOT / "browser" / "static" / "readaloud.js").read_text(
+            encoding="utf-8",
+        )
+
+        # Static (pre-JS, Simple-mode-default) markup carries plain labels.
+        footer = index.split('id="readaloud-player" class="readaloud-player"', 1)[1]
+        footer = footer.split("</div>\n</body>", 1)[0]
+        self.assertNotIn("Voxtral", footer.split('id="readaloud-server-command"')[0])
+        self.assertIn(">Voice</button>", footer)
+
+        # The gating mechanism itself is real, not just the static default --
+        # readaloudAdvanced() must gate every jargon-bearing string.
+        self.assertIn("function readaloudAdvanced()", readaloud)
+        self.assertIn("window.isAdvancedMode", readaloud)
+        jargon_sites = [
+            'badge.textContent = advanced\n    ? (status === "online" ? "MLX on"',
+            "b.hidden = !show || !advanced;",
+            'b.title = readaloudAdvanced()\n        ? "Read selected text or current pane with local Voxtral MLX"',
+        ]
+        for site in jargon_sites:
+            self.assertIn(site, readaloud)
+
     def test_readaloud_footer_controls_and_annotation_fab_are_annotation_safe(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
@@ -1751,7 +1834,7 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn('aria-label="Play read-aloud" aria-pressed="false"', index)
         self.assertIn('aria-label="Read-aloud speed: 1.12x. Click to cycle."', index)
         self.assertIn('id="root-readaloud-engine" class="root-readaloud-engine" type="button"', index)
-        self.assertIn("Click to copy the server command", index)
+        self.assertIn("Click for the local setup command", index)
         self.assertIn('id="readaloud-server-command"', index)
         self.assertIn('hidden>browser/scripts/start-voxtral-mlx-server.sh</button>', index)
         self.assertIn('id="readaloud-cache-clear"', index)

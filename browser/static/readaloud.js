@@ -116,26 +116,38 @@ function readaloudInit() {
   console.log("[readaloud] initialized (local Voxtral MLX)");
 }
 
+function readaloudAdvanced() {
+  try { return typeof window.isAdvancedMode === "function" && window.isAdvancedMode(); }
+  catch (e) { return false; }
+}
+
 function readaloudSetEngineStatus(status, detail) {
   const badge = READALOUD.engineBadge;
   if (!badge) return;
   badge.classList.toggle("is-online", status === "online");
   badge.classList.toggle("is-offline", status === "offline");
-  badge.textContent = status === "online" ? "MLX on" : status === "offline" ? "MLX off" : "MLX";
+  const advanced = readaloudAdvanced();
+  badge.textContent = advanced
+    ? (status === "online" ? "MLX on" : status === "offline" ? "MLX off" : "MLX")
+    : (status === "online" ? "Voice on" : status === "offline" ? "Voice off" : "Voice");
   const engine = READALOUD.activeEngine || READALOUD_ENGINE_CANDIDATES[0];
   const suffix = detail ? ` (${detail})` : "";
-  badge.title =
-    `Audio source: ${engine.label} at ${READALOUD.voxtralBaseUrl}${suffix}. ` +
-    `Click to copy: ${readaloudServerCommand()}`;
+  badge.title = advanced
+    ? `Audio source: ${engine.label} at ${READALOUD.voxtralBaseUrl}${suffix}. ` +
+      `Click to copy: ${readaloudServerCommand()}`
+    : `Read-aloud voice status${suffix}. Click for the local setup command.`;
   badge.setAttribute(
     "aria-label",
-    `Audio source: ${engine.label} ${badge.textContent}${suffix}. ` +
-      `Click to copy launch command.`,
+    advanced
+      ? `Audio source: ${engine.label} ${badge.textContent}${suffix}. Click to copy launch command.`
+      : `Read-aloud voice status: ${badge.textContent}${suffix}. Click for setup command.`,
   );
   if (status === "offline" && (READALOUD.state === "idle" || READALOUD.state === "error")) {
     if (!READALOUD.engineProbeDeadline) {
       readaloudSetPlayerStatus(
-        `Server offline. Start ${readaloudOfflineServerLabel()}`,
+        advanced
+          ? `Server offline. Start ${readaloudOfflineServerLabel()}`
+          : "Read-aloud isn't running right now.",
       );
     }
     readaloudShowServerCommand(true);
@@ -174,7 +186,9 @@ function readaloudSetState(state, label) {
     case "idle":
       b.textContent = "Read";
       b.disabled = false;
-      b.title = "Read selected text or current pane with local Voxtral MLX";
+      b.title = readaloudAdvanced()
+        ? "Read selected text or current pane with local Voxtral MLX"
+        : "Read selected text or current pane aloud";
       b.setAttribute("aria-label", "Read current selection or pane aloud");
       break;
     case "loading":
@@ -322,7 +336,12 @@ function readaloudShowServerCommand(show) {
   const b = READALOUD.serverCommandButton;
   if (!b) return;
   const command = readaloudServerCommand();
-  b.hidden = !show;
+  const advanced = readaloudAdvanced();
+  // Simple mode never surfaces the raw shell command inline -- the engine
+  // badge (READALOUD.engineBadge) still copies it to clipboard on click
+  // either way, this button just avoids dangling a path someone in Simple
+  // mode has no context to run.
+  b.hidden = !show || !advanced;
   b.textContent = command;
   b.title = `Copy: ${command}`;
   b.setAttribute("aria-label", `Copy local Voxtral MLX server command: ${command}`);

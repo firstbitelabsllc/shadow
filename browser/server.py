@@ -2026,6 +2026,42 @@ def is_loopback_host(host: str) -> bool:
     return host in LOOPBACK_HOSTS
 
 
+def request_host_hostname(host: str) -> str:
+    """Hostname portion of a Host header, tolerating IPv6 literals like [::1]:7191."""
+    netloc = (host or "").strip().lower()
+    if not netloc:
+        return ""
+    if netloc.startswith("["):
+        end = netloc.find("]")
+        return netloc[: end + 1] if end != -1 else netloc
+    return netloc.rsplit(":", 1)[0] if ":" in netloc else netloc
+
+
+def is_allowed_request_host(host: str, bind_host: str) -> bool:
+    """Reject requests whose Host header isn't a recognized loopback identity.
+
+    Origin/Referer-must-match-Host (origin_matches_host) does not stop DNS
+    rebinding: a rebound page's browser sends a Host header and an Origin
+    header that agree with EACH OTHER (both reflect the attacker's domain),
+    so that check passes even though the TCP connection actually lands on
+    this loopback server. An independent Host allowlist is required because
+    a rebound domain can never legitimately present as "127.0.0.1"/"localhost".
+
+    Skipped when explicitly bound to 0.0.0.0/:: (documented trusted-LAN read
+    mode, README/SKILL.md) -- LAN client Host headers are expected there by
+    design; writes stay loopback-gated separately via client_address.
+    """
+    if bind_host in ("0.0.0.0", "::"):
+        return True
+    hostname = request_host_hostname(host)
+    if not hostname:
+        return False
+    allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
+    if bind_host not in ("0.0.0.0", "::"):
+        allowed.add(bind_host.strip().lower())
+    return hostname in allowed
+
+
 def is_json_content_type(value: str | None) -> bool:
     return (value or "").split(";", 1)[0].strip().lower() == JSON_CONTENT_TYPE
 
@@ -2202,6 +2238,8 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"[{self.log_date_time_string()}] {fmt % args}\n")
 
     def do_GET(self):  # noqa: N802 — stdlib override
+        if not self._host_header_ok():
+            return
         url = urlparse(self.path)
         route = url.path
         qs = parse_qs(url.query)
@@ -2292,6 +2330,8 @@ class Handler(BaseHTTPRequestHandler):
             self._head_only = False
 
     def do_POST(self):  # noqa: N802 — stdlib override
+        if not self._host_header_ok():
+            return
         url = urlparse(self.path)
         if url.path == "/api/artifact":
             if not self._require_json_write():
@@ -2529,6 +2569,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(body) if status < 400 else self._send(status, body.get("error", "error"))
         else:
             self._send(404, "not found")
+
+    def _host_header_ok(self) -> bool:
+        if is_allowed_request_host(self.headers.get("Host") or "", HOST):
+            return True
+        self._send(403, "Host header not recognized")
+        return False
 
     def _require_json_write(self) -> bool:
         if not is_loopback_host(self.client_address[0]):

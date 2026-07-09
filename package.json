@@ -20,7 +20,7 @@
     "test:all": "npm run test:js && npm run test:py && npm run test:e2e",
     "test:js": "vitest run",
     "test:js:watch": "vitest",
-    "test:py": "python3 -m unittest tests.test_vidux_contracts tests.test_plan_gc tests.test_plan_guard tests.test_write_verify tests.test_step_journal tests.test_doctor_checks tests.test_browser_server tests.test_pr_body tests.test_drift_log tests.test_signpost tests.test_vidux_config_cli tests.test_drift_smoke tests.test_public_ready_grep_gate tests.test_no_adapters_import_path tests.test_receipts_storage tests.test_receipts_handler tests.test_receipts_export tests.test_receipts_toss tests.test_receipts_loop tests.test_receipts_extract tests.test_receipts_compare tests.test_receipts_review tests.test_receipts_contract tests.test_receipts_classify",
+    "test:py": "python3 -m unittest discover -s tests -p 'test_*.py'",
     "public-ready:grep": "python3 scripts/vidux-public-ready-grep-gate.py",
     "verify": "npm test && npm run public-ready:grep",
     "eve:info": "eve info",
@@ -38,9 +38,9 @@
     "@playwright/test": "^1.48.0",
     "ai": "7.0.0-beta.178",
     "eve": "0.11.5",
-    "happy-dom": "^15.7.0",
+    "happy-dom": "^20.10.6",
     "vitepress": "1.6.4",
-    "vitest": "^2.1.0",
+    "vitest": "^4.1.10",
     "vue": "3.5.13",
     "zod": "4.4.3"
   }
