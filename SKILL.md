@@ -911,20 +911,25 @@ When a repo has one active feature-reset plan and multiple agents work in parall
 
 Vidux core is scheduler-agnostic. Use the host environment's approved mechanism for recurring work: local cron/systemd/launchd, hosted scheduled jobs, CI events, manual loops, or another repo-owned runner. The invariant is the same everywhere: each run rehydrates from the authority PLAN.md, does one bounded slice, writes proof back, and exits cleanly.
 
-When wiring recurring work, reference the automation recipes from `guides/recipes/`:
+When wiring recurring work, reference the automation recipes from `guides/recipes.md`:
 
 | # | Recipe | Role | Trigger |
 |---|--------|------|---------|
-| 1 | **Fleet Watcher** | Coordinator (read-only) | Scheduled 2h |
+| 1 | **Fleet Watcher** — [DEPRECATED](guides/recipes.md#recipe-1-fleet-watcher--deprecated-2026-04-17), do not build new lanes | Coordinator (read-only) | Scheduled 2h |
 | 2 | **PR Reviewer** | Reviewer (read-only) | GitHub event (PR) |
-| 3 | **Draft-PR Lifecycle** | Tracker (read-only) | Scheduled 1h |
-| 4 | **Observer Pair** | Observer (read-only) | Scheduled 2h offset |
+| 3 | **PR Lifecycle Manager** | Tracker (read-only) | Scheduled 1h |
+| 4 | **Observer Pair** — [DEPRECATED](guides/recipes.md#recipe-4-observer-pair--deprecated-2026-04-17), do not build new lanes | Observer (read-only) | Scheduled 2h offset |
 | 5 | **Deploy Watcher** | Verifier (time-bounded) | GitHub event (push) |
 | 6 | **Trunk Health** | Infra monitor (read-only) | Scheduled 4h |
 | 7 | **Skill Refiner** | Quality auditor | Scheduled 6h |
 | 8 | **Self-Improvement** | Meta-writer | Scheduled 24h |
 
-Start with the smallest recipe that proves value. Add more only when the PLAN.md and ledger show durable demand.
+Recipes 1 and 4 are kept in the table for historical reference only — both
+are orchestration smells (a scheduled lane reading other lanes' state to
+report drift the writer couldn't self-detect); fleet health belongs in the
+coordinator's own cycle or a one-shot manual audit. Start with the smallest
+non-deprecated recipe that proves value. Add more only when the PLAN.md and
+ledger show durable demand.
 
 ---
 

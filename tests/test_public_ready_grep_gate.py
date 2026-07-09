@@ -51,6 +51,36 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["file"], "README.md")
 
+    def test_unreadable_file_does_not_crash_the_gate(self):
+        # Round-5 panel finding: an OSError (permissions, or a file deleted
+        # mid-scan) other than UnicodeDecodeError propagated as an unhandled
+        # traceback -- exit 1 either way, indistinguishable from a real
+        # leak match by exit code alone, and --json mode emitted nothing
+        # parseable on crash.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("Clean.\n", encoding="utf-8")
+            unreadable = root / "docs"
+            unreadable.mkdir()
+            blocked = unreadable / "blocked.md"
+            blocked.write_text("Add Linear sync back here.\n", encoding="utf-8")
+            blocked.chmod(0o000)
+
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                blocked.chmod(0o644)
+
+        self.assertIn(result.returncode, (0, 1))
+        payload = json.loads(result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(payload["status"], "passed")
+
     def test_ask_leo_is_in_scope_but_hygiene_exempt(self):
         # Round-3 panel finding: ASK-LEO.md was grouped with true history
         # files (ARCHIVE.md/CHANGELOG.md) and excluded from SCAN_TARGETS
