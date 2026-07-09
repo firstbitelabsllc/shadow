@@ -12,12 +12,12 @@
 
 ![CI](https://github.com/firstbitelabsllc/vidux/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/firstbitelabsllc/vidux?label=version)
 
-**Plan first, code second.** Vidux is a thin plan/proof control plane for AI coding work that spans multiple sessions, agents, or days.
+**Plan first, code second.** AI coding agents forget everything when the chat window closes. Vidux gives them a paper trail instead — one plain-text file that survives sessions, tools, and days, so the next agent (or the next you) never starts blind.
 
-- **One planning authority** — every project has a single `PLAN.md` for the queue, decisions, pivots, and progress.
-- **Proof travels with the handoff** — publish ledger rows record what shipped, how it was proved, which files were claimed, and where the next agent resumes.
-- **Stateless agents** — each run starts fresh, reads the plan plus latest proof rows, does one task, checkpoints, and exits. No memory tricks.
-- **Works everywhere** — Claude Code, Cursor, Codex. Any agent that can read markdown can pick up where the last one stopped.
+- **One file holds the whole plan** — every project gets a single `PLAN.md`: what's queued, what's decided, what's done. No database, no app to sign into.
+- **Nothing gets lost between sessions** — when one AI work session ends and a new one starts later, a written record says what got done, how to double-check it actually works, and exactly where to pick up (`publish ledger` rows, in vidux's own vocabulary).
+- **Every run starts clean** — each session reads the plan, does one task, writes down what happened, and exits. No hidden memory, no drift between what an agent "remembers" and what's actually true.
+- **Works with whatever you already use** — Claude Code, Cursor, Codex, or anything else that can read a markdown file.
 
 <p align="center">
   <img src="assets/vidux-terminal-demo.svg" alt="vidux terminal session — READ, ASSESS, ACT, VERIFY, CHECKPOINT" width="780">
@@ -147,6 +147,21 @@ Most agent failures are state failures:
 - the same bug got "fixed" three different ways
 
 Vidux makes repo-local plan/proof files the recovery packet. `PLAN.md` lives in git; publish ledger rows live in the append-only ledger. No databases, no daemons, no memory tricks.
+
+## Where Vidux Sits
+
+There's "just chat with the agent and hope it remembers" on one end, and full multi-agent orchestration frameworks — Hermes Agent, LangGraph, CrewAI, AutoGPT, MetaGPT — on the other. Those frameworks are genuinely more capable at what they're built for: always-on agents, complex conditional workflows, dozens of coordinated roles. But that capability comes with real apparatus — and most coding work doesn't need it. It needs one thing done well: keep a plan coherent across sessions, tools, and days.
+
+Vidux is the middle: more structure than bare chat, meaningfully less than an orchestration platform.
+
+| | Vidux | Orchestration frameworks (Hermes Agent, LangGraph, CrewAI...) |
+|---|---|---|
+| **Concepts to learn** | 3 — a plan file, an append-only proof log, one 5-step cycle | 4–6+ — e.g. Hermes Agent's Skills/Memory/Toolsets/Gateway/Context Files/Personalities across 3 layers; CrewAI's Agent/Task/Tool/Crew plus a Process concept |
+| **Required infra** | None beyond git + Python's standard library | Often a database and a service: LangGraph's production path needs Docker, Postgres, and a `pgvector` extension; Hermes Agent runs as a systemd service |
+| **Setup to first run** | `git clone` + one symlink + `vidux dev` | Hermes Agent's installer bundles Python, Node.js, and more before an interactive setup wizard covering 17+ model providers |
+| **Where state lives** | A markdown file and a JSONL log, readable by any human or agent | Often inside a database schema (e.g. Postgres JSONB/BYTEA columns) that needs a driver to inspect |
+
+None of this makes vidux "better" — it makes it narrower on purpose. If the job is a persistent multi-platform agent or a complex conditional graph, reach for one of those frameworks. If the job is "don't let this coding plan fall apart across sessions," that's what vidux is for.
 
 ## How Vidux Compares
 
