@@ -173,6 +173,42 @@ class PlanGCTests(unittest.TestCase):
         self.assertIn("[Fix: src/foo.ts:42]", archive)
         self.assertIn("extra context for T1 preserved", archive)
 
+    def test_fenced_example_completed_lines_are_never_archived(self):
+        # Round-4 panel finding (code-quality-maintainability): PLAN.md often
+        # documents its own "- [completed] ..." checkbox convention inside a
+        # fenced example. Without fence-awareness, those example lines
+        # text-match the same regex used to find real completed tasks and get
+        # silently archived out of the file by this script's unattended cron
+        # sweep (vidux-plan-gc-cron.sh) -- corrupting the doc, not just the
+        # task list.
+        make_plan(self.plan_dir, completed=35, pending=1)
+        plan_path = self.plan_dir / "PLAN.md"
+        fence = (
+            "\nExample task format:\n```\n"
+            + "\n".join(f"- [completed] Example fenced task {i}" for i in range(1, 41))
+            + "\n```\n"
+        )
+        text = plan_path.read_text().replace("## Tasks\n", "## Tasks\n" + fence, 1)
+        plan_path.write_text(text)
+
+        rc, out, _ = run_script(self.plan_dir)
+        self.assertEqual(rc, 0, f"unexpected exit; out={out}")
+
+        after = plan_path.read_text()
+        for i in range(1, 41):
+            self.assertIn(f"- [completed] Example fenced task {i}", after,
+                           "fenced example line must survive untouched")
+
+        real_completed_after = sum(
+            1 for line in after.splitlines() if line.startswith("- [completed] T")
+        )
+        self.assertEqual(real_completed_after, 20,
+                          "real T1..T35 tasks still archive down to target, unaffected by the fence")
+
+        archive_text = (self.plan_dir / "ARCHIVE.md").read_text()
+        self.assertNotIn("Example fenced task", archive_text,
+                          "fenced example lines must never be written to the archive")
+
     def test_decision_log_and_progress_survive(self):
         """Archival must only touch ## Tasks section."""
         make_plan(self.plan_dir, completed=35)

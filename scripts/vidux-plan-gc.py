@@ -78,25 +78,38 @@ def archive_completed_tasks(plan_path, archive_path, dry_run):
     section = lines[task_start:task_end]
 
     # Group: a task starts with '- [' and owns following indented/blank lines
-    # until the next '- ' or a non-indented non-blank line.
+    # until the next '- ' or a non-indented non-blank line. Each group is
+    # tagged is_task at creation time -- a PLAN.md documenting its own
+    # checkbox convention with a fenced example would otherwise have that
+    # example's "- [completed] ..." lines re-match the completed-task regex
+    # downstream regardless of fence state, since text pattern alone can't
+    # tell a real task from a quoted one. Tagging at creation (not re-deriving
+    # from text later) is what makes the fence exclusion actually stick.
     groups = []
     current = None
+    in_fence = False
     for line in section:
-        if re.match(r"^- \[", line):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+        if not in_fence and re.match(r"^- \[", line):
             if current is not None:
                 groups.append(current)
-            current = [line]
+            current = {"lines": [line], "is_task": True}
         elif current is not None and (line.startswith((" ", "\t")) or line.strip() == ""):
-            current.append(line)
+            # Continues the open task's body even while in_fence -- a fenced
+            # example nested inside a task's own indented body stays part of
+            # that task rather than being split out.
+            current["lines"].append(line)
         else:
             if current is not None:
                 groups.append(current)
                 current = None
-            groups.append([line])  # standalone prose line
+            groups.append({"lines": [line], "is_task": False})  # standalone prose (incl. a top-level fence)
     if current is not None:
         groups.append(current)
 
-    completed_groups = [g for g in groups if g and re.match(r"^- \[completed\]", g[0])]
+    completed_groups = [g for g in groups if g["is_task"] and re.match(r"^- \[completed\]", g["lines"][0])]
     completed_count = len(completed_groups)
 
     if completed_count <= COMPLETED_SOFT:
@@ -116,14 +129,14 @@ def archive_completed_tasks(plan_path, archive_path, dry_run):
             stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
             f.write(f"## Archived {stamp}\n\n")
             for g in to_archive:
-                f.writelines(g)
+                f.writelines(g["lines"])
             f.write("\n")
 
         new_section = []
         for g in groups:
             if id(g) in archived_ids:
                 continue
-            new_section.extend(g)
+            new_section.extend(g["lines"])
         new_lines = lines[:task_start] + new_section + lines[task_end:]
         plan_path.write_text("".join(new_lines))
         _resnapshot_plan_guard(plan_path)
@@ -175,8 +188,12 @@ def trim_inbox(plan_dir, dry_run):
     groups = []  # [{"lines": [...], "prunable": bool}, ...] in document order
     current = None
     in_list = False
+    in_fence = False
     for line in lines:
-        if line.startswith("- "):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+        if not in_fence and line.startswith("- "):
             in_list = True
             if current is not None:
                 groups.append(current)
