@@ -173,12 +173,12 @@ For repos where GitHub Actions minutes are constrained or intentionally disabled
 runner for unit, UI, E2E, or expensive regression proof. Use repo-owned local-ci
 lanes, locally-held evidence, local simulator/browser/device runs, and result
 bundles. If a needed
-local lane is missing, plan and ship the local-ci/Moussey improvement before
+local lane is missing, plan and ship the local-ci improvement before
 routing proof back through GitHub Actions.
 
 When applying that policy, audit `.github/workflows` directly. Convert any
 PR/push unit, UI, E2E, matrix, or expensive regression workflow to a
-`workflow_dispatch` pointer that names the local-ci/Moussey proof route. Cheap
+`workflow_dispatch` pointer that names the local-ci proof route. Cheap
 lint, mergeability, metadata, or security checks may remain only when they do
 not run those suites or burn meaningful runner minutes.
 
@@ -266,9 +266,9 @@ Tactical defaults from 30+ plan files across 5 repos. They apply everywhere, reg
 
 ## Worktree Lifecycle Contract (WLC)
 
-Every git worktree moves through four states and MUST transition out of the first three. Leaving one stuck is the exact bug that produced **34 orphaned worktrees + a 12-branch unmerged graveyard** across the Resplit fleet (see `resplit-ios/.cursor/plans/WORKTREE-RECOVERY-2026-06-14.md`: 81 worktrees enumerated across 4 repos, 12 held genuinely lost work, all force-recovered to `recover/*` branches but left UNMERGED). The lifecycle is the contract; the GC pipeline is its enforcement — doctrine without a reaper is exactly how the graveyard grew.
+Every git worktree moves through four states and MUST transition out of the first three. Leaving one stuck is the exact bug that produced **34 orphaned worktrees + a 12-branch unmerged graveyard** across a real multi-repo fleet in one audit (81 worktrees enumerated across 4 repos, 12 held genuinely lost work, all force-recovered to `recover/*` branches but left UNMERGED). The lifecycle is the contract; the GC pipeline is its enforcement — doctrine without a reaper is exactly how the graveyard grew.
 
-1. **CREATE → register.** Create ONLY off `origin/<trunk>`, **into a CONTAINED path — `<repo>-worktrees/<name>/` (preferred, already GC-classified), `<repo>/.claude/worktrees/`, or `/tmp/wt-*`. NEVER directly under a scan root like `~/Development/`.** A worktree at `~/Development/<name>` has a `.git` *file* that the ledger discover scan mis-reads as a repo root, re-enumerating the parent's whole worktree set N× and polluting repo discovery (an ad-hoc campaign's 17 `~/Development/sy-*` strongyes checkouts caused a ~17× rescan + a 53s→8s GC slowdown, 2026-06-20). Always pass an explicit contained absolute path to `git worktree add` — never a bare short slug. Log the creation to the ledger (`~/.agent-ledger/activity.jsonl`) with repo + branch + purpose. Pre-flight budget: if a repo already carries more than ~12 reapable orphan worktrees, run the GC sweep BEFORE adding another — don't grow the graveyard.
+1. **CREATE → register.** Create ONLY off `origin/<trunk>`, **into a CONTAINED path — `<repo>-worktrees/<name>/` (preferred, already GC-classified), `<repo>/.claude/worktrees/`, or `/tmp/wt-*`. NEVER directly under a scan root like `~/Development/`.** A worktree at `~/Development/<name>` has a `.git` *file* that the ledger discover scan mis-reads as a repo root, re-enumerating the parent's whole worktree set N× and polluting repo discovery (an ad-hoc campaign of 17 same-prefix checkouts placed directly under a scan root caused a ~17× rescan and a 53s→8s GC slowdown in one measured incident). Always pass an explicit contained absolute path to `git worktree add` — never a bare short slug. Log the creation to the ledger (`~/.agent-ledger/activity.jsonl`) with repo + branch + purpose. Pre-flight budget: if a repo already carries more than ~12 reapable orphan worktrees, run the GC sweep BEFORE adding another — don't grow the graveyard.
 2. **WORK → disposable scratch.** The worktree is a short-lived integration helper, never the source of truth (Trunk-First Rule).
 3. **LAND → same cycle, no open-ended deferral.** The branch is EITHER merged to trunk OR pushed to origin WITH an open draft PR. "Pushed but no PR" (`unmerged_no_pr`) is a BANNED terminal state. A `recover/*` branch is a 72-hour ticket — open a PR, cherry-pick onto current trunk, or log an explicit `ABANDONED: <reason>`; it is never a permanent parking lot.
 4. **TEARDOWN → reclaim.** Once landed, `git worktree remove` + delete the local branch + `git worktree prune`. A plan row / lane / task is NOT done while its work exists only as local worktree state.
