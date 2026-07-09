@@ -12,7 +12,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/github/v/tag/firstbitelabsllc/vidux?label=version)
 
-Tests run locally (`npm run verify`) before every merge — GitHub Actions CI is intentionally manual-only (see `CHANGELOG.md`), so there's no live CI badge here rather than a stale one.
+Tests run locally (`npm run verify`) before every merge — GitHub Actions CI is intentionally manual-only for build/test/lint (see the `DISABLED / MANUAL-ONLY POLICY` headers in `.github/workflows/{ci,lint,test}.yml`; secret scanning still runs automatically on every push/PR via `.github/workflows/secret-scan.yml`), so there's no live CI badge here rather than a stale one.
 
 **Plan first, code second.** AI coding agents forget everything when the chat window closes. Vidux gives them a paper trail instead — one plain-text file that survives sessions, tools, and days, so the next agent (or the next you) never starts blind.
 
