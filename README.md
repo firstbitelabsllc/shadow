@@ -172,7 +172,7 @@ Vidux is the middle: more structure than bare chat, meaningfully less than an or
 |---|---|---|
 | **Concepts to start**\* | 3 — a plan file, an append-only proof log, one 5-step cycle | 4–6+ — e.g. Hermes Agent's Skills/Memory/Toolsets/Gateway/Context Files/Personalities across 3 layers; CrewAI's Agent/Task/Tool/Crew plus a Process concept |
 | **Required infra** | None beyond git + Python's standard library | Often a database and a service: LangGraph's self-hosted deploy needs Docker, Postgres, and Redis; Hermes Agent runs as a systemd service |
-| **Setup to first run** | `git clone` + one symlink + `vidux dev` | Hermes Agent's installer bundles Python, Node.js, and more before an interactive setup wizard covering 20+ model providers |
+| **Setup to first run** | `git clone` + one symlink + `vidux dev` | Hermes Agent: install script, then `hermes setup --portal` — one command for OAuth + Nous Portal's 300+ frontier models + Tool Gateway (web search, image gen, TTS, browser) |
 | **Where state lives** | A markdown file and a JSONL log, readable by any human or agent | Often inside a database schema (e.g. Postgres JSONB/BYTEA columns) that needs a driver to inspect |
 
 \* Enough to write and run your first `PLAN.md`. `SKILL.md` (the full doctrine, including scheduling, multi-agent lanes, and edge cases) is much longer — most of it is reference material you'll never need to read.
@@ -189,7 +189,7 @@ None of this makes vidux "better" — it's a different set of tradeoffs. Vidux's
 | **Multi-agent** | Any agent reads the same plan/proof packet and picks up | Single agent per session | Single agent |
 | **Verification** | Evidence → plan → execute → verify → checkpoint | Trust the output | Trust the output |
 | **Automation (opt-in)** | Scheduled lanes read the same plan/proof packet | N/A | N/A |
-| **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | Provider-agnostic (OpenRouter and others, 75-100+ providers) |
+| **Agent agnostic** | Claude, Cursor, Codex — anything that reads markdown | Tool-specific | Provider-agnostic: OpenCode via the AI SDK + Models.dev registry (75+ providers); Aider via LiteLLM |
 
 Vidux doesn't replace your coding agent — it gives your agent a memory that outlasts the session.
 
