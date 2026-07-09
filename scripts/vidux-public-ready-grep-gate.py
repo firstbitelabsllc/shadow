@@ -15,12 +15,26 @@ SCAN_TARGETS = (
     "SKILL.md",
     "README.md",
     "CONTRIBUTING.md",
+    "PLAN.md",
     "commands",
     "docs",
     "guides",
     "scripts",
+    "prompts",
+    "evidence",
+    "investigations",
     ".github",
     "package.json",
+    # Deliberately NOT scanned:
+    # - "projects" is the private plan store (.gitignore's `projects/*` with
+    #   named tracked exceptions); historical plan dirs stay out of scope by
+    #   design (see test_historical_plan_dirs_are_out_of_scope).
+    # - "tests" is excluded: tests/test_vidux_contracts.py legitimately pins
+    #   some of these strings as required test content (see the private-path
+    #   contract tests); scanning it would flag the test file, not a leak.
+    # - History/changelog files (ARCHIVE.md, CHANGELOG.md, ASK-LEO.md) record
+    #   retired terms (e.g. "Linear") in legitimate past tense; scanning them
+    #   against FORBIDDEN_PATTERNS produces noise, not real findings.
 )
 
 EXCLUDED_DIR_NAMES = {".git", "__pycache__", "node_modules"}

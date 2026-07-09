@@ -731,7 +731,7 @@ function renderPlanBrief(plan, stats, aggregate) {
         <li class="plan-brief-task">
           <span class="plan-brief-status status-${escapeAttr(task.status || "pending")}">${escapeText(task.status || "pending")}</span>
           <span class="plan-brief-task-label">${escapeText(task.label || "")}</span>
-          <a class="plan-brief-code-link" href="${escapeAttr(codingWorkbenchUrl(plan, task))}" target="_blank" rel="noreferrer">Code lane</a>
+          ${isAdvancedMode() ? `<a class="plan-brief-code-link" href="${escapeAttr(codingWorkbenchUrl(plan, task))}" target="_blank" rel="noreferrer" title="Open in Moussey coding workbench">Code lane</a>` : ""}
         </li>`).join("")
     : `<li class="plan-brief-task is-empty">No active task rows yet.</li>`;
   const latestHTML = [

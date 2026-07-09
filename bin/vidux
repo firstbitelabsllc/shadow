@@ -362,6 +362,7 @@ main() {
       exec python3 "${VIDUX_ROOT}/scripts/vidux-status.py" "$@"
       ;;
     init)
+      export VIDUX_ROOT
       exec bash "${VIDUX_ROOT}/scripts/vidux-init.sh" "$@"
       ;;
     drift)

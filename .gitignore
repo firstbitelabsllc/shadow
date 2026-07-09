@@ -156,6 +156,12 @@ tests/test_snowcubes_readiness_*
 # Local private: crashcourse reading-inbox generator (employer paths)
 scripts/crashcourse-inbox-gen.py
 !projects/night-queue/
+# night-queue/backups/ has held Snap-internal-confidential source (Airflow
+# DAGs, BigQuery SQL, an internal redacted-internal-endpoint.example endpoint) from an
+# untracked working-copy sync at least twice (2026-07-08, PR #193). Re-exclude
+# it even though the parent dir above is un-ignored — never track this again,
+# and never "restore" a future deletion of it without checking why first.
+projects/night-queue/backups/
 
 # Local skill installs (e.g. `npx impeccable install`) — third-party skill
 # reference/scripts trees, not vidux's own content. Never ship in the public

@@ -5,11 +5,12 @@ description: "Plan-first project router for AI agents. Detects stack, stage, and
 
 # Vidux
 
-> **Opt-in legacy/reference toolkit.** Vidux is no longer a default runtime or
-> router for Leo's Claude/Codex/Cursor/Agents skill farm. Keep this repo for old
-> plans, browser/artifact utilities, scripts, and explicit legacy/reference
-> tasks. Default work should route through `/leo-flow`, repo skills, native host
-> tools, PLAN.md/FLOW.md, `/hook`, and the ledger.
+> **Note for multi-tool fleets:** if your setup already routes day-to-day work
+> through its own private dispatcher across several competing skills/agents,
+> treat vidux as the plan/proof layer that dispatcher can delegate into for
+> `PLAN.md` + publish-ledger work — not as a second router to fight with
+> the first. Running vidux standalone, with no dispatcher on top, is the
+> common case and works fully on its own; everything below applies either way.
 
 Vidux is a discipline for AI agents: write down what you build before you build it. Plans live in markdown files in git. Agents read the plan, do one piece of work, update the plan, and checkpoint. Any agent resumes where the last left off: the owning plan records queue, decisions, constraints, progress; matching ledger rows carry shipped-cycle proof.
 
@@ -57,8 +58,8 @@ The durable chain is:
 4. Matching publish ledger rows carry shipped-cycle proof, handoff status, files
    claimed, path-like claims, and next-agent resume.
 
-Canonical Leo control-plane prompt:
-`/Users/leokwan/Development/vidux/prompts/goal-navigation-control-plane.prompt.md`.
+Canonical control-plane prompt:
+`prompts/goal-navigation-control-plane.prompt.md` (relative to this repo).
 Use it when the mission is to improve the goal/prompt/plan primitives
 themselves, especially before starting broad long-loop work.
 
@@ -89,12 +90,12 @@ Ownership boundary for this contract:
   concurrency contract: leases/claims, disjoint file/path ownership, shared
   progress rows, proof foldback, append/park rules, and resume packets. Vidux
   core does not choose model-specific leader/follower hierarchies.
-- **Leo Flow** owns Leo-private routing, skill ownership, the active no-wait
-  decision layer formerly split through `/auto`, primitive registry bindings,
-  leader/follower orchestration, Codex/Claude/GLM/Grok runner selection,
-  headless Codex control, and blocker move-on routing. `/auto` is deleted;
-  stale live pointers are repaired at their owning artifact instead of revived
-  as a shim.
+- **The host's private router** (if one exists) owns host-private routing,
+  skill ownership, the active no-wait decision layer formerly split through
+  `/auto`, primitive registry bindings, leader/follower orchestration,
+  Codex/Claude/GLM/Grok runner selection, headless Codex control, and blocker
+  move-on routing. `/auto` is deleted; stale live pointers are repaired at
+  their owning artifact instead of revived as a shim.
 - **Amp** authors and refines goal-navigation prompts and pointer text; it cites
   Vidux and Flow instead of copying their whole rule banks.
 ---
@@ -114,8 +115,9 @@ org-specific requests on top; it does NOT replace the `PLAN.md` plus publish
 packet recovery contract. Vidux owns the schema and lifecycle for plan state,
 decision logs, proof packets, checkpoints, resume semantics, and browser
 projection. Downstream skills own local policy and product-specific routing.
-Leo Flow owns model/runner selection and leader/follower foldback. If local
-policy contradicts core plan/proof/checkpoint semantics, fix the local policy.
+The host's private router owns model/runner selection and leader/follower
+foldback. If local policy contradicts core plan/proof/checkpoint semantics,
+fix the local policy.
 
 ## Activation & Triage
 

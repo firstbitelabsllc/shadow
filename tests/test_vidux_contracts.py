@@ -1616,6 +1616,9 @@ class ViduxContractTests(unittest.TestCase):
         combined = "\n".join([vidux, prompt, amp, flow, flow_yaml, skillbox])
         normalized = " ".join(combined.split())
 
+        # Phrases must exist in the *live* thin-token corpus (SKILL + goal-nav
+        # prompt + Amp + Flow + Flow YAML + Skillbox). Do not re-bloat doctrine
+        # just to satisfy obsolete string matches after the kernel-cut.
         for phrase in [
             "## Goal Navigation Plans",
             "navigation contract, not a frozen task list",
@@ -1638,21 +1641,22 @@ class ViduxContractTests(unittest.TestCase):
             "Primitive registry for broad Leo work",
             "Graphite/repo review discipline",
             "do not use GitHub Actions as expensive FirstBite test proof",
-            "Goal Navigation Plan (mandatory before FIRE for Goal Mode or Prompt File Mode)",
-            "Amp does not plan the exact work",
-            "Primitive Readiness Pass",
-            "Nia-first indexed/source research before web fetch",
-            "Worktree convergence",
+            # Amp FIRE path still exists; goal-nav forbids pre-planning exact tasks
+            "GATHER → SYNTHESIZE → PRESENT → STEER → FIRE",
+            "Do not plan the exact future implementation tasks",
+            "Primitive Readiness Matrix",
+            "Nia-first indexed/source lookup before web fetch",
+            "Worktree Lifecycle Contract",
             "append real work rows when discovery creates new reachable work",
             "keep going until the PLAN says the goal is complete",
             "do not load or restore it",
-            "no `/auto` load or fallback path",
+            "stale live pointers are repaired at their owning artifact",
             "skills: [leo-flow, vidux]",
             "skills: [amp, leo-flow, vidux]",
             "Skillbox vs Captain",
             "Captain decides placement, Skillbox executes the mount",
-            "Leader/follower runner binding",
-            "Flow owns runner assignment and foldback",
+            "Flow owns leader/follower orchestration",
+            "The host's private router owns model/runner selection and leader/follower foldback",
         ]:
             self.assertIn(phrase, normalized)
 
@@ -1667,7 +1671,7 @@ class ViduxContractTests(unittest.TestCase):
         for phrase in [
             "Vidux is the thin plan/proof control plane",
             "Vidux owns the schema and lifecycle for plan state",
-            "Leo Flow owns model/runner selection and leader/follower foldback",
+            "The host's private router owns model/runner selection and leader/follower foldback",
             "Runner selection and model-worker foldback stay with Flow",
         ]:
             self.assertIn(phrase, normalized)
@@ -1856,7 +1860,7 @@ class ViduxContractTests(unittest.TestCase):
         normalized = " ".join(text.split())
 
         for phrase in [
-            "Authority Store: `/Users/leokwan/Development/vidux/PLAN.md`",
+            "Authority Store: `PLAN.md` (this repo's root)",
             "Use `/amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox`",
             "Authority layering: this prompt's Authority Store is the Vidux meta/doctrine lane",
             "Per-project prompts inherit this contract, but own their own product PLAN",
@@ -1877,8 +1881,8 @@ class ViduxContractTests(unittest.TestCase):
             "`/auto` was deleted on 2026-06-26",
             "do not load or restore it",
             "Compact `/goal` Pointer",
-            "This is a pointer; the goal lives in /Users/leokwan/Development/vidux/PLAN.md",
-            "read /Users/leokwan/Development/vidux/prompts/goal-navigation-control-plane.prompt.md",
+            "This is a pointer; the goal lives in this repo's PLAN.md",
+            "read this repo's prompts/goal-navigation-control-plane.prompt.md",
             "starting with ## Current State (resume here)",
             "let /leo-flow choose Codex/Claude/GLM/Grok leader/follower roles",
             "append/update real PLAN rows when discovery changes what complete means",

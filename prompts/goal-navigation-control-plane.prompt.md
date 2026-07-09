@@ -1,6 +1,6 @@
 # Goal Navigation Control Plane Prompt
 
-Authority Store: `/Users/leokwan/Development/vidux/PLAN.md`
+Authority Store: `PLAN.md` (this repo's root)
 Target: active goal-navigation rows in the Authority Store, including `5.3.0fp` and future rows that refine how long-running agents think, rank, park, prove, and converge work.
 
 Authority layering: this prompt's Authority Store is the Vidux meta/doctrine
@@ -109,5 +109,5 @@ Run a final draft pass before human-facing closeout: say what changed, what pass
 ## Compact `/goal` Pointer
 
 ```text
-/goal "Use /amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox. This is a pointer; the goal lives in /Users/leokwan/Development/vidux/PLAN.md. FIRST action of EVERY cycle: read /Users/leokwan/Development/vidux/prompts/goal-navigation-control-plane.prompt.md and the PLAN fresh from disk, starting with ## Current State (resume here), then state what changed and which row/section is selected. Improve the goal before improving the work: append/update real PLAN rows when discovery changes what complete means; refine how agents read, rank, park blockers, prove primitives, mutate prompts, and converge worktrees; let /leo-flow choose Codex/Claude/GLM/Grok leader/follower roles; emit publish ledger proof for shipped changes; continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume. End with [METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]."
+/goal "Use /amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox. This is a pointer; the goal lives in this repo's PLAN.md. FIRST action of EVERY cycle: read this repo's prompts/goal-navigation-control-plane.prompt.md and the PLAN fresh from disk, starting with ## Current State (resume here), then state what changed and which row/section is selected. Improve the goal before improving the work: append/update real PLAN rows when discovery changes what complete means; refine how agents read, rank, park blockers, prove primitives, mutate prompts, and converge worktrees; let /leo-flow choose Codex/Claude/GLM/Grok leader/follower roles; emit publish ledger proof for shipped changes; continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume. End with [METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]."
 ```

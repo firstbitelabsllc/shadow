@@ -1,40 +1,43 @@
-# Multi-agent work queue — 2026-07-09 (updated loop 2)
+# Multi-agent work queue — 2026-07-09 (loop 3)
 
-**Weakest truthful claim (this cycle):** `source-proven` — thin-token guide + Recipe 13 landed; `test:js` + browser_server + focused plan tests green. Simple UI still uncommitted WIP (implemented in tree, not yet PR-smoked as a package). No live browser toggle screenshot this cycle.
+**Weakest truthful claim:** `source-proven` + focused test green on **main**. Simple/thin-token **shipped** (#191). Private `/auto` archived (content kept). Goal-nav contract phrases realigned to thin corpus. No browser toggle smoke screenshot.
 
-**Token burden:** PE bakeoff refuted kernel handoff. Remaining waste = full SKILL load. Mitigation shipped: `guides/thin-token.md` + Recipe 13.
+## Shipped (do not re-open)
 
-## Ranked slices (dispatch next)
+| ID | Result |
+|----|--------|
+| V-SIMPLE-1 / 5.6.1 | Merged #191 Simple-default cockpit |
+| V-TOKEN-1 / 5.6.2 | Merged thin-token.md + Recipe 13 |
+| V-FACELIFT-1 | Merged #190 hardening + #191 + #192 on main |
+| V-TEST-1 | loop3: test:js + 113 py PASS on main |
+| V-AUTO-1 (partial) | `/auto` off active farm → `_archive/auto` |
 
-| Pri | ID | Slice | Status | Next agent |
-|-----|-----|-------|--------|------------|
-| **P0** | V-TEST-1 | Keep facelift focused tests green | **green this cycle** | re-run on every edit |
-| **P0** | V-SIMPLE-1 | Simple-default cockpit package | **in tree, uncommitted** | commit + toggle smoke → PR |
-| **P0** | V-TOKEN-1 | Thin-token recipe | **done** (`guides/thin-token.md`) | use only |
-| **P1** | V-MULTI-1 | Multi-agent product fan-out | **done** (Recipe 13) | use only |
-| **P1** | V-FACELIFT-1 | Commit Simple package + open/ready PR | **next** | nurse agent |
-| **P1** | V-AUTO-1 | `/auto` contract env honesty | open | farm agent |
-| **P2** | V-5.3.1 | Ready-PR automations | blocked (Resplit) | leave parked |
-| **P2** | FARM-1/2 | OCCUPIED / chezmoi | deferred | leave |
+## Ranked next (dispatch)
 
-## Fan-out now (if 3 agents available)
+| Pri | ID | Slice | Agents | Proof |
+|-----|-----|-------|--------|-------|
+| **P0** | V-177 | Nurse **PR #177** readiness/proof PLAN template — merge if still valuable vs Flow P0 contracts, else close as superseded | 1 nurse | PR merged/closed |
+| **P0** | V-CONTRACT | Land contract phrase realignment on a branch/PR so CI matches thin-token | 1 test | `test_goal_navigation_and_deleted_auto_contract` PASS on CI |
+| **P1** | V-SMOKE | Simple↔Advanced toggle Playwright smoke + evidence png | 1 UI | screenshot under evidence/ |
+| **P1** | V-AUTO-PUSH | Commit ai-leo archive of `/auto` so Studio pulls same farm shape | 1 farm | push ai-leo |
+| **P2** | V-5.3.1 | Ready-PR automations | blocked Resplit | leave |
+| **P2** | FARM | Skillbox OCCUPIED / chezmoi apply | deferred | leave |
 
-1. **Lead:** stage Simple UI + tests budget + guides; run full focused suite; commit on `facelift/insights-driven-hardening`
-2. **Worker A (optional):** Playwright/Chrome toggle smoke Simple↔Advanced on `:7192`
-3. **Worker B (optional):** draft PR body from thin-token + facelift hardening commits
+## Fan-out (≤3)
 
-## Testing cadence
+1. **Lead:** PR for contract test fix + PLAN resume update  
+2. **Nurse:** #177 triage  
+3. **Optional UI:** toggle smoke  
+
+## Load set (token budget)
+
+`guides/thin-token.md` + this queue + one PLAN row. **Not** full SKILL / archived `/auto`.
+
+## Tests this cycle
 
 ```bash
 cd ~/Development/vidux
-npm run test:js
+npm run test:js   # PASS
 python3 -m unittest tests.test_plan_guard tests.test_write_verify \
-  tests.test_step_journal tests.test_browser_server -q
+  tests.test_step_journal tests.test_browser_server -q  # 113 PASS
 ```
-
-## Do not do
-
-- Reopen PE kernel as default control plane
-- Load full SKILL for routine PLAN rows (use thin-token guide)
-- `git reset --hard` Simple-mode WIP
-- Mass-delete Skillbox OCCUPIED mounts
