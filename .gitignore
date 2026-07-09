@@ -156,3 +156,10 @@ tests/test_snowcubes_readiness_*
 # Local private: crashcourse reading-inbox generator (employer paths)
 scripts/crashcourse-inbox-gen.py
 !projects/night-queue/
+
+# Local skill installs (e.g. `npx impeccable install`) — third-party skill
+# reference/scripts trees, not vidux's own content. Never ship in the public
+# repo; the public-ready grep gate flags their brand-mood reference text if
+# accidentally staged.
+.github/skills/
+.github/hooks/
