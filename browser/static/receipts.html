@@ -152,10 +152,10 @@
   <h2>Corpus <span id="count" class="muted"></span></h2>
   <div class="row toolbar">
     <button id="refresh-btn">refresh</button>
-    <button type="button" class="chip active" data-filter="all" id="chip-all">all</button>
-    <button type="button" class="chip" data-filter="stub" id="chip-stub">stub</button>
-    <button type="button" class="chip" data-filter="ocrd" id="chip-ocrd">OCR'd</button>
-    <button type="button" class="chip" data-filter="grounded" id="chip-grounded">grounded</button>
+    <button type="button" class="chip active" data-filter="all" id="chip-all" aria-pressed="true">all</button>
+    <button type="button" class="chip" data-filter="stub" id="chip-stub" aria-pressed="false">stub</button>
+    <button type="button" class="chip" data-filter="ocrd" id="chip-ocrd" aria-pressed="false">OCR'd</button>
+    <button type="button" class="chip" data-filter="grounded" id="chip-grounded" aria-pressed="false">grounded</button>
   </div>
   <div class="row toolbar">
     <button class="local" id="batch-local">⚡ Local pass (qwen) — all ungrounded</button>
@@ -690,7 +690,11 @@ $("batch-cancel").addEventListener("click", () => { cancelBatch = true; setListS
 
 document.querySelectorAll(".chip").forEach(chip => chip.addEventListener("click", () => {
   FILTER = chip.dataset.filter;
-  document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c === chip));
+  document.querySelectorAll(".chip").forEach(c => {
+    const pressed = c === chip;
+    c.classList.toggle("active", pressed);
+    c.setAttribute("aria-pressed", pressed ? "true" : "false");
+  });
   renderGrid();
 }));
 
