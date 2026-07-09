@@ -2082,5 +2082,58 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn(".is-anchor-preview", style)
 
 
+class BrowserMainCliArtifactsDirTests(unittest.TestCase):
+    """Round-1 open-source panel finding: ARTIFACTS_DIR was hardcoded to
+    <this checkout>/browser/artifacts with no CLI/env override, unlike
+    HOST/PORT/DEV_ROOT/COMMENTS_FILE which all support one. Any --root
+    pointed at a fixture or demo dev-root still leaked the real checkout's
+    accumulated Artifacts panel contents -- including in the Playwright
+    webServer used by this repo's own "hermetic" e2e/visual suite."""
+
+    class _NonBlockingServer:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def serve_forever(self):
+            return
+
+        def server_close(self):
+            return
+
+    def setUp(self):
+        self.original_host = browser_server.HOST
+        self.original_port = browser_server.PORT
+        self.original_dev_root = browser_server.DEV_ROOT
+        self.original_comments_file = browser_server.COMMENTS_FILE
+        self.original_artifacts_dir = browser_server.ARTIFACTS_DIR
+        self.original_server_cls = browser_server.ThreadingHTTPServer
+        browser_server.ThreadingHTTPServer = self._NonBlockingServer
+
+    def tearDown(self):
+        browser_server.ThreadingHTTPServer = self.original_server_cls
+        browser_server.HOST = self.original_host
+        browser_server.PORT = self.original_port
+        browser_server.DEV_ROOT = self.original_dev_root
+        browser_server.COMMENTS_FILE = self.original_comments_file
+        browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
+
+    def test_artifacts_dir_flag_overrides_the_checkout_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom = Path(tmpdir) / "fixture-artifacts"
+            custom.mkdir()
+
+            browser_server.main(["--port", "0", "--artifacts-dir", str(custom)])
+
+            self.assertEqual(browser_server.ARTIFACTS_DIR, custom.resolve())
+
+    def test_artifacts_dir_untouched_when_flag_omitted(self):
+        browser_server.main(["--port", "0"])
+
+        self.assertEqual(
+            browser_server.ARTIFACTS_DIR,
+            self.original_artifacts_dir,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

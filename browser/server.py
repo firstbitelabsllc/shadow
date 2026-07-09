@@ -40,7 +40,9 @@ VIDUX_ROOT = Path(os.environ.get("VIDUX_ROOT", BROWSER_DIR.parent)).expanduser()
 SERVER_FILE = Path(__file__).resolve()
 SERVER_MTIME_NS = SERVER_FILE.stat().st_mtime_ns
 STATIC_DIR = BROWSER_DIR / "static"
-ARTIFACTS_DIR = BROWSER_DIR / "artifacts"
+ARTIFACTS_DIR = Path(
+    os.environ.get("VIDUX_BROWSER_ARTIFACTS_DIR", BROWSER_DIR / "artifacts")
+).expanduser().resolve()
 CLAUDE_PROJECTS_DIR = Path(
     os.environ.get("VIDUX_CLAUDE_PROJECTS_DIR", Path.home() / ".claude" / "projects")
 ).expanduser()
@@ -2786,11 +2788,20 @@ def main(argv=None):
         help="Path to comments JSONL file. Defaults to env "
              "VIDUX_BROWSER_COMMENTS_FILE or ~/.vidux-browser/comments.jsonl.",
     )
+    parser.add_argument(
+        "--artifacts-dir",
+        type=str,
+        default=None,
+        help="Directory the Artifacts panel reads/writes. Defaults to env "
+             "VIDUX_BROWSER_ARTIFACTS_DIR or <this checkout>/browser/artifacts "
+             "-- NOT scoped by --root, so pass this explicitly for hermetic "
+             "test/demo runs against a fixture root.",
+    )
     args = parser.parse_args(argv)
 
     # CLI overrides module-level globals. Re-resolve so the server uses the
     # passed values rather than the env defaults captured at import time.
-    global HOST, PORT, DEV_ROOT, COMMENTS_FILE
+    global HOST, PORT, DEV_ROOT, COMMENTS_FILE, ARTIFACTS_DIR
     if args.host is not None:
         HOST = args.host
     if args.port is not None:
@@ -2799,6 +2810,8 @@ def main(argv=None):
         DEV_ROOT = Path(args.root).expanduser().resolve()
     if args.comments_path is not None:
         COMMENTS_FILE = Path(args.comments_path).expanduser()
+    if args.artifacts_dir is not None:
+        ARTIFACTS_DIR = Path(args.artifacts_dir).expanduser().resolve()
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
