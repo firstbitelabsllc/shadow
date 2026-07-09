@@ -33,9 +33,14 @@ ln -sf ~/vidux/bin/vidux /usr/local/bin/vidux
 vidux dev
 ```
 
+`/usr/local/bin` is root-owned by default on most current macOS and Linux
+installs, so that `ln -sf` can fail with `Permission denied`. If it does, skip
+straight to **Option B** below (add `bin/` to your `PATH` instead — no `sudo`
+needed) and re-run `vidux dev`.
+
 Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/` changes.
 
-Want a real plan instead of the browser's own example plans? `vidux init my-project` scaffolds a first `PLAN.md` with zero extra dependencies — no AI coding agent or API key required. Use `vidux help` for the full command list.
+Want a real plan instead of the browser's own example plans? `vidux init my-project` scaffolds a first `PLAN.md` **inside this vidux checkout**, at `projects/my-project/PLAN.md` — not in whatever directory you happen to run it from. Because the browser scans your whole dev-root tree (`~/Development` by default, wherever you cloned vidux), that new plan shows up automatically without any extra wiring. Vidux works this way so one vidux install can act as a single dashboard over many separate projects' plans; if you'd rather a project's `PLAN.md` live directly in that project's own git repo, just create `PLAN.md` by hand at its root (see `plan_store` under [Status & Config](#status--config) for how agents resolve which `PLAN.md` is authoritative). Use `vidux help` for the full command list.
 
 ## Install
 

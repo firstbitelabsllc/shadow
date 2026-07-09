@@ -2494,6 +2494,22 @@ if (sidebarToggleBtn && sidebarEl) {
   });
 }
 
+// The mobile drawer (.sidebar, position:fixed at <=768px) needs a `top`
+// matching wherever .topbar's real bottom edge lands. A hardcoded pixel value
+// broke twice already (a topbar-wrap fix for one overlap silently changed the
+// topbar's height at <=540px, orphaning the drawer's fixed offset and hiding
+// its own search/sort/filter controls underneath it) -- track the real
+// measured height instead of guessing a new constant that the next topbar
+// content change would just break again.
+const topbarEl = document.querySelector(".topbar");
+if (topbarEl && typeof ResizeObserver !== "undefined") {
+  const syncTopbarHeight = () => {
+    document.documentElement.style.setProperty("--topbar-rendered-height", `${topbarEl.getBoundingClientRect().height}px`);
+  };
+  new ResizeObserver(syncTopbarHeight).observe(topbarEl);
+  syncTopbarHeight();
+}
+
 // Theme toggle wiring — applyTheme() was already called at script load; this
 // just hooks the button. The button's label updates via applyTheme().
 const themeToggleBtn = document.getElementById("theme-toggle");
