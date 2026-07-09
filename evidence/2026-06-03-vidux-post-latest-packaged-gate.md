@@ -41,7 +41,7 @@ OK
   docs, tests, and evidence surfaces.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30ek_post_latest_packaged_gate` verified
-  at `/Users/leokwan/.agent-ledger/activity.jsonl:5884`.
+  at `~/.agent-ledger/activity.jsonl:5884`.
 
 ## Non-claims
 

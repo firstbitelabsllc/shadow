@@ -54,7 +54,7 @@ Result: PASS. Returned `cache.status="fresh"` in `4.652887s`, with runtime docto
 - `npm run docs:build` PASS.
 - `git diff --check -- browser/server.py browser/static/app.js tests/test_browser_server.py docs/reference/browser.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dk_truth_cache` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5797`.
+- Publish ledger `evt_codex_20260603_5e30dk_truth_cache` verified at `~/.agent-ledger/activity.jsonl:5797`.
 
 ## Non-claims
 

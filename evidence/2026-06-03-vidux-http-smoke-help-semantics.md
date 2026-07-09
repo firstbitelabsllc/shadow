@@ -26,7 +26,7 @@ Updated:
 - `bin/vidux help http-smoke | rg 'top-level ok|strict_ok|warning_only|warn_partial|fail_budget'` PASS.
 - `git diff --check -- PLAN.md bin/vidux tests/test_http_smoke.py evidence/2026-06-03-vidux-http-smoke-help-semantics.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dq_http_smoke_help_semantics` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5804`.
+- Publish ledger `evt_codex_20260603_5e30dq_http_smoke_help_semantics` verified at `~/.agent-ledger/activity.jsonl:5804`.
 
 ## Non-claims
 

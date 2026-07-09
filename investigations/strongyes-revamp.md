@@ -6,14 +6,14 @@ Each retains its existing job. Only the gate and prompt structure changes.
 
 ### strongyes-release-train
 - **Job:** Lead writer. Make StrongYes a revenue-bearing web product. Own paid funnel, deploy proof, UX execution.
-- **Plan:** /Users/leokwan/Development/strongyes-web/vidux/ux-overhaul/PLAN.md
+- **Plan:** ~/Development/strongyes-web/vidux/ux-overhaul/PLAN.md
 - **Change:** Remove vidux-loop.sh gate. Add inline trunk health + branch absorption + plan read.
 - **Prompt:** /tmp/codex-prompts/strongyes-release-train.txt
 - **Status:** [in_progress — awaiting rewriter agent]
 
 ### strongyes-backend
 - **Job:** Backend writer. Own Sentry, Stripe, Supabase, PostHog, API hardening.
-- **Plan:** /Users/leokwan/Development/strongyes-web/vidux/ux-overhaul/PLAN.md
+- **Plan:** ~/Development/strongyes-web/vidux/ux-overhaul/PLAN.md
 - **Change:** Remove vidux-loop.sh gate. Writer pattern with inline gate.
 - **Prompt:** /tmp/codex-prompts/strongyes-backend.txt
 - **Status:** [in_progress — awaiting rewriter agent]

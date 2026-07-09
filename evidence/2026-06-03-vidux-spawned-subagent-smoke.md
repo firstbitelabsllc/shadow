@@ -23,7 +23,7 @@ Lane: vidux-five-hour-observability
 - Initial lifecycle contract rerun used the wrong class name and failed with `AttributeError: module 'tests.test_vidux_contracts' has no attribute 'ViduxContractsTest'`; corrected command below passed.
 - `python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_fleet_lifecycle_docs_share_config_doctor_signpost_contract` PASS, 1/1.
 - `bin/vidux help signpost` PASS and lists `spawned-subagent-smoke`.
-- `bin/vidux signpost spawned-subagent-smoke --run-id 5e30di-subagent-smoke --json` PASS, 4/4 events in `/Users/leokwan/.vidux/signposts.jsonl`.
+- `bin/vidux signpost spawned-subagent-smoke --run-id 5e30di-subagent-smoke --json` PASS, 4/4 events in `~/.vidux/signposts.jsonl`.
 - `bin/vidux signpost trace --run-id 5e30di-subagent-smoke` PASS with ordered `hook.beforeTask` Codex, `subagent.spawn` Claude, `task.verify` Cursor, `hook.afterTask` Codex.
 - `/tmp` fixture smoke PASS:
 
@@ -48,7 +48,7 @@ trace events: 4 (/tmp/vidux-5e30di-subagent-signposts.jsonl, run_id=5e30di-fixtu
 - `npm run docs:build` PASS.
 - Scoped `git diff --check` PASS for the changed signpost/docs/test/help surface.
 - First publish-scrutiny run failed closed with `missing_fields=["claims"]`; rerun with mirrored `--claim` fields PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30di_spawned_subagent_smoke` verified in `/Users/leokwan/.agent-ledger/activity.jsonl:5794`.
+- Publish ledger `evt_codex_20260603_5e30di_spawned_subagent_smoke` verified in `~/.agent-ledger/activity.jsonl:5794`.
 
 ## Non-claims
 

@@ -28,8 +28,8 @@ Browser route proof inside packaged run:
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fh ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fh_post_browser_launcher_flags_packaged_gate ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6065.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fh_post_browser_launcher_flags_packaged_gate ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6065.
 ```
 
 ## Non-Claims

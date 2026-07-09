@@ -37,7 +37,7 @@ Updated:
 - `npm run docs:build` PASS.
 - `git diff --check -- PLAN.md bin/vidux docs/reference/commands.md docs/reference/scripts.md scripts/vidux-http-smoke.py tests/test_http_smoke.py evidence/2026-06-03-vidux-http-smoke-option-validation.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dr_http_smoke_option_validation` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5805`.
+- Publish ledger `evt_codex_20260603_5e30dr_http_smoke_option_validation` verified at `~/.agent-ledger/activity.jsonl:5805`.
 
 ## Live Invalid-Option Smokes
 

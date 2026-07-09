@@ -30,7 +30,7 @@ arguments. The sweep fixed it across the helpers touched in rows 5.3.0dt,
   row.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30ed_argv_sweep_closeout` verified at
-  `/Users/leokwan/.agent-ledger/activity.jsonl:5817`.
+  `~/.agent-ledger/activity.jsonl:5817`.
 
 ## Fixed Helpers In This Sweep
 

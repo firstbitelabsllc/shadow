@@ -36,7 +36,7 @@ Goal: make setup and fleet docs describe one shared model for config readiness, 
   - `task.verify` runtime `cursor`, called `worker verify`
   - `hook.afterTask` runtime `codex`, called `vidux checkpoint`
 - `git diff --check -- README.md docs/fleet/index.md docs/fleet/platforms.md docs/fleet/claude-lifecycle.md docs/fleet/codex-lifecycle.md docs/fleet/codex-setup.md docs/fleet/operations.md tests/test_vidux_contracts.py PLAN.md evidence/2026-06-03-vidux-lifecycle-doc-convergence-smoke.md` PASS.
-- Publish ledger `evt_codex_20260603_5e30df_lifecycle_docs` verified in `/Users/leokwan/.agent-ledger/activity.jsonl:5791`.
+- Publish ledger `evt_codex_20260603_5e30df_lifecycle_docs` verified in `~/.agent-ledger/activity.jsonl:5791`.
 - `python3 scripts/vidux-publish-scrutiny.py --json ... --ledger evt_codex_20260603_5e30df_lifecycle_docs ...` PASS with `ready=true`.
 
 ## Contract repair note

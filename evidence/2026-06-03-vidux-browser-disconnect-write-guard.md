@@ -45,8 +45,8 @@ Remaining observed e2e warnings:
 python3 scripts/vidux-publish-scrutiny.py --json --lane vidux-five-hour-observability --task 5.3.0fi ...
 PASS; ready=true with invariant, regression, and adversarial review passes.
 
-/Users/leokwan/Development/ai/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fi_browser_disconnect_write_guard ...
-PASS; verified in /Users/leokwan/.agent-ledger/activity.jsonl at line 6066.
+~/<private-skill-root>/hooks/ledger-emit.sh --event publish --eid evt_codex_20260603_5e30fi_browser_disconnect_write_guard ...
+PASS; verified in ~/.agent-ledger/activity.jsonl at line 6066.
 ```
 
 ## Non-Claims

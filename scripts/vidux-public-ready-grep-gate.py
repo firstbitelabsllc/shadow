@@ -44,7 +44,25 @@ EXCLUDED_RELATIVE_PATHS = {
     Path("tests/test_public_ready_grep_gate.py"),
 }
 
-FORBIDDEN_PATTERNS = (
+# Privacy/PII/confidentiality patterns: enforced everywhere scanned,
+# regardless of tense. A personal home path or an employer-internal path
+# is unsafe to publish whether it appears in live doctrine or a dated
+# historical record.
+PRIVACY_PATTERNS = (
+    ("private Leo Flow lane", re.compile(r"\bLeo Flow\b")),
+    ("private slop lane", re.compile(r"/ai-slop\b")),
+    ("private vidux overlay name", re.compile(r"/vidux-leo\b")),
+    ("private home path", re.compile(r"/Users/(?:leokwan|redacted-operator)\b")),
+    ("employer source path", re.compile(r"\bREDACTED-EMPLOYER-PATH/Dev\b")),
+    ("private skills repo path", re.compile(r"\bDevelopment/ai(?:-leo)?/(?:hooks|skills)\b")),
+)
+
+# Retired-terminology hygiene patterns: only meaningful as a "don't market
+# a retired integration as current" check against LIVE-facing docs. A past
+# -tense mention in a dated historical record (evidence/, investigations/,
+# or PLAN.md's append-only Decision Log) is the record doing its job, not
+# a leak — see HISTORICAL_TARGETS below.
+HYGIENE_PATTERNS = (
     ("retired board brand", re.compile(r"\bLinear\b")),
     ("retired board lowercase", re.compile(r"\blinear\b")),
     ("retired GitHub Projects config key", re.compile(r"\bgh_projects\b")),
@@ -53,14 +71,19 @@ FORBIDDEN_PATTERNS = (
     ("retired inbox sync script", re.compile(r"\bvidux-inbox-sync\b")),
     ("retired audit script", re.compile(r"\blinear-audit\b")),
     ("retired pilot path", re.compile(r"\bpilot/")),
-    ("private Leo Flow lane", re.compile(r"\bLeo Flow\b")),
-    ("private slop lane", re.compile(r"/ai-slop\b")),
     ("retired hosted routines wording", re.compile(r"\bClaude Routines\b")),
-    ("private vidux overlay name", re.compile(r"/vidux-leo\b")),
-    ("private home path", re.compile(r"/Users/(?:leokwan|redacted-operator)\b")),
-    ("employer source path", re.compile(r"\bREDACTED-EMPLOYER-PATH/Dev\b")),
-    ("private skills repo path", re.compile(r"\bDevelopment/ai(?:-leo)?/(?:hooks|skills)\b")),
 )
+
+FORBIDDEN_PATTERNS = PRIVACY_PATTERNS + HYGIENE_PATTERNS
+
+# Historical-record targets: chronological, dated, append-only-by-design.
+# HYGIENE_PATTERNS are skipped here (retired terms in past tense are the
+# record working correctly); PRIVACY_PATTERNS still apply everywhere.
+HISTORICAL_TARGETS = {"evidence", "investigations", "PLAN.md"}
+
+
+def _is_historical(rel: Path) -> bool:
+    return rel.parts[0] in HISTORICAL_TARGETS
 
 
 def _is_excluded(path: Path, repo_root: Path) -> bool:
@@ -112,12 +135,13 @@ def run_gate(repo_root: Path) -> dict[str, Any]:
     scanned_files = _iter_files(repo_root)
     for path in scanned_files:
         rel = path.relative_to(repo_root)
+        patterns = PRIVACY_PATTERNS if _is_historical(rel) else FORBIDDEN_PATTERNS
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except UnicodeDecodeError:
             continue
         for lineno, line in enumerate(lines, start=1):
-            for label, pattern in FORBIDDEN_PATTERNS:
+            for label, pattern in patterns:
                 if pattern.search(line):
                     matches.append(
                         {

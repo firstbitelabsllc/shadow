@@ -72,10 +72,10 @@ Run observe-only across real projects first, single iteration, then the watch ru
 
 ```bash
 python3 scripts/vidux-plan-bank-audit.py \
-  /Users/leokwan/Development/vidux \
-  /Users/leokwan/Development/strongyes-web \
-  /Users/leokwan/Development/resplit-web \
-  /Users/leokwan/Development/resplit-ios \
+  ~/Development/vidux \
+  ~/Development/strongyes-web \
+  ~/Development/resplit-web \
+  ~/Development/resplit-ios \
   --watch-iterations 9 \
   --watch-interval-seconds 900 \
   --issue-limit 0 \

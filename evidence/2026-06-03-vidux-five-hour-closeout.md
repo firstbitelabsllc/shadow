@@ -68,7 +68,7 @@ Lane: vidux-five-hour-observability
 - Closeout `npm run docs:build` PASS.
 - Closeout `git diff --check -- PLAN.md evidence/2026-06-03-vidux-five-hour-closeout.md` PASS.
 - Closeout publish scrutiny PASS with `ready=true`.
-- Closeout publish ledger `evt_codex_20260603_5e30dj_five_hour_closeout` verified in `/Users/leokwan/.agent-ledger/activity.jsonl:5796`.
+- Closeout publish ledger `evt_codex_20260603_5e30dj_five_hour_closeout` verified in `~/.agent-ledger/activity.jsonl:5796`.
 
 ## Non-claims
 

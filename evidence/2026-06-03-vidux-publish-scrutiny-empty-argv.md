@@ -44,7 +44,7 @@ packet.
 - `git diff --check -- PLAN.md scripts/vidux-publish-scrutiny.py tests/test_publish_scrutiny.py` PASS.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30dx_publish_scrutiny_empty_argv`
-  verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5811`.
+  verified at `~/.agent-ledger/activity.jsonl:5811`.
 
 ## Non-claims
 

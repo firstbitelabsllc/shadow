@@ -2,9 +2,9 @@
 
 ## Local Receipts
 
-- Planner-executor authority: `/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/PE-HANDOFF.md` and `/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/PLANNER-EXECUTOR-PROTOCOL.md`.
-- Run receipt: `/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/RUN-SUMMARY.md`.
-- Decision receipt: `/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/decision.md`.
+- Planner-executor authority: `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/PE-HANDOFF.md` and `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/PLANNER-EXECUTOR-PROTOCOL.md`.
+- Run receipt: `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/RUN-SUMMARY.md`.
+- Decision receipt: `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/decision.md`.
 - The full matrix wrote 119 rows; `pe_decision.py` scored 117 clean rows after excluding 2 final Grok infra rows under the protocol.
 - Frozen thresholds all refuted the kernel bet: H1 plan lift, H2 Fable over Sonnet, and H3 kernel over freeform.
 - The strongest comparison for the handoff format is direct: `fable_freeform_glm` resolved 13/17 (76%) while `fable_kernel_glm` resolved 10/17 (59%).
@@ -30,7 +30,7 @@ Freeze current kernel/planner-executor handoff as the default Vidux route. Keep 
 
 - `SKILL.md` now states that Vidux is the thin plan/proof control plane, not the runner-selection kernel.
 - Vidux owns the schema and lifecycle for plan state, decisions, proof packets, checkpoints, resume semantics, and browser projection.
-- Leo Flow owns model/runner selection and leader/follower foldback.
+- The host router owns model/runner selection and leader/follower foldback.
 - Contracts reject stale kernel-ownership wording and require the thin-control-plane boundary.
 - Proof 2026-07-07:
   - `python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_goal_navigation_and_deleted_auto_contract tests.test_vidux_contracts.ViduxContractTests.test_model_worker_delegation_contract_covers_glm_grok_and_codex tests.test_vidux_contracts.ViduxContractTests.test_core_skill_scopes_plan_authority_and_publish_ledger_truth` PASS (3 tests).
@@ -67,7 +67,7 @@ Freeze current kernel/planner-executor handoff as the default Vidux route. Keep 
 
 ## Browser Visual Smoke Receipt
 
-- Local browser URL: `http://127.0.0.1:7192` with `--root /Users/leokwan/Development`.
+- Local browser URL: `http://127.0.0.1:7192` with `--root ~/Development`.
 - `/api/plans` reports 289 plans, 25 repos, and dashboard `verdicts` with `proof_rel: vidux/evaluations/vidux-vs-native-bakeoff/results/pe/RUN-SUMMARY.md`.
 - Chrome/Playwright rendered the Fleet dashboard and confirmed:
   - Verdict card text: `VERDICTS 1 1 total`.
@@ -93,8 +93,8 @@ Freeze current kernel/planner-executor handoff as the default Vidux route. Keep 
   - Contract tests cover stale orchestration/kernel language and the browser dashboard categories.
 - Stale corpus audit:
   - This checkout has untracked `evaluations/` at 84M with 95 files under maxdepth 3 and no tracked files.
-  - Canonical sibling `/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff` is 252M with 2242 files under maxdepth 3.
-  - `diff -qr evaluations/vidux-vs-native-bakeoff /Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff | head -80` shows the untracked copy is stale/partial: it lacks PE handoff/protocol files and canonical `results/pe*`, while its `runs/live` artifacts differ.
+  - Canonical sibling `~/Development/vidux/evaluations/vidux-vs-native-bakeoff` is 252M with 2242 files under maxdepth 3.
+  - `diff -qr evaluations/vidux-vs-native-bakeoff ~/Development/vidux/evaluations/vidux-vs-native-bakeoff | head -80` shows the untracked copy is stale/partial: it lacks PE handoff/protocol files and canonical `results/pe*`, while its `runs/live` artifacts differ.
   - The stale copy was not deleted because it is untracked, differs from canonical run artifacts, and may contain previous local/session data. It should stay out of the kernel-cut package unless explicitly archived or deleted.
 - Proof 2026-07-07 after this checkpoint:
   - `curl -s http://127.0.0.1:7192/api/health` PASS.
@@ -126,7 +126,7 @@ Freeze current kernel/planner-executor handoff as the default Vidux route. Keep 
   - `evidence/2026-07-07-browser-verdict-dashboard-after-css.png`
   - `evidence/2026-07-07-browser-verdict-list-element-after-css.png`
   - `evidence/2026-07-07-kernel-cut-pivot.md`
-- Exclude `evaluations/` from this package. It is untracked, 84M, has no tracked files, and differs from the canonical sibling `/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff`; it should not be deleted, archived, staged, or committed as routine kernel-cut cleanup.
+- Exclude `evaluations/` from this package. It is untracked, 84M, has no tracked files, and differs from the canonical sibling `~/Development/vidux/evaluations/vidux-vs-native-bakeoff`; it should not be deleted, archived, staged, or committed as routine kernel-cut cleanup.
 - Current transport caveat: this checkout is detached HEAD at `1e61606a2713875c1e9909e737a5de5f74b64ddf`. Create or choose an owned branch before commit/push.
 - Exact staging command for this package:
 

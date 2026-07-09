@@ -27,7 +27,7 @@ Updated:
 - `python3 -m unittest tests.test_vidux_config_cli` PASS, 9/9.
 - `git diff --check -- PLAN.md scripts/vidux-config.py tests/test_vidux_config_cli.py evidence/2026-06-03-vidux-config-checked-dedupe.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30du_config_checked_dedupe` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5808`.
+- Publish ledger `evt_codex_20260603_5e30du_config_checked_dedupe` verified at `~/.agent-ledger/activity.jsonl:5808`.
 
 ## Live Config Smoke
 
@@ -44,8 +44,8 @@ Result:
 - `source=example`
 - `checked_count=2`
 - checked paths:
-  - `/Users/leokwan/Development/vidux/vidux.config.json`
-  - `/Users/leokwan/Development/vidux/vidux.config.example.json`
+  - `~/Development/vidux/vidux.config.json`
+  - `~/Development/vidux/vidux.config.example.json`
 
 The strict failure is expected because no live `vidux.config.json` exists; the
 proof is that `vidux.config.json` appears once instead of twice.

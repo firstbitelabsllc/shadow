@@ -55,7 +55,7 @@ stdout or output-file writes.
 - `git diff --check -- PLAN.md scripts/vidux-firstbite-observe.py scripts/vidux-firstbite-diagnose.py scripts/vidux-firstbite-verified-alive.py tests/test_firstbite_observe.py tests/test_firstbite_diagnose.py tests/test_firstbite_verified_alive.py` PASS.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30ec_firstbite_empty_argv` verified at
-  `/Users/leokwan/.agent-ledger/activity.jsonl:5816`.
+  `~/.agent-ledger/activity.jsonl:5816`.
 
 ## Non-claims
 

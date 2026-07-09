@@ -38,7 +38,7 @@ Goal: harden `vidux.config.example.json` and live `vidux.config.json` validation
 - `VIDUX_DOCTOR_SKIP_NPM_TEST=1 bin/vidux doctor` PASS, 7/7.
 - `npm run docs:build` PASS, VitePress build complete.
 - `git diff --check -- scripts/vidux-config.py tests/test_vidux_config_cli.py docs/reference/config.md docs/reference/scripts.md PLAN.md evidence/2026-06-03-vidux-config-schema-redaction-smoke.md` PASS.
-- Publish ledger `evt_codex_20260603_5e30dg_config_schema_redaction` verified in `/Users/leokwan/.agent-ledger/activity.jsonl:5792`.
+- Publish ledger `evt_codex_20260603_5e30dg_config_schema_redaction` verified in `~/.agent-ledger/activity.jsonl:5792`.
 - `python3 scripts/vidux-publish-scrutiny.py --json ... --ledger evt_codex_20260603_5e30dg_config_schema_redaction ...` PASS with `ready=true`.
 
 ## Non-claims

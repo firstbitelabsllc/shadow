@@ -23,7 +23,7 @@ Updated:
 - `python3 -m unittest tests.test_http_smoke` PASS, 7/7, with no fixture traceback.
 - `git diff --check -- PLAN.md tests/test_http_smoke.py evidence/2026-06-03-vidux-http-smoke-fixture-noise.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30do_http_smoke_fixture_noise` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5802`.
+- Publish ledger `evt_codex_20260603_5e30do_http_smoke_fixture_noise` verified at `~/.agent-ledger/activity.jsonl:5802`.
 
 ## Non-claims
 

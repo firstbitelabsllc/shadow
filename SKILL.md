@@ -304,18 +304,23 @@ READ       -> git fetch --prune (kill stale tracking refs first),
               Then read the room (checklist below).
 ASSESS     -> Resume [in_progress] first, else pick highest-impact unblocked task.
              No evidence? Gather it locally before coding. Empty plan? Research first.
+             SETUP CONTRACT (begin with the end in mind) — a major/compound goal
+             does not advance to ACT until `## Setup Contract` is green: enumerate
+             external deps the END needs, smoke them (`readiness <repo>` when available),
+             raise gaps in ONE batch. Never build prod-only when staging/local exists.
              Then CLASSIFY the task: atomic (one PR, nameable diff) -> code it.
              Compound (3+ files / unclear root cause / multi-step) -> spawn a
              sub-plan FIRST (see "The decomposition gate" below). No inline sprawl.
 ACT        -> Execute tasks until queue empty, blocker, or context budget.
              Empty queue? Scan INBOX, owned paths, git log, blocked tasks. Anything
              found becomes [pending] and runs this cycle. Nothing found? Checkpoint and exit.
-VERIFY     -> Build, test, gate. If the repo declares CANON terms (e.g. a
-             vidux.config.json `canon_terms` / CANON.md, or approved entity
-             names), grep the diff + touched plan rows for retired aliases
-             before CHECKPOINT — a hit blocks completion. Citation-only canon
-             ("use the right names") is insufficient; a stale agent drifts, an
-             executable grep gate does not.
+VERIFY     -> Build, test, gate. PROOF CONTRACT — terminal state needs the
+             multi-modal evidence `[validation:]` declared, on the REAL surface
+             (log/analytics/vision-e2e/browse as applicable). Green build is the
+             FLOOR, not the bar; `[merged]`/source-proven are way-stations for
+             user-visible work — demote, don't round up. If the repo declares CANON
+             terms, grep the diff + plan rows for retired aliases before CHECKPOINT.
+
 CHECKPOINT -> Update the plan/queue note, emit the publish packet, then
              commit/push only after those breadcrumbs exist. Reconcile planned
              vs actual; use `vidux drift` if they diverge.
@@ -477,13 +482,23 @@ What we know, cited with sources.
 - ALWAYS: [things that must be true]
 - NEVER: [things that are forbidden]
 
+## Setup Contract
+Begin with the end in mind: BEFORE first ACT, enumerate external deps the END
+touches and prove each is reachable (raise gaps in ONE batch). Prefer
+`readiness <repo>` when that skill is installed.
+- [ready] vendor/surface — smoke proof
+- [GAP]   vendor/surface — what is still missing → RAISE
+- Staging/local required for: [surfaces that must not be prod-only]
+A goal stays PREFLIGHT while a hard [GAP] is unaccepted.
+
 ## Tasks
 Ordered, with status tags and evidence citations. Completion (X/Y tasks done)
 is the headline. `[ETA: Xh]` is optional — useful when tasks are similar-sized,
-skip when they vary in difficulty.
-- [pending] Task 1: description [Evidence: ...] [ETA: 0.5h]
+skip when they vary in difficulty. Every row declares `[validation: <how>]` —
+the multi-modal proof VERIFY will demand on the real surface.
+- [pending] Task 1: description [Evidence: ...] [validation: e2e on preview + screenshot] [ETA: 0.5h]
   Accept: testable criteria written at PLAN time (commands + expected outcomes — "works" is not a criterion)
-- [in_progress] Task 2: description [Evidence: ...]
+- [in_progress] Task 2: description [Evidence: ...] [validation: event → analytics Live]
 - [verify] Task 3: generator finished; awaiting evaluator verdict
 - [completed] Task 4: description [Evidence: ...]
 - [blocked] Task 5: description [Blocker: ...]
@@ -493,7 +508,9 @@ time. Status flows `[pending] → [in_progress] → [verify] → [completed]`. T
 generator's authority over status ENDS at `[verify]` — only an independent
 evaluator verdict (the `evaluator` agent: read+execute tools, re-runs the
 Accept commands itself, never reads generator prose) flips `[verify] →
-[completed]`. A FAIL loops the row back to `[in_progress]` with the judge's
+[completed]`. For user-visible rows the evaluator also confirms `[validation:]`
+evidence was captured on the real surface — green build alone is FAIL (Proof
+Contract). A FAIL loops the row back to `[in_progress]` with the judge's
 reasons appended as the next work item. Test-weakening (skipped tests, loosened
 assertions) is an automatic FAIL regardless of pass counts.
 

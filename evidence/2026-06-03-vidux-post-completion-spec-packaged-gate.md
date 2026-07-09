@@ -39,7 +39,7 @@ OK
 
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30em_post_completion_spec_packaged_gate`
-  verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5901`.
+  verified at `~/.agent-ledger/activity.jsonl:5901`.
 
 ## Non-claims
 

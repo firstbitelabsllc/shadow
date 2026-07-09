@@ -1,4 +1,4 @@
-# Leo Flow Anti-Slop Dispatcher Invariant
+# The Host Router Anti-Slop Dispatcher Invariant
 
 Task: `5.3.0fn`
 Drift: `D-20260608-01`
@@ -6,11 +6,11 @@ Ledger: `evt_20260608_5e30fn_leo_flow_anti_slop_publish`
 
 ## What Changed
 
-- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/SKILL.md` now states the Anti-Slop Dispatcher Rule: Leo Flow routes, critiques, names proof gaps, projects sidecars, and folds back receipts, but does not own final user-facing prose/status/strategy when a narrower skill owns the surface.
-- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/flow.yaml` now records `anti_slop_gate` in packet output plus final-output owners for `/leon`, `/sloth`, `/pilot-leo`, `/hook`, `/crashcourse`, `/architect`, and repo lanes.
-- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow` now emits `anti_slop_gate` with `flow_role=dispatcher_gate_only`, `final_output_owner`, lane owners, and blocking slop receipts.
-- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh` now covers unknown-skill dispatch, duplicated output blocks, mangled Markdown tables, orphaned workflow state, hard-wall default output, proof-result contradictions, active-run protection, self-review filtering, signpost metadata, and final-owner handoffs to `/heat-review`, `/leon`, `/sloth`, and `/pilot-leo`.
-- `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-emit.sh` dry-run output now normalizes event names before printing, matching append behavior.
+- `~/work/Dev/ai/skills/leo-flow/SKILL.md` now states the Anti-Slop Dispatcher Rule: the host router routes, critiques, names proof gaps, projects sidecars, and folds back receipts, but does not own final user-facing prose/status/strategy when a narrower skill owns the surface.
+- `~/work/Dev/ai/skills/leo-flow/flow.yaml` now records `anti_slop_gate` in packet output plus final-output owners for `/leon`, `/sloth`, `/pilot-leo`, `/hook`, `/crashcourse`, `/architect`, and repo lanes.
+- `~/work/Dev/ai/skills/leo-flow/scripts/leo-flow` now emits `anti_slop_gate` with `flow_role=dispatcher_gate_only`, `final_output_owner`, lane owners, and blocking slop receipts.
+- `~/work/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh` now covers unknown-skill dispatch, duplicated output blocks, mangled Markdown tables, orphaned workflow state, hard-wall default output, proof-result contradictions, active-run protection, self-review filtering, signpost metadata, and final-owner handoffs to `/heat-review`, `/leon`, `/sloth`, and `/pilot-leo`.
+- `~/work/Dev/ai/hooks/ledger-emit.sh` dry-run output now normalizes event names before printing, matching append behavior.
 
 ## Post-Review Fixes
 
@@ -21,16 +21,16 @@ Ledger: `evt_20260608_5e30fn_leo_flow_anti_slop_publish`
 
 ## Proof
 
-- `bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh` PASS.
-- `python3 /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow doctor --json` PASS with all four mounts resolving to `/Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow` and hash parity on `SKILL.md`, `flow.yaml`, and `scripts/leo-flow`.
-- `bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/ledger/tests/test_ledger_emit.sh` PASS, including `next_agent_resume` and `event=publish` preservation.
-- `bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/ledger/tests/test_ledger_append.sh` PASS.
-- `bash -n /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-emit.sh /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/hooks/ledger-append.sh` PASS.
-- `python3 -m py_compile /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow` PASS.
-- `python3 /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow packet "review Leo Flow anti-slop changes for staff-level bugs; check proof honesty and final-owner handoff" --repo /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai --file /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/scripts/leo-flow --include-cycle --json` PASS with `critique.overall_verdict=source_gap`, `anti_slop_gate.primary_lane=review`, `final_output_owner=heat-review`, and `blocking_slop_receipts=[]`.
-- `python3 /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/vidux/scripts/vidux-publish-scrutiny.py --lane vidux-self-improvement --task 5.3.0fn --summary "Leo Flow anti-slop dispatcher post-review hardening" --plan-path /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/vidux/PLAN.md --proof "bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh PASS; bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/ledger/tests/test_ledger_emit.sh PASS; bash /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai/skills/ledger/tests/test_ledger_append.sh PASS; leo-flow doctor PASS; scoped git diff --check PASS" --ledger evt_20260608_5e30fn_leo_flow_anti_slop_publish --handoff-status done --resume "5.3.1 remains pending and blocked on the Resplit gh pr create overlap; Leo Flow is final-output-owner gated." --json ...` PASS with `ready=true`, no missing fields, and no invalid fields.
-- `git -C /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/ai diff --check -- hooks/ledger-emit.sh skills/ledger/tests/test_ledger_emit.sh skills/leo-flow/SKILL.md skills/leo-flow/flow.yaml skills/leo-flow/scripts/leo-flow skills/leo-flow/tests/test_leo_flow_cli.sh` PASS.
-- `git -C /Users/redacted-operator/REDACTED-EMPLOYER-PATH/Dev/vidux diff --check -- PLAN.md evidence/2026-06-08-leo-flow-anti-slop.md` PASS.
+- `bash ~/work/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh` PASS.
+- `python3 ~/work/Dev/ai/skills/leo-flow/scripts/leo-flow doctor --json` PASS with all four mounts resolving to `~/work/Dev/ai/skills/leo-flow` and hash parity on `SKILL.md`, `flow.yaml`, and `scripts/leo-flow`.
+- `bash ~/work/Dev/ai/skills/ledger/tests/test_ledger_emit.sh` PASS, including `next_agent_resume` and `event=publish` preservation.
+- `bash ~/work/Dev/ai/skills/ledger/tests/test_ledger_append.sh` PASS.
+- `bash -n ~/work/Dev/ai/hooks/ledger-emit.sh ~/work/Dev/ai/hooks/ledger-append.sh` PASS.
+- `python3 -m py_compile ~/work/Dev/ai/skills/leo-flow/scripts/leo-flow` PASS.
+- `python3 ~/work/Dev/ai/skills/leo-flow/scripts/leo-flow packet "review the host router anti-slop changes for staff-level bugs; check proof honesty and final-owner handoff" --repo ~/work/Dev/ai --file ~/work/Dev/ai/skills/leo-flow/scripts/leo-flow --include-cycle --json` PASS with `critique.overall_verdict=source_gap`, `anti_slop_gate.primary_lane=review`, `final_output_owner=heat-review`, and `blocking_slop_receipts=[]`.
+- `python3 ~/work/Dev/vidux/scripts/vidux-publish-scrutiny.py --lane vidux-self-improvement --task 5.3.0fn --summary "the host router anti-slop dispatcher post-review hardening" --plan-path ~/work/Dev/vidux/PLAN.md --proof "bash ~/work/Dev/ai/skills/leo-flow/tests/test_leo_flow_cli.sh PASS; bash ~/work/Dev/ai/skills/ledger/tests/test_ledger_emit.sh PASS; bash ~/work/Dev/ai/skills/ledger/tests/test_ledger_append.sh PASS; leo-flow doctor PASS; scoped git diff --check PASS" --ledger evt_20260608_5e30fn_leo_flow_anti_slop_publish --handoff-status done --resume "5.3.1 remains pending and blocked on the Resplit gh pr create overlap; the host router is final-output-owner gated." --json ...` PASS with `ready=true`, no missing fields, and no invalid fields.
+- `git -C ~/work/Dev/ai diff --check -- hooks/ledger-emit.sh skills/ledger/tests/test_ledger_emit.sh skills/leo-flow/SKILL.md skills/leo-flow/flow.yaml skills/leo-flow/scripts/leo-flow skills/leo-flow/tests/test_leo_flow_cli.sh` PASS.
+- `git -C ~/work/Dev/vidux diff --check -- PLAN.md evidence/2026-06-08-leo-flow-anti-slop.md` PASS.
 
 ## Branch State
 
@@ -40,6 +40,6 @@ Ledger: `evt_20260608_5e30fn_leo_flow_anti_slop_publish`
 ## Non-Claims
 
 - No live PR/Jira/Slack state was refreshed.
-- No final PR body, Daily Scoop, review finding, or strategy output was generated by Leo Flow.
-- No source code outside Leo Flow and shared ledger emit plumbing was changed in `/ai`; Vidux changes in this closeout are plan/evidence only.
+- No final PR body, Daily Scoop, review finding, or strategy output was generated by the host router.
+- No source code outside the host router and shared ledger emit plumbing was changed in `/ai`; Vidux changes in this closeout are plan/evidence only.
 - No remote push or PR happened during proof.

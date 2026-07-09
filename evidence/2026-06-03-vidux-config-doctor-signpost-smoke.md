@@ -45,9 +45,9 @@ status=ok source=example live_config_present=false using_example=true plan_store
 
 bin/vidux config show
 vidux config check: ok
-source: example (/Users/leokwan/Development/vidux/vidux.config.example.json)
+source: example (~/Development/vidux/vidux.config.example.json)
 live config: missing; using checked-in example
-plan_store: local /Users/leokwan/Development/vidux/projects (exists)
+plan_store: local ~/Development/vidux/projects (exists)
 inbox_sources: 1 total, 1 enabled
 
 VIDUX_DOCTOR_SKIP_NPM_TEST=1 bin/vidux doctor

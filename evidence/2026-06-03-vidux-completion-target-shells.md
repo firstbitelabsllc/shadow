@@ -51,7 +51,7 @@ python3 scripts/vidux-publish-scrutiny.py --json ... --task 5.3.0ep
 PASS; ready=true.
 
 rg -n "evt_codex_20260603_5e30ep_completion_target_shells" ~/.agent-ledger/activity.jsonl
-PASS; ledger row at /Users/leokwan/.agent-ledger/activity.jsonl:5920.
+PASS; ledger row at ~/.agent-ledger/activity.jsonl:5920.
 ```
 
 ## Non-Claims

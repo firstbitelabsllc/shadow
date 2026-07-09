@@ -57,7 +57,7 @@ Top-level JSON:
 - Throwaway Vidux browser server stopped after proof.
 - `git diff --check -- PLAN.md evidence/2026-06-03-vidux-post-hardening-http-matrix.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30ds_post_hardening_http_matrix` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5806`.
+- Publish ledger `evt_codex_20260603_5e30ds_post_hardening_http_matrix` verified at `~/.agent-ledger/activity.jsonl:5806`.
 
 ## Non-claims
 

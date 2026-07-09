@@ -31,7 +31,7 @@ Updated:
 - Direct programmatic smoke PASS: with `sys.argv` poisoned to `["probe", "path"]`, `main([])` raised `SystemExit(2)` and printed `the following arguments are required: command`.
 - `git diff --check -- PLAN.md scripts/vidux-config.py tests/test_vidux_config_cli.py evidence/2026-06-03-vidux-config-empty-argv.md` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dv_config_empty_argv` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5809`.
+- Publish ledger `evt_codex_20260603_5e30dv_config_empty_argv` verified at `~/.agent-ledger/activity.jsonl:5809`.
 
 ## Non-claims
 

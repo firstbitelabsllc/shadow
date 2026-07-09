@@ -23,7 +23,7 @@ Updated:
 - `python3 -m unittest tests.test_http_smoke tests.test_vidux_contracts.ViduxContractTests.test_docs_bug_sweep_matches_current_command_setup_browser_surfaces` PASS, 7/7.
 - `npm run docs:build` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dm_http_smoke_cli` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5800`.
+- Publish ledger `evt_codex_20260603_5e30dm_http_smoke_cli` verified at `~/.agent-ledger/activity.jsonl:5800`.
 
 ## Live CLI Smoke
 

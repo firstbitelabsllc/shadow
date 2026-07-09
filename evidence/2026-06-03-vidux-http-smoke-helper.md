@@ -23,7 +23,7 @@ It stores only a bounded response sample, so app-route smokes do not dump full H
 - `python3 -m unittest tests.test_vidux_contracts.ViduxContractTests.test_docs_bug_sweep_matches_current_command_setup_browser_surfaces` PASS, 1/1.
 - `npm run docs:build` PASS.
 - Publish scrutiny PASS with `ready=true`.
-- Publish ledger `evt_codex_20260603_5e30dl_http_smoke_helper` verified at `/Users/leokwan/.agent-ledger/activity.jsonl:5799`.
+- Publish ledger `evt_codex_20260603_5e30dl_http_smoke_helper` verified at `~/.agent-ledger/activity.jsonl:5799`.
 
 ## Live Local Smoke
 

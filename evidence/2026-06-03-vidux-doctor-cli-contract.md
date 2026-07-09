@@ -47,7 +47,7 @@ checker, and proves the doctor path without running real `npm test`.
 - `git diff --check -- PLAN.md bin/vidux docs/reference/commands.md docs/reference/scripts.md scripts/vidux-doctor-cli.sh tests/test_vidux_contracts.py` PASS.
 - Publish scrutiny PASS with `ready=true`.
 - Publish ledger `evt_codex_20260603_5e30dw_doctor_cli_contract` verified at
-  `/Users/leokwan/.agent-ledger/activity.jsonl:5810`.
+  `~/.agent-ledger/activity.jsonl:5810`.
 
 ## Non-claims
 
