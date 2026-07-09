@@ -2,6 +2,15 @@
 
 ## Local Receipts
 
+*(2026-07-09 clarification, not a revision of the original record: every
+`~/Development/vidux/evaluations/vidux-vs-native-bakeoff/...` path below is
+the maintainer's own local, untracked evaluation harness -- it was never
+shipped, is explicitly excluded from the public repo, and will not exist in
+a fresh clone. These lines record what was actually checked at the time, not
+a citation an external reader can independently open. See the summarized
+numbers inline below and in `PLAN.md`'s Decision Log, which are the durable,
+shipped record of the result.)*
+
 - Planner-executor authority: `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/PE-HANDOFF.md` and `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/PLANNER-EXECUTOR-PROTOCOL.md`.
 - Run receipt: `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/RUN-SUMMARY.md`.
 - Decision receipt: `~/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/pe/decision.md`.

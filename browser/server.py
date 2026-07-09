@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import copy
+import ipaddress
 import re
 import subprocess
 import sys
@@ -2037,6 +2038,24 @@ def request_host_hostname(host: str) -> str:
     return netloc.rsplit(":", 1)[0] if ":" in netloc else netloc
 
 
+def is_private_lan_ip_literal(hostname: str) -> bool:
+    """True when hostname is a raw private-use (RFC 1918 / RFC 4193) IP literal.
+
+    DNS rebinding always presents Host as the attacker's registered domain
+    name (that's what the browser's address bar held) -- never as a raw IP
+    literal, since there is no reason for an attacker to own a private-range
+    IP. A genuine LAN device is reached by IP on a home network (no local DNS
+    entry for the vidux server), so requiring a private-IP literal here
+    accepts real LAN peers while rejecting a rebound domain outright.
+    """
+    text = hostname.strip("[]")
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return addr.is_private and not addr.is_loopback and not addr.is_link_local
+
+
 def is_allowed_request_host(host: str, bind_host: str) -> bool:
     """Reject requests whose Host header isn't a recognized loopback identity.
 
@@ -2458,7 +2477,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             self._json({"ok": True, "path": out_path, "bytes": len(audio_bytes), "sha": sha})
         elif url.path == "/api/comments":
-            if not self._require_browser_json(require_origin=True):
+            if not self._require_comment_write():
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > COMMENT_BODY_MAX_BYTES + 2048:
@@ -2581,6 +2600,22 @@ class Handler(BaseHTTPRequestHandler):
             self._send(403, "write endpoints require loopback client")
             return False
         return self._require_browser_json()
+
+    def _require_comment_write(self) -> bool:
+        """/api/comments is the one write route that's meant to work from a
+        real LAN peer too (SKILL.md: "Cross-machine LAN viewers may comment
+        via the UI") -- unlike every other write route it can't just require
+        is_loopback_host(client_address). Accept the real TCP loopback peer
+        (matches every other write route) OR, only in the documented LAN-bind
+        mode, a request whose Host header is a private-use IP literal (never
+        what a DNS-rebound page's Host header looks like -- that's always the
+        attacker's own registered domain name, not a raw private IP)."""
+        if not is_loopback_host(self.client_address[0]):
+            host = request_host_hostname(self.headers.get("Host") or "")
+            if not (HOST in ("0.0.0.0", "::") and is_private_lan_ip_literal(host)):
+                self._send(403, "comments require a loopback or private-LAN client")
+                return False
+        return self._require_browser_json(require_origin=True)
 
     def _require_browser_json(self, require_origin: bool = False) -> bool:
         if not is_json_content_type(self.headers.get("Content-Type")):

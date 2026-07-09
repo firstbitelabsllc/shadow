@@ -23,24 +23,6 @@ Flow-selected sidecars. Vidux keeps the durable surfaces that proved useful:
 one canonical `PLAN.md`, explicit Decision Log, publish packet proof, resume
 metadata, and the read-only browser cockpit.
 
-## Rising Tide Doctrine (Leo 2026-06-22 — the stapled mantra for /vidux and /leo-flow)
-
-**A rising tide lifts all boats.** Every cycle improves *everything it touches*, not just the immediate goal row. This is the standing operating philosophy across `/vidux` and `/leo-flow`.
-
-1. **Drive-by improve everything.** While in a file/surface for the goal, leave it better than you found it: rewrite weak code, delete dead/bad tests and write real ones, reconsider major system design, tighten UI, add/improve unit tests, prune+update docs/READMEs, clean stale Storybook/UI artifacts. The DEFAULT is "improve it now," not "log it for later" — bounded only by the self-improvement brake (name the file + the generic rule + the verify command + the stop condition; never fossilize a one-repo incident into a shared skill; never let "improve" become forever-work).
-
-2. **YOLO because everything reverts.** Any project Leo is working on can be YOLO'd — we can ALWAYS revert (a commit, a closed PR, `git revert`). So the default is *act*, not *ask*; ship the call and revert if wrong. A reverted call costs less than a no-op inbox.
-
-3. **Rewrite human gates by default.** On hitting a human gate (`[ASK-LEO]` tag, approval pause, "Leo-gated" row, "wait for sign-off"), the DEFAULT is to **rewrite it to agent-owned and proceed** — *unless it truly must exist*. The only gates that truly must exist are the hard safety rails: destructive git (force-push to main, branch delete, `reset --hard`, `clean -fd`), real-money spend beyond an existing tier, credential/secret handling, sending messages to external services, irreversible public brand/hero-copy, and prod data loss. Everything else: rewrite the gate, act, stay ready to revert. **Do not lean on Leo as a human gate.**
-
-4. **Never stop while there's a next cycle.** A dynamic-loop goal does not stop because one row landed — if a fresh PLAN sweep finds a next agent-reachable cycle, auto-start it immediately. Stop only when there is genuinely no next cycle (every row shipped-or-parked-at-a-named-hard-rail-gate). **Context-token budget is NEVER a stop condition** (see `/leo-flow` hard stops): the opencode goal-plugin auto-continues on idle and survives compaction, so on a `<budget_wrapup>`/"0s remaining" frame you END THE TURN to auto-continue into a fresh cycle — you never emit a "stopping because budget" message and never cite budget as a `[goal:blocked]` gate. Budget is a pacing hint, not a wall.
-
-   **Reconciliation with the self-extend brake (Principle 4 below / `/leo-flow` P0 Bounded Autonomy).** "Never stop" is NOT a license for forever-work, and the brake is NOT a license to idle — they are one rule from two sides. The cap is on **inventing fake adjacent work** (re-auditing shipped rows, re-polishing a done surface, bookkeeping-only PRs, restating the same skill lesson), never on **continuous real improvement**. Every cycle still ships real artifact(s)/receipt(s) and closes with a precise state, and **every loop traverses the full priority order including planning compound items — it does NOT cap at one bounded move** (this is universal, not resplit-only; the one-bounded-move-per-cycle reflex is a slop mode). Default loop cadence is **~20 min**. Close states (`full_pass_driven` / `planned_compound` / `completed_move` / `blocked_with_resume` / `handoff_ready` / `scheduled_resume`) are used honestly; `scheduled_resume` only when no higher-importance reachable work or plan step remains this pass. With "drive-by improve everything" (rule 1) as the scope, a genuinely-empty queue is now rare. The terminal signal is unchanged: three consecutive cycles with no new code diff, merged/synced artifact, runtime receipt, narrowed blocker, or queue transition is churn — stop broadening and record the exact resume point. A no-op-with-receipt (a heartbeat that checked fresh state and found nothing agent-reachable) is a *healthy* close, not a failure.
-
-Leo 2026-06-22 verbatim: *"any project i am working on can be yolo and reverted, we can ALWAYS revert … everything and anything driveby improve everything not just the immediate goal."*
-
----
-
 ## Goal Navigation Plans
 
 A Vidux goal prompt is a navigation contract, not a frozen task list. It must
@@ -104,7 +86,7 @@ Ownership boundary for this contract:
 
 NEVER: create duplicate plans, execute local-CI lanes, install LaunchAgents, delete worktrees, or push/merge unless the owning plan AND user authorization make it explicit.
 
-Prereqs: clone the owning repo plus this Vidux checkout, install the repo's declared toolchain, and read local `AGENTS.md`/`PLAN.md` before changing code. For Leo's fleet, use `/leo-flow` for lane/proof routing and live no-wait decisions, and `/ledger` for handoff proof when the active goal asks for them. Load downstream project skills after `/vidux` when the active goal asks; use `/captain` only for skill packaging or mount hygiene.
+Prereqs: clone the owning repo plus this Vidux checkout, install the repo's declared toolchain, and read local `AGENTS.md`/`PLAN.md` before changing code. If your fleet runs its own private dispatcher, use it for lane/proof routing and live no-wait decisions, and a handoff-proof/ledger skill if you have one when the active goal asks for it. Load downstream project skills after `/vidux` when the active goal asks; a skill-packaging/mount-hygiene tool is optional and repo-specific.
 
 Verify: resolve the canonical plan path, inspect git state, and run the smallest repo-owned proof command before claiming progress. For local operator work, prefer read-only verified-alive/audit packets before executing lanes or installing LaunchAgents.
 
@@ -186,9 +168,11 @@ But a shipped surface that works is done — stop polishing, move to the next ga
 
 Never assert "it works." Run the build, run the tests, show the screenshot. UI definition-of-done is a visual proof, never just "the build passes."
 
-For Leo's FirstBite repos, GitHub Actions is not the runner for unit, UI, E2E,
-or expensive regression proof. Use repo-owned local-ci lanes, Moussey-held
-evidence, local simulator/browser/device runs, and result bundles. If a needed
+For repos where GitHub Actions minutes are constrained or intentionally disabled
+(a real example: the maintainer's own FirstBite repos), GitHub Actions is not the
+runner for unit, UI, E2E, or expensive regression proof. Use repo-owned local-ci
+lanes, locally-held evidence, local simulator/browser/device runs, and result
+bundles. If a needed
 local lane is missing, plan and ship the local-ci/Moussey improvement before
 routing proof back through GitHub Actions.
 
@@ -363,8 +347,8 @@ Vidux defaults to trunk-first:
 
 **Build/test ownership in multi-agent repos:**
 
-- Do not burn GitHub Actions minutes for unit/UI/E2E proof in Leo's FirstBite
-  repos. Local-ci and Moussey are the proof authority unless the active plan
+- Do not burn GitHub Actions minutes for unit/UI/E2E proof in repos where it's
+  intentionally disabled. Local-ci is the proof authority unless the active plan
   names a narrow exception.
 - Treat build/test execution as a serial lane unless the repo documents a safe parallel workflow.
 - When the ledger shows active parallel lanes, nominate one build owner before verification churn.
@@ -404,8 +388,8 @@ Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet
 7. **Closeout per cycle:** decision, risk, blocker, next action — written to the Authority Store. Proof receipts live in the store, not the prompt; the human-facing line helps the reader decide (Closeout Gate stays in /amp). A reader continuing the lane needs decision/risk/blocker, not self-attestation.
 
 8. **CONVERGENCE & FINDABILITY — done means merged + findable, nothing less.**
-   This is the done-state contract. It is the canon amp / leo-flow / ralph cite;
-   they point here, they do not redefine it.
+   This is the canonical done-state contract. Any dispatcher or lane skill on
+   top of vidux should point here, not redefine it.
 
    - **The status ladder is a strict ladder, not a synonym set:**
      `branch_pushed < pr_open < merged < findable`. You may only claim the rung
@@ -414,7 +398,7 @@ Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet
      trunk; a row stamped `findable` requires a build/URL locator on top of that.
    - **Findability gate.** A task is `[completed]` ONLY with BOTH (a) a merge SHA
      reachable from `origin/<trunk>` AND (b) a typed `[Findable: …]` field naming
-     exactly where Leo opens it:
+     exactly where the reader can find it:
      `- [completed] <task> [Findable: merged <sha> -> TestFlight build N | prod URL | preview URL | "in main"]`
      A green draft PR is `pr_open`, never `[completed]`. A `[completed]` row whose
      change is not in trunk is a contradiction — reject it.
@@ -438,7 +422,7 @@ Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet
 
    *Why block 8 exists: the system optimizes fan-OUT and had no fan-IN. Every
    literal gate could be satisfied by a green draft PR + a `COMPLETE` claim, so
-   "built but never merged" features stranded where Leo couldn't find them. The
+   "built but never merged" features stranded where nobody could find them. The
    ladder + findability field + convergence trap make convergence structural,
    not narrative. See `## Trunk-First Rule` (every change merged before done) and
    Principle 5 (prove the LIVE surface).*

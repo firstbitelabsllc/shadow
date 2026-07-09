@@ -18,7 +18,7 @@ VIDUX_ROOT="${VIDUX_ROOT:-$(cd "${VIDUX_BIN_DIR}/.." && pwd)}"
 
 print_top_help() {
   cat <<EOF
-vidux — plan-first expedition orchestration for AI agents
+vidux — plan-first control plane for AI agents
 
 usage: vidux <command> [args...]
 

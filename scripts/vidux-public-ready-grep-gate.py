@@ -16,6 +16,7 @@ SCAN_TARGETS = (
     "README.md",
     "CONTRIBUTING.md",
     "PLAN.md",
+    "ASK-LEO.md",
     "commands",
     "docs",
     "guides",
@@ -30,7 +31,7 @@ SCAN_TARGETS = (
     # - "tests" is excluded: tests/test_vidux_contracts.py legitimately pins
     #   some of these strings as required test content (see the private-path
     #   contract tests); scanning it would flag the test file, not a leak.
-    # - History/changelog files (ARCHIVE.md, CHANGELOG.md, ASK-LEO.md) record
+    # - True history/changelog files (ARCHIVE.md, CHANGELOG.md) record
     #   retired terms (e.g. "Linear") in legitimate past tense; scanning them
     #   against FORBIDDEN_PATTERNS produces noise, not real findings.
     #
@@ -43,6 +44,16 @@ SCAN_TARGETS = (
     # also in HISTORICAL_TARGETS below, so retired-terminology hygiene
     # patterns still don't fire on old plan dirs (test_historical_plan_dirs_
     # are_out_of_scope covers exactly this).
+    #
+    # ASK-LEO.md IS scanned (added after the same 2026-07-09 panel round):
+    # it was previously grouped with ARCHIVE.md/CHANGELOG.md as a "history
+    # file", but per its own header it's a LIVE, ongoing queue ("durable
+    # queue of questions the fleet has for Leo") that accumulates new
+    # entries, not a closed historical record -- and a real private
+    # home-path + private-overlay-name leak sat in it, unscanned, the whole
+    # time. It's in HISTORICAL_TARGETS below so its resolved Q&A entries
+    # don't trip HYGIENE_PATTERNS, but PRIVACY_PATTERNS apply to it like
+    # everything else.
 )
 
 EXCLUDED_DIR_NAMES = {".git", "__pycache__", "node_modules"}
@@ -57,7 +68,12 @@ EXCLUDED_RELATIVE_PATHS = {
 # is unsafe to publish whether it appears in live doctrine or a dated
 # historical record.
 PRIVACY_PATTERNS = (
-    ("private Leo Flow lane", re.compile(r"\bLeo Flow\b")),
+    # Round-3 panel finding: this pattern originally only matched the spaced
+    # "Leo Flow" form and missed the hyphenated slash-command form actually
+    # used in prose ("/leo-flow", "leo-flow") -- 6 live occurrences in
+    # SKILL.md's own doctrine section passed the gate green while the exact
+    # leak class this pattern exists to catch sat in the flagship file.
+    ("private Leo Flow lane", re.compile(r"\bLeo[ -]Flow\b", re.IGNORECASE)),
     ("private slop lane", re.compile(r"/ai-slop\b")),
     ("private vidux overlay name", re.compile(r"/vidux-leo\b")),
     ("private home path", re.compile(r"/Users/(?:leokwan|redacted-operator)\b")),
@@ -87,7 +103,7 @@ FORBIDDEN_PATTERNS = PRIVACY_PATTERNS + HYGIENE_PATTERNS
 # Historical-record targets: chronological, dated, append-only-by-design.
 # HYGIENE_PATTERNS are skipped here (retired terms in past tense are the
 # record working correctly); PRIVACY_PATTERNS still apply everywhere.
-HISTORICAL_TARGETS = {"evidence", "investigations", "PLAN.md", "projects"}
+HISTORICAL_TARGETS = {"evidence", "investigations", "PLAN.md", "projects", "ASK-LEO.md"}
 
 
 def _is_historical(rel: Path) -> bool:

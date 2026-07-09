@@ -11,7 +11,7 @@ Date: `2026-06-08`
 ## Findings
 
 - `~/work/Dev/ai` was clean at `f564b74f52fa8c7372428a5b3cd3fcd403a2a830`, and `origin/main` matched that SHA.
-- `~/work/Dev/vidux` was clean for tracked files at `8029af3be992751a3797877f1971742dc79c25aa`, and `origin/codex/leo-flow-control-plane` matched that SHA.
+- `~/work/Dev/vidux` was clean for tracked files at `8029af3be992751a3797877f1971742dc79c25aa`, and `origin/codex/the host router-control-plane` matched that SHA.
 - Vidux had no extra Git worktrees: `git worktree list --porcelain` returned only `~/work/Dev/vidux`.
 - Vidux had 248 loose untracked paths:
   - `investigations/2026-06-02-plan-retrospective.md`

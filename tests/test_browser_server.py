@@ -116,6 +116,21 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
             browser_server.is_allowed_request_host("192.168.1.50:7191", "0.0.0.0")
         )
 
+    def test_private_lan_ip_literal_accepts_rfc1918_and_rejects_domains(self):
+        for host in ("192.168.1.50", "10.0.0.5", "172.16.4.4"):
+            self.assertTrue(
+                browser_server.is_private_lan_ip_literal(host),
+                f"expected {host!r} to be recognized as a private-LAN literal",
+            )
+        # A DNS-rebound page's Host header is always the attacker's own
+        # registered domain name (what the address bar held) -- never a raw
+        # private-IP literal, since there's no reason to register one.
+        for host in ("evil.example", "127.0.0.1", "8.8.8.8", "169.254.1.1", ""):
+            self.assertFalse(
+                browser_server.is_private_lan_ip_literal(host),
+                f"expected {host!r} to be rejected",
+            )
+
 
 class BrowserWriteEndpointHTTPTests(unittest.TestCase):
     def setUp(self):
@@ -445,6 +460,85 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
 
         self.assertTrue(browser_server.Handler._require_browser_json(handler, require_origin=True))
         self.assertEqual(sent, [])
+
+    def test_comment_write_accepts_real_lan_peer_only_in_lan_bind_mode(self):
+        # Round-3 readiness panel finding (independently confirmed by two
+        # lenses): /api/comments skipped the loopback backstop every other
+        # write route gets, so its Origin/Referer==Host check alone was as
+        # DNS-rebinding-exploitable as every route was before the Host
+        # allowlist fix. _require_comment_write closes this for the default
+        # (127.0.0.1) bind by requiring the loopback TCP peer, same as every
+        # other route; only in the documented LAN-bind mode does it accept a
+        # non-loopback peer, and only when the Host header is a private-IP
+        # literal (never what a rebound domain's Host header looks like).
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            sent = []
+            handler = object.__new__(browser_server.Handler)
+            handler.client_address = ("192.168.1.50", 49152)
+            handler.headers = {
+                "Content-Type": "application/json",
+                "Host": "192.168.1.50:7191",
+                "Origin": "http://192.168.1.50:7191",
+            }
+            handler._send = lambda code, msg: sent.append((code, msg))
+
+            self.assertTrue(browser_server.Handler._require_comment_write(handler))
+            self.assertEqual(sent, [])
+        finally:
+            browser_server.HOST = original_host
+
+    def test_comment_write_rejects_rebound_lan_peer_even_with_matching_origin(self):
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            sent = []
+            handler = object.__new__(browser_server.Handler)
+            # Real TCP peer is on the LAN (not loopback), but its Host header
+            # is a registered domain, not a private-IP literal -- exactly
+            # what a DNS-rebound page presents.
+            handler.client_address = ("192.168.1.77", 49152)
+            handler.headers = {
+                "Content-Type": "application/json",
+                "Host": "evil.example:7191",
+                "Origin": "http://evil.example:7191",
+            }
+            handler._send = lambda code, msg: sent.append((code, msg))
+
+            self.assertFalse(browser_server.Handler._require_comment_write(handler))
+            self.assertEqual(
+                sent, [(403, "comments require a loopback or private-LAN client")]
+            )
+        finally:
+            browser_server.HOST = original_host
+
+    def test_comment_write_rejects_non_loopback_peer_in_default_bind_mode(self):
+        # HOST stays at the module default ("127.0.0.1") -- the LAN carve-out
+        # must not apply outside the explicit LAN-bind opt-in.
+        sent = []
+        handler = object.__new__(browser_server.Handler)
+        handler.client_address = ("192.168.1.50", 49152)
+        handler.headers = {
+            "Content-Type": "application/json",
+            "Host": "192.168.1.50:7191",
+            "Origin": "http://192.168.1.50:7191",
+        }
+        handler._send = lambda code, msg: sent.append((code, msg))
+
+        self.assertFalse(browser_server.Handler._require_comment_write(handler))
+        self.assertEqual(
+            sent, [(403, "comments require a loopback or private-LAN client")]
+        )
+
+    def test_comment_write_accepts_real_loopback_peer_regardless_of_bind_mode(self):
+        status, text = self.post(
+            "/api/comments",
+            {"target_path": str(self.plan_path), "body": "hello"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 200, text)
 
     def test_api_file_returns_404_for_allowed_missing_file(self):
         missing = self.plan_dir / "INBOX.md"
@@ -1717,6 +1811,54 @@ class BrowserSubplanRollupTests(unittest.TestCase):
         self.assertEqual(child_a["aggregate_stats"]["total"], 3)
         self.assertEqual(child_a["aggregate_stats"]["descendants"], 0)
         self.assertEqual(child_a["parent_rel"], self.parent_rel)
+
+
+class BrowserMarkdownSanitizeContractTests(unittest.TestCase):
+    # Round-3 readiness panel finding: renderMarkdownBody() (app.js) fed the
+    # raw output of marked.parse() -- which renders embedded HTML/script
+    # verbatim by design -- directly into innerHTML, for arbitrary file
+    # content sourced from anywhere under DEV_ROOT via /api/file. Fixed by
+    # sanitizing through a locally-vendored DOMPurify before ever returning
+    # HTML for innerHTML assignment. A real DOM-based behavioral test lives
+    # in browser/tests/unit/ where feasible; happy-dom does not reliably
+    # reproduce DOMPurify's real-browser script-stripping behavior for every
+    # input shape (verified directly: identical sanitize() calls diverge
+    # under happy-dom depending on unrelated sibling-markup ordering, which
+    # does not happen in a real browser), so the security-critical wiring
+    # itself is proven here as a static contract instead.
+    def test_vendored_dompurify_is_present_and_real(self):
+        vendor = ROOT / "browser" / "static" / "vendor" / "dompurify.min.js"
+        self.assertTrue(vendor.is_file(), "browser/static/vendor/dompurify.min.js must exist")
+        content = vendor.read_text(encoding="utf-8")
+        self.assertIn("DOMPurify", content)
+        self.assertIn("@license DOMPurify", content[:400])
+        self.assertGreater(len(content), 20_000, "vendored file looks truncated/stubbed")
+        license_file = ROOT / "browser" / "static" / "vendor" / "dompurify.LICENSE"
+        self.assertTrue(license_file.is_file())
+
+    def test_index_html_loads_dompurify_before_app_js(self):
+        index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
+        dompurify_idx = index.index('src="/static/vendor/dompurify.min.js"')
+        app_idx = index.index('src="/static/app.js"')
+        self.assertLess(
+            dompurify_idx, app_idx,
+            "dompurify.min.js must load before app.js so window.DOMPurify exists in time",
+        )
+
+    def test_render_markdown_body_sanitizes_before_returning(self):
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+        start = app.index("function renderMarkdownBody(md) {")
+        end = app.index("\n}\n", start)
+        body = app[start:end]
+
+        self.assertIn("window.marked.parse(", body)
+        self.assertIn("window.DOMPurify.sanitize(", body)
+        # The sanitize call must be what actually gets returned -- not just
+        # invoked and discarded (that would be a checkbox fix, not a real one).
+        self.assertIn("return window.DOMPurify.sanitize(html)", body)
+        # If the sanitizer failed to load, must fall back to the escaping
+        # path (naiveMarkdown), never fall through to unsanitized `html`.
+        self.assertIn("if (!window.DOMPurify) return naiveMarkdown(md);", body)
 
 
 class BrowserReadaloudStaticContractTests(unittest.TestCase):

@@ -1,5 +1,15 @@
 # Goal Navigation Control Plane Prompt
 
+> **This is a worked example, not a generic template.** The slash-commands
+> below name pieces of the maintainer's own private multi-agent fleet (a
+> private dispatcher/router, model-worker runners, research/browse tooling,
+> cross-machine handoff, skill-mount hygiene) — shown here so the pattern is
+> concrete, not because vidux requires them. Read each one as "your own
+> optional tool, if you have an equivalent" and drop what you don't have.
+> Vidux's own requirement is only the `## Work Loop` / `## Hard Stops` /
+> `## Closeout` shape underneath the tool names — that part is
+> agent-and-tool-agnostic and works standalone.
+
 Authority Store: `PLAN.md` (this repo's root)
 Target: active goal-navigation rows in the Authority Store, including `5.3.0fp` and future rows that refine how long-running agents think, rank, park, prove, and converge work.
 
@@ -11,11 +21,11 @@ Vidux/goal-navigation primitives.
 
 ## Operating Prompt
 
-Use `/amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox`. `/auto` was deleted on 2026-06-26; do not load or restore it. If an old artifact cites `/auto`, route the decision through `/leo-flow` and repair the owning live artifact.
+Use `/amp + /vidux + /<your-private-dispatcher> + /nia + /glm + /grok + /skillbox`. `/auto` was deleted on 2026-06-26; do not load or restore it. If an old artifact cites `/auto`, route the decision through `/<your-private-dispatcher>` and repair the owning live artifact.
 
 Canonical skill bindings for minted goal pointers:
-- Direct Vidux goal pointer: `skills: [leo-flow, vidux]`
-- Amp-authored dynamic prompt pointer: `skills: [amp, leo-flow, vidux]`
+- Direct Vidux goal pointer: `skills: [<your-private-dispatcher>, vidux]`
+- Amp-authored dynamic prompt pointer: `skills: [amp, <your-private-dispatcher>, vidux]`
 
 This file is a pointer, not the goal. The Vidux PLAN owns the actual goal, task rows, blockers, evidence, exit criteria, and shipped-work proof. The compact `/goal` or `/loop` launcher points here so a future runner can rehydrate the goal from disk, append real work rows when discovery creates new reachable work, and keep going until the PLAN says the goal is complete.
 
@@ -54,7 +64,7 @@ Use this matrix as the starting registry. Update the Authority Store when a prim
 |---|---|---|
 | Web/doc/package research | `/nia` | Check indexed/source context before web fetch. If source is missing, index or record why live web is needed. |
 | Broad model reasoning | `/glm` plus named model/tool | Use for critique/second-pass planning only after disk authority is read. Do not let model output outrank PLAN/code/runtime proof. |
-| Worker orchestration | `/leo-flow` | Flow owns leader/follower orchestration, Codex headless control, Claude/Codex/GLM/Grok runner selection, disjoint write scopes, and foldback. Vidux core only supplies the shared PLAN/claim/receipt semantics. |
+| Worker orchestration | `/<your-private-dispatcher>` | Your dispatcher owns leader/follower orchestration, headless model-worker control, runner selection, disjoint write scopes, and foldback. Vidux core only supplies the shared PLAN/claim/receipt semantics. |
 | Code review | Graphite/repo review tools | Prefer repo review discipline. Do not treat GitHub Actions as default expensive FirstBite test proof. |
 | Screen/UI truth | `/vision`, browser, Playwright, simulator/device, XcodeBuildMCP when available | Open or capture the real surface when the claim is visual/user-facing. Logs and unit tests support; they do not replace seeing. |
 | Product craft/design | `/craft`, `/frontend-design`, Figma skills | Apply taste and design-system rules to the actual shipped surface; avoid synthetic redesign when source/rendered proof exists. |
@@ -109,5 +119,5 @@ Run a final draft pass before human-facing closeout: say what changed, what pass
 ## Compact `/goal` Pointer
 
 ```text
-/goal "Use /amp + /vidux + /leo-flow + /nia + /glm + /grok + /skillbox. This is a pointer; the goal lives in this repo's PLAN.md. FIRST action of EVERY cycle: read this repo's prompts/goal-navigation-control-plane.prompt.md and the PLAN fresh from disk, starting with ## Current State (resume here), then state what changed and which row/section is selected. Improve the goal before improving the work: append/update real PLAN rows when discovery changes what complete means; refine how agents read, rank, park blockers, prove primitives, mutate prompts, and converge worktrees; let /leo-flow choose Codex/Claude/GLM/Grok leader/follower roles; emit publish ledger proof for shipped changes; continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume. End with [METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]."
+/goal "Use /amp + /vidux + /<your-private-dispatcher> + /nia + /glm + /grok + /skillbox. This is a pointer; the goal lives in this repo's PLAN.md. FIRST action of EVERY cycle: read this repo's prompts/goal-navigation-control-plane.prompt.md and the PLAN fresh from disk, starting with ## Current State (resume here), then state what changed and which row/section is selected. Improve the goal before improving the work: append/update real PLAN rows when discovery changes what complete means; refine how agents read, rank, park blockers, prove primitives, mutate prompts, and converge worktrees; let /<your-private-dispatcher> choose Codex/Claude/GLM/Grok leader/follower roles; emit publish ledger proof for shipped changes; continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume. End with [METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]."
 ```

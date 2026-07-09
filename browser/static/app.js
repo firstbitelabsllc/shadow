@@ -1646,9 +1646,15 @@ async function renderPane(opts = {}) {
 
 function renderMarkdownBody(md) {
   try {
-    return window.marked
-      ? window.marked.parse(md, { breaks: false, gfm: true })
-      : naiveMarkdown(md);
+    if (!window.marked) return naiveMarkdown(md);
+    const html = window.marked.parse(md, { breaks: false, gfm: true });
+    // marked renders embedded raw HTML/script verbatim by design (CommonMark/
+    // GFM behavior, not a marked bug) -- md is arbitrary file content sourced
+    // from anywhere under DEV_ROOT via /api/file, so this MUST be sanitized
+    // before ever reaching innerHTML. If the sanitizer failed to load, fall
+    // back to the escaping naiveMarkdown path rather than risk raw HTML.
+    if (!window.DOMPurify) return naiveMarkdown(md);
+    return window.DOMPurify.sanitize(html);
   } catch (e) {
     return `
       <div class="error">markdown render failed: ${escapeText(String(e))}</div>
