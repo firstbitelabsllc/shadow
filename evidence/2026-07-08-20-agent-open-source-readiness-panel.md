@@ -8,7 +8,7 @@
 
 | Verdict | Count | Lenses |
 |---|---|---|
-| NOT_READY | 8 | privacy-pii-leakage, first-impression-github, simplicity-taste, nicole-readability, positioning-niche-honesty, competitive-claims-accuracy, test-suite-health, adversarial-skeptic |
+| NOT_READY | 8 | privacy-pii-leakage, first-impression-github, simplicity-taste, non-technical-readability, positioning-niche-honesty, competitive-claims-accuracy, test-suite-health, adversarial-skeptic |
 | READY_WITH_CONDITIONS | 9 | license-legal, documentation-completeness, onboarding-friction, browser-gui-security, dependency-hygiene, accessibility, governance-sustainability, community-readiness, naming-trademark-collision |
 | READY | 2 (of 3) | secrets-credentials, internationalization-bias |
 

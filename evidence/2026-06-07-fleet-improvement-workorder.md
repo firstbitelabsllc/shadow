@@ -80,7 +80,7 @@ ollama model names passed as one string; unquoted array args; empty-var `rm -rf 
 
 4. **StrongYes live-mode Stripe rotation — agent runs T1-T3 + stages T6.** `sy-ai/vidux/stripe-live-rotation/PLAN.md`. Create live-mode Pro product + $180 quarterly + $350 annual via Stripe MCP, stage Vercel Production price-ID swap; hand webhook/secret rotation to Leo. **Caveat:** confirm this plan against canonical strongyes-web before executing so it isn't lost in the sy-ai sprawl.
 
-5. **fcp-workflow uae-with-nicole-reel reconciliation.** `fcp-workflow/vidux/uae-with-nicole-reel/PLAN.md`. Closest-to-done media plan (5 pending/10 done) but stale since 2026-05-01. Leo-hands editing, not agent-shipping — agents reconcile the 5 pending rows against existing footage/FCPXML, mark already-done rows `[completed]` with evidence, surface the true remaining cut list (or `[blocked: awaiting Leo ingest]`).
+5. **fcp-workflow uae-family-trip-reel reconciliation.** `fcp-workflow/vidux/uae-family-trip-reel/PLAN.md`. Closest-to-done media plan (5 pending/10 done) but stale since 2026-05-01. Leo-hands editing, not agent-shipping — agents reconcile the 5 pending rows against existing footage/FCPXML, mark already-done rows `[completed]` with evidence, surface the true remaining cut list (or `[blocked: awaiting Leo ingest]`).
 
 **Two hygiene archives that block fleet-survey accuracy (do alongside):** ARCHIVE the entire `mobiledevcombine-web/vidux/` tree (old name for strongyes-web, frozen 2026-04-18) and ARCHIVE the `sy-ai/vidux/` pre-pivot sprawl down to launch-validation + stripe-live-rotation (kills the 39-file Joe/Nikki stale-canon corpus build agents keep re-reading — friction #2 at the source).
 

@@ -187,8 +187,8 @@ hermeticity claim. Not yet remediated.
   content (`title`/`detail`/`summary` all literally `"test"`) — almost
   certainly a truncated/malfunctioning run, not a genuine finding.
   `simplicity-niche-fit` is **confirmed cross-contaminated**: independently
-  verified against the actual vidux repo (2026-07-09) — `nicole-readiness-
-  packet.mjs` does not exist anywhere in vidux, `/coder-nicole` appears
+  verified against the actual vidux repo (2026-07-09) — `family-member-readiness-
+  packet.mjs` does not exist anywhere in vidux, `/coder-family-member` appears
   nowhere except this evidence file's own citation of the finding, vidux has
   362 markdown files (not the claimed 1,350), and `.claude-plugin/` contains
   only a bare `plugin.json` (no `marketplace.json`, no README with the
@@ -226,7 +226,7 @@ maintainer's call, not something this session is deciding or acting on.
 **`simplicity-niche-fit` — clean re-run, partial-delivery verdict, not the
 contaminated NO-GO.** Confirmed only real vidux-repo facts this time (362
 markdown files, 61 scripts/ files, 347 tracked files total — nothing like
-the fabricated 1,350/nicole-readiness-packet.mjs from the contaminated run).
+the fabricated 1,350/family-member-readiness-packet.mjs from the contaminated run).
 Zero hardcoded personal paths ship in tracked, live-facing files (the only
 maintainer-home-path hits are inside the grep-gate script and its own test
 fixtures — the leak-detector itself, not a leak). Genuine MIT LICENSE, clean
