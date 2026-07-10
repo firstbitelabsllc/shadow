@@ -1213,12 +1213,27 @@ def discover_plans() -> list[dict]:
             path = Path(hit).resolve()
             if path in seen:
                 continue
+            # Round-11 fix: glob + resolve() follows symlinks, so a symlink
+            # under DEV_ROOT can resolve OUTSIDE it. plan_meta() then does
+            # path.relative_to(DEV_ROOT) with no guard, raising ValueError and
+            # crashing the entire /api/plans dashboard -- discover_plans_cached()
+            # never populates its cache on a raise, so every subsequent request
+            # re-attempts and re-crashes until a human removes the symlink.
+            # Re-validate containment after resolve() (same as safe_resolve does),
+            # and defensively isolate any single bad entry so one malformed file
+            # (symlink escape, permission error, transient I/O) can never take
+            # down the whole fleet view.
+            if not path.is_relative_to(DEV_ROOT):
+                continue
             if "node_modules" in path.parts:
                 continue
             if has_sensitive_text(str(path)):
                 continue
             seen.add(path)
-            plans.append(plan_meta(path))
+            try:
+                plans.append(plan_meta(path))
+            except (ValueError, OSError):
+                continue
     plans = dedupe_legacy_repo_plans(plans)
     plans = attach_children(plans)
     aggregate_memo: dict[str, dict] = {}
