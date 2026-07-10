@@ -459,6 +459,10 @@ test.describe('auto-refresh polling', () => {
     await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-preview/);
     await page.locator('[data-comment-marker][data-comment-marker-count="2"]').click();
     await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-highlight/);
+    await page.waitForTimeout(1_600);
+    await page.locator('[data-comment-jump="c1"]').click();
+    await page.waitForTimeout(800);
+    await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-highlight/);
     await page.locator('#comment-markers-toggle').click();
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-markers-hidden', 'true');
     await expect(page.locator('[data-comment-marker]')).toHaveCount(0);

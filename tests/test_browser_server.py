@@ -796,6 +796,10 @@ class BrowserViduxTruthTests(unittest.TestCase):
         self.assertEqual(payload["dev_root"], str(browser_server.DEV_ROOT))
         self.assertEqual(payload["server_path"], str(browser_server.SERVER_FILE))
         self.assertEqual(payload["server_mtime_ns"], browser_server.SERVER_MTIME_NS)
+        self.assertEqual(
+            payload["receipt_corpus_path"],
+            str(browser_server._receipts_handler.DEFAULT_CORPUS_PATH.resolve()),
+        )
         self.assertIn("port", payload)
 
     def test_vidux_truth_static_contract(self):
@@ -2226,13 +2230,8 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn(".is-anchor-preview", style)
 
 
-class BrowserMainCliArtifactsDirTests(unittest.TestCase):
-    """Round-1 open-source panel finding: ARTIFACTS_DIR was hardcoded to
-    <this checkout>/browser/artifacts with no CLI/env override, unlike
-    HOST/PORT/DEV_ROOT/COMMENTS_FILE which all support one. Any --root
-    pointed at a fixture or demo dev-root still leaked the real checkout's
-    accumulated Artifacts panel contents -- including in the Playwright
-    webServer used by this repo's own "hermetic" e2e/visual suite."""
+class BrowserMainCliStorageIsolationTests(unittest.TestCase):
+    """Fixture roots must explicitly configure artifacts and receipt corpus stores."""
 
     class _NonBlockingServer:
         def __init__(self, *_args, **_kwargs):
@@ -2250,6 +2249,8 @@ class BrowserMainCliArtifactsDirTests(unittest.TestCase):
         self.original_dev_root = browser_server.DEV_ROOT
         self.original_comments_file = browser_server.COMMENTS_FILE
         self.original_artifacts_dir = browser_server.ARTIFACTS_DIR
+        self.original_receipt_corpus_path = browser_server._receipts_handler.DEFAULT_CORPUS_PATH
+        self.original_receipt_images_dir = browser_server._receipts_handler.DEFAULT_IMAGES_DIR
         self.original_server_cls = browser_server.ThreadingHTTPServer
         browser_server.ThreadingHTTPServer = self._NonBlockingServer
 
@@ -2260,6 +2261,8 @@ class BrowserMainCliArtifactsDirTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.original_dev_root
         browser_server.COMMENTS_FILE = self.original_comments_file
         browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
+        browser_server._receipts_handler.DEFAULT_CORPUS_PATH = self.original_receipt_corpus_path
+        browser_server._receipts_handler.DEFAULT_IMAGES_DIR = self.original_receipt_images_dir
 
     def test_artifacts_dir_flag_overrides_the_checkout_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2276,6 +2279,26 @@ class BrowserMainCliArtifactsDirTests(unittest.TestCase):
         self.assertEqual(
             browser_server.ARTIFACTS_DIR,
             self.original_artifacts_dir,
+        )
+
+    def test_receipt_corpus_path_flag_overrides_the_checkout_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom = Path(tmpdir) / "fixture-receipts" / "corpus.jsonl"
+
+            browser_server.main(["--port", "0", "--receipt-corpus-path", str(custom)])
+
+            self.assertEqual(browser_server._receipts_handler.DEFAULT_CORPUS_PATH, custom.resolve())
+            self.assertEqual(
+                browser_server._receipts_handler.DEFAULT_IMAGES_DIR,
+                custom.resolve().parent / "images",
+            )
+
+    def test_receipt_corpus_path_untouched_when_flag_omitted(self):
+        browser_server.main(["--port", "0"])
+
+        self.assertEqual(
+            browser_server._receipts_handler.DEFAULT_CORPUS_PATH,
+            self.original_receipt_corpus_path,
         )
 
 

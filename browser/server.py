@@ -2489,7 +2489,8 @@ class Handler(BaseHTTPRequestHandler):
                         "repo_root": str(VIDUX_ROOT),
                         "server_path": str(SERVER_FILE),
                         "server_mtime_ns": SERVER_MTIME_NS,
-                        "artifacts_dir": str(ARTIFACTS_DIR)})
+                        "artifacts_dir": str(ARTIFACTS_DIR),
+                        "receipt_corpus_path": str(_receipts_handler.DEFAULT_CORPUS_PATH.resolve())})
         elif route == "/api/plans":
             plans = discover_plans_cached()
             self._json({
@@ -2938,6 +2939,15 @@ def main(argv=None):
              "-- NOT scoped by --root, so pass this explicitly for hermetic "
              "test/demo runs against a fixture root.",
     )
+    parser.add_argument(
+        "--receipt-corpus-path",
+        type=str,
+        default=None,
+        help="Path to the receipt corpus JSONL. Defaults to env RECEIPT_CORPUS_PATH "
+             "or ~/Development/vidux/browser/receipts/corpus.jsonl -- NOT scoped "
+             "by --root, so pass this explicitly for hermetic test/demo runs "
+             "against a fixture root.",
+    )
     args = parser.parse_args(argv)
 
     # CLI overrides module-level globals. Re-resolve so the server uses the
@@ -2953,6 +2963,8 @@ def main(argv=None):
         COMMENTS_FILE = Path(args.comments_path).expanduser()
     if args.artifacts_dir is not None:
         ARTIFACTS_DIR = Path(args.artifacts_dir).expanduser().resolve()
+    if args.receipt_corpus_path is not None:
+        _receipts_handler.configure_corpus_path(args.receipt_corpus_path)
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"

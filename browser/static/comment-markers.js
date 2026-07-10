@@ -1,8 +1,10 @@
 // Compact marker/target-map renderer for existing annotation comments.
 (function () {
   const STORAGE_KEY = "vidux:comment-markers-hidden";
+  const HIGHLIGHT_DURATION_MS = 2200;
   let activePreview = null;
   let previewedTargets = [];
+  const highlightTimers = new WeakMap();
 
   function escapeText(value) {
     return String(value ?? "")
@@ -203,12 +205,36 @@
     return null;
   }
 
-  function jumpToTarget(target) {
+  function setHighlight(target, enabled) {
+    const element = target?.element || target;
+    if (!element || !element.classList) return;
+    if (target?.frame) ensureFrameAnchorStyle(target.frame);
+    if (!enabled) {
+      const timer = highlightTimers.get(element);
+      if (timer !== undefined) clearTimeout(timer);
+      highlightTimers.delete(element);
+    }
+    element.classList.toggle("is-anchor-highlight", Boolean(enabled));
+  }
+
+  function jumpToTarget(target, options = {}) {
     if (!target) return;
     if (target.frame) target.frame.scrollIntoView({ block: "center", behavior: "smooth" });
     target.element.scrollIntoView({ block: "center", behavior: "smooth" });
-    target.element.classList.add("is-anchor-highlight");
-    setTimeout(() => target.element.classList.remove("is-anchor-highlight"), 2200);
+    const previousTimer = highlightTimers.get(target.element);
+    if (previousTimer !== undefined) {
+      clearTimeout(previousTimer);
+      highlightTimers.delete(target.element);
+    }
+    setHighlight(target, true);
+    const duration = Number.isFinite(options.highlightDuration)
+      ? Math.max(0, options.highlightDuration)
+      : HIGHLIGHT_DURATION_MS;
+    if (!duration) return;
+    const timer = setTimeout(() => {
+      setHighlight(target, false);
+    }, duration);
+    highlightTimers.set(target.element, timer);
   }
 
   function setPreview(target, enabled) {
@@ -344,9 +370,11 @@
     updateToggle,
     bindToggle,
     renderPanel,
+    HIGHLIGHT_DURATION_MS,
     ensureFrameAnchorStyle,
     resolveAnchorTarget,
     jumpToTarget,
+    setHighlight,
     setPreview,
     clear,
     render,

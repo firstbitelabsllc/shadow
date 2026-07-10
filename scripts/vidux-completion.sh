@@ -62,7 +62,7 @@ _vidux_complete() {
       return 0
       ;;
     browse)
-      COMPREPLY=( \$(compgen -W "--no-open --foreground -f --port --host --root --open-host --comments-path --help -h" -- "\${cur}") )
+      COMPREPLY=( \$(compgen -W "--no-open --foreground -f --port --host --root --open-host --comments-path --receipt-corpus-path --help -h" -- "\${cur}") )
       return 0
       ;;
     status)
@@ -165,6 +165,7 @@ _vidux() {
             '--root[Scan root for PLAN.md files]' \\
             '--open-host[Browser URL host]' \\
             '--comments-path[Comments JSONL path]' \\
+            '--receipt-corpus-path[Receipt corpus JSONL path]' \\
             '--help[Show help]' \\
             '-h[Show help]'
           ;;
@@ -266,6 +267,7 @@ complete -c vidux -n '__fish_seen_subcommand_from browse' -l host               
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l root                  -d 'Scan root for PLAN.md files'
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l open-host             -d 'Browser URL host'
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l comments-path         -d 'Comments JSONL path'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l receipt-corpus-path   -d 'Receipt corpus JSONL path'
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l help  -s h            -d 'Show help'
 
 complete -c vidux -n '__fish_seen_subcommand_from status' -l root                  -d 'Root path to scan'

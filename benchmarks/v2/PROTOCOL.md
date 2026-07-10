@@ -60,6 +60,14 @@ decision receipt are available.
 ## Oracle Boundary
 
 The actual oracle payloads live outside each arm workspace. Before transport,
-an independent sealed fixture release must provide each class's SHA-256
-commitment and reference this protocol digest. The validator refuses to emit a
-run packet while any oracle is pending seal.
+an independent sealed fixture release must bind this source manifest's digest,
+verify public fixture bytes, and provide a fixture-specific SHA-256 oracle
+commitment. The source manifest remains pending and never receives a hidden
+oracle commitment directly. The validator refuses to emit a run packet until
+the separate release is complete and every public fixture hash verifies.
+
+The release contains commitments only. It does not contain evaluator-only
+oracle paths or bytes, and it must live outside arm workspaces. Each raw row
+binds both the frozen source-manifest digest and the release digest so a later
+fixture substitution cannot score against the original protocol. The exact
+evaluator procedure is in `benchmarks/v2/FIXTURE-RELEASE.md`.

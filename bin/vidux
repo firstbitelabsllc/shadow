@@ -73,11 +73,11 @@ EOF
 vidux browse — launch the plan browser at :7191.
 
 usage: vidux browse [--no-open] [--foreground|-f] [--port N] [--host HOST] \\
-  [--root PATH] [--open-host HOST] [--comments-path PATH] [--help|-h]
+  [--root PATH] [--open-host HOST] [--comments-path PATH] [--receipt-corpus-path PATH] [--help|-h]
 
 Proxies to bin/vidux-browse. The launcher refuses to reuse an existing port
-listener unless /api/health matches the requested repo root, scan root, port,
-and browser/server.py file mtime fingerprint.
+listener unless /api/health matches the requested repo root, scan root, receipt
+corpus path, port, and browser/server.py file mtime fingerprint.
 
 flags:
   --no-open             Start/reuse the server without opening a browser.
@@ -87,6 +87,8 @@ flags:
   --root PATH          Scan root for PLAN.md files (default: ~/Development).
   --open-host HOST     Browser URL host (default: 127.0.0.1).
   --comments-path PATH Comments JSONL path.
+  --receipt-corpus-path PATH
+                       Receipt corpus JSONL path.
 EOF
       ;;
     status)

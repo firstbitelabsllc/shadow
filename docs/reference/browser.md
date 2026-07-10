@@ -29,17 +29,20 @@ Source-grounded defaults from the launcher and server:
 - Scan root for the server: `VIDUX_DEV_ROOT` defaults to `~/Development`
 - Activity ledger source: `VIDUX_LEDGER_FILE` defaults to `~/.agent-ledger/activity.jsonl`
 - Ledger tab caps: `VIDUX_LEDGER_ITEM_LIMIT` defaults to `20`; `VIDUX_LEDGER_SCAN_LIMIT` defaults to `5000`
+- Receipt corpus: `RECEIPT_CORPUS_PATH` defaults to `~/Development/vidux/browser/receipts/corpus.jsonl`
 
-In background mode the launcher writes a PID file and log under `${TMPDIR:-/tmp}` and waits for `GET /api/health` before declaring success. If something is already listening on the target port, the launcher reuses it only when the health payload matches the requested `repo_root`, `dev_root`, `port`, and current `browser/server.py` file mtime fingerprint.
+In background mode the launcher writes a PID file and log under `${TMPDIR:-/tmp}` and waits for `GET /api/health` before declaring success. If something is already listening on the target port, the launcher reuses it only when the health payload matches the requested `repo_root`, `dev_root`, `receipt_corpus_path`, `port`, and current `browser/server.py` file mtime fingerprint.
 
 The launcher accepts `--port`, `--host`, `--root`/`--dev-root`, `--open-host`,
-and `--comments-path`; unknown flags exit 2.
+`--comments-path`, and `--receipt-corpus-path`; unknown flags exit 2. `--root`
+does not scope receipts, so fixture and demo runs must pass an isolated
+`--receipt-corpus-path`.
 
 ## HTTP surface
 
 The stdlib-only server exposes these routes:
 
-- `GET /api/health` returns `ok`, `dev_root`, `repo_root`, `port`, `server_path`, `server_mtime_ns`, `artifacts_dir`; `bin/vidux-browse` uses these to avoid opening a stale, older-code, or foreign listener on the same port.
+- `GET /api/health` returns `ok`, `dev_root`, `repo_root`, `port`, `server_path`, `server_mtime_ns`, `artifacts_dir`, and `receipt_corpus_path`; `bin/vidux-browse` uses these to avoid opening a stale, older-code, foreign, or differently scoped listener on the same port.
 - `GET /api/vidux/truth` returns cached read-only config, runtime-doctor, and signpost status for the browser chrome. Cold calls return a warming payload and refresh the truth bundle in the background, so monitor probes never block on runtime doctor.
 - `GET /api/vidux/truth?refresh=sync` forces the synchronous config/runtime-doctor/signpost proof path for manual checks and tests.
 - The truth payload includes `runtime_doctor.system_memory` (a compact copy of `system_memory_pressure`): `memory_pressure_free_pct`/`memory_pct_source` from `memory_pressure -Q`; `vm_free_mb`/`vm_speculative_mb`/`vm_pages_source` from `vm_stat`.

@@ -48,7 +48,24 @@ RECEIPT_IDS = (
     "transcript_receipt_id",
 )
 FIXTURE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+RELEASE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,63}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+FIXTURE_RELEASE_KEYS = {
+    "schema_version",
+    "release_id",
+    "protocol_id",
+    "source_manifest_digest",
+    "evaluator_receipt_id",
+    "fixtures",
+}
+FIXTURE_RELEASE_ENTRY_KEYS = {
+    "scenario_class",
+    "fixture_id",
+    "fixture_path",
+    "fixture_sha256",
+    "oracle_commitment_sha256",
+}
 
 
 class ValidationError(ValueError):
@@ -65,6 +82,64 @@ def load_manifest(path: Path) -> dict[str, Any]:
 def manifest_digest(manifest: dict[str, Any]) -> str:
     encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def fixture_release_digest(release: dict[str, Any]) -> str:
+    """Return the immutable digest that binds rows to one fixture release."""
+    encoded = json.dumps(release, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_relative_path(value: Any, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValidationError(f"{label} must be a non-empty relative path")
+    if "\\" in value:
+        raise ValidationError(f"{label} must use forward-slash relative paths")
+    path = Path(value)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValidationError(f"{label} must be a normalized relative path")
+    return path
+
+
+def _resolve_regular_file(root: Path, relative_path: Any, label: str) -> Path:
+    try:
+        resolved_root = root.resolve(strict=True)
+    except OSError as error:
+        raise ValidationError(f"{label} root is unavailable: {error}") from error
+    if not resolved_root.is_dir():
+        raise ValidationError(f"{label} root must be a directory")
+
+    relative = _safe_relative_path(relative_path, label)
+    candidate = resolved_root
+    for part in relative.parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValidationError(f"{label} must not traverse a symlink")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as error:
+        raise ValidationError(f"{label} is unavailable: {error}") from error
+    if not _is_within(resolved, resolved_root):
+        raise ValidationError(f"{label} escapes its declared root")
+    if not resolved.is_file():
+        raise ValidationError(f"{label} must name a regular file")
+    return resolved
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _is_number(value: Any) -> bool:
@@ -91,10 +166,8 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     if manifest.get("protocol_id") != "vidux-cockpit-v2":
         errors.append("protocol_id must equal vidux-cockpit-v2")
 
-    status = manifest.get("status")
-    valid_statuses = {"protocol_frozen_pending_fixture_seal", "ready_for_transport"}
-    if status not in valid_statuses:
-        errors.append("status must be protocol_frozen_pending_fixture_seal or ready_for_transport")
+    if manifest.get("status") != "protocol_frozen_pending_fixture_seal":
+        errors.append("source manifest must remain protocol_frozen_pending_fixture_seal")
 
     policy = manifest.get("amendment_policy")
     if not isinstance(policy, dict):
@@ -166,25 +239,13 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
         if not isinstance(scenario.get("fixture_count_target"), int) or scenario["fixture_count_target"] < 12:
             errors.append(f"{scenario_id} fixture_count_target must be at least 12")
         state = scenario.get("oracle_state")
-        if state not in {"pending_seal", "sealed"}:
-            errors.append(f"{scenario_id} oracle_state must be pending_seal or sealed")
-            continue
+        if state != "pending_seal":
+            errors.append(f"{scenario_id} source manifest oracle_state must remain pending_seal")
         if scenario.get("seal_before_transport") is not True:
             errors.append(f"{scenario_id} must require sealing before transport")
         commitment = scenario.get("oracle_commitment_sha256")
-        if state == "sealed" and (not isinstance(commitment, str) or not SHA256_RE.fullmatch(commitment)):
-            errors.append(f"{scenario_id} sealed oracle requires a SHA-256 commitment")
-        if state == "pending_seal" and commitment is not None:
-            errors.append(f"{scenario_id} pending oracle must not expose a commitment before sealing")
-
-    if status == "ready_for_transport" and any(
-        scenario.get("oracle_state") != "sealed" for scenario in scenarios.values()
-    ):
-        errors.append("ready_for_transport requires every hidden oracle to be sealed")
-    if status == "protocol_frozen_pending_fixture_seal" and scenarios and all(
-        scenario.get("oracle_state") == "sealed" for scenario in scenarios.values()
-    ):
-        errors.append("sealed fixture set must advance status to ready_for_transport")
+        if commitment is not None:
+            errors.append(f"{scenario_id} source manifest must not expose an oracle commitment")
 
     metrics = manifest.get("metrics")
     if not isinstance(metrics, dict) or set(metrics) != set(METRIC_IDS):
@@ -249,20 +310,250 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
-def transport_readiness(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Report whether the frozen protocol may issue a run packet yet."""
-    errors = validate_manifest(manifest)
-    gates = list(errors)
-    scenarios = _scenario_map(manifest)
+def _fixture_release_map(release: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    fixtures = release.get("fixtures")
+    if not isinstance(fixtures, list):
+        return {}
+    return {
+        (fixture.get("scenario_class"), fixture.get("fixture_id")): fixture
+        for fixture in fixtures
+        if isinstance(fixture, dict)
+        and isinstance(fixture.get("scenario_class"), str)
+        and isinstance(fixture.get("fixture_id"), str)
+    }
+
+
+def validate_fixture_release(release: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+    """Validate public release metadata without opening any hidden oracle."""
+    errors: list[str] = []
+    if not isinstance(release, dict):
+        return ["fixture release root must be an object"]
+    if set(release) != FIXTURE_RELEASE_KEYS:
+        errors.append("fixture release must contain exactly the required public fields")
+    if release.get("schema_version") != 1:
+        errors.append("fixture release schema_version must equal 1")
+    if not isinstance(release.get("release_id"), str) or not RELEASE_ID_RE.fullmatch(release["release_id"]):
+        errors.append("fixture release_id must be lowercase alphanumeric with optional dashes")
+    if release.get("protocol_id") != manifest.get("protocol_id"):
+        errors.append("fixture release protocol_id must match the source manifest")
+    if release.get("source_manifest_digest") != manifest_digest(manifest):
+        errors.append("fixture release must bind to the exact source manifest digest")
+    receipt_id = release.get("evaluator_receipt_id")
+    if not isinstance(receipt_id, str) or not receipt_id.strip() or len(receipt_id) > 256:
+        errors.append("fixture release evaluator_receipt_id must be a bounded non-empty string")
+
+    fixtures = release.get("fixtures")
+    if not isinstance(fixtures, list):
+        return errors + ["fixture release fixtures must be a list"]
+    targets = {
+        scenario_id: scenario["fixture_count_target"]
+        for scenario_id, scenario in _scenario_map(manifest).items()
+        if isinstance(scenario.get("fixture_count_target"), int)
+    }
+    counts = {scenario_id: 0 for scenario_id in SCENARIO_IDS}
+    seen_ids: set[tuple[str, str]] = set()
+    seen_paths: set[str] = set()
+
+    for index, fixture in enumerate(fixtures, start=1):
+        label = f"fixture release entry {index}"
+        if not isinstance(fixture, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        if set(fixture) != FIXTURE_RELEASE_ENTRY_KEYS:
+            errors.append(f"{label} must contain exactly public fixture fields")
+        scenario_id = fixture.get("scenario_class")
+        fixture_id = fixture.get("fixture_id")
+        if scenario_id not in SCENARIO_IDS:
+            errors.append(f"{label} has unknown scenario_class")
+            continue
+        if not isinstance(fixture_id, str) or not FIXTURE_ID_RE.fullmatch(fixture_id):
+            errors.append(f"{label} has invalid fixture_id")
+            continue
+        key = (scenario_id, fixture_id)
+        if key in seen_ids:
+            errors.append(f"{label} duplicates fixture {scenario_id}/{fixture_id}")
+        seen_ids.add(key)
+        try:
+            fixture_path = _safe_relative_path(fixture.get("fixture_path"), f"{label} fixture_path")
+        except ValidationError as error:
+            errors.append(str(error))
+        else:
+            normalized_path = fixture_path.as_posix()
+            if normalized_path in seen_paths:
+                errors.append(f"{label} reuses fixture_path {normalized_path}")
+            seen_paths.add(normalized_path)
+        for key_name in ("fixture_sha256", "oracle_commitment_sha256"):
+            value = fixture.get(key_name)
+            if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+                errors.append(f"{label} {key_name} must be a SHA-256 digest")
+        counts[scenario_id] += 1
+
     for scenario_id in SCENARIO_IDS:
-        scenario = scenarios.get(scenario_id)
-        if scenario and scenario.get("oracle_state") != "sealed":
-            gates.append(f"{scenario_id} hidden oracle is not sealed")
-    if manifest.get("status") != "ready_for_transport":
-        gates.append("manifest status is not ready_for_transport")
+        target = targets.get(scenario_id)
+        if target is None:
+            errors.append(f"source manifest is missing a fixture target for {scenario_id}")
+        elif counts[scenario_id] < target:
+            errors.append(f"fixture release {scenario_id} needs at least {target} fixtures")
+    return errors
+
+
+def validate_fixture_release_files(release: dict[str, Any], fixture_root: Path) -> list[str]:
+    """Verify every public fixture byte without reading external oracle bytes."""
+    errors: list[str] = []
+    fixtures = release.get("fixtures", [])
+    if not isinstance(fixtures, list):
+        return ["fixture release fixtures must be a list"]
+    for index, fixture in enumerate(fixtures, start=1):
+        if not isinstance(fixture, dict):
+            continue
+        label = f"fixture release entry {index} fixture_path"
+        try:
+            fixture_file = _resolve_regular_file(fixture_root, fixture.get("fixture_path"), label)
+        except ValidationError as error:
+            errors.append(str(error))
+            continue
+        if _file_sha256(fixture_file) != fixture.get("fixture_sha256"):
+            errors.append(f"fixture release entry {index} fixture SHA-256 does not match")
+    return errors
+
+
+def fixture_release_context(manifest: dict[str, Any], release: dict[str, Any]) -> dict[str, Any]:
+    """Return release-bound identifiers after structural validation only."""
+    source_errors = validate_manifest(manifest)
+    if source_errors:
+        raise ValidationError("source manifest is invalid: " + "; ".join(source_errors))
+    release_errors = validate_fixture_release(release, manifest)
+    if release_errors:
+        raise ValidationError("fixture release is invalid: " + "; ".join(release_errors))
+    return {
+        "protocol_id": manifest["protocol_id"],
+        "protocol_digest": manifest_digest(manifest),
+        "fixture_release_digest": fixture_release_digest(release),
+        "fixtures": _fixture_release_map(release),
+    }
+
+
+def build_fixture_release(
+    manifest: dict[str, Any],
+    index: dict[str, Any],
+    *,
+    fixture_root: Path,
+    oracle_root: Path,
+) -> dict[str, Any]:
+    """Create public release metadata from evaluator-only index and oracle roots."""
+    source_errors = validate_manifest(manifest)
+    if source_errors:
+        raise ValidationError("source manifest is invalid: " + "; ".join(source_errors))
+    if not isinstance(index, dict) or set(index) != {"release_id", "evaluator_receipt_id", "fixtures"}:
+        raise ValidationError("fixture index must contain release_id, evaluator_receipt_id, and fixtures only")
+    if not isinstance(index.get("fixtures"), list):
+        raise ValidationError("fixture index fixtures must be a list")
+    if not isinstance(index.get("release_id"), str) or not RELEASE_ID_RE.fullmatch(index["release_id"]):
+        raise ValidationError("fixture index release_id must be lowercase alphanumeric with optional dashes")
+    receipt_id = index.get("evaluator_receipt_id")
+    if not isinstance(receipt_id, str) or not receipt_id.strip() or len(receipt_id) > 256:
+        raise ValidationError("fixture index evaluator_receipt_id must be a bounded non-empty string")
+
+    try:
+        resolved_fixture_root = fixture_root.resolve(strict=True)
+        resolved_oracle_root = oracle_root.resolve(strict=True)
+    except OSError as error:
+        raise ValidationError(f"fixture or oracle root is unavailable: {error}") from error
+    if not resolved_fixture_root.is_dir() or not resolved_oracle_root.is_dir():
+        raise ValidationError("fixture and oracle roots must be directories")
+    if _is_within(resolved_fixture_root, resolved_oracle_root) or _is_within(resolved_oracle_root, resolved_fixture_root):
+        raise ValidationError("fixture and oracle roots must not overlap")
+
+    public_fixtures: list[dict[str, Any]] = []
+    for entry_number, entry in enumerate(index["fixtures"], start=1):
+        label = f"fixture index entry {entry_number}"
+        if not isinstance(entry, dict) or set(entry) != {
+            "scenario_class",
+            "fixture_id",
+            "fixture_path",
+            "oracle_path",
+        }:
+            raise ValidationError(f"{label} must contain scenario_class, fixture_id, fixture_path, and oracle_path only")
+        if entry.get("scenario_class") not in SCENARIO_IDS:
+            raise ValidationError(f"{label} has unknown scenario_class")
+        if not isinstance(entry.get("fixture_id"), str) or not FIXTURE_ID_RE.fullmatch(entry["fixture_id"]):
+            raise ValidationError(f"{label} has invalid fixture_id")
+        fixture_file = _resolve_regular_file(resolved_fixture_root, entry.get("fixture_path"), f"{label} fixture_path")
+        oracle_file = _resolve_regular_file(resolved_oracle_root, entry.get("oracle_path"), f"{label} oracle_path")
+        public_fixtures.append(
+            {
+                "scenario_class": entry.get("scenario_class"),
+                "fixture_id": entry.get("fixture_id"),
+                "fixture_path": _safe_relative_path(entry.get("fixture_path"), f"{label} fixture_path").as_posix(),
+                "fixture_sha256": _file_sha256(fixture_file),
+                "oracle_commitment_sha256": _file_sha256(oracle_file),
+            }
+        )
+
+    release = {
+        "schema_version": 1,
+        "release_id": index.get("release_id"),
+        "protocol_id": manifest["protocol_id"],
+        "source_manifest_digest": manifest_digest(manifest),
+        "evaluator_receipt_id": index.get("evaluator_receipt_id"),
+        "fixtures": sorted(public_fixtures, key=lambda item: (item["scenario_class"], item["fixture_id"])),
+    }
+    release_errors = validate_fixture_release(release, manifest)
+    if release_errors:
+        raise ValidationError("fixture release is invalid: " + "; ".join(release_errors))
+    return release
+
+
+def load_fixture_release(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValidationError("fixture release root must be an object")
+    return payload
+
+
+def load_fixture_index(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValidationError("fixture index root must be an object")
+    return payload
+
+
+def write_fixture_release(path: Path, release: dict[str, Any], *, fixture_root: Path, oracle_root: Path) -> None:
+    if path.exists():
+        raise ValidationError("fixture release output already exists; sealed releases are immutable")
+    try:
+        parent = path.parent.resolve(strict=True)
+        output = parent / path.name
+        resolved_fixture_root = fixture_root.resolve(strict=True)
+        resolved_oracle_root = oracle_root.resolve(strict=True)
+    except OSError as error:
+        raise ValidationError(f"fixture release output parent is unavailable: {error}") from error
+    if _is_within(output, resolved_fixture_root) or _is_within(output, resolved_oracle_root):
+        raise ValidationError("fixture release output must stay outside fixture and oracle roots")
+    output.write_text(json.dumps(release, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def transport_readiness(
+    manifest: dict[str, Any],
+    *,
+    release: dict[str, Any] | None = None,
+    fixture_root: Path | None = None,
+) -> dict[str, Any]:
+    """Report whether a verified external fixture release may issue a run packet."""
+    gates = list(validate_manifest(manifest))
+    release_digest = fixture_release_digest(release) if isinstance(release, dict) else None
+    if release is None:
+        gates.append("sealed external fixture release is required")
+    else:
+        gates.extend(validate_fixture_release(release, manifest))
+        if fixture_root is None:
+            gates.append("fixture root is required to verify the sealed release")
+        elif not gates:
+            gates.extend(validate_fixture_release_files(release, fixture_root))
     return {
         "protocol_id": manifest.get("protocol_id"),
         "protocol_digest": manifest_digest(manifest),
+        "fixture_release_digest": release_digest,
         "status": manifest.get("status"),
         "ready": not gates,
         "gates": sorted(set(gates)),
@@ -272,13 +563,15 @@ def transport_readiness(manifest: dict[str, Any]) -> dict[str, Any]:
 def build_run_packet(
     manifest: dict[str, Any],
     *,
+    release: dict[str, Any],
+    fixture_root: Path,
     arm: str,
     scenario_class: str,
     fixture_id: str,
     replica: int,
 ) -> dict[str, Any]:
-    """Emit an arm-safe packet after oracle sealing and static validation."""
-    readiness = transport_readiness(manifest)
+    """Emit an arm-safe packet from a verified release without oracle payloads."""
+    readiness = transport_readiness(manifest, release=release, fixture_root=fixture_root)
     if not readiness["ready"]:
         raise ValidationError("benchmark is not transport-ready: " + "; ".join(readiness["gates"]))
     if arm not in ARM_IDS:
@@ -289,13 +582,21 @@ def build_run_packet(
         raise ValidationError("fixture_id must be lowercase alphanumeric with optional dashes")
     if not isinstance(replica, int) or replica < 1:
         raise ValidationError("replica must be a positive integer")
+    context = fixture_release_context(manifest, release)
+    fixture = context["fixtures"].get((scenario_class, fixture_id))
+    if fixture is None:
+        raise ValidationError("fixture_id is not present in the sealed fixture release")
     arm_record = next(item for item in manifest["arms"] if item["id"] == arm)
     return {
         "protocol_id": manifest["protocol_id"],
-        "protocol_digest": readiness["protocol_digest"],
+        "protocol_digest": context["protocol_digest"],
+        "fixture_release_digest": context["fixture_release_digest"],
         "arm": arm,
         "scenario_class": scenario_class,
         "fixture_id": fixture_id,
+        "fixture_path": fixture["fixture_path"],
+        "fixture_sha256": fixture["fixture_sha256"],
+        "oracle_commitment_sha256": fixture["oracle_commitment_sha256"],
         "replica": replica,
         "ordinary_filesystem": arm_record["ordinary_filesystem"],
         "fixture_workspace": arm_record["fixture_workspace"],
@@ -316,12 +617,14 @@ def _require_row_metric(row: dict[str, Any], key: str, *, integer: bool = False)
     return None
 
 
-def validate_result_rows(rows: Iterable[dict[str, Any]], manifest: dict[str, Any]) -> dict[tuple[str, str, int], dict[str, dict[str, Any]]]:
+def validate_result_rows(
+    rows: Iterable[dict[str, Any]],
+    manifest: dict[str, Any],
+    *,
+    release: dict[str, Any],
+) -> dict[tuple[str, str, int], dict[str, dict[str, Any]]]:
     """Validate paired raw rows and return them grouped by paired-block key."""
-    readiness = transport_readiness(manifest)
-    if not readiness["ready"]:
-        raise ValidationError("cannot validate rows before transport readiness")
-    scenarios = _scenario_map(manifest)
+    context = fixture_release_context(manifest, release)
     groups: dict[tuple[str, str, int], dict[str, dict[str, Any]]] = defaultdict(dict)
     errors: list[str] = []
 
@@ -360,11 +663,16 @@ def validate_result_rows(rows: Iterable[dict[str, Any]], manifest: dict[str, Any
             problem = _require_row_metric(row, metric, integer=integer)
             if problem:
                 errors.append(f"{label} {problem}")
-        expected_commitment = scenarios[scenario_class].get("oracle_commitment_sha256")
-        if row.get("oracle_commitment_sha256") != expected_commitment:
+        fixture = context["fixtures"].get((scenario_class, fixture_id))
+        if fixture is None:
+            errors.append(f"{label} fixture is not present in the sealed fixture release")
+            continue
+        if row.get("oracle_commitment_sha256") != fixture["oracle_commitment_sha256"]:
             errors.append(f"{label} oracle commitment does not match sealed scenario commitment")
-        if row.get("protocol_digest") != readiness["protocol_digest"]:
-            errors.append(f"{label} protocol digest does not match the sealed manifest")
+        if row.get("protocol_digest") != context["protocol_digest"]:
+            errors.append(f"{label} protocol digest does not match the frozen source manifest")
+        if row.get("fixture_release_digest") != context["fixture_release_digest"]:
+            errors.append(f"{label} fixture release digest does not match the sealed fixture release")
         for receipt_id in RECEIPT_IDS:
             if not isinstance(row.get(receipt_id), str) or not row[receipt_id].strip():
                 errors.append(f"{label} {receipt_id} must be a non-empty string")
@@ -536,9 +844,15 @@ def _comparison(pairs: list[dict[str, dict[str, Any]]], baseline: str, rules: di
     return {"status": status, "metrics": metrics}
 
 
-def score_result_rows(rows: Iterable[dict[str, Any]], manifest: dict[str, Any]) -> dict[str, Any]:
+def score_result_rows(
+    rows: Iterable[dict[str, Any]],
+    manifest: dict[str, Any],
+    *,
+    release: dict[str, Any],
+) -> dict[str, Any]:
     """Score raw rows without upgrading absent or incomplete evidence to a win."""
-    grouped = validate_result_rows(list(rows), manifest)
+    context = fixture_release_context(manifest, release)
+    grouped = validate_result_rows(list(rows), manifest, release=release)
     rules = manifest["decision_rules"]
     minimum_pairs = manifest["trial_design"]["minimum_complete_pairs_per_class"]
     scenario_results: dict[str, dict[str, Any]] = {}
@@ -589,7 +903,8 @@ def score_result_rows(rows: Iterable[dict[str, Any]], manifest: dict[str, Any]) 
         status = "unproven"
     return {
         "protocol_id": manifest["protocol_id"],
-        "protocol_digest": manifest_digest(manifest),
+        "protocol_digest": context["protocol_digest"],
+        "fixture_release_digest": context["fixture_release_digest"],
         "status": status,
         "verified_net_win_scenario_classes": verified,
         "minimum_verified_net_win_classes": target,
@@ -608,14 +923,26 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("validate", "readiness"):
-        command = subparsers.add_parser(name)
-        command.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    validate = subparsers.add_parser("validate")
+    validate.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    readiness = subparsers.add_parser("readiness")
+    readiness.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    readiness.add_argument("--release", type=Path)
+    readiness.add_argument("--fixture-root", type=Path)
+    seal_release = subparsers.add_parser("seal-release")
+    seal_release.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    seal_release.add_argument("--index", type=Path, required=True)
+    seal_release.add_argument("--fixture-root", type=Path, required=True)
+    seal_release.add_argument("--oracle-root", type=Path, required=True)
+    seal_release.add_argument("--output", type=Path, required=True)
     score = subparsers.add_parser("score")
     score.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     score.add_argument("--results", type=Path, required=True)
+    score.add_argument("--release", type=Path, required=True)
     packet = subparsers.add_parser("packet")
     packet.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    packet.add_argument("--release", type=Path, required=True)
+    packet.add_argument("--fixture-root", type=Path, required=True)
     packet.add_argument("--arm", required=True)
     packet.add_argument("--scenario-class", required=True)
     packet.add_argument("--fixture-id", required=True)
@@ -630,13 +957,54 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"valid": not errors, "errors": errors, "transport_ready": readiness["ready"], "gates": readiness["gates"]}, sort_keys=True))
             return 0 if not errors else 1
         if args.command == "readiness":
-            readiness = transport_readiness(manifest)
-            print(json.dumps(readiness, sort_keys=True))
-            return 0 if readiness["ready"] else 2
-        if args.command == "score":
-            print(json.dumps(score_result_rows(_read_rows(args.results), manifest), sort_keys=True))
+            release = load_fixture_release(args.release) if args.release else None
+            result = transport_readiness(manifest, release=release, fixture_root=args.fixture_root)
+            print(json.dumps(result, sort_keys=True))
+            return 0 if result["ready"] else 2
+        if args.command == "seal-release":
+            release = build_fixture_release(
+                manifest,
+                load_fixture_index(args.index),
+                fixture_root=args.fixture_root,
+                oracle_root=args.oracle_root,
+            )
+            write_fixture_release(
+                args.output,
+                release,
+                fixture_root=args.fixture_root,
+                oracle_root=args.oracle_root,
+            )
+            print(
+                json.dumps(
+                    {
+                        "fixture_release_digest": fixture_release_digest(release),
+                        "output": str(args.output),
+                        "protocol_digest": manifest_digest(manifest),
+                        "release_id": release["release_id"],
+                    },
+                    sort_keys=True,
+                )
+            )
             return 0
-        print(json.dumps(build_run_packet(manifest, arm=args.arm, scenario_class=args.scenario_class, fixture_id=args.fixture_id, replica=args.replica), sort_keys=True))
+        if args.command == "score":
+            release = load_fixture_release(args.release)
+            print(json.dumps(score_result_rows(_read_rows(args.results), manifest, release=release), sort_keys=True))
+            return 0
+        release = load_fixture_release(args.release)
+        print(
+            json.dumps(
+                build_run_packet(
+                    manifest,
+                    release=release,
+                    fixture_root=args.fixture_root,
+                    arm=args.arm,
+                    scenario_class=args.scenario_class,
+                    fixture_id=args.fixture_id,
+                    replica=args.replica,
+                ),
+                sort_keys=True,
+            )
+        )
         return 0
     except (OSError, ValueError, ValidationError) as error:
         print(json.dumps({"error": str(error)}), file=sys.stderr)
