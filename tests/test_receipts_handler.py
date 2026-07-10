@@ -452,5 +452,52 @@ class DeleteTests(HandlerTestCase):
         self.assertEqual(handler.handle_delete("nope")[0], 404)
 
 
+class OcrConfigLeakGuardTests(unittest.TestCase):
+    """Round-11 panel finding: browser/receipts/ocr.py shipped in the public
+    npm package with a hardcoded live Azure endpoint
+    (superfit.cognitiveservices.azure.com) and a secret-key-file path naming a
+    separate private product (~/.config/resplit/azure-ocr.key) -- invisible to
+    the text grep-gate, which had no rule for hardcoded external hostnames or
+    secret-path conventions. Guards against reintroduction: OCR must require
+    explicit env config, with no private infra names in the source."""
+
+    def setUp(self):
+        from receipts import ocr as _ocr  # noqa: E402
+        self.ocr = _ocr
+        self.src = (BROWSER_DIR / "receipts" / "ocr.py").read_text(encoding="utf-8")
+
+    def test_no_hardcoded_cognitiveservices_endpoint(self):
+        self.assertNotIn(
+            "cognitiveservices.azure.com",
+            self.src,
+            "ocr.py must not hardcode a specific Azure resource endpoint -- "
+            "require AZURE_OCR_ENDPOINT instead",
+        )
+
+    def test_no_private_product_key_path(self):
+        self.assertNotIn(
+            "config/resplit",
+            self.src,
+            "ocr.py must not reference a private product's secret-key path",
+        )
+
+    def test_endpoint_default_is_empty(self):
+        self.assertEqual(
+            self.ocr.DEFAULT_ENDPOINT,
+            "",
+            "DEFAULT_ENDPOINT must be empty so a consumer must configure their own",
+        )
+
+    def test_resolve_endpoint_requires_env(self):
+        import os
+        saved = os.environ.pop("AZURE_OCR_ENDPOINT", None)
+        try:
+            with self.assertRaises(self.ocr.OCRConfigError):
+                self.ocr._resolve_endpoint()
+        finally:
+            if saved is not None:
+                os.environ["AZURE_OCR_ENDPOINT"] = saved
+
+
 if __name__ == "__main__":
     unittest.main()

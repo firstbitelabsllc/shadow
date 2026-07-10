@@ -22,6 +22,13 @@ does not handle authentication or user credentials, and does not transmit
 data anywhere by itself. It does not run a network service by default beyond
 the one named below.
 
+One optional, off-by-default exception: the receipts corpus lab
+(`browser/receipts/`) can call an external OCR provider (Azure Document
+Intelligence) if — and only if — you explicitly configure your own endpoint
+and key (`AZURE_OCR_ENDPOINT` / `AZURE_OCR_SUBSCRIPTION_KEY`). Nothing is
+hardcoded, no credential ships in the package, and no request is made unless
+you opt in by setting both values. Those OCR/analyze routes are loopback-only.
+
 Vidux does ship one local HTTP server: `browser/server.py` (`vidux dev` /
 `vidux browse`), a stdlib `http.server`-based read/annotate UI for plan files.
 Its threat model:
