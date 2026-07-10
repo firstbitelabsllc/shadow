@@ -68,11 +68,15 @@ That expected exit is not a product failure, but it prevents a superiority claim
 
 ## Visual Proof
 
-| View | Receipt | Check |
-| --- | --- | --- |
-| Desktop page | `evidence/2026-07-10-browser-artifact-network-isolation.png` | Artifact renders nonblank with the isolation state visible |
-| Desktop detail | `evidence/2026-07-10-browser-artifact-network-isolation-detail.png` | Report content and cockpit metadata remain legible |
-| 320px dark | `evidence/2026-07-10-browser-artifact-network-isolation-mobile-dark.png` | Long path and headline wrap without horizontal overflow or control overlap |
+> Round-11 privacy fix: the three screenshots for this receipt were captured
+> against the maintainer's real dev root, so the artifact-metadata row rendered
+> the literal absolute home-directory path (username and all) in legible
+> text — a leak class the text grep-gate cannot see (PNG pixels). This
+> receipt's own Limits section already noted "sensitive text embedded in
+> pixels is not inspected," but that wasn't applied to its own screenshots
+> before merge. The three files were removed; the network-isolation guarantee
+> below is proven mechanically by the live browser check and the e2e test
+> (`browser/tests/e2e/smoke.spec.ts`), which need no screenshot.
 
 The live browser check also confirmed no host or frame overflow, the exact `allow-same-origin` sandbox, the no-referrer policy, zero page/console errors, and zero sink requests.
 

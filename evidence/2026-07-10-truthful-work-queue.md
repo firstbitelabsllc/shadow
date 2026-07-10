@@ -65,9 +65,14 @@ Live `/api/health` returned `ok: true`. Live `/api/plans` scanned 309 plans in
 
 Inspected receipts:
 
-- `evidence/2026-07-10-mission-control-desktop.png`
-- `evidence/2026-07-10-truthful-work-queue-desktop.png`
-- `evidence/2026-07-10-truthful-work-queue-mobile.png`
+> Round-11 privacy fix: the three screenshots for this receipt were captured
+> against the maintainer's real work queue, so their rows rendered live task
+> titles, repository names, and a `~/Library/LaunchAgents/...` path fragment
+> from several private business projects — a leak class the text grep-gate
+> cannot see (PNG pixels). The three files were removed. The truthful-queue
+> behavior below is proven by the counts table above and its regression tests;
+> the same queue UI is shown against synthetic fixture data in
+> `2026-07-10-multi-project-onboarding-clean.png`.
 
 The first mobile capture exposed vertically stacked repository names. The final
 CSS keeps repository labels to a single-line ellipsis while preserving two-line
