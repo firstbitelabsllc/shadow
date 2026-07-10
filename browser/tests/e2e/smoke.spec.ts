@@ -65,6 +65,118 @@ test.describe('vidux-browse smoke', () => {
     await expect(page.locator('.topbar h1')).toHaveText('Vidux');
   });
 
+  test('clean first run gives one public setup command and rescans', async ({ page }) => {
+    let planRequests = 0;
+    await page.route('**/api/plans', async route => {
+      planRequests += 1;
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [],
+          summary: { plans: 0, repos: 0 },
+          dashboard: {
+            plans_scanned: 0,
+            repos: 0,
+            mission_control: {
+              briefs_total: 0,
+              selected: null,
+              authority: { state: 'missing', claims_total: 0, tied_total: 0 },
+            },
+            onboarding: {
+              state: 'empty',
+              projects_total: 0,
+              plans_total: 0,
+              connected_projects: 0,
+              unconnected_projects: 0,
+              briefs_total: 0,
+              missing_briefs_total: 0,
+              projects: [],
+              init_command: 'vidux init --here',
+            },
+            categories: {},
+          },
+          dev_root: '/private/fixture-root-that-must-not-render',
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ artifacts: [] }) });
+    });
+
+    await page.goto('/');
+
+    const setup = page.locator('.mission-control.is-empty');
+    await expect(setup.locator('h2')).toHaveText('Connect your first project');
+    await expect(setup.locator('code')).toHaveText('vidux init --here');
+    await expect(setup).toContainText('Open a terminal in your project');
+    await expect(page.locator('#sidebar-list')).toContainText('vidux init --here');
+    await expect(page.locator('body')).not.toContainText('/private/fixture-root-that-must-not-render');
+    await setup.locator('[data-refresh-plans]').click();
+    await expect.poll(() => planRequests).toBeGreaterThan(1);
+
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+  });
+
+  test('tied current-work claims are explicit and inspectable', async ({ page }) => {
+    const planPath = '/tmp/vidux-onboarding/beta/PLAN.md';
+    const planRel = 'beta/PLAN.md';
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [{
+            repo: 'beta', slug: '_root_', rel: planRel, path: planPath,
+            status: 'hot', age_days: 0, size: 256, siblings: [], investigations: [],
+            evidence: [], child_rels: [], task_stats: { total: 1, counts: { pending: 1 } },
+            aggregate_stats: { total: 1, descendants: 0, counts: { pending: 1 } },
+          }],
+          dashboard: {
+            mission_control: {
+              briefs_total: 2,
+              selected: {
+                repo: 'beta', rel: planRel, path: planPath, status: 'watching', priority: 80,
+                outcome: 'Ship beta with proof.', next: 'Run the proof.',
+                why: 'Two projects claim the same priority.', validation: 'Inspect the receipt.',
+                cost: 'No paid runtime.', evidence_target: { state: 'needed' }, scorecard: [],
+                freshness: { status: 'fresh', age_days: 0 }, updated: '2026-07-10',
+                selection_reason: 'priority 80 · newest of 2 tied current goals',
+              },
+              authority: {
+                state: 'conflict', claims_total: 2, tied_total: 2, priority: 80,
+                tied_projects: ['alpha', 'beta'],
+                explanation: '2 plans share priority 80. Showing beta by latest plan change, then plan name. Change Priority in one Operator Brief to choose the default.',
+              },
+            },
+            onboarding: { state: 'authority_conflict' },
+            categories: {},
+          },
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ artifacts: [] }) });
+    });
+
+    await page.goto('/');
+
+    const conflict = page.locator('.mission-authority-note');
+    await expect(conflict).toBeVisible();
+    await expect(conflict).toContainText('Current-work tie');
+    await expect(conflict).toContainText('2 plans share priority 80');
+    await expect(conflict).toContainText('Showing beta');
+    await conflict.locator('[data-open-sidebar]').click();
+    const drawerToggle = page.locator('#sidebar-toggle');
+    if (await drawerToggle.isVisible()) {
+      await expect(drawerToggle).toHaveAttribute('aria-expanded', 'true');
+    } else {
+      await expect(page.locator('#sidebar')).toBeVisible();
+    }
+  });
+
   test('simple mode leads with inspectable mission proof and opens its plan', async ({ page }) => {
     await page.goto('/');
 

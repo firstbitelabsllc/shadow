@@ -26,7 +26,7 @@ commands:
   dev [--bg]        Start the local dev browser (foreground; auto-restart)
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
-  init <slug>       Bootstrap a new plan's PLAN.md from template
+  init <slug>|--here Bootstrap a cockpit-ready PLAN.md from template
   drift <PLAN.md>   Record planned-vs-actual drift and optional subplan updates
   config <cmd>      Inspect, validate, or initialize local vidux.config.json
   signpost <cmd>    Emit or summarize local Vidux feature signposts
@@ -107,13 +107,14 @@ EOF
 vidux init — bootstrap a new plan.
 
 usage: vidux init <slug>
+       vidux init --here
 
-Creates projects/<slug>/PLAN.md from the canonical template. The slug
-must be lowercase letters, digits, and hyphens (matching ^[a-z0-9-]+\$).
-Refuses to overwrite an existing PLAN.md.
+With <slug>, creates projects/<slug>/PLAN.md inside the Vidux checkout.
+With --here, creates PLAN.md in the current project. Existing plans are never
+overwritten. Slugs use lowercase letters, digits, and hyphens.
 
-The template ships with the six canonical sections:
-  Purpose · Evidence · Constraints · Tasks · Decision Log · Progress
+The template includes plan authority, a starter Operator Brief, an honest
+unproven scorecard, and the canonical task/decision/progress sections.
 
 exit codes:
   0   plan created

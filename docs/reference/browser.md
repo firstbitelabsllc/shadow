@@ -48,7 +48,7 @@ The stdlib-only server exposes these routes:
 - The truth payload includes `runtime_doctor.system_memory` (a compact copy of `system_memory_pressure`): `memory_pressure_free_pct`/`memory_pct_source` from `memory_pressure -Q`; `vm_free_mb`/`vm_speculative_mb`/`vm_pages_source` from `vm_stat`.
 - The truth payload includes `signposts.latest_run`, a compact call-stack summary from `vidux signpost trace --limit 12 --json`, showing the latest Codex/Claude/Cursor runtime chain rather than only event counts.
 - `GET /receipts` opens the local receipt corpus lab.
-- `GET /api/plans` returns discovered plans plus metadata, a server-calculated `summary` (fleet counts/task completion/remaining ETA), and a bounded `dashboard` object (`in_progress` tasks, `blocked` tasks, open `ASK-LEO.md` and `INBOX.md` entries).
+- `GET /api/plans` returns discovered plans plus metadata, a server-calculated `summary` (fleet counts/task completion/remaining ETA), and a bounded `dashboard` object (`in_progress` tasks, `blocked` tasks, open `ASK-LEO.md` and `INBOX.md` entries). The dashboard also carries path-free onboarding state for empty roots, Git projects without plans, plans without an Operator Brief, and tied current-work priorities.
 - `GET /api/ledger?path=<PLAN.md>` returns bounded, newest-first publish/checkpoint ledger rows for that plan, falling back to recent same-repo rows when plan-specific proof is absent.
 - `GET /api/artifacts` returns the HTML artifact shelf under `browser/artifacts/`.
 - `GET /api/file?path=...` returns an allowed markdown file or HTML artifact.
@@ -142,6 +142,14 @@ Plan discovery is filesystem-based. The server scans `DEV_ROOT` with these layou
 - `*/vidux/*/PLAN.md`
 - `*/projects/*/PLAN.md`
 - `*/PLAN.md`
+
+For first-run setup, Vidux also inspects direct child Git directories under `DEV_ROOT`. This inventory exposes project names and setup state only, never project paths. A project without a plan appears as unconnected and can be initialized from that project's terminal with:
+
+```bash
+vidux init --here
+```
+
+The generated plan already contains an Operator Brief and an unproven scorecard. If two valid briefs share the highest priority, the browser shows a current-work tie, names the deterministic fallback, and tells the operator to change one brief's `Priority` rather than silently presenting the file-time winner as intentional authority.
 
 Each discovered plan reports task counts, ETA totals for active tasks, sibling-file availability, and linked or auto-discovered investigations. The topbar uses `/api/plans.summary` so the fleet-wide remaining-hours readout is computed server-side from the same task parser as the plan rows. The sidebar keeps persisted hot/tasks/ETA filter chips and a sort menu for `mtime`, remaining `ETA`, and freshness, with filtering applied before grouping and sorting.
 

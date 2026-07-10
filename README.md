@@ -47,7 +47,7 @@ needed) and re-run `vidux dev`.
 
 Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/` changes.
 
-Want a real plan instead of the browser's own example plans? `vidux init my-project` scaffolds a first `PLAN.md` **inside this vidux checkout**, at `projects/my-project/PLAN.md` — not in whatever directory you happen to run it from. Because the browser scans your whole dev-root tree (`~/Development` by default, or `VIDUX_DEV_ROOT` if you set it), that new plan shows up automatically without any extra wiring, as long as vidux itself was cloned inside that tree. Vidux works this way so one vidux install can act as a single dashboard over many separate projects' plans; if you'd rather a project's `PLAN.md` live directly in that project's own git repo, just create `PLAN.md` by hand at its root (see `plan_store` under [Status & Config](#status--config) for how agents resolve which `PLAN.md` is authoritative). Use `vidux help` for the full command list.
+Want to connect a project? Open a terminal in that project and run `vidux init --here`. It creates a repo-local `PLAN.md` with a starter Operator Brief, an honest unproven scorecard, and one bounded task, so the browser has a useful default cockpit on its next scan. Vidux scans your whole dev-root tree (`~/Development` by default, or `VIDUX_DEV_ROOT` if set), and it also lists direct child Git projects that do not have plans yet. If you prefer a central plan store, `vidux init my-project` still creates `projects/my-project/PLAN.md` inside the Vidux checkout. See `plan_store` under [Status & Config](#status--config) for authority modes, and use `vidux help` for the full command list.
 
 ## Install
 
