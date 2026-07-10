@@ -111,9 +111,29 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
 
     def test_allowed_request_host_permits_lan_bind_for_documented_read_mode(self):
         # 0.0.0.0/:: is the explicit, documented trusted-LAN opt-in
-        # (README.md, SKILL.md) -- arbitrary LAN Host headers are expected.
+        # (README.md, SKILL.md) -- a real LAN peer's Host header, a
+        # private-use IP literal, is expected and accepted.
         self.assertTrue(
             browser_server.is_allowed_request_host("192.168.1.50:7191", "0.0.0.0")
+        )
+
+    def test_allowed_request_host_rejects_dns_rebound_hostname_even_in_lan_bind_mode(self):
+        # Round-9 panel finding, empirically proven with a live curl PoC
+        # before this fix: is_allowed_request_host() used to return True
+        # unconditionally for ANY Host header when bind_host is 0.0.0.0/::,
+        # which let a DNS-rebinding attacker (Host and Origin both set to
+        # their own registered domain, which resolves to this loopback
+        # server) satisfy the require_origin=True write-route check added in
+        # round 8 -- is_loopback_host(client_address) doesn't catch it
+        # either, since the rebound TCP connection genuinely originates
+        # from this machine. An attacker's domain is never a private-use IP
+        # literal, so it must be rejected in LAN-bind mode exactly like it
+        # already is in the default-bind mode.
+        self.assertFalse(
+            browser_server.is_allowed_request_host("evil.example:7191", "0.0.0.0")
+        )
+        self.assertFalse(
+            browser_server.is_allowed_request_host("evil.example:7191", "::")
         )
 
     def test_private_lan_ip_literal_accepts_rfc1918_and_rejects_domains(self):
@@ -336,6 +356,22 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
             "/api/local-plan-note",
             {"plan_path": str(self.plan_path), "note": "evil note"},
             self.json_headers(Origin="http://evil.example"),
+        )
+
+        self.assertEqual(status, 403, text)
+        self.assertFalse((self.plan_dir / "INBOX.md").exists())
+
+    def test_plan_note_post_requires_origin_or_referer(self):
+        # Round-8 panel finding: _require_json_write() (used by every write
+        # route except /api/comments) previously allowed a request through
+        # when BOTH Origin and Referer were absent. Not exploitable from a
+        # real browser, but a loopback process with no headers at all
+        # shouldn't get a free pass either -- matches /api/comments's
+        # already-stricter require_origin=True.
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "no-origin note"},
+            {"Content-Type": "application/json"},
         )
 
         self.assertEqual(status, 403, text)
@@ -2117,6 +2153,40 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("z-index: var(--z-header)", style)
         self.assertIn("z-index: var(--z-mobile-sidebar)", style)
         self.assertIn("z-index: var(--z-mode-popover)", style)
+
+    def test_subplan_row_is_keyboard_and_screen_reader_accessible(self):
+        """Round-7 panel finding: `.subplan-row` was a click-only div with no
+        tabindex/role/aria-label and no keydown handler -- unreachable by
+        keyboard and silent to screen readers despite being the only way to
+        navigate into a sub-plan from this view."""
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+
+        render_fn = app.split("function renderPaneSubplans(plan) {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn('role="button"', render_fn)
+        self.assertIn('tabindex="0"', render_fn)
+        self.assertIn("aria-label=", render_fn)
+
+        wiring = app.split('querySelectorAll(".subplan-row")', 1)[1].split(
+            "\n  });", 1
+        )[0]
+        self.assertIn('"keydown"', wiring)
+        self.assertIn('"Enter"', wiring)
+
+    def test_receipts_annotation_inputs_have_accessible_names(self):
+        """Round-8 panel finding: the per-card tag/known-issues/note inputs
+        on /receipts had placeholder text only -- no <label>, no
+        aria-label -- invisible to screen readers despite being the
+        primary way to annotate a receipt."""
+        receipts = (ROOT / "browser" / "static" / "receipts.html").read_text(encoding="utf-8")
+        card_render = receipts.split('class="tags"', 1)[1].split("card-actions", 1)[0]
+        self.assertIn('class="tag-input"', card_render)
+        self.assertIn('class="ki-input"', card_render)
+        self.assertIn('class="note-input"', card_render)
+        for cls in ("tag-input", "ki-input", "note-input"):
+            field = card_render.split(f'class="{cls}"', 1)[1].split(">", 1)[0]
+            self.assertIn("aria-label=", field, f"{cls} is missing an accessible name")
 
     def test_annotation_state_helper_contract_is_named(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")

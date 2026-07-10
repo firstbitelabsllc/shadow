@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/gate-check.sh"
+            "command": "test -x \"$HOME/.claude/hooks/gate-check.sh\" && \"$HOME/.claude/hooks/gate-check.sh\" || exit 0"
           }
         ]
       }

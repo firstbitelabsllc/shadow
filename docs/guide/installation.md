@@ -26,7 +26,12 @@ Treat installing or rewiring hooks as a publish/change cycle in the **target pro
 2. Emit a publish ledger row for the target repo with the summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage. Pre-copy packet: use the updated `PLAN.md` as both `--file` and `--claim`. After copying and verifying hooks, emit the final `done` row with copied hook paths once they exist.
 
 ```bash
-ledger-emit.sh \
+# "$LEDGER_EMIT" is your own configured ledger-emit executable (wired via
+# `vidux-release.sh --ledger-emit <path>` or the LEDGER_EMIT env var) --
+# scripts/lib/ledger-emit.sh is a sourced-only function library, not a
+# --event-flag CLI. No emitter configured means this row is skipped by
+# design, not a failure.
+"$LEDGER_EMIT" \
   --event publish \
   --repo-path /path/to/your/project \
   --lane hook-install \
@@ -64,7 +69,7 @@ For stronger enforcement within Claude Code sessions, add the hooks from `ENFORC
 - Enforce checkpoints: require the owning plan/progress update and publish-ledger packet before publishable work exits
 - Resume protocol: prompt plan re-read on session start
 
-The repo ships `hooks/hooks.json` as a checked-in example manifest: it wraps the three git hooks above plus `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
+The repo ships `hooks/hooks-reference.json` as a checked-in example manifest: it wraps the three git hooks above plus `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
 
 `vidux-before-task` runs as shown. `vidux-after-task` is illustrative, not zero-config: raw `scripts/vidux-checkpoint.sh` expects `<plan-path> <task> <summary>` (plus optional flags) or `--archive`, so an app-level `afterTask` hook needs a wrapper that supplies those arguments.
 

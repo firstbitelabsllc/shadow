@@ -272,7 +272,7 @@ Every git worktree moves through four states and MUST transition out of the firs
 3. **LAND → same cycle, no open-ended deferral.** The branch is EITHER merged to trunk OR pushed to origin WITH an open draft PR. "Pushed but no PR" (`unmerged_no_pr`) is a BANNED terminal state. A `recover/*` branch is a 72-hour ticket — open a PR, cherry-pick onto current trunk, or log an explicit `ABANDONED: <reason>`; it is never a permanent parking lot.
 4. **TEARDOWN → reclaim.** Once landed, `git worktree remove` + delete the local branch + `git worktree prune`. A plan row / lane / task is NOT done while its work exists only as local worktree state.
 
-**Enforcement:** the `ledger` skill's `worktree_gc.sh` pipeline is the SINGLE cross-repo reaper of record, run by the `com.ai.worktree-gc` LaunchAgent every ~20 min — that cron IS the enforcement (a fast cached SessionStart warning hook exists but is an optional manual opt-in, not auto-wired). GC auto-removes ONLY provably-safe trees (clean / merged / on-origin); trees with unpushed commits, a detached HEAD not merged to base, uncommitted changes, or an unknown source are LISTED for the owner, never auto-deleted. `vidux-worktree-gc.py` is the planning/classifier layer that feeds this reaper — see the Worktree GC mechanics below.
+**Enforcement:** the `ledger` skill's `worktree_gc.sh` pipeline is the SINGLE cross-repo reaper of record, run by the `com.ai.worktree-gc` LaunchAgent every ~20 min — that cron IS the enforcement (a fast cached startup-hook warning — a `SessionStart` hook in Claude Code, or the equivalent lifecycle hook in other harnesses — exists but is an optional manual opt-in, not auto-wired). GC auto-removes ONLY provably-safe trees (clean / merged / on-origin); trees with unpushed commits, a detached HEAD not merged to base, uncommitted changes, or an unknown source are LISTED for the owner, never auto-deleted. `vidux-worktree-gc.py` is the planning/classifier layer that feeds this reaper — see the Worktree GC mechanics below.
 
 ---
 
@@ -306,8 +306,8 @@ VERIFY     -> Build, test, gate. PROOF CONTRACT — terminal state needs the
 
 CHECKPOINT -> Update the plan/queue note, emit the publish packet, then
              commit/push only after those breadcrumbs exist. Reconcile planned
-             vs actual; use `vidux drift` if they diverge.
-COMPLETE   -> Close the local worktree lifecycle or record why it remains.
+             vs actual; use `vidux drift` if they diverge. Close the local
+             worktree lifecycle or record why it remains.
 ```
 
 ### Read the Room (READ-phase checklist)
@@ -329,7 +329,7 @@ Ad hoc scratch files (e.g. `<repo>-loop-state.md`) are optional helpers; they do
 
 **Stuck detection (adaptive):** If the same task appears in 3+ Progress entries while still `[in_progress]`, stop retrying. Switch surface — move to the next unblocked task, mark the stuck one `[blocked]` with a one-line Decision Log entry of what was tried. No human hand-off; the next cycle finds new evidence (observed signal, new PR comment, queue re-sort) or the task stays blocked until replaced. The brake prevents forever-loops; it is not a human approval gate.
 
-**Push authorization:** Operational PR-branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated AND `ledger-emit.sh --event publish` records the publish packet. Open PRs ready-for-review by default so review bots run; use draft only for true WIP with a missing gate. Draft PRs are publish actions too. Direct-to-main requires explicit authorization + the same publish propagation before push/merge. Destructive operations (force push, branch delete, `git reset --hard`) require explicit per-action authorization. A lane prompt saying "NEVER push" without qualification still allows a normal publish-propagated PR-branch push; parking on a local branch wastes cycles.
+**Push authorization:** Operational PR-branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated AND a `--event publish` packet (`--eid`/`--summary`/`--plan-path`/`--proof`/`--handoff-status`/`--resume`) is recorded via an external ledger emitter, if one is configured (`vidux-release.sh --ledger-emit <path>` — see its `--help`; the bundled `scripts/lib/ledger-emit.sh` is a sourced-only function library used internally by `vidux-checkpoint.sh`/`vidux-loop.sh`, not a standalone `--event`-flag CLI). No emitter configured means publish-ledger rows are skipped by design, not a failure — the PLAN.md/Progress/Drift Log update is still the load-bearing part of this gate. Open PRs ready-for-review by default so review bots run; use draft only for true WIP with a missing gate. Draft PRs are publish actions too. Direct-to-main requires explicit authorization + the same publish propagation before push/merge. Destructive operations (force push, branch delete, `git reset --hard`) require explicit per-action authorization. A lane prompt saying "NEVER push" without qualification still allows a normal publish-propagated PR-branch push; parking on a local branch wastes cycles.
 
 ### Trunk-First Rule
 
@@ -712,7 +712,7 @@ The plan is a living document: evidence changes → plan changes → work change
 
 When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle does **not** exit "drained" while agent-doable surface remains. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in + documented in the PR body, so the conversation moves on concrete artifacts, not speculative chat.
 
-A placeholder draft PR is still a publish action. Emit the publish packet with `handoff_status=needs_review` (`ledger-emit.sh --event publish` with non-empty `--summary`/`--task-id`/`--plan-path`/`--proof`/`--handoff-status needs_review`/`--resume`/`--file`/`--claim`), record the blocked question + assumptions in the owning PLAN.md Progress/Tasks or Drift Log, then carry that ledger eid into the PR body before `gh pr create --draft`. Defaults: every flag default-off/zero, isolated worktree off `origin/<trunk>` (see the Trunk-First Rule — detect the actual trunk, never assume the name), no reviewers, no `@`-mentions. Core owns the publish/proof principle; downstream repos own reviewer taste and merge policy.
+A placeholder draft PR is still a publish action. Emit the publish packet with `handoff_status=needs_review` (the ledger emitter's `--event publish` with non-empty `--summary`/`--task-id`/`--plan-path`/`--proof`/`--handoff-status needs_review`/`--resume`/`--file`/`--claim`), record the blocked question + assumptions in the owning PLAN.md Progress/Tasks or Drift Log, then carry that ledger eid into the PR body before `gh pr create --draft`. Defaults: every flag default-off/zero, isolated worktree off `origin/<trunk>` (see the Trunk-First Rule — detect the actual trunk, never assume the name), no reviewers, no `@`-mentions. Core owns the publish/proof principle; downstream repos own reviewer taste and merge policy.
 
 ### Plan archival pattern (parallel-session reconciliation)
 
@@ -792,7 +792,7 @@ These rules apply to `/vidux loop`, `/vidux nurse`, and any coordinated tracking
 When a cron lane is firing AND the user interactively redirects mid-cycle ("revamp X next", "switch to Y"), UPDATE the cron prompt in-place rather than waiting for prior tasks to drain. Two re-arm shapes:
 
 - **Soft re-arm** (redirect EXTENDS scope) — edit the existing prompt's priority order; preserve in-flight task list. The next tick picks up the new priority.
-- **Hard re-arm** (redirect REPLACES scope) — `CronDelete` + `CronCreate` with a fresh prompt. Prior cron's working notes stay in PLAN.md as decision trail.
+- **Hard re-arm** (redirect REPLACES scope) — a cron-management primitive (e.g. `CronDelete` + `CronCreate` in Claude Code, or the equivalent scheduler tools in other harnesses) with a fresh prompt. Prior cron's working notes stay in PLAN.md as decision trail.
 
 Evidence: ~2s re-arm vs 15-20min full cron-interval drain. Generalizes to any cron + interactive overlap (release babysitters, watcher loops, polish loops).
 
@@ -896,10 +896,10 @@ Vidux delegates; it never duplicates. Universal companion skills may be availabl
 - `captain` — meta/skill maintenance (audit, symlink discipline). Older `skill-manager` prompts route here.
 - `maily` — email cross-referencing.
 - `ledger` — cross-tool coordination (critical for coordinated mode).
-- `nia` — external doc/package source lookup (check before WebFetch).
+- `nia` — external doc/package source lookup (check before a web-fetch tool call, e.g. `WebFetch` in Claude Code).
 - `amp` — prompt amplification for vague tasks (GATHER → steer → fire).
 
-Local skills need no manual "on" switch if the `~/.claude/skills` or repo-local symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
+Local skills need no manual "on" switch if the harness's skills directory (e.g. `~/.claude/skills` in Claude Code, `~/.codex/skills`, `~/.cursor/skills`) or repo-local symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
 
 When a repo has one active feature-reset plan and multiple agents work in parallel:
 - Reuse the existing plan; never create a competing plan doc.
@@ -938,7 +938,7 @@ ledger show durable demand.
 After every meaningful completed slice, leave all three breadcrumbs:
 
 1. **Plan / queue** — mark progress in the active plan, `RALPH.md`, or queue source, carrying the publish packet fields.
-2. **Ledger** — emit `ledger-emit.sh --event publish` (the publish packet); keep the eid with the branch/PR handoff.
+2. **Ledger** — emit the ledger emitter's `--event publish` (the publish packet); keep the eid with the branch/PR handoff.
 3. **Git** — commit and push only the owned slice after the plan + ledger breadcrumbs exist.
 
 Checkpoint at: a meaningful slice completing; before handoff; before changing lanes or worktrees; after an integration fix that creates a new stable base for other agents.
@@ -957,7 +957,7 @@ The Anthropic `superpowers` plugin provided 14 process-discipline subskills (bra
 | `writing-plans` | `## PLAN.md Template` above |
 | `executing-plans` | The Cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT) |
 | `subagent-driven-development` | `guides/automation.md` § subagent dispatch |
-| `dispatching-parallel-agents` | `guides/automation.md` § parallel agents (surface-disjoint precondition) |
+| `dispatching-parallel-agents` | `DOCTRINE.md` Principle 9: Subagent coordinator pattern (surface-disjoint precondition) |
 | `test-driven-development` | Principle 5: write the assertion before implementation when the surface needs regression protection |
 | `systematic-debugging` | Principle 3: investigate before fixing. Use `## Investigation Template` for any bug touching 2+ tickets or unclear root cause |
 | `requesting-code-review` / `receiving-code-review` | Repo-specific review discipline before merge |
@@ -1089,7 +1089,7 @@ Default: terse, concrete, evidence-cited; one decision per paragraph; named file
 Core Vidux references are shipped as docs and guides in this repo:
 
 - **[`README.md`](README.md)** — public overview, quick start, CLI/browser install.
-- **[`DOCTRINE.md`](DOCTRINE.md)** — the numbered 12-principle reference some guides cite by number (e.g. "Principle 9, Subagent coordinator pattern"); this file (`SKILL.md`) is the five-principle core walkthrough, not a restatement of it.
+- **[`DOCTRINE.md`](DOCTRINE.md)** — the numbered 13-principle reference some guides cite by number (e.g. "Principle 9, Subagent coordinator pattern"); this file (`SKILL.md`) is the five-principle core walkthrough, not a restatement of it.
 - **[`guides/automation.md`](guides/automation.md)** — recurring lane and automation doctrine.
 - **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and lane prompt patterns.
 - **[`docs/reference/`](docs/reference/)** — CLI, config, hooks, scripts, browser, and PLAN field references.

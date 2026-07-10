@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 from collections import deque
@@ -27,7 +28,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_ROOT = Path.home() / "Development"
+# Round-10 panel finding: README.md documents VIDUX_DEV_ROOT as an
+# alternative to --root for this scan root (and explicitly recommends it for
+# a non-standard clone location), but this only ever read the hardcoded
+# ~/Development default -- only browser/server.py's DEV_ROOT honored the
+# env var. Matches that file's exact os.environ.get pattern.
+DEFAULT_ROOT = Path(
+    os.environ.get("VIDUX_DEV_ROOT", str(Path.home() / "Development"))
+).expanduser()
 LEDGER_PATH = Path.home() / ".agent-ledger" / "activity.jsonl"
 SKIP_PARTS = {
     "node_modules",

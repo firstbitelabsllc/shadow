@@ -328,8 +328,19 @@ test.describe('keyboard navigation', () => {
 
 test.describe('auto-refresh polling', () => {
   test('polls comments, task stats, and artifact content without losing selection', async ({ page }) => {
+    // Round-10 panel finding: a 200ms interval made this reliably flaky
+    // under Playwright's fullyParallel:true (all 3 projects contending for
+    // CPU) -- the comment-marker click below adds a transient
+    // .is-anchor-highlight class synchronously, but AUTO_REFRESH_INTERVAL_MS
+    // is read once at module load and drives an unconditional
+    // window.setInterval(autoRefreshTick, ...) with no busy/interaction
+    // guard, so any poll tick that lands between the click and the
+    // assertion re-renders .pane-header h2 from scratch and wipes the
+    // class. 1000ms gives the click a far wider safe gap to be observed in
+    // (Playwright's own assertion polling is near-instant) while still
+    // comfortably firing within the propagation checks' timeouts below.
     await page.addInitScript(() => {
-      (window as any).__VIDUX_AUTO_REFRESH_INTERVAL_MS = 200;
+      (window as any).__VIDUX_AUTO_REFRESH_INTERVAL_MS = 1000;
     });
 
     let completedTasks = 0;
@@ -444,7 +455,7 @@ test.describe('auto-refresh polling', () => {
       },
     ];
 
-    await expect(page.locator('.pane-progress .ratio')).toHaveText('1 of 2 tasks', { timeout: 3_000 });
+    await expect(page.locator('.pane-progress .ratio')).toHaveText('1 of 2 tasks', { timeout: 5_000 });
     await expect(page.locator('#comments-panel')).toHaveClass(/has-comments/);
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-count', '3');
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-target-count', '2');
@@ -500,8 +511,8 @@ test.describe('auto-refresh polling', () => {
 
     artifactBody = '<!doctype html><html><body><main><h1 id="artifact-title">artifact version B</h1><button id="artifact-action">Inspect</button></main></body></html>';
 
-    await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version B', { timeout: 3_000 });
-    await expect(activeArtifactRow).toHaveClass(/is-active/);
+    await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version B', { timeout: 5_000 });
+    await expect(page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first()).toBeVisible();
   });
 });
 
@@ -656,5 +667,89 @@ test.describe('artifact styling', () => {
     });
     expect(positions.next).toBeLessThan(positions.results);
     expect(positions.results).toBeLessThan(positions.details);
+  });
+});
+
+test.describe('subplan row keyboard navigation', () => {
+  // Rounds 8/9/10: tests/test_browser_server.py's
+  // test_subplan_row_is_keyboard_and_screen_reader_accessible only greps
+  // app.js source text for role="button"/tabindex="0"/aria-label/keydown --
+  // it never opens a page, focuses a node, or dispatches a keypress, so it
+  // would not catch a broken/misattached handler. Reuses this file's own
+  // proven idioms: the page.route() mocking pattern from "auto-refresh
+  // polling"/"artifact styling" (never touches the shared fixture root,
+  // which several count/sort/filter tests elsewhere depend on staying flat
+  // at exactly 3 plans) and the focus()+keyboard.press('Enter') pattern
+  // from "collapse-group headers are keyboard-operable" above. Mocks one
+  // parent plan with one child (mirrors real attach_children()/child_rels
+  // wiring: the child is both a flat state.plans entry and named in the
+  // parent's child_rels, which hydratePlanChildren() on the client resolves
+  // into plan.children for renderPaneSubplans()).
+  test('Enter on a focused .subplan-row navigates to the child plan', async ({ page }) => {
+    const parentPath = '/tmp/vidux-subplan-nav/parent/PLAN.md';
+    const childPath = '/tmp/vidux-subplan-nav/child/PLAN.md';
+    const parentRel = 'fixture/subplan-parent/PLAN.md';
+    const childRel = 'fixture/subplan-child/PLAN.md';
+
+    const planFor = (over: Record<string, unknown>) => ({
+      repo: 'fixture',
+      status: 'active',
+      age_days: 0,
+      size: 256,
+      siblings: [],
+      investigations: [],
+      evidence: [],
+      child_rels: [],
+      task_stats: { total: 1, counts: { completed: 0, pending: 1 } },
+      aggregate_stats: { total: 1, descendants: 0, counts: { completed: 0, pending: 1 } },
+      ...over,
+    });
+
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [
+            planFor({
+              slug: 'subplan-parent', rel: parentRel, path: parentPath,
+              child_rels: [childRel],
+            }),
+            planFor({ slug: 'subplan-child', rel: childRel, path: childPath }),
+          ],
+        }),
+      });
+    });
+
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ artifacts: [], artifacts_dir: '/tmp/vidux-subplan-nav' }),
+      });
+    });
+
+    await page.route('**/api/file**', async route => {
+      const url = new URL(route.request().url());
+      const target = url.searchParams.get('path');
+      const label = target === childPath ? 'Child' : 'Parent';
+      await route.fulfill({
+        contentType: 'text/plain',
+        body: `# ${label}\n\n## Tasks\n- [pending] Do: something\n`,
+      });
+    });
+
+    await page.route('**/api/comments**', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ comments: [] }) });
+    });
+
+    await page.goto(`/?plan=${encodeURIComponent(parentRel)}`);
+    const row = page.locator('.subplan-row[data-subplan-rel="' + childRel + '"]');
+    await expect(row).toHaveAttribute('role', 'button');
+    await expect(row).toHaveAttribute('tabindex', '0');
+    await row.focus();
+    await page.keyboard.press('Enter');
+
+    await expect(page).toHaveURL(new RegExp(`plan=${encodeURIComponent(childRel).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    await expect(page.locator('.pane-header h2')).toHaveText('fixture · subplan-child');
+    await expect(page.locator('#sidebar-list .plan-row[data-path="' + childPath + '"].is-active').first()).toBeVisible();
   });
 });

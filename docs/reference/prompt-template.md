@@ -144,9 +144,9 @@ How to do the work — the heavy rules: worktree discipline, verification comman
 - Commit message: `{verb}({scope}): {what}`
 - After commit, `git branch --show-current` must match intended branch
 - Before `git push`, update the owning PLAN.md Progress/Tasks/Drift Log and
-  emit a `ledger-emit.sh --event publish` row with concise summary, plan task
-  id, plan path, proof, `handoff_status`, files claimed, next-agent resume,
-  changed files, and path-like claims.
+  emit an `--event publish` row (via your configured ledger emitter) with
+  concise summary, plan task id, plan path, proof, `handoff_status`, files claimed,
+  next-agent resume, changed files, and path-like claims.
 - Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --summary "{summary}" --plan-path "{PLAN.md}" --proof "{command/artifact}" --handoff-status "{done|in_progress|blocked|needs_review}" --ledger "{publish-ledger-eid}" --file-claimed "{path}" --review-pass "invariant-audit:pass:{plan/ledger/drift proof}" --review-pass "regression-runner:pass:{tests/docs proof}" --review-pass "adversarial-reviewer:pass:{overclaim/stale-proof check}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
 - Open a ready PR with `gh pr create --base main --head "{branch}" --title "{title}" --body-file /tmp/vidux-pr-body.md`
 
@@ -301,7 +301,7 @@ Priority: CI red > failing PR fix > eligible PR merge > resume [in_progress]
 - Fresh worktree per code change
 - Verify: lint + build + (UI) screenshot
 - Commit: `{verb}({scope}): {what}`; never `git add -A`
-- Before push: update PLAN.md and emit `ledger-emit.sh --event publish --summary --task-id --plan-path --proof --handoff-status --resume --file --claim`
+- Before push: update PLAN.md and emit, via your configured ledger emitter, `--event publish --summary --task-id --plan-path --proof --handoff-status --resume --file --claim`
 - PR body: `scripts/vidux-pr-body.py` with Lane / Plan task / Summary / Plan path / Proof / Ledger / Handoff status / Files claimed / Self-Scrutiny review passes / Resume point
 - Long horizon: one canonical PLAN.md, L2 sub-plans only for investigations,
   `claims-bus.sh check`, `files_claimed`, stale-proof refresh, meter checkpoint

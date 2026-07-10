@@ -6,7 +6,7 @@ Every agent session — human-triggered or cron — runs five steps in order. No
 READ → ASSESS → ACT → VERIFY → CHECKPOINT → (next session) → READ → ...
 ```
 
-**publish packet** = ledger row carrying task id, plan path, proof, handoff status, files claimed, path-like claims, next-agent resume. Emitted by `ledger-emit.sh --event publish` for any branch/PR/release cycle, before the work leaves the machine.
+**publish packet** = ledger row carrying task id, plan path, proof, handoff status, files claimed, path-like claims, next-agent resume. Emitted via the configured ledger emitter's `--event publish` for any branch/PR/release cycle, before the work leaves the machine.
 
 ## Step 1: READ
 

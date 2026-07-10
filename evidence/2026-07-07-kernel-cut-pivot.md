@@ -84,8 +84,12 @@ Freeze current kernel/planner-executor handoff as the default Vidux route. Keep 
   - Sidebar text includes `1 verdicts`.
 - Visual smoke found and fixed a dashboard usability bug: large decision/inbox lists made dashboard panels unbounded, pushing later panels into awkward page flow. `.dashboard-list` is now capped at `min(560px, 70vh)` and `.dashboard-items` scrolls internally.
 - Screenshot receipts:
-  - `evidence/2026-07-07-browser-verdict-dashboard-after-css.png`
   - `evidence/2026-07-07-browser-verdict-list-element-after-css.png`
+  - (`...-dashboard-after-css.png` removed 2026-07-10: the full-dashboard
+    capture rendered real cross-repo plan content spanning nearly the whole
+    frame -- no crop preserved the CSS-containment claim without also
+    keeping that content. The list-element screenshot above already proves
+    the same fix in isolation.)
 - Proof 2026-07-07:
   - `curl -s http://127.0.0.1:7192/api/plans | python3 -m json.tool | rg -n '"verdicts"|"Verdicts"|"proof_rel"|...` found the Verdicts category and PE proof path.
   - Chrome/Playwright DOM check PASS using `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.

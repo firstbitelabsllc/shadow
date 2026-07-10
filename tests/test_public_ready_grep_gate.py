@@ -233,6 +233,53 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["pattern"], "private username")
 
+    def test_spouse_first_name_pattern_catches_real_leak(self):
+        # Round-8 panel finding: 4 evidence files named the maintainer's
+        # real spouse by first name, once in a genuinely sensitive
+        # confidential-job-search context, with no PRIVACY_PATTERNS rule
+        # covering a family member's name at all.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Make this simple enough for Nicole to use.\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "maintainer's spouse's first name")
+
+    def test_spouse_first_name_pattern_is_case_insensitive(self):
+        # Round-9 panel finding: the round-8 rule had no re.IGNORECASE, so
+        # it silently missed the dominant lowercase/kebab-case form this
+        # repo's own project-naming convention actually produces (e.g.
+        # "nicole-fpa-ai" as a directory name) -- the exact bug that let
+        # 7 real leaks ship past every prior grep-gate run.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "audit.jsonl").write_text(
+                '{"path": "projects/nicole-fpa-ai/PLAN.md"}\n', encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "maintainer's spouse's first name")
+
     def test_employer_source_path_pattern_was_a_silent_noop_now_catches_real_leaks(self):
         # Round-3 panel finding: the "employer source path" rule's regex had
         # been over-redacted to the literal placeholder text
@@ -263,8 +310,8 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "README.md").write_text(
-                "Author: jchen3@snapchat.com; registry.snapchat.com and "
-                "engflow-cache-gcp-prod.sc-corp.net were referenced.\n",
+                "Author: someone@snapchat.com; internal.snapchat.com and "
+                "build-cache-1.sc-corp.net were referenced.\n",
                 encoding="utf-8",
             )
 
@@ -286,7 +333,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "README.md").write_text(
-                "Endpoint: http://agi-inference.snap/v1/embeddings\n", encoding="utf-8",
+                "Endpoint: http://internal-inference.snap/v1/embeddings\n", encoding="utf-8",
             )
 
             result = subprocess.run(

@@ -110,6 +110,38 @@ class ListTests(HandlerTestCase):
         _, body2 = handler.handle_list()
         self.assertEqual(body2["count"], 1)
 
+    def test_private_row_omitted_by_default(self):
+        # Round-10 panel finding: handle_list() used to return every row
+        # unconditionally, including private:true ones (name + annotations
+        # like leo_note) to any Host-header-allowlisted caller -- bypassing
+        # the same guard handle_image() enforces (404 for private rows) and
+        # handle_upload() enforces (no image bytes to disk for private
+        # rows). include_private defaults to False, matching what
+        # server.py passes for a non-loopback caller.
+        self.upload(
+            name="PRIVATE: do not show anyone", private=True, leo_note="sensitive",
+            image_base64=_b64(_jpeg(4096)),
+        )
+        self.upload(name="public receipt", image_base64=_b64(_jpeg(4100)))
+        _, body = handler.handle_list()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["rows"][0]["name"], "public receipt")
+        names = [row["name"] for row in body["rows"]]
+        self.assertNotIn("PRIVATE: do not show anyone", names)
+
+    def test_private_row_included_when_include_private_true(self):
+        # The loopback-verified caller path (server.py passes
+        # include_private=is_loopback_host(...)) must still see everything.
+        self.upload(
+            name="PRIVATE: do not show anyone", private=True, leo_note="sensitive",
+            image_base64=_b64(_jpeg(4096)),
+        )
+        self.upload(name="public receipt", image_base64=_b64(_jpeg(4100)))
+        _, body = handler.handle_list(include_private=True)
+        self.assertEqual(body["count"], 2)
+        names = [row["name"] for row in body["rows"]]
+        self.assertIn("PRIVATE: do not show anyone", names)
+
 
 class TagTests(HandlerTestCase):
     def test_patches_tags_known_issues_leo_note(self):
