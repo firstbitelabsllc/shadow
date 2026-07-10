@@ -1970,6 +1970,26 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("z-index: var(--z-mobile-sidebar)", style)
         self.assertIn("z-index: var(--z-mode-popover)", style)
 
+    def test_subplan_row_is_keyboard_and_screen_reader_accessible(self):
+        """Round-7 panel finding: `.subplan-row` was a click-only div with no
+        tabindex/role/aria-label and no keydown handler -- unreachable by
+        keyboard and silent to screen readers despite being the only way to
+        navigate into a sub-plan from this view."""
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+
+        render_fn = app.split("function renderPaneSubplans(plan) {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn('role="button"', render_fn)
+        self.assertIn('tabindex="0"', render_fn)
+        self.assertIn("aria-label=", render_fn)
+
+        wiring = app.split('querySelectorAll(".subplan-row")', 1)[1].split(
+            "\n  });", 1
+        )[0]
+        self.assertIn('"keydown"', wiring)
+        self.assertIn('"Enter"', wiring)
+
     def test_annotation_state_helper_contract_is_named(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
