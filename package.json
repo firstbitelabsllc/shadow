@@ -32,6 +32,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:visual:update": "playwright test browser/tests/e2e/visual.spec.ts --update-snapshots=all",
     "test:pixel": "playwright test browser/tests/e2e/mode-pixel.spec.ts --project=desktop-chromium",
+    "benchmark:v2:validate": "python3 scripts/vidux-benchmark-v2.py validate",
+    "benchmark:v2:readiness": "python3 scripts/vidux-benchmark-v2.py readiness",
     "playwright:install": "playwright install --with-deps chromium",
     "test:thin": "bash scripts/vidux-thin-loop-verify.sh"
   },

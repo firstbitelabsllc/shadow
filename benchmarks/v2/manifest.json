@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "protocol_id": "vidux-cockpit-v2",
+  "status": "protocol_frozen_pending_fixture_seal",
+  "frozen_at": "2026-07-10T02:22:33Z",
+  "amendment_policy": {
+    "rule_changes_require_new_protocol_id": true,
+    "sealed_fixture_release_must_reference_protocol_digest": true,
+    "posthoc_threshold_changes_forbidden": true
+  },
+  "arms": [
+    {
+      "id": "vidux_cockpit",
+      "ordinary_filesystem": true,
+      "fixture_workspace": "identical",
+      "tool_permission_profile": "identical",
+      "additional_surface": "read_only_cockpit_packet"
+    },
+    {
+      "id": "claude_native",
+      "ordinary_filesystem": true,
+      "fixture_workspace": "identical",
+      "tool_permission_profile": "identical",
+      "additional_surface": "none"
+    },
+    {
+      "id": "codex_native",
+      "ordinary_filesystem": true,
+      "fixture_workspace": "identical",
+      "tool_permission_profile": "identical",
+      "additional_surface": "none"
+    }
+  ],
+  "scenario_classes": [
+    {
+      "id": "durable_state",
+      "fixture_count_target": 12,
+      "oracle_state": "pending_seal",
+      "seal_before_transport": true
+    },
+    {
+      "id": "interruption_recovery",
+      "fixture_count_target": 12,
+      "oracle_state": "pending_seal",
+      "seal_before_transport": true
+    },
+    {
+      "id": "cross_project_prioritization",
+      "fixture_count_target": 12,
+      "oracle_state": "pending_seal",
+      "seal_before_transport": true
+    },
+    {
+      "id": "proof_inspection",
+      "fixture_count_target": 12,
+      "oracle_state": "pending_seal",
+      "seal_before_transport": true
+    }
+  ],
+  "metrics": {
+    "success": {
+      "kind": "binary",
+      "source": "sealed_hidden_oracle"
+    },
+    "wall_seconds": {
+      "kind": "non_negative_number",
+      "source": "runner_receipt"
+    },
+    "tokens": {
+      "kind": "non_negative_integer",
+      "source": "provider_receipt"
+    },
+    "dollars": {
+      "kind": "non_negative_number",
+      "source": "provider_receipt"
+    },
+    "operator_touches": {
+      "kind": "non_negative_integer",
+      "source": "transcript_receipt"
+    },
+    "resume_loss": {
+      "kind": "non_negative_number",
+      "source": "sealed_hidden_oracle"
+    }
+  },
+  "measurement_contract": {
+    "provider_cost_scope": "Include every provider token and dollar charge attributable to the arm, including cockpit packet generation and routing overhead.",
+    "wall_clock_boundary": "Measure from standardized arm launch until a terminal runner receipt.",
+    "operator_touch_definition": "Count each human-originated message, approval, click, command, or recovery action after standardized launch; exclude the standardized launch itself.",
+    "resume_loss_definition": "The sealed oracle counts missed, repeated, or invented required state transitions; lower is better.",
+    "required_receipts": [
+      "provider_model",
+      "runtime_version",
+      "provider_receipt_id",
+      "runner_receipt_id",
+      "transcript_receipt_id"
+    ]
+  },
+  "oracles": {
+    "storage": "sealed_external_to_arm_workspace",
+    "arm_prompt_visibility": "forbidden",
+    "score_after_run_only": true,
+    "fixture_release_requires_sha256_commitment": true
+  },
+  "trial_design": {
+    "paired_by": [
+      "scenario_class",
+      "fixture_id",
+      "replica"
+    ],
+    "minimum_complete_pairs_per_class": 12,
+    "replicas_per_fixture": 1,
+    "randomize_fixture_order": true,
+    "randomize_arm_order": true,
+    "infra_exclusion": "Exclude a paired block only when every arm has the same documented infrastructure failure."
+  },
+  "decision_rules": {
+    "confidence_level": 0.95,
+    "bootstrap_replicates": 5000,
+    "success_delta_lower_bound": 0.1,
+    "tokens_per_resolved_ratio_upper_bound": 1.15,
+    "cost_per_resolved_ratio_upper_bound": 1.15,
+    "wall_seconds_ratio_upper_bound": 1.15,
+    "operator_touches_delta_upper_bound": 0.0,
+    "resume_loss_delta_upper_bound": 0.0,
+    "class_win_requires": "win_against_both_native_controls",
+    "minimum_verified_net_win_classes": 3
+  }
+}
