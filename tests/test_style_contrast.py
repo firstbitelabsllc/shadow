@@ -4,7 +4,16 @@ fixed values so a future edit can't silently regress them back below AA.
 
 Round-7 panel finding: the round-4 fix only checked --paper. The same
 status-label tokens also render on --paper-2 (a slightly darker surface
-used for cards/panels), where they still failed (4.23-4.26:1)."""
+used for cards/panels), where they still failed (4.23-4.26:1).
+
+Round-9 panel finding: --cold failed AA as receipts.html's ".exportable"
+pill text color (3.91:1/4.23:1) -- missed because that usage lives in
+receipts.html's own inline <style>, invisible to this test's :root-block
+parsing. --error and --hot pass today but sit at the same razor-thin
+4.5-5.0:1 margin that took three rounds to close for the other tokens,
+untested despite identical small-text usage in receipts.html -- added
+per round-8's own precedent for --task-blocked ("already passed... but
+was untested despite identical usage")."""
 
 from __future__ import annotations
 
@@ -27,7 +36,7 @@ PAPER_2 = "#f1ece1"
 # regression test despite being used identically to the other 5).
 TEXT_TOKENS = (
     "task-shipped", "task-in-progress", "task-completed", "task-in-review",
-    "warning", "task-blocked",
+    "warning", "task-blocked", "cold", "error", "hot",
 )
 
 
