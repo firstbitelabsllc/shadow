@@ -1,6 +1,6 @@
 ---
 name: vidux
-description: Plan-first orchestration. Resolves the authority PLAN, then runs the stateless cycle: gather -> plan -> execute -> verify -> checkpoint -> complete.
+description: "Plan-first orchestration. Resolves the authority PLAN, then runs the stateless cycle: gather -> plan -> execute -> verify -> checkpoint -> complete."
 ---
 
 # /vidux

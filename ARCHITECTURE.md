@@ -5,7 +5,7 @@ Vidux has three layers: **doctrine** (the rules), **the cycle** (the loop), and 
 ```
 ┌─────────────────────────────────────────────────┐
 │                    DOCTRINE                      │
-│  5 principles + gate patterns + stuck detect     │
+│  13 principles + gate patterns + stuck detect    │
 └──────────────────────┬────────────────────────────┘
                         │ governs
 ┌───────────────────────▼──────────────────────────┐
@@ -59,7 +59,7 @@ vidux/
 │   ├── vidux-public-ready-grep-gate.py  # Scans for private-path/identifier leaks before release
 │   └── vidux-fleet-*.sh             # Fleet management utilities (multi-agent coordination)
 ├── hooks/                 # Git hooks for plan discipline
-│   ├── hooks.json         # Claude Code hook definitions
+│   ├── hooks-reference.json  # Cross-tool example manifest (not an auto-loaded Claude Code plugin hooks file)
 │   ├── pre-commit-plan-check.sh
 │   ├── post-commit-checkpoint.sh
 │   └── three-strike-gate.sh
