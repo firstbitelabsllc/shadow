@@ -341,6 +341,22 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 403, text)
         self.assertFalse((self.plan_dir / "INBOX.md").exists())
 
+    def test_plan_note_post_requires_origin_or_referer(self):
+        # Round-8 panel finding: _require_json_write() (used by every write
+        # route except /api/comments) previously allowed a request through
+        # when BOTH Origin and Referer were absent. Not exploitable from a
+        # real browser, but a loopback process with no headers at all
+        # shouldn't get a free pass either -- matches /api/comments's
+        # already-stricter require_origin=True.
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "no-origin note"},
+            {"Content-Type": "application/json"},
+        )
+
+        self.assertEqual(status, 403, text)
+        self.assertFalse((self.plan_dir / "INBOX.md").exists())
+
     def test_comments_post_accepts_same_origin_json_for_plan_without_inbox_write(self):
         status, text = self.post(
             "/api/comments",
