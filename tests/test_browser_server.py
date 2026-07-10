@@ -111,9 +111,29 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
 
     def test_allowed_request_host_permits_lan_bind_for_documented_read_mode(self):
         # 0.0.0.0/:: is the explicit, documented trusted-LAN opt-in
-        # (README.md, SKILL.md) -- arbitrary LAN Host headers are expected.
+        # (README.md, SKILL.md) -- a real LAN peer's Host header, a
+        # private-use IP literal, is expected and accepted.
         self.assertTrue(
             browser_server.is_allowed_request_host("192.168.1.50:7191", "0.0.0.0")
+        )
+
+    def test_allowed_request_host_rejects_dns_rebound_hostname_even_in_lan_bind_mode(self):
+        # Round-9 panel finding, empirically proven with a live curl PoC
+        # before this fix: is_allowed_request_host() used to return True
+        # unconditionally for ANY Host header when bind_host is 0.0.0.0/::,
+        # which let a DNS-rebinding attacker (Host and Origin both set to
+        # their own registered domain, which resolves to this loopback
+        # server) satisfy the require_origin=True write-route check added in
+        # round 8 -- is_loopback_host(client_address) doesn't catch it
+        # either, since the rebound TCP connection genuinely originates
+        # from this machine. An attacker's domain is never a private-use IP
+        # literal, so it must be rejected in LAN-bind mode exactly like it
+        # already is in the default-bind mode.
+        self.assertFalse(
+            browser_server.is_allowed_request_host("evil.example:7191", "0.0.0.0")
+        )
+        self.assertFalse(
+            browser_server.is_allowed_request_host("evil.example:7191", "::")
         )
 
     def test_private_lan_ip_literal_accepts_rfc1918_and_rejects_domains(self):
