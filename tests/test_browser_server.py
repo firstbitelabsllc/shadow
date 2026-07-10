@@ -1990,6 +1990,20 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn('"keydown"', wiring)
         self.assertIn('"Enter"', wiring)
 
+    def test_receipts_annotation_inputs_have_accessible_names(self):
+        """Round-8 panel finding: the per-card tag/known-issues/note inputs
+        on /receipts had placeholder text only -- no <label>, no
+        aria-label -- invisible to screen readers despite being the
+        primary way to annotate a receipt."""
+        receipts = (ROOT / "browser" / "static" / "receipts.html").read_text(encoding="utf-8")
+        card_render = receipts.split('class="tags"', 1)[1].split("card-actions", 1)[0]
+        self.assertIn('class="tag-input"', card_render)
+        self.assertIn('class="ki-input"', card_render)
+        self.assertIn('class="note-input"', card_render)
+        for cls in ("tag-input", "ki-input", "note-input"):
+            field = card_render.split(f'class="{cls}"', 1)[1].split(">", 1)[0]
+            self.assertIn("aria-label=", field, f"{cls} is missing an accessible name")
+
     def test_annotation_state_helper_contract_is_named(self):
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")

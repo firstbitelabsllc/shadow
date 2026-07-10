@@ -25,7 +25,11 @@
   --error: #b14a2b;
   --error-bg: #fdf2ec;
   --error-ink: #5a2515;
-  --warning: #8a7a3e;
+  /* Round-8 panel finding: the original value (#8a7a3e) failed WCAG 1.4.3
+     AA as `color:` on .ops-chip.is-warn's 11px text (3.91:1 vs --paper,
+     3.61:1 vs --paper-2) -- same bug class already fixed once for 4
+     sibling status tokens, this one was missed. Darkened the same way. */
+  --warning: #776936;
   --warning-bg: #fbf3dc;
   --warning-ink: #4d3f12;
   /* Elevation (box-shadow opacity) — small/medium/large */
@@ -81,7 +85,7 @@
   --error: #b14a2b;
   --error-bg: #fdf2ec;
   --error-ink: #5a2515;
-  --warning: #8a7a3e;
+  --warning: #776936;
   --warning-bg: #fbf3dc;
   --warning-ink: #4d3f12;
   --shadow-sm: 0 2px 6px rgba(28, 26, 22, 0.06);

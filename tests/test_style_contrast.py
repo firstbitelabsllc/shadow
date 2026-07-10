@@ -21,7 +21,14 @@ PAPER_2 = "#f1ece1"
 
 # Tokens confirmed used as `color:` (not just background/border) on small
 # text in browser/static/style.css, at the time of this fix.
-TEXT_TOKENS = ("task-shipped", "task-in-progress", "task-completed", "task-in-review")
+# Round-8 panel finding: added "warning" (failed AA at 11px on
+# .ops-chip.is-warn, 3.91:1/3.61:1 -- darkened same as the original 4) and
+# "task-blocked" (already passing, 4.97:1/4.59:1, just missing from this
+# regression test despite being used identically to the other 5).
+TEXT_TOKENS = (
+    "task-shipped", "task-in-progress", "task-completed", "task-in-review",
+    "warning", "task-blocked",
+)
 
 
 def _hex_to_rgb(h: str) -> tuple[int, int, int]:
