@@ -52,12 +52,17 @@ Browser and visual proof found four concrete defects that source review alone mi
 
 ## Visual Receipts
 
-- [Desktop](2026-07-09-mission-control-desktop.png)
 - [Mobile 390px](2026-07-09-mission-control-mobile.png)
-- [Dark mode](2026-07-09-mission-control-dark.png)
 - [Missing brief](2026-07-09-mission-control-empty.png)
-- [Proof zoom](2026-07-09-mission-control-proof-crop.png)
-- [Project navigator zoom](2026-07-09-mission-control-sidebar-crop.png)
+
+> Round-11 privacy fix: the desktop, dark-mode, proof-zoom, and
+> project-navigator-zoom screenshots were captured against the maintainer's
+> real multi-project dev root, so their sidebar/pane pixels exposed the full
+> private project fleet (including a family member's personal project) and a
+> home-directory-implying worktree name — invisible to the text grep-gate.
+> Those four files were removed. The two kept here (mobile, empty state)
+> contain no fleet sidebar or private data; the mission-control UI is also
+> shown against a synthetic fixture in `2026-07-10-multi-project-onboarding-clean.png`.
 
 ## Independent Review
 
@@ -69,7 +74,7 @@ Browser and visual proof found four concrete defects that source review alone mi
 
 ## Open-Source Boundary
 
-The staged package contains only owned code, tests, public prompt/design guidance, this receipt, and six screenshots. The intentionally untracked `evaluations/` copy and the two local July 7 final-verification artifacts were not staged, modified, deleted, archived, or normalized. New public files contain no private machine path or private routing-skill name.
+The staged package contains only owned code, tests, public prompt/design guidance, this receipt, and screenshots. The intentionally untracked `evaluations/` copy and the two local July 7 final-verification artifacts were not staged, modified, deleted, archived, or normalized. (Round-11 correction: this section originally claimed "no private machine path or private routing-skill name," but four of the screenshots captured against the real dev root did expose the private fleet sidebar and a home-implying worktree name; those were removed — see the Visual Receipts note above.)
 
 ## Value Verdict
 
