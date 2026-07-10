@@ -1,15 +1,15 @@
 """Azure Document Intelligence v4 — prebuilt-receipt OCR.
 
-Mirrors the iOS app's `OCRConfiguration` + `ReceiptScanner` endpoints so corpus
-rows captured here are byte-identical to what production captures.
+Optional receipt-OCR helper for the corpus lab. Bring your own Azure
+Document Intelligence (Cognitive Services) resource; nothing is hardcoded and
+no request is made unless you configure both values below.
 
 Stdlib only (urllib) — vidux-browse zero-deps policy.
 
-Environment:
-    AZURE_OCR_ENDPOINT       — Cognitive Services endpoint URL (no trailing /)
-                                fallback: https://superfit.cognitiveservices.azure.com
-    AZURE_OCR_SUBSCRIPTION_KEY — Ocp-Apim-Subscription-Key value
-                                fallback: contents of ~/.config/resplit/azure-ocr.key
+Environment (both required to use OCR; there are no built-in defaults):
+    AZURE_OCR_ENDPOINT        — your Cognitive Services endpoint URL (no trailing /)
+    AZURE_OCR_SUBSCRIPTION_KEY — your Ocp-Apim-Subscription-Key value
+                                 or write the key to ~/.config/vidux/azure-ocr.key
 """
 
 from __future__ import annotations
@@ -22,8 +22,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_ENDPOINT = "https://superfit.cognitiveservices.azure.com"
-DEFAULT_KEY_FILE = Path.home() / ".config" / "resplit" / "azure-ocr.key"
+# No built-in endpoint default: a consumer must point at their own Azure
+# resource. (Earlier revisions hardcoded a specific private endpoint here,
+# which served no purpose for any external user and leaked infra naming.)
+DEFAULT_ENDPOINT = ""
+DEFAULT_KEY_FILE = Path.home() / ".config" / "vidux" / "azure-ocr.key"
 API_VERSION = "2024-11-30"
 MODEL = "prebuilt-receipt"
 POLL_INTERVAL_S = 5.0
@@ -43,7 +46,13 @@ class OCRPollTimeout(RuntimeError):
 
 
 def _resolve_endpoint() -> str:
-    return os.environ.get("AZURE_OCR_ENDPOINT", DEFAULT_ENDPOINT).rstrip("/")
+    endpoint = os.environ.get("AZURE_OCR_ENDPOINT", DEFAULT_ENDPOINT).rstrip("/")
+    if not endpoint:
+        raise OCRConfigError(
+            "Missing Azure endpoint. Set AZURE_OCR_ENDPOINT to your Cognitive "
+            "Services endpoint URL."
+        )
+    return endpoint
 
 
 def _resolve_key() -> str:
