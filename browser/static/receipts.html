@@ -346,9 +346,9 @@ function renderGrid() {
       ${pillsHtml(row)}
       ${extractionsHtml(row)}
       <div class="tags">${(ann.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
-      <input class="tag-input" type="text" value="${escapeHtml((ann.tags || []).join(","))}" placeholder="comma,separated,tags">
-      <input class="ki-input" type="text" value="${escapeHtml((ann.known_issues || []).join(","))}" placeholder="known issues (comma)">
-      <textarea class="note-input" placeholder="leo note">${escapeHtml(ann.leo_note || "")}</textarea>
+      <input class="tag-input" type="text" value="${escapeHtml((ann.tags || []).join(","))}" placeholder="comma,separated,tags" aria-label="tags for receipt ${row.id}">
+      <input class="ki-input" type="text" value="${escapeHtml((ann.known_issues || []).join(","))}" placeholder="known issues (comma)" aria-label="known issues for receipt ${row.id}">
+      <textarea class="note-input" placeholder="leo note" aria-label="note for receipt ${row.id}">${escapeHtml(ann.leo_note || "")}</textarea>
       <div class="row card-actions">
         <button class="local" data-act="local" title="run only the local qwen vision model — free + private">⚡ qwen</button>
         <button data-act="analyze" title="OCR (stores azure_response for iOS export) then azure + claude + qwen">analyze ▸</button>

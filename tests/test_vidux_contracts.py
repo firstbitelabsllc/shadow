@@ -5658,6 +5658,19 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("mid-zone", text.lower())
         self.assertIn("deep work", text.lower())
 
+    def test_committed_hook_command_is_guarded_for_a_fresh_clone(self):
+        """Round-8 panel finding: .claude/settings.json's TaskCompleted hook
+        pointed unconditionally at $HOME/.claude/hooks/gate-check.sh -- the
+        maintainer's personal global hook, not something this repo ships.
+        Any other Claude Code user cloning this repo would silently dangle
+        on that missing path. The command must guard existence so it no-ops
+        cleanly instead of failing for everyone but the maintainer."""
+        settings = json.loads(_read(ROOT / ".claude" / "settings.json"))
+        command = settings["hooks"]["TaskCompleted"][0]["hooks"][0]["command"]
+        self.assertIn("test -x", command)
+        self.assertIn("gate-check.sh", command)
+        self.assertIn("exit 0", command)
+
 
 if __name__ == "__main__":
     unittest.main()
