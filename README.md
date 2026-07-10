@@ -79,6 +79,18 @@ cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
 
 Run `/vidux "your project description"`. The first cycle gathers evidence and writes a `PLAN.md`. No code is written until the plan is ready.
 
+### Claude Code plugin path (alternative to the manual symlink above)
+
+This repo also ships a `.claude-plugin/plugin.json` manifest, so `claude
+--plugin-dir <vidux-dir>` (or a marketplace install, once published) works as
+an alternative to the manual symlink in the section above — pick one path,
+not both. Both the root `SKILL.md` (auto-loaded by the plugin's directory
+convention) and `commands/vidux.md` (also auto-scanned, as a slash command)
+declare `name: vidux` with different content; which one a plugin-path install
+prefers when both are present has not been resolved empirically. If you use
+the plugin path and hit ambiguity between the two, prefer the manual-symlink
+path above, which unambiguously loads the root `SKILL.md`.
+
 ## Multi-platform notes
 
 vidux is developed on macOS but core scripts are POSIX-compatible:
