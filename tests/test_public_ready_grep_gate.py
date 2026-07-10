@@ -125,6 +125,151 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["file"], "README.md")
 
+    def test_plan_live_sections_are_scanned_but_append_only_history_is_exempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "PLAN.md").write_text(
+                "# Plan\n"
+                "## Current State\n"
+                "Restore Linear sync now.\n"
+                "## Decision Log\n"
+                "### 2026-04-01\n"
+                "Retired Linear sync.\n"
+                "## Open work\n"
+                "Keep plans in markdown.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["matches"]), 1, payload["matches"])
+        self.assertEqual(payload["matches"][0]["line"], 3)
+        self.assertEqual(payload["matches"][0]["pattern"], "retired board brand")
+
+    def test_private_machine_ownership_assignment_variants_fail(self):
+        phrases = [
+            "The M4 Pro owns Project Atlas automation.\n",
+            "Project Atlas is owned by the Mac Studio.\n",
+            "Project Atlas is Studio-owned, not blocked waiting for this Mac.\n",
+            "The M4 Pro does not probe or edit Project Atlas.\n",
+        ]
+        for phrase in phrases:
+            with self.subTest(phrase=phrase), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "README.md").write_text(phrase, encoding="utf-8")
+
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 1)
+                payload = json.loads(result.stdout)
+                self.assertEqual(
+                    payload["matches"][0]["pattern"],
+                    "private machine ownership assignment",
+                )
+
+    def test_private_machine_ownership_ignores_benign_own_phrases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "The M1 Max has its own binary cache.\n"
+                "Matrix M3 chassis with its own housing.\n"
+                "M5 own goal in the 90th minute.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_plan_fenced_heading_does_not_change_history_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "PLAN.md").write_text(
+                "# Plan\n"
+                "## Current State\n"
+                "```bash\n"
+                "# progress\n"
+                "```\n"
+                "Restore Linear sync now.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual([match["line"] for match in payload["matches"]], [6])
+
+    def test_plan_setext_heading_exits_append_only_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "PLAN.md").write_text(
+                "# Plan\n"
+                "## Decision Log\n"
+                "Retired Linear sync.\n"
+                "Open work\n"
+                "---------\n"
+                "Restore Linear sync now.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual([match["line"] for match in payload["matches"]], [6])
+
+    def test_plan_append_only_history_still_scans_privacy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "PLAN.md").write_text(
+                "# Plan\n"
+                "## Decision Log\n"
+                "The M4 Pro owns Project Atlas automation.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            payload["matches"][0]["pattern"],
+            "private machine ownership assignment",
+        )
+
     def test_unreadable_file_does_not_crash_the_gate(self):
         # Round-5 panel finding: an OSError (permissions, or a file deleted
         # mid-scan) other than UnicodeDecodeError propagated as an unhandled
@@ -414,12 +559,17 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "passed")
 
-    def test_historical_plan_dirs_are_out_of_scope(self):
+    def test_project_plan_append_only_history_is_hygiene_exempt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             plan = root / "projects" / "old-cleanup" / "PLAN.md"
             plan.parent.mkdir(parents=True)
-            plan.write_text("Historical Linear removal notes stay here.\n", encoding="utf-8")
+            plan.write_text(
+                "# Cleanup plan\n"
+                "## Decisions\n"
+                "Historical Linear removal notes stay here.\n",
+                encoding="utf-8",
+            )
             (root / "README.md").write_text("Current docs stay clean.\n", encoding="utf-8")
 
             result = subprocess.run(

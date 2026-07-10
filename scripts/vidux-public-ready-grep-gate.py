@@ -133,6 +133,21 @@ PRIVACY_PATTERNS = (
      re.compile(r"\b(?!leojkwan@gmail\.com\b)[\w.+-]+@gmail\.com\b", re.IGNORECASE)),
     ("maintainer's other business name", re.compile(r"\btrysnowcubes\b", re.IGNORECASE)),
     ("private skills repo path", re.compile(r"\bDevelopment/ai(?:-leo)?/(?:hooks|skills)\b")),
+    (
+        "private machine ownership assignment",
+        re.compile(
+            r"(?:"
+            r"\b(?:Mac Studio|M[1-9]\s+(?:Pro|Max|Ultra)|this Mac)\b[^\n]{0,100}"
+            r"(?:\bowns\b|\bowned\b|\bassigned\b|"
+            r"\b(?:does not|must not|never)\b[^\n]{0,40}\b(?:probe|edit|open|run)\b)"
+            r"|"
+            r"(?:\bowns\b|\bowned\b|\bassigned\b|"
+            r"\b(?:does not|must not|never)\b[^\n]{0,40}\b(?:probe|edit|open|run)\b)"
+            r"[^\n]{0,100}\b(?:Mac Studio|M[1-9]\s+(?:Pro|Max|Ultra)|this Mac)\b"
+            r")",
+            re.IGNORECASE,
+        ),
+    ),
 )
 
 # Retired-terminology hygiene patterns: only meaningful as a "don't market
@@ -177,24 +192,14 @@ HISTORICAL_TARGETS = {
     "ARCHIVE.md",
     "CHANGELOG.md",
 }
-# Round-7 panel finding (P1, documented, NOT fixed): "PLAN.md" and "projects"
-# are whole-file/whole-directory HYGIENE_PATTERNS exemptions, but a PLAN.md
-# is not append-only-by-design the way CHANGELOG.md/ARCHIVE.md genuinely
-# are -- it's a living document with LIVE sections (Purpose, Constraints,
-# Tasks, Open work) interleaved with append-only sections (Decision Log,
-# Progress, Drift Log). Reproduced live: injecting a HYGIENE_PATTERNS
-# violation into projects/artifact-self-improvement/PLAN.md's ACTIVE Tasks
-# section still reports "passed", because the whole file (root PLAN.md and
-# every projects/*/PLAN.md alike) is exempted regardless of which section a
-# line falls in. PRIVACY_PATTERNS still catch a real leak anywhere in these
-# files (see docstring above) -- this gap is HYGIENE_PATTERNS only (retired-
-# terminology accuracy, not a privacy/security leak). A correct fix needs
-# section-aware scanning (treat only recognized append-only headings --
-# "Decision Log", "Progress", "Drift Log" -- as historical, scan everything
-# else in a PLAN.md normally) rather than whole-file classification. Not
-# implemented yet: it changes scanning behavior for every PLAN.md in the
-# repo and deserves its own dedicated verification pass rather than a rushed
-# change alongside this round's other fixes.
+# PLAN.md is a living document with current sections interleaved with
+# append-only history. Only these sections, including their nested headings,
+# receive the historical hygiene exemption. The next peer or parent heading
+# returns scanning to the live policy.
+PLAN_APPEND_ONLY_HEADINGS = {"decision log", "decisions", "drift log", "progress"}
+MARKDOWN_HEADING_RE = re.compile(r"^(?P<marks>#{1,6})\s+(?P<title>.+?)\s*#*\s*$")
+MARKDOWN_FENCE_RE = re.compile(r"^[ ]{0,3}(?P<fence>`{3,}|~{3,})")
+MARKDOWN_SETEXT_RE = re.compile(r"^[ ]{0,3}(?P<marks>=+|-+)[ \t]*$")
 
 
 # Files where "linear"/"Linear" is unrelated domain vocabulary (a CSS
@@ -215,6 +220,58 @@ def _is_historical(rel: Path) -> bool:
 
 def _hygiene_exempt(rel: Path) -> bool:
     return rel.suffix in HYGIENE_EXEMPT_SUFFIXES or rel.name in HYGIENE_EXEMPT_NAMES
+
+
+def _plan_historical_lines(lines: list[str]) -> list[bool]:
+    historical_heading_level: int | None = None
+    historical: list[bool] = []
+    fence_char: str | None = None
+    fence_length = 0
+
+    def apply_heading(level: int, title: str) -> None:
+        nonlocal historical_heading_level
+        if title.strip().casefold() in PLAN_APPEND_ONLY_HEADINGS:
+            if historical_heading_level is None or level <= historical_heading_level:
+                historical_heading_level = level
+        elif historical_heading_level is not None and level <= historical_heading_level:
+            historical_heading_level = None
+
+    for index, line in enumerate(lines):
+        if fence_char is not None:
+            stripped = line.lstrip(" ")
+            indent = len(line) - len(stripped)
+            closing = re.fullmatch(
+                rf"{re.escape(fence_char)}{{{fence_length},}}[ \t]*",
+                stripped,
+            )
+            if indent <= 3 and closing:
+                fence_char = None
+                fence_length = 0
+            historical.append(historical_heading_level is not None)
+            continue
+
+        fence = MARKDOWN_FENCE_RE.match(line)
+        if fence:
+            marker = fence.group("fence")
+            fence_char = marker[0]
+            fence_length = len(marker)
+            historical.append(historical_heading_level is not None)
+            continue
+
+        setext = MARKDOWN_SETEXT_RE.match(line)
+        if setext and index > 0 and lines[index - 1].strip():
+            level = 1 if setext.group("marks").startswith("=") else 2
+            apply_heading(level, lines[index - 1])
+            historical[-1] = historical_heading_level is not None
+            historical.append(historical_heading_level is not None)
+            continue
+
+        heading = MARKDOWN_HEADING_RE.match(line)
+        if heading:
+            level = len(heading.group("marks"))
+            apply_heading(level, heading.group("title"))
+        historical.append(historical_heading_level is not None)
+    return historical
 
 
 def _is_excluded(path: Path, repo_root: Path) -> bool:
@@ -323,11 +380,6 @@ def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
                         "text": rel_str,
                     }
                 )
-        patterns = (
-            PRIVACY_PATTERNS
-            if _is_historical(rel) or _hygiene_exempt(rel)
-            else FORBIDDEN_PATTERNS
-        )
         try:
             lines = _read_scanned_lines(path, repo_root, tracked_only=tracked_only)
         except UnicodeDecodeError:
@@ -341,7 +393,17 @@ def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
             # a caller checking only the exit code, and --json mode emitted
             # no parseable output at all. Treat as unscannable, not fatal.
             continue
+        plan_history = _plan_historical_lines(lines) if rel.name == "PLAN.md" else None
         for lineno, line in enumerate(lines, start=1):
+            if plan_history is not None:
+                historical = plan_history[lineno - 1]
+            else:
+                historical = _is_historical(rel)
+            patterns = (
+                PRIVACY_PATTERNS
+                if historical or _hygiene_exempt(rel)
+                else FORBIDDEN_PATTERNS
+            )
             for label, pattern in patterns:
                 if pattern.search(line):
                     matches.append(
