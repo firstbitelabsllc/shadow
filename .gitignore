@@ -184,3 +184,7 @@ blob-report/
 # Playwright visual: Linux/CI baselines only. Local Mac regenerations
 # (PLAYWRIGHT_RUN_VISUAL=1) must not dirt the tree or land in commits.
 browser/tests/e2e/**/*-darwin.png
+
+# Local full-suite dumps (do not commit)
+.pytest_full_out.txt
+*.pytest_out.txt
