@@ -1954,6 +1954,100 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertEqual(inbox["items"][0]["tab"], "INBOX.md")
         self.assertEqual(ask_leo["items"][0]["tab"], "ASK-LEO.md")
 
+    def test_dashboard_ranks_urgent_work_and_preserves_task_truth(self):
+        old_dir = self.dev_root / "old-project"
+        new_dir = self.dev_root / "new-project"
+        old_dir.mkdir()
+        new_dir.mkdir()
+        today = browser_server.date.today().isoformat()
+        (old_dir / "PLAN.md").write_text(
+            "# Old\n\n"
+            "## Operator Brief\n"
+            "- Status: watching\n- Priority: 10\n- Outcome: Stop data loss.\n"
+            f"- Next: Repair checkout.\n- Updated: {today}\n\n"
+            "## Tasks\n"
+            "- [pending] P0 customer data loss [Owner: Core] [validation: python3 checks.py]\n"
+            "- [in_progress] P0 reconcile durable state [Owner: Core] [Evidence: evidence/state.md]\n"
+            "- [blocked] P1 vendor callback [Owner: Web] [Blocker: vendor]\n",
+            encoding="utf-8",
+        )
+        (new_dir / "PLAN.md").write_text(
+            "# New\n\n"
+            "## Operator Brief\n"
+            "- Status: watching\n- Priority: 100\n- Outcome: Polish a recent lane.\n"
+            f"- Next: Keep polishing.\n- Updated: {today}\n\n"
+            "## Tasks\n- [in_progress] P1 recent polish\n",
+            encoding="utf-8",
+        )
+        os.utime(old_dir / "PLAN.md", (1_700_000_000, 1_700_000_000))
+        os.utime(new_dir / "PLAN.md", (1_800_000_000, 1_800_000_000))
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans())
+        next_item = dashboard["categories"]["next"]["items"][0]
+        active = dashboard["categories"]["in_progress"]["items"]
+        blocked = dashboard["categories"]["blocked"]["items"][0]
+
+        self.assertEqual(next_item["repo"], "old-project")
+        self.assertEqual(next_item["severity"], "p0")
+        self.assertEqual(next_item["owner"], "Core")
+        self.assertEqual(next_item["validation"], "python3 checks.py")
+        self.assertNotIn("[Owner:", next_item["label"])
+        self.assertEqual([item["repo"] for item in active], ["old-project", "new-project"])
+        self.assertEqual(active[0]["proof"], "evidence/state.md")
+        self.assertEqual(blocked["owner"], "Web")
+        self.assertEqual(blocked["blocker"], "vendor")
+
+    def test_mission_control_rejects_terminal_and_prefers_fresh_truth(self):
+        today = browser_server.date.today().isoformat()
+        fixtures = [
+            ("done", "completed", 100, today),
+            ("stale", "watching", 100, "2000-01-01"),
+            ("fresh", "watching", 5, today),
+        ]
+        for name, status, priority, updated in fixtures:
+            root = self.dev_root / name
+            root.mkdir()
+            (root / "PLAN.md").write_text(
+                f"# {name}\n\n## Operator Brief\n- Status: {status}\n"
+                f"- Priority: {priority}\n- Outcome: Ship {name}.\n- Next: Prove {name}.\n"
+                f"- Updated: {updated}\n\n## Tasks\n- [pending] P1 work\n",
+                encoding="utf-8",
+            )
+
+        mission = browser_server.build_dashboard(browser_server.discover_plans())["mission_control"]
+
+        self.assertEqual(mission["selected"]["repo"], "fresh")
+        self.assertEqual(mission["selected"]["selection_reason"], "only fresh current goal")
+        self.assertEqual(mission["terminal_briefs_total"], 1)
+        self.assertEqual(mission["deferred_briefs_total"], 1)
+        self.assertEqual(mission["authority"]["claims_total"], 1)
+
+    def test_scorecard_reports_explicit_total_when_the_safety_limit_is_reached(self):
+        plan_dir = self.dev_root / "scorecard"
+        plan_dir.mkdir()
+        rows = "".join(
+            f"| Metric {index} | 0 | 0 | 1 | unproven | proof {index} |\n"
+            for index in range(51)
+        )
+        (plan_dir / "PLAN.md").write_text(
+            "# Scorecard\n\n## Operator Brief\n- Status: watching\n- Priority: 1\n"
+            "- Outcome: Count every result.\n- Next: Inspect all results.\n\n"
+            "## Outcome Scorecard\n"
+            "| Metric | Baseline | Current | Target | Status | Proof |\n"
+            "|---|---|---|---|---|---|\n"
+            f"{rows}\n## Tasks\n- [pending] P1 inspect\n",
+            encoding="utf-8",
+        )
+
+        plan = browser_server.discover_plans()[0]
+        selected = browser_server.build_dashboard([plan])["mission_control"]["selected"]
+
+        self.assertEqual(len(plan["outcome_scorecard"]), 50)
+        self.assertEqual(plan["outcome_scorecard_total"], 51)
+        self.assertTrue(plan["outcome_scorecard_truncated"])
+        self.assertEqual(selected["scorecard_total"], 51)
+        self.assertTrue(selected["scorecard_truncated"])
+
     def test_dashboard_surfaces_recent_decision_directions(self):
         plan_dir = self.dev_root / "repo" / "projects" / "decision"
         plan_dir.mkdir(parents=True)
@@ -2105,8 +2199,9 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertEqual(selected["next"], "Ship mission control.")
         self.assertEqual(selected["source_rel"], "other/projects/high/PLAN.md")
         self.assertEqual(selected["tab"], "PLAN.md")
-        self.assertEqual(selected["selection_reason"], "priority 100 · highest of 2 current goals")
+        self.assertEqual(selected["selection_reason"], "only fresh current goal")
         self.assertEqual(dashboard["mission_control"]["authority"]["state"], "ranked")
+        self.assertEqual(dashboard["mission_control"]["deferred_briefs_total"], 1)
         self.assertEqual(selected["evidence_target"]["state"], "missing")
         self.assertEqual(len(selected["scorecard"]), 2)
         self.assertEqual(selected["scorecard"][0]["status"], "losing")
@@ -2252,6 +2347,33 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertTrue(bucket["truncated"])
         self.assertEqual(bucket["limit"], 1)
 
+    def test_simple_queue_slice_is_exact_even_when_selected_plan_fills_api_limit(self):
+        today = browser_server.date.today().isoformat()
+        selected_dir = self.dev_root / "selected"
+        other_dir = self.dev_root / "other"
+        selected_dir.mkdir()
+        other_dir.mkdir()
+        (selected_dir / "PLAN.md").write_text(
+            "# Selected\n\n## Operator Brief\n- Status: shipping\n- Priority: 100\n"
+            "- Outcome: Own the current goal.\n- Next: Keep going.\n"
+            f"- Updated: {today}\n\n## Tasks\n"
+            "- [in_progress] P0 selected one\n"
+            "- [in_progress] P0 selected two\n",
+            encoding="utf-8",
+        )
+        (other_dir / "PLAN.md").write_text(
+            "# Other\n\n## Tasks\n- [in_progress] P1 resumable other work\n",
+            encoding="utf-8",
+        )
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans(), limit=1)
+        bucket = dashboard["categories"]["in_progress"]
+
+        self.assertEqual(bucket["total"], 3)
+        self.assertEqual(bucket["items"][0]["repo"], "selected")
+        self.assertEqual(bucket["simple_total"], 1)
+        self.assertEqual([item["repo"] for item in bucket["simple_items"]], ["other"])
+
     def test_dashboard_static_contract(self):
         server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
@@ -2272,6 +2394,7 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn("extract_open_entries", server)
         self.assertIn('"verdicts": {"label": "Verdicts"', server)
         self.assertIn('"decisions": {"label": "Decisions"', server)
+        self.assertIn('"next": {"label": "Next"', server)
         self.assertIn("fleetSummary", app)
         self.assertIn("function topbarFleetSummary", app)
         self.assertIn("tagged estimate", app)
@@ -2295,15 +2418,18 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn('<link rel="icon" href="data:," />', index)
         self.assertIn('/static/sidebar-sort.js', index)
         self.assertIn('/static/sidebar-filters.js', index)
+        self.assertIn('/static/work-queue.js', index)
         self.assertIn('/static/annotation-state.js', index)
         self.assertLess(index.index('/static/sidebar-sort.js'), index.index('/static/app.js'))
         self.assertLess(index.index('/static/sidebar-filters.js'), index.index('/static/app.js'))
+        self.assertLess(index.index('/static/work-queue.js'), index.index('/static/app.js'))
         self.assertLess(index.index('/static/annotation-state.js'), index.index('/static/app.js'))
         self.assertIn('data-filter-chip="hot"', index)
         self.assertIn('data-filter-chip="tasks"', index)
         self.assertIn('data-filter-chip="eta"', index)
         self.assertIn("ViduxSidebarSort", app)
         self.assertIn("ViduxSidebarFilters", app)
+        self.assertIn("workQueueUi.render", app)
         self.assertIn("function planComparator", sidebar_sort)
         self.assertIn("function repoComparator", sidebar_sort)
         self.assertIn("vidux:sidebar-sort", sidebar_sort)
@@ -2467,6 +2593,35 @@ class BrowserLedgerTests(unittest.TestCase):
             thread.join(timeout=2)
             httpd.server_close()
 
+    def test_ledger_payload_marks_an_unsearched_older_tail_as_partial(self):
+        rows = [{
+            "ts": "2026-06-03T07:00:00Z",
+            "eid": "evt_old_plan",
+            "event": "publish",
+            "repo": "demo-repo",
+            "summary": "older matching proof",
+            "plan_path": "projects/ledger/PLAN.md",
+        }]
+        rows.extend({
+            "ts": f"2026-06-03T08:{index:02d}:00Z",
+            "eid": f"evt_other_{index}",
+            "event": "publish",
+            "repo": "other-repo",
+            "summary": "newer unrelated proof",
+            "plan_path": "PLAN.md",
+        } for index in range(20))
+        self.write_ledger_rows(rows)
+
+        payload = browser_server.ledger_payload_for_plan(self.plan_path)
+
+        self.assertEqual(payload["status"], "partial")
+        self.assertEqual(payload["total_rows"], 21)
+        self.assertEqual(payload["scanned_rows"], 20)
+        self.assertTrue(payload["scan_tail_truncated"])
+        self.assertTrue(payload["truncated"])
+        self.assertEqual(payload["plan_total"], 0)
+        self.assertEqual(payload["items"], [])
+
     def test_ledger_static_contract(self):
         server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
@@ -2600,6 +2755,7 @@ class BrowserPlanBriefTests(unittest.TestCase):
             "## Decision Log\n"
             "- [DIRECTION] [2026-05-24] Keep PLAN.md canonical and use comments for steering.\n\n"
             "## Progress\n"
+            "- [2026-07-10] Shipped the newest cockpit slice.\n"
             "- [completed] malformed task-shaped bullet should not win\n"
             "- [2026-05-24] Shipped the first cockpit slice.\n",
             encoding="utf-8",
@@ -2616,7 +2772,7 @@ class BrowserPlanBriefTests(unittest.TestCase):
             ["in_progress", "blocked", "pending"],
         )
         self.assertIn("Build Now strip", brief["focus_tasks"][0]["label"])
-        self.assertEqual(brief["latest_progress"], "[2026-05-24] Shipped the first cockpit slice.")
+        self.assertEqual(brief["latest_progress"], "[2026-07-10] Shipped the newest cockpit slice.")
         self.assertIn("Keep PLAN.md canonical", brief["latest_decision"])
 
     def test_plan_brief_is_read_only_and_surfaces_core_truth(self):

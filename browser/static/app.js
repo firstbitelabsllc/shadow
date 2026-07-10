@@ -1,6 +1,7 @@
 const sidebarSort = window.ViduxSidebarSort;
 const sidebarFilters = window.ViduxSidebarFilters;
 const onboardingUi = window.ViduxOnboarding;
+const workQueueUi = window.ViduxWorkQueue;
 const annotationState = window.ViduxAnnotationState;
 const commentRail = window.ViduxCommentRail;
 const commentMarkers = window.ViduxCommentMarkers;
@@ -634,6 +635,10 @@ function renderMissionControl() {
   }
 
   const scorecard = Array.isArray(selected.scorecard) ? selected.scorecard : [];
+  const scorecardTotal = Math.max(scorecard.length, Number(selected.scorecard_total || 0));
+  const scorecardCount = selected.scorecard_truncated
+    ? `${scorecard.length} of ${scorecardTotal}`
+    : `${scorecardTotal}`;
   const summary = missionEvidenceSummary(scorecard);
   const workflowStatus = missionStatusClass(selected.status);
   const freshness = selected.freshness || { status: "unknown" };
@@ -668,7 +673,7 @@ function renderMissionControl() {
     </section>
     <section class="mission-scorecard" aria-label="Outcome scorecard">
       <div class="mission-scorecard-head">
-        <div><div class="mission-section-label">Results</div><h3>${scorecard.length} ${scorecard.length === 1 ? "measure" : "measures"}</h3></div>
+        <div><div class="mission-section-label">Results</div><h3>${scorecardCount} ${scorecardTotal === 1 ? "measure" : "measures"}</h3></div>
         <div class="mission-scorecard-tally" aria-label="${summary.winning} winning, ${summary.losing} losing, ${summary.unproven} unproven">
           <span class="is-winning">${summary.winning} winning</span>
           <span class="is-losing">${summary.losing} losing</span>
@@ -689,40 +694,9 @@ function renderMissionControl() {
 </section>`;
 }
 
-function distinctDashboardItems(items, excludedRel, limit = 3) {
-  const seenRepos = new Set();
-  const result = [];
-  for (const item of items || []) {
-    if (!item?.rel || item.rel === excludedRel || seenRepos.has(item.repo)) continue;
-    seenRepos.add(item.repo);
-    result.push(item);
-    if (result.length >= limit) break;
-  }
-  return result;
-}
-
-function renderSimpleQueueList(title, items, emptyText) {
-  const rows = items.length
-    ? items.map(item => `<button class="simple-queue-row" type="button" data-dashboard-rel="${escapeAttr(item.rel)}" data-dashboard-tab="${escapeAttr(item.tab || "PLAN.md")}">
-        <span>${escapeText(item.repo || "Project")}</span>
-        <strong>${escapeText(item.label || "Open plan")}</strong>
-        <span aria-hidden="true">→</span>
-      </button>`).join("")
-    : `<p>${escapeText(emptyText)}</p>`;
-  return `<section class="simple-queue-list"><h3>${escapeText(title)}</h3>${rows}</section>`;
-}
-
 function renderSimpleHomeQueue() {
   const selectedRel = state.dashboard?.mission_control?.selected?.rel || "";
-  const resume = distinctDashboardItems(dashboardCategory("in_progress").items, selectedRel);
-  const attention = distinctDashboardItems(dashboardCategory("blocked").items, selectedRel);
-  return `<section class="simple-queue" aria-label="Other project work">
-    <header><div class="mission-section-label">Across projects</div><h2>Resume or unblock</h2></header>
-    <div class="simple-queue-grid">
-      ${renderSimpleQueueList("Resume", resume, "Nothing else is in progress.")}
-      ${renderSimpleQueueList("Needs attention", attention, "No other work is blocked.")}
-    </div>
-  </section>`;
+  return workQueueUi.render(dashboardCategories(), selectedRel);
 }
 
 function dashboardCategory(key) {
@@ -750,7 +724,11 @@ function renderDashboardCard(key, label) {
 function renderDashboardItem(item) {
   const proof = item.proof_rel || item.proof_path || "";
   const meta = [
+    item.severity && item.severity !== "unspecified" ? item.severity.toUpperCase() : "",
     item.repo || "",
+    item.owner ? `owner ${item.owner}` : "",
+    item.blocker ? `blocked by ${item.blocker}` : "",
+    item.validation ? `check ${item.validation}` : "",
     item.source_rel ? `${item.source_rel}${item.line ? `:${item.line}` : ""}` : "",
     proof ? `proof ${shortLocalPath(proof)}` : "",
   ].filter(Boolean).join(" · ");
@@ -814,6 +792,14 @@ function setupDashboardPane() {
   els.pane.querySelectorAll("[data-refresh-plans]").forEach(button => {
     button.addEventListener("click", () => runExplicitRefresh());
   });
+  els.pane.querySelectorAll("[data-view-all-work]").forEach(button => {
+    button.addEventListener("click", () => {
+      try { localStorage.setItem(ADVANCED_MODE_KEY, "1"); }
+      catch (e) { /* localStorage full or disabled */ }
+      applyAdvancedModeUI();
+      selectDashboard();
+    });
+  });
 }
 
 function renderDashboardPane(opts = {}) {
@@ -837,6 +823,7 @@ function renderDashboardPane(opts = {}) {
         </div>
       </div>
       <div class="dashboard-cards">
+        ${renderDashboardCard("next", "Next")}
         ${renderDashboardCard("in_progress", "In progress")}
         ${renderDashboardCard("blocked", "Blocked")}
         ${renderDashboardCard("verdicts", "Verdicts")}
@@ -845,6 +832,7 @@ function renderDashboardPane(opts = {}) {
         ${renderDashboardCard("inbox", "INBOX")}
       </div>
       <div class="dashboard-grid">
+        ${renderDashboardList("next", "Next", "No urgent pending tasks found.")}
         ${renderDashboardList("in_progress", "In Progress", "No in-progress tasks found.")}
         ${renderDashboardList("blocked", "Blocked", "No blocked tasks found.")}
         ${renderDashboardList("verdicts", "Recent Verdicts", "No verdict receipts found.")}
@@ -2200,11 +2188,15 @@ function renderLedgerPanel(ledger) {
     `${Number(ledger.repo_total || 0)} repo rows`,
     `${Number(ledger.returned || items.length)} shown`,
     ledger.truncated ? "truncated" : "",
-    `${Number(ledger.scanned_rows || 0)} scanned`,
+    ledger.scan_tail_truncated
+      ? `${Number(ledger.scanned_rows || 0)} of ${Number(ledger.total_rows || 0)} rows scanned`
+      : `${Number(ledger.scanned_rows || 0)} scanned`,
   ].filter(Boolean).join(" · ");
   const itemsHTML = items.length
     ? items.map(renderLedgerEntry).join("")
-    : `<p class="muted">No publish or checkpoint rows matched this plan or repo in the scanned ledger tail.</p>`;
+    : `<p class="muted">${escapeText(ledger.scan_tail_truncated
+      ? "No match in the scanned ledger tail. Older rows were not inspected."
+      : "No publish or checkpoint rows matched this plan or repo.")}</p>`;
   return `
     <section class="ledger-panel">
       <div class="ledger-summary">

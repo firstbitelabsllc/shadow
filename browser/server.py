@@ -792,6 +792,11 @@ PLAN_BRIEF_TASK_RE = re.compile(
 PLAN_BRIEF_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<body>.+?)\s*$")
 PLAN_BRIEF_TAG_RE = re.compile(r"\s*\[[A-Za-z][A-Za-z0-9 _/-]*:\s*[^\]]+\]")
 PLAN_BRIEF_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+TASK_SEVERITY_RE = re.compile(r"(?:^|\s)(?:\[(?P<bracket>P[0-3])\]|(?P<plain>P[0-3])\b)", re.I)
+TASK_STRUCTURED_TAG_RE = re.compile(
+    r"\[(?P<key>owner|blocker|validation|evidence|proof):\s*(?P<value>[^\]]+)\]",
+    re.I,
+)
 DASHBOARD_TASK_RE = re.compile(
     r"^-\s+\[(?P<status>pending|in_progress|in_review|completed|blocked)\]\s+(?P<body>.+?)\s*$"
 )
@@ -814,6 +819,8 @@ OPERATOR_BRIEF_KEYS = frozenset({
     "updated",
 })
 OUTCOME_SCORECARD_HEADERS = ("metric", "baseline", "current", "target", "status", "proof")
+TERMINAL_OPERATOR_STATUSES = frozenset({"archived", "closed", "complete", "completed", "done", "exhausted"})
+TASK_SEVERITY_ORDER = {"p0": 0, "p1": 1, "p2": 2, "p3": 3, "unspecified": 4}
 PROOF_FILE_RE = re.compile(
     r"(?P<path>(?:(?:\.\.?/)?[^\s|]+/)*(?:evidence|investigations)/[^\s|]+\.md)"
 )
@@ -1113,6 +1120,8 @@ def ledger_payload_for_plan(
         "scan_limit": scan_limit,
         "item_limit": item_limit,
         "scanned_rows": 0,
+        "total_rows": 0,
+        "scan_tail_truncated": False,
         "invalid_rows": 0,
         "plan_total": 0,
         "repo_total": 0,
@@ -1128,6 +1137,7 @@ def ledger_payload_for_plan(
         with ledger_file.open("r", encoding="utf-8", errors="replace") as fh:
             for line_number, line in enumerate(fh, start=1):
                 recent.append((line_number, line))
+                payload["total_rows"] = line_number
     except OSError:
         payload["status"] = "unreadable"
         return payload
@@ -1135,6 +1145,9 @@ def ledger_payload_for_plan(
     payload["available"] = True
     payload["status"] = "ok"
     payload["scanned_rows"] = len(recent)
+    payload["scan_tail_truncated"] = payload["total_rows"] > len(recent)
+    if payload["scan_tail_truncated"]:
+        payload["status"] = "partial"
 
     plan_items: list[dict] = []
     repo_items: list[dict] = []
@@ -1166,7 +1179,10 @@ def ledger_payload_for_plan(
         items.extend(repo_items[: item_limit - len(items)])
     payload["items"] = items
     payload["returned"] = len(items)
-    payload["truncated"] = (payload["plan_total"] + payload["repo_total"]) > len(items)
+    payload["truncated"] = (
+        payload["scan_tail_truncated"]
+        or (payload["plan_total"] + payload["repo_total"]) > len(items)
+    )
     return payload
 
 
@@ -1330,6 +1346,8 @@ def resolve_plan_proof(plan_path: Path, raw: object) -> dict:
 
 
 def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, tab: str) -> dict:
+    brief = plan.get("operator_brief") or {}
+    freshness = operator_brief_freshness(brief.get("updated", ""))
     item = {
         "kind": kind,
         "repo": plan.get("repo", ""),
@@ -1341,7 +1359,14 @@ def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, 
         "line": raw.get("line"),
         "label": raw.get("label", ""),
         "status": raw.get("status", ""),
+        "plan_priority": int(brief.get("priority") or 0),
+        "plan_freshness": freshness.get("status", "unknown"),
+        "plan_mtime": float(plan.get("mtime") or 0),
     }
+    for key in ("severity", "owner", "blocker", "validation", "proof"):
+        value = raw.get(key)
+        if value:
+            item[key] = value
     proof_path = raw.get("proof_path", "")
     if proof_path:
         item["proof_path"] = proof_path
@@ -1356,10 +1381,14 @@ def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, 
 
 def build_mission_control(plans: list[dict]) -> dict:
     candidates: list[dict] = []
+    terminal_briefs = 0
     mtime_by_rel = {plan.get("rel", ""): plan.get("mtime") or 0 for plan in plans}
     for plan in plans:
         brief = plan.get("operator_brief") or {}
         if not brief or not (brief.get("outcome") or brief.get("next")):
+            continue
+        if brief.get("status") in TERMINAL_OPERATOR_STATUSES:
+            terminal_briefs += 1
             continue
         plan_path = Path(plan.get("path", ""))
         item = {
@@ -1372,6 +1401,8 @@ def build_mission_control(plans: list[dict]) -> dict:
             "source_rel": dashboard_source_rel(plan_path),
             "tab": "PLAN.md",
             "scorecard": copy.deepcopy(plan.get("outcome_scorecard") or []),
+            "scorecard_total": int(plan.get("outcome_scorecard_total") or 0),
+            "scorecard_truncated": bool(plan.get("outcome_scorecard_truncated")),
         }
         item["evidence_target"] = resolve_plan_proof(plan_path, item.get("evidence"))
         for metric in item["scorecard"]:
@@ -1381,25 +1412,40 @@ def build_mission_control(plans: list[dict]) -> dict:
 
     candidates.sort(
         key=lambda item: (
+            {"fresh": 0, "unknown": 1, "stale": 2}.get(
+                (item.get("freshness") or {}).get("status"), 3
+            ),
             -int(item.get("priority") or 0),
             -float(mtime_by_rel.get(item.get("rel", ""), 0)),
             str(item.get("rel") or ""),
         )
     )
     selected = candidates[0] if candidates else None
+    selected_freshness = (
+        (selected.get("freshness") or {}).get("status") if selected else None
+    )
+    ranking_pool = [
+        item
+        for item in candidates
+        if (item.get("freshness") or {}).get("status") == selected_freshness
+    ]
     top_priority = int(selected.get("priority") or 0) if selected else 0
-    tied = [item for item in candidates if int(item.get("priority") or 0) == top_priority]
+    tied = [item for item in ranking_pool if int(item.get("priority") or 0) == top_priority]
     tied_projects = sorted({mission_candidate_label(item) for item in tied})
     if selected:
-        if len(candidates) == 1:
-            selected["selection_reason"] = "only declared current goal"
+        if len(ranking_pool) == 1:
+            selected["selection_reason"] = (
+                "only declared current goal"
+                if len(candidates) == 1
+                else f"only {selected_freshness} current goal"
+            )
         elif len(tied) > 1:
             selected["selection_reason"] = (
                 f"priority {top_priority} · newest of {len(tied)} tied current goals"
             )
         else:
             selected["selection_reason"] = (
-                f"priority {top_priority} · highest of {len(candidates)} current goals"
+                f"priority {top_priority} · highest of {len(ranking_pool)} {selected_freshness} current goals"
             )
 
     if not selected:
@@ -1413,7 +1459,7 @@ def build_mission_control(plans: list[dict]) -> dict:
         selected_label = mission_candidate_label(selected)
         authority = {
             "state": "conflict",
-            "claims_total": len(candidates),
+            "claims_total": len(ranking_pool),
             "tied_total": len(tied),
             "priority": top_priority,
             "tied_projects": tied_projects,
@@ -1424,14 +1470,15 @@ def build_mission_control(plans: list[dict]) -> dict:
         }
     elif len(candidates) > 1:
         selected_label = mission_candidate_label(selected)
+        claim_phrase = "plan declares" if len(ranking_pool) == 1 else "plans declare"
         authority = {
             "state": "ranked",
-            "claims_total": len(candidates),
+            "claims_total": len(ranking_pool),
             "tied_total": 1,
             "priority": top_priority,
             "tied_projects": tied_projects,
             "explanation": (
-                f"{len(candidates)} plans declare current work. Showing {selected_label} because priority "
+                f"{len(ranking_pool)} {selected_freshness} {claim_phrase} current work. Showing {selected_label} because priority "
                 f"{top_priority} is highest."
             ),
         }
@@ -1445,6 +1492,8 @@ def build_mission_control(plans: list[dict]) -> dict:
         }
     return {
         "briefs_total": len(candidates),
+        "terminal_briefs_total": terminal_briefs,
+        "deferred_briefs_total": len(candidates) - len(ranking_pool),
         "selected": selected,
         "authority": authority,
     }
@@ -1460,7 +1509,11 @@ def mission_candidate_label(item: dict) -> str:
 
 def has_current_operator_brief(plan: dict) -> bool:
     brief = plan.get("operator_brief") or {}
-    return bool(brief.get("outcome") and brief.get("next"))
+    return bool(
+        brief.get("outcome")
+        and brief.get("next")
+        and brief.get("status") not in TERMINAL_OPERATOR_STATUSES
+    )
 
 
 def discover_project_inventory(plans: list[dict]) -> list[dict]:
@@ -1541,6 +1594,7 @@ def build_onboarding(plans: list[dict], mission: dict, project_limit: int = 12) 
 
 def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dict:
     categories: dict[str, dict] = {
+        "next": {"label": "Next", "items": [], "total": 0},
         "in_progress": {"label": "In Progress", "items": [], "total": 0},
         "blocked": {"label": "Blocked", "items": [], "total": 0},
         "verdicts": {"label": "Verdicts", "items": [], "total": 0},
@@ -1551,9 +1605,7 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
 
     def add(category: str, item: dict) -> None:
         bucket = categories[category]
-        bucket["total"] += 1
-        if len(bucket["items"]) < limit:
-            bucket["items"].append(item)
+        bucket["items"].append(item)
 
     for plan in plans:
         plan_path = Path(plan.get("path", ""))
@@ -1561,6 +1613,8 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
             status = task.get("status", "")
             if status in ("in_progress", "blocked"):
                 add(status, dashboard_base_item(plan, plan_path, task, kind="task", tab="PLAN.md"))
+            elif status == "pending" and task.get("severity") in ("p0", "p1"):
+                add("next", dashboard_base_item(plan, plan_path, task, kind="task", tab="PLAN.md"))
 
         for verdict in plan.get("dashboard_verdicts", []) or []:
             add("verdicts", dashboard_base_item(plan, plan_path, verdict, kind="verdict", tab="PLAN.md"))
@@ -1592,11 +1646,33 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
         for entry in plan.get("dashboard_ask_leo_entries", []) or []:
             add("ask_leo", dashboard_base_item(plan, ask_path, entry, kind="ask_leo", tab="ASK-LEO.md"))
 
-    for bucket in categories.values():
+    def task_order(item: dict) -> tuple:
+        return (
+            TASK_SEVERITY_ORDER.get(item.get("severity", "unspecified"), 4),
+            {"blocked": 0, "in_progress": 1, "pending": 2}.get(item.get("status"), 3),
+            -int(item.get("plan_priority") or 0),
+            {"fresh": 0, "unknown": 1, "stale": 2}.get(item.get("plan_freshness"), 3),
+            -float(item.get("plan_mtime") or 0),
+            str(item.get("repo") or "").casefold(),
+            int(item.get("line") or 0),
+        )
+
+    mission = build_mission_control(plans)
+    selected_rel = (mission.get("selected") or {}).get("rel", "")
+    for key, bucket in categories.items():
+        if key in {"next", "in_progress", "blocked"}:
+            bucket["items"].sort(key=task_order)
+        bucket["total"] = len(bucket["items"])
+        if key in {"next", "in_progress", "blocked"}:
+            simple_items = [
+                item for item in bucket["items"] if item.get("rel") != selected_rel
+            ]
+            bucket["simple_total"] = len(simple_items)
+            bucket["simple_items"] = simple_items[: min(8, limit)]
+        bucket["items"] = bucket["items"][:limit]
         bucket["truncated"] = bucket["total"] > len(bucket["items"])
         bucket["limit"] = limit
 
-    mission = build_mission_control(plans)
     return {
         "generated_at": _truth_now(),
         "plans_scanned": len(plans),
@@ -1778,6 +1854,7 @@ def plan_meta(path: Path) -> dict:
     purpose = extract_purpose_from_text(text)
     stats = task_stats(text)
     decision_log = parse_decision_log(text)
+    scorecard = parse_outcome_scorecard(text)
     investigations = discover_investigations(parent_dir, text)
     evidence = discover_evidence(parent_dir)
     parent_rel = extract_parent_rel(text)
@@ -1801,7 +1878,9 @@ def plan_meta(path: Path) -> dict:
         "evidence": evidence,
         "parent_rel": parent_rel,
         "operator_brief": parse_operator_brief(text),
-        "outcome_scorecard": parse_outcome_scorecard(text),
+        "outcome_scorecard": scorecard["items"],
+        "outcome_scorecard_total": scorecard["total"],
+        "outcome_scorecard_truncated": scorecard["truncated"],
         "content_redacted": sensitive_redactions > 0,
         "sensitive_redactions": sensitive_redactions,
         "dashboard_tasks": extract_dashboard_tasks(text),
@@ -1977,7 +2056,7 @@ def split_markdown_table_row(line: str) -> list[str]:
     return [clean_structured_value(cell.replace(r"\|", "|"), 400) for cell in cells]
 
 
-def parse_outcome_scorecard(text: str) -> list[dict]:
+def parse_outcome_scorecard(text: str, limit: int = 50) -> dict:
     lines = markdown_section_lines(text, "Outcome Scorecard")
     header_index = None
     for index, (_, line) in enumerate(lines):
@@ -1986,15 +2065,16 @@ def parse_outcome_scorecard(text: str) -> list[dict]:
             header_index = index
             break
     if header_index is None or header_index + 1 >= len(lines):
-        return []
+        return {"items": [], "total": 0, "truncated": False}
 
     separator = split_markdown_table_row(lines[header_index + 1][1])
     if len(separator) != len(OUTCOME_SCORECARD_HEADERS) or not all(
         re.fullmatch(r":?-{3,}:?", cell) for cell in separator
     ):
-        return []
+        return {"items": [], "total": 0, "truncated": False}
 
     rows: list[dict] = []
+    total = 0
     for line_number, line in lines[header_index + 2:]:
         cells = split_markdown_table_row(line)
         if not cells:
@@ -2008,10 +2088,10 @@ def parse_outcome_scorecard(text: str) -> list[dict]:
             continue
         row["status"] = normalize_structured_status(row["status"])
         row["line"] = line_number
-        rows.append(row)
-        if len(rows) >= 12:
-            break
-    return rows
+        total += 1
+        if len(rows) < limit:
+            rows.append(row)
+    return {"items": rows, "total": total, "truncated": total > len(rows)}
 
 
 def operator_brief_freshness(updated: object, today: date | None = None) -> dict:
@@ -2062,11 +2142,33 @@ def extract_dashboard_tasks(text: str) -> list[dict]:
         if not m:
             continue
         status = m.group("status")
-        if status not in ("in_progress", "blocked"):
+        if status not in ("pending", "in_progress", "blocked"):
             continue
-        label = clean_plan_brief_text(m.group("body"), 220)
+        body = m.group("body")
+        severity_match = TASK_SEVERITY_RE.search(body)
+        severity = (
+            (severity_match.group("bracket") or severity_match.group("plain")).lower()
+            if severity_match
+            else "unspecified"
+        )
+        structured: dict[str, str] = {}
+        for tag in TASK_STRUCTURED_TAG_RE.finditer(body):
+            key = tag.group("key").lower()
+            if key in ("evidence", "proof"):
+                key = "proof"
+            structured[key] = clean_structured_value(tag.group("value"), 320)
+        label_body = re.sub(r"^\s*(?:\[?P[0-3]\]?\s*[:\-–—]?\s*)", "", body, flags=re.I)
+        label = clean_plan_brief_text(label_body, 320)
         if label:
-            tasks.append({"status": status, "label": label, "line": line_number})
+            tasks.append(
+                {
+                    "status": status,
+                    "severity": severity,
+                    "label": label,
+                    "line": line_number,
+                    **structured,
+                }
+            )
     return tasks
 
 
@@ -2226,7 +2328,21 @@ def extract_latest_bullets(text: str, heading: str, limit: int = 1) -> list[str]
             current.append(line.strip())
     if current:
         bullets.append(clean_plan_brief_text(" ".join(current), 220))
-    return [b for b in bullets if b][-limit:]
+    clean_bullets = [bullet for bullet in bullets if bullet]
+    dated: list[tuple[date, int, str]] = []
+    undated: list[tuple[int, str]] = []
+    for index, bullet in enumerate(clean_bullets):
+        match = re.match(r"^\[(\d{4}-\d{2}-\d{2})\]", bullet)
+        if match:
+            try:
+                dated.append((date.fromisoformat(match.group(1)), index, bullet))
+                continue
+            except ValueError:
+                pass
+        undated.append((index, bullet))
+    dated.sort(key=lambda item: (-item[0].toordinal(), item[1]))
+    ordered = [item[2] for item in dated] + [item[1] for item in undated]
+    return ordered[:limit]
 
 
 def plan_state_label(stats: dict) -> str:

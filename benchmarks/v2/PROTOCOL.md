@@ -1,6 +1,8 @@
 # Vidux Cockpit Benchmark v2
 
-Status: protocol rules frozen; fixture and hidden-oracle seal still pending.
+Status: retired and non-runnable. The frozen rules remain as an inspectable
+negative protocol artifact, but no fixture release, arm packet, or score may be
+issued under `vidux-cockpit-v2`. See `STATUS.json` and `STATUS.md`.
 
 This benchmark asks a narrow product question: does Vidux's derived
 plan/proof/decision/resume cockpit create a net-positive outcome compared with
@@ -53,9 +55,9 @@ loss. A class is a net-value win only when Vidux wins against both native
 controls on the pre-registered success threshold without exceeding the
 registered token, dollar, wall-time, operator-touch, or resume-loss guardrails.
 
-No raw rows exist yet. This protocol therefore proves no product advantage and
-must remain `unproven` until a sealed fixture release, raw paired rows, and a
-decision receipt are available.
+No raw rows exist. This protocol proves no product advantage and permanently
+remains `unproven`. Outcome-determining corrections require a new protocol id;
+they cannot be amended into v2 after its rules were frozen.
 
 ## Oracle Boundary
 
