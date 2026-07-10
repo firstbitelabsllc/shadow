@@ -13,7 +13,13 @@ parsing. --error and --hot pass today but sit at the same razor-thin
 4.5-5.0:1 margin that took three rounds to close for the other tokens,
 untested despite identical small-text usage in receipts.html -- added
 per round-8's own precedent for --task-blocked ("already passed... but
-was untested despite identical usage")."""
+was untested despite identical usage").
+
+Round-9 panel also found the bare `@media (prefers-color-scheme: dark)`
+fallback block (index.html's own FOUC-guard falls through to it when
+localStorage throws) omitted --error/--warning entirely, contradicting
+a comment that falsely claimed they were "already handled" by the
+:root.theme-dark class block, which never applies without that class."""
 
 from __future__ import annotations
 
@@ -68,6 +74,18 @@ def _first_root_block(css: str) -> str:
     return css[start:end]
 
 
+def _named_block(css: str, marker: str) -> str:
+    start = css.index(marker)
+    brace = css.index("{", start)
+    end = css.index("}", brace)
+    return css[brace:end]
+
+
+DARK_STATUS_TOKENS = (
+    "error", "error-bg", "error-ink", "warning", "warning-bg", "warning-ink",
+)
+
+
 class StyleContrastTests(unittest.TestCase):
     def setUp(self):
         self.css = STYLE_CSS.read_text(encoding="utf-8")
@@ -98,6 +116,35 @@ class StyleContrastTests(unittest.TestCase):
                 4.5,
                 f"--{token} ({value}) vs --paper-2 ({PAPER_2}) is {ratio:.2f}:1, "
                 f"below WCAG 1.4.3 AA (4.5:1) for the small text it's used at",
+            )
+
+    def test_dark_media_fallback_declares_error_and_warning_families(self):
+        # Round-9: the bare @media(prefers-color-scheme: dark) block is a
+        # real, reachable fallback path (FOUC-guard falls through to it when
+        # localStorage throws), so it must carry the same --error/--warning
+        # values as :root.theme-dark rather than silently omitting them.
+        theme_dark_block = _named_block(self.css, ":root.theme-dark {")
+        media_dark_block = _named_block(
+            self.css, "@media (prefers-color-scheme: dark) {"
+        )
+        for token in DARK_STATUS_TOKENS:
+            pattern = rf"--{re.escape(token)}:\s*(#[0-9a-fA-F]{{6}})"
+            theme_match = re.search(pattern, theme_dark_block)
+            media_match = re.search(pattern, media_dark_block)
+            self.assertIsNotNone(
+                theme_match, f"--{token} not found in :root.theme-dark block"
+            )
+            self.assertIsNotNone(
+                media_match,
+                f"--{token} not found in the @media(prefers-color-scheme: "
+                f"dark) fallback block -- it will silently fail WCAG AA if "
+                f"a browser hits this path with localStorage disabled",
+            )
+            self.assertEqual(
+                theme_match.group(1),
+                media_match.group(1),
+                f"--{token} differs between :root.theme-dark and the bare "
+                f"@media dark fallback -- keep them in sync",
             )
 
 
