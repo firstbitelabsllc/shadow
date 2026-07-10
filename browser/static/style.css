@@ -21,7 +21,13 @@
   /* Semantic */
   --hot: #b14a2b;
   --stale: #8a7a3e;
-  --cold: #7d7466;
+  /* Round-9 panel finding: the original value (#7d7466) failed WCAG 1.4.3
+     AA as `color:` on receipts.html's ".exportable" pill text (3.91:1 vs
+     --paper-2, 4.23:1 vs --paper) -- missed because that pill's styles
+     live in receipts.html's own inline <style>, which test_style_contrast.py
+     never reads. Darkened the same way (same hue/saturation, lightness
+     binary-search against the harder --paper-2 background). */
+  --cold: #71685c;
   --error: #b14a2b;
   --error-bg: #fdf2ec;
   --error-ink: #5a2515;
@@ -81,7 +87,7 @@
   --accent: #2e5d3d;
   --hot: #b14a2b;
   --stale: #8a7a3e;
-  --cold: #7d7466;
+  --cold: #71685c;
   --error: #b14a2b;
   --error-bg: #fdf2ec;
   --error-ink: #5a2515;
