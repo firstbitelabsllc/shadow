@@ -1964,7 +1964,20 @@ class ViduxContractTests(unittest.TestCase):
         # this repo's prompt literally. Pin the shared capability boundary:
         # Vidux owns its canonical pointer; Amp owns generic prompt-file mode.
         self.assertIn("Prompt File Mode", amp)
-        self.assertIn("one PLAN path", amp)
+        # Amp's live wording is "Exactly ONE absolute Authority PLAN.md path"
+        # / "ONE Authority Store PLAN.md" — keep the single-plan pin, not a
+        # frozen pre-rewrite substring ("one PLAN path") that amp outgrew.
+        self.assertTrue(
+            any(
+                needle in amp
+                for needle in (
+                    "one PLAN path",
+                    "ONE absolute Authority PLAN.md",
+                    "ONE Authority Store PLAN.md",
+                )
+            ),
+            "amp must still pin exactly one Authority PLAN.md path",
+        )
         self.assertFalse(PRIVATE_AUTO_SKILL.exists(), "private /auto skill should be deleted, not archived")
         self.assertFalse(SHARED_AUTO_SKILL.exists(), "shared /auto skill should be deleted, not shadowed")
         self.assertFalse(ACTIVE_AUTO_SKILL.exists(), "active skill farm should not expose /auto")
