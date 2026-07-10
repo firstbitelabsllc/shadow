@@ -2339,7 +2339,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_with_type(body, ctype)
         elif route == "/api/receipts/list":
-            status, body = _receipts_handler.handle_list()
+            # Round-10 fix: private:true rows are only included for a
+            # loopback-verified caller -- a LAN peer that merely passes the
+            # Host-header allowlist gets them silently omitted, matching the
+            # loopback-only bar every write route already enforces.
+            status, body = _receipts_handler.handle_list(
+                include_private=is_loopback_host(self.client_address[0])
+            )
             self._send(status, "") if status >= 400 else self._json(body)
         elif route.startswith("/api/receipts/") and route.endswith("/image"):
             row_id = route[len("/api/receipts/"):-len("/image")]
