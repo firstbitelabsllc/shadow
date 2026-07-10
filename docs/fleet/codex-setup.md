@@ -25,7 +25,7 @@ vidux signpost spawned-subagent-smoke --json
 
 ## The Five-Step Setup Flow
 
-Every new automation follows this exact sequence. Skipping steps causes the [known bugs](codex-lifecycle.md#known-bugs).
+Every new automation follows this exact sequence. Skipping steps causes the [known bugs](codex-lifecycle.md#known-bugs--troubleshooting).
 
 ```
 1. Write automation.toml      → disk (UI visibility source)
@@ -161,7 +161,7 @@ Before the lane is "live," confirm all:
 - [ ] Codex app shows the lane in the Automations UI.
 - [ ] After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note; if work shipped, the owning `PLAN.md` plus publish ledger row carries the proof/resume packet.
 
-If any check fails, re-read [codex-lifecycle.md § Known Bugs](codex-lifecycle.md#known-bugs).
+If any check fails, re-read [codex-lifecycle.md § Known Bugs](codex-lifecycle.md#known-bugs--troubleshooting).
 
 ## Updating an Existing Automation
 

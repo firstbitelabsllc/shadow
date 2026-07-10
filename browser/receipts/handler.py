@@ -132,9 +132,24 @@ def handle_upload(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 
 
 @_corpus_safe
-def handle_list() -> tuple[int, dict[str, Any]]:
-    """GET /api/receipts/list — return every row from corpus.jsonl."""
+def handle_list(include_private: bool = False) -> tuple[int, dict[str, Any]]:
+    """GET /api/receipts/list — return every row from corpus.jsonl.
+
+    Round-10 panel finding: this used to return every row unconditionally,
+    including private:true ones (name + all annotations, e.g. leo_note), to
+    any caller that merely passed the Host-header LAN allowlist -- bypassing
+    the same "private" guard every sibling route respects (handle_image()
+    404s for private rows rather than leaking their existence; handle_upload
+    skips writing private rows' image bytes to disk at all). Empirically
+    proven exploitable via a live LAN-mode (VIDUX_BROWSER_HOST=0.0.0.0) curl
+    PoC. include_private defaults to False; server.py passes True only when
+    the caller is loopback-verified (matches the loopback-only bar every
+    write route already enforces), so a LAN peer now gets private rows
+    silently omitted rather than leaked.
+    """
     rows = storage.read_all(DEFAULT_CORPUS_PATH)
+    if not include_private:
+        rows = [row for row in rows if not row.get("private")]
     return 200, {"ok": True, "count": len(rows), "rows": rows}
 
 

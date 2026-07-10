@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>receipts — moussey corpus lab</title>
+<title>receipts — vidux corpus lab</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
   /* Receipt lab — extends paper-and-ink palette from style.css */
@@ -24,9 +24,19 @@
   button:hover { background: var(--select); }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   button.primary { background: var(--accent); color: var(--paper); border-color: var(--accent); }
-  button.primary:hover { background: #244e30; }
-  button.local { background: #1f3b52; color: var(--paper); border-color: #1f3b52; }
-  button.local:hover { background: #2a5577; }
+  /* Round-10 fix: .primary:hover, .local, and .local:hover hardcode their
+     background (unlike the base .primary state, which uses --accent and
+     therefore inverts correctly with the theme). color:var(--paper) was
+     inherited from the base rules and flips to near-black in dark mode,
+     landing near-black text on a background that never gets lighter --
+     contrast collapsed to ~1.5-2.2:1. These backgrounds are fixed brand
+     colors by design (not meant to invert), so the fix is a fixed light
+     text color instead -- #f8f5ee is --paper's literal light-mode value,
+     so light mode is visually unchanged and dark mode now passes AA
+     (7.2-8.7:1 against all three backgrounds). */
+  button.primary:hover { background: #244e30; color: #f8f5ee; }
+  button.local { background: #1f3b52; color: #f8f5ee; border-color: #1f3b52; }
+  button.local:hover { background: #2a5577; color: #f8f5ee; }
   button.danger:hover { background: var(--hot); color: var(--paper); border-color: var(--hot); }
   #dropzone {
     border: 2px dashed var(--rule); border-radius: 6px; padding: 18px;
@@ -105,7 +115,13 @@
   .ext th, .ext td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--rule); }
   .ext th { color: var(--ink-2); font-weight: 400; }
   .ext .prov { font-weight: 600; }
-  .ext .prov.local { color: #2a5577; }
+  /* Round-10 fix: was a hardcoded #2a5577 on var(--paper-2), which flips
+     dark in dark mode (1.96:1, fails AA) while this text stayed fixed.
+     --task-in-review is the repo's existing theme-relative blue-family
+     token (already AA-vetted against both --paper and --paper-2 in both
+     themes) -- reused here rather than inventing a new token for one
+     receipts-lab label. */
+  .ext .prov.local { color: var(--task-in-review); }
   .ext .agree { color: var(--task-completed); }
   .ext .err { color: var(--hot); }
   .ext .lat { color: var(--ink-2); }
@@ -121,7 +137,7 @@
 <body>
 
 <header class="topbar">
-  <h1>receipts — moussey corpus lab</h1>
+  <h1>receipts — vidux corpus lab</h1>
   <span style="font-family: var(--mono); font-size: 12px; color: var(--ink-2);">
     LAN scan → local+cloud OCR → consensus → export to resplit-ios fixtures
   </span>
@@ -346,9 +362,9 @@ function renderGrid() {
       ${pillsHtml(row)}
       ${extractionsHtml(row)}
       <div class="tags">${(ann.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
-      <input class="tag-input" type="text" value="${escapeHtml((ann.tags || []).join(","))}" placeholder="comma,separated,tags">
-      <input class="ki-input" type="text" value="${escapeHtml((ann.known_issues || []).join(","))}" placeholder="known issues (comma)">
-      <textarea class="note-input" placeholder="leo note">${escapeHtml(ann.leo_note || "")}</textarea>
+      <input class="tag-input" type="text" value="${escapeHtml((ann.tags || []).join(","))}" placeholder="comma,separated,tags" aria-label="tags for receipt ${row.id}">
+      <input class="ki-input" type="text" value="${escapeHtml((ann.known_issues || []).join(","))}" placeholder="known issues (comma)" aria-label="known issues for receipt ${row.id}">
+      <textarea class="note-input" placeholder="leo note" aria-label="note for receipt ${row.id}">${escapeHtml(ann.leo_note || "")}</textarea>
       <div class="row card-actions">
         <button class="local" data-act="local" title="run only the local qwen vision model — free + private">⚡ qwen</button>
         <button data-act="analyze" title="OCR (stores azure_response for iOS export) then azure + claude + qwen">analyze ▸</button>
@@ -644,7 +660,7 @@ async function uploadOne(file, sharedTags, isPrivate, name) {
     image_base64: btoa(binary),
     tags: sharedTags,
     private: isPrivate,
-    source: "moussey:web-ui",
+    source: "vidux:web-ui",
   };
   const r = await fetch("/api/receipts/upload", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),

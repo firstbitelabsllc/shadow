@@ -47,10 +47,10 @@ The 2026-07-07 kernel cut remains valid: the tested planner/executor handoff los
 
 ## Constraints
 - ALWAYS: Contract tests (test_vidux_contracts.py) must pass before any SKILL.md or PLAN.md change ships
-- ALWAYS: Every automation prompt must include TRUNK HEALTH gate (Doctrine 15)
+- ALWAYS: Every automation prompt must include TRUNK HEALTH gate (`guides/fleet-ops.md` § Trunk Health)
 - ALWAYS: Resplit-related Vidux automations must include release checkpoint cadence: push web branches/PRs periodically with Vercel proof, and trigger the existing iOS TestFlight path when enough changes accumulate and gates are clear.
 - NEVER: Use re.sub or sed to patch TOML prompt fields — always regenerate from DB (Bug #22)
-- NEVER: Accept --theirs or --ours blindly in merge conflicts — preserve both sides (Doctrine 16)
+- NEVER: Accept --theirs or --ours blindly in merge conflicts — preserve both sides (`guides/fleet-ops.md` § Merge Conflict Protocol)
 
 ## Tasks
 - [completed] 6.0.0 Mission control vertical slice: parse `Operator Brief` and `Outcome Scorecard`, expose them through `/api/plans`, render the first-viewport next move/value proof band, and verify real interaction plus responsive/dark/edge states. [Evidence: `evidence/2026-07-09-mission-control.md`; 728 Python tests, 8 JavaScript tests, 90 cross-browser journeys, 9 forced local visual baselines]

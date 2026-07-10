@@ -19,9 +19,10 @@
   --select: #e1ebe6;
   --accent: #0f704a;
   /* Semantic */
-  --hot: #c6422d;
+  /* Text-bearing semantic tokens clear AA on secondary and selection surfaces. */
+  --hot: #bd3e2b;
   --stale: #8b5a00;
-  --cold: #68736e;
+  --cold: #5f6a65;
   --error: #b9362f;
   --error-bg: #fff0ed;
   --error-ink: #702019;
@@ -40,10 +41,10 @@
   --pane-footer-reserve: 32px;
   /* Task states (vidux FSM) */
   --task-pending: #aab5af;
-  --task-in-progress: #8b5a00;
+  --task-in-progress: #875700;
   --task-in-review: #276987;
   --task-completed: #0f704a;
-  --task-blocked: #b9362f;
+  --task-blocked: #b4362e;
   --task-shipped: #756000;
   /* Font stacks */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -75,9 +76,9 @@
   --rule: #cbd4cf;
   --select: #e1ebe6;
   --accent: #0f704a;
-  --hot: #c6422d;
+  --hot: #bd3e2b;
   --stale: #8b5a00;
-  --cold: #68736e;
+  --cold: #5f6a65;
   --error: #b9362f;
   --error-bg: #fff0ed;
   --error-ink: #702019;
@@ -88,10 +89,10 @@
   --shadow-md: 0 8px 22px rgba(23, 32, 29, 0.10);
   --shadow-lg: 0 14px 36px rgba(23, 32, 29, 0.14);
   --task-pending: #aab5af;
-  --task-in-progress: #8b5a00;
+  --task-in-progress: #875700;
   --task-in-review: #276987;
   --task-completed: #0f704a;
-  --task-blocked: #b9362f;
+  --task-blocked: #b4362e;
   --task-shipped: #756000;
 }
 
@@ -2693,13 +2694,22 @@ body.is-annotation-mode #filter {
     --task-completed: #5cc996;
     --task-blocked: #ff766d;
     --task-shipped: #d8b34f;
+    /* Keep the no-localStorage fallback semantically identical to
+     * :root.theme-dark so alerts and elevation do not flash light tokens. */
+    --error: #ff766d;
+    --error-bg: #3b211f;
+    --error-ink: #ffc5bf;
+    --warning: #d9a441;
+    --warning-bg: #332a16;
+    --warning-ink: #f4d58e;
+    --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.20);
+    --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.28);
+    --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.36);
   }
   .markdown pre,
   .markdown code,
   .contact-card { background: var(--paper-2); }
   .markdown blockquote { color: var(--ink-2); }
-  /* .error already routes through tokens (--error/-bg/-ink); they're remapped
-   * for dark mode by the :root.theme-dark block above. No override needed. */
   .topbar-meta button:hover,
   .sidebar-toggle:hover { background: var(--select); }
   /* In dark mode, var(--paper) IS the base background — so the default

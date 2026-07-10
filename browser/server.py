@@ -2281,18 +2281,26 @@ def is_allowed_request_host(host: str, bind_host: str) -> bool:
     this loopback server. An independent Host allowlist is required because
     a rebound domain can never legitimately present as "127.0.0.1"/"localhost".
 
-    Skipped when explicitly bound to 0.0.0.0/:: (documented trusted-LAN read
-    mode, README/SKILL.md) -- LAN client Host headers are expected there by
-    design; writes stay loopback-gated separately via client_address.
+    In 0.0.0.0/:: LAN-bind mode (documented trusted-LAN read mode, README/
+    SKILL.md), a real LAN peer's Host header is the server's own private-use
+    IP literal -- never an arbitrary registered domain, since an attacker
+    can't own a private-range address. Round-9 panel finding: this used to
+    return True unconditionally for that bind mode, which let a DNS-rebound
+    request's Host header (the attacker's own domain, agreeing with its own
+    Origin) sail through -- is_loopback_host(client_address) doesn't catch
+    it either, since the rebound request's TCP connection genuinely
+    originates from this machine. Empirically confirmed exploitable via a
+    live curl PoC against /api/artifact and /api/local-plan-note before this
+    fix. Now applies the same private-IP-literal check
+    _require_comment_write() already uses for its own LAN-mode write path.
     """
-    if bind_host in ("0.0.0.0", "::"):
-        return True
     hostname = request_host_hostname(host)
     if not hostname:
         return False
-    allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
-    if bind_host not in ("0.0.0.0", "::"):
-        allowed.add(bind_host.strip().lower())
+    if bind_host in ("0.0.0.0", "::"):
+        allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
+        return hostname in allowed or is_private_lan_ip_literal(hostname)
+    allowed = {"127.0.0.1", "localhost", "[::1]", "::1", bind_host.strip().lower()}
     return hostname in allowed
 
 
@@ -2545,7 +2553,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_with_type(body, ctype)
         elif route == "/api/receipts/list":
-            status, body = _receipts_handler.handle_list()
+            # Round-10 fix: private:true rows are only included for a
+            # loopback-verified caller -- a LAN peer that merely passes the
+            # Host-header allowlist gets them silently omitted, matching the
+            # loopback-only bar every write route already enforces.
+            status, body = _receipts_handler.handle_list(
+                include_private=is_loopback_host(self.client_address[0])
+            )
             self._send(status, "") if status >= 400 else self._json(body)
         elif route.startswith("/api/receipts/") and route.endswith("/image"):
             row_id = route[len("/api/receipts/"):-len("/image")]
@@ -2759,7 +2773,15 @@ class Handler(BaseHTTPRequestHandler):
         if not is_loopback_host(self.client_address[0]):
             self._send(403, "write endpoints require loopback client")
             return False
-        return self._require_browser_json()
+        # Round-8 panel finding: this previously allowed the request through
+        # when BOTH Origin and Referer were absent (require_origin=False),
+        # unlike /api/comments which already requires one. Not exploitable
+        # from a real browser today (a JSON POST is preflighted, and every
+        # real cross/same-origin browser POST attaches Origin), but a
+        # process that can already reach loopback directly (curl, a local
+        # binary) shouldn't get a free pass either -- defense-in-depth,
+        # matching what _require_comment_write() already does.
+        return self._require_browser_json(require_origin=True)
 
     def _require_comment_write(self) -> bool:
         """/api/comments is the one write route that's meant to work from a

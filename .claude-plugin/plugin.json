@@ -2,10 +2,8 @@
   "name": "vidux",
   "version": "2.23.0",
   "description": "Plan-first control plane for long-running AI coding loops.",
-  "author": "First Bite Labs",
-  "homepage": "https://github.com/firstbitelabsllc/vidux",
-  "commands": [
-    "commands"
-  ],
-  "hooks": "hooks"
+  "author": {
+    "name": "First Bite Labs"
+  },
+  "homepage": "https://github.com/firstbitelabsllc/vidux"
 }

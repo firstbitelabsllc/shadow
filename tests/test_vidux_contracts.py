@@ -488,6 +488,60 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(" 50%", rendered.stdout)
             self.assertIn("[1b]", rendered.stdout)
 
+    def test_vidux_status_honors_vidux_dev_root_env_var(self):
+        """Round-10 panel finding: README.md documents VIDUX_DEV_ROOT as an
+        alternative to --root for the status scan root (and explicitly
+        recommends it for a non-standard clone location), but vidux-status.py
+        hardcoded ~/Development as its --root default and never read the env
+        var -- only browser/server.py's DEV_ROOT did. Confirms --root's
+        argparse default now resolves from VIDUX_DEV_ROOT when --root isn't
+        passed explicitly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            proj = root / "env-root-project"
+            proj.mkdir()
+            (proj / "PLAN.md").write_text(textwrap.dedent("""\
+                # Env Root Plan
+                ## Tasks
+                - [pending] Do: something
+                ## Progress
+            """), encoding="utf-8")
+
+            env = dict(os.environ)
+            env["VIDUX_DEV_ROOT"] = str(root)
+            result = subprocess.run(
+                ["python3", str(self.SCRIPTS_DIR / "vidux-status.py"), "--json"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            self.assertEqual(result.returncode, 0, f"vidux-status.py failed: {result.stderr}")
+            data = json.loads(result.stdout)
+            names = {row["short"] for row in data["tied"] + data["other"]}
+            self.assertIn(
+                "env-root-project",
+                names,
+                "vidux-status.py did not scan VIDUX_DEV_ROOT when --root was "
+                "omitted -- it silently fell back to the hardcoded "
+                "~/Development default instead",
+            )
+
+            # Explicit --root still takes precedence over the env var.
+            other_root = root / "other"
+            other_root.mkdir()
+            (other_root / "PLAN.md").write_text(textwrap.dedent("""\
+                # Other Root Plan
+                ## Tasks
+                - [pending] Do: something else
+                ## Progress
+            """), encoding="utf-8")
+            override = subprocess.run(
+                ["python3", str(self.SCRIPTS_DIR / "vidux-status.py"), "--root", str(other_root), "--json"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            self.assertEqual(override.returncode, 0, f"vidux-status.py failed: {override.stderr}")
+            override_data = json.loads(override.stdout)
+            override_names = {row["short"] for row in override_data["tied"] + override_data["other"]}
+            self.assertNotIn("env-root-project", override_names)
+
     def test_vidux_status_recognizes_fsm_extension_tags_as_not_shipped(self):
         """Round-3 panel finding (code-quality-scripts lens): [in_review]/
         [verify]/[merged] -- SKILL.md's own documented status FSM extension
@@ -1112,13 +1166,28 @@ class ViduxContractTests(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_hooks_json_valid(self):
-        """hooks/hooks.json must be valid JSON with a hooks array."""
-        hooks_file = ROOT / "hooks" / "hooks.json"
-        self.assertTrue(hooks_file.exists(), "hooks/hooks.json missing")
+        """hooks/hooks-reference.json must be valid JSON with a hooks array."""
+        hooks_file = ROOT / "hooks" / "hooks-reference.json"
+        self.assertTrue(hooks_file.exists(), "hooks/hooks-reference.json missing")
         data = json.loads(hooks_file.read_text())
         self.assertIn("hooks", data)
         self.assertIsInstance(data["hooks"], list)
         self.assertGreaterEqual(len(data["hooks"]), 3)
+
+    def test_hooks_json_does_not_collide_with_plugin_loader_reserved_path(self):
+        """Round-9 panel finding: `claude plugin validate` auto-scans and
+        rejects any hooks/hooks.json whose shape isn't a real Claude Code
+        plugin hooks record. This file's event names (pre-commit,
+        post-commit, post-build-failure, beforeTask, afterTask) are
+        cross-tool documentation concepts, not real Claude Code hook
+        lifecycle events, so no reshape would make it functionally real --
+        it must not live at the reserved `hooks/hooks.json` filename."""
+        self.assertFalse(
+            (ROOT / "hooks" / "hooks.json").exists(),
+            "hooks/hooks.json exists again -- this collides with Claude Code's "
+            "plugin-hooks auto-scan and fails `claude plugin validate`; keep "
+            "this manifest at hooks/hooks-reference.json instead",
+        )
 
     # -----------------------------------------------------------------------
     # Plugin manifest contracts
@@ -1134,6 +1203,78 @@ class ViduxContractTests(unittest.TestCase):
         self.assertEqual(data["name"], "vidux")
         expected_version = (ROOT / "VERSION").read_text().splitlines()[0].strip()
         self.assertEqual(data["version"], expected_version)
+
+    def test_plugin_manifest_matches_claude_code_schema(self):
+        """Round-9 panel finding: plugin.json's `author` was a bare string
+        (schema requires an object) and it declared `commands`/`hooks` keys
+        in a shape `claude plugin validate` rejects -- confirmed via a live
+        `claude plugin validate .` run, 3 errors. commands/ and hooks/ are
+        auto-scanned by directory convention and don't need (and can't
+        validly take) an explicit declaration here."""
+        manifest = ROOT / ".claude-plugin" / "plugin.json"
+        data = json.loads(manifest.read_text())
+        self.assertIsInstance(data.get("author"), dict, "author must be an object, not a string")
+        self.assertNotIn("commands", data, "commands/ is auto-scanned; an explicit key here fails schema validation")
+        self.assertNotIn("hooks", data, "hooks/ is auto-scanned; an explicit key here fails schema validation")
+
+    def test_root_skill_and_vidux_command_have_distinct_frontmatter_names(self):
+        """Round-10 panel finding, empirically resolved: root SKILL.md and
+        commands/vidux.md both declared `name: vidux` in frontmatter, and a
+        black-box test against a clean scratch plugin (claude CLI 2.1.206,
+        `Skill(skill: "vidux")` calls) showed commands/vidux.md's body wins
+        the collision -- so a plugin-path install's Skill-tool invocation
+        silently got the thin orchestrator instead of the full SKILL.md
+        doctrine. Fixed by renaming commands/vidux.md's frontmatter name to
+        `vidux-orchestrate`; the `/vidux` slash-command trigger is unaffected
+        since that comes from the filename, not this field."""
+
+        def _frontmatter_name(path: Path) -> str:
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("---\n"), f"{path} must start with YAML frontmatter")
+            end = text.index("\n---\n", 4)
+            frontmatter = text[4:end]
+            match = re.search(r"^name:\s*(\S+)\s*$", frontmatter, re.MULTILINE)
+            self.assertIsNotNone(match, f"{path} frontmatter has no `name:` field")
+            return match.group(1)
+
+        skill_name = _frontmatter_name(ROOT / "SKILL.md")
+        command_name = _frontmatter_name(ROOT / "commands" / "vidux.md")
+        self.assertNotEqual(
+            skill_name,
+            command_name,
+            "SKILL.md and commands/vidux.md declare the same frontmatter "
+            "name again -- this is the exact round-10 plugin-path Skill-tool "
+            "collision (commands/vidux.md silently wins over the full "
+            "SKILL.md doctrine)",
+        )
+
+    def test_command_frontmatter_is_valid_yaml(self):
+        """Round-9 panel finding: commands/vidux.md's description had an
+        unquoted colon-space, which breaks plain YAML scalar parsing --
+        `claude plugin validate` confirmed all frontmatter fields silently
+        drop at runtime as a result. yaml is not a hard dependency of this
+        repo's test suite, so this parses frontmatter with a minimal,
+        dependency-free check instead of a real YAML parser: every
+        top-level `key: value` line's value must not itself contain an
+        unquoted, unbracketed `: ` (the exact construct that breaks a plain
+        YAML scalar)."""
+        command_file = ROOT / "commands" / "vidux.md"
+        text = command_file.read_text()
+        self.assertTrue(text.startswith("---\n"), "commands/vidux.md must start with YAML frontmatter")
+        end = text.index("\n---\n", 4)
+        frontmatter = text[4:end]
+        for line in frontmatter.splitlines():
+            if not line or ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            value = value.strip()
+            if value.startswith(("'", '"', "[", "{")):
+                continue
+            self.assertNotIn(
+                ": ", value,
+                f"commands/vidux.md frontmatter key {key!r} has an unquoted "
+                f"colon-space in its value -- quote the whole value",
+            )
 
     # -----------------------------------------------------------------------
     # Structural integrity
@@ -1236,14 +1377,14 @@ class ViduxContractTests(unittest.TestCase):
         trunk = text[text.index("### Trunk-First Rule") : text.index("**Worktree lifecycle:**")]
 
         self.assertLess(
-            push.index("ledger-emit.sh --event publish"),
+            push.index("--event publish"),
             push.index("Open PRs ready-for-review"),
         )
         for phrase in [
             "Operational PR-branch pushes are safe without asking only after",
             "owning PLAN.md row/Progress/Drift Log is updated",
-            "ledger-emit.sh --event publish",
-            "records the publish packet",
+            "--event publish",
+            "is recorded via an external ledger emitter",
             "Direct-to-main requires explicit authorization + the same publish propagation",
             "normal publish-propagated PR-branch push",
         ]:
@@ -1302,7 +1443,7 @@ class ViduxContractTests(unittest.TestCase):
         self.assertLess(breadcrumbs.index("**Ledger**"), breadcrumbs.index("**Git**"))
         for phrase in [
             "carrying the publish packet fields",
-            "ledger-emit.sh --event publish",
+            "the ledger emitter's `--event publish`",
             "branch/PR handoff",
             "after the plan + ledger breadcrumbs exist",
         ]:
@@ -1421,7 +1562,7 @@ class ViduxContractTests(unittest.TestCase):
             "queue/planning authority: tasks, decisions, constraints, progress",
             "Latest publish ledger rows",
             "plan/progress checkpoint",
-            "ledger-emit.sh --event publish",
+            "ledger emitter's `--event publish`",
             "plan/proof checkpoint recorded",
         ]:
             self.assertIn(phrase, normalized["cycle"])
@@ -1554,7 +1695,7 @@ class ViduxContractTests(unittest.TestCase):
         for phrase in [
             "append-only ledger",
             "queue/decisions/constraints/Progress authority",
-            "`ledger-emit.sh --event publish`",
+            "ledger emitter's `--event publish`",
             "CHECKPOINT plan + ledger",
         ]:
             self.assertIn(phrase, loop_normalized)
@@ -2302,12 +2443,12 @@ class ViduxContractTests(unittest.TestCase):
             self.assertNotIn(stale_phrase, fleet)
 
         self.assertLess(
-            fleet.index("ledger-emit.sh --event publish"),
+            fleet.index("the ledger emitter's `--event publish`"),
             fleet.index("If work is complete and tests pass: push branch"),
         )
         for phrase in [
             "update the owning PLAN.md",
-            "ledger-emit.sh --event publish",
+            "the ledger emitter's `--event publish`",
             "--summary",
             "--task-id",
             "--plan-path",
@@ -2334,7 +2475,7 @@ class ViduxContractTests(unittest.TestCase):
         )
         for phrase in [
             "update the owning PLAN.md",
-            "ledger-emit.sh --event publish",
+            "the ledger emitter's `--event publish`",
             "--summary",
             "--task-id",
             "--plan-path",
@@ -2413,7 +2554,7 @@ class ViduxContractTests(unittest.TestCase):
             "After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note",
             "owning `PLAN.md` plus publish ledger row carries the proof/resume packet",
             "lane-local memory format plus plan/ledger publish packet for shipped work",
-            "owning PLAN.md update plus matching `ledger-emit.sh --event publish` row carries the durable proof",
+            "owning PLAN.md update plus a matching ledger emitter `--event publish` row carries the durable proof",
             "Signal-only lane note vs full publish checkpoint",
             "shipped work still needs the owning PLAN.md plus publish ledger packet",
         ]:
@@ -2542,7 +2683,7 @@ class ViduxContractTests(unittest.TestCase):
             "CHECKPOINT plan + ledger",
             "publish branch/PR when propagated",
             "A commit is a local code snapshot",
-            "PLAN.md update plus `ledger-emit.sh --event publish`",
+            "PLAN.md update plus the ledger emitter's `--event publish`",
             "Ledger: publish row carries proof, handoff_status",
             "Git: commit/push branch only after the plan/ledger packet exists.",
             "Plan update + publish ledger row + resume",
@@ -2560,11 +2701,11 @@ class ViduxContractTests(unittest.TestCase):
         recipes = _read(ROOT / "guides" / "recipes.md")
         self.assertNotIn("commit directly to main", recipes)
         self.assertLess(
-            recipes.index("ledger-emit.sh --event publish"),
+            recipes.index('"$LEDGER_EMIT" --event publish'),
             recipes.index("git push -u origin claude/skill-refine-<name>"),
         )
         self.assertLess(
-            recipes.index("ledger-emit.sh --event publish"),
+            recipes.index('"$LEDGER_EMIT" --event publish'),
             recipes.index("gh pr create --title \"skill(<name>): <improvement>\""),
         )
         for phrase in [
@@ -2600,7 +2741,7 @@ class ViduxContractTests(unittest.TestCase):
             recipe,
         )
         self.assertLess(
-            recipe.index("ledger-emit.sh --event publish"),
+            recipe.index('"$LEDGER_EMIT" --event publish'),
             recipe.index("Never use --no-verify"),
         )
         for phrase in [
@@ -2682,7 +2823,7 @@ class ViduxContractTests(unittest.TestCase):
             section.index("gh pr create --draft"),
         )
         self.assertLess(
-            section.index("ledger-emit.sh --event publish"),
+            section.index("the ledger emitter's `--event publish`"),
             section.index("gh pr create --draft"),
         )
         for phrase in [
@@ -2718,8 +2859,8 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("process fix", s_p5.group())
 
     def test_hooks_scripts_exist(self):
-        """Every script referenced in hooks/hooks.json must exist on disk."""
-        hooks_file = ROOT / "hooks" / "hooks.json"
+        """Every script referenced in hooks/hooks-reference.json must exist on disk."""
+        hooks_file = ROOT / "hooks" / "hooks-reference.json"
         data = json.loads(hooks_file.read_text())
         for hook in data["hooks"]:
             script_path = hook.get("script")
@@ -5255,17 +5396,23 @@ class ViduxContractTests(unittest.TestCase):
     # ===================================================================== #
 
     # -----------------------------------------------------------------------
-    # DOCTRINE.md: 12 principles
+    # DOCTRINE.md: 13 principles
     # -----------------------------------------------------------------------
 
-    def test_doctrine_has_twelve_principles(self):
-        """DOCTRINE.md must contain all 12 numbered principles."""
+    def test_doctrine_has_thirteen_principles(self):
+        """DOCTRINE.md must contain all 13 numbered principles, consecutively
+        numbered with no gap. Round-8 panel finding: principle 13 ("Hungry by
+        default") previously existed under a stray, unrenumbered "### 14"
+        heading with no "13" anywhere, while the doc's own intro and
+        ARCHITECTURE.md's cross-reference both claimed "12 principles"."""
         text = _read(DOCTRINE)
-        for n in range(1, 13):
+        for n in range(1, 14):
             self.assertTrue(
                 re.search(rf"^## {n}\.", text, re.MULTILINE),
                 f"DOCTRINE.md missing principle #{n}",
             )
+        self.assertNotIn("### 14.", text)
+        self.assertIn("13 principles", text)
 
     def test_doctrine_has_loop_discipline_section(self):
         """DOCTRINE.md must contain the Loop Discipline section covering principles 10-12."""
@@ -5491,8 +5638,8 @@ class ViduxContractTests(unittest.TestCase):
 
     # def test_witness_script_exists_and_executable(self): — removed (script deleted in v2.6.0)
     def test_hooks_include_lifecycle_hooks(self):
-        """hooks.json must include beforeTask and afterTask lifecycle hooks."""
-        hooks_file = ROOT / "hooks" / "hooks.json"
+        """hooks-reference.json must include beforeTask and afterTask lifecycle hooks."""
+        hooks_file = ROOT / "hooks" / "hooks-reference.json"
         data = json.loads(hooks_file.read_text())
         events = [h["event"] for h in data["hooks"]]
         self.assertIn("beforeTask", events, "Missing beforeTask hook")
@@ -5732,6 +5879,19 @@ class ViduxContractTests(unittest.TestCase):
         text = _read(DOCTRINE)
         self.assertIn("mid-zone", text.lower())
         self.assertIn("deep work", text.lower())
+
+    def test_committed_hook_command_is_guarded_for_a_fresh_clone(self):
+        """Round-8 panel finding: .claude/settings.json's TaskCompleted hook
+        pointed unconditionally at $HOME/.claude/hooks/gate-check.sh -- the
+        maintainer's personal global hook, not something this repo ships.
+        Any other Claude Code user cloning this repo would silently dangle
+        on that missing path. The command must guard existence so it no-ops
+        cleanly instead of failing for everyone but the maintainer."""
+        settings = json.loads(_read(ROOT / ".claude" / "settings.json"))
+        command = settings["hooks"]["TaskCompleted"][0]["hooks"][0]["command"]
+        self.assertIn("test -x", command)
+        self.assertIn("gate-check.sh", command)
+        self.assertIn("exit 0", command)
 
 
 if __name__ == "__main__":
