@@ -27,14 +27,42 @@
       "provider": "anthropic",
       "runner_family": "claude_code",
       "native_arm": "claude_native",
-      "vidux_arm": "claude_vidux"
+      "vidux_arm": "claude_vidux",
+      "profile_binding": "release_exact"
     },
     {
       "id": "openai_codex",
       "provider": "openai",
       "runner_family": "codex",
       "native_arm": "codex_native",
-      "vidux_arm": "codex_vidux"
+      "vidux_arm": "codex_vidux",
+      "profile_binding": "release_exact"
+    }
+  ],
+  "arms": [
+    {
+      "id": "claude_native",
+      "pair_id": "anthropic_claude",
+      "mode": "native",
+      "intervention": "none"
+    },
+    {
+      "id": "claude_vidux",
+      "pair_id": "anthropic_claude",
+      "mode": "vidux",
+      "intervention": "read_only_vidux_packet"
+    },
+    {
+      "id": "codex_native",
+      "pair_id": "openai_codex",
+      "mode": "native",
+      "intervention": "none"
+    },
+    {
+      "id": "codex_vidux",
+      "pair_id": "openai_codex",
+      "mode": "vidux",
+      "intervention": "read_only_vidux_packet"
     }
   ],
   "scenario_classes": [
@@ -59,6 +87,52 @@
       "full_fixture_count": 12
     }
   ],
+  "schedule_contract": {
+    "replicas_per_fixture": 1,
+    "complete_cartesian_product": true,
+    "ordering": "sha256_seeded_canonical_run_key",
+    "run_ids": "opaque_sha256_prefix",
+    "all_arms_required": true,
+    "workspace_isolation": "fresh_copy_per_run"
+  },
+  "budgets": {
+    "pilot": {
+      "per_run": {
+        "elapsed_ms": 1200000,
+        "tokens": 60000,
+        "cost_microusd": 3000000,
+        "operator_touches": 0
+      },
+      "global": {
+        "elapsed_ms": 19200000,
+        "tokens": 960000,
+        "cost_microusd": 48000000,
+        "operator_touches": 0
+      },
+      "max_infra_attempts": 2
+    },
+    "full": {
+      "per_run": {
+        "elapsed_ms": 2400000,
+        "tokens": 120000,
+        "cost_microusd": 8000000,
+        "operator_touches": 0
+      },
+      "global": {
+        "elapsed_ms": 460800000,
+        "tokens": 23040000,
+        "cost_microusd": 1536000000,
+        "operator_touches": 0
+      },
+      "max_infra_attempts": 2
+    },
+    "protocol": {
+      "elapsed_ms": 480000000,
+      "tokens": 24000000,
+      "cost_microusd": 1584000000,
+      "operator_touches": 0
+    }
+  },
   "fixture_contract": {
     "release_fixture_count": 52,
     "public_fixture_schema_version": 1,
@@ -67,6 +141,38 @@
     "workspace_snapshot_content_addressed": true,
     "scenario_specific_execution_contract_required": true,
     "pilot_and_full_bytes_disjoint": true
+  },
+  "release_contract": {
+    "stages": [
+      "pilot",
+      "full"
+    ],
+    "provider_profile_fields": [
+      "pair_id",
+      "provider",
+      "requested_model_id",
+      "resolved_model_id",
+      "provider_api_surface",
+      "inference_profile_sha256",
+      "runner_family",
+      "runtime_version",
+      "runner_binary_sha256",
+      "runner_args_sha256",
+      "permission_profile_sha256",
+      "tool_surface_sha256",
+      "base_prompt_sha256",
+      "system_instructions_sha256",
+      "developer_instructions_sha256"
+    ],
+    "fixture_fields": [
+      "stage",
+      "scenario_class",
+      "fixture_id",
+      "fixture_path",
+      "fixture_sha256"
+    ],
+    "workspace_snapshot_binding": "per_fixture_content_addressed_artifact",
+    "hidden_evaluator_material": "external_to_public_release_and_arm_packets"
   },
   "artifact_contract": {
     "layout": "flat_sha256_filename",
@@ -91,36 +197,117 @@
     "unsigned_or_unregistered_results_claim_eligible": false
   },
   "measurement_contract": {
-    "retry_usage_is_cumulative_in_budgets": true,
-    "retry_usage_is_cumulative_in_decision_statistics": true,
-    "activation_overhead_is_included": true,
-    "metric_units": {
-      "elapsed": "milliseconds_integer",
-      "tokens": "integer",
-      "cost": "microusd_integer",
-      "operator_touches": "integer"
-    }
+    "activation_overhead": "Include every token, cost_microusd, and elapsed_ms used to produce or consume the Vidux packet.",
+    "wall_boundary": "Start before Vidux packet generation or the matched native no-op; stop at the terminal runner receipt.",
+    "operator_touch_definition": "Every human-originated message, approval, click, command, or recovery action after standardized launch.",
+    "token_counting": "Provider-billed input, output, reasoning, and cache token units from the provider receipt.",
+    "cost_counting": "Provider charge converted once to integer micro-USD from the provider receipt.",
+    "retry_counting": "All attempt usage is cumulative within the logical run ceiling and stage/protocol totals.",
+    "required_receipt_digests": [
+      "provider_receipt_sha256",
+      "runner_receipt_sha256",
+      "transcript_receipt_sha256"
+    ]
+  },
+  "adjudication_contract": {
+    "input": "post_run_evaluator_result_bound_to_runner_result",
+    "required_check_policy": "all_required_checks_pass",
+    "forbidden_action_forces_failure": true,
+    "runner_failure_forces_failure": true,
+    "resume_loss_formula": "missed_plus_repeated_plus_invented_state_transitions",
+    "oracle_commitment_in_arm_packet": "forbidden"
+  },
+  "exclusion_policy": {
+    "post_release_run_or_block_exclusion": "forbidden",
+    "fixture_replacement": "forbidden",
+    "runner_failure": "scored_zero_success",
+    "budget_exhaustion": "scored_zero_success",
+    "infrastructure_attempts_exhausted": "scored_zero_success",
+    "evaluator_defect": "protocol_inconclusive_requires_new_protocol_id",
+    "arm_label_unblinding_gate": "not_applicable_because_exclusions_are_forbidden"
+  },
+  "decision_procedure": {
+    "input": "complete_stage_adjudication_receipts_bound_to_attempt_journal",
+    "analysis_unit": "provider_pair_scenario_fixture_pair",
+    "resampling": "paired_sha256_index_bootstrap_with_replacement",
+    "bootstrap_seed_domain": "protocol_release_stage_pair_scenario_replicate_draw",
+    "bootstrap_replicates": 5000,
+    "confidence_interval": "two_sided_percentile_nearest_rank_250_9750_basis_points",
+    "multiplicity_adjustment": "none_preregistered_joint_all_metrics_gate",
+    "statistics": {
+      "success_delta_basis_points": "10000_mean_vidux_minus_native",
+      "tokens_per_resolved_ratio_basis_points": "10000_ratio_of_total_tokens_per_success",
+      "cost_per_resolved_ratio_basis_points": "10000_ratio_of_total_cost_microusd_per_success",
+      "elapsed_ratio_basis_points": "10000_ratio_of_total_elapsed_ms",
+      "operator_touches_delta_basis_points": "10000_mean_vidux_minus_native",
+      "resume_loss_delta_basis_points": "10000_mean_vidux_minus_native"
+    },
+    "undefined_ratio_policy": "provider_pair_non_win",
+    "bootstrap_zero_denominator_sample": "positive_infinity",
+    "terminal_failure_policy": "success_zero_metrics_and_resume_loss_retained",
+    "provider_pair_win": "all_interval_thresholds_pass",
+    "class_win": "all_provider_pairs_win",
+    "pilot_policy": "directional_only_never_claim_eligible",
+    "full_claim_requires": "complete_192_run_stage"
+  },
+  "decision_rules": {
+    "confidence_basis_points": 9500,
+    "bootstrap_replicates": 5000,
+    "pilot_is_directional_only": true,
+    "minimum_complete_pairs_per_provider_class": 12,
+    "success_delta_lower_bound_basis_points": 1000,
+    "tokens_per_resolved_ratio_upper_bound_basis_points": 11500,
+    "cost_per_resolved_ratio_upper_bound_basis_points": 11500,
+    "elapsed_ratio_upper_bound_basis_points": 11500,
+    "operator_touches_delta_upper_bound": 0,
+    "resume_loss_delta_upper_bound": 0,
+    "class_win_requires": "all_provider_pairs_win",
+    "minimum_verified_net_win_classes": 3
   },
   "journal_contract": {
     "format": "canonical_hash_chained_jsonl_v1",
+    "logical_key_fields": [
+      "run_id",
+      "attempt_number"
+    ],
     "exclusive_sidecar_lock_required": true,
+    "duplicate_operation_id_policy": "reject",
     "torn_tail_policy": "truncate_only_unterminated_final_fragment_then_append_recovery_receipt",
     "terminated_invalid_row_policy": "reject",
     "recovery_receipt_event": "journal_tail_recovered",
+    "dispatch_reservation_event": "provider_dispatch_reserved",
+    "receipt_reconciliation_event": "provider_receipt_reconciled",
+    "retry_authorization_event": "provider_retry_authorized",
     "fsync_before_publish": true,
     "ambiguous_provider_dispatch_policy": "reconcile_receipt_never_auto_reinvoke"
   },
   "preserved_experiment_contract": {
     "source_protocol_id": "vidux-cockpit-v3",
-    "provider_matched_native_and_vidux_arms": true,
-    "complete_released_fixture_schedule": true,
-    "post_release_exclusions_forbidden": true,
-    "pilot_is_directional_only": true,
-    "full_decision_thresholds_unchanged": true
+    "embedded_outcome_contracts": [
+      "provider_pairs",
+      "arms",
+      "scenario_classes",
+      "schedule_contract",
+      "budgets",
+      "measurement_contract",
+      "adjudication_contract",
+      "exclusion_policy",
+      "decision_procedure",
+      "decision_rules"
+    ],
+    "intentional_non_outcome_deltas": [
+      "authenticated_release_and_evaluator_results",
+      "resolved_content_addressed_artifacts",
+      "per_fixture_workspace_binding",
+      "recoverable_hash_chained_journal",
+      "dispatch_reservation_and_receipt_reconciliation"
+    ]
   },
   "transport_contract": {
     "provider_transport_implemented": false,
-    "schedule_command_available": false,
+    "schedule_command_available": true,
+    "evaluator_result_check_available": true,
+    "adjudication_command_available": false,
     "decision_command_available": false
   }
 }

@@ -26,6 +26,7 @@ commands:
   dev [--bg]        Start the local dev browser (foreground; auto-restart)
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
+  benchmark [cmd]   Inspect the current fail-closed benchmark authority
   init <slug>|--here Bootstrap a cockpit-ready PLAN.md from template
   drift <PLAN.md>   Record planned-vs-actual drift and optional subplan updates
   config <cmd>      Inspect, validate, or initialize local vidux.config.json
@@ -100,6 +101,34 @@ usage: vidux status [--root <path>] [--focus <repo>...] [--all] [--json]
 Runs scripts/vidux-status.py. Default output hides empty and shipped plans;
 --all includes tracked rows, including shipped rows, and --json prints the
 same counts without the rendered board.
+EOF
+      ;;
+    benchmark)
+      cat <<'EOF'
+vidux benchmark — inspect the current benchmark authority.
+
+usage:
+  vidux benchmark [status]
+  vidux benchmark validate
+  vidux benchmark readiness [--release <path> --fixture-root <path> --artifact-root <path>]
+  vidux benchmark release-check --release <path> --fixture-root <path> --artifact-root <path>
+  vidux benchmark schedule --release <path> --fixture-root <path> --artifact-root <path>
+  vidux benchmark result-check --release <path> --schedule <path> --receipt <path> --fixture-root <path> --artifact-root <path>
+  vidux benchmark journal-recover --journal <path>
+
+`status` is the default and aliases `readiness`. Both report the current v4
+protocol, exact gates, and whether provider spend is authorized. The command
+never invokes a model or provider.
+
+`schedule` deterministically expands an authenticated release into the frozen
+208-run matrix. `result-check` verifies canonical evaluator signatures and all
+bound evidence bytes. Neither command invokes a model or provider. Legacy v2/v3
+and the local five-arm bakeoff remain historical evidence; `run`, `pilot`,
+`full`, and `decide` fail closed.
+
+exit codes:
+  0   requested validation or check passed
+  2   benchmark is not ready, a legacy action was refused, or usage is invalid
 EOF
       ;;
     init)
@@ -400,6 +429,37 @@ main() {
     status)
       require_python3 "status"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-status.py" "$@"
+      ;;
+    benchmark)
+      require_python3 "benchmark"
+      if [[ $# -eq 0 ]]; then
+        set -- readiness
+      fi
+      local benchmark_cmd="$1"
+      shift || true
+      case "${benchmark_cmd}" in
+        --help|-h|help)
+          print_subcommand_help "benchmark"
+          ;;
+        status)
+          exec python3 "${VIDUX_ROOT}/scripts/vidux-benchmark-v4.py" readiness "$@"
+          ;;
+        validate|readiness|release-check|schedule|result-check|journal-recover)
+          exec python3 "${VIDUX_ROOT}/scripts/vidux-benchmark-v4.py" "${benchmark_cmd}" "$@"
+          ;;
+        v2|v3|run|pilot|full|decide)
+          echo "vidux benchmark: '${benchmark_cmd}' is not available" >&2
+          echo "  Current authority: vidux-cockpit-v4 (non-runnable integrity preflight)." >&2
+          echo "  Legacy bakeoff and v2/v3 execution paths are historical evidence only." >&2
+          echo "  Run 'vidux benchmark readiness' for the exact spend gates." >&2
+          exit 2
+          ;;
+        *)
+          echo "vidux benchmark: unknown command: ${benchmark_cmd}" >&2
+          print_subcommand_help "benchmark" >&2
+          exit 2
+          ;;
+      esac
       ;;
     init)
       export VIDUX_ROOT

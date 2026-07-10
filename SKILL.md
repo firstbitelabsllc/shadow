@@ -23,6 +23,20 @@ Flow-selected sidecars. Vidux keeps the durable surfaces that proved useful:
 one canonical `PLAN.md`, explicit Decision Log, publish packet proof, resume
 metadata, and the read-only browser cockpit.
 
+## Current Benchmark Authority
+
+Benchmark requests start with `vidux benchmark`, then read the root `PLAN.md`
+and `benchmarks/v4/`. The default `vidux benchmark` command prints v4 readiness
+and its exact provider-spend gates without invoking a model or provider.
+
+The legacy `evaluations/vidux-vs-native-bakeoff/` harness and its June resume
+file are historical evidence. They predate the full planner/executor loss, the
+kernel cut, and the v2/v3 retirements; they are never current execution
+authority even if a local skill mount still exposes their name. Do not run a
+historical execution action or cite its directional result as current product
+proof. `vidux benchmark` fails closed on those actions until the current v4
+protocol supplies reviewed equivalents.
+
 ## Goal Navigation Plans
 
 A Vidux goal prompt is a navigation contract, not a frozen task list. It must

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Canonical subcommand list. Order matches print_top_help() in bin/vidux.
-VIDUX_SUBCOMMANDS="dev browse status init drift config signpost http-smoke doctor build release completion help"
+VIDUX_SUBCOMMANDS="dev browse status benchmark init drift config signpost http-smoke doctor build release completion help"
 VIDUX_FLAGS="--help -h --version -v"
 
 print_usage() {
@@ -69,6 +69,14 @@ _vidux_complete() {
       COMPREPLY=( \$(compgen -W "--root --focus --all --json --help -h" -- "\${cur}") )
       return 0
       ;;
+    benchmark)
+      if [ "\$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( \$(compgen -W "status validate readiness release-check schedule result-check journal-recover --help -h" -- "\${cur}") )
+      else
+        COMPREPLY=( \$(compgen -W "--release --schedule --receipt --fixture-root --artifact-root --journal --help -h" -- "\${cur}") )
+      fi
+      return 0
+      ;;
     config)
       if [ "\$COMP_CWORD" -eq 2 ]; then
         COMPREPLY=( \$(compgen -W "path check show init --help -h" -- "\${cur}") )
@@ -110,6 +118,7 @@ _vidux() {
     'dev:Start the local dev browser (foreground; auto-restart)'
     'browse:Launch the plan browser at :7191'
     'status:Print plan status across operational PLAN.md files'
+    'benchmark:Inspect the current fail-closed benchmark authority'
     'init:Bootstrap a new plan PLAN.md from template'
     'drift:Record planned-vs-actual drift in PLAN.md'
     'config:Inspect, validate, or initialize local vidux.config.json'
@@ -178,6 +187,18 @@ _vidux() {
             '--help[Show help]' \\
             '-h[Show help]'
           ;;
+        benchmark)
+          _values 'benchmark command' status validate readiness release-check schedule result-check journal-recover
+          _values 'flag' \\
+            '--release[Authenticated evaluator release JSON]' \\
+            '--schedule[Deterministic v4 schedule JSON]' \\
+            '--receipt[Authenticated evaluator result receipt JSON]' \\
+            '--fixture-root[Released public fixture root]' \\
+            '--artifact-root[Content-addressed artifact root]' \\
+            '--journal[Hash-chained journal path]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
         config)
           _values 'config command' path check show init
           _values 'flag' \\
@@ -243,6 +264,7 @@ complete -c vidux -f
 complete -c vidux -n '__vidux_no_subcommand' -a dev        -d 'Start the local dev browser (foreground; auto-restart)'
 complete -c vidux -n '__vidux_no_subcommand' -a browse     -d 'Launch the plan browser at :7191'
 complete -c vidux -n '__vidux_no_subcommand' -a status     -d 'Print plan status across operational PLAN.md files'
+complete -c vidux -n '__vidux_no_subcommand' -a benchmark  -d 'Inspect the current fail-closed benchmark authority'
 complete -c vidux -n '__vidux_no_subcommand' -a init       -d 'Bootstrap a new plan PLAN.md from template'
 complete -c vidux -n '__vidux_no_subcommand' -a drift      -d 'Record planned-vs-actual drift in PLAN.md'
 complete -c vidux -n '__vidux_no_subcommand' -a config     -d 'Inspect, validate, or initialize local vidux.config.json'
@@ -276,6 +298,15 @@ complete -c vidux -n '__fish_seen_subcommand_from status' -l all                
 complete -c vidux -n '__fish_seen_subcommand_from status' -l json                  -d 'Print JSON'
 complete -c vidux -n '__fish_seen_subcommand_from status' -l help  -s h            -d 'Show help'
 
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -a 'status validate readiness release-check schedule result-check journal-recover' -d 'Benchmark command'
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l release            -d 'Authenticated evaluator release JSON'
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l schedule           -d 'Deterministic v4 schedule JSON'
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l receipt            -d 'Authenticated evaluator result receipt JSON'
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l fixture-root       -d 'Released public fixture root'
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l artifact-root      -d 'Content-addressed artifact root'
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l journal            -d 'Hash-chained journal path'
+complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l help -s h           -d 'Show help'
+
 complete -c vidux -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'   -d 'Target shell'
 complete -c vidux -n '__fish_seen_subcommand_from completion' -l help -s h         -d 'Show help'
 
@@ -306,7 +337,7 @@ complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l url            
 complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l timeout          -d 'Total budget per URL in seconds'
 complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l max-sample-bytes -d 'Maximum response sample bytes'
 complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l json             -d 'Print JSON'
-complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status init drift config signpost http-smoke doctor build release completion help'
+complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status benchmark init drift config signpost http-smoke doctor build release completion help'
 EOF
 }
 

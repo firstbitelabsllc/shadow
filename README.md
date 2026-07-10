@@ -216,7 +216,7 @@ Vidux is the middle: more structure than bare chat, meaningfully less than an or
 
 None of this makes vidux "better" — it's a different set of tradeoffs. Vidux's core actually does support scheduled/persistent loops, multi-agent lane coordination, and PR-nursing (see SKILL.md's Persistent Loop Mode, Nursing Mode, and Coordination Mode sections) — it just does it with cron/launchd, plain files, and git instead of a framework's built-in Agent/Task/Crew abstractions or a hosted service. If you want those abstractions doing the wiring for you, or need dozens of coordinated roles out of the box, reach for one of those frameworks. If you want the same capabilities built from primitives you can read in a text editor, that's what vidux is for.
 
-**This design isn't a guess — it's the result of measuring a fancier version and cutting it.** Vidux used to also try to structure *how* work handed off between a planning step and an executing step (a "kernel" transport format). A 2026-07-03 evaluation (119 runs, 117 clean after protocol exclusions) tested that structured handoff against just letting an agent work freeform off the same plan file — freeform won on every frozen threshold. The clearest single head-to-head (17 runs each, same model) had freeform resolving 76% vs. the kernel handoff's 59%. So the structured-handoff layer was cut. What's left, and what this README describes, is what actually earned its keep: one plan file, one proof log, one cycle. See the 2026-07-07 Decision Log entry in `PLAN.md` and `evidence/2026-07-07-kernel-cut-pivot.md` for the full writeup (the evaluation harness itself is a local-only, unshipped tool — this repo carries the result, not the harness).
+**This design isn't a guess — it's the result of measuring a fancier version and cutting it.** Vidux used to also try to structure *how* work handed off between a planning step and an executing step (a "kernel" transport format). A 2026-07-03 evaluation (119 runs, 117 clean after protocol exclusions) tested that structured handoff against just letting an agent work freeform off the same plan file — freeform won on every frozen threshold. The clearest single head-to-head (17 runs each, same model) had freeform resolving 76% vs. the kernel handoff's 59%. So the structured-handoff layer was cut. What's left, and what this README describes, is what actually earned its keep: one plan file, one proof log, one cycle. See the 2026-07-07 Decision Log entry in `PLAN.md` and `evidence/2026-07-07-kernel-cut-pivot.md` for the full writeup. The old live harness remains a local historical artifact; the package ships only fail-closed v2/v3 records and the current non-runnable v4 integrity validator.
 
 ## How Vidux Compares
 
@@ -248,12 +248,18 @@ Hard rules that prevent the most common stateless-agent failures:
 
 ```bash
 python3 scripts/vidux-status.py
+vidux benchmark
 vidux config check
 vidux doctor
 vidux http-smoke --json --timeout 3 http://127.0.0.1:4400/api/health
 ```
 
 Scans every `PLAN.md` under a scan root (default `~/Development`, or `VIDUX_DEV_ROOT`/`--root` if set), renders a two-bucket board: plans tied to the current repo vs everything else on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags), last activity. Flags: `--all`, `--json`, `--focus <repo...>`, `--root <path>`.
+
+`vidux benchmark` reports the current v4 protocol and exact readiness gates. It
+never starts a provider run. Legacy v2/v3 and five-arm pilot commands fail
+closed so a stale local bakeoff skill cannot silently become execution
+authority.
 
 Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.config.example.json` as the shape). The only required key is `plan_store`, whose `mode` is `inline` (repo-local `PLAN.md`, the default), `local` (a configured path), or `external` (a path outside the scan root). Agents resolve the authority `PLAN.md` from this at session start. Use `vidux config init` to seed a local config; full schema in [`docs/reference/config.md`](docs/reference/config.md).
 
