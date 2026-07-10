@@ -73,6 +73,16 @@ PRIVACY_PATTERNS = (
     # path boundary is also a \b boundary) while also catching every bare
     # mention.
     ("private username", re.compile(r"\b(?:leokwan|redacted-operator)\b")),
+    # Round-8 panel finding: 4 evidence files named the maintainer's real
+    # spouse by first name -- once in a genuinely sensitive context (a
+    # confidential job-search screenshot, now purged from the branches
+    # that carried it), the rest as a recurring "make this simple enough
+    # for X" persona shorthand. No PRIVACY_PATTERNS rule existed for a
+    # family member's name at all. Placeholder-safe: this name never
+    # appears in this repo's own shipped code/docs otherwise, so the
+    # false-positive risk is the same as any other named-individual rule
+    # already in this list.
+    ("maintainer's spouse's first name", re.compile(r"\bNicole\b")),
     # Round-3 panel finding: this rule's own regex had been over-redacted to
     # the literal placeholder text "REDACTED-EMPLOYER-PATH" -- a string that
     # never appears in real content, so the check was a permanent silent
