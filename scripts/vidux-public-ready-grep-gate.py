@@ -82,17 +82,23 @@ PRIVACY_PATTERNS = (
     # appears in this repo's own shipped code/docs otherwise, so the
     # false-positive risk is the same as any other named-individual rule
     # already in this list.
-    ("maintainer's spouse's first name", re.compile(r"\bNicole\b")),
+    # Round-9 panel finding: the round-8 rule had no re.IGNORECASE, so it
+    # only ever matched the capitalized prose form and gave false
+    # confidence -- the dominant lowercase/kebab-case usage (this repo's
+    # own project-naming convention lowercases everything, e.g.
+    # "family-member-fpa-ai") sailed through every prior grep-gate run
+    # unnoticed. Added re.IGNORECASE to match every casing.
+    ("maintainer's spouse's first name", re.compile(r"\bNicole\b", re.IGNORECASE)),
     # Round-3 panel finding: this rule's own regex had been over-redacted to
     # the literal placeholder text "REDACTED-EMPLOYER-PATH" -- a string that
     # never appears in real content, so the check was a permanent silent
     # no-op. It missed a live leak: this session's own evidence file quoting
-    # `/Users/lkwan/Snapchat/...` and `lkwan@snapchat.com` verbatim while
-    # documenting a confidentiality finding about that exact content.
+    # the maintainer's real employer-issued-laptop home path and corporate
+    # email verbatim while documenting a confidentiality finding about that
+    # exact content.
     ("employer source path", re.compile(r"\b(?:lkwan|Snapchat/Dev)\b")),
     # Bare-domain form, not just the `@`-prefixed email form -- a real
-    # instance found live was an internal registry hostname
-    # (registry.snapchat.com/mirror-proxy/...), which has no `@`.
+    # instance found live was an internal registry hostname with no `@`.
     ("employer email or domain", re.compile(r"\bsnapchat\.com\b", re.IGNORECASE)),
     ("employer internal hostname", re.compile(r"\bsc-corp\.net\b", re.IGNORECASE)),
     # Round-7 panel finding: no rule existed for the employer's internal
@@ -100,6 +106,15 @@ PRIVACY_PATTERNS = (
     # a real instance (an internal inference-service hostname) shipped
     # unredacted in a tracked evidence file and this gate reported "passed"
     # with zero matches.
+    #
+    # Round-9 panel finding: the comments above and this rule's own test
+    # fixtures used to reproduce the actual leaked strings verbatim
+    # (a real coworker's email, a real internal hostname) -- gratuitous,
+    # since these regexes match on domain/TLD only and a synthetic example
+    # exercises them identically without adding a second, avoidable copy of
+    # someone else's PII to the repo. Comments and fixtures now use made-up
+    # placeholders; only the regex patterns themselves need the real
+    # domain/TLD strings to detect a leak.
     ("employer internal .snap TLD", re.compile(r"\.snap\b", re.IGNORECASE)),
     # Round-7 panel finding: no rule existed for a gmail address or the
     # maintainer's separate small consumer-goods business name -- both

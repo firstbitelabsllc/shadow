@@ -17,7 +17,7 @@ re-run the panel to check real progress rather than trust an aging backlog.
      had moved on and the suite was fully green.
    - "A second Snap-confidential leak exists" — **true, and worse than scoped**. Broader
      than the two directories the panel named: also present in
-     `projects/agentic-5x`, `projects/mom-flushing-home`, `projects/nicole-fpa-ai`,
+     `projects/agentic-5x`, `projects/mom-flushing-home`, `projects/family-member-fpa-ai`,
      `projects/vidux-pilot-merge`, `projects/vidux-self-investigation`, plus scattered
      absolute-path/username/endpoint/private-repo-name strings outside `projects/`
      entirely. Purged via a 3-pass `git filter-repo` (path-purge + two text-replacement

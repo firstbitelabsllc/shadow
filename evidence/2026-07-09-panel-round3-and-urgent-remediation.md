@@ -12,13 +12,13 @@ Up from round-2's 6/20 GO, but the composition changed: round-3 used fresh lense
 code-quality-cli-scripts, code-quality-browser-js, security-secrets-leaks,
 accessibility, test-suite-trust, dependency-health, docs-readme-accuracy,
 contribution-readiness, naming-branding-collision, mobile-responsiveness,
-first-run-ux, simplicity-niche-fit, nicole-readability, positioning-honesty,
+first-run-ux, simplicity-niche-fit, non-technical-readability, positioning-honesty,
 github-repo-metadata, git-history-exposure, plan-first-doctrine-coherence) rather than
 re-running round-2's exact set, so the two counts aren't directly comparable — this
 was a genuinely broader sweep, not a re-check of the same 20 questions.
 
 **GO (7):** live-ci-badge-honesty, code-quality-browser-js, test-suite-trust,
-dependency-health, contribution-readiness, nicole-readability, positioning-honesty.
+dependency-health, contribution-readiness, non-technical-readability, positioning-honesty.
 
 **NO-GO (13):** fresh-clone-buildability, experienced-oss-contributor,
 code-quality-cli-scripts, security-secrets-leaks, accessibility, docs-readme-accuracy,
