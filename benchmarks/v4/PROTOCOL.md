@@ -1,7 +1,8 @@
 # Vidux Cockpit Benchmark v4
 
-Status: draft integrity preflight, non-runnable. Provider transport, scheduling,
-and decision commands do not exist.
+Status: draft integrity preflight, non-runnable. Deterministic schedule and
+authenticated-result checks exist; provider transport, adjudication, and
+decision commands do not.
 
 Protocol ID: `vidux-cockpit-v4`
 
@@ -33,8 +34,9 @@ An evaluator registration is committed before fixture release. The
 registration binds an evaluator ID, Ed25519 OpenSSH public key, evaluator
 implementation bytes, and the `vidux-benchmark-v4` signature namespace. The
 release receipt binds the exact canonical release core and verifies through
-OpenSSH `sshsig`; future evaluator results must use the same registered identity
-and authenticated binding.
+OpenSSH `sshsig`. Evaluator result receipts bind canonical result bytes to the
+same preregistered identity, exact schedule, exact runner result, evaluator run,
+and resolved check evidence.
 
 Synthetic bundles remain useful harness tests but are permanently ineligible
 for product claims. Only a real bundle with an already registered evaluator and
@@ -48,21 +50,27 @@ exclusive sidecar lock, all preceding newline-terminated records must first
 pass sequence and hash-chain validation. Recovery atomically replaces the
 journal with the committed prefix plus a content-addressed recovery event.
 Malformed or hash-invalid terminated records remain fatal. Ambiguous provider
-dispatch is reconciled against receipts and is never automatically reinvoked.
+dispatch is reserved under the journal lock before any future provider call.
+The reservation binds a schedule-derived run, attempt, and dispatch ID. A
+reservation without a receipt is an explicit reconciliation-required state and
+cannot be reserved or invoked again. Reconciled receipt metrics are cumulative.
 
 Every attempt, including infrastructure retries, contributes to both budget
 accounting and decision statistics. Vidux activation overhead remains included.
 
 ## Preserved Experiment Design
 
-V4 preserves v3's provider-matched native/Vidux pairs, four scenario classes,
-4 pilot plus 48 full fixtures, complete schedule, no post-release exclusions,
-directional-only pilot, and full-matrix thresholds. It changes the evidence,
-measurement, and recovery rules that made v3 non-runnable.
+V4 embeds v3's exact provider pairs, four arms, scenario classes, budgets,
+schedule, measurement, adjudication, exclusion, decision procedure, and
+thresholds. Tests compare those blocks field-for-field with the retired frozen
+manifest. V4 changes only the evidence and recovery integrity layer; any actual
+outcome-rule change requires v5.
 
 ## Current Boundary
 
 The current code validates this manifest, exact fixture and artifact schemas,
-authenticated release bundles, and crash-tail recovery. Administrative status
-is still non-runnable and has no registered evaluator. No provider transport,
-schedule, raw row, pilot result, decision, or verified net-win class exists.
+authenticated release bundles, deterministic 208-run schedules, signed
+evaluator results, dispatch reservation/reconciliation, and crash-tail
+recovery. Administrative status is still non-runnable and has no registered
+external evaluator. No provider transport, pilot result, adjudication,
+decision, or verified net-win class exists.

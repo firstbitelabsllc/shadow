@@ -3,7 +3,7 @@
   "protocol_id": "vidux-cockpit-v4",
   "status": "draft_integrity_preflight",
   "runnable": false,
-  "manifest_digest": "dfbe8444fc60580615f75eeb3749383c13e2d8e25f055acf272e684269976edb",
+  "manifest_digest": "21d6ecb6469eab654ecd932e5a27ff735518dbc19b80d3283e15848837406c81",
   "created_at": "2026-07-10T15:20:41Z",
   "provider_transport_enabled": false,
   "evaluator_registration_sha256": null,

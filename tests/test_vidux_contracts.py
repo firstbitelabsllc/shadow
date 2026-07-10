@@ -974,7 +974,7 @@ class ViduxContractTests(unittest.TestCase):
         )
         self.assertEqual(fish_completion.returncode, 0, fish_completion.stderr)
         self.assertIn(
-            "__fish_seen_subcommand_from help' -a 'dev browse status init drift config signpost http-smoke doctor build release completion help'",
+            "__fish_seen_subcommand_from help' -a 'dev browse status benchmark init drift config signpost http-smoke doctor build release completion help'",
             fish_completion.stdout,
         )
 
