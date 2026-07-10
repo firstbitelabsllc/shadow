@@ -1,16 +1,47 @@
 # Installation
 
-Vidux installs as a Claude Code skill — no package manager, no build step, no server. Just a symlink into your Claude skills directory.
+Vidux has two compatible install surfaces: a source checkout for contributors
+and skill development, or a bounded npm tarball for the global CLI and local
+browser. Both expose the same plan-first runtime.
 
 ## Prerequisites
 
-- [Claude Code](https://claude.ai/code) (CLI or desktop app)
-- Git
+- Bash
+- Python 3.10+
+- Git for a source checkout
+- Node 20+ and npm for a tarball install or maintainer verification
+- [Claude Code](https://claude.ai/code) only when using Vidux as a slash-command skill
 
-## Install the Skill
+## Install from a source checkout
 
 ```bash
 git clone https://github.com/firstbitelabsllc/vidux.git
+ln -sf /path/to/vidux/bin/vidux /usr/local/bin/vidux
+vidux --version
+```
+
+If `/usr/local/bin` is not writable, add `/path/to/vidux/bin` to `PATH`
+instead. The CLI self-locates through either form.
+
+## Install a verified tarball
+
+From a trusted source checkout:
+
+```bash
+npm run release:verify
+TARBALL="$(npm pack --ignore-scripts --silent)"
+npm install --global "./${TARBALL}"
+vidux --version
+```
+
+The release verifier builds the artifact twice and requires byte-identical
+SHA-256 output, exact version agreement, required runtime files, tracked-only
+contents, and bounded size. Local plans, evidence, evaluations, tests, and
+generated state are excluded.
+
+## Install the Claude Code skill
+
+```bash
 ln -sfn /path/to/vidux ~/.claude/skills/vidux
 ```
 
@@ -77,7 +108,20 @@ See [Hooks Reference](/reference/hooks) for the full configuration.
 
 ## Verifying Installation
 
-Open a Claude Code session and run:
+Verify the CLI and browser first:
+
+```bash
+vidux --version
+vidux doctor
+vidux init --here
+vidux dev
+```
+
+`vidux doctor` reports optional GitHub/source-checkout capabilities as warnings
+in a packaged install; warnings do not hide hard Python, config, token-permission,
+or stale-runtime failures.
+
+For the optional Claude Code skill, open a session and run:
 
 ```
 /vidux "test project"

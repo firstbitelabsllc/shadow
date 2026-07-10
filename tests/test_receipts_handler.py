@@ -6,6 +6,7 @@ tempdir and asserts they point under it, so the real corpus is never written.
 """
 
 import base64
+import os
 import sys
 import tempfile
 import unittest
@@ -75,6 +76,45 @@ class UploadTests(HandlerTestCase):
         self.assertIsNone(body["row"]["image_path"])
         self.assertTrue(body["row"]["private"])
         self.assertFalse((handler.DEFAULT_IMAGES_DIR).exists())
+
+    def test_upload_rejects_symlink_image_without_touching_referent(self):
+        image_bytes = _jpeg()
+        row_id = storage.compute_id(image_bytes)
+        handler.DEFAULT_IMAGES_DIR.mkdir(parents=True)
+        outside = handler.DEFAULT_CORPUS_PATH.parent / "outside-image.jpg"
+        outside.write_bytes(b"outside sentinel")
+        (handler.DEFAULT_IMAGES_DIR / f"{row_id}.jpg").symlink_to(outside)
+
+        status, _ = self.upload(image_base64=_b64(image_bytes))
+
+        self.assertEqual(status, 409)
+        self.assertEqual(outside.read_bytes(), b"outside sentinel")
+        self.assertFalse(handler.DEFAULT_CORPUS_PATH.exists())
+
+    def test_upload_rejects_hardlink_image_without_touching_referent(self):
+        image_bytes = _jpeg()
+        row_id = storage.compute_id(image_bytes)
+        handler.DEFAULT_IMAGES_DIR.mkdir(parents=True)
+        outside = handler.DEFAULT_CORPUS_PATH.parent / "outside-image.jpg"
+        outside.write_bytes(b"outside sentinel")
+        os.link(outside, handler.DEFAULT_IMAGES_DIR / f"{row_id}.jpg")
+
+        status, _ = self.upload(image_base64=_b64(image_bytes))
+
+        self.assertEqual(status, 409)
+        self.assertEqual(outside.read_bytes(), b"outside sentinel")
+        self.assertFalse(handler.DEFAULT_CORPUS_PATH.exists())
+
+    def test_upload_rejects_symlinked_images_directory(self):
+        outside = handler.DEFAULT_CORPUS_PATH.parent / "outside-images"
+        outside.mkdir()
+        handler.DEFAULT_IMAGES_DIR.symlink_to(outside, target_is_directory=True)
+
+        status, _ = self.upload()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertFalse(handler.DEFAULT_CORPUS_PATH.exists())
 
     def test_rejects_empty_name(self):
         self.assertEqual(self.upload(name="  ")[0], 400)

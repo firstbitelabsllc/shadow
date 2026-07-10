@@ -33,6 +33,9 @@ ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
 vidux dev
 ```
 
+Core runtime prerequisites are Bash, Git, and Python 3.10+. Node 20+ is only
+needed for the npm tarball install and maintainer verification commands.
+
 The clone target matters: the browser's default scan root is `~/Development`
 (see below), so cloning vidux as a **child** of `~/Development` — not as a
 sibling like `~/vidux` — is what makes "your plans show up automatically"
@@ -47,11 +50,11 @@ needed) and re-run `vidux dev`.
 
 Opens the plan browser at <http://127.0.0.1:7191> with auto-restart on `browser/` changes.
 
-Want a real plan instead of the browser's own example plans? `vidux init my-project` scaffolds a first `PLAN.md` **inside this vidux checkout**, at `projects/my-project/PLAN.md` — not in whatever directory you happen to run it from. Because the browser scans your whole dev-root tree (`~/Development` by default, or `VIDUX_DEV_ROOT` if you set it), that new plan shows up automatically without any extra wiring, as long as vidux itself was cloned inside that tree. Vidux works this way so one vidux install can act as a single dashboard over many separate projects' plans; if you'd rather a project's `PLAN.md` live directly in that project's own git repo, just create `PLAN.md` by hand at its root (see `plan_store` under [Status & Config](#status--config) for how agents resolve which `PLAN.md` is authoritative). Use `vidux help` for the full command list.
+Want to connect a project? Open a terminal in that project and run `vidux init --here`. It creates a repo-local `PLAN.md` with a starter Operator Brief, an honest unproven scorecard, and one bounded task, so the browser has a useful default cockpit on its next scan. Vidux scans your whole dev-root tree (`~/Development` by default, or `VIDUX_DEV_ROOT` if set), and it also lists direct child Git projects that do not have plans yet. If you prefer a central plan store, `vidux init my-project` still creates `projects/my-project/PLAN.md` inside the Vidux checkout. See `plan_store` under [Status & Config](#status--config) for authority modes, and use `vidux help` for the full command list.
 
 ## Install
 
-### Option A — symlink into PATH (recommended)
+### Option A — source checkout symlink (recommended)
 
 ```bash
 ln -sf <vidux-dir>/bin/vidux /usr/local/bin/vidux
@@ -65,6 +68,23 @@ exec zsh
 ```
 
 Verify with `vidux --version`.
+
+### Option C — verified npm tarball
+
+From a trusted source checkout, build and globally install the same bounded
+artifact the release gate inspects:
+
+```bash
+npm run release:verify
+TARBALL="$(npm pack --ignore-scripts --silent)"
+npm install --global "./${TARBALL}"
+vidux --version
+```
+
+The tarball contains the CLI, browser, skill/plugin surfaces, public docs, and
+runtime helpers. It deliberately excludes tests, local plans, evidence,
+evaluations, and generated state. `vidux build` and `vidux release` remain
+maintainer commands for a source checkout with `npm install` completed.
 
 ### Claude Code skill (optional)
 
@@ -107,7 +127,7 @@ A local browser surface for reading plans, scanning the fleet queue, reviewing H
 bin/vidux-browse
 ```
 
-Opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` only on a trusted LAN to expose the same machine's plans to another device.
+Opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` only on a trusted LAN to expose the same machine's plans to another device, and open it by the server's private IP address (for example, `http://192.168.1.50:7191`). LAN-bound requests with a domain Host are rejected to prevent DNS rebinding.
 
 The browser keeps the plan contract intact:
 
@@ -115,6 +135,10 @@ The browser keeps the plan contract intact:
 - The sidebar filters by repo/slug/purpose and sorts plan groups by `mtime`, remaining `ETA`, or freshness.
 - Each plan has a read-only `Ledger` tab for recent proof rows from `${VIDUX_LEDGER_FILE:-~/.agent-ledger/activity.jsonl}`.
 - Plan files and artifacts render from disk; comments are separate append-only app data.
+- HTML artifacts are network-isolated by response headers plus a sandboxed iframe; scripts, forms, nested frames, popups, external navigation, and HTTP(S) resource loads are blocked.
+- Allowed text and JSON metadata pass through a high-confidence sensitive-value redaction boundary; affected plans stay visibly marked, while artifact/comment/plan-note writes reject matches.
+- Receipt photo bytes stay loopback-only because text embedded in pixels is not inspected; LAN viewers keep non-private metadata and see a host-only image state instead.
+- Local write targets must be regular, single-link files: artifact, comment, plan-note, receipt-image, corpus, and lock mutations reject symlinks, hard links, and symlinked store directories before writing.
 - Comment anchors are display pointers, never source edits: they never mutate `PLAN.md`, repo code, task claims, or artifact HTML.
 - Plan-note writes are loopback-only; LAN viewers can comment but cannot write plan state.
 
@@ -192,7 +216,7 @@ Vidux is the middle: more structure than bare chat, meaningfully less than an or
 
 None of this makes vidux "better" — it's a different set of tradeoffs. Vidux's core actually does support scheduled/persistent loops, multi-agent lane coordination, and PR-nursing (see SKILL.md's Persistent Loop Mode, Nursing Mode, and Coordination Mode sections) — it just does it with cron/launchd, plain files, and git instead of a framework's built-in Agent/Task/Crew abstractions or a hosted service. If you want those abstractions doing the wiring for you, or need dozens of coordinated roles out of the box, reach for one of those frameworks. If you want the same capabilities built from primitives you can read in a text editor, that's what vidux is for.
 
-**This design isn't a guess — it's the result of measuring a fancier version and cutting it.** Vidux used to also try to structure *how* work handed off between a planning step and an executing step (a "kernel" transport format). A 2026-07-03 evaluation (119 runs, 117 clean after protocol exclusions) tested that structured handoff against just letting an agent work freeform off the same plan file — freeform won on every frozen threshold. The clearest single head-to-head (17 runs each, same model) had freeform resolving 76% vs. the kernel handoff's 59%. So the structured-handoff layer was cut. What's left, and what this README describes, is what actually earned its keep: one plan file, one proof log, one cycle. See the 2026-07-07 Decision Log entry in `PLAN.md` and `evidence/2026-07-07-kernel-cut-pivot.md` for the full writeup (the evaluation harness itself is a local-only, unshipped tool — this repo carries the result, not the harness).
+**This design isn't a guess — it's the result of measuring a fancier version and cutting it.** Vidux used to also try to structure *how* work handed off between a planning step and an executing step (a "kernel" transport format). A 2026-07-03 evaluation (119 runs, 117 clean after protocol exclusions) tested that structured handoff against just letting an agent work freeform off the same plan file — freeform won on every frozen threshold. The clearest single head-to-head (17 runs each, same model) had freeform resolving 76% vs. the kernel handoff's 59%. So the structured-handoff layer was cut. What's left, and what this README describes, is what actually earned its keep: one plan file, one proof log, one cycle. See the 2026-07-07 Decision Log entry in `PLAN.md` and `evidence/2026-07-07-kernel-cut-pivot.md` for the full writeup. The old live harness remains a local historical artifact; the package ships only fail-closed v2/v3 records and the current non-runnable v4 integrity validator.
 
 ## How Vidux Compares
 
@@ -224,6 +248,7 @@ Hard rules that prevent the most common stateless-agent failures:
 
 ```bash
 python3 scripts/vidux-status.py
+vidux benchmark
 vidux config check
 vidux doctor
 vidux http-smoke --json --timeout 3 http://127.0.0.1:4400/api/health
@@ -231,9 +256,14 @@ vidux http-smoke --json --timeout 3 http://127.0.0.1:4400/api/health
 
 Scans every `PLAN.md` under a scan root (default `~/Development`, or `VIDUX_DEV_ROOT`/`--root` if set), renders a two-bucket board: plans tied to the current repo vs everything else on the machine. Each row: 10-cell progress bar, remaining AI-hours (sum of `[ETA: Xh]` tags), last activity. Flags: `--all`, `--json`, `--focus <repo...>`, `--root <path>`.
 
+`vidux benchmark` reports the current v4 protocol and exact readiness gates. It
+never starts a provider run. Legacy v2/v3 and five-arm pilot commands fail
+closed so a stale local bakeoff skill cannot silently become execution
+authority.
+
 Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.config.example.json` as the shape). The only required key is `plan_store`, whose `mode` is `inline` (repo-local `PLAN.md`, the default), `local` (a configured path), or `external` (a path outside the scan root). Agents resolve the authority `PLAN.md` from this at session start. Use `vidux config init` to seed a local config; full schema in [`docs/reference/config.md`](docs/reference/config.md).
 
-`vidux doctor` is the install/readiness doctor (can run `npm test`); `scripts/vidux-doctor.sh --json` is the hook-safe probe. `vidux http-smoke` runs observe-only route budget checks: partial responses inside budget are `warn_partial`, zero-byte misses are `fail_budget`. On a fresh clone, run `npm install` first (see [Running the tests locally](CONTRIBUTING.md#running-the-tests-locally)) — `vidux doctor`'s `npm test` check needs `node_modules` present and otherwise fails with an opaque "command not found" instead of an actionable message.
+`vidux doctor` is the install/readiness doctor; `scripts/vidux-doctor.sh --json` is the hook-safe probe. The install doctor runs `npm test` in source checkouts and reports that source-only gate as a warning in a packaged install. `vidux http-smoke` runs observe-only route budget checks: partial responses inside budget are `warn_partial`, zero-byte misses are `fail_budget`. On a fresh clone, run `npm install` first (see [Running the tests locally](CONTRIBUTING.md#running-the-tests-locally)); a missing source dependency tree is an actionable doctor failure.
 
 ## What Ships Here
 
@@ -290,6 +320,6 @@ Guides: [automation](guides/automation.md), [references/automation](references/a
 
 ## Contributing
 
-This repo is public for reuse, critique, and feedback. Track feedback through [GitHub Issues](https://github.com/firstbitelabsllc/vidux/issues).
+Vidux is MIT-licensed and prepared for public reuse, critique, and feedback. Track feedback through [GitHub Issues](https://github.com/firstbitelabsllc/vidux/issues) when the repository is publicly reachable.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for the vulnerability reporting policy.

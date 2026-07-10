@@ -23,6 +23,20 @@ Flow-selected sidecars. Vidux keeps the durable surfaces that proved useful:
 one canonical `PLAN.md`, explicit Decision Log, publish packet proof, resume
 metadata, and the read-only browser cockpit.
 
+## Current Benchmark Authority
+
+Benchmark requests start with `vidux benchmark`, then read the root `PLAN.md`
+and `benchmarks/v4/`. The default `vidux benchmark` command prints v4 readiness
+and its exact provider-spend gates without invoking a model or provider.
+
+The legacy `evaluations/vidux-vs-native-bakeoff/` harness and its June resume
+file are historical evidence. They predate the full planner/executor loss, the
+kernel cut, and the v2/v3 retirements; they are never current execution
+authority even if a local skill mount still exposes their name. Do not run a
+historical execution action or cite its directional result as current product
+proof. `vidux benchmark` fails closed on those actions until the current v4
+protocol supplies reviewed equivalents.
+
 ## Goal Navigation Plans
 
 A Vidux goal prompt is a navigation contract, not a frozen task list. It must
@@ -996,7 +1010,7 @@ What it shows:
 
 Discovery globs: `<repo>/ai/plans/<slug>/PLAN.md`, `<repo>/vidux/<slug>/PLAN.md`, `<repo>/projects/<slug>/PLAN.md`, `<repo>/PLAN.md`.
 
-Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` (CDN). Zero pip deps. Default bind `127.0.0.1`; `VIDUX_BROWSER_HOST=0.0.0.0` enables trusted-LAN read access. Every request's `Host` header is checked against an allowlist (independent of `Origin`/`Referer` matching) before it's served at all — closes DNS-rebinding, where a rebound page's `Host` and `Origin` headers agree with each other and would otherwise defeat an Origin-must-match-Host check alone. See `docs/reference/browser.md`'s "Read/write safety model" for the full mechanism. Code lives in `<vidux-dir>/browser/`; design decisions and browser roadmap live in the relevant repo plan.
+Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` (CDN) + locally vendored DOMPurify. Zero pip deps. Default bind `127.0.0.1`; `VIDUX_BROWSER_HOST=0.0.0.0` enables trusted-LAN read access through the server's private IP address. Every request's `Host` header is checked against an allowlist (loopback identities, plus private IP literals in LAN mode) before it's served at all. Domain Host values remain denied in LAN mode; this closes DNS rebinding, where a rebound page's `Host` and `Origin` headers agree with each other and would otherwise defeat an Origin-must-match-Host check alone. Allowed text and JSON metadata pass through the high-confidence sensitive-value boundary before display; affected plans stay visibly marked, and artifact/comment/local-plan-note writes reject matches. Artifact HTML uses a separate CSP and sandbox boundary that denies HTTP(S) resource loads. This is defense in depth, not permission to put credentials in plan/proof state; receipt-image pixels are not inspected, so receipt-image bytes remain loopback-only while LAN viewers keep non-private metadata. See `docs/reference/browser.md`'s "Read/write safety model" for the exact detector and limits. Code lives in `<vidux-dir>/browser/`; design decisions and browser roadmap live in the relevant repo plan.
 
 ### Ad-hoc artifacts (anytime, anywhere in chat)
 
@@ -1025,7 +1039,7 @@ curl -X POST http://127.0.0.1:7191/api/artifact \
 - `.person-chip` — pill-shaped inline tag
 - `.label` — uppercase mono label (e.g., `<span class="label">hook</span>`)
 
-Artifacts render via direct `innerHTML` into the markdown pane, so anything in your `<body>` works. Trust boundary: localhost + your own filesystem; no XSS surface.
+Artifacts render inside a network-isolated, sandboxed iframe. Artifact responses are download-only, carry strict security headers, and are rebuilt as CSP-first `srcdoc`; scripts, forms, popups, nested frames, objects, external navigation, and HTTP(S) stylesheet/image/media/font/connect/worker loads are blocked. Fragment anchors survive. Inline CSS, data fonts, and data/blob images or media remain available; the host injects the trusted local `artifact-base.css` bytes when the artifact includes the documented marker. `allow-same-origin` is retained only for host-owned resizing and annotation anchors; artifact code never receives `allow-scripts` or `allow-popups`. The browser redacts high-confidence sensitive text before building the iframe; the POST route also rejects sensitive HTML and secret-shaped slugs.
 
 Use cases: research summaries with vendor/lead/contact cards; visual fleet dashboards; cross-session briefings; plan-adjacent visualizations (timeline, network graph, decision tree) without bloating PLAN.md. Drop the artifact, log the URL (`http://127.0.0.1:7191/` → click the slug) if you want to reference it later. Survives across sessions; the slug is the stable handle.
 
@@ -1041,6 +1055,8 @@ ln <canonical-path>.html <vidux-dir>/browser/artifacts/<slug>.html   # no -s
 ```
 
 Constraints: same filesystem only (the home volume shares one volume on stock macOS; cross-volume `ln` fails). `Path.resolve()` does NOT cross hard links so the check passes; canonical-file updates reflect instantly. Verify: `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove shared data. Evidence: a symlinked artifact rendered only its H1 plus a 403 in the console (`failed to load comments: forbidden`); switching to a hard link fixed it immediately, confirming the root cause was exactly `safe_resolve_any()`'s symlink-outside-`ARTIFACTS_DIR` guard described above.
+
+This is a **read-only mirror** technique. The browser may render and annotate an allowed hard-linked artifact, but `POST /api/artifact` deliberately refuses to overwrite a hard-link or symlink target. Replace the canonical file through its owning workflow; do not use the artifact write endpoint for mirrored content.
 
 ### Named comments / annotations
 

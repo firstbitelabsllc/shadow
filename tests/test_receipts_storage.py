@@ -5,6 +5,7 @@ Isolation: every test writes to a TemporaryDirectory; the real corpus is never t
 """
 
 import sys
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,6 +118,64 @@ class CorpusIOTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             storage.append_row(self.corpus, {"name": "no id"})
 
+    def test_append_rejects_aliased_corpus_without_touching_referent(self):
+        for alias_kind in ("symlink", "hardlink"):
+            with self.subTest(alias_kind=alias_kind):
+                outside = Path(self.tmp.name) / f"outside-{alias_kind}.jsonl"
+                outside.write_text("", encoding="utf-8")
+                if alias_kind == "symlink":
+                    self.corpus.symlink_to(outside)
+                else:
+                    os.link(outside, self.corpus)
+                try:
+                    with self.assertRaises(OSError):
+                        storage.append_row(
+                            self.corpus,
+                            self._row(extra_byte=alias_kind.encode()),
+                        )
+
+                    self.assertEqual(outside.read_text(encoding="utf-8"), "")
+                finally:
+                    self.corpus.unlink(missing_ok=True)
+                    outside.unlink(missing_ok=True)
+
+    def test_append_rejects_aliased_lock_without_touching_referent(self):
+        lock_path = self.corpus.with_suffix(self.corpus.suffix + ".lock")
+        for alias_kind in ("symlink", "hardlink"):
+            with self.subTest(alias_kind=alias_kind):
+                outside = Path(self.tmp.name) / f"outside-lock-{alias_kind}"
+                outside.write_text("outside sentinel", encoding="utf-8")
+                if alias_kind == "symlink":
+                    lock_path.symlink_to(outside)
+                else:
+                    os.link(outside, lock_path)
+                try:
+                    with self.assertRaises(OSError):
+                        storage.append_row(
+                            self.corpus,
+                            self._row(extra_byte=alias_kind.encode()),
+                        )
+
+                    self.assertEqual(
+                        outside.read_text(encoding="utf-8"),
+                        "outside sentinel",
+                    )
+                finally:
+                    lock_path.unlink(missing_ok=True)
+                    self.corpus.unlink(missing_ok=True)
+                    outside.unlink(missing_ok=True)
+
+    def test_append_rejects_symlinked_corpus_directory(self):
+        outside = Path(self.tmp.name) / "outside-corpus"
+        outside.mkdir()
+        alias = Path(self.tmp.name) / "corpus-alias"
+        alias.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaises(OSError):
+            storage.append_row(alias / "corpus.jsonl", self._row())
+
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_replace_row_updates_and_forces_id(self):
         row = self._row(name="before")
         storage.append_row(self.corpus, row)
@@ -216,6 +275,18 @@ class SafeImageAbsTests(unittest.TestCase):
     def test_traversal_rejected(self):
         for evil in ("../../etc/passwd", "/etc/passwd", "../server.py", "images/../../secret"):
             self.assertIsNone(storage.safe_image_abs(self.parent, self.images, evil), evil)
+
+    def test_symlink_and_hardlink_images_are_rejected(self):
+        outside = self.parent / "outside.jpg"
+        outside.write_bytes(b"outside")
+
+        symlink = self.images / "symlink.jpg"
+        symlink.symlink_to(outside)
+        hardlink = self.images / "hardlink.jpg"
+        os.link(outside, hardlink)
+
+        self.assertIsNone(storage.safe_image_abs(self.parent, self.images, "images/symlink.jpg"))
+        self.assertIsNone(storage.safe_image_abs(self.parent, self.images, "images/hardlink.jpg"))
 
 
 if __name__ == "__main__":

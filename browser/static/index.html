@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>vidux browser</title>
+  <link rel="icon" href="data:," />
+  <title>Vidux</title>
   <link rel="stylesheet" href="/static/style.css" />
   <script>
     // FOUC guard: apply persisted theme before first paint. Without this,
@@ -40,6 +41,8 @@
   <script src="/static/vendor/dompurify.min.js" defer></script>
   <script src="/static/sidebar-sort.js" defer></script>
   <script src="/static/sidebar-filters.js" defer></script>
+  <script src="/static/onboarding.js" defer></script>
+  <script src="/static/work-queue.js" defer></script>
   <script src="/static/annotation-state.js" defer></script>
   <script src="/static/comment-rail.js" defer></script>
   <script src="/static/comment-markers.js" defer></script>
@@ -48,42 +51,48 @@
 <body>
   <a href="#pane" class="skip-link">Skip to content</a>
   <header class="topbar" data-vidux-zone="status-header">
-    <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
-    <h1>vidux browser</h1>
+    <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Open projects" aria-controls="sidebar" aria-expanded="false">☰</button>
+    <h1>Vidux</h1>
     <div class="topbar-meta">
       <span id="meta-count">…</span>
-      <button id="mode-toggle" type="button" aria-pressed="false">Advanced view</button>
+      <button id="mode-toggle" type="button" aria-pressed="false">Advanced</button>
       <button id="theme-toggle" type="button" title="Toggle light/dark theme" aria-label="Toggle light or dark theme"></button>
-      <button id="refresh" type="button" title="Re-scan">↻ refresh</button>
+      <button id="refresh" type="button" title="Refresh plans" aria-label="Refresh plans"><span aria-hidden="true">↻</span><span class="refresh-label">Refresh</span></button>
     </div>
+    <span id="refresh-status" class="visually-hidden" role="status" aria-live="polite"></span>
   </header>
 
   <main class="layout" data-vidux-zone="app-shell">
-    <aside class="sidebar" id="sidebar" aria-label="plans" data-vidux-zone="navigation-sidebar">
+    <aside class="sidebar" id="sidebar" aria-label="Projects" data-vidux-zone="navigation-sidebar">
+      <div class="sidebar-mobile-tools" aria-label="View settings">
+        <span id="sidebar-meta-count">…</span>
+        <button id="sidebar-mode-toggle" type="button" aria-pressed="false">Advanced</button>
+        <button id="sidebar-theme-toggle" type="button">Theme</button>
+        <button id="sidebar-refresh" type="button"><span aria-hidden="true">↻</span> Refresh</button>
+      </div>
       <div class="sidebar-search sidebar-controls">
         <label for="filter" class="visually-hidden">Filter plans</label>
-        <input id="filter" type="search" placeholder="Search plans by name or purpose" aria-label="Filter plans by repo, slug, or purpose" />
+        <input id="filter" type="search" placeholder="Search projects and plans" aria-label="Search projects and plans" />
         <label for="sort" class="visually-hidden">Sort plans</label>
-        <select id="sort" aria-label="Sort plans">
+        <select id="sort" class="advanced-only" aria-label="Sort plans">
           <option value="mtime">Recently updated</option>
           <option value="eta">ETA</option>
           <option value="status">Status</option>
         </select>
-        <div class="sidebar-filter-chips" role="group" aria-label="Quick filters">
+        <div class="sidebar-filter-chips advanced-only" role="group" aria-label="Quick filters">
           <button type="button" class="filter-chip" data-filter-chip="hot" aria-pressed="false">hot</button>
           <button type="button" class="filter-chip" data-filter-chip="tasks" aria-pressed="false">tasks</button>
           <button type="button" class="filter-chip" data-filter-chip="eta" aria-pressed="false">ETA</button>
         </div>
       </div>
-      <div class="sidebar-list" id="sidebar-list" role="listbox" aria-label="Plans and artifacts" tabindex="0">
+      <nav class="sidebar-list" id="sidebar-list" aria-label="Projects and plans">
         <p class="muted">loading…</p>
-      </div>
+      </nav>
     </aside>
 
     <section class="pane" id="pane" tabindex="-1" data-vidux-zone="content-pane">
       <div class="pane-empty muted">
-        <p>Select a plan from the sidebar.</p>
-        <p>40+ PLAN.md files indexed across <code>~/Development/</code>.</p>
+        <p>Loading plans…</p>
       </div>
     </section>
   </main>

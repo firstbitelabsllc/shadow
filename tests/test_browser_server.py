@@ -1,12 +1,15 @@
 import importlib.util
 import http.client
+import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.parse import quote
 
 
@@ -17,6 +20,92 @@ SPEC = importlib.util.spec_from_file_location(
 browser_server = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(browser_server)
+
+
+def synthetic_secret() -> str:
+    # Built at runtime so repository secret scanners never see a token-shaped
+    # fixture while the browser policy still exercises a realistic value.
+    return "sk-" + ("A1b2C3d4" * 6)
+
+
+class BrowserSensitiveContentTests(unittest.TestCase):
+    def test_redacts_provider_assignment_and_standalone_entropy_without_hash_noise(self):
+        provider_secret = synthetic_secret()
+        pasted_secret = "".join((
+            "Ab3_", "kL7#", "Qx9_", "mN2#", "Rs5_", "tU8#",
+            "Vw1_", "yZ4#", "Cd6_", "fG0#", "Hi2_", "jK7#",
+        ))
+        digest = "a1b2c3d4" * 8
+        text = (
+            f"API_TOKEN={provider_secret}\n"
+            f"pasted value: {pasted_secret}\n"
+            f"fixture digest: {digest}\n"
+            "API_TOKEN=example-placeholder\n"
+        )
+
+        redacted, count = browser_server.redact_sensitive_text(text)
+
+        self.assertEqual(count, 2)
+        self.assertNotIn(provider_secret, redacted)
+        self.assertNotIn(pasted_secret, redacted)
+        self.assertIn("[REDACTED:secret]", redacted)
+        self.assertIn(digest, redacted)
+        self.assertIn("example-placeholder", redacted)
+
+    def test_redacts_short_explicit_password_but_keeps_empty_state_marker(self):
+        redacted, count = browser_server.redact_sensitive_text(
+            'password="s3cr3t!"\npassword=unset\n'
+        )
+
+        self.assertEqual(count, 1)
+        self.assertNotIn("s3cr3t!", redacted)
+        self.assertIn("password=unset", redacted)
+
+    def test_recursive_json_redaction_covers_values_and_keys(self):
+        secret = synthetic_secret()
+
+        safe = browser_server.redact_sensitive_value({secret: {"token": (secret,)}})
+        rendered = json.dumps(safe)
+
+        self.assertNotIn(secret, rendered)
+        self.assertEqual(list(safe), ["[REDACTED:secret]"])
+
+    def test_session_and_ledger_excerpts_share_the_redaction_boundary(self):
+        secret = synthetic_secret()
+
+        session = browser_server.compact_session_text(f"rotate {secret} now")
+        ledger = browser_server.compact_ledger_text(f"proof token={secret}")
+
+        self.assertNotIn(secret, session)
+        self.assertNotIn(secret, ledger)
+        self.assertIn("[REDACTED:secret]", session)
+        self.assertIn("[REDACTED:secret]", ledger)
+
+    def test_plan_metadata_is_derived_from_redacted_text(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_root = browser_server.DEV_ROOT
+            root = Path(tmpdir).resolve()
+            browser_server.DEV_ROOT = root
+            try:
+                plan = root / "repo" / "projects" / "demo" / "PLAN.md"
+                plan.parent.mkdir(parents=True)
+                secret = synthetic_secret()
+                plan.write_text(
+                    "# Demo\n\n"
+                    f"## Purpose\nUse API_TOKEN={secret} for deploys.\n\n"
+                    "## Tasks\n"
+                    f"- [in_progress] rotate {secret}\n",
+                    encoding="utf-8",
+                )
+
+                metadata = browser_server.plan_meta(plan)
+            finally:
+                browser_server.DEV_ROOT = original_root
+
+        self.assertTrue(metadata["content_redacted"])
+        self.assertGreaterEqual(metadata["sensitive_redactions"], 2)
+        self.assertNotIn(secret, json.dumps(metadata))
+        self.assertIn("[REDACTED:secret]", json.dumps(metadata))
 
 
 class BrowserLocalPlanNoteTests(unittest.TestCase):
@@ -70,6 +159,34 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         self.assertLess(text.index("> new note"), text.index("## Processed"))
         self.assertIn("### Old", text)
 
+    def test_write_plan_note_rejects_sensitive_content(self):
+        secret = synthetic_secret()
+
+        ok, message = browser_server.write_plan_note(
+            self.plan_path,
+            f"save this credential: {secret}",
+        )
+
+        self.assertFalse(ok)
+        self.assertEqual(message, "note contains sensitive content")
+        self.assertFalse((self.plan_dir / "INBOX.md").exists())
+
+    def test_write_plan_note_rejects_sensitive_source_and_agent(self):
+        secret = synthetic_secret()
+
+        for field in ("source", "agent"):
+            with self.subTest(field=field):
+                kwargs = {field: secret}
+                ok, message = browser_server.write_plan_note(
+                    self.plan_path,
+                    "safe note",
+                    **kwargs,
+                )
+
+                self.assertFalse(ok)
+                self.assertEqual(message, "note contains sensitive content")
+                self.assertFalse((self.plan_dir / "INBOX.md").exists())
+
     def test_resolve_plan_note_target_requires_plan_md_under_dev_root(self):
         evidence = self.plan_dir / "evidence.md"
         evidence.write_text("nope", encoding="utf-8")
@@ -109,35 +226,28 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
             "sanity check: Origin==Host agreement alone is not a defense",
         )
 
-    def test_allowed_request_host_permits_lan_bind_for_documented_read_mode(self):
-        # 0.0.0.0/:: is the explicit, documented trusted-LAN opt-in
-        # (README.md, SKILL.md) -- a real LAN peer's Host header, a
-        # private-use IP literal, is expected and accepted.
+    def test_allowed_request_host_permits_private_ip_in_lan_bind_mode(self):
+        # Wildcard bind exposes the server to a trusted LAN, but it must still
+        # admit a concrete private IP identity rather than every Host value.
         self.assertTrue(
             browser_server.is_allowed_request_host("192.168.1.50:7191", "0.0.0.0")
         )
 
-    def test_allowed_request_host_rejects_dns_rebound_hostname_even_in_lan_bind_mode(self):
-        # Round-9 panel finding, empirically proven with a live curl PoC
-        # before this fix: is_allowed_request_host() used to return True
-        # unconditionally for ANY Host header when bind_host is 0.0.0.0/::,
-        # which let a DNS-rebinding attacker (Host and Origin both set to
-        # their own registered domain, which resolves to this loopback
-        # server) satisfy the require_origin=True write-route check added in
-        # round 8 -- is_loopback_host(client_address) doesn't catch it
-        # either, since the rebound TCP connection genuinely originates
-        # from this machine. An attacker's domain is never a private-use IP
-        # literal, so it must be rejected in LAN-bind mode exactly like it
-        # already is in the default-bind mode.
-        self.assertFalse(
-            browser_server.is_allowed_request_host("evil.example:7191", "0.0.0.0")
-        )
-        self.assertFalse(
-            browser_server.is_allowed_request_host("evil.example:7191", "::")
+    def test_allowed_request_host_rejects_domain_in_lan_bind_mode(self):
+        # A DNS-rebound page presents its registered domain as both Host and
+        # Origin. Wildcard bind cannot mean wildcard Host trust.
+        for bind_host in ("0.0.0.0", "::"):
+            self.assertFalse(
+                browser_server.is_allowed_request_host("evil.example:7191", bind_host)
+            )
+
+    def test_allowed_request_host_normalizes_specific_ipv6_bind(self):
+        self.assertTrue(
+            browser_server.is_allowed_request_host("[fd00::1]:7191", "fd00::1")
         )
 
     def test_private_lan_ip_literal_accepts_rfc1918_and_rejects_domains(self):
-        for host in ("192.168.1.50", "10.0.0.5", "172.16.4.4"):
+        for host in ("192.168.1.50", "10.0.0.5", "172.16.4.4", "[fd00::1]"):
             self.assertTrue(
                 browser_server.is_private_lan_ip_literal(host),
                 f"expected {host!r} to be recognized as a private-LAN literal",
@@ -272,6 +382,113 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
 
         self.assertEqual(status, 200, text)
 
+    def test_get_rejects_dns_rebound_host_header_in_lan_bind_mode(self):
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            status, text = self.get_with_headers(
+                "/api/plans",
+                {"Host": "evil.example:7191", "Origin": "http://evil.example:7191"},
+            )
+        finally:
+            browser_server.HOST = original_host
+
+        self.assertEqual(status, 403, text)
+
+    def test_get_accepts_private_ip_host_header_in_lan_bind_mode(self):
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            status, text = self.get_with_headers(
+                "/api/plans", {"Host": "192.168.1.50:7191"}
+            )
+        finally:
+            browser_server.HOST = original_host
+
+        self.assertEqual(status, 200, text)
+
+    def test_receipt_list_reports_loopback_image_access(self):
+        with mock.patch.object(
+            browser_server._receipts_handler,
+            "handle_list",
+            return_value=(200, {"ok": True, "count": 0, "rows": []}),
+        ) as handle_list:
+            status, text = self.get("/api/receipts/list")
+
+        self.assertEqual(status, 200, text)
+        self.assertEqual(
+            json.loads(text)["image_access"],
+            {"available": True, "policy": "loopback_only"},
+        )
+        handle_list.assert_called_once_with(include_private=True)
+
+    def test_receipt_list_reports_lan_image_boundary(self):
+        sent = []
+        payloads = []
+        handler = object.__new__(browser_server.Handler)
+        handler.path = "/api/receipts/list"
+        handler.client_address = ("192.168.1.50", 49152)
+        handler.headers = {"Host": "192.168.1.50:7191"}
+        handler._send = lambda code, msg: sent.append((code, msg))
+        handler._json = lambda payload: payloads.append(payload)
+
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            with mock.patch.object(
+                browser_server._receipts_handler,
+                "handle_list",
+                return_value=(200, {"ok": True, "count": 0, "rows": []}),
+            ) as handle_list:
+                browser_server.Handler.do_GET(handler)
+        finally:
+            browser_server.HOST = original_host
+
+        self.assertEqual(sent, [])
+        self.assertEqual(
+            payloads[0]["image_access"],
+            {"available": False, "policy": "loopback_only"},
+        )
+        handle_list.assert_called_once_with(include_private=False)
+
+    def test_receipt_image_get_and_head_reject_lan_before_storage(self):
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            for method in (browser_server.Handler.do_GET, browser_server.Handler.do_HEAD):
+                with self.subTest(method=method.__name__):
+                    sent = []
+                    handler = object.__new__(browser_server.Handler)
+                    handler.path = "/api/receipts/public-row/image"
+                    handler.client_address = ("192.168.1.50", 49152)
+                    handler.headers = {"Host": "192.168.1.50:7191"}
+                    handler._send = lambda code, msg: sent.append((code, msg))
+
+                    with mock.patch.object(
+                        browser_server._receipts_handler, "handle_image"
+                    ) as handle_image:
+                        method(handler)
+
+                    self.assertEqual(
+                        sent,
+                        [(403, "receipt image pixels require loopback client")],
+                    )
+                    handle_image.assert_not_called()
+        finally:
+            browser_server.HOST = original_host
+
+    def test_receipt_image_get_still_serves_loopback_client(self):
+        with mock.patch.object(
+            browser_server._receipts_handler,
+            "handle_image",
+            return_value=(200, "image/png", b"safe-loopback-pixels"),
+        ) as handle_image:
+            status, text = self.get("/api/receipts/public-row/image")
+
+        self.assertEqual(status, 200, text)
+        self.assertEqual(text, "safe-loopback-pixels")
+        handle_image.assert_called_once_with("public-row")
+
     def test_artifact_post_accepts_same_origin_json(self):
         status, text = self.post(
             "/api/artifact",
@@ -281,6 +498,76 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
 
         self.assertEqual(status, 200, text)
         self.assertTrue((self.artifacts_dir / "safe-artifact.html").is_file())
+
+    def test_artifact_post_rejects_symlink_target_without_touching_referent(self):
+        self.artifacts_dir.mkdir(parents=True)
+        outside = self.dev_root / "outside-artifact.html"
+        outside.write_text("outside sentinel", encoding="utf-8")
+        (self.artifacts_dir / "aliased-artifact.html").symlink_to(outside)
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "aliased-artifact", "html": "<h1>Overwritten</h1>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "outside sentinel")
+
+    def test_artifact_post_rejects_hardlink_target_without_touching_referent(self):
+        self.artifacts_dir.mkdir(parents=True)
+        outside = self.dev_root / "outside-artifact.html"
+        outside.write_text("outside sentinel", encoding="utf-8")
+        os.link(outside, self.artifacts_dir / "aliased-artifact.html")
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "aliased-artifact", "html": "<h1>Overwritten</h1>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "outside sentinel")
+
+    def test_artifact_post_rejects_symlinked_store_directory(self):
+        outside = self.dev_root / "outside-artifacts"
+        outside.mkdir()
+        self.artifacts_dir.symlink_to(outside, target_is_directory=True)
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "aliased-parent", "html": "<h1>Must stay local</h1>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertFalse((outside / "aliased-parent.html").exists())
+
+    def test_artifact_post_rejects_sensitive_content(self):
+        secret = synthetic_secret()
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "secret-artifact", "html": f"<p>token={secret}</p>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "artifact contains sensitive content")
+        self.assertFalse((self.artifacts_dir / "secret-artifact.html").exists())
+
+    def test_artifact_post_rejects_sensitive_slug(self):
+        secret_slug = "sk-" + ("a1b2c3d4" * 4)
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": secret_slug, "html": "<p>Safe body</p>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "artifact contains sensitive content")
+        self.assertFalse((self.artifacts_dir / f"{secret_slug}.html").exists())
 
     def test_artifact_post_rejects_malformed_content_length_header(self):
         """Round-1 open-source panel finding: every write route parsed
@@ -351,6 +638,53 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertIn("safe note", (self.plan_dir / "INBOX.md").read_text(encoding="utf-8"))
 
+    def test_plan_note_post_rejects_symlink_inbox_without_touching_referent(self):
+        outside = self.dev_root / "outside-inbox.md"
+        outside.write_text("# Outside\n\n## Open\n", encoding="utf-8")
+        (self.plan_dir / "INBOX.md").symlink_to(outside)
+
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "must stay local"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(
+            outside.read_text(encoding="utf-8"),
+            "# Outside\n\n## Open\n",
+        )
+
+    def test_plan_note_post_rejects_hardlink_inbox_without_touching_referent(self):
+        outside = self.dev_root / "outside-inbox.md"
+        outside.write_text("# Outside\n\n## Open\n", encoding="utf-8")
+        os.link(outside, self.plan_dir / "INBOX.md")
+
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "must stay local"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(
+            outside.read_text(encoding="utf-8"),
+            "# Outside\n\n## Open\n",
+        )
+
+    def test_plan_note_post_rejects_sensitive_content_without_inbox_write(self):
+        secret = synthetic_secret()
+
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": f"credential={secret}"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "note contains sensitive content")
+        self.assertFalse((self.plan_dir / "INBOX.md").exists())
+
     def test_plan_note_post_rejects_cross_origin(self):
         status, text = self.post(
             "/api/local-plan-note",
@@ -396,6 +730,220 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(payload["target_kind"], "plan")
         self.assertEqual(payload["comments"][0]["author"], "Viewer")
         self.assertEqual(payload["comments"][0]["body"], "This needs a quick annotation.")
+
+    def test_comments_post_rejects_symlink_store_without_touching_referent(self):
+        outside = self.dev_root / "outside-comments.jsonl"
+        outside.write_text('{"outside":true}\n', encoding="utf-8")
+        self.comments_file.symlink_to(outside)
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": "must stay local",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), '{"outside":true}\n')
+
+    def test_comments_post_rejects_hardlink_store_without_touching_referent(self):
+        outside = self.dev_root / "outside-comments.jsonl"
+        outside.write_text('{"outside":true}\n', encoding="utf-8")
+        os.link(outside, self.comments_file)
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": "must stay local",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), '{"outside":true}\n')
+
+    def test_comments_post_rejects_aliased_lock_file(self):
+        outside = self.dev_root / "outside-comments-lock"
+        outside.write_text("outside sentinel", encoding="utf-8")
+        lock_path = self.comments_file.with_suffix(self.comments_file.suffix + ".lock")
+
+        for alias_kind in ("symlink", "hardlink"):
+            with self.subTest(alias_kind=alias_kind):
+                lock_path.unlink(missing_ok=True)
+                if alias_kind == "symlink":
+                    lock_path.symlink_to(outside)
+                else:
+                    os.link(outside, lock_path)
+
+                status, text = self.post(
+                    "/api/comments",
+                    {
+                        "target_path": str(self.plan_path),
+                        "author": "Viewer",
+                        "body": "must stay local",
+                    },
+                    self.json_headers(Origin=self.origin()),
+                )
+
+                self.assertEqual(status, 400, text)
+                self.assertFalse(self.comments_file.exists())
+                self.assertEqual(outside.read_text(encoding="utf-8"), "outside sentinel")
+
+        lock_path.unlink(missing_ok=True)
+
+    def test_comments_cross_process_writes_do_not_lose_records(self):
+        start_file = self.dev_root / "release-comment-workers"
+        script = """
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+import server
+
+original_atomic_write = server.atomic_write_text
+
+def delayed_atomic_write(*args, **kwargs):
+    time.sleep(0.05)
+    return original_atomic_write(*args, **kwargs)
+
+server.atomic_write_text = delayed_atomic_write
+while not Path(sys.argv[4]).exists():
+    time.sleep(0.01)
+ok, message = server.append_comment(
+    Path(sys.argv[2]),
+    "worker",
+    sys.argv[3],
+    "127.0.0.1",
+)
+if not ok:
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+"""
+        env = os.environ.copy()
+        env["VIDUX_DEV_ROOT"] = str(self.dev_root)
+        env["VIDUX_BROWSER_COMMENTS_FILE"] = str(self.comments_file)
+        workers = [
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    script,
+                    str(ROOT / "browser"),
+                    str(self.plan_path),
+                    f"worker-{index}",
+                    str(start_file),
+                ],
+                cwd=ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for index in range(8)
+        ]
+        start_file.touch()
+
+        failures = []
+        for worker in workers:
+            stdout, stderr = worker.communicate(timeout=15)
+            if worker.returncode != 0:
+                failures.append((worker.returncode, stdout, stderr))
+        self.assertEqual(failures, [])
+
+        records = [
+            json.loads(line)
+            for line in self.comments_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(records), 8)
+        self.assertEqual(
+            {record["body"] for record in records},
+            {f"worker-{index}" for index in range(8)},
+        )
+
+    def test_comments_post_rejects_symlinked_store_directory(self):
+        outside = self.dev_root / "outside-comments"
+        outside.mkdir()
+        alias = self.dev_root / "comments-alias"
+        alias.symlink_to(outside, target_is_directory=True)
+        browser_server.COMMENTS_FILE = alias / "comments.jsonl"
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": "must stay local",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertFalse((outside / "comments.jsonl").exists())
+
+    def test_comments_post_rejects_sensitive_content(self):
+        secret = synthetic_secret()
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": f"credential={secret}",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "comment contains sensitive content")
+        self.assertFalse(self.comments_file.exists())
+
+    def test_comments_post_rejects_sensitive_author_and_anchor(self):
+        secret = synthetic_secret()
+        cases = (
+            {"author": secret, "body": "safe body"},
+            {
+                "author": "Viewer",
+                "body": "safe body",
+                "anchor": {"label": f"credential={secret}"},
+            },
+        )
+
+        for payload in cases:
+            with self.subTest(payload_fields=tuple(payload)):
+                status, text = self.post(
+                    "/api/comments",
+                    {"target_path": str(self.plan_path), **payload},
+                    self.json_headers(Origin=self.origin()),
+                )
+
+                self.assertEqual(status, 400, text)
+                self.assertEqual(text, "comment contains sensitive content")
+                self.assertFalse(self.comments_file.exists())
+
+    def test_comments_get_redacts_legacy_sensitive_content(self):
+        secret = synthetic_secret()
+        self.comments_file.write_text(
+            json.dumps({
+                "id": "legacy-secret",
+                "target_path": str(self.plan_path),
+                "target_kind": "plan",
+                "author": "Viewer",
+                "body": f"old token={secret}",
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+        status, text = self.get(f"/api/comments?path={self.plan_path}")
+
+        self.assertEqual(status, 200, text)
+        self.assertNotIn(secret, text)
+        self.assertIn("[REDACTED:secret]", text)
 
     def test_comments_post_persists_clean_anchor_metadata(self):
         status, text = self.post(
@@ -617,6 +1165,119 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 403, text)
         self.assertEqual(text, "forbidden")
 
+    def test_artifact_file_response_enforces_network_isolation_headers(self):
+        self.artifacts_dir.mkdir(parents=True)
+        artifact = self.artifacts_dir / "isolated.html"
+        artifact.write_text("<h1>Isolated</h1>", encoding="utf-8")
+
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("GET", f"/api/file?path={quote(str(artifact), safe='')}")
+        res = conn.getresponse()
+        body = res.read().decode("utf-8", errors="replace")
+        headers = dict(res.getheaders())
+        conn.close()
+
+        self.assertEqual(res.status, 200, body)
+        self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(headers.get("Referrer-Policy"), "no-referrer")
+        self.assertEqual(headers.get("Cross-Origin-Resource-Policy"), "same-origin")
+        self.assertEqual(
+            headers.get("Content-Disposition"),
+            'attachment; filename="vidux-artifact.html"',
+        )
+        policy = headers.get("Content-Security-Policy", "")
+        for directive in (
+            "default-src 'none'",
+            "connect-src 'none'",
+            "frame-src 'none'",
+            "form-action 'none'",
+            "object-src 'none'",
+            "script-src 'none'",
+        ):
+            with self.subTest(directive=directive):
+                self.assertIn(directive, policy)
+        self.assertIn("style-src 'unsafe-inline'", policy)
+        self.assertNotIn("style-src 'self'", policy)
+
+    def test_plain_text_error_backstop_redacts_sensitive_filename(self):
+        secret = synthetic_secret()
+        missing = self.artifacts_dir / f"{secret}.html"
+
+        original_stderr = browser_server.sys.stderr
+        browser_server.sys.stderr = io.StringIO()
+        try:
+            status, text = self.get(f"/api/file?path={quote(str(missing), safe='')}")
+            log = browser_server.sys.stderr.getvalue()
+        finally:
+            browser_server.sys.stderr = original_stderr
+
+        self.assertEqual(status, 404, text)
+        self.assertNotIn(secret, text)
+        self.assertEqual(text, "file missing: [REDACTED:secret].html")
+        self.assertNotIn(secret, log)
+        self.assertIn("[REDACTED:secret]", log)
+
+    def test_request_log_flattens_decoded_control_characters(self):
+        secret = synthetic_secret()
+        handler = object.__new__(browser_server.Handler)
+        handler.log_date_time_string = lambda: "10/Jul/2026 04:00:00"
+
+        original_stderr = browser_server.sys.stderr
+        browser_server.sys.stderr = io.StringIO()
+        try:
+            handler.log_message(
+                '"GET /probe%%0Aforged/%s HTTP/1.1" %s -',
+                secret,
+                "404",
+            )
+            log = browser_server.sys.stderr.getvalue()
+        finally:
+            browser_server.sys.stderr = original_stderr
+
+        self.assertNotIn(secret, log)
+        self.assertIn("[REDACTED:secret]", log)
+        self.assertEqual(log.count("\n"), 1)
+        self.assertNotIn("\nforged", log)
+
+    def test_api_file_and_plan_payload_redact_sensitive_content(self):
+        secret = synthetic_secret()
+        self.plan_path.write_text(
+            "# Demo\n\n"
+            f"## Purpose\nDeploy with API_TOKEN={secret}.\n\n"
+            "## Tasks\n"
+            f"- [in_progress] rotate {secret}\n",
+            encoding="utf-8",
+        )
+        browser_server.clear_plans_cache()
+
+        status, file_text = self.get(
+            f"/api/file?path={quote(str(self.plan_path), safe='')}"
+        )
+        plans_status, plans_text = self.get("/api/plans")
+
+        self.assertEqual(status, 200, file_text)
+        self.assertEqual(plans_status, 200, plans_text)
+        self.assertNotIn(secret, file_text)
+        self.assertNotIn(secret, plans_text)
+        self.assertIn("[REDACTED:secret]", file_text)
+        payload = json.loads(plans_text)
+        plan = next(item for item in payload["plans"] if item["path"] == str(self.plan_path))
+        self.assertTrue(plan["content_redacted"])
+        self.assertGreaterEqual(plan["sensitive_redactions"], 2)
+
+    def test_json_response_backstop_redacts_route_metadata(self):
+        secret = synthetic_secret()
+        original_artifacts_dir = browser_server.ARTIFACTS_DIR
+        browser_server.ARTIFACTS_DIR = self.dev_root / secret
+        try:
+            status, text = self.get("/api/health")
+        finally:
+            browser_server.ARTIFACTS_DIR = original_artifacts_dir
+
+        self.assertEqual(status, 200, text)
+        self.assertNotIn(secret, text)
+        self.assertIn("[REDACTED:secret]", text)
+
 
 class BrowserArtifactBaseCssTests(unittest.TestCase):
     def test_shared_artifact_base_css_contract(self):
@@ -632,6 +1293,25 @@ class BrowserArtifactBaseCssTests(unittest.TestCase):
         self.assertIn("--ink:", css)
         self.assertIn("--shadow:", css)
         self.assertIn(".hero", css)
+
+    def test_artifact_iframe_network_isolation_static_contract(self):
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function isolateArtifactHTML", app)
+        self.assertIn("function artifactEmbedPolicy", app)
+        self.assertIn("function loadArtifactBaseCSS", app)
+        self.assertIn("meta.setAttribute('http-equiv', 'Content-Security-Policy')", app)
+        self.assertIn(
+            "doc.querySelectorAll('base, script, iframe, frame, object, embed')",
+            app,
+        )
+        self.assertIn("doc.querySelectorAll('link').forEach(link => link.remove())", app)
+        self.assertIn("style.setAttribute('data-vidux-artifact-base', '')", app)
+        self.assertIn('sandbox=\"allow-same-origin\"', app)
+        self.assertIn('referrerpolicy=\"no-referrer\"', app)
+        self.assertIn("node.localName === 'a' || node.localName === 'area'", app)
+        self.assertIn("removeAttribute('xlink:href')", app)
+        self.assertNotIn('sandbox=\"allow-same-origin allow-popups\"', app)
 
     def test_local_snowcubes_artifacts_use_shared_base_when_present(self):
         artifacts = sorted((ROOT / "browser" / "artifacts").glob("snowcubes-*.html"))
@@ -832,6 +1512,10 @@ class BrowserViduxTruthTests(unittest.TestCase):
         self.assertEqual(payload["dev_root"], str(browser_server.DEV_ROOT))
         self.assertEqual(payload["server_path"], str(browser_server.SERVER_FILE))
         self.assertEqual(payload["server_mtime_ns"], browser_server.SERVER_MTIME_NS)
+        self.assertEqual(
+            payload["receipt_corpus_path"],
+            str(browser_server._receipts_handler.DEFAULT_CORPUS_PATH.resolve()),
+        )
         self.assertIn("port", payload)
 
     def test_vidux_truth_static_contract(self):
@@ -959,6 +1643,20 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(game_plans[0]["repo"], "strongyes-web")
         self.assertEqual(Path(game_plans[0]["path"]), canonical.resolve())
 
+    def test_project_inventory_includes_git_repos_without_plans(self):
+        for name in ("alpha", "beta", "gamma"):
+            (self.dev_root / name / ".git").mkdir(parents=True)
+        self.write_plan("alpha", "projects/current", "Current")
+
+        inventory = browser_server.discover_project_inventory(browser_server.discover_plans())
+
+        self.assertEqual([item["name"] for item in inventory], ["alpha", "beta", "gamma"])
+        self.assertEqual(inventory[0]["plans"], 1)
+        self.assertEqual(inventory[0]["state"], "needs_brief")
+        self.assertEqual(inventory[1]["plans"], 0)
+        self.assertEqual(inventory[1]["state"], "unconnected")
+        self.assertTrue(all("path" not in item for item in inventory))
+
     def test_discover_plans_handles_missing_evidence_directory(self):
         plan_path = self.write_plan("demo-repo", "projects/no-evidence", "No Evidence")
 
@@ -1045,7 +1743,7 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(summary["tasks_total"], 7)
         self.assertEqual(summary["completion_pct"], 29)
         self.assertEqual(summary["eta_remaining_hours"], 4.0)
-        self.assertEqual(summary["eta_remaining_label"], "4h remaining")
+        self.assertEqual(summary["eta_remaining_label"], "4h tagged estimate")
         self.assertEqual(summary["eta_tagged"], 3)
         self.assertEqual(summary["eta_eligible"], 4)
 
@@ -1256,6 +1954,100 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertEqual(inbox["items"][0]["tab"], "INBOX.md")
         self.assertEqual(ask_leo["items"][0]["tab"], "ASK-LEO.md")
 
+    def test_dashboard_ranks_urgent_work_and_preserves_task_truth(self):
+        old_dir = self.dev_root / "old-project"
+        new_dir = self.dev_root / "new-project"
+        old_dir.mkdir()
+        new_dir.mkdir()
+        today = browser_server.date.today().isoformat()
+        (old_dir / "PLAN.md").write_text(
+            "# Old\n\n"
+            "## Operator Brief\n"
+            "- Status: watching\n- Priority: 10\n- Outcome: Stop data loss.\n"
+            f"- Next: Repair checkout.\n- Updated: {today}\n\n"
+            "## Tasks\n"
+            "- [pending] P0 customer data loss [Owner: Core] [validation: python3 checks.py]\n"
+            "- [in_progress] P0 reconcile durable state [Owner: Core] [Evidence: evidence/state.md]\n"
+            "- [blocked] P1 vendor callback [Owner: Web] [Blocker: vendor]\n",
+            encoding="utf-8",
+        )
+        (new_dir / "PLAN.md").write_text(
+            "# New\n\n"
+            "## Operator Brief\n"
+            "- Status: watching\n- Priority: 100\n- Outcome: Polish a recent lane.\n"
+            f"- Next: Keep polishing.\n- Updated: {today}\n\n"
+            "## Tasks\n- [in_progress] P1 recent polish\n",
+            encoding="utf-8",
+        )
+        os.utime(old_dir / "PLAN.md", (1_700_000_000, 1_700_000_000))
+        os.utime(new_dir / "PLAN.md", (1_800_000_000, 1_800_000_000))
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans())
+        next_item = dashboard["categories"]["next"]["items"][0]
+        active = dashboard["categories"]["in_progress"]["items"]
+        blocked = dashboard["categories"]["blocked"]["items"][0]
+
+        self.assertEqual(next_item["repo"], "old-project")
+        self.assertEqual(next_item["severity"], "p0")
+        self.assertEqual(next_item["owner"], "Core")
+        self.assertEqual(next_item["validation"], "python3 checks.py")
+        self.assertNotIn("[Owner:", next_item["label"])
+        self.assertEqual([item["repo"] for item in active], ["old-project", "new-project"])
+        self.assertEqual(active[0]["proof"], "evidence/state.md")
+        self.assertEqual(blocked["owner"], "Web")
+        self.assertEqual(blocked["blocker"], "vendor")
+
+    def test_mission_control_rejects_terminal_and_prefers_fresh_truth(self):
+        today = browser_server.date.today().isoformat()
+        fixtures = [
+            ("done", "completed", 100, today),
+            ("stale", "watching", 100, "2000-01-01"),
+            ("fresh", "watching", 5, today),
+        ]
+        for name, status, priority, updated in fixtures:
+            root = self.dev_root / name
+            root.mkdir()
+            (root / "PLAN.md").write_text(
+                f"# {name}\n\n## Operator Brief\n- Status: {status}\n"
+                f"- Priority: {priority}\n- Outcome: Ship {name}.\n- Next: Prove {name}.\n"
+                f"- Updated: {updated}\n\n## Tasks\n- [pending] P1 work\n",
+                encoding="utf-8",
+            )
+
+        mission = browser_server.build_dashboard(browser_server.discover_plans())["mission_control"]
+
+        self.assertEqual(mission["selected"]["repo"], "fresh")
+        self.assertEqual(mission["selected"]["selection_reason"], "only fresh current goal")
+        self.assertEqual(mission["terminal_briefs_total"], 1)
+        self.assertEqual(mission["deferred_briefs_total"], 1)
+        self.assertEqual(mission["authority"]["claims_total"], 1)
+
+    def test_scorecard_reports_explicit_total_when_the_safety_limit_is_reached(self):
+        plan_dir = self.dev_root / "scorecard"
+        plan_dir.mkdir()
+        rows = "".join(
+            f"| Metric {index} | 0 | 0 | 1 | unproven | proof {index} |\n"
+            for index in range(51)
+        )
+        (plan_dir / "PLAN.md").write_text(
+            "# Scorecard\n\n## Operator Brief\n- Status: watching\n- Priority: 1\n"
+            "- Outcome: Count every result.\n- Next: Inspect all results.\n\n"
+            "## Outcome Scorecard\n"
+            "| Metric | Baseline | Current | Target | Status | Proof |\n"
+            "|---|---|---|---|---|---|\n"
+            f"{rows}\n## Tasks\n- [pending] P1 inspect\n",
+            encoding="utf-8",
+        )
+
+        plan = browser_server.discover_plans()[0]
+        selected = browser_server.build_dashboard([plan])["mission_control"]["selected"]
+
+        self.assertEqual(len(plan["outcome_scorecard"]), 50)
+        self.assertEqual(plan["outcome_scorecard_total"], 51)
+        self.assertTrue(plan["outcome_scorecard_truncated"])
+        self.assertEqual(selected["scorecard_total"], 51)
+        self.assertTrue(selected["scorecard_truncated"])
+
     def test_dashboard_surfaces_recent_decision_directions(self):
         plan_dir = self.dev_root / "repo" / "projects" / "decision"
         plan_dir.mkdir(parents=True)
@@ -1356,6 +2148,186 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertEqual(labels, ["Q2 — open explicit question", "Q3 — implicit open question"])
         self.assertTrue(all(item["tab"] == "ASK-LEO.md" for item in ask_leo["items"]))
 
+    def test_mission_control_parses_and_ranks_operator_briefs(self):
+        low_dir = self.dev_root / "repo" / "projects" / "low"
+        high_dir = self.dev_root / "other" / "projects" / "high"
+        low_dir.mkdir(parents=True)
+        high_dir.mkdir(parents=True)
+        (low_dir / "PLAN.md").write_text(
+            "# Low\n\n"
+            "## Operator Brief\n"
+            "- Status: watching\n"
+            "- Priority: 10\n"
+            "- Outcome: Keep a background lane healthy.\n"
+            "- Next: Run the small check.\n\n"
+            "## Tasks\n- [pending] check\n",
+            encoding="utf-8",
+        )
+        (high_dir / "PLAN.md").write_text(
+            "# High\n\n"
+            "## Operator Brief\n"
+            "- Status: SHIPPING\n"
+            "- Priority: 250\n"
+            "- Outcome: Prove the cockpit earns its overhead.\n"
+            "- Next: Ship mission control.\n"
+            "- Why: Operators cannot see the value gap.\n"
+            "- Validation: API and rendered-browser proof.\n"
+            "- Cost: One bounded advisor call.\n"
+            "- Evidence: evidence/decision.md\n"
+            "- Updated: 2026-07-09\n"
+            "- Unknown field: ignored\n\n"
+            "## Outcome Scorecard\n"
+            "| Metric | Baseline | Current | Target | Status | Proof |\n"
+            "|---|---|---|---|---|---|\n"
+            "| Resolution | 76% | 59% | >= 76% | LOSING | decision.md |\n"
+            "| Net wins | 0 | 0 | >= 3 | unproven | benchmark v2 |\n\n"
+            "## Tasks\n- [in_progress] ship\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        payload = browser_server.plan_list_payload(plans)
+        dashboard = browser_server.build_dashboard(plans)
+        selected = dashboard["mission_control"]["selected"]
+        high_payload = next(item for item in payload if item["repo"] == "other")
+
+        self.assertEqual(dashboard["mission_control"]["briefs_total"], 2)
+        self.assertEqual(selected["repo"], "other")
+        self.assertEqual(selected["status"], "shipping")
+        self.assertEqual(selected["priority"], 100)
+        self.assertEqual(selected["outcome"], "Prove the cockpit earns its overhead.")
+        self.assertEqual(selected["next"], "Ship mission control.")
+        self.assertEqual(selected["source_rel"], "other/projects/high/PLAN.md")
+        self.assertEqual(selected["tab"], "PLAN.md")
+        self.assertEqual(selected["selection_reason"], "only fresh current goal")
+        self.assertEqual(dashboard["mission_control"]["authority"]["state"], "ranked")
+        self.assertEqual(dashboard["mission_control"]["deferred_briefs_total"], 1)
+        self.assertEqual(selected["evidence_target"]["state"], "missing")
+        self.assertEqual(len(selected["scorecard"]), 2)
+        self.assertEqual(selected["scorecard"][0]["status"], "losing")
+        self.assertEqual(selected["scorecard"][0]["proof_target"]["state"], "needed")
+        self.assertGreater(selected["scorecard"][0]["line"], selected["line"])
+        self.assertEqual(high_payload["operator_brief"]["priority"], 100)
+        self.assertEqual(high_payload["outcome_scorecard"][1]["metric"], "Net wins")
+        self.assertNotIn("unknown field", high_payload["operator_brief"])
+
+    def test_mission_control_has_explicit_empty_shape_and_ignores_bad_table_rows(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "empty"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "PLAN.md").write_text(
+            "# Empty\n\n"
+            "## Outcome Scorecard\n"
+            "| Wrong | Columns |\n"
+            "|---|---|\n"
+            "| should | disappear |\n\n"
+            "## Tasks\n- [pending] next\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+        plan = plans[0]
+        mission = browser_server.build_dashboard(plans)["mission_control"]
+
+        self.assertEqual(plan["operator_brief"], {})
+        self.assertEqual(plan["outcome_scorecard"], [])
+        self.assertEqual(mission["briefs_total"], 0)
+        self.assertIsNone(mission["selected"])
+        self.assertEqual(mission["authority"]["state"], "missing")
+
+    def test_onboarding_clean_root_has_public_first_step(self):
+        dashboard = browser_server.build_dashboard([])
+        onboarding = dashboard["onboarding"]
+
+        self.assertEqual(onboarding["state"], "empty")
+        self.assertEqual(onboarding["projects_total"], 0)
+        self.assertEqual(onboarding["plans_total"], 0)
+        self.assertEqual(onboarding["init_command"], "vidux init --here")
+        self.assertNotIn(str(self.dev_root), json.dumps(onboarding))
+
+    def test_onboarding_explains_tied_current_work_across_three_projects(self):
+        for name in ("alpha", "beta", "gamma"):
+            (self.dev_root / name / ".git").mkdir(parents=True)
+
+        def write_brief(repo: str, priority: int, mtime: int) -> None:
+            plan = self.dev_root / repo / "PLAN.md"
+            plan.write_text(
+                f"# {repo.title()}\n\n"
+                "## Operator Brief\n"
+                "- Status: watching\n"
+                f"- Priority: {priority}\n"
+                f"- Outcome: Ship {repo}.\n"
+                "- Next: Run the proof.\n\n"
+                "## Tasks\n- [pending] prove it\n",
+                encoding="utf-8",
+            )
+            os.utime(plan, (mtime, mtime))
+
+        write_brief("alpha", 80, 1_700_000_000)
+        write_brief("beta", 80, 1_700_000_100)
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans())
+        mission = dashboard["mission_control"]
+        onboarding = dashboard["onboarding"]
+
+        self.assertEqual(mission["selected"]["repo"], "beta")
+        self.assertEqual(mission["selected"]["selection_reason"], "priority 80 · newest of 2 tied current goals")
+        self.assertEqual(mission["authority"]["state"], "conflict")
+        self.assertEqual(mission["authority"]["tied_total"], 2)
+        self.assertEqual(mission["authority"]["tied_projects"], ["alpha", "beta"])
+        self.assertIn("2 plans share priority 80", mission["authority"]["explanation"])
+        self.assertIn("Showing beta", mission["authority"]["explanation"])
+        self.assertEqual(onboarding["state"], "authority_conflict")
+        self.assertEqual(onboarding["projects_total"], 3)
+        self.assertEqual(onboarding["connected_projects"], 2)
+        self.assertEqual(onboarding["unconnected_projects"], 1)
+
+    def test_operator_brief_freshness_is_explicit_and_deterministic(self):
+        today = browser_server.date(2026, 7, 9)
+
+        self.assertEqual(
+            browser_server.operator_brief_freshness("2026-07-02", today),
+            {"status": "fresh", "age_days": 7},
+        )
+        self.assertEqual(
+            browser_server.operator_brief_freshness("2026-07-01", today),
+            {"status": "stale", "age_days": 8},
+        )
+        self.assertEqual(
+            browser_server.operator_brief_freshness("not-a-date", today),
+            {"status": "unknown", "age_days": None},
+        )
+
+    def test_plan_proof_resolution_is_inspectable_and_cannot_escape_owner(self):
+        plan_dir = self.dev_root / "repo" / "projects" / "proof"
+        evidence_dir = plan_dir / "evidence"
+        evidence_dir.mkdir(parents=True)
+        plan_path = plan_dir / "PLAN.md"
+        plan_path.write_text("# Proof\n", encoding="utf-8")
+        receipt = evidence_dir / "receipt.md"
+        receipt.write_text("# Receipt\n", encoding="utf-8")
+
+        available = browser_server.resolve_plan_proof(
+            plan_path,
+            "evidence/receipt.md H3 counts",
+        )
+        missing = browser_server.resolve_plan_proof(plan_path, "evidence/missing.md")
+        note = browser_server.resolve_plan_proof(plan_path, "benchmark v2 required")
+        escaped = browser_server.resolve_plan_proof(
+            plan_path,
+            "../../other/evidence/receipt.md",
+        )
+
+        self.assertEqual(available["state"], "available")
+        self.assertEqual(available["path"], str(receipt))
+        self.assertEqual(available["tab"], f"EVD:{receipt}")
+        self.assertEqual(missing, {
+            "state": "missing",
+            "label": "Proof missing",
+            "rel": "evidence/missing.md",
+        })
+        self.assertEqual(note["state"], "needed")
+        self.assertEqual(escaped["state"], "invalid")
+
     def test_dashboard_limit_marks_truncated_categories(self):
         plan_dir = self.dev_root / "repo" / "projects" / "many"
         plan_dir.mkdir(parents=True)
@@ -1375,6 +2347,33 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertTrue(bucket["truncated"])
         self.assertEqual(bucket["limit"], 1)
 
+    def test_simple_queue_slice_is_exact_even_when_selected_plan_fills_api_limit(self):
+        today = browser_server.date.today().isoformat()
+        selected_dir = self.dev_root / "selected"
+        other_dir = self.dev_root / "other"
+        selected_dir.mkdir()
+        other_dir.mkdir()
+        (selected_dir / "PLAN.md").write_text(
+            "# Selected\n\n## Operator Brief\n- Status: shipping\n- Priority: 100\n"
+            "- Outcome: Own the current goal.\n- Next: Keep going.\n"
+            f"- Updated: {today}\n\n## Tasks\n"
+            "- [in_progress] P0 selected one\n"
+            "- [in_progress] P0 selected two\n",
+            encoding="utf-8",
+        )
+        (other_dir / "PLAN.md").write_text(
+            "# Other\n\n## Tasks\n- [in_progress] P1 resumable other work\n",
+            encoding="utf-8",
+        )
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans(), limit=1)
+        bucket = dashboard["categories"]["in_progress"]
+
+        self.assertEqual(bucket["total"], 3)
+        self.assertEqual(bucket["items"][0]["repo"], "selected")
+        self.assertEqual(bucket["simple_total"], 1)
+        self.assertEqual([item["repo"] for item in bucket["simple_items"]], ["other"])
+
     def test_dashboard_static_contract(self):
         server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
         index = (ROOT / "browser" / "static" / "index.html").read_text(encoding="utf-8")
@@ -1387,15 +2386,27 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn("def build_fleet_summary", server)
         self.assertIn('"dashboard": build_dashboard(plans)', server)
         self.assertIn("def build_dashboard", server)
+        self.assertIn("def build_mission_control", server)
+        self.assertIn("def parse_operator_brief", server)
+        self.assertIn("def parse_outcome_scorecard", server)
         self.assertIn("extract_dashboard_tasks", server)
         self.assertIn("extract_dashboard_verdicts", server)
         self.assertIn("extract_open_entries", server)
         self.assertIn('"verdicts": {"label": "Verdicts"', server)
         self.assertIn('"decisions": {"label": "Decisions"', server)
+        self.assertIn('"next": {"label": "Next"', server)
         self.assertIn("fleetSummary", app)
         self.assertIn("function topbarFleetSummary", app)
-        self.assertIn("remaining", app)
+        self.assertIn("tagged estimate", app)
+        self.assertIn("open tasks estimated", app)
         self.assertIn("function renderDashboardPane", app)
+        self.assertIn("function renderMissionControl", app)
+        empty_pane = app[app.index("function renderEmptyPane()") : app.index("function updateOpsTruthSurface")]
+        self.assertIn("${renderMissionControl()}", empty_pane)
+        self.assertIn("renderSimpleHomeQueue()", empty_pane)
+        self.assertIn("setupDashboardPane();", empty_pane)
+        self.assertNotIn("state.devRoot", empty_pane)
+        self.assertIn("else renderEmptyPane();", app)
         self.assertIn("function selectDashboard", app)
         self.assertIn('renderDashboardCard("verdicts", "Verdicts")', app)
         self.assertIn('renderDashboardCard("decisions", "Decisions")', app)
@@ -1404,17 +2415,21 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn('data-kind="dashboard"', app)
         self.assertIn("Cross-plan queue", app)
         self.assertIn('id="sort"', index)
+        self.assertIn('<link rel="icon" href="data:," />', index)
         self.assertIn('/static/sidebar-sort.js', index)
         self.assertIn('/static/sidebar-filters.js', index)
+        self.assertIn('/static/work-queue.js', index)
         self.assertIn('/static/annotation-state.js', index)
         self.assertLess(index.index('/static/sidebar-sort.js'), index.index('/static/app.js'))
         self.assertLess(index.index('/static/sidebar-filters.js'), index.index('/static/app.js'))
+        self.assertLess(index.index('/static/work-queue.js'), index.index('/static/app.js'))
         self.assertLess(index.index('/static/annotation-state.js'), index.index('/static/app.js'))
         self.assertIn('data-filter-chip="hot"', index)
         self.assertIn('data-filter-chip="tasks"', index)
         self.assertIn('data-filter-chip="eta"', index)
         self.assertIn("ViduxSidebarSort", app)
         self.assertIn("ViduxSidebarFilters", app)
+        self.assertIn("workQueueUi.render", app)
         self.assertIn("function planComparator", sidebar_sort)
         self.assertIn("function repoComparator", sidebar_sort)
         self.assertIn("vidux:sidebar-sort", sidebar_sort)
@@ -1429,6 +2444,7 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertIn("max-height: min(560px, 70vh)", style)
         self.assertIn("overflow-y: auto", style)
         self.assertIn(".dashboard-item", style)
+        self.assertIn(".mission-control", style)
 
 
 class BrowserLedgerTests(unittest.TestCase):
@@ -1577,6 +2593,35 @@ class BrowserLedgerTests(unittest.TestCase):
             thread.join(timeout=2)
             httpd.server_close()
 
+    def test_ledger_payload_marks_an_unsearched_older_tail_as_partial(self):
+        rows = [{
+            "ts": "2026-06-03T07:00:00Z",
+            "eid": "evt_old_plan",
+            "event": "publish",
+            "repo": "demo-repo",
+            "summary": "older matching proof",
+            "plan_path": "projects/ledger/PLAN.md",
+        }]
+        rows.extend({
+            "ts": f"2026-06-03T08:{index:02d}:00Z",
+            "eid": f"evt_other_{index}",
+            "event": "publish",
+            "repo": "other-repo",
+            "summary": "newer unrelated proof",
+            "plan_path": "PLAN.md",
+        } for index in range(20))
+        self.write_ledger_rows(rows)
+
+        payload = browser_server.ledger_payload_for_plan(self.plan_path)
+
+        self.assertEqual(payload["status"], "partial")
+        self.assertEqual(payload["total_rows"], 21)
+        self.assertEqual(payload["scanned_rows"], 20)
+        self.assertTrue(payload["scan_tail_truncated"])
+        self.assertTrue(payload["truncated"])
+        self.assertEqual(payload["plan_total"], 0)
+        self.assertEqual(payload["items"], [])
+
     def test_ledger_static_contract(self):
         server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
@@ -1710,6 +2755,7 @@ class BrowserPlanBriefTests(unittest.TestCase):
             "## Decision Log\n"
             "- [DIRECTION] [2026-05-24] Keep PLAN.md canonical and use comments for steering.\n\n"
             "## Progress\n"
+            "- [2026-07-10] Shipped the newest cockpit slice.\n"
             "- [completed] malformed task-shaped bullet should not win\n"
             "- [2026-05-24] Shipped the first cockpit slice.\n",
             encoding="utf-8",
@@ -1726,10 +2772,10 @@ class BrowserPlanBriefTests(unittest.TestCase):
             ["in_progress", "blocked", "pending"],
         )
         self.assertIn("Build Now strip", brief["focus_tasks"][0]["label"])
-        self.assertEqual(brief["latest_progress"], "[2026-05-24] Shipped the first cockpit slice.")
+        self.assertEqual(brief["latest_progress"], "[2026-07-10] Shipped the newest cockpit slice.")
         self.assertIn("Keep PLAN.md canonical", brief["latest_decision"])
 
-    def test_plan_brief_and_steering_static_contract(self):
+    def test_plan_brief_is_read_only_and_surfaces_core_truth(self):
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
         comment_rail = (
             ROOT / "browser" / "static" / "comment-rail.js"
@@ -1737,22 +2783,24 @@ class BrowserPlanBriefTests(unittest.TestCase):
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
         self.assertIn("function renderPlanBrief", app)
-        self.assertIn("function setupPlanSteering", app)
-        self.assertIn("Steer this plan", app)
-        self.assertIn("function codingWorkbenchUrl", app)
-        self.assertIn("viduxPlan", app)
-        self.assertIn("Code lane", app)
-        self.assertIn("@pm", app)
-        self.assertIn("plan-steering", app)
+        self.assertIn('const tabs = ["PLAN.md", DECISION_LOG_TAB', app)
+        self.assertIn("showEvidenceStrip", app)
+        self.assertIn("No proof files yet", app)
+        self.assertNotIn("function setupPlanSteering", app)
+        self.assertNotIn("Steer this plan", app)
+        self.assertNotIn("function codingWorkbenchUrl", app)
+        self.assertNotIn("Code lane", app)
+        self.assertNotIn("/api/coding-handoff", app)
+        self.assertNotIn("plan-steering", app)
         self.assertIn("is-steering", comment_rail)
         for klass in [
             "plan-brief",
             "plan-brief-task",
-            "plan-brief-code-link",
-            "plan-steering",
             "comment-item.is-steering",
         ]:
             self.assertIn(klass, style)
+        self.assertNotIn(".plan-steering", style)
+        self.assertNotIn(".plan-brief-code-link", style)
 
 
 class BrowserSubplanRollupTests(unittest.TestCase):
@@ -2152,13 +3200,8 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn(".is-anchor-preview", style)
 
 
-class BrowserMainCliArtifactsDirTests(unittest.TestCase):
-    """Round-1 open-source panel finding: ARTIFACTS_DIR was hardcoded to
-    <this checkout>/browser/artifacts with no CLI/env override, unlike
-    HOST/PORT/DEV_ROOT/COMMENTS_FILE which all support one. Any --root
-    pointed at a fixture or demo dev-root still leaked the real checkout's
-    accumulated Artifacts panel contents -- including in the Playwright
-    webServer used by this repo's own "hermetic" e2e/visual suite."""
+class BrowserMainCliStorageIsolationTests(unittest.TestCase):
+    """Fixture roots must explicitly configure artifacts and receipt corpus stores."""
 
     class _NonBlockingServer:
         def __init__(self, *_args, **_kwargs):
@@ -2176,6 +3219,8 @@ class BrowserMainCliArtifactsDirTests(unittest.TestCase):
         self.original_dev_root = browser_server.DEV_ROOT
         self.original_comments_file = browser_server.COMMENTS_FILE
         self.original_artifacts_dir = browser_server.ARTIFACTS_DIR
+        self.original_receipt_corpus_path = browser_server._receipts_handler.DEFAULT_CORPUS_PATH
+        self.original_receipt_images_dir = browser_server._receipts_handler.DEFAULT_IMAGES_DIR
         self.original_server_cls = browser_server.ThreadingHTTPServer
         browser_server.ThreadingHTTPServer = self._NonBlockingServer
 
@@ -2186,6 +3231,8 @@ class BrowserMainCliArtifactsDirTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.original_dev_root
         browser_server.COMMENTS_FILE = self.original_comments_file
         browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
+        browser_server._receipts_handler.DEFAULT_CORPUS_PATH = self.original_receipt_corpus_path
+        browser_server._receipts_handler.DEFAULT_IMAGES_DIR = self.original_receipt_images_dir
 
     def test_artifacts_dir_flag_overrides_the_checkout_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2202,6 +3249,26 @@ class BrowserMainCliArtifactsDirTests(unittest.TestCase):
         self.assertEqual(
             browser_server.ARTIFACTS_DIR,
             self.original_artifacts_dir,
+        )
+
+    def test_receipt_corpus_path_flag_overrides_the_checkout_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom = Path(tmpdir) / "fixture-receipts" / "corpus.jsonl"
+
+            browser_server.main(["--port", "0", "--receipt-corpus-path", str(custom)])
+
+            self.assertEqual(browser_server._receipts_handler.DEFAULT_CORPUS_PATH, custom.resolve())
+            self.assertEqual(
+                browser_server._receipts_handler.DEFAULT_IMAGES_DIR,
+                custom.resolve().parent / "images",
+            )
+
+    def test_receipt_corpus_path_untouched_when_flag_omitted(self):
+        browser_server.main(["--port", "0"])
+
+        self.assertEqual(
+            browser_server._receipts_handler.DEFAULT_CORPUS_PATH,
+            self.original_receipt_corpus_path,
         )
 
 

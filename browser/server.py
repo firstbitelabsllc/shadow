@@ -9,8 +9,10 @@ Stdlib only. See projects/vidux-browser/PLAN.md.
 from __future__ import annotations
 
 import json
+import math
 import os
 import copy
+import fcntl
 import ipaddress
 import re
 import subprocess
@@ -18,17 +20,20 @@ import sys
 import threading
 import time
 import uuid
-from collections import deque
+from collections import Counter, deque
+from contextlib import contextmanager
+from datetime import date
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 # Receipt corpus lab handlers (math-fortress T9). Sibling package — server.py
 # is callable both as __main__ (sys.path[0] = browser/) and via importlib spec
 # from tests (sys.path[0] = caller CWD). Insert browser/ explicitly so the
 # import resolves regardless of caller.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from safe_files import UnsafeFileAliasError, atomic_write_text, open_regular_fd, read_text
 from receipts import handler as _receipts_handler
 
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
@@ -144,6 +149,174 @@ SIBLING_FILES = ["PROGRESS.md", "INBOX.md", "ASK-LEO.md", "DOCTRINE.md", "README
 # …/.ssh/config from a browser tab on Leo's machine.
 ALLOWED_PLAN_FILES = frozenset({"PLAN.md", *SIBLING_FILES})
 
+SENSITIVE_REDACTION = "[REDACTED:secret]"
+SENSITIVE_PROVIDER_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    r"sk-(?:ant-)?[A-Za-z0-9_-]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|"
+    r"gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"xox[baprs]-[A-Za-z0-9-]{20,}|"
+    r"lin_api_[A-Za-z0-9]{20,}|"
+    r"AKIA[A-Z0-9]{16}|"
+    r"AIza[A-Za-z0-9_-]{30,}|"
+    r"sk_live_[A-Za-z0-9]{16,}"
+    r")(?![A-Za-z0-9])"
+)
+SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?im)(?:[\"'`])?(?:api[_-]?key|access[_-]?(?:key|token)|auth[_-]?token|"
+    r"client[_-]?secret|private[_-]?key|secret|credential|token)"
+    r"(?:[\"'`])?\s*(?:=|:)\s*"
+    r"(?P<value>\"[^\"\r\n]{12,}\"|'[^'\r\n]{12,}'|`[^`\r\n]{12,}`|[^\s,;]{12,})"
+)
+SENSITIVE_PASSWORD_ASSIGNMENT_RE = re.compile(
+    r"(?im)(?:[\"'`])?(?:password|passwd)(?:[\"'`])?\s*(?:=|:)\s*"
+    r"(?P<value>\"[^\"\r\n]{4,}\"|'[^'\r\n]{4,}'|`[^`\r\n]{4,}`|[^\s,;]{4,})"
+)
+SENSITIVE_BEARER_RE = re.compile(
+    r"(?im)\bauthorization\s*:\s*bearer\s+(?P<value>[^\s,;]{12,})"
+)
+SENSITIVE_JWT_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\."
+    r"[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
+)
+SENSITIVE_PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----.*?"
+    r"-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+    re.S,
+)
+SENSITIVE_ATOM_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?P<value>[A-Za-z0-9_#+.=-]{40,})(?![A-Za-z0-9])"
+)
+SENSITIVE_PLACEHOLDER_MARKERS = (
+    "redacted",
+    "placeholder",
+    "example",
+    "sample",
+    "dummy",
+    "fake",
+    "xxxxx",
+    "changeme",
+    "your_",
+    "your-",
+    "not-a-secret",
+    "test-secret",
+    "test_secret",
+)
+
+ARTIFACT_CONTENT_SECURITY_POLICY = "; ".join((
+    "default-src 'none'",
+    "base-uri 'none'",
+    "connect-src 'none'",
+    "font-src data:",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+    "frame-src 'none'",
+    "img-src data: blob:",
+    "manifest-src 'none'",
+    "media-src data: blob:",
+    "object-src 'none'",
+    "script-src 'none'",
+    "style-src 'unsafe-inline'",
+    "worker-src 'none'",
+))
+ARTIFACT_SECURITY_HEADERS = {
+    "Content-Disposition": 'attachment; filename="vidux-artifact.html"',
+    "Content-Security-Policy": ARTIFACT_CONTENT_SECURITY_POLICY,
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+}
+
+
+def _unquoted_secret_value(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'`":
+        return text[1:-1]
+    return text
+
+
+def _is_placeholder_secret(value: str) -> bool:
+    text = _unquoted_secret_value(value).strip().lower()
+    if not text or text.startswith(("${", "{{", "<")):
+        return True
+    if text in {"none", "null", "unset", "todo", "n/a"}:
+        return True
+    return any(marker in text for marker in SENSITIVE_PLACEHOLDER_MARKERS)
+
+
+def _looks_like_high_entropy_secret(value: str) -> bool:
+    text = _unquoted_secret_value(value).strip()
+    if len(text) < 40 or _is_placeholder_secret(text):
+        return False
+    if re.fullmatch(r"[0-9a-fA-F]+", text):
+        return False
+    if not (
+        re.search(r"[A-Z]", text)
+        and re.search(r"[a-z]", text)
+        and re.search(r"\d", text)
+        and re.search(r"[_#/+=]", text)
+    ):
+        return False
+    counts = Counter(text)
+    entropy = -sum((count / len(text)) * math.log2(count / len(text)) for count in counts.values())
+    return len(counts) >= 12 and entropy >= 3.3
+
+
+def sensitive_text_spans(text: str) -> list[tuple[int, int]]:
+    """Return merged high-confidence credential spans without their values."""
+    spans: list[tuple[int, int]] = []
+    for pattern in (SENSITIVE_PRIVATE_KEY_RE, SENSITIVE_PROVIDER_RE, SENSITIVE_JWT_RE):
+        spans.extend((match.start(), match.end()) for match in pattern.finditer(text))
+    for pattern in (
+        SENSITIVE_ASSIGNMENT_RE,
+        SENSITIVE_PASSWORD_ASSIGNMENT_RE,
+        SENSITIVE_BEARER_RE,
+    ):
+        for match in pattern.finditer(text):
+            value = match.group("value")
+            if not _is_placeholder_secret(value):
+                spans.append(match.span("value"))
+    for match in SENSITIVE_ATOM_RE.finditer(text):
+        if _looks_like_high_entropy_secret(match.group("value")):
+            spans.append(match.span("value"))
+
+    merged: list[list[int]] = []
+    for start, end in sorted(spans):
+        if merged and start < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(start, end) for start, end in merged]
+
+
+def redact_sensitive_text(text: str) -> tuple[str, int]:
+    spans = sensitive_text_spans(text)
+    if not spans:
+        return text, 0
+    redacted = text
+    for start, end in reversed(spans):
+        redacted = redacted[:start] + SENSITIVE_REDACTION + redacted[end:]
+    return redacted, len(spans)
+
+
+def has_sensitive_text(text: str) -> bool:
+    return bool(sensitive_text_spans(text))
+
+
+def redact_sensitive_value(value):
+    if isinstance(value, str):
+        return redact_sensitive_text(value)[0]
+    if isinstance(value, (list, tuple)):
+        return [redact_sensitive_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            redact_sensitive_text(key)[0] if isinstance(key, str) else key:
+            redact_sensitive_value(item)
+            for key, item in value.items()
+        }
+    return value
+
 HOT_DAYS = 7
 STALE_DAYS = 30
 
@@ -157,6 +330,8 @@ PLAN_NOTE_SOURCE_RE = re.compile(r"[^A-Za-z0-9_.:/@ -]+")
 COMMENTS_FILE = Path(
     os.environ.get("VIDUX_BROWSER_COMMENTS_FILE", Path.home() / ".vidux-browser" / "comments.jsonl")
 ).expanduser()
+_COMMENTS_WRITE_LOCK = threading.Lock()
+_PLAN_NOTE_WRITE_LOCK = threading.Lock()
 COMMENT_BODY_MAX_BYTES = 8 * 1024
 COMMENT_AUTHOR_MAX_CHARS = 80
 COMMENT_AUTHOR_RE = re.compile(r"[^A-Za-z0-9_.:/@' -]+")
@@ -170,6 +345,23 @@ COMMENT_ANCHOR_FIELD_LIMITS = {
 COMMENT_ANCHOR_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 JSON_CONTENT_TYPE = "application/json"
+
+
+@contextmanager
+def _comments_write_guard():
+    """Serialize comment rewrites across threads and Vidux server processes."""
+    lock_path = COMMENTS_FILE.with_suffix(COMMENTS_FILE.suffix + ".lock")
+    with _COMMENTS_WRITE_LOCK:
+        with open_regular_fd(
+            lock_path,
+            os.O_RDWR | os.O_CREAT,
+            create_parent=True,
+        ) as lock_fd:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
 VIDUX_TRUTH_CACHE_TTL_SECONDS = float(os.environ.get("VIDUX_TRUTH_CACHE_TTL_SECONDS", "45"))
 _VIDUX_TRUTH_CACHE_LOCK = threading.Lock()
 _VIDUX_TRUTH_CACHE: dict[str, object] = {
@@ -600,6 +792,11 @@ PLAN_BRIEF_TASK_RE = re.compile(
 PLAN_BRIEF_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<body>.+?)\s*$")
 PLAN_BRIEF_TAG_RE = re.compile(r"\s*\[[A-Za-z][A-Za-z0-9 _/-]*:\s*[^\]]+\]")
 PLAN_BRIEF_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+TASK_SEVERITY_RE = re.compile(r"(?:^|\s)(?:\[(?P<bracket>P[0-3])\]|(?P<plain>P[0-3])\b)", re.I)
+TASK_STRUCTURED_TAG_RE = re.compile(
+    r"\[(?P<key>owner|blocker|validation|evidence|proof):\s*(?P<value>[^\]]+)\]",
+    re.I,
+)
 DASHBOARD_TASK_RE = re.compile(
     r"^-\s+\[(?P<status>pending|in_progress|in_review|completed|blocked)\]\s+(?P<body>.+?)\s*$"
 )
@@ -607,6 +804,26 @@ DASHBOARD_OPEN_HEADING_RE = re.compile(r"^[ \t]{0,3}#{3,6}\s+(?P<body>.+?)\s*#*\
 DASHBOARD_ASK_HEADING_RE = re.compile(r"^[ \t]{0,3}##\s+(?P<body>Q\d+\b.+?)\s*#*\s*$", re.I)
 DASHBOARD_ASK_RESOLVED_RE = re.compile(r"\b(?:resolved:\s*\S+|status:\s*resolved)\b", re.I)
 DASHBOARD_SOURCE_TAG_RE = re.compile(r"\[Source:\s*(?P<source>[^,\]]+)(?:,[^\]]+)?\]", re.I)
+OPERATOR_BRIEF_ROW_RE = re.compile(
+    r"^\s*[-*+]\s+(?P<key>[A-Za-z][A-Za-z _-]{0,31}):\s*(?P<value>.*?)\s*$"
+)
+OPERATOR_BRIEF_KEYS = frozenset({
+    "status",
+    "priority",
+    "outcome",
+    "next",
+    "why",
+    "validation",
+    "cost",
+    "evidence",
+    "updated",
+})
+OUTCOME_SCORECARD_HEADERS = ("metric", "baseline", "current", "target", "status", "proof")
+TERMINAL_OPERATOR_STATUSES = frozenset({"archived", "closed", "complete", "completed", "done", "exhausted"})
+TASK_SEVERITY_ORDER = {"p0": 0, "p1": 1, "p2": 2, "p3": 3, "unspecified": 4}
+PROOF_FILE_RE = re.compile(
+    r"(?P<path>(?:(?:\.\.?/)?[^\s|]+/)*(?:evidence|investigations)/[^\s|]+\.md)"
+)
 EVIDENCE_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[-_].*)?\.md$")
 DECISION_LOG_HEADING_RE = re.compile(
     r"^(?P<indent>[ \t]{0,3})(?P<marks>#{2,6})\s+decision(?:\s+log|s)\s*#*\s*$",
@@ -639,7 +856,8 @@ def claude_project_slug(repo_path: Path) -> str:
 
 
 def compact_session_text(value: str, limit: int = SESSION_EXCERPT_LIMIT) -> str:
-    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", value or "")
+    safe_value, _ = redact_sensitive_text(value or "")
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", safe_value)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= limit:
         return text
@@ -783,7 +1001,8 @@ def discover_repo_sessions(repos: set[str]) -> dict[str, dict]:
 
 
 def compact_ledger_text(value: object, limit: int = 360) -> str:
-    text = re.sub(r"[\x00-\x1f]+", " ", str(value or ""))
+    safe_value, _ = redact_sensitive_text(str(value or ""))
+    text = re.sub(r"[\x00-\x1f]+", " ", safe_value)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= limit:
         return text
@@ -901,6 +1120,8 @@ def ledger_payload_for_plan(
         "scan_limit": scan_limit,
         "item_limit": item_limit,
         "scanned_rows": 0,
+        "total_rows": 0,
+        "scan_tail_truncated": False,
         "invalid_rows": 0,
         "plan_total": 0,
         "repo_total": 0,
@@ -916,6 +1137,7 @@ def ledger_payload_for_plan(
         with ledger_file.open("r", encoding="utf-8", errors="replace") as fh:
             for line_number, line in enumerate(fh, start=1):
                 recent.append((line_number, line))
+                payload["total_rows"] = line_number
     except OSError:
         payload["status"] = "unreadable"
         return payload
@@ -923,6 +1145,9 @@ def ledger_payload_for_plan(
     payload["available"] = True
     payload["status"] = "ok"
     payload["scanned_rows"] = len(recent)
+    payload["scan_tail_truncated"] = payload["total_rows"] > len(recent)
+    if payload["scan_tail_truncated"]:
+        payload["status"] = "partial"
 
     plan_items: list[dict] = []
     repo_items: list[dict] = []
@@ -954,7 +1179,10 @@ def ledger_payload_for_plan(
         items.extend(repo_items[: item_limit - len(items)])
     payload["items"] = items
     payload["returned"] = len(items)
-    payload["truncated"] = (payload["plan_total"] + payload["repo_total"]) > len(items)
+    payload["truncated"] = (
+        payload["scan_tail_truncated"]
+        or (payload["plan_total"] + payload["repo_total"]) > len(items)
+    )
     return payload
 
 
@@ -986,6 +1214,8 @@ def discover_plans() -> list[dict]:
             if path in seen:
                 continue
             if "node_modules" in path.parts:
+                continue
+            if has_sensitive_text(str(path)):
                 continue
             seen.add(path)
             plans.append(plan_meta(path))
@@ -1060,7 +1290,7 @@ def build_fleet_summary(plans: list[dict]) -> dict:
         "tasks_total": total,
         "completion_pct": pct,
         "eta_remaining_hours": eta_remaining,
-        "eta_remaining_label": f"{format_eta_hours(eta_remaining)} remaining",
+        "eta_remaining_label": f"{format_eta_hours(eta_remaining)} tagged estimate",
         "eta_tagged": eta_tagged,
         "eta_eligible": eta_eligible,
     }
@@ -1073,7 +1303,51 @@ def dashboard_source_rel(path: Path) -> str:
         return str(path)
 
 
+def resolve_plan_proof(plan_path: Path, raw: object) -> dict:
+    """Classify a proof cell without allowing it to escape the owning plan."""
+    value = str(raw or "").strip()
+    if not value:
+        return {"state": "needed", "label": "Proof needed"}
+
+    match = PROOF_FILE_RE.search(value)
+    if not match:
+        return {"state": "needed", "label": "Proof needed", "note": value[:160]}
+
+    reference = match.group("path").rstrip(".,;:)")
+    plan_dir = plan_path.parent.resolve(strict=False)
+    candidate = Path(reference)
+    if not candidate.is_absolute():
+        candidate = plan_dir / candidate
+    candidate = candidate.resolve(strict=False)
+
+    try:
+        candidate.relative_to(plan_dir)
+    except ValueError:
+        return {"state": "invalid", "label": "Proof path rejected"}
+
+    if not is_allowed_file_target(str(candidate)):
+        return {"state": "invalid", "label": "Proof path rejected"}
+
+    rel = str(candidate.relative_to(plan_dir))
+    if not candidate.is_file():
+        return {
+            "state": "missing",
+            "label": "Proof missing",
+            "rel": rel,
+        }
+
+    return {
+        "state": "available",
+        "label": "Open proof",
+        "path": str(candidate),
+        "rel": rel,
+        "tab": f"EVD:{candidate}",
+    }
+
+
 def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, tab: str) -> dict:
+    brief = plan.get("operator_brief") or {}
+    freshness = operator_brief_freshness(brief.get("updated", ""))
     item = {
         "kind": kind,
         "repo": plan.get("repo", ""),
@@ -1085,7 +1359,14 @@ def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, 
         "line": raw.get("line"),
         "label": raw.get("label", ""),
         "status": raw.get("status", ""),
+        "plan_priority": int(brief.get("priority") or 0),
+        "plan_freshness": freshness.get("status", "unknown"),
+        "plan_mtime": float(plan.get("mtime") or 0),
     }
+    for key in ("severity", "owner", "blocker", "validation", "proof"):
+        value = raw.get(key)
+        if value:
+            item[key] = value
     proof_path = raw.get("proof_path", "")
     if proof_path:
         item["proof_path"] = proof_path
@@ -1098,8 +1379,222 @@ def dashboard_base_item(plan: dict, source_path: Path, raw: dict, *, kind: str, 
     return item
 
 
+def build_mission_control(plans: list[dict]) -> dict:
+    candidates: list[dict] = []
+    terminal_briefs = 0
+    mtime_by_rel = {plan.get("rel", ""): plan.get("mtime") or 0 for plan in plans}
+    for plan in plans:
+        brief = plan.get("operator_brief") or {}
+        if not brief or not (brief.get("outcome") or brief.get("next")):
+            continue
+        if brief.get("status") in TERMINAL_OPERATOR_STATUSES:
+            terminal_briefs += 1
+            continue
+        plan_path = Path(plan.get("path", ""))
+        item = {
+            **copy.deepcopy(brief),
+            "repo": plan.get("repo", ""),
+            "slug": plan.get("slug", ""),
+            "rel": plan.get("rel", ""),
+            "path": plan.get("path", ""),
+            "source_path": str(plan_path),
+            "source_rel": dashboard_source_rel(plan_path),
+            "tab": "PLAN.md",
+            "scorecard": copy.deepcopy(plan.get("outcome_scorecard") or []),
+            "scorecard_total": int(plan.get("outcome_scorecard_total") or 0),
+            "scorecard_truncated": bool(plan.get("outcome_scorecard_truncated")),
+        }
+        item["evidence_target"] = resolve_plan_proof(plan_path, item.get("evidence"))
+        for metric in item["scorecard"]:
+            metric["proof_target"] = resolve_plan_proof(plan_path, metric.get("proof"))
+        item["freshness"] = operator_brief_freshness(item.get("updated", ""))
+        candidates.append(item)
+
+    candidates.sort(
+        key=lambda item: (
+            {"fresh": 0, "unknown": 1, "stale": 2}.get(
+                (item.get("freshness") or {}).get("status"), 3
+            ),
+            -int(item.get("priority") or 0),
+            -float(mtime_by_rel.get(item.get("rel", ""), 0)),
+            str(item.get("rel") or ""),
+        )
+    )
+    selected = candidates[0] if candidates else None
+    selected_freshness = (
+        (selected.get("freshness") or {}).get("status") if selected else None
+    )
+    ranking_pool = [
+        item
+        for item in candidates
+        if (item.get("freshness") or {}).get("status") == selected_freshness
+    ]
+    top_priority = int(selected.get("priority") or 0) if selected else 0
+    tied = [item for item in ranking_pool if int(item.get("priority") or 0) == top_priority]
+    tied_projects = sorted({mission_candidate_label(item) for item in tied})
+    if selected:
+        if len(ranking_pool) == 1:
+            selected["selection_reason"] = (
+                "only declared current goal"
+                if len(candidates) == 1
+                else f"only {selected_freshness} current goal"
+            )
+        elif len(tied) > 1:
+            selected["selection_reason"] = (
+                f"priority {top_priority} · newest of {len(tied)} tied current goals"
+            )
+        else:
+            selected["selection_reason"] = (
+                f"priority {top_priority} · highest of {len(ranking_pool)} {selected_freshness} current goals"
+            )
+
+    if not selected:
+        authority = {
+            "state": "missing",
+            "claims_total": 0,
+            "tied_total": 0,
+            "tied_projects": [],
+        }
+    elif len(tied) > 1:
+        selected_label = mission_candidate_label(selected)
+        authority = {
+            "state": "conflict",
+            "claims_total": len(ranking_pool),
+            "tied_total": len(tied),
+            "priority": top_priority,
+            "tied_projects": tied_projects,
+            "explanation": (
+                f"{len(tied)} plans share priority {top_priority}. Showing {selected_label} by latest "
+                "plan change, then plan name. Change Priority in one Operator Brief to choose the default."
+            ),
+        }
+    elif len(candidates) > 1:
+        selected_label = mission_candidate_label(selected)
+        claim_phrase = "plan declares" if len(ranking_pool) == 1 else "plans declare"
+        authority = {
+            "state": "ranked",
+            "claims_total": len(ranking_pool),
+            "tied_total": 1,
+            "priority": top_priority,
+            "tied_projects": tied_projects,
+            "explanation": (
+                f"{len(ranking_pool)} {selected_freshness} {claim_phrase} current work. Showing {selected_label} because priority "
+                f"{top_priority} is highest."
+            ),
+        }
+    else:
+        authority = {
+            "state": "selected",
+            "claims_total": 1,
+            "tied_total": 1,
+            "priority": top_priority,
+            "tied_projects": tied_projects,
+        }
+    return {
+        "briefs_total": len(candidates),
+        "terminal_briefs_total": terminal_briefs,
+        "deferred_briefs_total": len(candidates) - len(ranking_pool),
+        "selected": selected,
+        "authority": authority,
+    }
+
+
+def mission_candidate_label(item: dict) -> str:
+    repo = clean_structured_value(item.get("repo") or "Project", 80)
+    slug = clean_structured_value(item.get("slug") or "", 80)
+    if slug and slug != "_root_":
+        return f"{repo} / {slug}"
+    return repo
+
+
+def has_current_operator_brief(plan: dict) -> bool:
+    brief = plan.get("operator_brief") or {}
+    return bool(
+        brief.get("outcome")
+        and brief.get("next")
+        and brief.get("status") not in TERMINAL_OPERATOR_STATUSES
+    )
+
+
+def discover_project_inventory(plans: list[dict]) -> list[dict]:
+    """Return path-free project setup state for the first-run cockpit."""
+    inventory: dict[str, dict] = {}
+    for plan in plans:
+        name = clean_structured_value(plan.get("repo") or "", 80)
+        if not name:
+            continue
+        project = inventory.setdefault(name, {"name": name, "plans": 0, "briefs": 0})
+        project["plans"] += 1
+        if has_current_operator_brief(plan):
+            project["briefs"] += 1
+
+    try:
+        root_children = sorted(DEV_ROOT.iterdir(), key=lambda path: path.name.casefold())
+    except OSError:
+        root_children = []
+    for child in root_children:
+        name = clean_structured_value(child.name, 80)
+        if not name or name.startswith(".") or has_sensitive_text(name) or child.is_symlink():
+            continue
+        try:
+            if not child.is_dir():
+                continue
+            git_marker = child / ".git"
+            if git_marker.is_symlink() or not (git_marker.is_dir() or git_marker.is_file()):
+                continue
+        except OSError:
+            continue
+        inventory.setdefault(name, {"name": name, "plans": 0, "briefs": 0})
+
+    projects = []
+    for project in inventory.values():
+        if project["plans"] == 0:
+            state = "unconnected"
+        elif project["briefs"] == 0:
+            state = "needs_brief"
+        else:
+            state = "ready"
+        projects.append({**project, "state": state})
+    projects.sort(key=lambda item: item["name"].casefold())
+    return projects
+
+
+def build_onboarding(plans: list[dict], mission: dict, project_limit: int = 12) -> dict:
+    projects = discover_project_inventory(plans)
+    connected = sum(1 for project in projects if project["plans"] > 0)
+    unconnected = sum(1 for project in projects if project["plans"] == 0)
+    briefs_total = int(mission.get("briefs_total") or 0)
+    missing_briefs = sum(1 for plan in plans if not has_current_operator_brief(plan))
+    authority_state = (mission.get("authority") or {}).get("state")
+
+    if not projects:
+        state = "empty"
+    elif not plans:
+        state = "projects_found"
+    elif authority_state == "conflict":
+        state = "authority_conflict"
+    elif not mission.get("selected"):
+        state = "needs_brief"
+    else:
+        state = "ready"
+
+    return {
+        "state": state,
+        "projects_total": len(projects),
+        "plans_total": len(plans),
+        "connected_projects": connected,
+        "unconnected_projects": unconnected,
+        "briefs_total": briefs_total,
+        "missing_briefs_total": missing_briefs,
+        "projects": projects[:project_limit],
+        "truncated": len(projects) > project_limit,
+        "init_command": "vidux init --here",
+    }
+
+
 def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dict:
     categories: dict[str, dict] = {
+        "next": {"label": "Next", "items": [], "total": 0},
         "in_progress": {"label": "In Progress", "items": [], "total": 0},
         "blocked": {"label": "Blocked", "items": [], "total": 0},
         "verdicts": {"label": "Verdicts", "items": [], "total": 0},
@@ -1110,9 +1605,7 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
 
     def add(category: str, item: dict) -> None:
         bucket = categories[category]
-        bucket["total"] += 1
-        if len(bucket["items"]) < limit:
-            bucket["items"].append(item)
+        bucket["items"].append(item)
 
     for plan in plans:
         plan_path = Path(plan.get("path", ""))
@@ -1120,6 +1613,8 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
             status = task.get("status", "")
             if status in ("in_progress", "blocked"):
                 add(status, dashboard_base_item(plan, plan_path, task, kind="task", tab="PLAN.md"))
+            elif status == "pending" and task.get("severity") in ("p0", "p1"):
+                add("next", dashboard_base_item(plan, plan_path, task, kind="task", tab="PLAN.md"))
 
         for verdict in plan.get("dashboard_verdicts", []) or []:
             add("verdicts", dashboard_base_item(plan, plan_path, verdict, kind="verdict", tab="PLAN.md"))
@@ -1151,7 +1646,30 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
         for entry in plan.get("dashboard_ask_leo_entries", []) or []:
             add("ask_leo", dashboard_base_item(plan, ask_path, entry, kind="ask_leo", tab="ASK-LEO.md"))
 
-    for bucket in categories.values():
+    def task_order(item: dict) -> tuple:
+        return (
+            TASK_SEVERITY_ORDER.get(item.get("severity", "unspecified"), 4),
+            {"blocked": 0, "in_progress": 1, "pending": 2}.get(item.get("status"), 3),
+            -int(item.get("plan_priority") or 0),
+            {"fresh": 0, "unknown": 1, "stale": 2}.get(item.get("plan_freshness"), 3),
+            -float(item.get("plan_mtime") or 0),
+            str(item.get("repo") or "").casefold(),
+            int(item.get("line") or 0),
+        )
+
+    mission = build_mission_control(plans)
+    selected_rel = (mission.get("selected") or {}).get("rel", "")
+    for key, bucket in categories.items():
+        if key in {"next", "in_progress", "blocked"}:
+            bucket["items"].sort(key=task_order)
+        bucket["total"] = len(bucket["items"])
+        if key in {"next", "in_progress", "blocked"}:
+            simple_items = [
+                item for item in bucket["items"] if item.get("rel") != selected_rel
+            ]
+            bucket["simple_total"] = len(simple_items)
+            bucket["simple_items"] = simple_items[: min(8, limit)]
+        bucket["items"] = bucket["items"][:limit]
         bucket["truncated"] = bucket["total"] > len(bucket["items"])
         bucket["limit"] = limit
 
@@ -1160,6 +1678,8 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
         "plans_scanned": len(plans),
         "repos": len({plan.get("repo", "") for plan in plans if plan.get("repo")}),
         "limit": limit,
+        "mission_control": mission,
+        "onboarding": build_onboarding(plans, mission),
         "categories": categories,
     }
 
@@ -1327,12 +1847,14 @@ def plan_meta(path: Path) -> dict:
         status = "cold"
     siblings = [f for f in SIBLING_FILES if (parent_dir / f).is_file()]
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        raw_text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        text = ""
+        raw_text = ""
+    text, sensitive_redactions = redact_sensitive_text(raw_text)
     purpose = extract_purpose_from_text(text)
     stats = task_stats(text)
     decision_log = parse_decision_log(text)
+    scorecard = parse_outcome_scorecard(text)
     investigations = discover_investigations(parent_dir, text)
     evidence = discover_evidence(parent_dir)
     parent_rel = extract_parent_rel(text)
@@ -1355,6 +1877,12 @@ def plan_meta(path: Path) -> dict:
         "investigations": investigations,
         "evidence": evidence,
         "parent_rel": parent_rel,
+        "operator_brief": parse_operator_brief(text),
+        "outcome_scorecard": scorecard["items"],
+        "outcome_scorecard_total": scorecard["total"],
+        "outcome_scorecard_truncated": scorecard["truncated"],
+        "content_redacted": sensitive_redactions > 0,
+        "sensitive_redactions": sensitive_redactions,
         "dashboard_tasks": extract_dashboard_tasks(text),
         "dashboard_verdicts": extract_dashboard_verdicts(text),
         "dashboard_inbox_entries": dashboard_inbox_entries,
@@ -1472,6 +2000,113 @@ def clean_plan_brief_text(value: str, limit: int = 180) -> str:
     return f"{clipped or text[: max(0, limit - 3)].strip()}..."
 
 
+def normalize_structured_status(value: object) -> str:
+    status = re.sub(r"[^a-z0-9_-]+", "-", str(value or "").strip().lower())
+    return status.strip("-") or "unknown"
+
+
+def clean_structured_value(value: object, limit: int = 500) -> str:
+    text = str(value or "").strip()
+    text = PLAN_BRIEF_LINK_RE.sub(r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    clipped = text[: max(0, limit - 3)].rsplit(" ", 1)[0].strip()
+    return f"{clipped or text[: max(0, limit - 3)].strip()}..."
+
+
+def parse_operator_brief(text: str) -> dict:
+    brief: dict[str, object] = {}
+    for line_number, line in markdown_section_lines(text, "Operator Brief"):
+        match = OPERATOR_BRIEF_ROW_RE.match(line)
+        if not match:
+            continue
+        key = re.sub(r"[ -]+", "_", match.group("key").strip().lower())
+        if key not in OPERATOR_BRIEF_KEYS:
+            continue
+        value = clean_structured_value(match.group("value"))
+        if not value:
+            continue
+        if "line" not in brief:
+            brief["line"] = line_number
+        if key == "priority":
+            try:
+                priority = int(value)
+            except ValueError:
+                priority = 0
+            brief[key] = max(0, min(100, priority))
+        elif key == "status":
+            brief[key] = normalize_structured_status(value)
+        else:
+            brief[key] = value
+    if brief and "priority" not in brief:
+        brief["priority"] = 0
+    if brief and "status" not in brief:
+        brief["status"] = "unknown"
+    return brief
+
+
+def split_markdown_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if not (stripped.startswith("|") and stripped.endswith("|")):
+        return []
+    cells = re.split(r"(?<!\\)\|", stripped[1:-1])
+    return [clean_structured_value(cell.replace(r"\|", "|"), 400) for cell in cells]
+
+
+def parse_outcome_scorecard(text: str, limit: int = 50) -> dict:
+    lines = markdown_section_lines(text, "Outcome Scorecard")
+    header_index = None
+    for index, (_, line) in enumerate(lines):
+        cells = split_markdown_table_row(line)
+        if tuple(cell.lower() for cell in cells) == OUTCOME_SCORECARD_HEADERS:
+            header_index = index
+            break
+    if header_index is None or header_index + 1 >= len(lines):
+        return {"items": [], "total": 0, "truncated": False}
+
+    separator = split_markdown_table_row(lines[header_index + 1][1])
+    if len(separator) != len(OUTCOME_SCORECARD_HEADERS) or not all(
+        re.fullmatch(r":?-{3,}:?", cell) for cell in separator
+    ):
+        return {"items": [], "total": 0, "truncated": False}
+
+    rows: list[dict] = []
+    total = 0
+    for line_number, line in lines[header_index + 2:]:
+        cells = split_markdown_table_row(line)
+        if not cells:
+            if rows and not line.strip():
+                break
+            continue
+        if len(cells) != len(OUTCOME_SCORECARD_HEADERS):
+            continue
+        row = dict(zip(OUTCOME_SCORECARD_HEADERS, cells))
+        if not row["metric"]:
+            continue
+        row["status"] = normalize_structured_status(row["status"])
+        row["line"] = line_number
+        total += 1
+        if len(rows) < limit:
+            rows.append(row)
+    return {"items": rows, "total": total, "truncated": total > len(rows)}
+
+
+def operator_brief_freshness(updated: object, today: date | None = None) -> dict:
+    raw = str(updated or "").strip()
+    try:
+        updated_date = date.fromisoformat(raw)
+    except ValueError:
+        return {"status": "unknown", "age_days": None}
+    age_days = max(0, ((today or date.today()) - updated_date).days)
+    return {
+        "status": "fresh" if age_days <= 7 else "stale",
+        "age_days": age_days,
+    }
+
+
 def markdown_section_lines(text: str, heading: str) -> list[tuple[int, str]]:
     """Return (1-based line, text) pairs for a markdown heading body."""
     lines = text.splitlines()
@@ -1507,11 +2142,33 @@ def extract_dashboard_tasks(text: str) -> list[dict]:
         if not m:
             continue
         status = m.group("status")
-        if status not in ("in_progress", "blocked"):
+        if status not in ("pending", "in_progress", "blocked"):
             continue
-        label = clean_plan_brief_text(m.group("body"), 220)
+        body = m.group("body")
+        severity_match = TASK_SEVERITY_RE.search(body)
+        severity = (
+            (severity_match.group("bracket") or severity_match.group("plain")).lower()
+            if severity_match
+            else "unspecified"
+        )
+        structured: dict[str, str] = {}
+        for tag in TASK_STRUCTURED_TAG_RE.finditer(body):
+            key = tag.group("key").lower()
+            if key in ("evidence", "proof"):
+                key = "proof"
+            structured[key] = clean_structured_value(tag.group("value"), 320)
+        label_body = re.sub(r"^\s*(?:\[?P[0-3]\]?\s*[:\-–—]?\s*)", "", body, flags=re.I)
+        label = clean_plan_brief_text(label_body, 320)
         if label:
-            tasks.append({"status": status, "label": label, "line": line_number})
+            tasks.append(
+                {
+                    "status": status,
+                    "severity": severity,
+                    "label": label,
+                    "line": line_number,
+                    **structured,
+                }
+            )
     return tasks
 
 
@@ -1601,6 +2258,7 @@ def read_open_entries(path: Path) -> list[dict]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+    text, _ = redact_sensitive_text(text)
     return extract_open_entries(text)
 
 
@@ -1633,6 +2291,7 @@ def read_ask_leo_entries(path: Path) -> list[dict]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+    text, _ = redact_sensitive_text(text)
     return extract_ask_leo_entries(text)
 
 
@@ -1669,7 +2328,21 @@ def extract_latest_bullets(text: str, heading: str, limit: int = 1) -> list[str]
             current.append(line.strip())
     if current:
         bullets.append(clean_plan_brief_text(" ".join(current), 220))
-    return [b for b in bullets if b][-limit:]
+    clean_bullets = [bullet for bullet in bullets if bullet]
+    dated: list[tuple[date, int, str]] = []
+    undated: list[tuple[int, str]] = []
+    for index, bullet in enumerate(clean_bullets):
+        match = re.match(r"^\[(\d{4}-\d{2}-\d{2})\]", bullet)
+        if match:
+            try:
+                dated.append((date.fromisoformat(match.group(1)), index, bullet))
+                continue
+            except ValueError:
+                pass
+        undated.append((index, bullet))
+    dated.sort(key=lambda item: (-item[0].toordinal(), item[1]))
+    ordered = [item[2] for item in dated] + [item[1] for item in undated]
+    return ordered[:limit]
 
 
 def plan_state_label(stats: dict) -> str:
@@ -1809,7 +2482,7 @@ def discover_investigations(plan_dir: Path, plan_text: str) -> list[str]:
     inv_dir = plan_dir / "investigations"
     if inv_dir.is_dir():
         for f in inv_dir.glob("*.md"):
-            if f.is_file():
+            if f.is_file() and not has_sensitive_text(f.name):
                 found.add(str(f.resolve()))
     for ref in INVESTIGATION_RE.findall(plan_text):
         rel = ref.strip().strip("`'\"")
@@ -1818,7 +2491,11 @@ def discover_investigations(plan_dir: Path, plan_text: str) -> list[str]:
             candidate.relative_to(plan_dir.resolve())
         except (OSError, ValueError):
             continue
-        if candidate.is_file() and candidate.suffix == ".md":
+        if (
+            candidate.is_file()
+            and candidate.suffix == ".md"
+            and not has_sensitive_text(candidate.name)
+        ):
             found.add(str(candidate))
     return sorted(found)
 
@@ -1848,6 +2525,8 @@ def discover_evidence(plan_dir: Path) -> list[dict]:
     items: list[dict] = []
     for path in evidence_dir.iterdir():
         if not path.is_file() or path.suffix.lower() != ".md":
+            continue
+        if has_sensitive_text(path.name):
             continue
         st = path.stat()
         date_match = EVIDENCE_DATE_RE.match(path.name)
@@ -1971,11 +2650,13 @@ def is_allowed_file_target(raw: str) -> bool:
 
 def read_browser_file(path: Path) -> tuple[int, bytes | str]:
     try:
-        return 200, path.read_bytes()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return 404, f"file missing: {path.name}"
     except OSError as exc:
         return 500, f"file read failed: {exc}"
+    redacted, _ = redact_sensitive_text(text)
+    return 200, redacted.encode("utf-8")
 
 
 def discover_artifacts() -> list[dict]:
@@ -1984,12 +2665,13 @@ def discover_artifacts() -> list[dict]:
         return []
     items: list[dict] = []
     for path in ARTIFACTS_DIR.glob("*.html"):
-        if not path.is_file():
+        if not path.is_file() or has_sensitive_text(str(path)):
             continue
         try:
             head = path.read_text(encoding="utf-8", errors="replace")[:4096]
         except OSError:
             head = ""
+        head, _ = redact_sensitive_text(head)
         m = ARTIFACT_TITLE_RE.search(head)
         if m:
             raw_title = (m.group(1) or m.group(2) or "").strip()
@@ -2014,12 +2696,17 @@ def write_artifact(slug: str, html: str) -> tuple[bool, str]:
     """Write an artifact. Returns (ok, message)."""
     if not ARTIFACT_SLUG_RE.match(slug):
         return False, "slug must match [a-z0-9][a-z0-9-]{0,63}"
+    if has_sensitive_text(slug):
+        return False, "artifact contains sensitive content"
     if len(html.encode("utf-8")) > ARTIFACT_MAX_BYTES:
         return False, f"html exceeds {ARTIFACT_MAX_BYTES} bytes"
+    if has_sensitive_text(html):
+        return False, "artifact contains sensitive content"
     try:
-        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
         path = ARTIFACTS_DIR / f"{slug}.html"
-        path.write_text(html, encoding="utf-8")
+        atomic_write_text(path, html)
+    except UnsafeFileAliasError:
+        return False, "write target must be a regular single-link file"
     except OSError as e:
         return False, f"write failed: {e}"
     return True, str(path)
@@ -2027,6 +2714,14 @@ def write_artifact(slug: str, html: str) -> tuple[bool, str]:
 
 def is_loopback_host(host: str) -> bool:
     return host in LOOPBACK_HOSTS
+
+
+def receipt_image_access_payload(client_host: str) -> dict[str, object]:
+    """Describe the raw receipt-image boundary without exposing peer details."""
+    return {
+        "available": is_loopback_host(client_host),
+        "policy": "loopback_only",
+    }
 
 
 def request_host_hostname(host: str) -> str:
@@ -2055,7 +2750,16 @@ def is_private_lan_ip_literal(hostname: str) -> bool:
         addr = ipaddress.ip_address(text)
     except ValueError:
         return False
-    return addr.is_private and not addr.is_loopback and not addr.is_link_local
+    if addr.version == 4:
+        return any(
+            addr in network
+            for network in (
+                ipaddress.ip_network("10.0.0.0/8"),
+                ipaddress.ip_network("172.16.0.0/12"),
+                ipaddress.ip_network("192.168.0.0/16"),
+            )
+        )
+    return addr in ipaddress.ip_network("fc00::/7")
 
 
 def is_allowed_request_host(host: str, bind_host: str) -> bool:
@@ -2068,27 +2772,21 @@ def is_allowed_request_host(host: str, bind_host: str) -> bool:
     this loopback server. An independent Host allowlist is required because
     a rebound domain can never legitimately present as "127.0.0.1"/"localhost".
 
-    In 0.0.0.0/:: LAN-bind mode (documented trusted-LAN read mode, README/
-    SKILL.md), a real LAN peer's Host header is the server's own private-use
-    IP literal -- never an arbitrary registered domain, since an attacker
-    can't own a private-range address. Round-9 panel finding: this used to
-    return True unconditionally for that bind mode, which let a DNS-rebound
-    request's Host header (the attacker's own domain, agreeing with its own
-    Origin) sail through -- is_loopback_host(client_address) doesn't catch
-    it either, since the rebound request's TCP connection genuinely
-    originates from this machine. Empirically confirmed exploitable via a
-    live curl PoC against /api/artifact and /api/local-plan-note before this
-    fix. Now applies the same private-IP-literal check
-    _require_comment_write() already uses for its own LAN-mode write path.
+    Wildcard bind mode is still an allowlist: loopback identities and private
+    IP literals are accepted, while domain names remain denied. Otherwise a
+    DNS-rebound domain could read every plan/proof API from a LAN-bound server.
+    Writes stay loopback-gated separately via client_address, except for the
+    narrower private-LAN comment route.
     """
     hostname = request_host_hostname(host)
     if not hostname:
         return False
+    allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
+    if hostname in allowed:
+        return True
     if bind_host in ("0.0.0.0", "::"):
-        allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
-        return hostname in allowed or is_private_lan_ip_literal(hostname)
-    allowed = {"127.0.0.1", "localhost", "[::1]", "::1", bind_host.strip().lower()}
-    return hostname in allowed
+        return is_private_lan_ip_literal(hostname)
+    return hostname.strip("[]") == bind_host.strip().strip("[]").lower()
 
 
 def is_json_content_type(value: str | None) -> bool:
@@ -2163,6 +2861,14 @@ def append_comment(
         return False, "comment must be non-empty"
     if len(text.encode("utf-8")) > COMMENT_BODY_MAX_BYTES:
         return False, f"comment exceeds {COMMENT_BODY_MAX_BYTES} bytes"
+    if (
+        has_sensitive_text(str(target_path))
+        or has_sensitive_text(text)
+        or has_sensitive_text(str(author or ""))
+    ):
+        return False, "comment contains sensitive content"
+    if anchor is not None and has_sensitive_text(json.dumps(anchor, default=str)):
+        return False, "comment contains sensitive content"
 
     record = {
         "id": str(uuid.uuid4()),
@@ -2178,27 +2884,33 @@ def append_comment(
         record["anchor"] = clean_anchor
 
     try:
-        COMMENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with COMMENTS_FILE.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, separators=(",", ":")) + "\n")
+        with _comments_write_guard():
+            try:
+                existing = read_text(COMMENTS_FILE, errors="replace")
+            except FileNotFoundError:
+                existing = ""
+            atomic_write_text(
+                COMMENTS_FILE,
+                existing + json.dumps(record, separators=(",", ":")) + "\n",
+            )
+    except UnsafeFileAliasError:
+        return False, "write target must be a regular single-link file"
     except OSError as e:
         return False, f"write failed: {e}"
     return True, record
 
 
 def read_comments(target_path: Path, limit: int = 100) -> list[dict]:
-    if not COMMENTS_FILE.is_file():
-        return []
     target = str(target_path)
     comments: list[dict] = []
     try:
-        for line in COMMENTS_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in read_text(COMMENTS_FILE, errors="replace").splitlines():
             try:
                 item = json.loads(line)
             except json.JSONDecodeError:
                 continue
             if item.get("target_path") == target:
-                comments.append(item)
+                comments.append(redact_sensitive_value(item))
     except OSError:
         return []
     return comments[-limit:]
@@ -2223,6 +2935,8 @@ def write_plan_note(
         return False, "note must be non-empty"
     if len(body.encode("utf-8")) > PLAN_NOTE_MAX_BYTES:
         return False, f"note exceeds {PLAN_NOTE_MAX_BYTES} bytes"
+    if has_sensitive_text(body) or has_sensitive_text(f"{source}\n{agent}"):
+        return False, "note contains sensitive content"
 
     source = clean_note_label(source, "vidux-browse-local")
     agent = clean_note_label(agent, "") if agent else ""
@@ -2238,23 +2952,25 @@ def write_plan_note(
         lines.append(f"- Agent: {agent}")
     entry = "\n".join(lines) + "\n\n" + quote + "\n\n"
 
-    if inbox.exists():
-        try:
-            text = inbox.read_text(encoding="utf-8")
-        except OSError as e:
-            return False, f"read failed: {e}"
-    else:
-        text = f"# {plan_path.parent.name} Inbox\n\n## Open\n\n## Processed\n"
-
-    marker = re.search(r"(^## Open\s*\n)", text, re.M)
-    if marker:
-        insert_at = marker.end()
-        text = text[:insert_at] + "\n" + entry + text[insert_at:]
-    else:
-        text = text.rstrip() + "\n\n## Open\n\n" + entry
-
     try:
-        inbox.write_text(text, encoding="utf-8")
+        with _PLAN_NOTE_WRITE_LOCK:
+            try:
+                text = read_text(inbox)
+            except FileNotFoundError:
+                text = f"# {plan_path.parent.name} Inbox\n\n## Open\n\n## Processed\n"
+
+            marker = re.search(r"(^## Open\s*\n)", text, re.M)
+            if marker:
+                insert_at = marker.end()
+                text = text[:insert_at] + "\n" + entry + text[insert_at:]
+            else:
+                text = text.rstrip() + "\n\n## Open\n\n" + entry
+
+            atomic_write_text(inbox, text)
+    except UnsafeFileAliasError:
+        return False, "write target must be a regular single-link file"
+    except UnicodeDecodeError:
+        return False, "read failed: INBOX.md is not valid UTF-8"
     except OSError as e:
         return False, f"write failed: {e}"
     return True, str(inbox)
@@ -2264,7 +2980,13 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "viduxBrowser/0.1"
 
     def log_message(self, fmt, *args):  # noqa: N802 — stdlib override
-        sys.stderr.write(f"[{self.log_date_time_string()}] {fmt % args}\n")
+        # Decode percent-escaped request targets before scanning; otherwise a
+        # preceding `%2F` can make its trailing `F` defeat token boundaries.
+        message, _ = redact_sensitive_text(unquote(fmt % args))
+        # Keep each request on one physical log line after decoding so encoded
+        # control characters cannot forge a second entry.
+        message = re.sub(r"[\x00-\x1f\x7f]+", " ", message).strip()
+        sys.stderr.write(f"[{self.log_date_time_string()}] {message}\n")
 
     def do_GET(self):  # noqa: N802 — stdlib override
         if not self._host_header_ok():
@@ -2284,7 +3006,8 @@ class Handler(BaseHTTPRequestHandler):
                         "repo_root": str(VIDUX_ROOT),
                         "server_path": str(SERVER_FILE),
                         "server_mtime_ns": SERVER_MTIME_NS,
-                        "artifacts_dir": str(ARTIFACTS_DIR)})
+                        "artifacts_dir": str(ARTIFACTS_DIR),
+                        "receipt_corpus_path": str(_receipts_handler.DEFAULT_CORPUS_PATH.resolve())})
         elif route == "/api/plans":
             plans = discover_plans_cached()
             self._json({
@@ -2337,7 +3060,15 @@ class Handler(BaseHTTPRequestHandler):
             if status != 200:
                 self._send(status, body if isinstance(body, str) else "file read failed")
                 return
-            self._send_with_type(body, ctype)
+            self._send_with_type(
+                body,
+                ctype,
+                extra_headers=(
+                    ARTIFACT_SECURITY_HEADERS
+                    if p.suffix.lower() == ".html"
+                    else None
+                ),
+            )
         elif route == "/api/receipts/list":
             # Round-10 fix: private:true rows are only included for a
             # loopback-verified caller -- a LAN peer that merely passes the
@@ -2346,8 +3077,14 @@ class Handler(BaseHTTPRequestHandler):
             status, body = _receipts_handler.handle_list(
                 include_private=is_loopback_host(self.client_address[0])
             )
-            self._send(status, "") if status >= 400 else self._json(body)
+            if status >= 400:
+                self._send(status, "")
+                return
+            body["image_access"] = receipt_image_access_payload(self.client_address[0])
+            self._json(body)
         elif route.startswith("/api/receipts/") and route.endswith("/image"):
+            if not self._require_receipt_image_read():
+                return
             row_id = route[len("/api/receipts/"):-len("/image")]
             status, ctype, data = _receipts_handler.handle_image(row_id)
             if status == 200:
@@ -2555,6 +3292,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send(403, "Host header not recognized")
         return False
 
+    def _require_receipt_image_read(self) -> bool:
+        if not is_loopback_host(self.client_address[0]):
+            self._send(403, "receipt image pixels require loopback client")
+            return False
+        return True
+
     def _require_json_write(self) -> bool:
         if not is_loopback_host(self.client_address[0]):
             self._send(403, "write endpoints require loopback client")
@@ -2654,7 +3397,7 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _json(self, payload):
-        body = json.dumps(payload, indent=2).encode("utf-8")
+        body = json.dumps(redact_sensitive_value(payload), indent=2).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2662,16 +3405,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self._write_body(body)
 
-    def _send_with_type(self, body: bytes, ctype: str):
+    def _send_with_type(
+        self,
+        body: bytes,
+        ctype: str,
+        extra_headers: dict[str, str] | None = None,
+    ):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self._write_body(body)
 
     def _send_text(self, text: str):
-        body = text.encode("utf-8")
+        safe_text, _ = redact_sensitive_text(text)
+        body = safe_text.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/markdown; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2680,7 +3431,8 @@ class Handler(BaseHTTPRequestHandler):
         self._write_body(body)
 
     def _send(self, code: int, msg: str):
-        body = msg.encode("utf-8")
+        safe_message, _ = redact_sensitive_text(msg)
+        body = safe_message.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2729,7 +3481,8 @@ def main(argv=None):
         type=str,
         default=None,
         help="Host to bind. Defaults to env VIDUX_BROWSER_HOST or 127.0.0.1. "
-             "Use 0.0.0.0 to expose on LAN.",
+             "Use 0.0.0.0 only for trusted-LAN read access, then open the "
+             "server by private IP address (domain Host values are rejected).",
     )
     parser.add_argument(
         "--comments-path",
@@ -2747,6 +3500,15 @@ def main(argv=None):
              "-- NOT scoped by --root, so pass this explicitly for hermetic "
              "test/demo runs against a fixture root.",
     )
+    parser.add_argument(
+        "--receipt-corpus-path",
+        type=str,
+        default=None,
+        help="Path to the receipt corpus JSONL. Defaults to env RECEIPT_CORPUS_PATH "
+             "or ~/Development/vidux/browser/receipts/corpus.jsonl -- NOT scoped "
+             "by --root, so pass this explicitly for hermetic test/demo runs "
+             "against a fixture root.",
+    )
     args = parser.parse_args(argv)
 
     # CLI overrides module-level globals. Re-resolve so the server uses the
@@ -2762,6 +3524,8 @@ def main(argv=None):
         COMMENTS_FILE = Path(args.comments_path).expanduser()
     if args.artifacts_dir is not None:
         ARTIFACTS_DIR = Path(args.artifacts_dir).expanduser().resolve()
+    if args.receipt_corpus_path is not None:
+        _receipts_handler.configure_corpus_path(args.receipt_corpus_path)
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"

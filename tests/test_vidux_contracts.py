@@ -974,7 +974,7 @@ class ViduxContractTests(unittest.TestCase):
         )
         self.assertEqual(fish_completion.returncode, 0, fish_completion.stderr)
         self.assertIn(
-            "__fish_seen_subcommand_from help' -a 'dev browse status init drift config signpost http-smoke doctor build release completion help'",
+            "__fish_seen_subcommand_from help' -a 'dev browse status benchmark init drift config signpost http-smoke doctor build release completion help'",
             fish_completion.stdout,
         )
 
@@ -1960,7 +1960,11 @@ class ViduxContractTests(unittest.TestCase):
 
         prompt_path = "prompts/goal-navigation-control-plane.prompt.md"
         self.assertIn(prompt_path, vidux)
-        self.assertIn(prompt_path, amp)
+        # The public Vidux suite must not require a Leo-private router to name
+        # this repo's prompt literally. Pin the shared capability boundary:
+        # Vidux owns its canonical pointer; Amp owns generic prompt-file mode.
+        self.assertIn("Prompt File Mode", amp)
+        self.assertIn("one PLAN path", amp)
         self.assertFalse(PRIVATE_AUTO_SKILL.exists(), "private /auto skill should be deleted, not archived")
         self.assertFalse(SHARED_AUTO_SKILL.exists(), "shared /auto skill should be deleted, not shadowed")
         self.assertFalse(ACTIVE_AUTO_SKILL.exists(), "active skill farm should not expose /auto")
@@ -2664,6 +2668,52 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(route, browser)
 
         self.assertIn("[--outcome <useful|busy|blocked_clarified>]", checkpoint)
+
+    def test_browser_docs_pin_sensitive_content_boundary_and_limits(self):
+        browser = _read(ROOT / "docs" / "reference" / "browser.md")
+        readme = _read(ROOT / "README.md")
+        skill = _read(SKILL)
+
+        for phrase in [
+            "content_redacted=true",
+            "sensitive_redactions=<count>",
+            "standalone mixed-character values of at least 40 characters",
+            "Hex digests and explicit example/redacted/unset placeholders remain visible",
+            "Receipt image bytes are loopback-only reads",
+            "The detector still does not inspect text embedded in receipt-image pixels",
+        ]:
+            self.assertIn(phrase, browser)
+
+        self.assertIn("affected plans stay visibly marked", readme)
+        self.assertIn("Receipt photo bytes stay loopback-only", readme)
+        self.assertIn("receipt-image bytes remain loopback-only", skill)
+        self.assertIn("sandboxed iframe", skill)
+        self.assertNotIn("no XSS surface", skill)
+
+    def test_browser_docs_pin_artifact_network_isolation_boundary(self):
+        browser = _read(ROOT / "docs" / "reference" / "browser.md")
+        readme = _read(ROOT / "README.md")
+        skill = _read(SKILL)
+
+        for phrase in [
+            "network-isolated, sandboxed iframe boundary",
+            "Content-Disposition: attachment",
+            "Cross-Origin-Resource-Policy: same-origin",
+            "Referrer-Policy: no-referrer",
+            "Remote HTTP(S) assets are intentionally blocked",
+            "Fragment-only navigation remains available",
+            "injects those bytes as an inline `<style>`",
+        ]:
+            self.assertIn(phrase, browser)
+
+        self.assertIn("HTML artifacts are network-isolated", readme)
+        self.assertIn("network-isolated, sandboxed iframe", skill)
+        self.assertNotIn("allow-popups", browser)
+        self.assertIn(
+            "artifact code never receives `allow-scripts` or `allow-popups`",
+            skill,
+        )
+        self.assertNotIn("PLAN.md`/comment/artifact body", browser)
 
     def test_loop_checkpoint_wording_requires_publish_propagation(self):
         """The loop guide must not describe raw git commit as the checkpoint."""
@@ -4408,6 +4458,47 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn("vidux config check (source=fixture live=yes example=no)", result.stdout)
             self.assertIn("npm test (contract suite) (skipped via VIDUX_DOCTOR_SKIP_NPM_TEST=1)", result.stdout)
 
+    def test_install_doctor_treats_packaged_source_only_checks_as_warnings(self):
+        """A global package should be runnable without a git checkout or test tree."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            home = tmp / "home"
+            fakebin = tmp / "bin"
+            root = tmp / "package"
+            scripts = root / "scripts"
+            for directory in (home, fakebin, scripts, tmp / "tmp"):
+                directory.mkdir(parents=True, exist_ok=True)
+
+            gh = fakebin / "gh"
+            gh.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+            gh.chmod(0o755)
+            (root / "package.json").write_text('{"name":"vidux"}\n', encoding="utf-8")
+            (scripts / "vidux-config.py").write_text(
+                "import json\nprint(json.dumps({'status':'ok','source':'package','live_config_present':False,'using_example':True}))\n",
+                encoding="utf-8",
+            )
+
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "PATH": f"{fakebin}{os.pathsep}{env.get('PATH', '')}",
+                "TMPDIR": str(tmp / "tmp"),
+                "VIDUX_ROOT": str(root),
+            })
+            env.pop("VIDUX_DOCTOR_SKIP_NPM_TEST", None)
+            env.pop("VIDUX_DEV_ROOT", None)
+
+            result = subprocess.run(
+                ["bash", str(self.SCRIPTS_DIR / "vidux-doctor-cli.sh")],
+                capture_output=True, text=True, timeout=15, env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[WARN] gh authenticated", result.stdout)
+            self.assertIn("[WARN] development root exists", result.stdout)
+            self.assertIn("source-only check unavailable in packaged install", result.stdout)
+            self.assertIn("4/7 checks passed, 3 warning(s)", result.stdout)
+
     def test_vidux_browse_launcher_reuses_only_matching_health(self):
         """vidux-browse must not treat any listener on :7191 as the current UI."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -4431,6 +4522,7 @@ class ViduxContractTests(unittest.TestCase):
                 "VIDUX_DEV_ROOT": str(dev_root),
                 "VIDUX_BROWSER_PORT": "7191",
             })
+            env.pop("RECEIPT_CORPUS_PATH", None)
 
             matching_health = json.dumps({
                 "ok": True,
@@ -4438,6 +4530,9 @@ class ViduxContractTests(unittest.TestCase):
                 "repo_root": str(ROOT.resolve()),
                 "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
                 "port": 7191,
+                "receipt_corpus_path": str(
+                    (home / "Development" / "vidux" / "browser" / "receipts" / "corpus.jsonl").resolve()
+                ),
             })
             (fakebin / "curl").write_text(
                 "#!/usr/bin/env bash\nprintf '%s\\n' " + json.dumps(matching_health) + "\n",
@@ -4454,6 +4549,30 @@ class ViduxContractTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("vidux browser already on http://127.0.0.1:7191", result.stdout)
+
+            mismatched_receipt_health = json.dumps({
+                "ok": True,
+                "dev_root": str(dev_root.resolve()),
+                "repo_root": str(ROOT.resolve()),
+                "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
+                "port": 7191,
+                "receipt_corpus_path": str((tmp / "different-corpus.jsonl").resolve()),
+            })
+            (fakebin / "curl").write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' " + json.dumps(mismatched_receipt_health) + "\n",
+                encoding="utf-8",
+            )
+            (fakebin / "curl").chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", str(ROOT / "bin" / "vidux-browse"), "--no-open"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("receipt_corpus_path", result.stderr)
 
             stale_health = json.dumps({
                 "ok": True,
@@ -4507,6 +4626,7 @@ class ViduxContractTests(unittest.TestCase):
                 "VIDUX_BROWSER_PORT": str(free_port),
             })
             env.pop("VIDUX_ROOT", None)
+            env.pop("RECEIPT_CORPUS_PATH", None)
 
             proc = subprocess.Popen(
                 ["bash", str(scratch_bin / "vidux-browse"), "--no-open", "--foreground"],
@@ -4537,6 +4657,19 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn("vidux browser", stderr)
             self.assertIsNotNone(health_payload)
             self.assertEqual(health_payload["repo_root"], str(ROOT.resolve()))
+            self.assertEqual(
+                health_payload["receipt_corpus_path"],
+                str(
+                    (
+                        scratch_home
+                        / "Development"
+                        / "vidux"
+                        / "browser"
+                        / "receipts"
+                        / "corpus.jsonl"
+                    ).resolve()
+                ),
+            )
 
     def test_vidux_browse_launcher_parses_flags_instead_of_silently_ignoring(self):
         """browse flags should affect launcher behavior or fail loudly."""
@@ -4546,6 +4679,7 @@ class ViduxContractTests(unittest.TestCase):
             home = tmp / "home"
             dev_root = home / "Development"
             custom_root = tmp / "scan-root"
+            custom_corpus = tmp / "fixture-receipts" / "corpus.jsonl"
             fakebin.mkdir()
             dev_root.mkdir(parents=True)
             custom_root.mkdir()
@@ -4558,6 +4692,7 @@ class ViduxContractTests(unittest.TestCase):
                 "repo_root": str(ROOT.resolve()),
                 "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
                 "port": 7292,
+                "receipt_corpus_path": str(custom_corpus.resolve()),
             })
             (fakebin / "curl").write_text(
                 "#!/usr/bin/env bash\nprintf '%s\\n' " + json.dumps(custom_health) + "\n",
@@ -4572,6 +4707,7 @@ class ViduxContractTests(unittest.TestCase):
                 "PATH": f"{fakebin}{os.pathsep}{env.get('PATH', '')}",
                 "VIDUX_ROOT": str(ROOT),
             })
+            env.pop("RECEIPT_CORPUS_PATH", None)
 
             result = subprocess.run(
                 [
@@ -4581,6 +4717,8 @@ class ViduxContractTests(unittest.TestCase):
                     "7292",
                     "--root",
                     str(custom_root),
+                    "--receipt-corpus-path",
+                    str(custom_corpus),
                     "--no-open",
                 ],
                 capture_output=True,
@@ -4611,6 +4749,16 @@ class ViduxContractTests(unittest.TestCase):
             self.assertEqual(missing.returncode, 2)
             self.assertIn("--port requires a value", missing.stderr)
 
+            missing_receipt_corpus = subprocess.run(
+                ["bash", str(ROOT / "bin" / "vidux-browse"), "--receipt-corpus-path"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env=env,
+            )
+            self.assertEqual(missing_receipt_corpus.returncode, 2)
+            self.assertIn("--receipt-corpus-path requires a value", missing_receipt_corpus.stderr)
+
     def test_vidux_wrapper_exports_resolved_root_to_browse_launcher(self):
         """vidux browse must launch from the checkout that owns bin/vidux."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -4630,6 +4778,9 @@ class ViduxContractTests(unittest.TestCase):
                 "repo_root": str(ROOT.resolve()),
                 "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
                 "port": 7293,
+                "receipt_corpus_path": str(
+                    (home / "Development" / "vidux" / "browser" / "receipts" / "corpus.jsonl").resolve()
+                ),
             })
             (fakebin / "curl").write_text(
                 "#!/usr/bin/env bash\nprintf '%s\\n' " + json.dumps(matching_health) + "\n",
@@ -4644,6 +4795,7 @@ class ViduxContractTests(unittest.TestCase):
                 "PATH": f"{fakebin}{os.pathsep}{env.get('PATH', '')}",
             })
             env.pop("VIDUX_ROOT", None)
+            env.pop("RECEIPT_CORPUS_PATH", None)
 
             result = subprocess.run(
                 [
@@ -4680,6 +4832,7 @@ class ViduxContractTests(unittest.TestCase):
             "--root PATH",
             "--open-host HOST",
             "--comments-path PATH",
+            "--receipt-corpus-path PATH",
         ):
             self.assertIn(token, help_result.stdout)
         self.assertIn("refuses to reuse an existing port", help_result.stdout)
@@ -4694,11 +4847,26 @@ class ViduxContractTests(unittest.TestCase):
         self.assertEqual(browse_help.returncode, 0, browse_help.stderr)
         self.assertIn("--port N", browse_help.stdout)
         self.assertIn("--comments-path PATH", browse_help.stdout)
+        self.assertIn("--receipt-corpus-path PATH", browse_help.stdout)
 
         completion_expectations = {
-            "bash": ("--no-open", "--foreground", "--port", "--host", "--root", "--open-host", "--comments-path"),
-            "zsh": ("--no-open[Do not open a browser]", "--port[Bind or reuse port]", "--comments-path[Comments JSONL path]"),
-            "fish": ("-l no-open", "-l port", "-l comments-path"),
+            "bash": (
+                "--no-open",
+                "--foreground",
+                "--port",
+                "--host",
+                "--root",
+                "--open-host",
+                "--comments-path",
+                "--receipt-corpus-path",
+            ),
+            "zsh": (
+                "--no-open[Do not open a browser]",
+                "--port[Bind or reuse port]",
+                "--comments-path[Comments JSONL path]",
+                "--receipt-corpus-path[Receipt corpus JSONL path]",
+            ),
+            "fish": ("-l no-open", "-l port", "-l comments-path", "-l receipt-corpus-path"),
         }
         for shell, tokens in completion_expectations.items():
             completion = subprocess.run(

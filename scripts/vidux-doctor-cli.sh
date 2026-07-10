@@ -2,19 +2,19 @@
 # vidux-doctor-cli — installation + toolchain diagnostics for the `vidux` CLI.
 #
 # This complements scripts/vidux-doctor.sh (which inspects runtime state across
-# plans, automations, browsers, and codex threads). This script checks the
-# subset a fresh `git clone` user needs to know works:
+# plans, automations, browsers, and codex threads). This script checks both
+# source checkouts and installable release packages:
 #
 #   1. python3 >= 3.10
-#   2. gh installed + logged in (gh auth status)
+#   2. gh installed + logged in (optional integration; warning when absent)
 #   3. ~/.config/vidux/*.token files (if any) are chmod 600
-#   4. $HOME/Development directory exists
+#   4. configured development root exists (warning when absent)
 #   5. No stale ${TMPDIR:-/tmp}/vidux-browser.pid pointing to a dead PID
 #   6. `vidux config check --json` passes
-#   7. `npm test` passes (contract bundle count is reported dynamically)
+#   7. `npm test` passes in a source checkout (warning in a packaged install)
 #
-# Each check prints `[PASS] <name>` or `[FAIL] <name>: <reason>`. Exit 0 if all
-# pass, exit 1 if any fail. Pure POSIX bash, stdlib + system tools only — no
+# Each check prints `[PASS]`, `[WARN]`, or `[FAIL]`. Exit 0 when no hard check
+# fails, exit 1 on a hard failure. Pure POSIX bash, stdlib + system tools — no
 # extra dependencies beyond system shell, python3, and the repo scripts.
 #
 set -euo pipefail
@@ -31,17 +31,17 @@ usage: vidux doctor [--help|-h]
 This is the terminal user doctor for a checkout/fresh clone. For hook-safe
 runtime state checks, use: scripts/vidux-doctor.sh --json
 
-Runs the following checks in order, printing [PASS] / [FAIL] for each:
+Runs the following checks in order, printing [PASS] / [WARN] / [FAIL]:
   1. python3 >= 3.10
-  2. gh installed + 'gh auth status' shows logged in
+  2. gh installed + authenticated (optional integration)
   3. ~/.config/vidux/*.token files have chmod 600 (if any exist)
-  4. \$HOME/Development directory exists
+  4. configured development root exists
   5. No stale browser pidfile at \${TMPDIR:-/tmp}/vidux-browser.pid
   6. 'vidux config check --json' validates the selected config
-  7. 'npm test' passes (contract suite — count is reported dynamically)
+  7. 'npm test' passes in source checkouts; packaged installs report a warning
 
 Exit codes:
-  0   all checks pass
+  0   no hard check failed (optional warnings may remain)
   1   one or more checks failed
   2   invalid usage, such as an unknown flag
 
@@ -69,6 +69,7 @@ done
 
 PASS_COUNT=0
 FAIL_COUNT=0
+WARN_COUNT=0
 TOTAL=0
 
 _pass() {
@@ -81,6 +82,12 @@ _fail() {
   TOTAL=$((TOTAL + 1))
   FAIL_COUNT=$((FAIL_COUNT + 1))
   printf '[FAIL] %s: %s\n' "$1" "$2"
+}
+
+_warn() {
+  TOTAL=$((TOTAL + 1))
+  WARN_COUNT=$((WARN_COUNT + 1))
+  printf '[WARN] %s: %s\n' "$1" "$2"
 }
 
 # ----------------------------------------------------------------------------
@@ -120,19 +127,19 @@ check_python_version() {
 check_gh_auth() {
   local name="gh authenticated"
   if ! command -v gh >/dev/null 2>&1; then
-    _fail "$name" "gh not found on PATH (install: brew install gh)"
+    _warn "$name" "optional GitHub integration unavailable; install gh to use PR/release helpers"
     return
   fi
   # gh auth status prints to stderr and exits non-zero when not logged in.
   local out
   if ! out="$(gh auth status 2>&1)"; then
-    _fail "$name" "gh auth status failed (run: gh auth login)"
+    _warn "$name" "optional GitHub integration is signed out (run: gh auth login)"
     return
   fi
   # Confirm at least one host shows "Logged in" — older gh versions phrase this
   # differently, so accept either "Logged in" or "✓ Logged in".
   if ! printf '%s\n' "$out" | grep -qi "logged in"; then
-    _fail "$name" "gh auth status output did not include 'Logged in'"
+    _warn "$name" "optional GitHub integration did not report a logged-in account"
     return
   fi
   _pass "$name"
@@ -185,9 +192,10 @@ check_token_perms() {
 # Check 4: $HOME/Development exists
 # ----------------------------------------------------------------------------
 check_development_dir() {
-  local name="\$HOME/Development exists"
-  if [[ ! -d "$HOME/Development" ]]; then
-    _fail "$name" "$HOME/Development not found (mkdir -p ~/Development)"
+  local dev_root="${VIDUX_DEV_ROOT:-$HOME/Development}"
+  local name="development root exists"
+  if [[ ! -d "$dev_root" ]]; then
+    _warn "$name" "$dev_root not found (create it or set VIDUX_DEV_ROOT before browsing)"
     return
   fi
   _pass "$name"
@@ -292,6 +300,14 @@ check_npm_test() {
     _fail "$name" "$VIDUX_ROOT/package.json missing"
     return
   fi
+  if [[ ! -d "$VIDUX_ROOT/.git" && ! -f "$VIDUX_ROOT/.git" ]]; then
+    _warn "$name" "source-only check unavailable in packaged install; release package verification ran before publish"
+    return
+  fi
+  if [[ ! -d "$VIDUX_ROOT/tests" || ! -d "$VIDUX_ROOT/node_modules" ]]; then
+    _fail "$name" "source checkout dependencies missing (run: npm install)"
+    return
+  fi
   if ! command -v npm >/dev/null 2>&1; then
     _fail "$name" "npm not found on PATH"
     return
@@ -332,7 +348,11 @@ check_vidux_config
 check_npm_test
 
 echo ""
-echo "${PASS_COUNT}/${TOTAL} checks passed"
+if [[ "$WARN_COUNT" -gt 0 ]]; then
+  echo "${PASS_COUNT}/${TOTAL} checks passed, ${WARN_COUNT} warning(s)"
+else
+  echo "${PASS_COUNT}/${TOTAL} checks passed"
+fi
 
 if [[ "$FAIL_COUNT" -gt 0 ]]; then
   exit 1

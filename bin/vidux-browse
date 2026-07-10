@@ -28,13 +28,14 @@ LOG="${TMPDIR:-/tmp}/vidux-browser.log"
 PIDFILE="${TMPDIR:-/tmp}/vidux-browser.pid"
 DEV_ROOT="${VIDUX_DEV_ROOT:-$HOME/Development}"
 COMMENTS_PATH="${VIDUX_BROWSER_COMMENTS_FILE:-}"
+RECEIPT_CORPUS_PATH="${RECEIPT_CORPUS_PATH:-$HOME/Development/vidux/browser/receipts/corpus.jsonl}"
 
 OPEN_BROWSER=1
 FOREGROUND=0
 
 usage() {
   cat <<EOF
-usage: vidux-browse [--no-open] [--foreground|-f] [--port N] [--host HOST] [--root PATH] [--open-host HOST] [--comments-path PATH]
+usage: vidux-browse [--no-open] [--foreground|-f] [--port N] [--host HOST] [--root PATH] [--open-host HOST] [--comments-path PATH] [--receipt-corpus-path PATH]
   default: starts server in background, opens http://${OPEN_HOST}:${PORT}
 EOF
 }
@@ -72,6 +73,10 @@ while [[ $# -gt 0 ]]; do
       require_value "$1" "${2:-}"; COMMENTS_PATH="$2"; shift 2 ;;
     --comments-path=*)
       COMMENTS_PATH="${1#*=}"; shift ;;
+    --receipt-corpus-path)
+      require_value "$1" "${2:-}"; RECEIPT_CORPUS_PATH="$2"; shift 2 ;;
+    --receipt-corpus-path=*)
+      RECEIPT_CORPUS_PATH="${1#*=}"; shift ;;
     -h|--help)
       usage
       exit 0
@@ -97,7 +102,8 @@ URL="http://${OPEN_HOST}:${PORT}"
 EXPECTED_DEV_ROOT="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "${DEV_ROOT}")"
 EXPECTED_REPO_ROOT="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "${ROOT}")"
 EXPECTED_SERVER_MTIME_NS="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).stat().st_mtime_ns)' "${EXPECTED_REPO_ROOT}/browser/server.py")"
-SERVER_ARGS=(--host "${HOST}" --port "${PORT}" --root "${EXPECTED_DEV_ROOT}")
+EXPECTED_RECEIPT_CORPUS_PATH="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "${RECEIPT_CORPUS_PATH}")"
+SERVER_ARGS=(--host "${HOST}" --port "${PORT}" --root "${EXPECTED_DEV_ROOT}" --receipt-corpus-path "${EXPECTED_RECEIPT_CORPUS_PATH}")
 if [[ -n "${COMMENTS_PATH}" ]]; then
   SERVER_ARGS+=(--comments-path "${COMMENTS_PATH}")
 fi
@@ -111,6 +117,7 @@ health_matches_current_browser() {
     EXPECTED_REPO_ROOT="${EXPECTED_REPO_ROOT}" \
     EXPECTED_PORT="${PORT}" \
     EXPECTED_SERVER_MTIME_NS="${EXPECTED_SERVER_MTIME_NS}" \
+    EXPECTED_RECEIPT_CORPUS_PATH="${EXPECTED_RECEIPT_CORPUS_PATH}" \
     python3 - <<'PY'
 import json
 import os
@@ -126,6 +133,8 @@ if payload.get("ok") is not True:
 if str(payload.get("dev_root", "")) != os.environ["EXPECTED_DEV_ROOT"]:
     sys.exit(1)
 if str(payload.get("repo_root", "")) != os.environ["EXPECTED_REPO_ROOT"]:
+    sys.exit(1)
+if str(payload.get("receipt_corpus_path", "")) != os.environ["EXPECTED_RECEIPT_CORPUS_PATH"]:
     sys.exit(1)
 try:
     server_mtime_ns = int(payload.get("server_mtime_ns"))
@@ -151,7 +160,7 @@ if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
     exit 0
   fi
   echo "port ${PORT} is already in use, but ${URL}/api/health does not match this Vidux checkout/root" >&2
-  echo "expected repo_root=${EXPECTED_REPO_ROOT} dev_root=${EXPECTED_DEV_ROOT} server_mtime_ns=${EXPECTED_SERVER_MTIME_NS}" >&2
+  echo "expected repo_root=${EXPECTED_REPO_ROOT} dev_root=${EXPECTED_DEV_ROOT} server_mtime_ns=${EXPECTED_SERVER_MTIME_NS} receipt_corpus_path=${EXPECTED_RECEIPT_CORPUS_PATH}" >&2
   exit 1
 fi
 

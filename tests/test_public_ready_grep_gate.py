@@ -15,6 +15,52 @@ SCRIPT = ROOT / "scripts" / "vidux-public-ready-grep-gate.py"
 
 
 class PublicReadyGrepGateTests(unittest.TestCase):
+    def test_tracked_only_scans_the_shipping_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / "README.md").write_text("Vidux is markdown-plan-first.\n", encoding="utf-8")
+            leak = root / "LOCAL-NOTES.md"
+            leak.write_text("Use `/leo-flow` locally.\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+
+            clean = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo-root",
+                    str(root),
+                    "--tracked-only",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            subprocess.run(["git", "-C", str(root), "add", "LOCAL-NOTES.md"], check=True)
+            leak.write_text("Clean worktree copy.\n", encoding="utf-8")
+            leaking = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo-root",
+                    str(root),
+                    "--tracked-only",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        clean_payload = json.loads(clean.stdout)
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertEqual(clean_payload["scope"], "tracked")
+        self.assertEqual(clean_payload["scanned_files"], 1)
+        self.assertEqual(leaking.returncode, 1)
+        leaking_payload = json.loads(leaking.stdout)
+        self.assertEqual(leaking_payload["matches"][0]["file"], "LOCAL-NOTES.md")
+
     def test_clean_current_surface_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -186,6 +232,27 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["pattern"], "private username")
+
+    def test_private_maintainer_account_note_is_caught(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".claude").mkdir()
+            (root / ".claude" / "settings.json").write_text(
+                '{"_note": "Leo\'s work account requires private command policy."}\n',
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "private maintainer account note")
 
     def test_spouse_first_name_pattern_catches_real_leak(self):
         # Round-8 panel finding: 4 evidence files named the maintainer's

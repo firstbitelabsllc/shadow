@@ -17,7 +17,8 @@ The `scripts/` directory is vidux's executable support layer — shell and Pytho
 | `scripts/vidux-plan-gc-cron.sh` | Scheduled wrapper around `vidux-plan-gc.py`. |
 | `scripts/vidux-pr-body.py` | Builds the canonical ready-PR body: lane, existing plan path/checkbox-FSM task row, summary, proof, a matching publish ledger eid (must exist as a publish event in the hot/archive ledger for the same lane/task/summary/plan/proof/handoff/changed-files/file-claims/resume packet), claimed files resolving to existing paths or git-known deletions, self-scrutiny review-pass, resume, and change fields. |
 | `scripts/vidux-publish-scrutiny.py` | Read-only preflight for publish packets. Fails closed unless summary/plan path/checkbox-FSM task row/proof/publish ledger eid/handoff/path-like file+claim/resume metadata exists, claims cover every file-claimed entry, claimed paths resolve to existing paths or git-known deletions, and invariant + regression + adversarial review passes are recorded passing. |
-| `scripts/vidux-release.sh` | Plan/ledger-gated release helper. In `--apply` mode, release publish requires an existing plan path/task row, proof, handoff status, changed-file claims, and next-agent resume before VERSION/CHANGELOG/PLAN/git/ledger mutations; default VERSION/CHANGELOG/PLAN files plus extra `--file` entries are claimed automatically. |
+| `scripts/vidux-release.sh` | Plan/ledger-gated release helper. In `--apply` mode, release publish requires an existing plan path/task row, proof, handoff status, changed-file claims, and next-agent resume. It synchronizes `VERSION`, npm metadata, and the Claude plugin manifest, verifies the package candidate, then performs CHANGELOG/PLAN/git/ledger mutations. |
+| `scripts/vidux-release-package.py` | Builds the exact npm candidate twice in isolated temp directories and fails closed unless hashes match, all version surfaces agree, required CLI/browser files exist, every packaged file is git-tracked, forbidden local/evaluation/proof roots are absent, and size/count limits hold. Exposed as `npm run release:verify`. |
 | `scripts/vidux-claims.py` | Append-only claims bus for claiming, releasing, and listing active repo surfaces in `~/.agent-ledger/claims.jsonl`. |
 | `scripts/vidux-plan-guard.sh` | Detects silent `PLAN.md` task-count drops (a merge, checkout, or stale branch silently deleting tasks). `snapshot <plan>` records the current count to a `.plan-taskcount` sidecar; `verify <plan> [--json]` compares and flags a drop beyond threshold unless authorized by a dated `- [DELETION] [YYYY-MM-DD] ...` Decision Log entry. `vidux-checkpoint.sh` snapshots on every checkpoint; `vidux-loop.sh` verifies on every READ (`plan_integrity_warning`). See `investigations/2026-04-09-plan-clobber-postmortem.md`. |
 | `scripts/vidux-step-journal.sh` | Append-only JSONL step journal for crash-safe intra-row resume (idempotency key = row+step). `record`/`is-done`/`resume-point`/`status`/`clear`. `vidux-checkpoint.sh` archives a task's journal on true completion (preserved on `blocked`); `vidux-loop.sh` surfaces `step_journal.{available,row}` when resuming an `[in_progress]` task with an existing journal. |
@@ -36,7 +37,7 @@ To wire it into an app-level `afterTask` event, wrap it with the task-specific a
 
 | Script | Purpose |
 |---|---|
-| `scripts/vidux-doctor-cli.sh` | User-facing install/readiness doctor exposed as `vidux doctor`. Checks python, GitHub CLI auth, token permissions, `~/Development`, stale browser pidfiles, config validity, and the contract test bundle unless skipped. |
+| `scripts/vidux-doctor-cli.sh` | User-facing install/readiness doctor exposed as `vidux doctor`. Hard-checks Python, token permissions, stale browser state, and config; optional GitHub, development-root, and source-test capabilities report warnings when unavailable in a packaged install. |
 | `scripts/vidux-doctor.sh` | Runtime health checks for plans, worktrees, automations, browser processes, and Codex state. |
 | `scripts/vidux-http-smoke.py` | Observe-only HTTP smoke helper for local monitor budgets. Classifies fast responses `pass`, byte-streaming-then-timeout `warn_partial`, zero-byte budget timeouts `fail_budget`, keeping only a bounded response sample so probes never dump full HTML or huge JSON into evidence. JSON `ok` follows hard-fail exit status; `strict_ok` is false when any warning is present. `--timeout` must be > 0; `--max-sample-bytes` must be ≥ 0. |
 | `scripts/vidux-test-all.sh` | Comprehensive self-test harness for contract tests and related checks. |
@@ -46,10 +47,11 @@ To wire it into an app-level `afterTask` event, wrap it with the task-specific a
 ### Doctor split
 
 Use `vidux doctor` when a human or terminal lane needs local CLI readiness:
-python version, GitHub auth, token permissions, local config, stale browser
-pidfile state, the contract bundle. It may run `npm test`, so set
+Python version, optional GitHub auth, token permissions, local config, stale
+browser pidfile state, and the source contract bundle when present. It may run `npm test`, so set
 `VIDUX_DOCTOR_SKIP_NPM_TEST=1` only in fast loops with a separate test gate.
-The install doctor exits `0` when all checks pass, `1` when any check fails, and `2` for invalid usage.
+The install doctor exits `0` when no hard check fails (optional warnings may
+remain), `1` when a hard check fails, and `2` for invalid usage.
 
 Use `scripts/vidux-doctor.sh --json` when a hook or monitor needs runtime
 health: plans, worktrees, automations, browser processes, Codex state. Read-only

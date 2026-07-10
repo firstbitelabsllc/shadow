@@ -1,4 +1,52 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { createServer } from 'node:http';
+
+async function openDrawerIfNeeded(page: Page) {
+  const toggle = page.locator('#sidebar-toggle');
+  if (await toggle.isVisible() && await toggle.getAttribute('aria-expanded') !== 'true') {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  }
+}
+
+async function expandGroup(page: Page, name: string) {
+  await openDrawerIfNeeded(page);
+  const button = page.locator('.repo-disclosure', { hasText: name }).first();
+  await button.waitFor();
+  if (await button.getAttribute('aria-expanded') !== 'true') {
+    await button.click();
+  }
+  await expect(page.locator('.repo-disclosure', { hasText: name }).first()).toHaveAttribute('aria-expanded', 'true');
+}
+
+async function expandProjectGroups(page: Page) {
+  await openDrawerIfNeeded(page);
+  const names = await page.locator('.repo-disclosure').allTextContents();
+  for (const raw of names) {
+    const name = raw.replace(/[▾▸]/g, '').replace(/\d+\s*$/, '').trim();
+    if (name && name !== 'artifacts' && name !== 'recently viewed') {
+      await expandGroup(page, name);
+    }
+  }
+}
+
+async function toggleAdvanced(page: Page) {
+  const topbar = page.locator('#mode-toggle');
+  if (await topbar.isVisible()) {
+    await topbar.click();
+  } else {
+    await openDrawerIfNeeded(page);
+    await page.locator('#sidebar-mode-toggle').click();
+  }
+  await expect(page.locator('html')).toHaveClass(/advanced-mode/);
+}
+
+async function visibleThemeToggle(page: Page) {
+  const topbar = page.locator('#theme-toggle');
+  if (await topbar.isVisible()) return topbar;
+  await openDrawerIfNeeded(page);
+  return page.locator('#sidebar-theme-toggle');
+}
 
 // Hermetic smoke specs — talk to the fixture-root server booted by
 // playwright.config.ts. They prove: server boots, html renders, sidebar
@@ -14,20 +62,283 @@ test.describe('vidux-browse smoke', () => {
 
   test('GET / renders topbar', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.topbar h1')).toHaveText('vidux browser');
+    await expect(page.locator('.topbar h1')).toHaveText('Vidux');
+  });
+
+  test('clean first run gives one public setup command and rescans', async ({ page }) => {
+    let planRequests = 0;
+    await page.route('**/api/plans', async route => {
+      planRequests += 1;
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [],
+          summary: { plans: 0, repos: 0 },
+          dashboard: {
+            plans_scanned: 0,
+            repos: 0,
+            mission_control: {
+              briefs_total: 0,
+              selected: null,
+              authority: { state: 'missing', claims_total: 0, tied_total: 0 },
+            },
+            onboarding: {
+              state: 'empty',
+              projects_total: 0,
+              plans_total: 0,
+              connected_projects: 0,
+              unconnected_projects: 0,
+              briefs_total: 0,
+              missing_briefs_total: 0,
+              projects: [],
+              init_command: 'vidux init --here',
+            },
+            categories: {},
+          },
+          dev_root: '/private/fixture-root-that-must-not-render',
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ artifacts: [] }) });
+    });
+
+    await page.goto('/');
+
+    const setup = page.locator('.mission-control.is-empty');
+    await expect(setup.locator('h2')).toHaveText('Connect your first project');
+    await expect(setup.locator('code')).toHaveText('vidux init --here');
+    await expect(setup).toContainText('Open a terminal in your project');
+    await expect(page.locator('#sidebar-list')).toContainText('vidux init --here');
+    await expect(page.locator('body')).not.toContainText('/private/fixture-root-that-must-not-render');
+    await setup.locator('[data-refresh-plans]').click();
+    await expect.poll(() => planRequests).toBeGreaterThan(1);
+
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+  });
+
+  test('tied current-work claims are explicit and inspectable', async ({ page }) => {
+    const planPath = '/tmp/vidux-onboarding/beta/PLAN.md';
+    const planRel = 'beta/PLAN.md';
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [{
+            repo: 'beta', slug: '_root_', rel: planRel, path: planPath,
+            status: 'hot', age_days: 0, size: 256, siblings: [], investigations: [],
+            evidence: [], child_rels: [], task_stats: { total: 1, counts: { pending: 1 } },
+            aggregate_stats: { total: 1, descendants: 0, counts: { pending: 1 } },
+          }],
+          dashboard: {
+            mission_control: {
+              briefs_total: 2,
+              selected: {
+                repo: 'beta', rel: planRel, path: planPath, status: 'watching', priority: 80,
+                outcome: 'Ship beta with proof.', next: 'Run the proof.',
+                why: 'Two projects claim the same priority.', validation: 'Inspect the receipt.',
+                cost: 'No paid runtime.', evidence_target: { state: 'needed' }, scorecard: [],
+                freshness: { status: 'fresh', age_days: 0 }, updated: '2026-07-10',
+                selection_reason: 'priority 80 · newest of 2 tied current goals',
+              },
+              authority: {
+                state: 'conflict', claims_total: 2, tied_total: 2, priority: 80,
+                tied_projects: ['alpha', 'beta'],
+                explanation: '2 plans share priority 80. Showing beta by latest plan change, then plan name. Change Priority in one Operator Brief to choose the default.',
+              },
+            },
+            onboarding: { state: 'authority_conflict' },
+            categories: {},
+          },
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ artifacts: [] }) });
+    });
+
+    await page.goto('/');
+
+    const conflict = page.locator('.mission-authority-note');
+    await expect(conflict).toBeVisible();
+    await expect(conflict).toContainText('Current-work tie');
+    await expect(conflict).toContainText('2 plans share priority 80');
+    await expect(conflict).toContainText('Showing beta');
+    await conflict.locator('[data-open-sidebar]').click();
+    const drawerToggle = page.locator('#sidebar-toggle');
+    if (await drawerToggle.isVisible()) {
+      await expect(drawerToggle).toHaveAttribute('aria-expanded', 'true');
+    } else {
+      await expect(page.locator('#sidebar')).toBeVisible();
+    }
+  });
+
+  test('simple mode leads with inspectable mission proof and opens its plan', async ({ page }) => {
+    await page.goto('/');
+
+    const mission = page.locator('.mission-control');
+    await expect(mission).toBeVisible();
+    await expect(mission.locator('h2')).toHaveText(
+      'Prove the browser leads with one evidence-backed mission.',
+    );
+    await expect(mission.locator('.mission-metric.status-winning')).toHaveCount(1);
+    await expect(mission.locator('.mission-metric.status-losing')).toHaveCount(1);
+    await expect(mission.locator('.mission-scorecard-tally')).toHaveAttribute(
+      'aria-label',
+      '1 winning, 1 losing, 0 unproven',
+    );
+    await expect(mission.locator('.mission-metric .mission-proof-link')).toHaveCount(2);
+    await expect(mission.locator('.mission-details .mission-proof-link')).toHaveCount(1);
+    await expect(mission.locator('.freshness-fresh')).toContainText('fresh');
+    await expect(page.locator('.dashboard-panel')).toHaveCount(0);
+
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+
+    await mission.locator('.mission-open-plan').click();
+    await expect(page).toHaveURL(/plan=proj-alpha%2FPLAN\.md/);
+    await expect(page.locator('.pane-header h2')).toHaveText('proj-alpha');
+  });
+
+  test('30-issue work queue stays truthful and usable at desktop and 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const controlRel = 'control/PLAN.md';
+    const planFor = (repo: string) => ({
+      repo,
+      slug: '_root_',
+      rel: `${repo}/PLAN.md`,
+      path: `/tmp/vidux-work-queue/${repo}/PLAN.md`,
+      status: 'hot',
+      age_days: 0,
+      size: 256,
+      siblings: [],
+      investigations: [],
+      evidence: [],
+      child_rels: [],
+      task_stats: { total: 5, counts: { pending: 1, in_progress: 2, blocked: 2 } },
+      aggregate_stats: { total: 5, descendants: 0, counts: { pending: 1, in_progress: 2, blocked: 2 } },
+    });
+    const workItems = (status: 'pending' | 'in_progress' | 'blocked', prefix: string) =>
+      Array.from({ length: 10 }, (_, index) => {
+        const repo = `project-${index % 6}`;
+        return {
+          kind: 'task',
+          repo,
+          rel: `${repo}/PLAN.md`,
+          path: `/tmp/vidux-work-queue/${repo}/PLAN.md`,
+          source_rel: `${repo}/PLAN.md`,
+          tab: 'PLAN.md',
+          line: index + 10,
+          status,
+          severity: index % 3 === 0 ? 'p0' : 'p1',
+          label: `${prefix} Kundenabrechnung mit internationalisierten Steuerbelegen und einer langen eindeutigen Fehlerbeschreibung ${index}`,
+          owner: `team-${index % 3}`,
+          blocker: status === 'blocked' ? `dependency-${index}` : undefined,
+          validation: `npm test queue-${index}`,
+          proof: `evidence/queue-${index}.md`,
+        };
+      });
+    const categories = {
+      next: { label: 'Next', items: workItems('pending', 'Next'), total: 10, truncated: false, limit: 200 },
+      in_progress: { label: 'In Progress', items: workItems('in_progress', 'Resume'), total: 10, truncated: false, limit: 200 },
+      blocked: { label: 'Blocked', items: workItems('blocked', 'Blocked'), total: 10, truncated: false, limit: 200 },
+    };
+
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [planFor('control'), ...Array.from({ length: 6 }, (_, index) => planFor(`project-${index}`))],
+          summary: { plans: 7, repos: 7 },
+          dashboard: {
+            plans_scanned: 7,
+            repos: 7,
+            mission_control: {
+              briefs_total: 1,
+              selected: {
+                repo: 'control', rel: controlRel, path: '/tmp/vidux-work-queue/control/PLAN.md',
+                status: 'shipping', priority: 100, outcome: 'Resolve the highest-value work across projects.',
+                next: 'Start with the first urgent item.', why: 'Severity and proof decide the queue.',
+                validation: 'Inspect all 30 issues.', cost: 'No model call required.',
+                evidence_target: { state: 'needed' }, scorecard: [], scorecard_total: 0,
+                scorecard_truncated: false, freshness: { status: 'fresh', age_days: 0 },
+                updated: '2026-07-10', selection_reason: 'only declared current goal',
+              },
+              authority: { state: 'selected', claims_total: 1, tied_total: 1 },
+            },
+            onboarding: { state: 'ready' },
+            categories,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ artifacts: [] }) });
+    });
+
+    await page.goto('/');
+    const queue = page.locator('.simple-queue');
+    await expect(queue).toBeVisible();
+    await expect(queue.locator('.simple-queue-list')).toHaveCount(3);
+    await expect(queue.locator('.simple-queue-row')).toHaveCount(24);
+    await expect(queue.getByText('8 of 10', { exact: true })).toHaveCount(3);
+    await expect(queue.locator('.simple-queue-list').nth(1).locator('.simple-queue-project', { hasText: 'project-0' })).toHaveCount(2);
+    await expect(queue).toContainText('Owner team-0');
+    await expect(queue).toContainText('Check npm test queue-0');
+    await expect(queue).toContainText('Proof evidence/queue-0.md');
+
+    const desktopWidths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(desktopWidths.content).toBeLessThanOrEqual(desktopWidths.viewport);
+
+    await page.setViewportSize({ width: 320, height: 760 });
+    const firstLabel = queue.locator('.simple-queue-row strong').first();
+    const labelMetrics = await firstLabel.evaluate(element => {
+      const style = getComputedStyle(element);
+      return {
+        height: element.getBoundingClientRect().height,
+        lineHeight: Number.parseFloat(style.lineHeight),
+        whiteSpace: style.whiteSpace,
+      };
+    });
+    expect(labelMetrics.whiteSpace).toBe('normal');
+    expect(labelMetrics.height).toBeGreaterThan(labelMetrics.lineHeight * 1.5);
+    const mobileWidths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(mobileWidths.content).toBeLessThanOrEqual(mobileWidths.viewport);
+
+    await queue.locator('[data-view-all-work]').first().click();
+    await expect(page.locator('html')).toHaveClass(/advanced-mode/);
+    await expect(page.locator('.dashboard-panel')).toBeVisible();
+    await expect(page.locator('.dashboard-list-next .dashboard-item')).toHaveCount(10);
+  });
+
+  test('mission proof opens the validated evidence file', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.mission-proof-link').first().click();
+    await expect(page).toHaveURL(/tab=EVD%3A/);
+    await expect(page.locator('.pane-header h2')).toHaveText('proj-alpha');
+    await expect(page.locator('#md-body')).toContainText('Mission Control Proof');
   });
 
   test('core app zones remain present without FAB/player chrome', async ({ page }) => {
     await page.goto('/');
     const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await openDrawerIfNeeded(page);
     await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
     if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+      await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
     }
     await expect(page.locator('[data-vidux-zone="status-header"]')).toBeVisible();
     await expect(page.locator('[data-vidux-zone="content-pane"]')).toBeVisible();
@@ -75,14 +386,10 @@ test.describe('vidux-browse smoke', () => {
   test('Cmd/Ctrl+Shift+C starts annotation capture without FAB', async ({ page }) => {
     await page.goto('/');
     const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await openDrawerIfNeeded(page);
     await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
     if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+      await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
     }
     await expect(page.locator('[data-comment-empty]')).toContainText('Cmd/Ctrl+Shift+C');
     await page.keyboard.press('Control+Shift+C');
@@ -94,21 +401,26 @@ test.describe('vidux-browse smoke', () => {
     await expect(page.locator('body')).not.toHaveClass(/is-annotation-mode/);
   });
 
-  test('sidebar lists plans from fixture root', async ({ page }) => {
+  test('project navigator indexes fixture plans and expands them on demand', async ({ page }) => {
     await page.goto('/');
-    const rows = page.locator('#sidebar-list .plan-row');
-    await expect(rows.first()).toBeVisible({ timeout: 5_000 });
-    expect(await rows.count()).toBeGreaterThanOrEqual(2);
+    await openDrawerIfNeeded(page);
+    await expect(page.locator('#sidebar-list .repo-disclosure')).toHaveCount(3);
+    await expect(page.locator('.plan-row[title="proj-alpha/PLAN.md"]')).toBeVisible();
+    await expect(page.locator('.plan-row[title="proj-beta/PLAN.md"]')).toHaveCount(0);
+
+    await expandGroup(page, 'proj-beta');
+    await expect(page.locator('.plan-row[title="proj-beta/PLAN.md"]')).toBeVisible();
   });
 
   test('filter narrows the sidebar', async ({ page }) => {
     await page.goto('/');
-    await page.locator('#sidebar-list .plan-row').first().waitFor();
-    const before = await page.locator('#sidebar-list .plan-row').count();
+    await openDrawerIfNeeded(page);
+    await page.locator('#sidebar-list .repo-disclosure').first().waitFor();
+    const before = await page.locator('#sidebar-list .repo-disclosure').count();
     await page.locator('#filter').fill('alpha');
     // give the filter a beat to re-render
     await page.waitForTimeout(150);
-    const after = await page.locator('#sidebar-list .plan-row').count();
+    const after = await page.locator('#sidebar-list .repo-disclosure').count();
     expect(after).toBeLessThan(before);
     expect(after).toBeGreaterThanOrEqual(1);
   });
@@ -116,65 +428,62 @@ test.describe('vidux-browse smoke', () => {
   test('sidebar sort menu orders by ETA and persists', async ({ page }) => {
     await page.goto('/');
     await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().waitFor();
+    await expect(page.locator('#sort')).toBeHidden();
+    await toggleAdvanced(page);
+    await expect(page.locator('#sort')).toBeVisible();
     await expect(page.locator('#sort')).toHaveValue('mtime');
     await page.locator('#sort').selectOption('eta');
-    await expect(page.locator('#sidebar-list .plan-row[data-kind="plan"]').first()).toHaveAttribute('title', /proj-beta/);
+    await expect(page.locator('#sidebar-list .repo-disclosure').first()).toContainText('proj-beta');
     await expect(page.locator('#sort')).toHaveValue('eta');
     await expect(page.locator('#sort option')).toHaveText(['Recently updated', 'ETA', 'Status']);
 
     await page.reload();
     await expect(page.locator('#sort')).toHaveValue('eta');
-    await expect(page.locator('#sidebar-list .plan-row[data-kind="plan"]').first()).toHaveAttribute('title', /proj-beta/);
+    await expect(page.locator('#sidebar-list .repo-disclosure').first()).toContainText('proj-beta');
     expect(await page.evaluate(() => localStorage.getItem('vidux:sidebar-sort'))).toBe('eta');
   });
 
   test('filter chips narrow by ETA and persist', async ({ page }) => {
     await page.goto('/');
-    const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
-    const rows = page.locator('#sidebar-list .plan-row[data-kind="plan"]');
-    await rows.first().waitFor();
-    const before = await rows.count();
+    await toggleAdvanced(page);
+    const groups = page.locator('#sidebar-list .repo-disclosure');
+    await groups.first().waitFor();
+    const before = await groups.count();
     expect(before).toBeGreaterThanOrEqual(3);
 
     const etaChip = page.locator('[data-filter-chip="eta"]');
     await etaChip.click();
     await expect(etaChip).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#sidebar-list .plan-row[title="proj-gamma"]')).toHaveCount(0);
-    const after = await rows.count();
+    await expect(page.locator('.repo-disclosure', { hasText: 'proj-gamma' })).toHaveCount(0);
+    const after = await groups.count();
     expect(after).toBeLessThan(before);
     expect(after).toBeGreaterThanOrEqual(1);
 
     await page.reload();
     await expect(page.locator('[data-filter-chip="eta"]')).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#sidebar-list .plan-row[title="proj-gamma"]')).toHaveCount(0);
+    await expect(page.locator('.repo-disclosure', { hasText: 'proj-gamma' })).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem('vidux:sidebar-filter-chips'))).toBe('["eta"]');
   });
 
-  test('plan-row has WCAG attrs (tabindex, role, aria-label)', async ({ page }) => {
+  test('plan rows are native links with useful accessible names', async ({ page }) => {
     await page.goto('/');
-    const first = page.locator('#sidebar-list .plan-row').first();
+    const first = page.locator('#sidebar-list .plan-row[data-kind="plan"]').first();
     await first.waitFor();
-    await expect(first).toHaveAttribute('tabindex', '0');
-    await expect(first).toHaveAttribute('role', 'option');
+    expect(await first.evaluate(el => el.tagName)).toBe('A');
+    await expect(first).toHaveAttribute('href', /plan=/);
+    await expect(first).not.toHaveAttribute('role', 'option');
     const aria = await first.getAttribute('aria-label');
     expect(aria).toBeTruthy();
     expect(aria!.length).toBeGreaterThan(5);
   });
 
-  test('plan-rows use a roving tabindex (exactly one tab stop)', async ({ page }) => {
-    // Round-3 readiness panel finding (accessibility lens): every sidebar
-    // row carried tabindex="0", violating the ARIA APG single-tab-stop
-    // listbox pattern (Tab should stop once for the whole list; arrow keys
-    // move within it). Exactly one row may be a tab stop at a time.
+  test('project navigator uses native nav semantics instead of a mixed listbox', async ({ page }) => {
     await page.goto('/');
-    const rows = page.locator('#sidebar-list .plan-row');
-    await rows.first().waitFor();
-    const tabbable = page.locator('#sidebar-list .plan-row[tabindex="0"]');
-    await expect(tabbable).toHaveCount(1);
+    const nav = page.locator('#sidebar-list');
+    await nav.locator('.plan-row').first().waitFor();
+    expect(await nav.evaluate(el => el.tagName)).toBe('NAV');
+    await expect(nav).not.toHaveAttribute('role', 'listbox');
+    await expect(nav.locator('[role="option"]')).toHaveCount(0);
   });
 
   test('collapse-group headers are keyboard-operable (WCAG 2.1.1)', async ({ page }) => {
@@ -182,16 +491,16 @@ test.describe('vidux-browse smoke', () => {
     // collapse/expand headers were mouse-only -- no tabindex, no role, no
     // keydown handler -- despite toggling visible content.
     await page.goto('/');
-    const header = page.locator('#sidebar-list .repo-group[data-collapse-key] h2').first();
+    await openDrawerIfNeeded(page);
+    const header = page.locator('#sidebar-list .repo-disclosure').first();
     await header.waitFor();
-    await expect(header).toHaveAttribute('tabindex', '0');
-    await expect(header).toHaveAttribute('role', 'button');
+    expect(await header.evaluate(el => el.tagName)).toBe('BUTTON');
     const expandedBefore = await header.getAttribute('aria-expanded');
     await header.focus();
     await page.keyboard.press('Enter');
     // renderSidebar() rebuilds the list on toggle, so re-query rather than
     // reuse the stale `header` locator handle.
-    const headerAfter = page.locator('#sidebar-list .repo-group[data-collapse-key] h2').first();
+    const headerAfter = page.locator('#sidebar-list .repo-disclosure').first();
     await expect(headerAfter).toHaveAttribute('aria-expanded', expandedBefore === 'true' ? 'false' : 'true');
   });
 
@@ -204,7 +513,7 @@ test.describe('vidux-browse smoke', () => {
 
   test('theme toggle cycles light/dark and persists', async ({ page, context }) => {
     await page.goto('/');
-    const btn = page.locator('#theme-toggle');
+    const btn = await visibleThemeToggle(page);
     await btn.waitFor();
     await btn.click();
     const themeAfter1 = await page.evaluate(() => localStorage.getItem('vidux:theme'));
@@ -218,6 +527,7 @@ test.describe('vidux-browse smoke', () => {
 test.describe('keyboard navigation', () => {
   test('ArrowDown/ArrowUp move focus across plan-rows', async ({ page }) => {
     await page.goto('/');
+    await expandProjectGroups(page);
     const rows = page.locator('#sidebar-list .plan-row');
     await rows.first().waitFor();
     await rows.first().focus();
@@ -230,6 +540,7 @@ test.describe('keyboard navigation', () => {
 
   test('Home/End jump to first/last', async ({ page }) => {
     await page.goto('/');
+    await expandProjectGroups(page);
     const rows = page.locator('#sidebar-list .plan-row');
     await rows.first().waitFor();
     const total = await rows.count();
@@ -389,6 +700,10 @@ test.describe('auto-refresh polling', () => {
     await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-preview/);
     await page.locator('[data-comment-marker][data-comment-marker-count="2"]').click();
     await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-highlight/);
+    await page.waitForTimeout(1_600);
+    await page.locator('[data-comment-jump="c1"]').click();
+    await page.waitForTimeout(800);
+    await expect(page.locator('.pane-header h2')).toHaveClass(/is-anchor-highlight/);
     await page.locator('#comment-markers-toggle').click();
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-markers-hidden', 'true');
     await expect(page.locator('[data-comment-marker]')).toHaveCount(0);
@@ -409,16 +724,13 @@ test.describe('auto-refresh polling', () => {
     }];
 
     const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await expandGroup(page, 'artifacts');
     const artifactRow = page.locator('#sidebar-list .plan-row[data-kind="artifact"]').first();
     await artifactRow.click();
-    await expect(page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first()).toBeVisible();
+    const activeArtifactRow = page.locator('#sidebar-list .plan-row[data-kind="artifact"].is-active').first();
+    await expect(activeArtifactRow).toHaveClass(/is-active/);
     if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).not.toHaveClass(/is-open/);
+      await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
     }
     await expect(page.frameLocator('iframe.artifact-frame').locator('body')).toContainText('artifact version A');
     await expect(page.locator('#comments-panel')).toHaveAttribute('data-comment-target-count', '1');
@@ -435,6 +747,170 @@ test.describe('auto-refresh polling', () => {
 });
 
 test.describe('artifact styling', () => {
+  test('slow artifact base style cannot overwrite a newer plan selection', async ({ page }) => {
+    const artifactPath = '/tmp/vidux-artifact-view-revision/probe.html';
+    const artifactBody = '<!doctype html><html><head><link rel="stylesheet" href="../static/artifact-base.css" data-vidux-artifact-base></head><body><h1>stale artifact</h1></body></html>';
+    let markBaseRequested!: () => void;
+    let releaseBaseStyle!: () => void;
+    const baseRequested = new Promise<void>(resolve => { markBaseRequested = resolve; });
+    const baseStyleGate = new Promise<void>(resolve => { releaseBaseStyle = resolve; });
+
+    await page.route('**/static/artifact-base.css', async route => {
+      markBaseRequested();
+      await baseStyleGate;
+      await route.fulfill({ contentType: 'text/css', body: ':root { color-scheme: light dark; }' });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          artifacts: [{
+            slug: 'revision-probe',
+            title: 'Revision Probe',
+            path: artifactPath,
+            age_days: 0,
+            size: artifactBody.length,
+          }],
+          artifacts_dir: '/tmp/vidux-artifact-view-revision',
+        }),
+      });
+    });
+    await page.route('**/api/file**', async route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('path') === artifactPath) {
+        await route.fulfill({ contentType: 'text/html', body: artifactBody });
+        return;
+      }
+      await route.fallback();
+    });
+    await page.route('**/api/comments**', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ comments: [] }),
+      });
+    });
+
+    await page.goto('/');
+    await expandGroup(page, 'artifacts');
+    await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
+    await baseRequested;
+    await expandGroup(page, 'proj-alpha');
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').filter({ hasText: 'proj-alpha' }).click();
+    await expect(page).toHaveURL(/plan=proj-alpha%2FPLAN\.md/);
+    releaseBaseStyle();
+
+    await expect(page.locator('#pane')).toContainText('Proj Alpha');
+    await expect(page.locator('iframe.artifact-frame')).toHaveCount(0);
+  });
+
+  test('artifact rendering makes no outbound network requests', async ({ page }) => {
+    const requests: string[] = [];
+    const sink = createServer((req, res) => {
+      requests.push(req.url || '/');
+      res.writeHead(204, { Connection: 'close' });
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      sink.once('error', reject);
+      sink.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = sink.address();
+    if (!address || typeof address === 'string') throw new Error('artifact sink did not bind');
+
+    const artifactPath = '/tmp/vidux-artifact-network-isolation/probe.html';
+    const sinkOrigin = `http://127.0.0.1:${address.port}`;
+    const artifactBody = `<!doctype html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="1;url=${sinkOrigin}/refresh">
+  <link rel="stylesheet" href="${sinkOrigin}/style.css">
+  <link rel="stylesheet" href="/artifact-same-origin.css">
+  <style>
+    @import url('/artifact-inline-import.css');
+    body { background-image: url('/artifact-inline-background'); }
+  </style>
+</head>
+<body>
+  <h1 id="artifact-title">isolated artifact</h1>
+  <img src="${sinkOrigin}/passive-image?private=1" alt="">
+  <iframe src="${sinkOrigin}/nested-frame"></iframe>
+  <a id="external-link" href="${sinkOrigin}/clicked">external link</a>
+  <svg viewBox="0 0 200 30" width="200" height="30">
+    <a id="svg-external-link" href="${sinkOrigin}/svg-clicked">
+      <text x="0" y="20">external SVG link</text>
+    </a>
+  </svg>
+</body>
+</html>`;
+
+    try {
+      const sameOriginNetworkRequests: string[] = [];
+      await page.route(/\/artifact-(?:same-origin|inline-)/, async route => {
+        sameOriginNetworkRequests.push(new URL(route.request().url()).pathname);
+        await route.fulfill({ status: 204, body: '' });
+      });
+      await page.route('**/api/artifacts', async route => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            artifacts: [{
+              slug: 'network-probe',
+              title: 'Network Probe',
+              path: artifactPath,
+              age_days: 0,
+              size: artifactBody.length,
+            }],
+            artifacts_dir: '/tmp/vidux-artifact-network-isolation',
+          }),
+        });
+      });
+      await page.route('**/api/file**', async route => {
+        const url = new URL(route.request().url());
+        if (url.searchParams.get('path') === artifactPath) {
+          await route.fulfill({
+            contentType: 'text/html',
+            headers: {
+              'Content-Security-Policy': "default-src 'none'; frame-ancestors 'self'; style-src 'unsafe-inline'",
+            },
+            body: artifactBody,
+          });
+          return;
+        }
+        await route.fallback();
+      });
+      await page.route('**/api/comments**', async route => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ comments: [] }),
+        });
+      });
+
+      await page.goto('/?artifact=network-probe');
+      const frame = page.frameLocator('iframe.artifact-frame');
+      await expect(frame.locator('body')).toContainText('isolated artifact');
+      await frame.locator('#external-link').click();
+      await frame.locator('#svg-external-link').click();
+      await page.waitForTimeout(1_200);
+
+      expect(requests).toEqual([]);
+      expect(sameOriginNetworkRequests).toEqual([]);
+      await expect(frame.locator('meta[http-equiv="Content-Security-Policy"]')).not.toHaveAttribute(
+        'content',
+        /frame-ancestors/i,
+      );
+      await expect(page.locator('iframe.artifact-frame')).toHaveAttribute(
+        'sandbox',
+        'allow-same-origin',
+      );
+      await expect(page.locator('iframe.artifact-frame')).toHaveAttribute(
+        'referrerpolicy',
+        'no-referrer',
+      );
+    } finally {
+      await new Promise<void>(resolve => sink.close(() => resolve()));
+    }
+  });
+
   test('shared artifact base css applies in dark iframe render', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
 
@@ -484,14 +960,14 @@ test.describe('artifact styling', () => {
     });
 
     await page.goto('/');
-    const sidebarToggle = page.locator('#sidebar-toggle');
-    if (await sidebarToggle.isVisible()) {
-      await sidebarToggle.click();
-      await expect(page.locator('#sidebar')).toHaveClass(/is-open/);
-    }
+    await expandGroup(page, 'artifacts');
     await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
     const body = page.frameLocator('iframe.artifact-frame').locator('body');
     await expect(body).toContainText('shared artifact theme');
+    await expect(page.frameLocator('iframe.artifact-frame').locator('link')).toHaveCount(0);
+    await expect(
+      page.frameLocator('iframe.artifact-frame').locator('style[data-vidux-artifact-base]'),
+    ).toHaveCount(1);
     await expect.poll(async () => (
       body.evaluate(el => getComputedStyle(el).backgroundColor)
     )).toBe('rgb(29, 25, 22)');
@@ -502,26 +978,17 @@ test.describe('artifact styling', () => {
     expect(paneMetrics.scrollWidth).toBeLessThanOrEqual(paneMetrics.clientWidth);
   });
 
-  // Round-1 open-source panel finding: at iPhone SE/12/13/14 widths, the
-  // title (.topbar h1, flex-shrink:0) and #mode-toggle pixel-overlapped --
-  // "vidux browser" rendered as "vidux brows" with the button drawn on top.
-  // Root cause was .topbar-meta's own children (text + 3 buttons) keeping
-  // their natural min-content width and overflowing their shrunk parent,
-  // not the outer .topbar itself. Covers the exact widths the panel measured.
-  for (const width of [375, 390, 414]) {
-    test(`topbar title and mode-toggle do not overlap at ${width}px`, async ({ page }) => {
+  for (const width of [320, 375, 390, 414]) {
+    test(`mobile shell stays one row at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.goto('/');
-      const h1 = await page.locator('.topbar h1').boundingBox();
-      const toggle = await page.locator('#mode-toggle').boundingBox();
-      expect(h1).not.toBeNull();
-      expect(toggle).not.toBeNull();
-      if (h1 && toggle) {
-        const sameRow = Math.abs(h1.y - toggle.y) < h1.height;
-        if (sameRow) {
-          expect(h1.x + h1.width).toBeLessThanOrEqual(toggle.x);
-        }
-      }
+      const topbar = await page.locator('.topbar').boundingBox();
+      expect(topbar).not.toBeNull();
+      expect(topbar!.height).toBeLessThanOrEqual(64);
+      await expect(page.locator('#mode-toggle')).toBeHidden();
+      await expect(page.locator('#theme-toggle')).toBeHidden();
+      await expect(page.locator('#sidebar-toggle')).toBeVisible();
+      await expect(page.locator('#refresh')).toBeVisible();
     });
   }
 
@@ -552,6 +1019,53 @@ test.describe('artifact styling', () => {
       }
     });
   }
+
+  test('mobile drawer is inert while closed and restores focus on Escape', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const toggle = page.locator('#sidebar-toggle');
+    const sidebar = page.locator('#sidebar');
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+    await expect(sidebar).toHaveAttribute('inert', '');
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(sidebar).toHaveAttribute('aria-hidden', 'false');
+    await expect(page.locator('#filter')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(sidebar).toHaveAttribute('inert', '');
+    await expect(toggle).toBeFocused();
+  });
+
+  test('mobile selection closes the drawer and keeps mission proof first', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const toggle = page.locator('#sidebar-toggle');
+    await toggle.click();
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').first().click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#sidebar')).toHaveAttribute('inert', '');
+
+    await page.goto('/');
+    await expect(page.locator('.mission-control')).toBeVisible();
+    await expect(page.locator('.mission-next')).toBeVisible();
+    await expect(page.locator('.mission-scorecard')).toBeVisible();
+    await expect(page.locator('.mission-details')).toBeVisible();
+    const positions = await page.evaluate(() => {
+      const top = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().top;
+      return {
+        next: top('.mission-next'),
+        results: top('.mission-scorecard'),
+        details: top('.mission-details'),
+      };
+    });
+    expect(positions.next).toBeLessThan(positions.results);
+    expect(positions.results).toBeLessThan(positions.details);
+  });
 });
 
 test.describe('subplan row keyboard navigation', () => {
@@ -635,5 +1149,69 @@ test.describe('subplan row keyboard navigation', () => {
     await expect(page).toHaveURL(new RegExp(`plan=${encodeURIComponent(childRel).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     await expect(page.locator('.pane-header h2')).toHaveText('fixture · subplan-child');
     await expect(page.locator('#sidebar-list .plan-row[data-path="' + childPath + '"].is-active').first()).toBeVisible();
+  });
+
+  test('sensitive plan state stays explicit without exposing the replaced value', async ({ page }) => {
+    const planPath = '/tmp/vidux-sensitive/PLAN.md';
+    const planRel = 'fixture/sensitive/PLAN.md';
+    const syntheticSecret = 'sk-' + 'A1b2C3d4'.repeat(6);
+
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [{
+            repo: 'fixture',
+            slug: 'sensitive',
+            rel: planRel,
+            path: planPath,
+            status: 'active',
+            age_days: 0,
+            size: 256,
+            siblings: [],
+            investigations: [],
+            evidence: [],
+            child_rels: [],
+            content_redacted: true,
+            sensitive_redactions: 2,
+            task_stats: { total: 1, counts: { in_progress: 1 } },
+            aggregate_stats: { total: 1, descendants: 0, counts: { in_progress: 1 } },
+          }],
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ artifacts: [], artifacts_dir: '/tmp/vidux-sensitive' }),
+      });
+    });
+    await page.route('**/api/file**', async route => {
+      await route.fulfill({
+        contentType: 'text/plain',
+        body: '# Sensitive fixture\n\n## Tasks\n- [in_progress] Rotate [REDACTED:secret]\n',
+      });
+    });
+    await page.route('**/api/comments**', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ comments: [] }) });
+    });
+
+    await page.goto(`/?plan=${encodeURIComponent(planRel)}`);
+
+    const notice = page.locator('.sensitive-content-notice');
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText('Sensitive values hidden');
+    await expect(notice).toContainText('2 high-confidence values replaced before display.');
+    await expect(notice).toHaveAttribute('data-sensitive-redactions', '2');
+    await expect(page.locator('#md-body')).toContainText('[REDACTED:secret]');
+    await expect(page.locator('body')).not.toContainText(syntheticSecret);
+
+    await openDrawerIfNeeded(page);
+    await expect(page.locator('.plan-row-sensitive')).toContainText('hidden');
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
   });
 });
