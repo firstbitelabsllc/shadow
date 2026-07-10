@@ -6,12 +6,25 @@ Your first Vidux cycle, install to checkpoint.
 
 ```bash
 git clone https://github.com/firstbitelabsllc/vidux.git
+ln -sf /path/to/vidux/bin/vidux /usr/local/bin/vidux
 ln -sfn /path/to/vidux ~/.claude/skills/vidux
+vidux --version
 ```
+
+The CLI symlink powers `vidux init --here` and the local browser; the Claude
+skill symlink is optional. See [Installation](/guide/installation) for a
+verified npm tarball path that does not require keeping the checkout on `PATH`.
 
 ## 2. Start a Session
 
-Open Claude Code in your project directory and run:
+In the project you want Vidux to track, initialize the cockpit once:
+
+```bash
+vidux init --here
+vidux dev
+```
+
+Then open Claude Code in that project and run:
 
 ```
 /vidux "your project description"

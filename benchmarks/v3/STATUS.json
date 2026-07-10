@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "protocol_id": "vidux-cockpit-v3",
+  "status": "retired_non_runnable",
+  "runnable": false,
+  "protocol_digest": "ba5a151dde4f0b767fc438bc38cb5bfe17843ef8f303a04f2c5275e1e5418dc3",
+  "decided_at": "2026-07-10T15:20:41Z",
+  "replacement_protocol_id": "vidux-cockpit-v4",
+  "decision_basis": [
+    "Release readiness accepts opaque fixture bytes and digest-shaped evaluator and provider references without verifying their semantic schema or referenced artifact bytes.",
+    "Synthetic provenance-free evaluator rows can produce a claim-eligible verified-net-win receipt without an authenticated evaluator release or claim authorization.",
+    "Retry usage is charged to journal budgets but only the terminal attempt reaches decision statistics, which can understate treatment cost and tokens.",
+    "A crash-torn final journal append is rejected forever, so the frozen interruption-recovery protocol cannot recover its own schedule.",
+    "These are outcome-determining evidence, measurement, and recovery rule changes, so the frozen amendment policy requires a new protocol id."
+  ],
+  "next_protocol_requirements": [
+    "schema-validated public fixtures and content-addressed workspace snapshots",
+    "byte-verified provider, runner, transcript, evaluator, and check-evidence artifacts",
+    "a preregistered evaluator identity with standard authenticated release and result receipts",
+    "real-versus-synthetic evidence labeling with synthetic rows permanently claim-ineligible",
+    "cumulative retry usage in both budgets and decision statistics",
+    "locked recovery of only an unterminated final fragment with a content-addressed recovery receipt",
+    "ambiguous provider-dispatch reconciliation without automatic reinvocation"
+  ]
+}

@@ -77,8 +77,48 @@ class ViduxInitTests(unittest.TestCase):
         run_init(self.vidux_root, self.elsewhere, "my-project")
         text = (self.vidux_root / "projects" / "my-project" / "PLAN.md").read_text()
         for section in ("## Purpose", "## Evidence", "## Constraints",
-                         "## Tasks", "## Decision Log", "## Progress"):
+                         "## Operator Brief", "## Outcome Scorecard", "## Tasks",
+                         "## Decision Log", "## Progress"):
             self.assertIn(section, text)
+
+        self.assertIn("- Outcome: Ship the first evidence-backed result for My Project.", text)
+        self.assertIn("| First evidence-backed result |", text)
+        self.assertIn("| unproven | evidence/first-result.md |", text)
+
+    def test_here_creates_cockpit_ready_plan_in_current_project(self):
+        rc, out, err = run_init(self.vidux_root, self.elsewhere, "--here")
+
+        self.assertEqual(rc, 0, f"stderr={err}")
+        target = self.elsewhere / "PLAN.md"
+        self.assertTrue(target.is_file())
+        self.assertFalse((self.vidux_root / "projects" / "my-real-app").exists())
+        self.assertIn(str(target), out)
+        text = target.read_text(encoding="utf-8")
+        self.assertIn("# My Real App", text)
+        self.assertIn("## Operator Brief", text)
+        self.assertIn("- Status: watching", text)
+
+    def test_here_refuses_to_overwrite_repo_plan(self):
+        target = self.elsewhere / "PLAN.md"
+        target.write_text("# Existing\n", encoding="utf-8")
+
+        rc, _out, err = run_init(self.vidux_root, self.elsewhere, "--here")
+
+        self.assertEqual(rc, 1)
+        self.assertIn(str(target), err)
+        self.assertEqual(target.read_text(encoding="utf-8"), "# Existing\n")
+
+    def test_here_refuses_dangling_plan_symlink(self):
+        target = self.elsewhere / "PLAN.md"
+        outside = Path(self._tmp.name) / "outside-plan.md"
+        target.symlink_to(outside)
+
+        rc, _out, err = run_init(self.vidux_root, self.elsewhere, "--here")
+
+        self.assertEqual(rc, 1)
+        self.assertIn(str(target), err)
+        self.assertTrue(target.is_symlink())
+        self.assertFalse(outside.exists())
 
     def test_invalid_slug_rejected(self):
         rc, _out, err = run_init(self.vidux_root, self.elsewhere, "Not Valid!")

@@ -1,4 +1,4 @@
-/* vidux browser — paper-and-ink, no glass, no gradients
+/* vidux browser — cool operational paper, no glass, no gradients
  *
  * Theming contract: every color in this file should go through a CSS custom
  * property defined here. Themes (light/dark) override the property values;
@@ -8,40 +8,31 @@
  * Tokens grouped by intent: surface > text > line/border > semantic > task. */
 :root {
   /* Surfaces (base → elevated) */
-  --paper: #f8f5ee;
-  --paper-2: #f1ece1;
+  --paper: #f7f9f8;
+  --paper-2: #edf1ef;
   /* Text (primary → secondary) */
-  --ink: #1c1a16;
-  --ink-2: #4a463d;
+  --ink: #17201d;
+  --ink-2: #53605b;
   /* Lines + borders */
-  --rule: #d8d1bf;
+  --rule: #cbd4cf;
   /* Selection + accent */
-  --select: #e9e0c8;
-  --accent: #2e5d3d;
+  --select: #e1ebe6;
+  --accent: #0f704a;
   /* Semantic */
-  --hot: #b14a2b;
-  --stale: #8a7a3e;
-  /* Round-9 panel finding: the original value (#7d7466) failed WCAG 1.4.3
-     AA as `color:` on receipts.html's ".exportable" pill text (3.91:1 vs
-     --paper-2, 4.23:1 vs --paper) -- missed because that pill's styles
-     live in receipts.html's own inline <style>, which test_style_contrast.py
-     never reads. Darkened the same way (same hue/saturation, lightness
-     binary-search against the harder --paper-2 background). */
-  --cold: #71685c;
-  --error: #b14a2b;
-  --error-bg: #fdf2ec;
-  --error-ink: #5a2515;
-  /* Round-8 panel finding: the original value (#8a7a3e) failed WCAG 1.4.3
-     AA as `color:` on .ops-chip.is-warn's 11px text (3.91:1 vs --paper,
-     3.61:1 vs --paper-2) -- same bug class already fixed once for 4
-     sibling status tokens, this one was missed. Darkened the same way. */
-  --warning: #776936;
-  --warning-bg: #fbf3dc;
-  --warning-ink: #4d3f12;
+  /* Text-bearing semantic tokens clear AA on secondary and selection surfaces. */
+  --hot: #bd3e2b;
+  --stale: #8b5a00;
+  --cold: #5f6a65;
+  --error: #b9362f;
+  --error-bg: #fff0ed;
+  --error-ink: #702019;
+  --warning: #8b5a00;
+  --warning-bg: #fff5dc;
+  --warning-ink: #5f3c00;
   /* Elevation (box-shadow opacity) — small/medium/large */
-  --shadow-sm: 0 2px 6px rgba(28, 26, 22, 0.06);
-  --shadow-md: 0 8px 22px rgba(28, 26, 22, 0.10);
-  --shadow-lg: 0 14px 36px rgba(28, 26, 22, 0.14);
+  --shadow-sm: 0 2px 6px rgba(23, 32, 29, 0.06);
+  --shadow-md: 0 8px 22px rgba(23, 32, 29, 0.10);
+  --shadow-lg: 0 14px 36px rgba(23, 32, 29, 0.14);
   /* App chrome zoning: header/nav, annotation popover. */
   --z-mobile-sidebar: 18;
   --z-header: 20;
@@ -49,36 +40,27 @@
   --z-skip-link: 60;
   --pane-footer-reserve: 32px;
   /* Task states (vidux FSM) */
-  --task-pending: #d2cab2;
-  /* Round-4 panel finding: the original values (#c89548, #5b8d9e, #4f8a5a,
-     #c8a94d) failed WCAG 1.4.3 AA (4.5:1) at the small-text sizes they're
-     actually used at (10.5-11.5px status labels) against --paper. Darkened
-     to clear 4.5:1 with a small margin, same hue/saturation, dark-theme
-     values below untouched (they already pass against the dark surface).
-     Round-7 panel finding: that first darkening pass (#90682b/#4c7583/
-     #467b50/#846d29) only cleared --paper (#f8f5ee) -- the same status
-     labels also render on --paper-2 (#f1ece1, a slightly darker surface),
-     where they measured 4.23-4.26:1, still failing. Darkened again to
-     clear 4.5:1 against --paper-2 specifically (the harder of the two
-     surfaces), which also clears --paper with more margin (4.98:1).
-     Round-10 panel finding: --task-in-progress/--task-blocked also render
-     on --select (light #e9e0c8, dark #3a3324) whenever the keyboard-
-     focusable .dashboard-item is :hover/:focus-visible -- untested by the
-     --paper/--paper-2-only checks above, and --select is a harder surface
-     than either (light task-in-progress/task-blocked measured 4.11:1,
-     dark task-blocked 4.07:1). Darkened/lightened again, same hue/
-     saturation, to also clear 4.5:1 against --select (light: #815d27/
-     #a54528 at 4.52/4.58:1 vs --select; dark task-blocked: #dd865b at
-     4.55:1 vs dark --select -- dark task-in-progress already passed). */
-  --task-in-progress: #815d27;
-  --task-in-review: #48707d;
-  --task-completed: #42754c;
-  --task-blocked: #a54528;
-  --task-shipped: #7e6827;
+  --task-pending: #aab5af;
+  --task-in-progress: #875700;
+  --task-in-review: #276987;
+  --task-completed: #0f704a;
+  --task-blocked: #b4362e;
+  --task-shipped: #756000;
   /* Font stacks */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --serif: "Iowan Old Style", "Charter", Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
+  /* Mission/control rhythm. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --text-label: 11px;
+  --text-small: 12px;
+  --text-body: 13px;
+  --text-title: 17px;
+  --text-goal: 22px;
 }
 
 /* Forced light theme — explicit override of OS preference via theme toggle.
@@ -87,81 +69,61 @@
  * a bare :root.theme-light that only sets color-scheme. */
 :root.theme-light {
   color-scheme: light;
-  --paper: #f8f5ee;
-  --paper-2: #f1ece1;
-  --ink: #1c1a16;
-  --ink-2: #4a463d;
-  --rule: #d8d1bf;
-  --select: #e9e0c8;
-  --accent: #2e5d3d;
-  --hot: #b14a2b;
-  --stale: #8a7a3e;
-  --cold: #71685c;
-  --error: #b14a2b;
-  --error-bg: #fdf2ec;
-  --error-ink: #5a2515;
-  --warning: #776936;
-  --warning-bg: #fbf3dc;
-  --warning-ink: #4d3f12;
-  --shadow-sm: 0 2px 6px rgba(28, 26, 22, 0.06);
-  --shadow-md: 0 8px 22px rgba(28, 26, 22, 0.10);
-  --shadow-lg: 0 14px 36px rgba(28, 26, 22, 0.14);
-  --task-pending: #d2cab2;
-  /* Round-4 panel finding: the original values (#c89548, #5b8d9e, #4f8a5a,
-     #c8a94d) failed WCAG 1.4.3 AA (4.5:1) at the small-text sizes they're
-     actually used at (10.5-11.5px status labels) against --paper. Darkened
-     to clear 4.5:1 with a small margin, same hue/saturation, dark-theme
-     values below untouched (they already pass against the dark surface).
-     Round-7 panel finding: that first darkening pass (#90682b/#4c7583/
-     #467b50/#846d29) only cleared --paper (#f8f5ee) -- the same status
-     labels also render on --paper-2 (#f1ece1, a slightly darker surface),
-     where they measured 4.23-4.26:1, still failing. Darkened again to
-     clear 4.5:1 against --paper-2 specifically (the harder of the two
-     surfaces), which also clears --paper with more margin (4.98:1).
-     Round-10 panel finding: --task-in-progress/--task-blocked also render
-     on --select (light #e9e0c8, dark #3a3324) whenever the keyboard-
-     focusable .dashboard-item is :hover/:focus-visible -- untested by the
-     --paper/--paper-2-only checks above, and --select is a harder surface
-     than either (light task-in-progress/task-blocked measured 4.11:1,
-     dark task-blocked 4.07:1). Darkened/lightened again, same hue/
-     saturation, to also clear 4.5:1 against --select (light: #815d27/
-     #a54528 at 4.52/4.58:1 vs --select; dark task-blocked: #dd865b at
-     4.55:1 vs dark --select -- dark task-in-progress already passed). */
-  --task-in-progress: #815d27;
-  --task-in-review: #48707d;
-  --task-completed: #42754c;
-  --task-blocked: #a54528;
-  --task-shipped: #7e6827;
+  --paper: #f7f9f8;
+  --paper-2: #edf1ef;
+  --ink: #17201d;
+  --ink-2: #53605b;
+  --rule: #cbd4cf;
+  --select: #e1ebe6;
+  --accent: #0f704a;
+  --hot: #bd3e2b;
+  --stale: #8b5a00;
+  --cold: #5f6a65;
+  --error: #b9362f;
+  --error-bg: #fff0ed;
+  --error-ink: #702019;
+  --warning: #8b5a00;
+  --warning-bg: #fff5dc;
+  --warning-ink: #5f3c00;
+  --shadow-sm: 0 2px 6px rgba(23, 32, 29, 0.06);
+  --shadow-md: 0 8px 22px rgba(23, 32, 29, 0.10);
+  --shadow-lg: 0 14px 36px rgba(23, 32, 29, 0.14);
+  --task-pending: #aab5af;
+  --task-in-progress: #875700;
+  --task-in-review: #276987;
+  --task-completed: #0f704a;
+  --task-blocked: #b4362e;
+  --task-shipped: #756000;
 }
 
 /* Forced dark theme — explicit override of OS preference via theme toggle. */
 :root.theme-dark {
   color-scheme: dark;
-  --paper: #1d1a14;
-  --paper-2: #28241c;
-  --ink: #f1ebd9;
-  --ink-2: #b6ad94;
-  --rule: #3d372b;
-  --select: #3a3324;
-  --accent: #6db580;
-  --hot: #d97a4a;
-  --stale: #c8a558;
-  --cold: #9c8d6f;
-  --error: #d97a4a;
-  --error-bg: #3a221a;
-  --error-ink: #f3c1a8;
-  --warning: #c8a558;
-  --warning-bg: #2e260f;
-  --warning-ink: #ead495;
+  --paper: #141816;
+  --paper-2: #202623;
+  --ink: #edf2ef;
+  --ink-2: #a8b2ad;
+  --rule: #39433e;
+  --select: #2a3731;
+  --accent: #5cc996;
+  --hot: #ff7b5d;
+  --stale: #d9a441;
+  --cold: #929e98;
+  --error: #ff766d;
+  --error-bg: #3b211f;
+  --error-ink: #ffc5bf;
+  --warning: #d9a441;
+  --warning-bg: #332a16;
+  --warning-ink: #f4d58e;
   --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.20);
   --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.28);
   --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.36);
-  --task-pending: #4a432f;
-  --task-in-progress: #d99c52;
-  --task-in-review: #6fa6b8;
-  --task-completed: #6db580;
-  --task-blocked: #dd865b;
-  --task-shipped: #d8b558;
+  --task-pending: #4b5651;
+  --task-in-progress: #e2a54f;
+  --task-in-review: #6fb2d3;
+  --task-completed: #5cc996;
+  --task-blocked: #ff766d;
+  --task-shipped: #d8b34f;
 }
 
 * { box-sizing: border-box; }
@@ -229,6 +191,8 @@ html, body { height: 100%; margin: 0; }
   }
 }
 body {
+  display: flex;
+  flex-direction: column;
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
@@ -243,6 +207,7 @@ body {
   background: var(--paper-2);
   position: sticky; top: 0; z-index: var(--z-header);
   gap: 12px;
+  flex: 0 0 auto;
 }
 .sidebar-toggle {
   display: none;
@@ -256,7 +221,7 @@ body {
   font-family: var(--serif);
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   /* Don't let the flex meta starve the title at narrow widths. */
   flex-shrink: 0;
   white-space: nowrap;
@@ -283,6 +248,11 @@ body {
   font-family: var(--sans); font-size: 12px;
   border-radius: 3px;
 }
+.refresh-label { margin-left: 4px; }
+.advanced-only { display: none; }
+:root.advanced-mode select.advanced-only { display: block; }
+:root.advanced-mode .sidebar-filter-chips.advanced-only { display: flex; }
+.sidebar-mobile-tools { display: none; }
 .topbar-meta button:hover { background: var(--select); }
 .topbar-meta button:disabled {
   opacity: 0.45;
@@ -296,7 +266,8 @@ body {
 .layout {
   display: grid;
   grid-template-columns: 360px 1fr;
-  height: calc(100vh - 53px);
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .sidebar {
@@ -313,9 +284,12 @@ body {
 }
 .sidebar-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(86px, 104px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-items: center;
+}
+:root.advanced-mode .sidebar-controls {
+  grid-template-columns: minmax(0, 1fr) minmax(86px, 104px);
 }
 .sidebar-search input {
   width: 100%;
@@ -344,7 +318,7 @@ body {
 .sidebar-search select:focus { border-color: var(--accent); }
 .sidebar-filter-chips {
   grid-column: 1 / -1;
-  display: flex;
+  display: none;
   gap: 6px;
   overflow-x: auto;
 }
@@ -376,37 +350,47 @@ body {
 .repo-group { padding: 8px 12px 4px; }
 .repo-group h2 {
   margin: 0;
+}
+.repo-disclosure {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   color: var(--ink-2);
   cursor: pointer;
   user-select: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
+  text-align: left;
 }
-.repo-group h2:hover { color: var(--ink); }
-.repo-group h2 .caret {
+.repo-disclosure:hover { color: var(--ink); }
+.repo-disclosure .caret {
   display: inline-block;
   width: 10px;
   font-size: 10px;
   opacity: 0.6;
   transition: transform 0.1s ease;
 }
-.repo-group h2:hover .caret { opacity: 1; }
-.repo-group .repo-count { font-weight: 400; opacity: 0.7; margin-left: auto; }
+.repo-disclosure:hover .caret { opacity: 1; }
+.repo-disclosure .repo-count { font-weight: 400; opacity: 0.7; margin-left: auto; }
 .repo-group.is-collapsed { padding-bottom: 4px; }
 
 .plan-row {
   display: block;
-  padding: 8px 12px;
+  padding: 7px 12px;
   margin: 2px 6px;
   border-left: 3px solid transparent;
   cursor: pointer;
   border-radius: 3px;
   user-select: none;
+  color: inherit;
+  text-decoration: none;
 }
 .plan-row:hover { background: var(--paper); }
 .plan-row.is-active { background: var(--select); border-left-color: var(--accent); }
@@ -417,13 +401,43 @@ body {
   font-size: 12px;
   color: var(--ink);
 }
+.plan-row .plan-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-row-state,
+.plan-row-current,
+.plan-row-sensitive {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.plan-row-current {
+  margin-left: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.plan-row-sensitive {
+  margin-left: 0;
+  color: var(--warning);
+}
+.plan-row-state.status-blocked { color: var(--error); }
+.plan-row-state.status-in-progress { color: var(--warning); }
+.plan-row-state.status-complete { color: var(--task-completed); }
+.plan-row-state.status-stale { color: var(--warning); }
+.plan-row.is-current-work { border-left-color: var(--accent); }
 .plan-row .plan-row-purpose {
   margin-top: 2px;
   font-size: 12px;
   color: var(--ink-2);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   overflow: hidden;
 }
 .plan-row .plan-row-meta {
@@ -434,6 +448,15 @@ body {
   font-family: var(--mono);
   flex-wrap: nowrap;
   min-width: 0;
+}
+:root:not(.advanced-mode) .plan-row .plan-row-meta,
+:root:not(.advanced-mode) .plan-row-head > .pill,
+:root:not(.advanced-mode) .plan-row .child-count {
+  display: none;
+}
+:root.advanced-mode .plan-row-state,
+:root.advanced-mode .plan-row-current {
+  margin-left: 0;
 }
 .plan-row .plan-row-meta > span:first-child {
   overflow: hidden;
@@ -474,7 +497,7 @@ body {
 .progress-bar .segment-blocked     { background: var(--task-blocked); }
 .progress-bar .segment-pending     { background: var(--task-pending); }
 .progress-bar.is-shipped {
-  background: linear-gradient(90deg, var(--task-shipped) 0%, #d8b558 100%);
+  background: var(--task-shipped);
   border-color: var(--task-shipped);
 }
 .progress-bar.is-shipped .segment-completed { background: transparent; }
@@ -503,7 +526,7 @@ body {
 .progress-label .inv-count {
   margin-left: auto;
   color: var(--ink-2);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .pill {
@@ -575,7 +598,7 @@ body {
   font-size: 10px;
   color: var(--ink-2);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   margin-right: 6px;
 }
 
@@ -624,7 +647,7 @@ body {
   font-size: 11px;
   color: var(--ink-2);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
   margin-right: 2px;
 }
 .ops-chip {
@@ -671,7 +694,7 @@ body {
 .ops-truth-item span {
   margin-bottom: 2px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 .ops-truth-item strong {
   display: block;
@@ -727,6 +750,9 @@ body {
   display: block;
   margin-bottom: 24px;
   box-shadow: var(--shadow-sm);
+}
+.artifact-isolation-state {
+  color: var(--task-completed);
 }
 code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; border-radius: 2px; }
 
@@ -786,6 +812,29 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .pane-header .meta .pill { vertical-align: middle; margin-right: 4px; }
 
+.sensitive-content-notice {
+  min-height: 42px;
+  margin: -12px 0 16px;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-ink);
+}
+.sensitive-content-notice strong {
+  flex: 0 0 auto;
+  font-size: var(--text-body);
+}
+.sensitive-content-notice span {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 /* ---- Plan brief ---- */
 
 .plan-brief {
@@ -799,11 +848,10 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   background: var(--paper-2);
 }
 .plan-brief-kicker,
-.plan-brief-side-label,
-.plan-steering label {
+.plan-brief-side-label {
   font-family: var(--mono);
   font-size: 10.5px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--ink-2);
 }
@@ -872,21 +920,6 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.plan-brief-code-link {
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  color: var(--accent);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  padding: 3px 6px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.plan-brief-code-link:hover,
-.plan-brief-code-link:focus {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
 .plan-brief-task.is-empty {
   display: block;
   color: var(--ink-2);
@@ -905,54 +938,6 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .plan-brief-status.status-blocked {
   color: var(--task-blocked);
 }
-.plan-steering {
-  display: grid;
-  gap: 7px;
-}
-.plan-steering textarea {
-  width: 100%;
-  min-height: 72px;
-  resize: vertical;
-  padding: 8px 9px;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--sans);
-  font-size: 13px;
-  line-height: 1.4;
-  outline: none;
-}
-.plan-steering textarea:focus {
-  border-color: var(--accent);
-}
-.plan-steering-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.plan-steering-status {
-  margin-right: auto;
-  color: var(--ink-2);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-.plan-steering button {
-  border: 1px solid var(--accent);
-  border-radius: 3px;
-  background: var(--accent);
-  color: var(--paper);
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 6px 10px;
-}
-.plan-steering button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
 /* ---- Pane progress block (the "moving target" headline) ----
  * Sits above the markdown body. Bar + counts legend + completion %.
  * Designed to make completion a visually celebrated, key-of-vidux concept. */
@@ -966,7 +951,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .pane-progress.is-shipped {
   border-color: var(--task-shipped);
-  background: linear-gradient(180deg, var(--paper-2) 0%, color-mix(in srgb, var(--task-shipped) 8%, var(--paper-2)) 100%);
+  background: var(--paper-2);
 }
 .pane-progress .progress-bar { height: 10px; }
 .pane-progress .progress-summary {
@@ -994,7 +979,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .pane-progress .progress-headline .label {
   text-transform: uppercase;
   font-size: 10.5px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   color: var(--ink-2);
   font-family: var(--mono);
 }
@@ -1039,10 +1024,6 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   );
   border-left-color: var(--rule);
   padding-left: 14px;
-  background-image: linear-gradient(180deg, var(--rule) 0, var(--rule) 100%);
-  background-size: 1px calc(100% - 12px);
-  background-position: 0 6px;
-  background-repeat: no-repeat;
 }
 .plan-row.is-child.is-active {
   border-left-color: var(--accent);
@@ -1079,7 +1060,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .progress-row .progress-row-tag {
   font-family: var(--mono);
   font-size: 9.5px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--ink-2);
   min-width: 56px;
@@ -1112,7 +1093,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   margin: 0 0 8px;
   font-family: var(--mono);
   font-size: 11px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--ink-2);
   font-weight: 600;
@@ -1195,7 +1176,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .pane-evidence-strip .label {
   text-transform: uppercase;
   font-size: 10px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   margin-right: 4px;
 }
 .pane-investigations-strip button,
@@ -1237,6 +1218,480 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .pane-tabs button.is-active { color: var(--ink); border-bottom-color: var(--accent); }
 .pane-tabs button:hover { color: var(--ink); }
 
+.mission-control {
+  display: grid;
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--accent);
+  background: var(--paper);
+  overflow: hidden;
+}
+.mission-control.status-blocked,
+.mission-control.status-losing {
+  border-left-color: var(--error);
+}
+.mission-control.status-watching,
+.mission-control.status-unproven,
+.mission-control.status-unverified {
+  border-left-color: var(--warning);
+}
+.mission-control.status-unknown { border-left-color: var(--cold); }
+.mission-control-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  background: var(--paper-2);
+}
+.mission-title-block {
+  min-width: 0;
+}
+.mission-kicker,
+.mission-section-label {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.mission-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.mission-verdict,
+.mission-metric-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  text-transform: uppercase;
+}
+.mission-verdict i,
+.mission-metric-status i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  background: var(--accent);
+}
+.mission-verdict.status-unproven i,
+.mission-verdict.status-unverified i,
+.mission-metric.status-unproven .mission-metric-status i,
+.mission-metric.status-unverified .mission-metric-status i,
+.mission-metric.status-watching .mission-metric-status i {
+  background: var(--warning);
+}
+.mission-verdict.status-losing i,
+.mission-verdict.status-blocked i,
+.mission-metric.status-losing .mission-metric-status i,
+.mission-metric.status-failed .mission-metric-status i,
+.mission-metric.status-blocked .mission-metric-status i {
+  background: var(--error);
+}
+.mission-verdict.status-unknown i,
+.mission-metric.status-unknown .mission-metric-status i {
+  background: var(--cold);
+}
+.mission-work-state { color: var(--ink-2); }
+.mission-control-head h2 {
+  max-width: 980px;
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-goal);
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.mission-source-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+}
+.mission-source-line strong { color: var(--ink); }
+.mission-source-line .freshness-stale {
+  color: var(--warning);
+  font-weight: 700;
+}
+.mission-source-line .freshness-unknown {
+  color: var(--error);
+  font-weight: 700;
+}
+.mission-open-plan,
+.mission-empty-action {
+  min-height: 40px;
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+.mission-open-plan:hover,
+.mission-empty-action:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.mission-control-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(380px, 0.95fr);
+  border-top: 1px solid var(--rule);
+}
+.mission-next,
+.mission-scorecard,
+.mission-details {
+  min-width: 0;
+  padding: var(--space-4) var(--space-6);
+}
+.mission-next {
+  border-right: 1px solid var(--rule);
+}
+.mission-next h3,
+.mission-scorecard-head h3 {
+  margin: var(--space-1) 0 0;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-title);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mission-details {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--rule);
+}
+.mission-details dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+.mission-details dl > div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--rule);
+}
+.mission-details dl > div:nth-child(odd) { padding-left: 0; }
+.mission-details dl > div:nth-child(even) { padding-right: 0; }
+.mission-details dt {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  text-transform: uppercase;
+}
+.mission-details dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-body);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.mission-scorecard-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+.mission-scorecard-tally {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1) var(--space-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+}
+.mission-scorecard-tally .is-winning { color: var(--task-completed); }
+.mission-scorecard-tally .is-losing { color: var(--error); }
+.mission-scorecard-tally .is-unproven { color: var(--warning); }
+.mission-metrics {
+  display: grid;
+}
+.mission-metric {
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--rule);
+}
+.mission-metric-head {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.mission-metric-head strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--text-small);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.mission-metric-status { color: var(--ink-2); }
+.mission-metric.status-losing .mission-metric-status,
+.mission-metric.status-failed .mission-metric-status,
+.mission-metric.status-blocked .mission-metric-status {
+  color: var(--error);
+}
+.mission-metric.status-unproven .mission-metric-status,
+.mission-metric.status-watching .mission-metric-status,
+.mission-metric.status-unverified .mission-metric-status {
+  color: var(--warning);
+}
+.mission-metric.status-winning .mission-metric-status,
+.mission-metric.status-proven .mission-metric-status,
+.mission-metric.status-pass .mission-metric-status {
+  color: var(--task-completed);
+}
+.mission-metric-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0 100px;
+  font-variant-numeric: tabular-nums;
+}
+.mission-metric-values span {
+  min-width: 0;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--rule);
+}
+.mission-metric-values small,
+.mission-metric-values b {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.mission-metric-values small {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  text-transform: uppercase;
+}
+.mission-metric-values b {
+  margin-top: var(--space-1);
+  color: var(--ink);
+  font-size: var(--text-small);
+  font-weight: 600;
+}
+.mission-metric-proof {
+  margin: var(--space-2) 0 0 100px;
+}
+.mission-scorecard-empty {
+  margin: var(--space-2) 0 0;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.mission-proof-link {
+  min-height: 32px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  font-weight: 700;
+}
+.mission-proof-link:hover { border-color: var(--accent); background: var(--select); }
+.mission-proof-state {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  text-transform: uppercase;
+}
+.mission-proof-state.status-missing,
+.mission-proof-state.status-invalid { color: var(--error); }
+.mission-proof-state.status-needed { color: var(--warning); }
+.mission-control.is-empty {
+  min-height: 108px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-left-color: var(--warning);
+  background: var(--paper-2);
+}
+.mission-empty-copy h2 {
+  margin: var(--space-1) 0;
+  font-family: var(--sans);
+  font-size: var(--text-title);
+}
+.mission-empty-copy p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-body);
+}
+.mission-project-list {
+  margin-top: var(--space-2) !important;
+  color: var(--ink) !important;
+  font-family: var(--mono);
+  font-size: var(--text-label) !important;
+}
+.mission-setup-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: var(--text-small);
+}
+.mission-setup-guide code,
+.mission-brief-hint code {
+  padding: 4px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  overflow-wrap: anywhere;
+}
+.mission-brief-hint {
+  margin-top: var(--space-3) !important;
+}
+.mission-authority-note {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--rule);
+  background: var(--select);
+}
+.mission-authority-note p {
+  max-width: 900px;
+  margin: var(--space-1) 0 0;
+  color: var(--ink);
+  font-size: var(--text-small);
+  line-height: 1.45;
+}
+.mission-authority-note button {
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+.mission-authority-note button:hover { background: var(--paper); }
+
+.simple-queue {
+  margin: var(--space-6) 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.simple-queue > header {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.simple-queue > header h2 {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-title);
+}
+.simple-queue-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.simple-queue-list { min-width: 0; padding: var(--space-3) 0; }
+.simple-queue-list + .simple-queue-list { border-left: 1px solid var(--rule); padding-left: var(--space-4); }
+.simple-queue-list:first-child { padding-right: var(--space-4); }
+.simple-queue-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+.simple-queue-list h3 {
+  margin: 0;
+  font-size: var(--text-body);
+}
+.simple-queue-list-head > span { color: var(--ink-2); font-family: var(--mono); font-size: var(--text-label); }
+.simple-queue-list p { margin: 0; color: var(--ink-2); font-size: var(--text-small); }
+.simple-queue-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 40px;
+  padding: var(--space-2) 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.simple-queue-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-family: var(--mono); font-size: var(--text-label); }
+.simple-queue-copy { display: grid; min-width: 0; gap: 2px; }
+.simple-queue-row strong {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  font-size: var(--text-small);
+  line-height: 1.35;
+}
+.simple-queue-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: var(--text-label);
+}
+.simple-queue-severity {
+  min-width: 26px;
+  padding: 2px 4px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  text-align: center;
+}
+.simple-queue-severity.severity-p0 { border-color: var(--error); color: var(--error); }
+.simple-queue-severity.severity-p1 { border-color: var(--warning); color: var(--warning); }
+.simple-queue-row:hover strong { color: var(--accent); }
+.simple-queue-view-all {
+  margin-top: var(--space-2);
+  padding: var(--space-2) 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+.simple-queue-view-all:hover { text-decoration: underline; }
+
 .dashboard-panel {
   display: grid;
   gap: 14px;
@@ -1256,7 +1711,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   font-family: var(--mono);
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 .dashboard-header h2 {
   margin: 2px 0 0;
@@ -1302,7 +1757,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 }
 .dashboard-card span {
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 .dashboard-card strong {
   display: block;
@@ -1342,7 +1797,7 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 .dashboard-items {
   display: grid;
@@ -2076,7 +2531,8 @@ body.is-annotation-mode #filter {
 .comment-marker-layer {
   position: fixed;
   inset: 0;
-  z-index: calc(var(--z-mode-popover) - 1);
+  /* Markers annotate pane content; app chrome must always stay actionable. */
+  z-index: calc(var(--z-mobile-sidebar) - 1);
   pointer-events: none;
 }
 .comment-marker {
@@ -2167,6 +2623,13 @@ body.is-annotation-mode #filter {
   .dashboard-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .mission-control-body {
+    grid-template-columns: 1fr;
+  }
+  .mission-next {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
 }
 
 @media (max-width: 768px) {
@@ -2174,8 +2637,23 @@ body.is-annotation-mode #filter {
     --pane-footer-reserve: 28px;
   }
   .topbar {
-    min-height: 76px;
+    min-height: 60px;
+    height: 60px;
+    padding: 8px 12px;
+    gap: 8px;
   }
+  .topbar h1 { font-size: 17px; }
+  .topbar-meta { flex: 0 0 auto; gap: 0; }
+  .topbar-meta #meta-count,
+  .topbar-meta #mode-toggle,
+  .topbar-meta #theme-toggle { display: none; }
+  .topbar-meta #refresh {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    font-size: 18px;
+  }
+  .refresh-label { display: none; }
   .layout {
     grid-template-columns: 1fr;
   }
@@ -2189,7 +2667,7 @@ body.is-annotation-mode #filter {
        changed. The 77px fallback only matters before JS first paints (or if
        ResizeObserver is unavailable) and matches .topbar's single-row height
        at this breakpoint. */
-    top: var(--topbar-rendered-height, 77px);
+    top: var(--topbar-rendered-height, 60px);
     left: 0;
     bottom: 0;
     width: min(85vw, 360px);
@@ -2200,8 +2678,37 @@ body.is-annotation-mode #filter {
     transition: transform 0.18s ease-out;
   }
   .sidebar.is-open { transform: translateX(0); }
-  .pane { padding: 18px clamp(16px, 4vw, 28px) var(--pane-footer-reserve); }
+  .sidebar-mobile-tools {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sidebar-mobile-tools > span {
+    grid-column: 1 / -1;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .sidebar-mobile-tools button {
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 12px;
+  }
+  .pane { padding: 12px 12px var(--pane-footer-reserve); }
   .pane-header h2 { font-size: 20px; }
+  .sensitive-content-notice {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
   .plan-brief { grid-template-columns: 1fr; }
   .ops-truth-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-header {
@@ -2209,6 +2716,40 @@ body.is-annotation-mode #filter {
   }
   .dashboard-header-meta {
     justify-content: flex-start;
+  }
+  .mission-control-head {
+    display: grid;
+    padding: var(--space-3);
+  }
+  .mission-control-head h2 {
+    font-size: 18px;
+  }
+  .mission-open-plan {
+    width: 100%;
+    min-height: 44px;
+  }
+  .mission-control-body {
+    grid-template-columns: 1fr;
+  }
+  .mission-next,
+  .mission-scorecard,
+  .mission-details {
+    padding: var(--space-3);
+  }
+  .mission-next {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .mission-details dl { grid-template-columns: 1fr; }
+  .mission-details dl > div,
+  .mission-details dl > div:nth-child(odd),
+  .mission-details dl > div:nth-child(even) { padding: var(--space-2) 0; }
+  .simple-queue-grid { grid-template-columns: 1fr; }
+  .simple-queue-list:first-child { padding-right: 0; }
+  .simple-queue-list + .simple-queue-list {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--rule);
   }
   .dashboard-cards,
   .dashboard-grid {
@@ -2221,15 +2762,16 @@ body.is-annotation-mode #filter {
   .sidebar-toggle {
     min-width: 44px;
     min-height: 44px;
-    padding: 10px 14px;
-  }
-  .topbar-meta button {
-    min-height: 44px;
-    padding: 10px 14px;
+    padding: 8px;
   }
   .plan-row {
     min-height: 44px;
   }
+  .repo-disclosure { min-height: 44px; }
+  .mission-proof-link,
+  .mission-empty-action,
+  .mission-authority-note button,
+  .simple-queue-row { min-height: 44px; }
   .comment-anchor button {
     min-height: 32px;
     padding: 6px 12px;
@@ -2240,19 +2782,7 @@ body.is-annotation-mode #filter {
   :root {
     --pane-footer-reserve: 24px;
   }
-  /* h1's flex-shrink:0 (kept at wider widths so the title never gets
-     starved by topbar-meta) plus the 44px WCAG touch-target padding on
-     #mode-toggle above no longer both fit on one line at iPhone SE/12/13/14
-     widths -- title and button pixel-overlap instead of one shrinking.
-     .topbar-meta itself is the actual offender: it shrinks to whatever
-     space is left (flex:1; min-width:0) so the OUTER .topbar never thinks
-     it needs to wrap, but its own children (#meta-count text + 3 buttons)
-     keep their natural min-content width and overflow past their now-too-
-     narrow parent, back over the title. Let topbar-meta's own children
-     wrap onto a second row instead. */
-  .topbar { flex-wrap: wrap; row-gap: 8px; }
-  .topbar h1 { font-size: 16px; }
-  .topbar-meta { flex-wrap: wrap; row-gap: 6px; font-size: 11px; gap: 8px; }
+  .topbar { flex-wrap: nowrap; }
   .ops-truth-grid {
     grid-template-columns: 1fr;
   }
@@ -2263,6 +2793,31 @@ body.is-annotation-mode #filter {
     grid-template-columns: 1fr;
     gap: 3px;
   }
+  .mission-metric-head { grid-template-columns: 84px minmax(0, 1fr); }
+  .mission-metric-values {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-left: 0;
+  }
+  .mission-metric-proof,
+  .mission-scorecard-empty {
+    margin-left: 0;
+  }
+  .mission-scorecard-head {
+    display: grid;
+  }
+  .mission-scorecard-tally {
+    justify-content: flex-start;
+  }
+  .mission-control.is-empty {
+    grid-template-columns: 1fr;
+  }
+  .mission-authority-note {
+    grid-template-columns: 1fr;
+    padding: var(--space-3);
+  }
+  .mission-authority-note button { width: 100%; }
+  .mission-details dl > div { grid-template-columns: 96px minmax(0, 1fr); }
+  .simple-queue-row { grid-template-columns: minmax(0, 72px) minmax(0, 1fr) auto; }
   .dashboard-card strong {
     font-size: 22px;
   }
@@ -2276,36 +2831,30 @@ body.is-annotation-mode #filter {
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #1d1a14;
-    --paper-2: #28241c;
-    --ink: #f1ebd9;
-    --ink-2: #b6ad94;
-    --rule: #3d372b;
-    --select: #3a3324;
-    --hot: #d97a4a;
-    --stale: #c8a558;
-    --cold: #9c8d6f;
-    --accent: #6db580;
-    --task-pending: #4a432f;
-    --task-in-progress: #d99c52;
-    --task-in-review: #6fa6b8;
-    --task-completed: #6db580;
-    --task-blocked: #dd865b;
-    --task-shipped: #d8b558;
-    /* Round-9 fix: this bare @media block is the FOUC-guard's own fallback
-     * path (index.html inline script) when localStorage throws -- it never
-     * gets the .theme-dark class, so --error/--warning must be redeclared
-     * here too, not just in :root.theme-dark. Same values as that block. */
-    --error: #d97a4a;
-    --error-bg: #3a221a;
-    --error-ink: #f3c1a8;
-    --warning: #c8a558;
-    --warning-bg: #2e260f;
-    --warning-ink: #ead495;
-    /* Round-10 fix: same reachable-fallback bug class as the --error/
-     * --warning fix above, for the shadow family -- :root.theme-dark had
-     * dark-tuned rgba(0,0,0,...) shadows but this block still carried the
-     * light-theme rgba(28,26,22,...) ones. */
+    --paper: #141816;
+    --paper-2: #202623;
+    --ink: #edf2ef;
+    --ink-2: #a8b2ad;
+    --rule: #39433e;
+    --select: #2a3731;
+    --hot: #ff7b5d;
+    --stale: #d9a441;
+    --cold: #929e98;
+    --accent: #5cc996;
+    --task-pending: #4b5651;
+    --task-in-progress: #e2a54f;
+    --task-in-review: #6fb2d3;
+    --task-completed: #5cc996;
+    --task-blocked: #ff766d;
+    --task-shipped: #d8b34f;
+    /* Keep the no-localStorage fallback semantically identical to
+     * :root.theme-dark so alerts and elevation do not flash light tokens. */
+    --error: #ff766d;
+    --error-bg: #3b211f;
+    --error-ink: #ffc5bf;
+    --warning: #d9a441;
+    --warning-bg: #332a16;
+    --warning-ink: #f4d58e;
     --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.20);
     --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.28);
     --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.36);

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "protocol_id": "vidux-cockpit-v2",
+  "status": "retired_non_runnable",
+  "runnable": false,
+  "decided_at": "2026-07-10T13:23:16Z",
+  "replacement_protocol_id": "vidux-cockpit-v3",
+  "decision_basis": [
+    "Provider and model identities are not matched across treatment and native controls.",
+    "Hidden-oracle adjudication and receipt verification are not deterministic or content-addressed.",
+    "The frozen schedule permits incomplete released-fixture coverage and has no hard run budgets.",
+    "These are outcome-determining rule changes, and the frozen amendment policy requires a new protocol id."
+  ],
+  "next_protocol_requirements": [
+    "provider-matched treatment and direct-native arm pairs",
+    "deterministic oracle schema and adjudicator",
+    "complete schedule binding for every released fixture",
+    "arm packets without oracle commitments",
+    "per-run and global token, dollar, and wall-time limits",
+    "content-addressed provider, runner, transcript, and adjudication receipts",
+    "durable exactly-once attempt journal"
+  ]
+}

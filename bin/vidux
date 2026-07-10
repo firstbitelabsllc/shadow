@@ -26,7 +26,8 @@ commands:
   dev [--bg]        Start the local dev browser (foreground; auto-restart)
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
-  init <slug>       Bootstrap a new plan's PLAN.md from template
+  benchmark [cmd]   Inspect the current fail-closed benchmark authority
+  init <slug>|--here Bootstrap a cockpit-ready PLAN.md from template
   drift <PLAN.md>   Record planned-vs-actual drift and optional subplan updates
   config <cmd>      Inspect, validate, or initialize local vidux.config.json
   signpost <cmd>    Emit or summarize local Vidux feature signposts
@@ -73,11 +74,11 @@ EOF
 vidux browse — launch the plan browser at :7191.
 
 usage: vidux browse [--no-open] [--foreground|-f] [--port N] [--host HOST] \\
-  [--root PATH] [--open-host HOST] [--comments-path PATH] [--help|-h]
+  [--root PATH] [--open-host HOST] [--comments-path PATH] [--receipt-corpus-path PATH] [--help|-h]
 
 Proxies to bin/vidux-browse. The launcher refuses to reuse an existing port
-listener unless /api/health matches the requested repo root, scan root, port,
-and browser/server.py file mtime fingerprint.
+listener unless /api/health matches the requested repo root, scan root, receipt
+corpus path, port, and browser/server.py file mtime fingerprint.
 
 flags:
   --no-open             Start/reuse the server without opening a browser.
@@ -87,6 +88,8 @@ flags:
   --root PATH          Scan root for PLAN.md files (default: ~/Development).
   --open-host HOST     Browser URL host (default: 127.0.0.1).
   --comments-path PATH Comments JSONL path.
+  --receipt-corpus-path PATH
+                       Receipt corpus JSONL path.
 EOF
       ;;
     status)
@@ -100,18 +103,47 @@ Runs scripts/vidux-status.py. Default output hides empty and shipped plans;
 same counts without the rendered board.
 EOF
       ;;
+    benchmark)
+      cat <<'EOF'
+vidux benchmark — inspect the current benchmark authority.
+
+usage:
+  vidux benchmark [status]
+  vidux benchmark validate
+  vidux benchmark readiness [--release <path> --fixture-root <path> --artifact-root <path>]
+  vidux benchmark release-check --release <path> --fixture-root <path> --artifact-root <path>
+  vidux benchmark schedule --release <path> --fixture-root <path> --artifact-root <path>
+  vidux benchmark result-check --release <path> --schedule <path> --receipt <path> --fixture-root <path> --artifact-root <path>
+  vidux benchmark journal-recover --journal <path>
+
+`status` is the default and aliases `readiness`. Both report the current v4
+protocol, exact gates, and whether provider spend is authorized. The command
+never invokes a model or provider.
+
+`schedule` deterministically expands an authenticated release into the frozen
+208-run matrix. `result-check` verifies canonical evaluator signatures and all
+bound evidence bytes. Neither command invokes a model or provider. Legacy v2/v3
+and the local five-arm bakeoff remain historical evidence; `run`, `pilot`,
+`full`, and `decide` fail closed.
+
+exit codes:
+  0   requested validation or check passed
+  2   benchmark is not ready, a legacy action was refused, or usage is invalid
+EOF
+      ;;
     init)
       cat <<EOF
 vidux init — bootstrap a new plan.
 
 usage: vidux init <slug>
+       vidux init --here
 
-Creates projects/<slug>/PLAN.md from the canonical template. The slug
-must be lowercase letters, digits, and hyphens (matching ^[a-z0-9-]+\$).
-Refuses to overwrite an existing PLAN.md.
+With <slug>, creates projects/<slug>/PLAN.md inside the Vidux checkout.
+With --here, creates PLAN.md in the current project. Existing plans are never
+overwritten. Slugs use lowercase letters, digits, and hyphens.
 
-The template ships with the six canonical sections:
-  Purpose · Evidence · Constraints · Tasks · Decision Log · Progress
+The template includes plan authority, a starter Operator Brief, an honest
+unproven scorecard, and the canonical task/decision/progress sections.
 
 exit codes:
   0   plan created
@@ -206,9 +238,10 @@ vidux doctor — install/readiness doctor for local CLI setup.
 
 usage: vidux doctor [--help|-h]
 
-Runs 7 checks (python3 >= 3.10, gh auth status, ~/.config/vidux/*.token
-chmod 600, ~/Development exists, no stale browser pidfile, vidux config,
-npm test). This can be slow when it runs the full npm test gate; set
+Runs 7 checks (python3 >= 3.10, optional gh auth, token permissions,
+development root, stale browser pidfile, vidux config, and source tests).
+Optional integrations warn without breaking packaged installs. A source
+checkout can be slow when it runs the full npm test gate; set
 VIDUX_DOCTOR_SKIP_NPM_TEST=1 for fast local loops that already run tests.
 
 Use scripts/vidux-doctor.sh --json for hook-safe runtime checks across plans,
@@ -216,8 +249,9 @@ worktrees, automations, browsers, and Codex state. That runtime doctor is the
 right beforeTask/pre-hook probe; vidux doctor is the terminal setup/readiness
 probe.
 
-Each check prints [PASS] or [FAIL] with reason. Exit 0 if all pass, 1 if any
-check fails, and 2 for invalid usage. Footer prints an N/TOTAL summary.
+Each check prints [PASS], [WARN], or [FAIL] with reason. Exit 0 when no hard
+check fails, 1 for a hard failure, and 2 for invalid usage. Footer prints an
+N/TOTAL summary plus optional warning count.
 EOF
       ;;
     build)
@@ -226,11 +260,12 @@ vidux build — sanity gate before release.
 
 usage: vidux build [--help|-h]
 
-Runs two steps in order; aborts on first failure:
+Runs three steps in order; aborts on first failure:
   1. npm run docs:build   — vitepress build of docs/
   2. npm test             — python contract test suite
+  3. npm run release:verify — inspect the exact npm package candidate
 
-Exits 0 only when both pass. On failure, prints which step failed
+Exits 0 only when all pass. On failure, prints which step failed
 and the tail of its captured output.
 EOF
       ;;
@@ -394,6 +429,37 @@ main() {
     status)
       require_python3 "status"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-status.py" "$@"
+      ;;
+    benchmark)
+      require_python3 "benchmark"
+      if [[ $# -eq 0 ]]; then
+        set -- readiness
+      fi
+      local benchmark_cmd="$1"
+      shift || true
+      case "${benchmark_cmd}" in
+        --help|-h|help)
+          print_subcommand_help "benchmark"
+          ;;
+        status)
+          exec python3 "${VIDUX_ROOT}/scripts/vidux-benchmark-v4.py" readiness "$@"
+          ;;
+        validate|readiness|release-check|schedule|result-check|journal-recover)
+          exec python3 "${VIDUX_ROOT}/scripts/vidux-benchmark-v4.py" "${benchmark_cmd}" "$@"
+          ;;
+        v2|v3|run|pilot|full|decide)
+          echo "vidux benchmark: '${benchmark_cmd}' is not available" >&2
+          echo "  Current authority: vidux-cockpit-v4 (non-runnable integrity preflight)." >&2
+          echo "  Legacy bakeoff and v2/v3 execution paths are historical evidence only." >&2
+          echo "  Run 'vidux benchmark readiness' for the exact spend gates." >&2
+          exit 2
+          ;;
+        *)
+          echo "vidux benchmark: unknown command: ${benchmark_cmd}" >&2
+          print_subcommand_help "benchmark" >&2
+          exit 2
+          ;;
+      esac
       ;;
     init)
       export VIDUX_ROOT

@@ -12,16 +12,17 @@
 #
 # Steps in --apply mode:
 #   1. Read VERSION, compute NEW_VERSION per --bump (default: patch).
-#   2. Write NEW_VERSION to VERSION (preserving any trailing comment lines).
-#   3. In CHANGELOG.md, rename `## [Unreleased]` -> `## [NEW_VERSION] - YYYY-MM-DD`
+#   2. Write NEW_VERSION to VERSION, package metadata, and the plugin manifest.
+#   3. Verify the exact npm release candidate remains bounded and installable.
+#   4. In CHANGELOG.md, rename `## [Unreleased]` -> `## [NEW_VERSION] - YYYY-MM-DD`
 #      and insert a fresh `## [Unreleased]` block above it.
-#   4. Append a release Progress note to the owning PLAN.md.
-#   5. git add VERSION CHANGELOG.md <PLAN.md>
-#   6. git commit -m "release: v<NEW_VERSION>"
-#   7. git tag v<NEW_VERSION>
-#   8. emit an in-progress publish ledger row with plan/proof/handoff/resume fields
-#   9. git push origin main --tags
-#   10. emit a final publish ledger row after the push succeeds
+#   5. Append a release Progress note to the owning PLAN.md.
+#   6. git add VERSION package.json package-lock.json .claude-plugin/plugin.json CHANGELOG.md <PLAN.md>
+#   7. git commit -m "release: v<NEW_VERSION>"
+#   8. git tag v<NEW_VERSION>
+#   9. emit an in-progress publish ledger row with plan/proof/handoff/resume fields
+#   10. git push origin main --tags
+#   11. emit a final publish ledger row after the push succeeds
 #
 # Refuses to run if:
 #   - git status is not clean (override: --allow-dirty)
@@ -38,6 +39,10 @@ VIDUX_ROOT="${VIDUX_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
 VERSION_FILE="${VIDUX_ROOT}/VERSION"
 CHANGELOG_FILE="${VIDUX_ROOT}/CHANGELOG.md"
+PACKAGE_FILE="${VIDUX_ROOT}/package.json"
+PACKAGE_LOCK_FILE="${VIDUX_ROOT}/package-lock.json"
+PLUGIN_FILE="${VIDUX_ROOT}/.claude-plugin/plugin.json"
+PACKAGE_VERIFIER="${VIDUX_ROOT}/scripts/vidux-release-package.py"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -345,6 +350,9 @@ emit_release_publish() {
     --resume "${RESUME}"
     --skills "vidux,pilot-leo,ledger"
     --file VERSION
+    --file package.json
+    --file package-lock.json
+    --file .claude-plugin/plugin.json
     --file CHANGELOG.md
     --file "${PLAN_PATH_REL}"
   )
@@ -357,6 +365,9 @@ emit_release_publish() {
 
   args+=(
     --claim VERSION
+    --claim package.json
+    --claim package-lock.json
+    --claim .claude-plugin/plugin.json
     --claim CHANGELOG.md
     --claim "${PLAN_PATH_REL}"
     --claim scripts/vidux-release.sh
@@ -375,6 +386,60 @@ emit_release_publish() {
   fi
 
   run "${LEDGER_EMIT}" "${args[@]}"
+}
+
+verify_package_versions() {
+  local expected="$1"
+  python3 - "${PACKAGE_FILE}" "${PACKAGE_LOCK_FILE}" "${PLUGIN_FILE}" "${expected}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+package_path = Path(sys.argv[1])
+lock_path = Path(sys.argv[2])
+plugin_path = Path(sys.argv[3])
+expected = sys.argv[4]
+package = json.loads(package_path.read_text(encoding="utf-8"))
+lock = json.loads(lock_path.read_text(encoding="utf-8"))
+plugin = json.loads(plugin_path.read_text(encoding="utf-8"))
+versions = {
+    "package.json": package.get("version"),
+    "package-lock.json": lock.get("version"),
+    "package-lock root": lock.get("packages", {}).get("", {}).get("version"),
+    "Claude plugin": plugin.get("version"),
+}
+mismatches = [f"{name}={value!r}" for name, value in versions.items() if value != expected]
+if mismatches:
+    print(
+        "vidux-release: package version drift; expected "
+        + repr(expected)
+        + ": "
+        + ", ".join(mismatches),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
+}
+
+write_plugin_version() {
+  local version="$1"
+  python3 - "${PLUGIN_FILE}" "${version}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["version"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+verify_release_candidate() {
+  local expected="$1"
+  if [[ -f "${PACKAGE_VERIFIER}" ]]; then
+    python3 "${PACKAGE_VERIFIER}" --root "${VIDUX_ROOT}" --expect-version "${expected}"
+  fi
 }
 
 append_plan_progress_note() {
@@ -444,6 +509,13 @@ if [[ ! -f "${VERSION_FILE}" ]]; then
   exit 1
 fi
 
+for package_path in "${PACKAGE_FILE}" "${PACKAGE_LOCK_FILE}" "${PLUGIN_FILE}"; do
+  if [[ ! -f "${package_path}" ]]; then
+    echo "vidux-release: required package metadata not found at ${package_path}" >&2
+    exit 1
+  fi
+done
+
 # First non-empty, non-comment line is the version string. Matches the
 # parsing used by bin/vidux print_version().
 CURRENT_VERSION="$(awk 'NF && $1 !~ /^#/ { print; exit }' "${VERSION_FILE}")"
@@ -451,6 +523,8 @@ if [[ -z "${CURRENT_VERSION}" ]]; then
   echo "vidux-release: could not read current version from ${VERSION_FILE}" >&2
   exit 1
 fi
+
+verify_package_versions "${CURRENT_VERSION}"
 
 if ! [[ "${CURRENT_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
   echo "vidux-release: current version '${CURRENT_VERSION}' is not a semver MAJOR.MINOR.PATCH" >&2
@@ -484,6 +558,7 @@ if ! grep -q '^## \[Unreleased\]' "${CHANGELOG_FILE}"; then
 fi
 
 configure_publish_gate
+verify_release_candidate "${CURRENT_VERSION}"
 
 # ---------------------------------------------------------------------------
 # Plan summary (always printed)
@@ -531,8 +606,17 @@ if [[ "${APPLY}" -eq 1 ]]; then
   mv "${tmp_version}" "${VERSION_FILE}"
 fi
 
+say_step "synchronize package.json, package-lock.json, and .claude-plugin/plugin.json to '${NEW_VERSION}'"
+if [[ "${APPLY}" -eq 1 ]]; then
+  npm --prefix "${VIDUX_ROOT}" version "${NEW_VERSION}" \
+    --no-git-tag-version --allow-same-version --ignore-scripts >/dev/null
+  write_plugin_version "${NEW_VERSION}"
+  verify_package_versions "${NEW_VERSION}"
+  verify_release_candidate "${NEW_VERSION}"
+fi
+
 # ---------------------------------------------------------------------------
-# Step 2: CHANGELOG cut — rename [Unreleased] -> [NEW] - DATE,
+# Step 3: CHANGELOG cut — rename [Unreleased] -> [NEW] - DATE,
 #                         insert fresh empty [Unreleased] above it.
 # ---------------------------------------------------------------------------
 say_step "rewrite CHANGELOG.md — rename '## [Unreleased]' to '## [${NEW_VERSION}] - ${TODAY}' and add a fresh '## [Unreleased]' block above it"
@@ -561,7 +645,7 @@ if [[ "${APPLY}" -eq 1 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3: owning PLAN.md Progress note
+# Step 4: owning PLAN.md Progress note
 # ---------------------------------------------------------------------------
 if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
   append_plan_progress_note
@@ -570,10 +654,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4-8: git add / commit / tag / push
+# Step 5-9: git add / commit / tag / push
 # ---------------------------------------------------------------------------
 if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
-  git_add_args=(VERSION CHANGELOG.md "${PLAN_PATH_REL}")
+  git_add_args=(VERSION package.json package-lock.json .claude-plugin/plugin.json CHANGELOG.md "${PLAN_PATH_REL}")
   if [[ "${#PUBLISH_FILES[@]}" -gt 0 ]]; then
     for publish_file in "${PUBLISH_FILES[@]}"; do
       git_add_args+=("${publish_file}")
@@ -581,7 +665,7 @@ if [[ "${PUBLISH_LEDGER_ENABLED}" -eq 1 ]]; then
   fi
   run git -C "${VIDUX_ROOT}" add "${git_add_args[@]}"
 else
-  run git -C "${VIDUX_ROOT}" add VERSION CHANGELOG.md
+  run git -C "${VIDUX_ROOT}" add VERSION package.json package-lock.json .claude-plugin/plugin.json CHANGELOG.md
 fi
 run git -C "${VIDUX_ROOT}" commit -m "release: v${NEW_VERSION}"
 run git -C "${VIDUX_ROOT}" tag "v${NEW_VERSION}"

@@ -19,6 +19,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from safe_files import atomic_write_bytes
+
 from . import contract, ocr, storage
 
 
@@ -30,6 +32,8 @@ def _corpus_safe(fn):
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
+        except storage.UnsafeFileAliasError:
+            return 409, {"error": "local storage target must be a regular single-link file"}
         except storage.CorpusError as exc:
             return 500, {"error": str(exc)}
 
@@ -46,6 +50,14 @@ DEFAULT_CORPUS_PATH = Path(
 ).expanduser()
 
 DEFAULT_IMAGES_DIR = DEFAULT_CORPUS_PATH.parent / "images"
+
+
+def configure_corpus_path(path: str | Path) -> None:
+    """Set the corpus and its sibling image jail for one browser process."""
+    global DEFAULT_CORPUS_PATH, DEFAULT_IMAGES_DIR
+    DEFAULT_CORPUS_PATH = Path(path).expanduser().resolve()
+    DEFAULT_IMAGES_DIR = DEFAULT_CORPUS_PATH.parent / "images"
+
 
 # Upload size cap: 15 MB. Modern receipt photos are ~3-8 MB; 15 MB has headroom
 # without enabling abuse uploads.
@@ -102,10 +114,9 @@ def handle_upload(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     # Save image to disk unless private.
     image_path: str | None = None
     if not private:
-        DEFAULT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
         ext = "jpg" if head.startswith(b"\xff\xd8\xff") else "png"
         image_file = DEFAULT_IMAGES_DIR / f"{row_id}.{ext}"
-        image_file.write_bytes(image_bytes)
+        atomic_write_bytes(image_file, image_bytes)
         image_path = str(image_file.relative_to(DEFAULT_CORPUS_PATH.parent))
 
     # Build the row (OCR happens lazily — `expected` stays null until human-confirmed).

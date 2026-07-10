@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# vidux-init.sh — scaffold a new plan's projects/<slug>/PLAN.md from
-# the canonical template (Purpose / Evidence / Constraints / Tasks /
-# Decision Log / Progress).
+# vidux-init.sh — scaffold a cockpit-ready PLAN.md from the canonical template.
 #
 set -euo pipefail
 
@@ -12,14 +10,16 @@ usage() {
 vidux init — bootstrap a new plan.
 
 usage: vidux init <slug>
+       vidux init --here
        vidux init --help|-h
 
-Creates projects/<slug>/PLAN.md from the canonical template. The slug
-must be lowercase letters, digits, and hyphens only (matching
-^[a-z0-9-]+$). Refuses to overwrite an existing PLAN.md.
+With <slug>, creates projects/<slug>/PLAN.md inside the Vidux checkout.
+With --here, creates PLAN.md in the current project directory. The slug must
+be lowercase letters, digits, and hyphens only (matching ^[a-z0-9-]+$).
+Refuses to overwrite an existing PLAN.md.
 
-The template ships with the six canonical sections:
-  Purpose · Evidence · Constraints · Tasks · Decision Log · Progress
+The template includes plan authority, a starter Operator Brief, an honest
+unproven scorecard, and the canonical task/decision/progress sections.
 
 exit codes:
   0   plan created
@@ -48,36 +48,56 @@ slug_to_title() {
 
 emit_template() {
   local title="$1"
+  local today="$2"
   cat <<EOF
 # ${title}
 
 ## Purpose
 
-<one-paragraph purpose of this plan>
+Keep ${title}'s next work, decisions, and proof resumable across agent sessions.
 
 ## Evidence
 
-- [Source: <where>] <what you learned>
+- [Source: PLAN.md, ${today}] Plan initialized; product evidence is not established yet.
 
 ## Constraints
 
 **ALWAYS:**
-- <invariant 1>
+- Update this plan when the next move or result changes.
+- Attach a command result or artifact before marking work complete.
 
 **NEVER:**
-- <anti-pattern 1>
+- Treat an unverified result as shipped.
+
+## Operator Brief
+
+- Status: watching
+- Priority: 50
+- Outcome: Ship the first evidence-backed result for ${title}.
+- Next: Replace the starter task with the first concrete deliverable.
+- Why: This plan is new and its first result is not defined yet.
+- Validation: Attach one command result or artifact to the completed task.
+- Cost: Keep the first cycle under 30 minutes.
+- Evidence: evidence/first-result.md
+- Updated: ${today}
+
+## Outcome Scorecard
+
+| Metric | Baseline | Current | Target | Status | Proof |
+|---|---|---|---|---|---|
+| First evidence-backed result | Not defined | Not started | One completed task with proof | unproven | evidence/first-result.md |
 
 ## Tasks
 
-- [pending] T-1: <first task> [ETA: 0.5h]
+- [pending] T-1: Define and ship the first evidence-backed result [ETA: 0.5h]
 
 ## Decision Log
 
-- [DIRECTION] [<YYYY-MM-DD>] <decision>. Reason: <why>.
+- [DIRECTION] [${today}] Start with one bounded, evidence-backed deliverable. Reason: make the first resume point concrete.
 
 ## Progress
 
-- [<YYYY-MM-DD>] Plan opened.
+- [${today}] Plan initialized with an unproven starter outcome.
 EOF
 }
 
@@ -94,6 +114,12 @@ main() {
       usage
       exit 0
       ;;
+    --here)
+      if [[ $# -gt 1 ]]; then
+        echo "vidux init: --here does not accept additional arguments" >&2
+        exit 2
+      fi
+      ;;
     --*|-*)
       echo "vidux init: unknown flag: $1" >&2
       echo >&2
@@ -102,25 +128,30 @@ main() {
       ;;
   esac
 
-  if [[ $# -gt 1 ]]; then
+  if [[ "$1" != "--here" && $# -gt 1 ]]; then
     echo "vidux init: too many arguments (expected 1 slug, got $#)" >&2
     echo >&2
     usage >&2
     exit 2
   fi
 
-  local slug="$1"
-
-  if ! [[ "${slug}" =~ ^[a-z0-9-]+$ ]]; then
-    echo "vidux init: invalid slug: ${slug}" >&2
-    echo "slug must match ^[a-z0-9-]+\$ (lowercase letters, digits, hyphens)" >&2
-    exit 2
+  local slug
+  local target_dir
+  if [[ "$1" == "--here" ]]; then
+    target_dir="$(pwd -P)"
+    slug="$(basename "${target_dir}")"
+  else
+    slug="$1"
+    if ! [[ "${slug}" =~ ^[a-z0-9-]+$ ]]; then
+      echo "vidux init: invalid slug: ${slug}" >&2
+      echo "slug must match ^[a-z0-9-]+\$ (lowercase letters, digits, hyphens)" >&2
+      exit 2
+    fi
+    target_dir="${VIDUX_ROOT}/projects/${slug}"
   fi
-
-  local target_dir="${VIDUX_ROOT}/projects/${slug}"
   local target_file="${target_dir}/PLAN.md"
 
-  if [[ -e "${target_file}" ]]; then
+  if [[ -e "${target_file}" || -L "${target_file}" ]]; then
     echo "vidux init: ${target_file} already exists — refusing to overwrite" >&2
     exit 1
   fi
@@ -129,7 +160,7 @@ main() {
 
   local title
   title="$(slug_to_title "${slug}")"
-  emit_template "${title}" > "${target_file}"
+  emit_template "${title}" "$(date -u +%F)" > "${target_file}"
 
   # Print the real absolute path, not a bare "projects/<slug>/PLAN.md" --
   # that reads as relative to $PWD but it's actually relative to VIDUX_ROOT

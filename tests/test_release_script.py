@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -42,13 +43,41 @@ class ReleaseScriptTests(unittest.TestCase):
             f"- [in_progress] {TASK_ID}\n",
             encoding="utf-8",
         )
+        package = {"name": "vidux-release-fixture", "version": "1.2.3", "private": True}
+        (repo / "package.json").write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+        package_lock = {
+            "name": "vidux-release-fixture",
+            "version": "1.2.3",
+            "lockfileVersion": 3,
+            "requires": True,
+            "packages": {
+                "": {"name": "vidux-release-fixture", "version": "1.2.3"},
+            },
+        }
+        (repo / "package-lock.json").write_text(
+            json.dumps(package_lock, indent=2) + "\n", encoding="utf-8"
+        )
+        (repo / ".claude-plugin").mkdir()
+        (repo / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"name": "vidux-release-fixture", "version": "1.2.3"}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
         for command in (
             ["git", "init"],
             ["git", "branch", "-M", "main"],
             ["git", "config", "user.email", "vidux-test@example.com"],
             ["git", "config", "user.name", "Vidux Test"],
-            ["git", "add", "VERSION", "CHANGELOG.md", "PLAN.md"],
+            [
+                "git",
+                "add",
+                "VERSION",
+                "CHANGELOG.md",
+                "PLAN.md",
+                "package.json",
+                "package-lock.json",
+                ".claude-plugin/plugin.json",
+            ],
             ["git", "commit", "-m", "initial"],
         ):
             result = _run(command, cwd=repo)
@@ -126,9 +155,15 @@ class ReleaseScriptTests(unittest.TestCase):
             self.assertIn("--handoff-status done", ledger_lines[1])
             self.assertIn("--resume resume release follow-up", joined)
             self.assertIn("--file VERSION", joined)
+            self.assertIn("--file package.json", joined)
+            self.assertIn("--file package-lock.json", joined)
+            self.assertIn("--file .claude-plugin/plugin.json", joined)
             self.assertIn("--file CHANGELOG.md", joined)
             self.assertIn("--file PLAN.md", joined)
             self.assertIn("--claim VERSION", joined)
+            self.assertIn("--claim package.json", joined)
+            self.assertIn("--claim package-lock.json", joined)
+            self.assertIn("--claim .claude-plugin/plugin.json", joined)
             self.assertIn("--claim CHANGELOG.md", joined)
             self.assertIn("--claim PLAN.md", joined)
             self.assertIn("--claim scripts/vidux-release.sh", joined)
@@ -140,6 +175,12 @@ class ReleaseScriptTests(unittest.TestCase):
             )
 
             self.assertTrue((repo / "VERSION").read_text(encoding="utf-8").startswith("1.2.4\n"))
+            self.assertEqual(json.loads((repo / "package.json").read_text())["version"], "1.2.4")
+            lock = json.loads((repo / "package-lock.json").read_text())
+            self.assertEqual(lock["version"], "1.2.4")
+            self.assertEqual(lock["packages"][""]["version"], "1.2.4")
+            plugin = json.loads((repo / ".claude-plugin" / "plugin.json").read_text())
+            self.assertEqual(plugin["version"], "1.2.4")
             self.assertIn(
                 f"Release v1.2.4 for {TASK_ID}: python3 -m unittest tests.test_release_script",
                 (repo / "PLAN.md").read_text(encoding="utf-8"),
@@ -193,7 +234,15 @@ class ReleaseScriptTests(unittest.TestCase):
             self.assertEqual(len(ledger_lines), 2, ledger_lines)
             files = self._values_after(ledger_lines, "--file")
             claims = self._values_after(ledger_lines, "--claim")
-            for expected in ["VERSION", "CHANGELOG.md", "PLAN.md", "docs/release-extra.md"]:
+            for expected in [
+                "VERSION",
+                "package.json",
+                "package-lock.json",
+                ".claude-plugin/plugin.json",
+                "CHANGELOG.md",
+                "PLAN.md",
+                "docs/release-extra.md",
+            ]:
                 self.assertIn(expected, files)
                 self.assertIn(expected, claims)
             self.assertIn("scripts/vidux-release.sh", claims)

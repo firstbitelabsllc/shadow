@@ -1,5 +1,7 @@
 const sidebarSort = window.ViduxSidebarSort;
 const sidebarFilters = window.ViduxSidebarFilters;
+const onboardingUi = window.ViduxOnboarding;
+const workQueueUi = window.ViduxWorkQueue;
 const annotationState = window.ViduxAnnotationState;
 const commentRail = window.ViduxCommentRail;
 const commentMarkers = window.ViduxCommentMarkers;
@@ -11,6 +13,7 @@ const state = {
   artifacts: [],
   dashboard: null,
   fleetSummary: null,
+  devRoot: "",
   opsTruth: null,
   filter: "",
   sort: sidebarSort.getStored(),
@@ -27,11 +30,13 @@ const state = {
     targetPath: "",
     items: [],
   },
+  commentHighlight: null,
   commentMarkersHidden: commentMarkers.getStoredHidden(),
 };
 let activePopoverTarget = null;
 let opsTruthRetryTimer = null;
 let commentMarkerRenderFrame = 0;
+let commentHighlightTimer = 0;
 
 const DECISION_LOG_TAB = "Decision Log";
 const SESSION_TAB = "Sessions";
@@ -44,6 +49,7 @@ const AUTO_REFRESH_INTERVAL_MS = (() => {
     : DEFAULT_AUTO_REFRESH_INTERVAL_MS;
 })();
 let autoRefreshInFlight = false;
+let activeViewRevision = 0;
 
 function currentParams() {
   return new URLSearchParams(window.location.search);
@@ -83,7 +89,8 @@ function scrollActiveRowIntoView() {
   // already-visible items.
   requestAnimationFrame(() => {
     const row = els.list.querySelector(".plan-row.is-active");
-    if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (row) row.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
   });
 }
 
@@ -94,7 +101,10 @@ const els = {
   filterChips: Array.from(document.querySelectorAll("[data-filter-chip]")),
   pane: document.getElementById("pane"),
   count: document.getElementById("meta-count"),
+  mobileCount: document.getElementById("sidebar-meta-count"),
   refresh: document.getElementById("refresh"),
+  mobileRefresh: document.getElementById("sidebar-refresh"),
+  refreshStatus: document.getElementById("refresh-status"),
   annotate: document.getElementById("root-annotation-toggle"),
 };
 
@@ -122,6 +132,10 @@ const APP_ANCHOR_SELECTOR = [
   ".pane-tabs button",
   ".pane-investigations-strip",
   ".pane-investigations-strip button",
+  ".mission-control",
+  ".mission-next",
+  ".mission-scorecard",
+  ".mission-metric",
   ".dashboard-panel",
   ".dashboard-card",
   ".dashboard-list",
@@ -137,10 +151,9 @@ const APP_ANCHOR_SELECTOR = [
 ].join(",");
 const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   "#refresh",
+  "#sidebar-refresh",
   "#sidebar-toggle",
   "#filter",
-  ".plan-steering",
-  ".plan-steering *",
   "#annotation-popover",
   "#annotation-popover *",
   ".comment-anchor button",
@@ -168,9 +181,10 @@ const uiState = (() => {
     return {
       collapsed: new Set(Array.isArray(parsed.collapsed) ? parsed.collapsed : []),
       recents: Array.isArray(parsed.recents) ? parsed.recents : [],
+      sidebarInitialized: Boolean(parsed.sidebarInitialized),
     };
   } catch (e) {
-    return { collapsed: new Set(), recents: [] };
+    return { collapsed: new Set(), recents: [], sidebarInitialized: false };
   }
 })();
 function saveUiState() {
@@ -178,6 +192,7 @@ function saveUiState() {
     localStorage.setItem(UI_STATE_KEY, JSON.stringify({
       collapsed: [...uiState.collapsed],
       recents: uiState.recents.slice(0, RECENTS_MAX * 2),
+      sidebarInitialized: uiState.sidebarInitialized,
     }));
   } catch (e) { /* localStorage full or disabled — silently ignore */ }
 }
@@ -212,12 +227,17 @@ function applyTheme(stored) {
   root.classList.toggle("theme-dark", resolved === "dark");
   root.classList.toggle("theme-light", resolved === "light");
   // Update button label/aria — moon for light (clicks to dark), sun for dark.
+  const nextLabel = resolved === "dark" ? "Switch to light theme" : "Switch to dark theme";
   const btn = document.getElementById("theme-toggle");
   if (btn) {
     btn.textContent = resolved === "dark" ? "☀" : "☾";
-    const nextLabel = resolved === "dark" ? "Switch to light theme" : "Switch to dark theme";
     btn.setAttribute("aria-label", nextLabel);
     btn.setAttribute("title", nextLabel);
+  }
+  const mobileBtn = document.getElementById("sidebar-theme-toggle");
+  if (mobileBtn) {
+    mobileBtn.textContent = resolved === "dark" ? "Light theme" : "Dark theme";
+    mobileBtn.setAttribute("aria-label", nextLabel);
   }
 }
 function cycleTheme() {
@@ -254,9 +274,12 @@ function applyAdvancedModeUI() {
   // index.html's <head> -- that guard sets the class before <body> exists,
   // so both must target the same element or the class fights itself.
   document.documentElement.classList.toggle("advanced-mode", advanced);
-  const btn = document.getElementById("mode-toggle");
-  if (btn) {
-    btn.textContent = advanced ? "Simple view" : "Advanced view";
+  const buttons = [
+    document.getElementById("mode-toggle"),
+    document.getElementById("sidebar-mode-toggle"),
+  ].filter(Boolean);
+  for (const btn of buttons) {
+    btn.textContent = advanced ? "Simple" : "Advanced";
     btn.setAttribute("aria-pressed", String(advanced));
     btn.title = advanced
       ? "Switch to the simple plan/progress view"
@@ -268,17 +291,20 @@ function toggleAdvancedMode() {
   try { localStorage.setItem(ADVANCED_MODE_KEY, next ? "1" : "0"); }
   catch (e) { /* localStorage full or disabled */ }
   applyAdvancedModeUI();
+  if (state.plans.length || state.artifacts.length) renderSidebar();
   // Dropping to Simple while parked on an advanced-only tab would otherwise
   // still render that tab's content with no visible tab button pointing at
   // it (the tabs array excludes it, but activeTab/isSessionActive etc. don't
   // know that) — snap back to PLAN.md so the UI stays consistent.
-  if (!next && [DECISION_LOG_TAB, SESSION_TAB, LEDGER_TAB].includes(state.activeTab)) {
+  if (!next && [SESSION_TAB, LEDGER_TAB].includes(state.activeTab)) {
     state.activeTab = "PLAN.md";
   }
   // Re-render whatever's on screen so the newly shown/hidden panels take
   // effect immediately instead of waiting for the next navigation.
   if (state.active && state.active.kind === "dashboard") selectDashboard({ skipUrl: true, preserveScroll: true });
-  else if (state.active && state.active.kind === "plan") renderPane({ preserveScroll: true, preserveAnnotation: true });
+  else if (state.active && state.active.kind === "plan") {
+    renderPane({ preserveScroll: true, preserveAnnotation: true, viewRevision: startViewRevision() });
+  }
 }
 applyAdvancedModeUI();
 
@@ -542,6 +568,137 @@ function dashboardCategories() {
   return state.dashboard?.categories || {};
 }
 
+function missionStatusClass(value) {
+  const normalized = String(value || "unknown").toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+  return normalized.replace(/^-+|-+$/g, "") || "unknown";
+}
+
+const MISSION_WIN_STATUSES = new Set(["winning", "proven", "pass"]);
+const MISSION_LOSS_STATUSES = new Set(["losing", "failed", "blocked"]);
+
+function effectiveMissionStatus(metric) {
+  const declared = missionStatusClass(metric?.status);
+  const proofState = missionStatusClass(metric?.proof_target?.state);
+  if ((MISSION_WIN_STATUSES.has(declared) || MISSION_LOSS_STATUSES.has(declared)) && proofState !== "available") {
+    return "unverified";
+  }
+  return declared;
+}
+
+function missionEvidenceSummary(scorecard) {
+  const counts = { winning: 0, losing: 0, unproven: 0 };
+  for (const metric of scorecard) {
+    const status = effectiveMissionStatus(metric);
+    if (MISSION_WIN_STATUSES.has(status)) counts.winning += 1;
+    else if (MISSION_LOSS_STATUSES.has(status)) counts.losing += 1;
+    else counts.unproven += 1;
+  }
+  if (counts.losing) return { ...counts, status: "losing", label: "Evidence says losing" };
+  if (counts.unproven) return { ...counts, status: "unproven", label: "Net value not proven" };
+  if (scorecard.length) return { ...counts, status: "winning", label: "Net value proven" };
+  return { ...counts, status: "unknown", label: "Results not measured" };
+}
+
+function renderMissionProof(target, rel, className = "mission-proof-link") {
+  const stateName = missionStatusClass(target?.state);
+  if (stateName === "available" && target?.tab) {
+    return `<button class="${escapeAttr(className)}" type="button" data-dashboard-rel="${escapeAttr(rel || "")}" data-dashboard-tab="${escapeAttr(target.tab)}">Open proof</button>`;
+  }
+  const label = stateName === "missing"
+    ? "Proof missing"
+    : (stateName === "invalid" ? "Proof path rejected" : "Proof needed");
+  return `<span class="mission-proof-state status-${escapeAttr(stateName)}">${escapeText(label)}</span>`;
+}
+
+function renderMissionMetric(metric, selected) {
+  const status = effectiveMissionStatus(metric);
+  return `<article class="mission-metric status-${escapeAttr(status)}">
+  <div class="mission-metric-head">
+    <span class="mission-metric-status"><i aria-hidden="true"></i>${escapeText(status)}</span>
+    <strong>${escapeText(metric.metric || "Unnamed measure")}</strong>
+  </div>
+  <div class="mission-metric-values">
+    <span><small>Baseline</small><b>${escapeText(metric.baseline || "Unknown")}</b></span>
+    <span><small>Current</small><b>${escapeText(metric.current || "Unknown")}</b></span>
+    <span><small>Target</small><b>${escapeText(metric.target || "Unknown")}</b></span>
+  </div>
+  <div class="mission-metric-proof">${renderMissionProof(metric.proof_target, selected.rel)}</div>
+</article>`;
+}
+
+function renderMissionControl() {
+  const mission = state.dashboard?.mission_control || {};
+  const onboarding = state.dashboard?.onboarding || {};
+  const selected = mission.selected;
+  if (!selected) {
+    return onboardingUi.renderEmpty(onboarding, state.plans);
+  }
+
+  const scorecard = Array.isArray(selected.scorecard) ? selected.scorecard : [];
+  const scorecardTotal = Math.max(scorecard.length, Number(selected.scorecard_total || 0));
+  const scorecardCount = selected.scorecard_truncated
+    ? `${scorecard.length} of ${scorecardTotal}`
+    : `${scorecardTotal}`;
+  const summary = missionEvidenceSummary(scorecard);
+  const workflowStatus = missionStatusClass(selected.status);
+  const freshness = selected.freshness || { status: "unknown" };
+  const freshnessStatus = missionStatusClass(freshness.status);
+  const authorityNote = onboardingUi.renderAuthority(mission.authority || {});
+  const scorecardBody = scorecard.length
+    ? scorecard.map(metric => renderMissionMetric(metric, selected)).join("")
+    : `<p class="mission-scorecard-empty">No measures declared.</p>`;
+
+  return `<section class="mission-control status-${escapeAttr(summary.status)}" aria-label="Current work: ${escapeAttr(summary.label)}">
+  <header class="mission-control-head">
+    <div class="mission-title-block">
+      <div class="mission-kicker">
+        <span class="mission-verdict status-${escapeAttr(summary.status)}"><i aria-hidden="true"></i>${escapeText(summary.label)}</span>
+        <span class="mission-work-state">Work ${escapeText(workflowStatus)}</span>
+      </div>
+      <div class="mission-section-label">Goal</div>
+      <h2>${escapeText(selected.outcome || "Outcome not declared")}</h2>
+      <div class="mission-source-line">
+        <strong>${escapeText(selected.repo || "Unknown project")}</strong>
+        <span class="freshness-${escapeAttr(freshnessStatus)}">${escapeText(selected.updated ? `brief updated ${selected.updated} · ${freshnessStatus}` : "brief update unknown")}</span>
+        <span>${escapeText(selected.selection_reason || "Focused plan")}</span>
+      </div>
+    </div>
+    <button class="mission-open-plan" type="button" data-dashboard-rel="${escapeAttr(selected.rel || "")}" data-dashboard-tab="PLAN.md">Open plan <span aria-hidden="true">→</span></button>
+  </header>
+  ${authorityNote}
+  <div class="mission-control-body">
+    <section class="mission-next" aria-label="Next move">
+      <div class="mission-section-label">Next step</div>
+      <h3>${escapeText(selected.next || "No next move declared")}</h3>
+    </section>
+    <section class="mission-scorecard" aria-label="Outcome scorecard">
+      <div class="mission-scorecard-head">
+        <div><div class="mission-section-label">Results</div><h3>${scorecardCount} ${scorecardTotal === 1 ? "measure" : "measures"}</h3></div>
+        <div class="mission-scorecard-tally" aria-label="${summary.winning} winning, ${summary.losing} losing, ${summary.unproven} unproven">
+          <span class="is-winning">${summary.winning} winning</span>
+          <span class="is-losing">${summary.losing} losing</span>
+          <span class="is-unproven">${summary.unproven} unproven</span>
+        </div>
+      </div>
+      <div class="mission-metrics">${scorecardBody}</div>
+    </section>
+    <section class="mission-details" aria-label="Decision details">
+      <dl>
+        <div><dt>Why this</dt><dd>${escapeText(selected.why || "No reason declared")}</dd></div>
+        <div><dt>How to check</dt><dd>${escapeText(selected.validation || "No check declared")}</dd></div>
+        <div><dt>Time / cost limit</dt><dd>${escapeText(selected.cost || "No limit declared")}</dd></div>
+        <div><dt>Proof</dt><dd>${renderMissionProof(selected.evidence_target, selected.rel)}</dd></div>
+      </dl>
+    </section>
+  </div>
+</section>`;
+}
+
+function renderSimpleHomeQueue() {
+  const selectedRel = state.dashboard?.mission_control?.selected?.rel || "";
+  return workQueueUi.render(dashboardCategories(), selectedRel);
+}
+
 function dashboardCategory(key) {
   return dashboardCategories()[key] || { label: key, items: [], total: 0, truncated: false, limit: 0 };
 }
@@ -567,7 +724,11 @@ function renderDashboardCard(key, label) {
 function renderDashboardItem(item) {
   const proof = item.proof_rel || item.proof_path || "";
   const meta = [
+    item.severity && item.severity !== "unspecified" ? item.severity.toUpperCase() : "",
     item.repo || "",
+    item.owner ? `owner ${item.owner}` : "",
+    item.blocker ? `blocked by ${item.blocker}` : "",
+    item.validation ? `check ${item.validation}` : "",
     item.source_rel ? `${item.source_rel}${item.line ? `:${item.line}` : ""}` : "",
     proof ? `proof ${shortLocalPath(proof)}` : "",
   ].filter(Boolean).join(" · ");
@@ -607,16 +768,36 @@ function openDashboardItem(row) {
   const rel = row.getAttribute("data-dashboard-rel");
   const tab = row.getAttribute("data-dashboard-tab") || "PLAN.md";
   const plan = state.plans.find(p => p.rel === rel);
-  if (plan) selectPlan(plan, { tab, scrollIntoView: true });
+  if (plan) {
+    setSidebarOpen(false);
+    selectPlan(plan, { tab, scrollIntoView: true, focusHeading: true });
+  }
 }
 
 function setupDashboardPane() {
-  els.pane.querySelectorAll(".dashboard-item").forEach(row => {
+  els.pane.querySelectorAll("[data-dashboard-rel]").forEach(row => {
     row.addEventListener("click", () => openDashboardItem(row));
     row.addEventListener("keydown", e => {
       if (e.key !== "Enter" && e.key !== " ") return;
       e.preventDefault();
       openDashboardItem(row);
+    });
+  });
+  els.pane.querySelectorAll("[data-open-sidebar]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      setSidebarOpen(true, { focusFilter: true });
+    });
+  });
+  els.pane.querySelectorAll("[data-refresh-plans]").forEach(button => {
+    button.addEventListener("click", () => runExplicitRefresh());
+  });
+  els.pane.querySelectorAll("[data-view-all-work]").forEach(button => {
+    button.addEventListener("click", () => {
+      try { localStorage.setItem(ADVANCED_MODE_KEY, "1"); }
+      catch (e) { /* localStorage full or disabled */ }
+      applyAdvancedModeUI();
+      selectDashboard();
     });
   });
 }
@@ -627,6 +808,7 @@ function renderDashboardPane(opts = {}) {
   const dashboard = state.dashboard || {};
   const generated = dashboard.generated_at ? dashboard.generated_at.replace("T", " ").replace("Z", "Z") : "";
   els.pane.innerHTML = `
+    ${renderMissionControl()}
     ${renderOpsTruth()}
     <section class="dashboard-panel">
       <div class="dashboard-header">
@@ -641,6 +823,7 @@ function renderDashboardPane(opts = {}) {
         </div>
       </div>
       <div class="dashboard-cards">
+        ${renderDashboardCard("next", "Next")}
         ${renderDashboardCard("in_progress", "In progress")}
         ${renderDashboardCard("blocked", "Blocked")}
         ${renderDashboardCard("verdicts", "Verdicts")}
@@ -649,6 +832,7 @@ function renderDashboardPane(opts = {}) {
         ${renderDashboardCard("inbox", "INBOX")}
       </div>
       <div class="dashboard-grid">
+        ${renderDashboardList("next", "Next", "No urgent pending tasks found.")}
         ${renderDashboardList("in_progress", "In Progress", "No in-progress tasks found.")}
         ${renderDashboardList("blocked", "Blocked", "No blocked tasks found.")}
         ${renderDashboardList("verdicts", "Recent Verdicts", "No verdict receipts found.")}
@@ -664,12 +848,12 @@ function renderDashboardPane(opts = {}) {
 }
 
 function renderEmptyPane() {
+  const hasCurrentWork = Boolean(state.dashboard?.mission_control?.selected);
   els.pane.innerHTML = `
-    ${renderOpsTruth()}
-    <div class="pane-empty muted">
-      <p>Select a plan from the sidebar.</p>
-      <p>40+ PLAN.md files indexed across <code>~/Development/</code>.</p>
-    </div>`;
+    ${renderMissionControl()}
+    ${hasCurrentWork ? renderSimpleHomeQueue() : ""}`;
+  setupDashboardPane();
+  refreshAnnotationTargets();
 }
 
 function updateOpsTruthSurface() {
@@ -717,17 +901,16 @@ function renderPlanBrief(plan, stats, aggregate) {
         <li class="plan-brief-task">
           <span class="plan-brief-status status-${escapeAttr(task.status || "pending")}">${escapeText(task.status || "pending")}</span>
           <span class="plan-brief-task-label">${escapeText(task.label || "")}</span>
-          ${isAdvancedMode() ? `<a class="plan-brief-code-link" href="${escapeAttr(codingWorkbenchUrl(plan, task))}" target="_blank" rel="noreferrer" title="Open in Moussey coding workbench">Code lane</a>` : ""}
         </li>`).join("")
-    : `<li class="plan-brief-task is-empty">No active task rows yet.</li>`;
+    : `<li class="plan-brief-task is-empty">No resume point declared.</li>`;
   const latestHTML = [
-    brief.latest_progress ? `<p><span>Progress</span>${escapeText(brief.latest_progress)}</p>` : "",
-    brief.latest_decision ? `<p><span>Decision</span>${escapeText(brief.latest_decision)}</p>` : "",
+    brief.latest_progress ? `<p><span>Resume note</span>${escapeText(brief.latest_progress)}</p>` : "",
+    brief.latest_decision ? `<p><span>Latest decision</span>${escapeText(brief.latest_decision)}</p>` : "",
   ].filter(Boolean).join("");
   return `
-    <section class="plan-brief" aria-label="Plan now">
+    <section class="plan-brief" aria-label="Plan summary">
       <div class="plan-brief-main">
-        <div class="plan-brief-kicker">Now</div>
+        <div class="plan-brief-kicker">Plan</div>
         <p class="plan-brief-summary">${escapeText(brief.summary || plan.purpose || "No purpose summary yet.")}</p>
         <div class="plan-brief-stats">
           <span>${escapeText(stateLabel)}</span>
@@ -739,27 +922,22 @@ function renderPlanBrief(plan, stats, aggregate) {
       </div>
       <div class="plan-brief-side">
         <div class="plan-brief-focus">
-          <div class="plan-brief-side-label">Focus</div>
+          <div class="plan-brief-side-label">Resume</div>
           <ul>${focusHTML}</ul>
         </div>
-        <form class="plan-steering" data-plan-path="${escapeAttr(plan.path)}">
-          <label for="plan-steering-body">Steer this plan</label>
-          <textarea id="plan-steering-body" name="body" rows="3" maxlength="8192" placeholder="Drop direction here"></textarea>
-          <div class="plan-steering-actions">
-            <span class="plan-steering-status" role="status" aria-live="polite"></span>
-            <button type="submit">Send</button>
-          </div>
-        </form>
       </div>
     </section>`;
 }
 
-function codingWorkbenchUrl(plan, task) {
-  const params = new URLSearchParams();
-  params.set("viduxPlan", plan.rel || plan.path || "");
-  params.set("viduxTask", task?.label || "");
-  params.set("viduxTaskStatus", task?.status || "pending");
-  return `http://127.0.0.1:4321/coding?${params.toString()}`;
+function renderSensitiveContentNotice(plan) {
+  if (!plan?.content_redacted) return "";
+  const count = Math.max(1, Number(plan.sensitive_redactions) || 1);
+  const noun = count === 1 ? "value" : "values";
+  return `
+    <section class="sensitive-content-notice" role="status" data-sensitive-redactions="${count}">
+      <strong>Sensitive values hidden</strong>
+      <span>${count} high-confidence ${noun} replaced before display.</span>
+    </section>`;
 }
 
 // Render an at-a-glance list of immediate children with their own mini bars.
@@ -824,7 +1002,7 @@ function fallbackFleetSummary(plans, repoCount) {
     tasks_total: total,
     completion_pct: pct(done, total),
     eta_remaining_hours: etaRemaining,
-    eta_remaining_label: `${formatEtaHours(etaRemaining)} remaining`,
+    eta_remaining_label: `${formatEtaHours(etaRemaining)} tagged estimate`,
     eta_tagged: etaTagged,
     eta_eligible: etaEligible,
   };
@@ -838,10 +1016,14 @@ function topbarFleetSummary(plans, artifacts, repoCount) {
   const total = Number(summary.tasks_total || 0);
   const done = Number(summary.tasks_completed || 0);
   const completionPct = Number(summary.completion_pct ?? pct(done, total));
+  if (!isAdvancedMode()) return `${planCount} plans · ${summaryRepoCount} projects`;
   const etaLabel = summary.eta_remaining_label
-    || `${formatEtaHours(summary.eta_remaining_hours || 0)} remaining`;
+    || `${formatEtaHours(summary.eta_remaining_hours || 0)} tagged estimate`;
+  const etaTagged = Number(summary.eta_tagged || 0);
+  const etaEligible = Number(summary.eta_eligible || 0);
+  const etaCoverage = `${etaTagged}/${etaEligible} open tasks estimated`;
   const taskStat = total ? ` · ${done}/${total} tasks (${completionPct}%)` : "";
-  return `${planCount} plans · ${summaryRepoCount} repos · ${artifactCount} artifacts${taskStat} · ${etaLabel}`;
+  return `${planCount} plans · ${summaryRepoCount} projects · ${artifactCount} artifacts${taskStat} · ${etaLabel} · ${etaCoverage}`;
 }
 
 // Plans whose `parent_rel` matches another plan's `rel` are surfaced as
@@ -868,14 +1050,15 @@ function hydratePlanChildren() {
 function activateSidebarRow(row) {
   const kind = row.getAttribute("data-kind");
   const path = row.getAttribute("data-path");
+  setSidebarOpen(false);
   if (kind === "dashboard") {
     selectDashboard();
   } else if (kind === "artifact") {
     const a = state.artifacts.find(x => x.path === path);
-    if (a) selectArtifact(a);
+    if (a) selectArtifact(a, { focusHeading: true });
   } else {
     const plan = state.plans.find(p => p.path === path);
-    if (plan) selectPlan(plan);
+    if (plan) selectPlan(plan, { focusHeading: true });
   }
 }
 
@@ -915,7 +1098,19 @@ function renderSidebar() {
     groups.get(plan.repo).push(plan);
   }
 
-  els.count.textContent = topbarFleetSummary(state.plans, state.artifacts, groups.size);
+  if (!uiState.sidebarInitialized && !filter) {
+    const currentRepo = state.active?.repo || state.dashboard?.mission_control?.selected?.repo || "";
+    for (const repo of groups.keys()) {
+      if (repo !== currentRepo) uiState.collapsed.add(`repo:${repo}`);
+    }
+    if (state.artifacts.length) uiState.collapsed.add("section:artifacts");
+    uiState.sidebarInitialized = true;
+    saveUiState();
+  }
+
+  const fleetLabel = topbarFleetSummary(state.plans, state.artifacts, groups.size);
+  els.count.textContent = fleetLabel;
+  if (els.mobileCount) els.mobileCount.textContent = fleetLabel;
 
   if (filteredPlans.length === 0 && filteredArtifacts.length === 0) {
     // Differentiate "no filter match" from "nothing indexed at all". The
@@ -927,14 +1122,10 @@ function renderSidebar() {
       : escapeText(sidebarFilters.summary(state.filterChips) || "current filters");
     els.list.innerHTML = noResults
       ? `<div class="empty-state">
-          <p><strong>No plans or artifacts found.</strong></p>
-          <p>vidux-browse looks for <code>PLAN.md</code> files under the dev-root directory.</p>
-          <p>Try:</p>
-          <ul>
-            <li>Add a <code>PLAN.md</code> to a project inside your dev-root</li>
-            <li>Set <code>VIDUX_DEV_ROOT</code> or pass <code>--root &lt;path&gt;</code> when launching</li>
-            <li>Click <strong>↻ refresh</strong> after adding plans</li>
-          </ul>
+          <p><strong>No plans connected.</strong></p>
+          <p>Open a terminal in your project and run:</p>
+          <p><code>vidux init --here</code></p>
+          <p>Then refresh. If the project lives outside this scan root, relaunch Vidux with <code>--root &lt;path&gt;</code>.</p>
         </div>`
       : `<p class="muted" style="padding:12px">no matches for ${activeFilterLabel}</p>`;
     refreshAnnotationTargetsIfNeeded();
@@ -945,19 +1136,19 @@ function renderSidebar() {
   // Disclosure caret on left, count on right. Click toggles persisted state.
   // Keyboard parity (WCAG 2.1.1): tabindex + role=button + Enter/Space toggle
   // the same as click, matching the .plan-row keyboard-activation pattern.
-  function groupHeaderHTML(key, label, count) {
-    const collapsed = isCollapsed(key);
+  function groupHeaderHTML(key, label, count, forceExpanded = false) {
+    const collapsed = !forceExpanded && isCollapsed(key);
     const caret = collapsed ? "▸" : "▾";
     const cls = collapsed ? "is-collapsed" : "";
     return `<div class="repo-group ${cls}" data-collapse-key="${escapeAttr(key)}">
-      <h2 tabindex="0" role="button" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${escapeAttr(`${label}, ${count} items, ${collapsed ? "collapsed" : "expanded"}`)}"><span class="caret">${caret}</span>${escapeText(label)} <span class="repo-count">(${count})</span></h2>
+      <h2><button class="repo-disclosure" type="button" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${escapeAttr(`${label}, ${count} items, ${collapsed ? "collapsed" : "expanded"}`)}"><span class="caret" aria-hidden="true">${caret}</span><span>${escapeText(label)}</span><span class="repo-count">${count}</span></button></h2>
     </div>`;
   }
   function artifactRow(a) {
     const active = state.active && state.active.kind === "artifact" && state.active.path === a.path ? "is-active" : "";
     const fullSlug = `${a.slug}.html`;
     return `
-      <div class="plan-row ${active}" data-kind="artifact" data-path="${escapeAttr(a.path)}" tabindex="${active ? "0" : "-1"}" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Artifact: ${a.title || a.slug}, ${fmtAge(a.age_days)}`)}">
+      <a class="plan-row ${active}" href="?artifact=${escapeAttr(encodeURIComponent(a.slug))}" data-kind="artifact" data-path="${escapeAttr(a.path)}" ${active ? 'aria-current="page"' : ""} aria-label="${escapeAttr(`Artifact: ${a.title || a.slug}, ${fmtAge(a.age_days)}`)}">
         <div class="plan-row-head">
           <span class="pill pill-artifact" title="artifact · ${fmtAge(a.age_days)}"></span>
           <span>${escapeText(a.title || a.slug)}</span>
@@ -967,7 +1158,7 @@ function renderSidebar() {
           <span>${fmtAge(a.age_days)}</span>
           <span>${(a.size / 1024).toFixed(1)}KB</span>
         </div>
-      </div>`;
+      </a>`;
   }
 
   function dashboardRow() {
@@ -986,7 +1177,7 @@ function renderSidebar() {
       `${Number(cats.inbox?.total || 0)} inbox`,
     ].join(" · ");
     return `
-      <div class="plan-row dashboard-row ${active}" data-kind="dashboard" data-path="dashboard" tabindex="${active ? "0" : "-1"}" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(`Fleet dashboard, ${total} items`)}">
+      <a class="plan-row dashboard-row ${active}" href="/" data-kind="dashboard" data-path="dashboard" ${active ? 'aria-current="page"' : ""} aria-label="${escapeAttr(`Fleet dashboard, ${total} items`)}">
         <div class="plan-row-head">
           <span class="pill pill-artifact" title="fleet dashboard"></span>
           <span>Fleet dashboard</span>
@@ -995,8 +1186,12 @@ function renderSidebar() {
         <div class="plan-row-meta">
           <span>${escapeText(meta)}</span>
         </div>
-      </div>`;
+      </a>`;
   }
+
+  // Current-work decoration is needed by every plan row, including recents.
+  // Define it before any section can call renderPlanRow().
+  const currentWorkRel = state.dashboard?.mission_control?.selected?.rel || "";
 
   // Recently viewed — top of sidebar. Drawn from localStorage. Shows up to
   // RECENTS_MAX items that still resolve to a plan/artifact in current state.
@@ -1046,8 +1241,19 @@ function renderSidebar() {
   // higher indent depth. A child whose own children survive the filter keeps
   // recursing. depth=0 is the top-level repo-row look; depth>=1 gets the
   // `.is-child` modifier styled in style.css.
+  function planRowState(plan, stats) {
+    const counts = stats?.counts || {};
+    const total = Number(stats?.total || 0);
+    if (Number(counts.blocked || 0) > 0) return { label: "blocked", status: "blocked" };
+    if (Number(counts.in_progress || 0) > 0) return { label: "in progress", status: "in-progress" };
+    if (total && Number(counts.completed || 0) === total) return { label: "complete", status: "complete" };
+    if (plan.status === "stale") return { label: `stale ${fmtAge(plan.age_days)}`, status: "stale" };
+    return { label: `updated ${fmtAge(plan.age_days)}`, status: "updated" };
+  }
+
   function renderPlanRow(plan, depth) {
     const active = state.active && state.active.kind === "plan" && state.active.path === plan.path ? "is-active" : "";
+    const isCurrentWork = plan.rel === currentWorkRel;
     const isRoot = plan.slug === "_root_";
     const slug = isRoot ? `${plan.repo}/PLAN.md` : plan.slug;
     const stats = plan.task_stats || { counts: {}, total: 0 };
@@ -1056,6 +1262,7 @@ function renderSidebar() {
     const invCount = (plan.investigations || []).length;
     const childModifier = depth > 0 ? `is-child is-child-${Math.min(depth, 4)}` : "";
     const indentStyle = depth > 0 ? `style="--child-depth:${depth}"` : "";
+    const rowState = planRowState(plan, stats);
     // Parent rows show an own-tasks bar AND an aggregate (with-sub-plans) bar.
     // Plans without children only need one bar — use the existing single-bar
     // treatment so leaf rows look unchanged from the pre-rollup UI.
@@ -1077,12 +1284,19 @@ function renderSidebar() {
               ${renderProgressLabel(agg, 0)}
             </div>` : ""}
           </div>`;
-    const ariaSummary = `${plan.status} plan: ${slug}${plan.purpose ? `, ${plan.purpose.slice(0, 80)}` : ""}, ${fmtAge(plan.age_days)}${hasChildren ? `, ${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}` : ""}`;
+    const sensitiveCount = Math.max(1, Number(plan.sensitive_redactions) || 1);
+    const sensitiveSummary = plan.content_redacted
+      ? `, ${sensitiveCount} sensitive value${sensitiveCount === 1 ? "" : "s"} hidden`
+      : "";
+    const ariaSummary = `${plan.status} plan: ${slug}${plan.purpose ? `, ${plan.purpose.slice(0, 80)}` : ""}, ${fmtAge(plan.age_days)}${hasChildren ? `, ${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}` : ""}${sensitiveSummary}`;
     const rowHTML = `
-      <div class="plan-row ${active} ${childModifier}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle} tabindex="${active ? "0" : "-1"}" role="option" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(ariaSummary)}" title="${escapeAttr(slug)}">
+      <a class="plan-row ${active} ${isCurrentWork ? "is-current-work" : ""} ${childModifier}" href="?plan=${escapeAttr(encodeURIComponent(plan.rel))}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle} ${active ? 'aria-current="page"' : ""} aria-label="${escapeAttr(ariaSummary)}" title="${escapeAttr(slug)}">
         <div class="plan-row-head">
           <span class="pill pill-${plan.status}" title="${plan.status} · ${fmtAge(plan.age_days)}"></span>
-          <span>${escapeText(slug)}</span>
+          <span class="plan-row-name">${escapeText(slug)}</span>
+          <span class="plan-row-state status-${escapeAttr(rowState.status)}">${escapeText(rowState.label)}</span>
+          ${plan.content_redacted ? `<span class="plan-row-sensitive" title="Sensitive values hidden" aria-hidden="true">hidden</span>` : ""}
+          ${isCurrentWork ? `<span class="plan-row-current">current</span>` : ""}
           ${hasChildren ? `<span class="child-count" title="${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}">⌐${plan.children.length}</span>` : ""}
         </div>
         ${plan.purpose ? `<div class="plan-row-purpose">${escapeText(plan.purpose)}</div>` : ""}
@@ -1092,7 +1306,7 @@ function renderSidebar() {
           ${plan.siblings.length ? `<span>+${plan.siblings.length}</span>` : ""}
         </div>
         ${progressHTML}
-      </div>`;
+      </a>`;
     // Only render children that survived the filter — a filter that drops
     // a child plan should hide it from the indented list under its parent.
     const childRowsHTML = hasChildren
@@ -1110,37 +1324,20 @@ function renderSidebar() {
   const plansHTML = repoOrder.map(repo => {
     const rows = sidebarSort.sortedPlans(groups.get(repo) || [], state.sort);
     const key = `repo:${repo}`;
-    const header = groupHeaderHTML(key, repo, rows.length);
-    if (isCollapsed(key)) return header;
+    const forceExpanded = Boolean(filter);
+    const header = groupHeaderHTML(key, repo, rows.length, forceExpanded);
+    if (!forceExpanded && isCollapsed(key)) return header;
     const inner = rows.map(plan => renderPlanRow(plan, 0)).join("");
     return header + inner;
   }).join("");
 
   els.list.innerHTML = dashboardRow() + recentsHTML + artifactsHTML + plansHTML;
 
-  // Roving tabindex (ARIA APG listbox pattern): rows render tabindex="-1"
-  // except the active one, so Tab has exactly one stop for the whole list
-  // (arrow keys move within it) instead of stopping at every row. Nothing is
-  // active on first load / after a filter clears the active row, so fall
-  // back to the first row -- otherwise the list has zero tab stops and
-  // becomes keyboard-unreachable.
-  if (!els.list.querySelector('.plan-row[tabindex="0"]')) {
-    els.list.querySelector(".plan-row")?.setAttribute("tabindex", "0");
-  }
-
-  // Click on group header → toggle collapsed state for that section/repo.
-  // Enter/Space does the same (WCAG 2.1.1) -- these headers were mouse-only
-  // before despite carrying role=button.
+  // Native disclosure buttons own repository expansion.
   els.list.querySelectorAll(".repo-group[data-collapse-key]").forEach(grp => {
-    const h2 = grp.querySelector("h2");
-    if (!h2) return;
-    h2.addEventListener("click", () => {
-      const key = grp.getAttribute("data-collapse-key");
-      if (key) { toggleCollapsed(key); renderSidebar(); }
-    });
-    h2.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" && e.key !== " ") return;
-      e.preventDefault();
+    const button = grp.querySelector(".repo-disclosure");
+    if (!button) return;
+    button.addEventListener("click", () => {
       const key = grp.getAttribute("data-collapse-key");
       if (key) { toggleCollapsed(key); renderSidebar(); }
     });
@@ -1149,14 +1346,6 @@ function renderSidebar() {
   if (!els.list.dataset.activationBound) {
     els.list.dataset.activationBound = "1";
     els.list.addEventListener("click", e => {
-      const row = e.target.closest(".plan-row");
-      if (!row || !els.list.contains(row)) return;
-      activateSidebarRow(row);
-    });
-    // Keyboard parity (WCAG 2.1.1): Enter or Space activates the focused row,
-    // matching click behavior. Space is preventDefault'd to stop page scroll.
-    els.list.addEventListener("keydown", e => {
-      if (e.key !== "Enter" && e.key !== " ") return;
       const row = e.target.closest(".plan-row");
       if (!row || !els.list.contains(row)) return;
       e.preventDefault();
@@ -1185,9 +1374,6 @@ function renderSidebar() {
       }
       if (next) {
         e.preventDefault();
-        // Move the roving tabindex with focus (ARIA APG listbox pattern) --
-        // exactly one row is a tab stop at any time.
-        rows.forEach(r => r.setAttribute("tabindex", r === next ? "0" : "-1"));
         next.focus();
       }
     });
@@ -1218,6 +1404,54 @@ function currentSelectionSnapshot() {
   return null;
 }
 
+function startViewRevision() {
+  activeViewRevision += 1;
+  return activeViewRevision;
+}
+
+function isCurrentViewRevision(revision, kind, path = "") {
+  return revision === activeViewRevision
+    && state.active?.kind === kind
+    && (!path || state.active.path === path);
+}
+
+function currentFocusSnapshot() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return null;
+  if (el.id) return { kind: "id", value: el.id };
+  const row = el.closest?.(".plan-row[data-path]");
+  if (row) return { kind: "path", value: row.getAttribute("data-path") };
+  const tab = el.closest?.("[data-tab]");
+  if (tab) return { kind: "tab", value: tab.getAttribute("data-tab") };
+  const dashboard = el.closest?.("[data-dashboard-rel]");
+  if (dashboard) {
+    return {
+      kind: "dashboard",
+      rel: dashboard.getAttribute("data-dashboard-rel"),
+      tab: dashboard.getAttribute("data-dashboard-tab") || "PLAN.md",
+    };
+  }
+  return null;
+}
+
+function restoreFocusSnapshot(snapshot) {
+  if (!snapshot) return;
+  let target = null;
+  if (snapshot.kind === "id") target = document.getElementById(snapshot.value);
+  else if (snapshot.kind === "path") {
+    target = [...document.querySelectorAll(".plan-row[data-path]")]
+      .find(row => row.getAttribute("data-path") === snapshot.value);
+  } else if (snapshot.kind === "tab") {
+    target = [...document.querySelectorAll("[data-tab]")]
+      .find(tab => tab.getAttribute("data-tab") === snapshot.value);
+  } else if (snapshot.kind === "dashboard") {
+    target = [...document.querySelectorAll("[data-dashboard-rel]")]
+      .find(row => row.getAttribute("data-dashboard-rel") === snapshot.rel
+        && (row.getAttribute("data-dashboard-tab") || "PLAN.md") === snapshot.tab);
+  }
+  target?.focus();
+}
+
 function annotationIsBusy() {
   return Boolean(state.annotation.capture || state.annotation.anchor || document.getElementById("annotation-popover"));
 }
@@ -1229,6 +1463,7 @@ async function restoreSelection(snapshot, opts = {}) {
       skipUrl: true,
       preserveScroll: opts.preserveScroll,
       preserveAnnotation: opts.preserveAnnotation,
+      viewRevision: opts.viewRevision,
     });
     return true;
   }
@@ -1241,6 +1476,7 @@ async function restoreSelection(snapshot, opts = {}) {
       tab: snapshot.tab || "PLAN.md",
       preserveScroll: opts.preserveScroll,
       preserveAnnotation: opts.preserveAnnotation,
+      viewRevision: opts.viewRevision,
     });
     return true;
   }
@@ -1252,6 +1488,7 @@ async function restoreSelection(snapshot, opts = {}) {
       skipRecent: true,
       preserveScroll: opts.preserveScroll,
       preserveAnnotation: opts.preserveAnnotation,
+      viewRevision: opts.viewRevision,
     });
     return true;
   }
@@ -1290,6 +1527,8 @@ async function refreshVisibleComments() {
 async function loadAll(opts = {}) {
   const preserveSelection = Boolean(opts.preserveSelection);
   const snapshot = preserveSelection ? currentSelectionSnapshot() : null;
+  const viewRevision = activeViewRevision;
+  const focusSnapshot = opts.preserveFocus ? currentFocusSnapshot() : null;
   const busy = annotationIsBusy();
   if (!opts.quiet) els.count.textContent = "loading…";
   try {
@@ -1303,9 +1542,10 @@ async function loadAll(opts = {}) {
     hydratePlanChildren();
     state.dashboard = plansData.dashboard || null;
     state.fleetSummary = plansData.summary || null;
+    state.devRoot = plansData.dev_root || "";
     state.artifacts = artifactsData.artifacts || [];
     renderSidebar();
-    if (preserveSelection && snapshot) {
+    if (preserveSelection && snapshot && viewRevision === activeViewRevision) {
       if (busy) {
         refreshActiveMetadata(snapshot);
         renderSidebar();
@@ -1313,6 +1553,7 @@ async function loadAll(opts = {}) {
         const restored = await restoreSelection(snapshot, {
           preserveScroll: opts.preserveScroll,
           preserveAnnotation: false,
+          viewRevision,
         });
         if (!restored) {
           state.active = null;
@@ -1325,24 +1566,27 @@ async function loadAll(opts = {}) {
             </div>`;
         }
       }
-    } else {
-      // Restore selection from URL on initial load. In Simple mode, don't
-      // default-land on the fleet dashboard (every plan across every repo
-      // vidux can find under ~/Development/) -- that's an operator console
-      // view, not "see my plan." Leave the sidebar-prompt empty state
-      // (already in the static HTML) so the first thing anyone sees is
-      // "pick a plan," not 40 unrelated engineering projects.
-      if (!applyUrlSelection() && isAdvancedMode()) selectDashboard({ skipUrl: true });
+    } else if (!preserveSelection || !snapshot) {
+      if (!applyUrlSelection()) {
+        if (isAdvancedMode()) selectDashboard({ skipUrl: true });
+        else renderEmptyPane();
+      }
     }
     refreshOpsTruth();
+    if (viewRevision === activeViewRevision) restoreFocusSnapshot(focusSnapshot);
+    return true;
   } catch (e) {
+    if (viewRevision !== activeViewRevision) return false;
     els.count.textContent = "error";
+    if (els.mobileCount) els.mobileCount.textContent = "error";
     els.list.innerHTML = `<div class="error">failed to load: ${escapeText(String(e))}</div>`;
     renderEmptyPane();
+    return false;
   }
 }
 
 function selectDashboard(opts = {}) {
+  if (opts.viewRevision === undefined) startViewRevision();
   state.active = { kind: "dashboard" };
   state.activeTab = null;
   if (!opts.skipUrl) pushUrl(new URLSearchParams());
@@ -1354,6 +1598,7 @@ function selectDashboard(opts = {}) {
 }
 
 async function selectPlan(plan, opts = {}) {
+  const viewRevision = opts.viewRevision ?? startViewRevision();
   state.active = { kind: "plan", ...plan };
   state.activeTab = opts.tab || "PLAN.md";
   if (!opts.skipRecent) trackRecent("plan", plan.rel);
@@ -1365,10 +1610,14 @@ async function selectPlan(plan, opts = {}) {
   }
   renderSidebar();
   if (opts.scrollIntoView) scrollActiveRowIntoView();
-  await renderPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation });
+  await renderPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation, viewRevision });
+  if (opts.focusHeading && isCurrentViewRevision(viewRevision, "plan", plan.path)) {
+    els.pane.querySelector(".pane-header h2")?.focus();
+  }
 }
 
 async function selectArtifact(a, opts = {}) {
+  const viewRevision = opts.viewRevision ?? startViewRevision();
   state.active = { kind: "artifact", ...a };
   state.activeTab = null;
   if (!opts.skipRecent) trackRecent("artifact", a.slug);
@@ -1379,10 +1628,98 @@ async function selectArtifact(a, opts = {}) {
   }
   renderSidebar();
   if (opts.scrollIntoView) scrollActiveRowIntoView();
-  await renderArtifactPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation });
+  await renderArtifactPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation, viewRevision });
+  if (opts.focusHeading && isCurrentViewRevision(viewRevision, "artifact", a.path)) {
+    els.pane.querySelector(".pane-header h2")?.focus();
+  }
+}
+
+const ARTIFACT_CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "base-uri 'none'",
+  "connect-src 'none'",
+  "font-src data:",
+  "form-action 'none'",
+  "frame-src 'none'",
+  "img-src data: blob:",
+  "manifest-src 'none'",
+  "media-src data: blob:",
+  "object-src 'none'",
+  "script-src 'none'",
+  "style-src 'unsafe-inline'",
+  "worker-src 'none'",
+].join('; ');
+
+function artifactEmbedPolicy(responsePolicy = '') {
+  return (responsePolicy || ARTIFACT_CONTENT_SECURITY_POLICY)
+    .split(';')
+    .map(directive => directive.trim())
+    .filter(directive => (
+      directive
+      && !directive.toLowerCase().startsWith('frame-ancestors ')
+    ))
+    .join('; ');
+}
+
+let artifactBaseCSSPromise = null;
+
+function loadArtifactBaseCSS() {
+  if (!artifactBaseCSSPromise) {
+    artifactBaseCSSPromise = fetch('/static/artifact-base.css')
+      .then(res => (res.ok ? res.text() : ''))
+      .catch(() => '');
+  }
+  return artifactBaseCSSPromise;
+}
+
+function isolateArtifactHTML(html, responsePolicy = '', artifactBaseCSS = '') {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const wantsBaseCSS = Boolean(doc.querySelector('link[data-vidux-artifact-base]'));
+
+  // Install one known policy before body resources are parsed into srcdoc.
+  doc.querySelectorAll('meta[http-equiv]').forEach(meta => {
+    const directive = (meta.getAttribute('http-equiv') || '').trim().toLowerCase();
+    if (directive === 'content-security-policy' || directive === 'refresh') meta.remove();
+  });
+  doc.querySelectorAll('base, script, iframe, frame, object, embed').forEach(node => node.remove());
+  doc.querySelectorAll('link').forEach(link => link.remove());
+  doc.querySelectorAll('*').forEach(node => {
+    for (const attr of [...node.attributes]) {
+      if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
+    }
+    node.removeAttribute('ping');
+    node.removeAttribute('action');
+    node.removeAttribute('formaction');
+    if (node.localName === 'a' || node.localName === 'area') {
+      const href = (
+        node.getAttribute('href')
+        || node.getAttribute('xlink:href')
+        || ''
+      ).trim();
+      if (href && !href.startsWith('#')) {
+        node.removeAttribute('href');
+        node.removeAttribute('xlink:href');
+        node.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      }
+      node.removeAttribute('target');
+    }
+  });
+
+  const meta = doc.createElement('meta');
+  meta.setAttribute('http-equiv', 'Content-Security-Policy');
+  meta.setAttribute('content', artifactEmbedPolicy(responsePolicy));
+  doc.head.prepend(meta);
+  if (wantsBaseCSS && artifactBaseCSS) {
+    const style = doc.createElement('style');
+    style.setAttribute('data-vidux-artifact-base', '');
+    style.textContent = artifactBaseCSS;
+    doc.head.append(style);
+  }
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 }
 
 function setActiveTab(tab) {
+  const viewRevision = startViewRevision();
   state.activeTab = tab;
   if (state.active && state.active.kind === "plan") {
     const p = new URLSearchParams();
@@ -1390,21 +1727,24 @@ function setActiveTab(tab) {
     if (tab && tab !== "PLAN.md") p.set("tab", tab);
     pushUrl(p);
   }
-  renderPane();
+  renderPane({ viewRevision });
 }
 
 async function renderArtifactPane(opts = {}) {
   const a = state.active;
   if (!a || a.kind !== "artifact") return;
+  const viewRevision = opts.viewRevision ?? activeViewRevision;
+  if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
   els.pane.innerHTML = `
     ${renderOpsTruth()}
     <div class="pane-header">
       <div class="breadcrumb">artifact · ${escapeText(a.slug)}.html</div>
-      <h2>${escapeText(a.title || a.slug)}</h2>
+      <h2 tabindex="-1">${escapeText(a.title || a.slug)}</h2>
       <div class="meta">
         <span><span class="pill pill-artifact"></span>artifact</span>
+        <span class="artifact-isolation-state" title="External requests, navigation, scripts, forms, frames, and objects are blocked">network isolated</span>
         <span>${fmtAge(a.age_days) === "today" ? "modified today" : `modified ${fmtAge(a.age_days)} ago`}</span>
         <span>${(a.size / 1024).toFixed(1)}KB</span>
         <span class="muted">${escapeText(a.path)}</span>
@@ -1419,19 +1759,34 @@ async function renderArtifactPane(opts = {}) {
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(a.path)}`);
     if (!res.ok) {
-      document.getElementById("md-body").innerHTML =
-        `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
+      const text = await res.text();
+      if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
+      const body = document.getElementById("md-body");
+      if (!body) return;
+      body.innerHTML = `<div class="error">${res.status}: ${escapeText(text)}</div>`;
       if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       refreshAnnotationTargets();
       return;
     }
     const html = await res.text();
-    // Sandboxed iframe so artifact <style>/<script> can't leak into host.
+    if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
+    const artifactBaseCSS = await loadArtifactBaseCSS();
+    if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
+    const isolatedHTML = isolateArtifactHTML(
+      html,
+      res.headers.get('Content-Security-Policy') || '',
+      artifactBaseCSS,
+    );
+    // Same-origin is retained only for host-owned resizing and comment anchors.
+    // Scripts, popups, forms, nested frames, and outbound resources stay blocked.
     const body = document.getElementById("md-body");
-    body.innerHTML = `<iframe class="artifact-frame" sandbox="allow-same-origin allow-popups" srcdoc="${escapeAttr(html)}" title="Artifact: ${escapeAttr(a.title || a.slug)}"></iframe>`;
+    if (!body) return;
+    body.innerHTML = `<iframe class="artifact-frame" sandbox="allow-same-origin" referrerpolicy="no-referrer" srcdoc="${escapeAttr(isolatedHTML)}" title="Artifact: ${escapeAttr(a.title || a.slug)}"></iframe>`;
     const frame = body.querySelector("iframe.artifact-frame");
+    if (!frame) return;
     // Auto-grow frame so host page scrolls (re-measure after fonts settle).
     const resizeFrame = () => {
+      if (!isCurrentViewRevision(viewRevision, "artifact", a.path) || !document.body.contains(frame)) return;
       try {
         const doc = frame.contentDocument;
         if (!doc) return;
@@ -1444,6 +1799,7 @@ async function renderArtifactPane(opts = {}) {
       } catch (e) { /* cross-origin guard, shouldn't fire for srcdoc */ }
     };
     frame.addEventListener("load", () => {
+      if (!isCurrentViewRevision(viewRevision, "artifact", a.path) || !document.body.contains(frame)) return;
       resizeFrame();
       if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       // Fonts/images can change height after first load — re-measure shortly.
@@ -1453,19 +1809,23 @@ async function renderArtifactPane(opts = {}) {
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   } catch (e) {
-    document.getElementById("md-body").innerHTML =
-      `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
+    if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
+    const body = document.getElementById("md-body");
+    if (!body) return;
+    body.innerHTML = `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   }
 }
 
 async function renderPane(opts = {}) {
-  if (!state.active) return;
+  const plan = state.active;
+  if (!plan || plan.kind !== "plan") return;
+  const viewRevision = opts.viewRevision ?? activeViewRevision;
+  if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
-  const plan = state.active;
-  const tabs = ["PLAN.md", ...(isAdvancedMode() ? [DECISION_LOG_TAB, SESSION_TAB, LEDGER_TAB] : []), ...plan.siblings];
+  const tabs = ["PLAN.md", DECISION_LOG_TAB, ...(isAdvancedMode() ? [SESSION_TAB, LEDGER_TAB] : []), ...plan.siblings];
   const investigations = plan.investigations || [];
   const evidence = plan.evidence || [];
   const decisionLog = plan.decision_log || { present: false, count: 0, entries: [], recent_directions: [] };
@@ -1476,9 +1836,8 @@ async function renderPane(opts = {}) {
   const isLedgerActive = activeTab === LEDGER_TAB;
   const isInvActive = activeTab.startsWith("INV:");
   const isEvidenceActive = activeTab.startsWith("EVD:");
-  // Investigations/evidence strips are agent-forensics artifacts (INV:/EVD:
-  // file conventions, raw bullet parsing) -- audit-flagged hide_behind_advanced_mode.
-  const showFileStrips = isAdvancedMode() && !isDecisionLogActive && !isSessionActive && !isLedgerActive;
+  const showEvidenceStrip = !isDecisionLogActive && !isSessionActive && !isLedgerActive;
+  const showInvestigationStrip = isAdvancedMode() && showEvidenceStrip;
   const activeInvPath = isInvActive ? state.activeTab.slice(4) : null;
   const activeEvidencePath = isEvidenceActive ? state.activeTab.slice(4) : null;
 
@@ -1497,7 +1856,7 @@ async function renderPane(opts = {}) {
 
   const stats = plan.task_stats || { counts: {}, total: 0 };
   const aggregate = plan.aggregate_stats || stats;
-  const invStripHTML = showFileStrips && investigations.length ? `
+  const invStripHTML = showInvestigationStrip && investigations.length ? `
     <div class="pane-investigations-strip">
       <span class="label">Investigations (${investigations.length}):</span>
       ${investigations.map(p => {
@@ -1506,16 +1865,19 @@ async function renderPane(opts = {}) {
         return `<button data-inv="${escapeAttr(p)}" class="${isActive}">${escapeText(name)}</button>`;
       }).join("")}
     </div>` : "";
-  const evidenceStripHTML = showFileStrips && evidence.length ? `
-    <div class="pane-evidence-strip" aria-label="Evidence timeline">
-      <span class="label">Evidence (${evidence.length}):</span>
-      ${evidence.map(item => {
-        const isActive = activeEvidencePath === item.path ? "is-active" : "";
-        const label = item.label || item.name || item.path.split("/").pop();
-        const title = item.name && item.name !== label ? item.name : label;
-        return `<button data-evidence="${escapeAttr(item.path)}" class="${isActive}" title="${escapeAttr(title)}">${escapeText(label)}</button>`;
-      }).join("")}
-    </div>` : "";
+  const evidenceStripHTML = showEvidenceStrip
+    ? (evidence.length ? `
+      <div class="pane-evidence-strip" aria-label="Proof files">
+        <span class="label">Proof (${evidence.length}):</span>
+        ${evidence.map(item => {
+          const isActive = activeEvidencePath === item.path ? "is-active" : "";
+          const label = item.label || item.name || item.path.split("/").pop();
+          const title = item.name && item.name !== label ? item.name : label;
+          return `<button data-evidence="${escapeAttr(item.path)}" class="${isActive}" title="${escapeAttr(title)}">${escapeText(label)}</button>`;
+        }).join("")}
+      </div>`
+      : `<div class="pane-evidence-strip is-empty" aria-label="Proof files"><span class="label">Proof:</span><span>No proof files yet.</span></div>`)
+    : "";
 
   // Ancestor breadcrumb — each segment is a clickable link back up the tree.
   // For a leaf C in (root → A → B → C), shows: ← root · A · B
@@ -1535,15 +1897,16 @@ async function renderPane(opts = {}) {
       ${parentLinkHTML}
       <div class="breadcrumb">${escapeText(plan.rel)}</div>
       <div class="pane-title-row">
-        <h2>${escapeText(plan.slug === "_root_" ? plan.repo : `${plan.repo} · ${plan.slug}`)}</h2>
+        <h2 tabindex="-1">${escapeText(plan.slug === "_root_" ? plan.repo : `${plan.repo} · ${plan.slug}`)}</h2>
       </div>
       <div class="meta">
         <span><span class="pill pill-${plan.status}"></span>${plan.status}</span>
         <span>${fmtAge(plan.age_days) === "today" ? "modified today" : `modified ${fmtAge(plan.age_days)} ago`}</span>
         <span>${(plan.size / 1024).toFixed(1)}KB</span>
-        <span class="muted">${escapeText(plan.path)}</span>
+        <span class="muted">${escapeText(isAdvancedMode() ? plan.path : plan.rel)}</span>
       </div>
     </div>
+    ${renderSensitiveContentNotice(plan)}
     ${renderPlanBrief(plan, stats, aggregate)}
     ${renderPaneProgress(stats)}
     ${renderPaneAggregateProgress(plan, aggregate)}
@@ -1602,7 +1965,6 @@ async function renderPane(opts = {}) {
     });
   });
   if (!isSessionActive && !isLedgerActive) setupCommentsPanel(tabPath);
-  setupPlanSteering(plan);
   refreshAnnotationTargets();
 
   if (isDecisionLogActive) {
@@ -1621,14 +1983,20 @@ async function renderPane(opts = {}) {
 
   if (isLedgerActive) {
     const body = document.getElementById("md-body");
+    if (!body) return;
     try {
       const res = await fetch(`/api/ledger?path=${encodeURIComponent(plan.path)}`);
       if (!res.ok) {
-        body.innerHTML = `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
+        const text = await res.text();
+        if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+        body.innerHTML = `<div class="error">${res.status}: ${escapeText(text)}</div>`;
       } else {
-        body.innerHTML = renderLedgerPanel(await res.json());
+        const ledger = await res.json();
+        if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+        body.innerHTML = renderLedgerPanel(ledger);
       }
     } catch (e) {
+      if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
       body.innerHTML = `<div class="error">failed to load ledger: ${escapeText(String(e))}</div>`;
     }
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
@@ -1640,20 +2008,26 @@ async function renderPane(opts = {}) {
     const res = await fetch(`/api/file?path=${encodeURIComponent(tabPath)}`);
     if (!res.ok) {
       const txt = await res.text();
-      document.getElementById("md-body").innerHTML =
-        `<div class="error">${res.status}: ${escapeText(txt)}</div>`;
+      if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+      const body = document.getElementById("md-body");
+      if (!body) return;
+      body.innerHTML = `<div class="error">${res.status}: ${escapeText(txt)}</div>`;
       if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       refreshAnnotationTargets();
       return;
     }
     const md = stripParentMetadata(await res.text());
+    if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
     const body = document.getElementById("md-body");
+    if (!body) return;
     body.innerHTML = renderMarkdownBody(md);
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   } catch (e) {
-    document.getElementById("md-body").innerHTML =
-      `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
+    if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+    const body = document.getElementById("md-body");
+    if (!body) return;
+    body.innerHTML = `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   }
@@ -1814,11 +2188,15 @@ function renderLedgerPanel(ledger) {
     `${Number(ledger.repo_total || 0)} repo rows`,
     `${Number(ledger.returned || items.length)} shown`,
     ledger.truncated ? "truncated" : "",
-    `${Number(ledger.scanned_rows || 0)} scanned`,
+    ledger.scan_tail_truncated
+      ? `${Number(ledger.scanned_rows || 0)} of ${Number(ledger.total_rows || 0)} rows scanned`
+      : `${Number(ledger.scanned_rows || 0)} scanned`,
   ].filter(Boolean).join(" · ");
   const itemsHTML = items.length
     ? items.map(renderLedgerEntry).join("")
-    : `<p class="muted">No publish or checkpoint rows matched this plan or repo in the scanned ledger tail.</p>`;
+    : `<p class="muted">${escapeText(ledger.scan_tail_truncated
+      ? "No match in the scanned ledger tail. Older rows were not inspected."
+      : "No publish or checkpoint rows matched this plan or repo.")}</p>`;
   return `
     <section class="ledger-panel">
       <div class="ledger-summary">
@@ -1885,52 +2263,6 @@ function setStoredCommentAuthor(value) {
 
 function renderCommentsPanel(targetPath) {
   return commentMarkers.renderPanel(targetPath, state.commentMarkersHidden, commentRail.targetLabel(targetPath));
-}
-
-function setupPlanSteering(plan) {
-  const form = document.querySelector(".plan-steering");
-  if (!form || !plan?.path) return;
-  const textarea = form.querySelector("textarea");
-  const status = form.querySelector(".plan-steering-status");
-  const button = form.querySelector("button[type='submit']");
-  form.addEventListener("submit", async e => {
-    e.preventDefault();
-    const raw = textarea.value.trim();
-    if (!raw) {
-      status.textContent = "write direction first";
-      textarea.focus();
-      return;
-    }
-    const author = getStoredCommentAuthor() || "Leo";
-    const body = raw.toLowerCase().startsWith("@pm") ? raw : `@pm ${raw}`;
-    status.textContent = "sending...";
-    button.disabled = true;
-    try {
-      const res = await fetch("/api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target_path: plan.path,
-          author,
-          body,
-          anchor: {
-            kind: "plan-steering",
-            label: "Plan steering",
-            excerpt: plan.rel,
-            tag: "plan",
-          },
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      textarea.value = "";
-      status.textContent = "sent";
-      if (currentCommentTargetPath() === plan.path) await loadComments(plan.path);
-    } catch (err) {
-      status.textContent = `failed: ${String(err.message || err)}`;
-    } finally {
-      button.disabled = false;
-    }
-  });
 }
 
 function setupCommentsPanel(targetPath) {
@@ -2198,6 +2530,7 @@ function refreshAnnotationTargets() {
     el.dataset.viduxAnchorLabel = label || text;
   });
   renderCommentMarkers();
+  restoreCommentHighlight();
 }
 
 function refreshAnnotationTargetsIfNeeded() {
@@ -2300,8 +2633,41 @@ function findAnchorElement(anchor) {
   return resolveAnchorTarget(anchor)?.element || null;
 }
 
+function clearCommentHighlight() {
+  const highlight = state.commentHighlight;
+  if (commentHighlightTimer) window.clearTimeout(commentHighlightTimer);
+  commentHighlightTimer = 0;
+  state.commentHighlight = null;
+  if (!highlight || highlight.targetPath !== currentCommentTargetPath()) return;
+  commentMarkers.setHighlight(resolveAnchorTarget(highlight.anchor), false);
+}
+
+function restoreCommentHighlight() {
+  const highlight = state.commentHighlight;
+  if (!highlight) return;
+  if (highlight.targetPath !== currentCommentTargetPath() || Date.now() >= highlight.expiresAt) {
+    clearCommentHighlight();
+    return;
+  }
+  commentMarkers.setHighlight(resolveAnchorTarget(highlight.anchor), true);
+}
+
 function jumpToCommentAnchor(anchor) {
-  commentMarkers.jumpToTarget(resolveAnchorTarget(anchor));
+  const targetPath = currentCommentTargetPath();
+  const target = resolveAnchorTarget(anchor);
+  if (!targetPath || !target) return;
+  clearCommentHighlight();
+  const highlight = {
+    anchor,
+    targetPath,
+    expiresAt: Date.now() + commentMarkers.HIGHLIGHT_DURATION_MS,
+  };
+  state.commentHighlight = highlight;
+  commentMarkers.jumpToTarget(target, { highlightDuration: 0 });
+  commentHighlightTimer = window.setTimeout(() => {
+    if (state.commentHighlight !== highlight) return;
+    clearCommentHighlight();
+  }, commentMarkers.HIGHLIGHT_DURATION_MS);
 }
 
 function setCommentMarkerPreview(target, enabled) {
@@ -2446,9 +2812,19 @@ for (const button of els.filterChips) {
   });
 }
 syncFilterChipButtons();
-els.refresh.addEventListener("click", () => {
-  loadAll({ preserveSelection: true });
-});
+async function runExplicitRefresh() {
+  const buttons = [els.refresh, els.mobileRefresh].filter(Boolean);
+  buttons.forEach(button => { button.disabled = true; });
+  document.querySelector(".topbar")?.setAttribute("aria-busy", "true");
+  if (els.refreshStatus) els.refreshStatus.textContent = "Refreshing plans.";
+  const ok = await loadAll({ preserveSelection: true, preserveFocus: true });
+  buttons.forEach(button => { button.disabled = false; });
+  document.querySelector(".topbar")?.removeAttribute("aria-busy");
+  if (els.refreshStatus) els.refreshStatus.textContent = ok ? "Plans refreshed." : "Refresh failed. Previous view retained.";
+  return ok;
+}
+els.refresh.addEventListener("click", runExplicitRefresh);
+if (els.mobileRefresh) els.mobileRefresh.addEventListener("click", runExplicitRefresh);
 if (els.annotate) {
   els.annotate.addEventListener("click", () => {
     const targetPath = currentCommentTargetPath();
@@ -2459,12 +2835,37 @@ if (els.annotate) {
 // Mobile sidebar drawer toggle (visible only at narrow widths via CSS).
 const sidebarEl = document.getElementById("sidebar");
 const sidebarToggleBtn = document.getElementById("sidebar-toggle");
+function usesSidebarDrawer() {
+  return Boolean(window.matchMedia && window.matchMedia("(max-width: 768px)").matches);
+}
+function setSidebarOpen(open, opts = {}) {
+  if (!sidebarToggleBtn || !sidebarEl) return;
+  if (!usesSidebarDrawer()) {
+    sidebarEl.classList.remove("is-open");
+    sidebarEl.removeAttribute("aria-hidden");
+    sidebarEl.inert = false;
+    sidebarToggleBtn.setAttribute("aria-expanded", "false");
+    return;
+  }
+  const next = Boolean(open);
+  sidebarEl.classList.toggle("is-open", next);
+  sidebarEl.toggleAttribute("inert", !next);
+  sidebarEl.setAttribute("aria-hidden", String(!next));
+  sidebarToggleBtn.setAttribute("aria-expanded", String(next));
+  sidebarToggleBtn.setAttribute("aria-label", next ? "Close projects" : "Open projects");
+  if (next && opts.focusFilter) requestAnimationFrame(() => els.filter.focus());
+  if (!next && opts.restoreFocus) sidebarToggleBtn.focus();
+}
 if (sidebarToggleBtn && sidebarEl) {
-  sidebarToggleBtn.addEventListener("click", () => sidebarEl.classList.toggle("is-open"));
+  sidebarToggleBtn.addEventListener("click", () => {
+    setSidebarOpen(!sidebarEl.classList.contains("is-open"), { focusFilter: true });
+  });
   // Tap-in-pane closes the drawer on mobile.
   els.pane.addEventListener("click", () => {
-    if (sidebarEl.classList.contains("is-open")) sidebarEl.classList.remove("is-open");
+    if (sidebarEl.classList.contains("is-open")) setSidebarOpen(false);
   });
+  setSidebarOpen(false);
+  window.matchMedia?.("(max-width: 768px)").addEventListener("change", () => setSidebarOpen(false));
 }
 
 // The mobile drawer (.sidebar, position:fixed at <=768px) needs a `top`
@@ -2487,11 +2888,15 @@ if (topbarEl && typeof ResizeObserver !== "undefined") {
 // just hooks the button. The button's label updates via applyTheme().
 const themeToggleBtn = document.getElementById("theme-toggle");
 if (themeToggleBtn) themeToggleBtn.addEventListener("click", cycleTheme);
+const sidebarThemeToggleBtn = document.getElementById("sidebar-theme-toggle");
+if (sidebarThemeToggleBtn) sidebarThemeToggleBtn.addEventListener("click", cycleTheme);
 
 // Simple/Advanced mode toggle wiring — applyAdvancedModeUI() was already
 // called at script load; this hooks the button the same way as theme.
 const modeToggleBtn = document.getElementById("mode-toggle");
 if (modeToggleBtn) modeToggleBtn.addEventListener("click", toggleAdvancedMode);
+const sidebarModeToggleBtn = document.getElementById("sidebar-mode-toggle");
+if (sidebarModeToggleBtn) sidebarModeToggleBtn.addEventListener("click", toggleAdvancedMode);
 
 document.addEventListener("click", e => {
   if (!state.annotation.capture) return;
@@ -2538,7 +2943,7 @@ document.addEventListener("keydown", e => {
     if (state.annotation.capture || state.annotation.anchor) {
       clearAnnotationState();
     } else if (sidebarEl && sidebarEl.classList.contains("is-open")) {
-      sidebarEl.classList.remove("is-open");
+      setSidebarOpen(false, { restoreFocus: true });
     } else if (document.activeElement === els.filter && state.filter) {
       els.filter.value = "";
       state.filter = "";
@@ -2564,6 +2969,7 @@ async function autoRefreshTick() {
     await loadAll({
       preserveSelection: true,
       preserveScroll: true,
+      preserveFocus: true,
       quiet: true,
     });
     await refreshVisibleComments();
