@@ -775,7 +775,7 @@ function renderPaneSubplans(plan) {
     const done = stats?.counts?.completed || 0;
     const subplanCount = (child.aggregate_stats?.descendants) || 0;
     return `
-      <div class="subplan-row" data-subplan-rel="${escapeAttr(child.rel)}">
+      <div class="subplan-row" data-subplan-rel="${escapeAttr(child.rel)}" role="button" tabindex="0" aria-label="Open sub-plan ${escapeAttr(slug)}">
         <div class="subplan-row-head">
           <span class="pill pill-${child.status}" title="${child.status} · ${fmtAge(child.age_days)}"></span>
           <span class="subplan-row-slug">${escapeText(slug)}</span>
@@ -1588,10 +1588,17 @@ async function renderPane(opts = {}) {
     });
   });
   els.pane.querySelectorAll(".subplan-row").forEach(row => {
-    row.addEventListener("click", () => {
+    const openSubplan = () => {
       const rel = row.getAttribute("data-subplan-rel");
       const target = state.plans.find(p => p.rel === rel);
       if (target) selectPlan(target, { scrollIntoView: true });
+    };
+    row.addEventListener("click", openSubplan);
+    row.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openSubplan();
+      }
     });
   });
   if (!isSessionActive && !isLedgerActive) setupCommentsPanel(tabPath);
