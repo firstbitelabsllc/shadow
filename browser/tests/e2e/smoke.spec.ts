@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { createServer } from 'node:http';
 
 async function openDrawerIfNeeded(page: Page) {
   const toggle = page.locator('#sidebar-toggle');
@@ -517,6 +518,170 @@ test.describe('auto-refresh polling', () => {
 });
 
 test.describe('artifact styling', () => {
+  test('slow artifact base style cannot overwrite a newer plan selection', async ({ page }) => {
+    const artifactPath = '/tmp/vidux-artifact-view-revision/probe.html';
+    const artifactBody = '<!doctype html><html><head><link rel="stylesheet" href="../static/artifact-base.css" data-vidux-artifact-base></head><body><h1>stale artifact</h1></body></html>';
+    let markBaseRequested!: () => void;
+    let releaseBaseStyle!: () => void;
+    const baseRequested = new Promise<void>(resolve => { markBaseRequested = resolve; });
+    const baseStyleGate = new Promise<void>(resolve => { releaseBaseStyle = resolve; });
+
+    await page.route('**/static/artifact-base.css', async route => {
+      markBaseRequested();
+      await baseStyleGate;
+      await route.fulfill({ contentType: 'text/css', body: ':root { color-scheme: light dark; }' });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          artifacts: [{
+            slug: 'revision-probe',
+            title: 'Revision Probe',
+            path: artifactPath,
+            age_days: 0,
+            size: artifactBody.length,
+          }],
+          artifacts_dir: '/tmp/vidux-artifact-view-revision',
+        }),
+      });
+    });
+    await page.route('**/api/file**', async route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('path') === artifactPath) {
+        await route.fulfill({ contentType: 'text/html', body: artifactBody });
+        return;
+      }
+      await route.fallback();
+    });
+    await page.route('**/api/comments**', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ comments: [] }),
+      });
+    });
+
+    await page.goto('/');
+    await expandGroup(page, 'artifacts');
+    await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
+    await baseRequested;
+    await expandGroup(page, 'proj-alpha');
+    await page.locator('#sidebar-list .plan-row[data-kind="plan"]').filter({ hasText: 'proj-alpha' }).click();
+    await expect(page).toHaveURL(/plan=proj-alpha%2FPLAN\.md/);
+    releaseBaseStyle();
+
+    await expect(page.locator('#pane')).toContainText('Proj Alpha');
+    await expect(page.locator('iframe.artifact-frame')).toHaveCount(0);
+  });
+
+  test('artifact rendering makes no outbound network requests', async ({ page }) => {
+    const requests: string[] = [];
+    const sink = createServer((req, res) => {
+      requests.push(req.url || '/');
+      res.writeHead(204, { Connection: 'close' });
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      sink.once('error', reject);
+      sink.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = sink.address();
+    if (!address || typeof address === 'string') throw new Error('artifact sink did not bind');
+
+    const artifactPath = '/tmp/vidux-artifact-network-isolation/probe.html';
+    const sinkOrigin = `http://127.0.0.1:${address.port}`;
+    const artifactBody = `<!doctype html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="1;url=${sinkOrigin}/refresh">
+  <link rel="stylesheet" href="${sinkOrigin}/style.css">
+  <link rel="stylesheet" href="/artifact-same-origin.css">
+  <style>
+    @import url('/artifact-inline-import.css');
+    body { background-image: url('/artifact-inline-background'); }
+  </style>
+</head>
+<body>
+  <h1 id="artifact-title">isolated artifact</h1>
+  <img src="${sinkOrigin}/passive-image?private=1" alt="">
+  <iframe src="${sinkOrigin}/nested-frame"></iframe>
+  <a id="external-link" href="${sinkOrigin}/clicked">external link</a>
+  <svg viewBox="0 0 200 30" width="200" height="30">
+    <a id="svg-external-link" href="${sinkOrigin}/svg-clicked">
+      <text x="0" y="20">external SVG link</text>
+    </a>
+  </svg>
+</body>
+</html>`;
+
+    try {
+      const sameOriginNetworkRequests: string[] = [];
+      await page.route(/\/artifact-(?:same-origin|inline-)/, async route => {
+        sameOriginNetworkRequests.push(new URL(route.request().url()).pathname);
+        await route.fulfill({ status: 204, body: '' });
+      });
+      await page.route('**/api/artifacts', async route => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            artifacts: [{
+              slug: 'network-probe',
+              title: 'Network Probe',
+              path: artifactPath,
+              age_days: 0,
+              size: artifactBody.length,
+            }],
+            artifacts_dir: '/tmp/vidux-artifact-network-isolation',
+          }),
+        });
+      });
+      await page.route('**/api/file**', async route => {
+        const url = new URL(route.request().url());
+        if (url.searchParams.get('path') === artifactPath) {
+          await route.fulfill({
+            contentType: 'text/html',
+            headers: {
+              'Content-Security-Policy': "default-src 'none'; frame-ancestors 'self'; style-src 'unsafe-inline'",
+            },
+            body: artifactBody,
+          });
+          return;
+        }
+        await route.fallback();
+      });
+      await page.route('**/api/comments**', async route => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ comments: [] }),
+        });
+      });
+
+      await page.goto('/?artifact=network-probe');
+      const frame = page.frameLocator('iframe.artifact-frame');
+      await expect(frame.locator('body')).toContainText('isolated artifact');
+      await frame.locator('#external-link').click();
+      await frame.locator('#svg-external-link').click();
+      await page.waitForTimeout(1_200);
+
+      expect(requests).toEqual([]);
+      expect(sameOriginNetworkRequests).toEqual([]);
+      await expect(frame.locator('meta[http-equiv="Content-Security-Policy"]')).not.toHaveAttribute(
+        'content',
+        /frame-ancestors/i,
+      );
+      await expect(page.locator('iframe.artifact-frame')).toHaveAttribute(
+        'sandbox',
+        'allow-same-origin',
+      );
+      await expect(page.locator('iframe.artifact-frame')).toHaveAttribute(
+        'referrerpolicy',
+        'no-referrer',
+      );
+    } finally {
+      await new Promise<void>(resolve => sink.close(() => resolve()));
+    }
+  });
+
   test('shared artifact base css applies in dark iframe render', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
 
@@ -570,6 +735,10 @@ test.describe('artifact styling', () => {
     await page.locator('#sidebar-list .plan-row[data-kind="artifact"]').click();
     const body = page.frameLocator('iframe.artifact-frame').locator('body');
     await expect(body).toContainText('shared artifact theme');
+    await expect(page.frameLocator('iframe.artifact-frame').locator('link')).toHaveCount(0);
+    await expect(
+      page.frameLocator('iframe.artifact-frame').locator('style[data-vidux-artifact-base]'),
+    ).toHaveCount(1);
     await expect.poll(async () => (
       body.evaluate(el => getComputedStyle(el).backgroundColor)
     )).toBe('rgb(29, 25, 22)');

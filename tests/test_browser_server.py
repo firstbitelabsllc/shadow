@@ -848,6 +848,40 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 403, text)
         self.assertEqual(text, "forbidden")
 
+    def test_artifact_file_response_enforces_network_isolation_headers(self):
+        self.artifacts_dir.mkdir(parents=True)
+        artifact = self.artifacts_dir / "isolated.html"
+        artifact.write_text("<h1>Isolated</h1>", encoding="utf-8")
+
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("GET", f"/api/file?path={quote(str(artifact), safe='')}")
+        res = conn.getresponse()
+        body = res.read().decode("utf-8", errors="replace")
+        headers = dict(res.getheaders())
+        conn.close()
+
+        self.assertEqual(res.status, 200, body)
+        self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(headers.get("Referrer-Policy"), "no-referrer")
+        self.assertEqual(headers.get("Cross-Origin-Resource-Policy"), "same-origin")
+        self.assertEqual(
+            headers.get("Content-Disposition"),
+            'attachment; filename="vidux-artifact.html"',
+        )
+        policy = headers.get("Content-Security-Policy", "")
+        for directive in (
+            "default-src 'none'",
+            "connect-src 'none'",
+            "frame-src 'none'",
+            "form-action 'none'",
+            "object-src 'none'",
+            "script-src 'none'",
+        ):
+            with self.subTest(directive=directive):
+                self.assertIn(directive, policy)
+        self.assertIn("style-src 'unsafe-inline'", policy)
+        self.assertNotIn("style-src 'self'", policy)
+
     def test_plain_text_error_backstop_redacts_sensitive_filename(self):
         secret = synthetic_secret()
         missing = self.artifacts_dir / f"{secret}.html"
@@ -942,6 +976,25 @@ class BrowserArtifactBaseCssTests(unittest.TestCase):
         self.assertIn("--ink:", css)
         self.assertIn("--shadow:", css)
         self.assertIn(".hero", css)
+
+    def test_artifact_iframe_network_isolation_static_contract(self):
+        app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function isolateArtifactHTML", app)
+        self.assertIn("function artifactEmbedPolicy", app)
+        self.assertIn("function loadArtifactBaseCSS", app)
+        self.assertIn("meta.setAttribute('http-equiv', 'Content-Security-Policy')", app)
+        self.assertIn(
+            "doc.querySelectorAll('base, script, iframe, frame, object, embed')",
+            app,
+        )
+        self.assertIn("doc.querySelectorAll('link').forEach(link => link.remove())", app)
+        self.assertIn("style.setAttribute('data-vidux-artifact-base', '')", app)
+        self.assertIn('sandbox=\"allow-same-origin\"', app)
+        self.assertIn('referrerpolicy=\"no-referrer\"', app)
+        self.assertIn("node.localName === 'a' || node.localName === 'area'", app)
+        self.assertIn("removeAttribute('xlink:href')", app)
+        self.assertNotIn('sandbox=\"allow-same-origin allow-popups\"', app)
 
     def test_local_snowcubes_artifacts_use_shared_base_when_present(self):
         artifacts = sorted((ROOT / "browser" / "artifacts").glob("snowcubes-*.html"))

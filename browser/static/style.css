@@ -751,6 +751,9 @@ body {
   margin-bottom: 24px;
   box-shadow: var(--shadow-sm);
 }
+.artifact-isolation-state {
+  color: var(--task-completed);
+}
 code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; border-radius: 2px; }
 
 .pane-header {

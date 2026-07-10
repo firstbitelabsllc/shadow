@@ -1665,6 +1665,90 @@ async function selectArtifact(a, opts = {}) {
   }
 }
 
+const ARTIFACT_CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "base-uri 'none'",
+  "connect-src 'none'",
+  "font-src data:",
+  "form-action 'none'",
+  "frame-src 'none'",
+  "img-src data: blob:",
+  "manifest-src 'none'",
+  "media-src data: blob:",
+  "object-src 'none'",
+  "script-src 'none'",
+  "style-src 'unsafe-inline'",
+  "worker-src 'none'",
+].join('; ');
+
+function artifactEmbedPolicy(responsePolicy = '') {
+  return (responsePolicy || ARTIFACT_CONTENT_SECURITY_POLICY)
+    .split(';')
+    .map(directive => directive.trim())
+    .filter(directive => (
+      directive
+      && !directive.toLowerCase().startsWith('frame-ancestors ')
+    ))
+    .join('; ');
+}
+
+let artifactBaseCSSPromise = null;
+
+function loadArtifactBaseCSS() {
+  if (!artifactBaseCSSPromise) {
+    artifactBaseCSSPromise = fetch('/static/artifact-base.css')
+      .then(res => (res.ok ? res.text() : ''))
+      .catch(() => '');
+  }
+  return artifactBaseCSSPromise;
+}
+
+function isolateArtifactHTML(html, responsePolicy = '', artifactBaseCSS = '') {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const wantsBaseCSS = Boolean(doc.querySelector('link[data-vidux-artifact-base]'));
+
+  // Install one known policy before body resources are parsed into srcdoc.
+  doc.querySelectorAll('meta[http-equiv]').forEach(meta => {
+    const directive = (meta.getAttribute('http-equiv') || '').trim().toLowerCase();
+    if (directive === 'content-security-policy' || directive === 'refresh') meta.remove();
+  });
+  doc.querySelectorAll('base, script, iframe, frame, object, embed').forEach(node => node.remove());
+  doc.querySelectorAll('link').forEach(link => link.remove());
+  doc.querySelectorAll('*').forEach(node => {
+    for (const attr of [...node.attributes]) {
+      if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
+    }
+    node.removeAttribute('ping');
+    node.removeAttribute('action');
+    node.removeAttribute('formaction');
+    if (node.localName === 'a' || node.localName === 'area') {
+      const href = (
+        node.getAttribute('href')
+        || node.getAttribute('xlink:href')
+        || ''
+      ).trim();
+      if (href && !href.startsWith('#')) {
+        node.removeAttribute('href');
+        node.removeAttribute('xlink:href');
+        node.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      }
+      node.removeAttribute('target');
+    }
+  });
+
+  const meta = doc.createElement('meta');
+  meta.setAttribute('http-equiv', 'Content-Security-Policy');
+  meta.setAttribute('content', artifactEmbedPolicy(responsePolicy));
+  doc.head.prepend(meta);
+  if (wantsBaseCSS && artifactBaseCSS) {
+    const style = doc.createElement('style');
+    style.setAttribute('data-vidux-artifact-base', '');
+    style.textContent = artifactBaseCSS;
+    doc.head.append(style);
+  }
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+}
+
 function setActiveTab(tab) {
   const viewRevision = startViewRevision();
   state.activeTab = tab;
@@ -1691,6 +1775,7 @@ async function renderArtifactPane(opts = {}) {
       <h2 tabindex="-1">${escapeText(a.title || a.slug)}</h2>
       <div class="meta">
         <span><span class="pill pill-artifact"></span>artifact</span>
+        <span class="artifact-isolation-state" title="External requests, navigation, scripts, forms, frames, and objects are blocked">network isolated</span>
         <span>${fmtAge(a.age_days) === "today" ? "modified today" : `modified ${fmtAge(a.age_days)} ago`}</span>
         <span>${(a.size / 1024).toFixed(1)}KB</span>
         <span class="muted">${escapeText(a.path)}</span>
@@ -1716,10 +1801,18 @@ async function renderArtifactPane(opts = {}) {
     }
     const html = await res.text();
     if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
-    // Sandboxed iframe so artifact <style>/<script> can't leak into host.
+    const artifactBaseCSS = await loadArtifactBaseCSS();
+    if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
+    const isolatedHTML = isolateArtifactHTML(
+      html,
+      res.headers.get('Content-Security-Policy') || '',
+      artifactBaseCSS,
+    );
+    // Same-origin is retained only for host-owned resizing and comment anchors.
+    // Scripts, popups, forms, nested frames, and outbound resources stay blocked.
     const body = document.getElementById("md-body");
     if (!body) return;
-    body.innerHTML = `<iframe class="artifact-frame" sandbox="allow-same-origin allow-popups" srcdoc="${escapeAttr(html)}" title="Artifact: ${escapeAttr(a.title || a.slug)}"></iframe>`;
+    body.innerHTML = `<iframe class="artifact-frame" sandbox="allow-same-origin" referrerpolicy="no-referrer" srcdoc="${escapeAttr(isolatedHTML)}" title="Artifact: ${escapeAttr(a.title || a.slug)}"></iframe>`;
     const frame = body.querySelector("iframe.artifact-frame");
     if (!frame) return;
     // Auto-grow frame so host page scrolls (re-measure after fonts settle).
