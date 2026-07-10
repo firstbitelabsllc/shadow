@@ -12,6 +12,8 @@
     "agent/**/*.md",
     "agent/**/*.ts",
     "assets/*.svg",
+    "benchmarks/v2/*.json",
+    "benchmarks/v2/*.md",
     "bin/*",
     "browser/receipts/*.py",
     "browser/receipts/*.swift",

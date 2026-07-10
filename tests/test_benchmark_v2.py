@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "vidux-benchmark-v2.py"
 MANIFEST_PATH = ROOT / "benchmarks" / "v2" / "manifest.json"
+STATUS_PATH = ROOT / "benchmarks" / "v2" / "STATUS.json"
 
 spec = importlib.util.spec_from_file_location("vidux_benchmark_v2", SCRIPT)
 assert spec is not None
@@ -138,14 +139,18 @@ class BenchmarkV2Tests(unittest.TestCase):
         )
         return manifest, release, fixture_root, oracle_root, directory / "release.json"
 
-    def test_frozen_manifest_is_valid_but_needs_an_external_release(self):
+    def test_frozen_manifest_is_valid_but_retired_from_transport(self):
         manifest = self.manifest()
+        protocol_status = mod.load_protocol_status(STATUS_PATH)
 
         self.assertEqual(mod.validate_manifest(manifest), [])
-        readiness = mod.transport_readiness(manifest)
+        self.assertEqual(mod.validate_protocol_status(protocol_status, manifest), [])
+        readiness = mod.transport_readiness(manifest, protocol_status=protocol_status)
 
         self.assertFalse(readiness["ready"])
         self.assertEqual(readiness["status"], "protocol_frozen_pending_fixture_seal")
+        self.assertEqual(readiness["protocol_status"], "retired_non_runnable")
+        self.assertIn(mod.NON_RUNNABLE_GATE, readiness["gates"])
         self.assertIn("sealed external fixture release is required", readiness["gates"])
 
     def test_source_manifest_cannot_self_seal_or_hide_a_commitment(self):
@@ -169,6 +174,14 @@ class BenchmarkV2Tests(unittest.TestCase):
         errors = mod.validate_manifest(manifest)
 
         self.assertTrue(any("claude_native must retain ordinary_filesystem access" in error for error in errors))
+
+    def test_frozen_manifest_requires_exactly_one_replica_per_fixture(self):
+        manifest = self.manifest()
+        manifest["trial_design"]["replicas_per_fixture"] = 2
+
+        errors = mod.validate_manifest(manifest)
+
+        self.assertIn("trial_design replicas_per_fixture must equal 1", errors)
 
     def test_release_requires_all_scenario_fixture_targets(self):
         manifest = self.manifest()
@@ -257,6 +270,16 @@ class BenchmarkV2Tests(unittest.TestCase):
         self.assertIn("fixture_release_digest", packet)
         self.assertNotIn("hidden oracle secret", json.dumps(packet))
         self.assertNotIn("oracle_path", json.dumps(packet))
+        expected_fixture = next(
+            fixture
+            for fixture in release["fixtures"]
+            if fixture["scenario_class"] == "durable_state"
+            and fixture["fixture_id"] == "durable-00"
+        )
+        self.assertEqual(
+            packet["oracle_commitment_sha256"],
+            expected_fixture["oracle_commitment_sha256"],
+        )
 
     def test_results_require_complete_paired_blocks(self):
         manifest = self.manifest()
@@ -332,7 +355,7 @@ class BenchmarkV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(mod.ValidationError, "fixture release digest does not match"):
             mod.validate_result_rows(rows, manifest, release=release)
 
-    def test_cli_seals_an_immutable_public_release_and_verifies_readiness(self):
+    def test_cli_refuses_to_seal_a_release_for_retired_v2(self):
         with tempfile.TemporaryDirectory() as tmp:
             manifest, _release, fixture_root, oracle_root, output = self.materialized_release(Path(tmp))
             index = {
@@ -358,7 +381,8 @@ class BenchmarkV2Tests(unittest.TestCase):
             manifest_path = Path(tmp) / "manifest.json"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
+            stderr = io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 code = mod.main(
                     [
                         "seal-release",
@@ -374,28 +398,12 @@ class BenchmarkV2Tests(unittest.TestCase):
                         str(output),
                     ]
                 )
-            payload = json.loads(stdout.getvalue())
-            self.assertEqual(code, 0)
-            self.assertTrue(output.exists())
-            self.assertEqual(payload["release_id"], "v2-cli-release")
+            error = json.loads(stderr.getvalue())
 
-            stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
-                code = mod.main(
-                    [
-                        "readiness",
-                        "--manifest",
-                        str(manifest_path),
-                        "--release",
-                        str(output),
-                        "--fixture-root",
-                        str(fixture_root),
-                    ]
-                )
-            readiness = json.loads(stdout.getvalue())
-
-        self.assertEqual(code, 0)
-        self.assertTrue(readiness["ready"])
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertFalse(output.exists())
+        self.assertIn("new protocol id", error["error"])
 
     def test_release_output_is_immutable_and_outside_secret_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -423,6 +431,8 @@ class BenchmarkV2Tests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(payload["valid"])
         self.assertFalse(payload["transport_ready"])
+        self.assertEqual(payload["protocol_status"], "retired_non_runnable")
+        self.assertIn(mod.NON_RUNNABLE_GATE, payload["gates"])
 
     def test_manifest_rules_cannot_mutate_to_posthoc_thresholds(self):
         manifest = copy.deepcopy(self.manifest())

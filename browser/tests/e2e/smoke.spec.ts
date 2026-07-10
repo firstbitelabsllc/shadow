@@ -207,6 +207,123 @@ test.describe('vidux-browse smoke', () => {
     await expect(page.locator('.pane-header h2')).toHaveText('proj-alpha');
   });
 
+  test('30-issue work queue stays truthful and usable at desktop and 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const controlRel = 'control/PLAN.md';
+    const planFor = (repo: string) => ({
+      repo,
+      slug: '_root_',
+      rel: `${repo}/PLAN.md`,
+      path: `/tmp/vidux-work-queue/${repo}/PLAN.md`,
+      status: 'hot',
+      age_days: 0,
+      size: 256,
+      siblings: [],
+      investigations: [],
+      evidence: [],
+      child_rels: [],
+      task_stats: { total: 5, counts: { pending: 1, in_progress: 2, blocked: 2 } },
+      aggregate_stats: { total: 5, descendants: 0, counts: { pending: 1, in_progress: 2, blocked: 2 } },
+    });
+    const workItems = (status: 'pending' | 'in_progress' | 'blocked', prefix: string) =>
+      Array.from({ length: 10 }, (_, index) => {
+        const repo = `project-${index % 6}`;
+        return {
+          kind: 'task',
+          repo,
+          rel: `${repo}/PLAN.md`,
+          path: `/tmp/vidux-work-queue/${repo}/PLAN.md`,
+          source_rel: `${repo}/PLAN.md`,
+          tab: 'PLAN.md',
+          line: index + 10,
+          status,
+          severity: index % 3 === 0 ? 'p0' : 'p1',
+          label: `${prefix} Kundenabrechnung mit internationalisierten Steuerbelegen und einer langen eindeutigen Fehlerbeschreibung ${index}`,
+          owner: `team-${index % 3}`,
+          blocker: status === 'blocked' ? `dependency-${index}` : undefined,
+          validation: `npm test queue-${index}`,
+          proof: `evidence/queue-${index}.md`,
+        };
+      });
+    const categories = {
+      next: { label: 'Next', items: workItems('pending', 'Next'), total: 10, truncated: false, limit: 200 },
+      in_progress: { label: 'In Progress', items: workItems('in_progress', 'Resume'), total: 10, truncated: false, limit: 200 },
+      blocked: { label: 'Blocked', items: workItems('blocked', 'Blocked'), total: 10, truncated: false, limit: 200 },
+    };
+
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [planFor('control'), ...Array.from({ length: 6 }, (_, index) => planFor(`project-${index}`))],
+          summary: { plans: 7, repos: 7 },
+          dashboard: {
+            plans_scanned: 7,
+            repos: 7,
+            mission_control: {
+              briefs_total: 1,
+              selected: {
+                repo: 'control', rel: controlRel, path: '/tmp/vidux-work-queue/control/PLAN.md',
+                status: 'shipping', priority: 100, outcome: 'Resolve the highest-value work across projects.',
+                next: 'Start with the first urgent item.', why: 'Severity and proof decide the queue.',
+                validation: 'Inspect all 30 issues.', cost: 'No model call required.',
+                evidence_target: { state: 'needed' }, scorecard: [], scorecard_total: 0,
+                scorecard_truncated: false, freshness: { status: 'fresh', age_days: 0 },
+                updated: '2026-07-10', selection_reason: 'only declared current goal',
+              },
+              authority: { state: 'selected', claims_total: 1, tied_total: 1 },
+            },
+            onboarding: { state: 'ready' },
+            categories,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ artifacts: [] }) });
+    });
+
+    await page.goto('/');
+    const queue = page.locator('.simple-queue');
+    await expect(queue).toBeVisible();
+    await expect(queue.locator('.simple-queue-list')).toHaveCount(3);
+    await expect(queue.locator('.simple-queue-row')).toHaveCount(24);
+    await expect(queue.getByText('8 of 10', { exact: true })).toHaveCount(3);
+    await expect(queue.locator('.simple-queue-list').nth(1).locator('.simple-queue-project', { hasText: 'project-0' })).toHaveCount(2);
+    await expect(queue).toContainText('Owner team-0');
+    await expect(queue).toContainText('Check npm test queue-0');
+    await expect(queue).toContainText('Proof evidence/queue-0.md');
+
+    const desktopWidths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(desktopWidths.content).toBeLessThanOrEqual(desktopWidths.viewport);
+
+    await page.setViewportSize({ width: 320, height: 760 });
+    const firstLabel = queue.locator('.simple-queue-row strong').first();
+    const labelMetrics = await firstLabel.evaluate(element => {
+      const style = getComputedStyle(element);
+      return {
+        height: element.getBoundingClientRect().height,
+        lineHeight: Number.parseFloat(style.lineHeight),
+        whiteSpace: style.whiteSpace,
+      };
+    });
+    expect(labelMetrics.whiteSpace).toBe('normal');
+    expect(labelMetrics.height).toBeGreaterThan(labelMetrics.lineHeight * 1.5);
+    const mobileWidths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(mobileWidths.content).toBeLessThanOrEqual(mobileWidths.viewport);
+
+    await queue.locator('[data-view-all-work]').first().click();
+    await expect(page.locator('html')).toHaveClass(/advanced-mode/);
+    await expect(page.locator('.dashboard-panel')).toBeVisible();
+    await expect(page.locator('.dashboard-list-next .dashboard-item')).toHaveCount(10);
+  });
+
   test('mission proof opens the validated evidence file', async ({ page }) => {
     await page.goto('/');
     await page.locator('.mission-proof-link').first().click();

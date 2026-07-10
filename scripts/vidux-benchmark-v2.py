@@ -23,6 +23,21 @@ from typing import Any, Callable, Iterable
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MANIFEST = ROOT / "benchmarks" / "v2" / "manifest.json"
+DEFAULT_PROTOCOL_STATUS = ROOT / "benchmarks" / "v2" / "STATUS.json"
+
+PROTOCOL_STATUS_KEYS = {
+    "schema_version",
+    "protocol_id",
+    "status",
+    "runnable",
+    "decided_at",
+    "replacement_protocol_id",
+    "decision_basis",
+    "next_protocol_requirements",
+}
+NON_RUNNABLE_GATE = (
+    "benchmark v2 is retired and non-runnable; rule corrections require a new protocol id"
+)
 
 ARM_IDS = ("vidux_cockpit", "claude_native", "codex_native")
 NATIVE_ARMS = ("claude_native", "codex_native")
@@ -77,6 +92,47 @@ def load_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValidationError("manifest root must be an object")
     return payload
+
+
+def load_protocol_status(path: Path = DEFAULT_PROTOCOL_STATUS) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValidationError("protocol status root must be an object")
+    return payload
+
+
+def validate_protocol_status(status: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+    """Validate the immutable administrative disposition beside frozen v2 rules."""
+    errors: list[str] = []
+    if set(status) != PROTOCOL_STATUS_KEYS:
+        errors.append("protocol status must contain exactly the registered fields")
+    if status.get("schema_version") != 1:
+        errors.append("protocol status schema_version must equal 1")
+    if status.get("protocol_id") != manifest.get("protocol_id"):
+        errors.append("protocol status protocol_id must match the source manifest")
+    if status.get("status") != "retired_non_runnable":
+        errors.append("protocol status must remain retired_non_runnable")
+    if status.get("runnable") is not False:
+        errors.append("protocol status runnable must remain false")
+    if status.get("replacement_protocol_id") is not None:
+        errors.append("replacement protocol id must remain null until a new protocol is frozen")
+    for key in ("decision_basis", "next_protocol_requirements"):
+        value = status.get(key)
+        if not isinstance(value, list) or not value or not all(
+            isinstance(item, str) and item.strip() for item in value
+        ):
+            errors.append(f"protocol status {key} must be a non-empty string list")
+    if not isinstance(status.get("decided_at"), str) or not status.get("decided_at", "").strip():
+        errors.append("protocol status decided_at must be a non-empty string")
+    return errors
+
+
+def require_protocol_runnable(status: dict[str, Any], manifest: dict[str, Any]) -> None:
+    errors = validate_protocol_status(status, manifest)
+    if errors:
+        raise ValidationError("protocol status is invalid: " + "; ".join(errors))
+    if status.get("runnable") is not True:
+        raise ValidationError(NON_RUNNABLE_GATE)
 
 
 def manifest_digest(manifest: dict[str, Any]) -> str:
@@ -225,6 +281,8 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
             errors.append("trial_design must randomize fixture order")
         if trial_design.get("randomize_arm_order") is not True:
             errors.append("trial_design must randomize arm order")
+        if trial_design.get("replicas_per_fixture") != 1:
+            errors.append("trial_design replicas_per_fixture must equal 1")
         if trial_design.get("infra_exclusion") != (
             "Exclude a paired block only when every arm has the same documented infrastructure failure."
         ):
@@ -538,10 +596,16 @@ def transport_readiness(
     *,
     release: dict[str, Any] | None = None,
     fixture_root: Path | None = None,
+    protocol_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Report whether a verified external fixture release may issue a run packet."""
     gates = list(validate_manifest(manifest))
     release_digest = fixture_release_digest(release) if isinstance(release, dict) else None
+    if protocol_status is not None:
+        status_errors = validate_protocol_status(protocol_status, manifest)
+        gates.extend(status_errors)
+        if not status_errors and protocol_status.get("runnable") is not True:
+            gates.append(NON_RUNNABLE_GATE)
     if release is None:
         gates.append("sealed external fixture release is required")
     else:
@@ -555,6 +619,7 @@ def transport_readiness(
         "protocol_digest": manifest_digest(manifest),
         "fixture_release_digest": release_digest,
         "status": manifest.get("status"),
+        "protocol_status": protocol_status.get("status") if protocol_status else None,
         "ready": not gates,
         "gates": sorted(set(gates)),
     }
@@ -951,16 +1016,30 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         manifest = load_manifest(args.manifest)
+        protocol_status = load_protocol_status()
         if args.command == "validate":
             errors = validate_manifest(manifest)
-            readiness = transport_readiness(manifest)
-            print(json.dumps({"valid": not errors, "errors": errors, "transport_ready": readiness["ready"], "gates": readiness["gates"]}, sort_keys=True))
-            return 0 if not errors else 1
+            status_errors = validate_protocol_status(protocol_status, manifest)
+            readiness = transport_readiness(manifest, protocol_status=protocol_status)
+            print(json.dumps({
+                "valid": not errors and not status_errors,
+                "errors": errors + status_errors,
+                "protocol_status": protocol_status.get("status"),
+                "transport_ready": readiness["ready"],
+                "gates": readiness["gates"],
+            }, sort_keys=True))
+            return 0 if not errors and not status_errors else 1
         if args.command == "readiness":
             release = load_fixture_release(args.release) if args.release else None
-            result = transport_readiness(manifest, release=release, fixture_root=args.fixture_root)
+            result = transport_readiness(
+                manifest,
+                release=release,
+                fixture_root=args.fixture_root,
+                protocol_status=protocol_status,
+            )
             print(json.dumps(result, sort_keys=True))
             return 0 if result["ready"] else 2
+        require_protocol_runnable(protocol_status, manifest)
         if args.command == "seal-release":
             release = build_fixture_release(
                 manifest,
