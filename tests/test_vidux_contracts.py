@@ -1112,13 +1112,28 @@ class ViduxContractTests(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_hooks_json_valid(self):
-        """hooks/hooks.json must be valid JSON with a hooks array."""
-        hooks_file = ROOT / "hooks" / "hooks.json"
-        self.assertTrue(hooks_file.exists(), "hooks/hooks.json missing")
+        """hooks/hooks-reference.json must be valid JSON with a hooks array."""
+        hooks_file = ROOT / "hooks" / "hooks-reference.json"
+        self.assertTrue(hooks_file.exists(), "hooks/hooks-reference.json missing")
         data = json.loads(hooks_file.read_text())
         self.assertIn("hooks", data)
         self.assertIsInstance(data["hooks"], list)
         self.assertGreaterEqual(len(data["hooks"]), 3)
+
+    def test_hooks_json_does_not_collide_with_plugin_loader_reserved_path(self):
+        """Round-9 panel finding: `claude plugin validate` auto-scans and
+        rejects any hooks/hooks.json whose shape isn't a real Claude Code
+        plugin hooks record. This file's event names (pre-commit,
+        post-commit, post-build-failure, beforeTask, afterTask) are
+        cross-tool documentation concepts, not real Claude Code hook
+        lifecycle events, so no reshape would make it functionally real --
+        it must not live at the reserved `hooks/hooks.json` filename."""
+        self.assertFalse(
+            (ROOT / "hooks" / "hooks.json").exists(),
+            "hooks/hooks.json exists again -- this collides with Claude Code's "
+            "plugin-hooks auto-scan and fails `claude plugin validate`; keep "
+            "this manifest at hooks/hooks-reference.json instead",
+        )
 
     # -----------------------------------------------------------------------
     # Plugin manifest contracts
@@ -1134,6 +1149,47 @@ class ViduxContractTests(unittest.TestCase):
         self.assertEqual(data["name"], "vidux")
         expected_version = (ROOT / "VERSION").read_text().splitlines()[0].strip()
         self.assertEqual(data["version"], expected_version)
+
+    def test_plugin_manifest_matches_claude_code_schema(self):
+        """Round-9 panel finding: plugin.json's `author` was a bare string
+        (schema requires an object) and it declared `commands`/`hooks` keys
+        in a shape `claude plugin validate` rejects -- confirmed via a live
+        `claude plugin validate .` run, 3 errors. commands/ and hooks/ are
+        auto-scanned by directory convention and don't need (and can't
+        validly take) an explicit declaration here."""
+        manifest = ROOT / ".claude-plugin" / "plugin.json"
+        data = json.loads(manifest.read_text())
+        self.assertIsInstance(data.get("author"), dict, "author must be an object, not a string")
+        self.assertNotIn("commands", data, "commands/ is auto-scanned; an explicit key here fails schema validation")
+        self.assertNotIn("hooks", data, "hooks/ is auto-scanned; an explicit key here fails schema validation")
+
+    def test_command_frontmatter_is_valid_yaml(self):
+        """Round-9 panel finding: commands/vidux.md's description had an
+        unquoted colon-space, which breaks plain YAML scalar parsing --
+        `claude plugin validate` confirmed all frontmatter fields silently
+        drop at runtime as a result. yaml is not a hard dependency of this
+        repo's test suite, so this parses frontmatter with a minimal,
+        dependency-free check instead of a real YAML parser: every
+        top-level `key: value` line's value must not itself contain an
+        unquoted, unbracketed `: ` (the exact construct that breaks a plain
+        YAML scalar)."""
+        command_file = ROOT / "commands" / "vidux.md"
+        text = command_file.read_text()
+        self.assertTrue(text.startswith("---\n"), "commands/vidux.md must start with YAML frontmatter")
+        end = text.index("\n---\n", 4)
+        frontmatter = text[4:end]
+        for line in frontmatter.splitlines():
+            if not line or ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            value = value.strip()
+            if value.startswith(("'", '"', "[", "{")):
+                continue
+            self.assertNotIn(
+                ": ", value,
+                f"commands/vidux.md frontmatter key {key!r} has an unquoted "
+                f"colon-space in its value -- quote the whole value",
+            )
 
     # -----------------------------------------------------------------------
     # Structural integrity
@@ -1302,7 +1358,7 @@ class ViduxContractTests(unittest.TestCase):
         self.assertLess(breadcrumbs.index("**Ledger**"), breadcrumbs.index("**Git**"))
         for phrase in [
             "carrying the publish packet fields",
-            "ledger-emit.sh --event publish",
+            "the ledger emitter's `--event publish`",
             "branch/PR handoff",
             "after the plan + ledger breadcrumbs exist",
         ]:
@@ -1421,7 +1477,7 @@ class ViduxContractTests(unittest.TestCase):
             "queue/planning authority: tasks, decisions, constraints, progress",
             "Latest publish ledger rows",
             "plan/progress checkpoint",
-            "ledger-emit.sh --event publish",
+            "ledger emitter's `--event publish`",
             "plan/proof checkpoint recorded",
         ]:
             self.assertIn(phrase, normalized["cycle"])
@@ -1554,7 +1610,7 @@ class ViduxContractTests(unittest.TestCase):
         for phrase in [
             "append-only ledger",
             "queue/decisions/constraints/Progress authority",
-            "`ledger-emit.sh --event publish`",
+            "ledger emitter's `--event publish`",
             "CHECKPOINT plan + ledger",
         ]:
             self.assertIn(phrase, loop_normalized)
@@ -2298,12 +2354,12 @@ class ViduxContractTests(unittest.TestCase):
             self.assertNotIn(stale_phrase, fleet)
 
         self.assertLess(
-            fleet.index("ledger-emit.sh --event publish"),
+            fleet.index("the ledger emitter's `--event publish`"),
             fleet.index("If work is complete and tests pass: push branch"),
         )
         for phrase in [
             "update the owning PLAN.md",
-            "ledger-emit.sh --event publish",
+            "the ledger emitter's `--event publish`",
             "--summary",
             "--task-id",
             "--plan-path",
@@ -2330,7 +2386,7 @@ class ViduxContractTests(unittest.TestCase):
         )
         for phrase in [
             "update the owning PLAN.md",
-            "ledger-emit.sh --event publish",
+            "the ledger emitter's `--event publish`",
             "--summary",
             "--task-id",
             "--plan-path",
@@ -2409,7 +2465,7 @@ class ViduxContractTests(unittest.TestCase):
             "After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note",
             "owning `PLAN.md` plus publish ledger row carries the proof/resume packet",
             "lane-local memory format plus plan/ledger publish packet for shipped work",
-            "owning PLAN.md update plus matching `ledger-emit.sh --event publish` row carries the durable proof",
+            "owning PLAN.md update plus a matching ledger emitter `--event publish` row carries the durable proof",
             "Signal-only lane note vs full publish checkpoint",
             "shipped work still needs the owning PLAN.md plus publish ledger packet",
         ]:
@@ -2538,7 +2594,7 @@ class ViduxContractTests(unittest.TestCase):
             "CHECKPOINT plan + ledger",
             "publish branch/PR when propagated",
             "A commit is a local code snapshot",
-            "PLAN.md update plus `ledger-emit.sh --event publish`",
+            "PLAN.md update plus the ledger emitter's `--event publish`",
             "Ledger: publish row carries proof, handoff_status",
             "Git: commit/push branch only after the plan/ledger packet exists.",
             "Plan update + publish ledger row + resume",
@@ -2556,11 +2612,11 @@ class ViduxContractTests(unittest.TestCase):
         recipes = _read(ROOT / "guides" / "recipes.md")
         self.assertNotIn("commit directly to main", recipes)
         self.assertLess(
-            recipes.index("ledger-emit.sh --event publish"),
+            recipes.index('"$LEDGER_EMIT" --event publish'),
             recipes.index("git push -u origin claude/skill-refine-<name>"),
         )
         self.assertLess(
-            recipes.index("ledger-emit.sh --event publish"),
+            recipes.index('"$LEDGER_EMIT" --event publish'),
             recipes.index("gh pr create --title \"skill(<name>): <improvement>\""),
         )
         for phrase in [
@@ -2596,7 +2652,7 @@ class ViduxContractTests(unittest.TestCase):
             recipe,
         )
         self.assertLess(
-            recipe.index("ledger-emit.sh --event publish"),
+            recipe.index('"$LEDGER_EMIT" --event publish'),
             recipe.index("Never use --no-verify"),
         )
         for phrase in [
@@ -2678,7 +2734,7 @@ class ViduxContractTests(unittest.TestCase):
             section.index("gh pr create --draft"),
         )
         self.assertLess(
-            section.index("ledger-emit.sh --event publish"),
+            section.index("the ledger emitter's `--event publish`"),
             section.index("gh pr create --draft"),
         )
         for phrase in [
@@ -2714,8 +2770,8 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("process fix", s_p5.group())
 
     def test_hooks_scripts_exist(self):
-        """Every script referenced in hooks/hooks.json must exist on disk."""
-        hooks_file = ROOT / "hooks" / "hooks.json"
+        """Every script referenced in hooks/hooks-reference.json must exist on disk."""
+        hooks_file = ROOT / "hooks" / "hooks-reference.json"
         data = json.loads(hooks_file.read_text())
         for hook in data["hooks"]:
             script_path = hook.get("script")
@@ -5416,8 +5472,8 @@ class ViduxContractTests(unittest.TestCase):
 
     # def test_witness_script_exists_and_executable(self): — removed (script deleted in v2.6.0)
     def test_hooks_include_lifecycle_hooks(self):
-        """hooks.json must include beforeTask and afterTask lifecycle hooks."""
-        hooks_file = ROOT / "hooks" / "hooks.json"
+        """hooks-reference.json must include beforeTask and afterTask lifecycle hooks."""
+        hooks_file = ROOT / "hooks" / "hooks-reference.json"
         data = json.loads(hooks_file.read_text())
         events = [h["event"] for h in data["hooks"]]
         self.assertIn("beforeTask", events, "Missing beforeTask hook")

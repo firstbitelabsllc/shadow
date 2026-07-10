@@ -19,8 +19,12 @@ Every automation lane that ships code follows this after a green local build + t
 #    Record what changed, proof, handoff_status, path-like files claimed/claims, and resume point.
 
 # 1. Emit the publish ledger row before the branch leaves the machine.
+# "$LEDGER_EMIT" is your own configured ledger-emit executable (wired via
+# `vidux-release.sh --ledger-emit <path>` or the LEDGER_EMIT env var) --
+# scripts/lib/ledger-emit.sh is a sourced-only function library, not a
+# --event-flag CLI.
 LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"
-ledger-emit.sh \
+"$LEDGER_EMIT" \
   --event publish \
   --repo-path "$(pwd)" \
   --lane "<lane-name>" \
@@ -128,7 +132,7 @@ Replace any existing push policy with the block below. In particular, replace an
 **PUSH POLICY (ready-PR-first per vidux):**
 After green build + test in the worktree:
 1. Update owning PLAN.md Progress/Tasks/Drift Log with proof, `handoff_status`, path-like files claimed/claims, and resume point.
-2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push: `ledger-emit.sh --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
+2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push via your configured ledger emitter: `"$LEDGER_EMIT" --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
 3. Push branch: `git push origin HEAD:claude/<lane>-<task-id>`.
 4. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --summary "<summary>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --ledger "$LEDGER_EID" --file-claimed "<path>" --review-pass "invariant-audit:pass:<plan/ledger/drift proof>" --review-pass "regression-runner:pass:<tests/docs proof>" --review-pass "adversarial-reviewer:pass:<overclaim/stale-proof check>" --resume "<resume point>" --change "<summary>" > /tmp/vidux-pr-body.md`.
 5. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body-file /tmp/vidux-pr-body.md`.

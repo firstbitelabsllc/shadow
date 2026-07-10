@@ -306,8 +306,8 @@ VERIFY     -> Build, test, gate. PROOF CONTRACT — terminal state needs the
 
 CHECKPOINT -> Update the plan/queue note, emit the publish packet, then
              commit/push only after those breadcrumbs exist. Reconcile planned
-             vs actual; use `vidux drift` if they diverge.
-COMPLETE   -> Close the local worktree lifecycle or record why it remains.
+             vs actual; use `vidux drift` if they diverge. Close the local
+             worktree lifecycle or record why it remains.
 ```
 
 ### Read the Room (READ-phase checklist)
@@ -712,7 +712,7 @@ The plan is a living document: evidence changes → plan changes → work change
 
 When a multi-step plan stalls on external unblocks (DM responses, design decisions, sibling-PR merges, latency baselines, AB approvals), the cycle does **not** exit "drained" while agent-doable surface remains. Ship realistic placeholder draft PRs against the unresolved questions with assumptions baked in + documented in the PR body, so the conversation moves on concrete artifacts, not speculative chat.
 
-A placeholder draft PR is still a publish action. Emit the publish packet with `handoff_status=needs_review` (`ledger-emit.sh --event publish` with non-empty `--summary`/`--task-id`/`--plan-path`/`--proof`/`--handoff-status needs_review`/`--resume`/`--file`/`--claim`), record the blocked question + assumptions in the owning PLAN.md Progress/Tasks or Drift Log, then carry that ledger eid into the PR body before `gh pr create --draft`. Defaults: every flag default-off/zero, isolated worktree off `origin/<trunk>` (see the Trunk-First Rule — detect the actual trunk, never assume the name), no reviewers, no `@`-mentions. Core owns the publish/proof principle; downstream repos own reviewer taste and merge policy.
+A placeholder draft PR is still a publish action. Emit the publish packet with `handoff_status=needs_review` (the ledger emitter's `--event publish` with non-empty `--summary`/`--task-id`/`--plan-path`/`--proof`/`--handoff-status needs_review`/`--resume`/`--file`/`--claim`), record the blocked question + assumptions in the owning PLAN.md Progress/Tasks or Drift Log, then carry that ledger eid into the PR body before `gh pr create --draft`. Defaults: every flag default-off/zero, isolated worktree off `origin/<trunk>` (see the Trunk-First Rule — detect the actual trunk, never assume the name), no reviewers, no `@`-mentions. Core owns the publish/proof principle; downstream repos own reviewer taste and merge policy.
 
 ### Plan archival pattern (parallel-session reconciliation)
 
@@ -938,7 +938,7 @@ ledger show durable demand.
 After every meaningful completed slice, leave all three breadcrumbs:
 
 1. **Plan / queue** — mark progress in the active plan, `RALPH.md`, or queue source, carrying the publish packet fields.
-2. **Ledger** — emit `ledger-emit.sh --event publish` (the publish packet); keep the eid with the branch/PR handoff.
+2. **Ledger** — emit the ledger emitter's `--event publish` (the publish packet); keep the eid with the branch/PR handoff.
 3. **Git** — commit and push only the owned slice after the plan + ledger breadcrumbs exist.
 
 Checkpoint at: a meaningful slice completing; before handoff; before changing lanes or worktrees; after an integration fix that creates a new stable base for other agents.
@@ -957,7 +957,7 @@ The Anthropic `superpowers` plugin provided 14 process-discipline subskills (bra
 | `writing-plans` | `## PLAN.md Template` above |
 | `executing-plans` | The Cycle (READ → ASSESS → ACT → VERIFY → CHECKPOINT) |
 | `subagent-driven-development` | `guides/automation.md` § subagent dispatch |
-| `dispatching-parallel-agents` | `guides/automation.md` § parallel agents (surface-disjoint precondition) |
+| `dispatching-parallel-agents` | `DOCTRINE.md` Principle 9: Subagent coordinator pattern (surface-disjoint precondition) |
 | `test-driven-development` | Principle 5: write the assertion before implementation when the surface needs regression protection |
 | `systematic-debugging` | Principle 3: investigate before fixing. Use `## Investigation Template` for any bug touching 2+ tickets or unclear root cause |
 | `requesting-code-review` / `receiving-code-review` | Repo-specific review discipline before merge |
@@ -1089,7 +1089,7 @@ Default: terse, concrete, evidence-cited; one decision per paragraph; named file
 Core Vidux references are shipped as docs and guides in this repo:
 
 - **[`README.md`](README.md)** — public overview, quick start, CLI/browser install.
-- **[`DOCTRINE.md`](DOCTRINE.md)** — the numbered 12-principle reference some guides cite by number (e.g. "Principle 9, Subagent coordinator pattern"); this file (`SKILL.md`) is the five-principle core walkthrough, not a restatement of it.
+- **[`DOCTRINE.md`](DOCTRINE.md)** — the numbered 13-principle reference some guides cite by number (e.g. "Principle 9, Subagent coordinator pattern"); this file (`SKILL.md`) is the five-principle core walkthrough, not a restatement of it.
 - **[`guides/automation.md`](guides/automation.md)** — recurring lane and automation doctrine.
 - **[`guides/recipes/`](guides/recipes/)** — opt-in tactics and lane prompt patterns.
 - **[`docs/reference/`](docs/reference/)** — CLI, config, hooks, scripts, browser, and PLAN field references.

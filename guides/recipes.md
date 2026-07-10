@@ -258,8 +258,8 @@ FIX (if issues found):
 3. Edit exactly one skill file plus any focused regression test/doc reference.
 4. Update the owning PLAN.md Progress/Tasks or Drift Log with what changed,
    proof to run, `handoff_status`, files claimed, and next-agent resume point.
-5. Emit the publish ledger row before the branch leaves the machine:
-   `ledger-emit.sh --event publish --repo-path "$(pwd)" --lane skill-refiner --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
+5. Emit the publish ledger row before the branch leaves the machine, via your configured ledger emitter:
+   `"$LEDGER_EMIT" --event publish --repo-path "$(pwd)" --lane skill-refiner --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
 6. git checkout -b claude/skill-refine-<name>
 7. git add <skill-file> <test-or-doc-file> <PLAN.md>
 8. git commit -m "update: <skill> - <what changed>"
@@ -304,7 +304,7 @@ ASSESS:
 
 ACT:
 - Trivial local notes can stay unpushed; any commit, push, or PR is a publish
-  cycle and must update PLAN.md plus emit `ledger-emit.sh --event publish`
+  cycle and must update PLAN.md plus emit the ledger emitter's `--event publish`
   with non-empty `--summary`, `--task-id`, `--plan-path`, proof, handoff
   status, changed file, claim, and a next-agent resume point before the branch
   leaves the machine
