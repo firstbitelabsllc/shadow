@@ -233,6 +233,27 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["pattern"], "private username")
 
+    def test_private_maintainer_account_note_is_caught(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".claude").mkdir()
+            (root / ".claude" / "settings.json").write_text(
+                '{"_note": "Leo\'s work account requires private command policy."}\n',
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "private maintainer account note")
+
     def test_spouse_first_name_pattern_catches_real_leak(self):
         # Round-8 panel finding: 4 evidence files named the maintainer's
         # real spouse by first name, once in a genuinely sensitive

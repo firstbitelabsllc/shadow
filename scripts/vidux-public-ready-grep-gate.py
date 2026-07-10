@@ -73,6 +73,10 @@ PRIVACY_PATTERNS = (
     # path boundary is also a \b boundary) while also catching every bare
     # mention.
     ("private username", re.compile(r"\b(?:leokwan|redacted-operator)\b")),
+    # A prior repository-local Claude setting explained a valid attribution
+    # policy by naming the maintainer's private account and private command
+    # doctrine. Keep the rule narrow so public author credits remain valid.
+    ("private maintainer account note", re.compile(r"\bLeo's\s+(?:work\s+)?account\b", re.IGNORECASE)),
     # Round-8 panel finding: 4 evidence files named the maintainer's real
     # spouse by first name -- once in a genuinely sensitive context (a
     # confidential job-search screenshot, now purged from the branches

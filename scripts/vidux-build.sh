@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # vidux-build.sh — sanity gate before release.
 #
-# Runs two steps in order:
+# Runs three steps in order:
 #   1. npm run docs:build  (vitepress build for docs/)
 #   2. npm test            (python contract test suite per package.json)
+#   3. npm run release:verify (installable package boundary)
 #
-# Exits 0 only if both pass. On failure, prints which step failed and the
+# Exits 0 only if all three pass. On failure, prints which step failed and the
 # tail of its captured output so the caller doesn't have to re-run to see.
 #
 set -euo pipefail
@@ -15,15 +16,16 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 print_help() {
   cat <<'EOF'
-vidux build — run docs:build + contract tests as a release sanity gate.
+vidux build — run docs, tests, and package verification as a release gate.
 
 usage: vidux build [--help|-h]
 
 Steps (in order; abort on first failure):
   1. npm run docs:build   — vitepress build of docs/
   2. npm test             — python contract test suite
+  3. npm run release:verify — inspect the exact npm package candidate
 
-Exits 0 only when both steps pass. On failure, prints which step failed
+Exits 0 only when all steps pass. On failure, prints which step failed
 and the tail of its captured output.
 
 flags:
@@ -70,5 +72,6 @@ run_step() {
 
 run_step "docs:build" npm run docs:build
 run_step "test" npm test
+run_step "release:verify" npm run release:verify
 
-echo "vidux build: OK (docs:build + tests passed)"
+echo "vidux build: OK (docs + tests + release package passed)"

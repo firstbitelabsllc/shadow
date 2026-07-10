@@ -209,9 +209,10 @@ vidux doctor — install/readiness doctor for local CLI setup.
 
 usage: vidux doctor [--help|-h]
 
-Runs 7 checks (python3 >= 3.10, gh auth status, ~/.config/vidux/*.token
-chmod 600, ~/Development exists, no stale browser pidfile, vidux config,
-npm test). This can be slow when it runs the full npm test gate; set
+Runs 7 checks (python3 >= 3.10, optional gh auth, token permissions,
+development root, stale browser pidfile, vidux config, and source tests).
+Optional integrations warn without breaking packaged installs. A source
+checkout can be slow when it runs the full npm test gate; set
 VIDUX_DOCTOR_SKIP_NPM_TEST=1 for fast local loops that already run tests.
 
 Use scripts/vidux-doctor.sh --json for hook-safe runtime checks across plans,
@@ -219,8 +220,9 @@ worktrees, automations, browsers, and Codex state. That runtime doctor is the
 right beforeTask/pre-hook probe; vidux doctor is the terminal setup/readiness
 probe.
 
-Each check prints [PASS] or [FAIL] with reason. Exit 0 if all pass, 1 if any
-check fails, and 2 for invalid usage. Footer prints an N/TOTAL summary.
+Each check prints [PASS], [WARN], or [FAIL] with reason. Exit 0 when no hard
+check fails, 1 for a hard failure, and 2 for invalid usage. Footer prints an
+N/TOTAL summary plus optional warning count.
 EOF
       ;;
     build)
@@ -229,11 +231,12 @@ vidux build — sanity gate before release.
 
 usage: vidux build [--help|-h]
 
-Runs two steps in order; aborts on first failure:
+Runs three steps in order; aborts on first failure:
   1. npm run docs:build   — vitepress build of docs/
   2. npm test             — python contract test suite
+  3. npm run release:verify — inspect the exact npm package candidate
 
-Exits 0 only when both pass. On failure, prints which step failed
+Exits 0 only when all pass. On failure, prints which step failed
 and the tail of its captured output.
 EOF
       ;;

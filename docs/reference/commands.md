@@ -77,11 +77,12 @@ It also defines a 10-cell progress bar and rules for hiding stale, inactive plan
   JSON `ok` follows the hard-fail exit status, while `strict_ok` is false when
   any warning is present. `--timeout` must be greater than 0, and
   `--max-sample-bytes` must be 0 or greater.
-- `vidux doctor` runs local toolchain, auth, stale pidfile, config, and test
-  checks as an install/readiness gate. Use `scripts/vidux-doctor.sh --json`
+- `vidux doctor` runs local toolchain, optional auth, stale pidfile, config,
+  and source-test checks as an install/readiness gate. Packaged installs warn
+  when source-only or optional capabilities are unavailable. Use `scripts/vidux-doctor.sh --json`
   for hook-safe runtime checks across plans, worktrees, automations, browser
-  processes, and Codex state. Exit codes are `0` for pass, `1` for failed
-  checks, and `2` for invalid usage.
+  processes, and Codex state. Exit codes are `0` when no hard check fails,
+  `1` for hard failures, and `2` for invalid usage.
 
 Signposts are local smoke/profiler events, not product analytics.
 
