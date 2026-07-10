@@ -2688,6 +2688,31 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("sandboxed iframe", skill)
         self.assertNotIn("no XSS surface", skill)
 
+    def test_browser_docs_pin_artifact_network_isolation_boundary(self):
+        browser = _read(ROOT / "docs" / "reference" / "browser.md")
+        readme = _read(ROOT / "README.md")
+        skill = _read(SKILL)
+
+        for phrase in [
+            "network-isolated, sandboxed iframe boundary",
+            "Content-Disposition: attachment",
+            "Cross-Origin-Resource-Policy: same-origin",
+            "Referrer-Policy: no-referrer",
+            "Remote HTTP(S) assets are intentionally blocked",
+            "Fragment-only navigation remains available",
+            "injects those bytes as an inline `<style>`",
+        ]:
+            self.assertIn(phrase, browser)
+
+        self.assertIn("HTML artifacts are network-isolated", readme)
+        self.assertIn("network-isolated, sandboxed iframe", skill)
+        self.assertNotIn("allow-popups", browser)
+        self.assertIn(
+            "artifact code never receives `allow-scripts` or `allow-popups`",
+            skill,
+        )
+        self.assertNotIn("PLAN.md`/comment/artifact body", browser)
+
     def test_loop_checkpoint_wording_requires_publish_propagation(self):
         """The loop guide must not describe raw git commit as the checkpoint."""
         loop = _read(ROOT / "LOOP.md")

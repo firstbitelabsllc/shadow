@@ -78,3 +78,35 @@ The browser correctly restricted which files and routes were reachable, but it t
 ### Proof
 
 See `evidence/2026-07-10-browser-sensitive-content-boundary.md` for the exact command, responsive screenshot, sidecar, mount, and benchmark-honesty receipts.
+
+## Follow-up: Artifact Network Isolation
+
+### Reporter Says
+
+Artifact scripts were disabled, but a sandbox without a network policy still allowed passive resources and user-initiated navigation. Opening a locally stored report must not disclose its contents or viewing activity to an artifact-selected host.
+
+### Red Evidence
+
+- A pre-fix Chromium sink received `/passive-image?private=1` from a rendered artifact even though the iframe did not grant `allow-scripts`.
+- The permanent adversarial fixture then exposed four reachable request classes: external stylesheet, passive image, nested frame, and clicked external link.
+- The old iframe granted `allow-popups`, and direct HTML responses did not carry artifact-specific security headers.
+
+### Root Cause
+
+HTML sandbox tokens govern capabilities, not passive network fetches. The cockpit passed raw artifact HTML into `srcdoc`, so disabling scripts did not prevent image, stylesheet, frame, refresh, form, or navigation traffic.
+
+### Fix
+
+- Make direct HTML reads download-only and add CSP, same-origin resource policy, no-referrer, no-sniff, and same-origin frame headers.
+- Parse artifact HTML into a fresh document; remove scripts, bases, nested frames, objects, embeds, all links, refresh policies, event handlers, form targets, and non-fragment HTML/SVG/image-map navigation.
+- Prepend one known CSP with no HTTP(S) resource source and render with exactly `sandbox="allow-same-origin"` plus `referrerpolicy="no-referrer"`.
+- Fetch the trusted Vidux artifact base stylesheet in the host and inline it only for the documented marker, so shared dark-mode styling does not require a same-origin stylesheet allowance.
+- Keep the visible `network isolated` state beside artifact metadata.
+
+### Remaining Boundary
+
+This closes the artifact network surface, not the full 6.0.2 parent. Symlink/hard-link mutation behavior, authorization for any future runner endpoint, and sensitive text embedded in binary receipt pixels remain open. The benchmark still has zero verified net-win scenario classes.
+
+### Proof
+
+See `evidence/2026-07-10-browser-artifact-network-isolation.md` for the red/green request receipts, response contract, cross-browser and visual proof, and final repository gates.

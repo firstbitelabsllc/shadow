@@ -115,6 +115,7 @@ The browser keeps the plan contract intact:
 - The sidebar filters by repo/slug/purpose and sorts plan groups by `mtime`, remaining `ETA`, or freshness.
 - Each plan has a read-only `Ledger` tab for recent proof rows from `${VIDUX_LEDGER_FILE:-~/.agent-ledger/activity.jsonl}`.
 - Plan files and artifacts render from disk; comments are separate append-only app data.
+- HTML artifacts are network-isolated by response headers plus a sandboxed iframe; scripts, forms, nested frames, popups, external navigation, and HTTP(S) resource loads are blocked.
 - Allowed text and JSON metadata pass through a high-confidence sensitive-value redaction boundary; affected plans stay visibly marked, while artifact/comment/plan-note writes reject matches.
 - Comment anchors are display pointers, never source edits: they never mutate `PLAN.md`, repo code, task claims, or artifact HTML.
 - Plan-note writes are loopback-only; LAN viewers can comment but cannot write plan state.

@@ -82,7 +82,9 @@ The server is narrow:
 - Artifact, comment, and local plan-note writes reject detector matches instead of persisting a redacted value. Existing comments are redacted on read. Secret-shaped artifact slugs are rejected.
 - Receipt writes and receipt OCR/analyze mutations are loopback-only JSON writes with explicit size caps.
 - Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header, on top of the Host-allowlist check above.
-- Markdown rendered client-side (`marked.js` output) is sanitized through a locally-vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM — closes stored-XSS via a crafted `PLAN.md`/comment/artifact body.
+- Markdown rendered client-side (`marked.js` output) is sanitized through a locally vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM. This closes stored XSS through a crafted plan or comment body. Artifact HTML uses the separate boundary below.
+- HTML artifact responses are download-only (`Content-Disposition: attachment`) and carry `Content-Security-Policy`, `Cross-Origin-Resource-Policy: same-origin`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: SAMEORIGIN` headers.
+- The cockpit parses artifact HTML before rendering, removes scripts, bases, nested frames, objects, embeds, stylesheet/network-hint links, refresh policies, event handlers, form targets, and non-fragment navigation, then prepends its own CSP to a sandboxed `srcdoc`. The iframe grants only `allow-same-origin` for host-owned sizing and annotations; it does not grant scripts, forms, popups, or top-level navigation.
 - Comments NEVER edit plan files, `INBOX.md`, or artifact HTML — they append JSONL to the comments store; optional anchors point back to rendered elements only.
 - The local truth band is read-only: `GET /api/vidux/truth` returns cached/warming state quickly, then refreshes `vidux config check --json`, `scripts/vidux-doctor.sh --json`, and `vidux signpost summary --json` in the background. Use `?refresh=sync` for the synchronous path. Neither route runs `vidux doctor` or runtime doctor `--fix`; warning-only runtime state stays a warning, never proof of a clean fleet.
 - When system-memory truth is available, the band renders the runtime warning/blocker summary alongside the `memory_pressure` free percentage; the title preserves the `memory_pressure -Q` / `vm_stat` source split.
@@ -93,13 +95,15 @@ Secret detection is defense in depth, not a credential vault. Keep credentials o
 
 ## Artifact styling
 
-Artifacts are user-generated HTML; shared visual scaffolding lives in `browser/static/artifact-base.css`. Put this link after the artifact's local `<style>` block:
+Artifact HTML uses a separate network-isolated, sandboxed iframe boundary rather than the Markdown DOMPurify path. Its CSP has no HTTP(S) source: inline styles, data fonts, and data/blob images or media are allowed; scripts, forms, workers, objects, frames, manifests, connections, and all network resource URLs are denied. Remote HTTP(S) assets are intentionally blocked. Fragment-only navigation remains available; every other HTML, SVG, or image-map link loses its navigation target.
+
+Shared visual scaffolding lives in `browser/static/artifact-base.css`. Put this marker after the artifact's local `<style>` block:
 
 ```html
 <link rel="stylesheet" href="../static/artifact-base.css" data-vidux-artifact-base>
 ```
 
-The relative `../static/` path works in the vidux-browse iframe and when opening a local artifact file directly from `browser/artifacts/`. Keep OS dark-mode tokens in the shared CSS, not in a per-artifact `prefers-color-scheme: dark` block.
+The relative `../static/` path works when opening a local artifact file directly from `browser/artifacts/`. In vidux-browse, the cockpit removes every artifact-owned `<link>`, fetches the trusted `artifact-base.css` bytes itself, and injects those bytes as an inline `<style>` only when this marker is present. This keeps the iframe self-contained without broadening `style-src` to same-origin URLs. Keep OS dark-mode tokens in the shared CSS, not in a per-artifact `prefers-color-scheme: dark` block.
 
 ## Plan-note behavior
 

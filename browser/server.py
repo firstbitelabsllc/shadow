@@ -200,6 +200,31 @@ SENSITIVE_PLACEHOLDER_MARKERS = (
     "test_secret",
 )
 
+ARTIFACT_CONTENT_SECURITY_POLICY = "; ".join((
+    "default-src 'none'",
+    "base-uri 'none'",
+    "connect-src 'none'",
+    "font-src data:",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+    "frame-src 'none'",
+    "img-src data: blob:",
+    "manifest-src 'none'",
+    "media-src data: blob:",
+    "object-src 'none'",
+    "script-src 'none'",
+    "style-src 'unsafe-inline'",
+    "worker-src 'none'",
+))
+ARTIFACT_SECURITY_HEADERS = {
+    "Content-Disposition": 'attachment; filename="vidux-artifact.html"',
+    "Content-Security-Policy": ARTIFACT_CONTENT_SECURITY_POLICY,
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+}
+
 
 def _unquoted_secret_value(value: str) -> str:
     text = value.strip()
@@ -2736,7 +2761,15 @@ class Handler(BaseHTTPRequestHandler):
             if status != 200:
                 self._send(status, body if isinstance(body, str) else "file read failed")
                 return
-            self._send_with_type(body, ctype)
+            self._send_with_type(
+                body,
+                ctype,
+                extra_headers=(
+                    ARTIFACT_SECURITY_HEADERS
+                    if p.suffix.lower() == ".html"
+                    else None
+                ),
+            )
         elif route == "/api/receipts/list":
             # Round-10 fix: private:true rows are only included for a
             # loopback-verified caller -- a LAN peer that merely passes the
@@ -3061,11 +3094,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self._write_body(body)
 
-    def _send_with_type(self, body: bytes, ctype: str):
+    def _send_with_type(
+        self,
+        body: bytes,
+        ctype: str,
+        extra_headers: dict[str, str] | None = None,
+    ):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self._write_body(body)
 
