@@ -75,7 +75,11 @@ The server is narrow:
 - Markdown under `investigations/` and `evidence/` is also allowed.
 - HTML reads are limited to `browser/artifacts/`.
 - `node_modules` paths are rejected even if the filename matches the allowlist.
+- Allowed text is redacted before it is parsed or returned. This covers raw plan-adjacent files, plan/dashboard metadata, Claude session excerpts, ledger excerpts, artifact titles, comments, and receipt metadata returned through JSON routes. Plans or artifacts with a secret-shaped path segment are omitted from discovery. A plan with one or more matches reports `content_redacted=true` and `sensitive_redactions=<count>`; the UI keeps that incomplete-content state visible.
+- JSON payloads, plain-text HTTP errors, and request log lines share the same final redaction backstop. Percent-escaped request targets are decoded before log scanning so URL encoding cannot defeat token boundaries, then control characters are flattened to keep each request on one physical log line.
+- The high-confidence detector covers known provider-token prefixes, bearer credentials, JWTs, private-key blocks, values of explicit secret/key/token assignments when the value is at least 12 characters, explicit password assignments when the value is at least 4 characters, and standalone mixed-character values of at least 40 characters that clear the entropy threshold. Hex digests and explicit example/redacted/unset placeholders remain visible to reduce proof noise.
 - Artifact writes and local plan-note writes are loopback-only, require `Content-Type: application/json`, and reject cross-origin posts.
+- Artifact, comment, and local plan-note writes reject detector matches instead of persisting a redacted value. Existing comments are redacted on read. Secret-shaped artifact slugs are rejected.
 - Receipt writes and receipt OCR/analyze mutations are loopback-only JSON writes with explicit size caps.
 - Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header, on top of the Host-allowlist check above.
 - Markdown rendered client-side (`marked.js` output) is sanitized through a locally-vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM — closes stored-XSS via a crafted `PLAN.md`/comment/artifact body.
@@ -84,6 +88,8 @@ The server is narrow:
 - When system-memory truth is available, the band renders the runtime warning/blocker summary alongside the `memory_pressure` free percentage; the title preserves the `memory_pressure -Q` / `vm_stat` source split.
 - When a latest signpost run is available, the band renders the runtime chain (e.g. `codex > claude > cursor > codex`); the title marks whether the expected lifecycle is complete.
 - The `Ledger` tab is read-only: it scans the activity JSONL tail, ignores noisy non-publish rows, matches plan rows by `plan_path`/`files`/`files_claimed`, and never appends, edits, or deletes ledger data.
+
+Secret detection is defense in depth, not a credential vault. Keep credentials out of plans, sessions, ledgers, comments, artifacts, and receipt annotations; rotate any credential that was exposed before the browser hid it. The detector does not inspect text embedded in receipt-image pixels or other binary media. A non-private receipt image can still reveal whatever is visibly printed in that image.
 
 ## Artifact styling
 
@@ -103,6 +109,7 @@ The relative `../static/` path works in the vidux-browse iframe and when opening
 - Inserts new notes under `## Open`.
 - Preserves any existing `## Processed` section.
 - Records `Source` and optional `Agent` metadata.
+- Rejects a note or metadata label that contains a high-confidence sensitive value.
 
 This behavior is covered by `tests/test_browser_server.py`.
 
@@ -114,6 +121,7 @@ This behavior is covered by `tests/test_browser_server.py`.
 - Plan-tab comments attach to the markdown file being viewed; artifact comments to the artifact HTML file.
 - The UI remembers the commenter name in browser `localStorage`.
 - Cross-machine LAN viewers can comment when on the vidux-browse origin.
+- Rejects new comment bodies, authors, anchors, or target paths that contain a high-confidence sensitive value; legacy stored values are redacted on read.
 - For precise placement, use the top-bar `Annotate` control or `Cmd/Ctrl+Shift+C`, then click the target surface. Capture decorates the shared browser chrome plus generic rendered HTML elements, so artifact authors need no per-file annotation hooks. The composer opens as a target-positioned popover. Annotation/filter shortcuts are ignored while typing in inputs, textareas, selects, or contenteditable fields.
 - Anchors store sanitized selector, label, excerpt, tag, kind, and index metadata — best-effort display pointers; the source markdown or artifact stays unchanged.
 - The rendered `Target` pill scrolls to and highlights the captured element when still present.

@@ -408,7 +408,8 @@ body {
   white-space: nowrap;
 }
 .plan-row-state,
-.plan-row-current {
+.plan-row-current,
+.plan-row-sensitive {
   flex: 0 0 auto;
   margin-left: auto;
   font-family: var(--mono);
@@ -421,6 +422,10 @@ body {
   padding: 1px 4px;
   border: 1px solid var(--accent);
   color: var(--accent);
+}
+.plan-row-sensitive {
+  margin-left: 0;
+  color: var(--warning);
 }
 .plan-row-state.status-blocked { color: var(--error); }
 .plan-row-state.status-in-progress { color: var(--warning); }
@@ -803,6 +808,29 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   overflow-wrap: anywhere;
 }
 .pane-header .meta .pill { vertical-align: middle; margin-right: 4px; }
+
+.sensitive-content-notice {
+  min-height: 42px;
+  margin: -12px 0 16px;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-ink);
+}
+.sensitive-content-notice strong {
+  flex: 0 0 auto;
+  font-size: var(--text-body);
+}
+.sensitive-content-notice span {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 
 /* ---- Plan brief ---- */
 
@@ -2562,6 +2590,11 @@ body.is-annotation-mode #filter {
   }
   .pane { padding: 12px 12px var(--pane-footer-reserve); }
   .pane-header h2 { font-size: 20px; }
+  .sensitive-content-notice {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
   .plan-brief { grid-template-columns: 1fr; }
   .ops-truth-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-header {

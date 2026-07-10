@@ -1,5 +1,6 @@
 import importlib.util
 import http.client
+import io
 import json
 import os
 import subprocess
@@ -17,6 +18,92 @@ SPEC = importlib.util.spec_from_file_location(
 browser_server = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(browser_server)
+
+
+def synthetic_secret() -> str:
+    # Built at runtime so repository secret scanners never see a token-shaped
+    # fixture while the browser policy still exercises a realistic value.
+    return "sk-" + ("A1b2C3d4" * 6)
+
+
+class BrowserSensitiveContentTests(unittest.TestCase):
+    def test_redacts_provider_assignment_and_standalone_entropy_without_hash_noise(self):
+        provider_secret = synthetic_secret()
+        pasted_secret = "".join((
+            "Ab3_", "kL7#", "Qx9_", "mN2#", "Rs5_", "tU8#",
+            "Vw1_", "yZ4#", "Cd6_", "fG0#", "Hi2_", "jK7#",
+        ))
+        digest = "a1b2c3d4" * 8
+        text = (
+            f"API_TOKEN={provider_secret}\n"
+            f"pasted value: {pasted_secret}\n"
+            f"fixture digest: {digest}\n"
+            "API_TOKEN=example-placeholder\n"
+        )
+
+        redacted, count = browser_server.redact_sensitive_text(text)
+
+        self.assertEqual(count, 2)
+        self.assertNotIn(provider_secret, redacted)
+        self.assertNotIn(pasted_secret, redacted)
+        self.assertIn("[REDACTED:secret]", redacted)
+        self.assertIn(digest, redacted)
+        self.assertIn("example-placeholder", redacted)
+
+    def test_redacts_short_explicit_password_but_keeps_empty_state_marker(self):
+        redacted, count = browser_server.redact_sensitive_text(
+            'password="s3cr3t!"\npassword=unset\n'
+        )
+
+        self.assertEqual(count, 1)
+        self.assertNotIn("s3cr3t!", redacted)
+        self.assertIn("password=unset", redacted)
+
+    def test_recursive_json_redaction_covers_values_and_keys(self):
+        secret = synthetic_secret()
+
+        safe = browser_server.redact_sensitive_value({secret: {"token": (secret,)}})
+        rendered = json.dumps(safe)
+
+        self.assertNotIn(secret, rendered)
+        self.assertEqual(list(safe), ["[REDACTED:secret]"])
+
+    def test_session_and_ledger_excerpts_share_the_redaction_boundary(self):
+        secret = synthetic_secret()
+
+        session = browser_server.compact_session_text(f"rotate {secret} now")
+        ledger = browser_server.compact_ledger_text(f"proof token={secret}")
+
+        self.assertNotIn(secret, session)
+        self.assertNotIn(secret, ledger)
+        self.assertIn("[REDACTED:secret]", session)
+        self.assertIn("[REDACTED:secret]", ledger)
+
+    def test_plan_metadata_is_derived_from_redacted_text(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_root = browser_server.DEV_ROOT
+            root = Path(tmpdir).resolve()
+            browser_server.DEV_ROOT = root
+            try:
+                plan = root / "repo" / "projects" / "demo" / "PLAN.md"
+                plan.parent.mkdir(parents=True)
+                secret = synthetic_secret()
+                plan.write_text(
+                    "# Demo\n\n"
+                    f"## Purpose\nUse API_TOKEN={secret} for deploys.\n\n"
+                    "## Tasks\n"
+                    f"- [in_progress] rotate {secret}\n",
+                    encoding="utf-8",
+                )
+
+                metadata = browser_server.plan_meta(plan)
+            finally:
+                browser_server.DEV_ROOT = original_root
+
+        self.assertTrue(metadata["content_redacted"])
+        self.assertGreaterEqual(metadata["sensitive_redactions"], 2)
+        self.assertNotIn(secret, json.dumps(metadata))
+        self.assertIn("[REDACTED:secret]", json.dumps(metadata))
 
 
 class BrowserLocalPlanNoteTests(unittest.TestCase):
@@ -69,6 +156,34 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         self.assertIn("> new note", text)
         self.assertLess(text.index("> new note"), text.index("## Processed"))
         self.assertIn("### Old", text)
+
+    def test_write_plan_note_rejects_sensitive_content(self):
+        secret = synthetic_secret()
+
+        ok, message = browser_server.write_plan_note(
+            self.plan_path,
+            f"save this credential: {secret}",
+        )
+
+        self.assertFalse(ok)
+        self.assertEqual(message, "note contains sensitive content")
+        self.assertFalse((self.plan_dir / "INBOX.md").exists())
+
+    def test_write_plan_note_rejects_sensitive_source_and_agent(self):
+        secret = synthetic_secret()
+
+        for field in ("source", "agent"):
+            with self.subTest(field=field):
+                kwargs = {field: secret}
+                ok, message = browser_server.write_plan_note(
+                    self.plan_path,
+                    "safe note",
+                    **kwargs,
+                )
+
+                self.assertFalse(ok)
+                self.assertEqual(message, "note contains sensitive content")
+                self.assertFalse((self.plan_dir / "INBOX.md").exists())
 
     def test_resolve_plan_note_target_requires_plan_md_under_dev_root(self):
         evidence = self.plan_dir / "evidence.md"
@@ -300,6 +415,32 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertTrue((self.artifacts_dir / "safe-artifact.html").is_file())
 
+    def test_artifact_post_rejects_sensitive_content(self):
+        secret = synthetic_secret()
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "secret-artifact", "html": f"<p>token={secret}</p>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "artifact contains sensitive content")
+        self.assertFalse((self.artifacts_dir / "secret-artifact.html").exists())
+
+    def test_artifact_post_rejects_sensitive_slug(self):
+        secret_slug = "sk-" + ("a1b2c3d4" * 4)
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": secret_slug, "html": "<p>Safe body</p>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "artifact contains sensitive content")
+        self.assertFalse((self.artifacts_dir / f"{secret_slug}.html").exists())
+
     def test_artifact_post_rejects_malformed_content_length_header(self):
         """Round-1 open-source panel finding: every write route parsed
         Content-Length with a bare int() call, so a hand-crafted non-numeric
@@ -369,6 +510,19 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertIn("safe note", (self.plan_dir / "INBOX.md").read_text(encoding="utf-8"))
 
+    def test_plan_note_post_rejects_sensitive_content_without_inbox_write(self):
+        secret = synthetic_secret()
+
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": f"credential={secret}"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "note contains sensitive content")
+        self.assertFalse((self.plan_dir / "INBOX.md").exists())
+
     def test_plan_note_post_rejects_cross_origin(self):
         status, text = self.post(
             "/api/local-plan-note",
@@ -414,6 +568,65 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(payload["target_kind"], "plan")
         self.assertEqual(payload["comments"][0]["author"], "Viewer")
         self.assertEqual(payload["comments"][0]["body"], "This needs a quick annotation.")
+
+    def test_comments_post_rejects_sensitive_content(self):
+        secret = synthetic_secret()
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": f"credential={secret}",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "comment contains sensitive content")
+        self.assertFalse(self.comments_file.exists())
+
+    def test_comments_post_rejects_sensitive_author_and_anchor(self):
+        secret = synthetic_secret()
+        cases = (
+            {"author": secret, "body": "safe body"},
+            {
+                "author": "Viewer",
+                "body": "safe body",
+                "anchor": {"label": f"credential={secret}"},
+            },
+        )
+
+        for payload in cases:
+            with self.subTest(payload_fields=tuple(payload)):
+                status, text = self.post(
+                    "/api/comments",
+                    {"target_path": str(self.plan_path), **payload},
+                    self.json_headers(Origin=self.origin()),
+                )
+
+                self.assertEqual(status, 400, text)
+                self.assertEqual(text, "comment contains sensitive content")
+                self.assertFalse(self.comments_file.exists())
+
+    def test_comments_get_redacts_legacy_sensitive_content(self):
+        secret = synthetic_secret()
+        self.comments_file.write_text(
+            json.dumps({
+                "id": "legacy-secret",
+                "target_path": str(self.plan_path),
+                "target_kind": "plan",
+                "author": "Viewer",
+                "body": f"old token={secret}",
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+        status, text = self.get(f"/api/comments?path={self.plan_path}")
+
+        self.assertEqual(status, 200, text)
+        self.assertNotIn(secret, text)
+        self.assertIn("[REDACTED:secret]", text)
 
     def test_comments_post_persists_clean_anchor_metadata(self):
         status, text = self.post(
@@ -634,6 +847,85 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
 
         self.assertEqual(status, 403, text)
         self.assertEqual(text, "forbidden")
+
+    def test_plain_text_error_backstop_redacts_sensitive_filename(self):
+        secret = synthetic_secret()
+        missing = self.artifacts_dir / f"{secret}.html"
+
+        original_stderr = browser_server.sys.stderr
+        browser_server.sys.stderr = io.StringIO()
+        try:
+            status, text = self.get(f"/api/file?path={quote(str(missing), safe='')}")
+            log = browser_server.sys.stderr.getvalue()
+        finally:
+            browser_server.sys.stderr = original_stderr
+
+        self.assertEqual(status, 404, text)
+        self.assertNotIn(secret, text)
+        self.assertEqual(text, "file missing: [REDACTED:secret].html")
+        self.assertNotIn(secret, log)
+        self.assertIn("[REDACTED:secret]", log)
+
+    def test_request_log_flattens_decoded_control_characters(self):
+        secret = synthetic_secret()
+        handler = object.__new__(browser_server.Handler)
+        handler.log_date_time_string = lambda: "10/Jul/2026 04:00:00"
+
+        original_stderr = browser_server.sys.stderr
+        browser_server.sys.stderr = io.StringIO()
+        try:
+            handler.log_message(
+                '"GET /probe%%0Aforged/%s HTTP/1.1" %s -',
+                secret,
+                "404",
+            )
+            log = browser_server.sys.stderr.getvalue()
+        finally:
+            browser_server.sys.stderr = original_stderr
+
+        self.assertNotIn(secret, log)
+        self.assertIn("[REDACTED:secret]", log)
+        self.assertEqual(log.count("\n"), 1)
+        self.assertNotIn("\nforged", log)
+
+    def test_api_file_and_plan_payload_redact_sensitive_content(self):
+        secret = synthetic_secret()
+        self.plan_path.write_text(
+            "# Demo\n\n"
+            f"## Purpose\nDeploy with API_TOKEN={secret}.\n\n"
+            "## Tasks\n"
+            f"- [in_progress] rotate {secret}\n",
+            encoding="utf-8",
+        )
+        browser_server.clear_plans_cache()
+
+        status, file_text = self.get(
+            f"/api/file?path={quote(str(self.plan_path), safe='')}"
+        )
+        plans_status, plans_text = self.get("/api/plans")
+
+        self.assertEqual(status, 200, file_text)
+        self.assertEqual(plans_status, 200, plans_text)
+        self.assertNotIn(secret, file_text)
+        self.assertNotIn(secret, plans_text)
+        self.assertIn("[REDACTED:secret]", file_text)
+        payload = json.loads(plans_text)
+        plan = next(item for item in payload["plans"] if item["path"] == str(self.plan_path))
+        self.assertTrue(plan["content_redacted"])
+        self.assertGreaterEqual(plan["sensitive_redactions"], 2)
+
+    def test_json_response_backstop_redacts_route_metadata(self):
+        secret = synthetic_secret()
+        original_artifacts_dir = browser_server.ARTIFACTS_DIR
+        browser_server.ARTIFACTS_DIR = self.dev_root / secret
+        try:
+            status, text = self.get("/api/health")
+        finally:
+            browser_server.ARTIFACTS_DIR = original_artifacts_dir
+
+        self.assertEqual(status, 200, text)
+        self.assertNotIn(secret, text)
+        self.assertIn("[REDACTED:secret]", text)
 
 
 class BrowserArtifactBaseCssTests(unittest.TestCase):

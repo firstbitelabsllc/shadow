@@ -752,4 +752,68 @@ test.describe('subplan row keyboard navigation', () => {
     await expect(page.locator('.pane-header h2')).toHaveText('fixture · subplan-child');
     await expect(page.locator('#sidebar-list .plan-row[data-path="' + childPath + '"].is-active').first()).toBeVisible();
   });
+
+  test('sensitive plan state stays explicit without exposing the replaced value', async ({ page }) => {
+    const planPath = '/tmp/vidux-sensitive/PLAN.md';
+    const planRel = 'fixture/sensitive/PLAN.md';
+    const syntheticSecret = 'sk-' + 'A1b2C3d4'.repeat(6);
+
+    await page.route('**/api/plans', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          plans: [{
+            repo: 'fixture',
+            slug: 'sensitive',
+            rel: planRel,
+            path: planPath,
+            status: 'active',
+            age_days: 0,
+            size: 256,
+            siblings: [],
+            investigations: [],
+            evidence: [],
+            child_rels: [],
+            content_redacted: true,
+            sensitive_redactions: 2,
+            task_stats: { total: 1, counts: { in_progress: 1 } },
+            aggregate_stats: { total: 1, descendants: 0, counts: { in_progress: 1 } },
+          }],
+        }),
+      });
+    });
+    await page.route('**/api/artifacts', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ artifacts: [], artifacts_dir: '/tmp/vidux-sensitive' }),
+      });
+    });
+    await page.route('**/api/file**', async route => {
+      await route.fulfill({
+        contentType: 'text/plain',
+        body: '# Sensitive fixture\n\n## Tasks\n- [in_progress] Rotate [REDACTED:secret]\n',
+      });
+    });
+    await page.route('**/api/comments**', async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ comments: [] }) });
+    });
+
+    await page.goto(`/?plan=${encodeURIComponent(planRel)}`);
+
+    const notice = page.locator('.sensitive-content-notice');
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText('Sensitive values hidden');
+    await expect(notice).toContainText('2 high-confidence values replaced before display.');
+    await expect(notice).toHaveAttribute('data-sensitive-redactions', '2');
+    await expect(page.locator('#md-body')).toContainText('[REDACTED:secret]');
+    await expect(page.locator('body')).not.toContainText(syntheticSecret);
+
+    await openDrawerIfNeeded(page);
+    await expect(page.locator('.plan-row-sensitive')).toContainText('hidden');
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+  });
 });
