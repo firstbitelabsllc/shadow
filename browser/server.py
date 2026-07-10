@@ -21,7 +21,7 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import date
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -351,17 +351,34 @@ JSON_CONTENT_TYPE = "application/json"
 def _comments_write_guard():
     """Serialize comment rewrites across threads and Vidux server processes."""
     lock_path = COMMENTS_FILE.with_suffix(COMMENTS_FILE.suffix + ".lock")
-    with _COMMENTS_WRITE_LOCK:
-        with open_regular_fd(
-            lock_path,
-            os.O_RDWR | os.O_CREAT,
-            create_parent=True,
-        ) as lock_fd:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    with _COMMENTS_WRITE_LOCK, ExitStack() as stack:
+        # Round-11: open_regular_fd(create_parent=True) recreates the lock's
+        # parent dir, but under pathological concurrent load (e.g. many parallel
+        # test suites sharing a machine) an unrelated process can delete that
+        # dir again in the window between mkdir and open, surfacing as a
+        # transient FileNotFoundError that aborts an otherwise-valid comment
+        # write. A small bounded retry rides out a one-shot transient without
+        # touching the security invariant: open_regular_fd still rejects unsafe
+        # (symlink/alias/non-regular) targets immediately, and only the
+        # parent-vanished ENOENT is retried. (The race needs an external
+        # deleter, so it is not deterministically unit-testable.)
+        lock_fd = None
+        last_exc: FileNotFoundError | None = None
+        for _ in range(3):
             try:
-                yield
-            finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd = stack.enter_context(
+                    open_regular_fd(lock_path, os.O_RDWR | os.O_CREAT, create_parent=True)
+                )
+                break
+            except FileNotFoundError as exc:
+                last_exc = exc
+        if lock_fd is None:
+            raise last_exc  # type: ignore[misc]
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
 VIDUX_TRUTH_CACHE_TTL_SECONDS = float(os.environ.get("VIDUX_TRUTH_CACHE_TTL_SECONDS", "45"))
 _VIDUX_TRUTH_CACHE_LOCK = threading.Lock()
 _VIDUX_TRUTH_CACHE: dict[str, object] = {
