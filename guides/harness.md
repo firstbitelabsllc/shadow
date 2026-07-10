@@ -86,7 +86,7 @@ Gate must complete in under 60 seconds. The full cycle (scan + fix) has no time 
 5. **Missing mid-zone kill.** Without "if 3+ min pass with no file write, exit," agents drift into plan-reading loops.
 6. **Missing role boundary.** Agent drifts into sibling work, creates merge conflicts.
 7. **Missing cross-lane.** Agent duplicates work a sibling just shipped.
-8. **Empty queue = exit.** Wrong. Doctrine 14 requires a five-point idle scan before any "nothing to do" exit. Cite what was scanned.
+8. **Empty queue = exit.** Wrong. `guides/fleet-ops.md`'s five-point idle scan is required before any "nothing to do" exit. Cite what was scanned.
 
 ---
 

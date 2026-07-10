@@ -4,7 +4,7 @@ Operations manual for running a fleet of vidux automations. Loaded by `/codex` a
 
 ---
 
-## Cross-Lane Awareness (Doctrine 13)
+## Cross-Lane Awareness
 
 > An automation that doesn't know what its siblings are doing is a solo agent pretending to be part of a fleet.
 
@@ -24,7 +24,7 @@ Every automation MUST read sibling state during its READ step -- structural, not
 
 ---
 
-## Trunk Health (Doctrine 15)
+## Trunk Health
 
 > A dirty or diverged canonical checkout is a fleet-level infrastructure failure, not a per-task blocker. Detect it in 10 seconds, not after 45 minutes of deep work.
 
@@ -113,7 +113,7 @@ Every automation using `execution_environment = "worktree"` MUST hand off durabl
 ```
 WORKTREE RULE: Before stopping, update the plan, emit publish ledger, push the branch, and open/update the PR.
 - First update the owning PLAN.md Progress/Tasks/Drift Log with what changed, proof, `handoff_status`, files claimed, and the next-agent resume point.
-- Then emit `ledger-emit.sh --event publish` with non-empty `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status`, `--resume`, changed-file `--file` entries, and path-like `--claim` entries for claimed files; keep the eid in `$LEDGER_EID`.
+- Then emit the ledger emitter's `--event publish` with non-empty `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status`, `--resume`, changed-file `--file` entries, and path-like `--claim` entries for claimed files; keep the eid in `$LEDGER_EID`.
 - If work is complete and tests pass: push branch, build the PR body with `scripts/vidux-pr-body.py` including `--summary`, `--plan-path`, `--proof`, `--handoff-status`, `--ledger "$LEDGER_EID"`, `--file-claimed`, `--resume`, and the three `--review-pass` self-scrutiny entries, open a ready PR, and record the resume point in the PR body.
 - If work is incomplete or a gate is still missing: emit the publish row with `handoff_status=in_progress` or `needs_review`, push branch, open/update PR as draft, and record the exact next step.
 - If work conflicts or is unsafe: record why in memory/PLAN.md and keep the branch name visible.
@@ -224,7 +224,7 @@ Quick check gate (run FIRST, before any other work):
 3. Read the single primary state file (plan, queue, or tracker). Count actionable
    items. If zero actionable items and no new items since the last note, exit with:
    "[QC] <date> No new work. No deep work."
-3.5. If zero items in the primary file, run the five-point idle scan (Doctrine 14):
+3.5. If zero items in the primary file, run the five-point idle scan:
    INBOX.md -> sibling memory -> git log on owned paths -> blocked task recheck ->
    codebase TODO/FIXME scan.
    If any scan finds work: add to plan, proceed to execution.
@@ -304,7 +304,7 @@ Any fleet with 5+ automations, or any fleet where 3+ automations share the same 
 
 - Editing individual prompts while the fleet is dead (mid-zone work at orchestrator level)
 - Retrying the same blocker across 3+ cycles without escalating
-- Spinning up new automations without checking the existing fleet (Doctrine 13)
+- Spinning up new automations without checking the existing fleet
 - Treating all idle automations identically -- idle-because-queue-empty is different from idle-because-gate-misconfigured
 
 ---
@@ -388,7 +388,7 @@ Scanners are read-only scouts (Doctrine: role boundary). Letting them mutate the
 
 ---
 
-## Merge Conflict Protocol (Doctrine 16)
+## Merge Conflict Protocol
 
 > When two worktrees reconcile onto the same trunk, both sides' work must survive. A conflict resolved by deleting one side is not a resolution -- it's data loss.
 
@@ -451,4 +451,4 @@ Every automation harness prompt follows this eight-block structure, in order:
 5. **Vague authority references.** Every authority file gets an absolute path and a role label.
 6. **Missing mid-zone kill.** One line that saves entire cycles.
 7. **Missing role boundary.** Causes drift into adjacent work and merge conflicts.
-8. **Exiting on empty queue without scanning.** Doctrine 14 requires a five-point idle scan.
+8. **Exiting on empty queue without scanning.** The five-point idle scan above is required before any "nothing to do" exit.
