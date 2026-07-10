@@ -4,7 +4,7 @@
   "status": "retired_non_runnable",
   "runnable": false,
   "decided_at": "2026-07-10T13:23:16Z",
-  "replacement_protocol_id": null,
+  "replacement_protocol_id": "vidux-cockpit-v3",
   "decision_basis": [
     "Provider and model identities are not matched across treatment and native controls.",
     "Hidden-oracle adjudication and receipt verification are not deterministic or content-addressed.",

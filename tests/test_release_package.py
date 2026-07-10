@@ -90,6 +90,18 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertTrue(any("not tracked by git" in error for error in errors), errors)
         self.assertTrue(any("unpacked bytes" in error for error in errors), errors)
 
+    def test_requires_only_the_public_v3_preflight_surface(self) -> None:
+        package, pack, tracked = baseline()
+        pack["files"].append({"path": "benchmarks/v3/private-oracles.json", "size": 1})
+        tracked.add("benchmarks/v3/private-oracles.json")
+
+        errors = self.errors(package, pack, tracked)
+
+        self.assertTrue(
+            any("runtime or evaluator v3 files" in error for error in errors),
+            errors,
+        )
+
     def test_rejects_unsafe_publish_configuration(self) -> None:
         package, pack, tracked = baseline()
         package["publishConfig"] = {"access": "restricted"}

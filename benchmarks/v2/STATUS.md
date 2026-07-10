@@ -12,5 +12,9 @@ outcome-determining changes to provider matching, oracle adjudication, schedule
 completeness, receipt verification, and hard budgets. The manifest's amendment
 policy requires those corrections to use a new protocol id.
 
+The tracked replacement is `vidux-cockpit-v3`. Its protocol is frozen for
+preflight, while provider transport remains disabled pending an external
+evaluator release and a separately reviewed runner.
+
 No fixture release or raw rows exist. Verified net-win scenario classes remain
 zero, and no Vidux superiority claim is supported by v2.
