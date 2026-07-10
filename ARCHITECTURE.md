@@ -30,7 +30,7 @@ not a fourth layer — see "Browser GUI" below.
 ```
 vidux/
 ├── SKILL.md              # Full contract: principles, cycle, PLAN.md template
-├── DOCTRINE.md           # Extended doctrine (12 principles + gate patterns)
+├── DOCTRINE.md           # Extended doctrine (13 principles + gate patterns)
 ├── LOOP.md               # Stateless cycle mechanics
 ├── ENFORCEMENT.md        # Claude Code hook configuration
 ├── bin/

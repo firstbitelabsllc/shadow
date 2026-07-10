@@ -1,6 +1,6 @@
 # Vidux Doctrine
 
-> If an agent reads one file, this is it. 12 principles plus the quick check / deep work model and gate patterns. Battle-tested across 40+ cycles building Vidux, a 10-automation fleet, and unsupervised overnight crons.
+> If an agent reads one file, this is it. 13 principles plus the quick check / deep work model and gate patterns. Battle-tested across 40+ cycles building Vidux, a 10-automation fleet, and unsupervised overnight crons.
 
 ## Working Philosophy
 
@@ -69,7 +69,7 @@ If evidence changes mid-cycle, the queue re-sorts; no permission needed to reord
 
 Self-extension without a brake becomes recursive optimization forever. A good automation knows when a surface is honestly good and stops adding work. Three-strike rule: if a surface has 3+ queued polish tasks, ship the most impactful one and move on. Don't optimize already-good surfaces; polish on a done surface while the mission has gaps elsewhere is procrastination. Why: an unbraked parity campaign once queued ~14 polish tasks on near-done surfaces; capping to the top few is the fix.
 
-### 14. Hungry by default — find work, don't wait for it
+## 13. Hungry by default — find work, don't wait for it
 
 > An agent that exits with "nothing to do" without looking for work is a parked car with the engine running.
 

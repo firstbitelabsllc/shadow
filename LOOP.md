@@ -120,7 +120,7 @@ Each returns `{ source, finding, confidence: high|medium|low }`. You synthesize 
 1. Locate the task in PLAN.md; read description + evidence.
 2. Scope the files. NEVER touch files outside the task.
 3. Execute one code change. Not two.
-4. Verify — run the task's build/test gate. Pass -> checkpoint. Fail -> retry once with a targeted fix. Still failing -> failure protocol (SKILL.md § Failure Protocol).
+4. Verify — run the task's build/test gate. Pass -> checkpoint. Fail -> retry once with a targeted fix. Still failing -> stuck-detection protocol (SKILL.md § Stuck detection (adaptive)).
 5. Set `[completed]`: `- [completed] Task N: ... [Done: date]`
 
 ### All tasks done:
