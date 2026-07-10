@@ -46,12 +46,13 @@ ROOT = Path(__file__).resolve().parent.parent
 STYLE_CSS = ROOT / "browser" / "static" / "style.css"
 RECEIPTS_HTML = ROOT / "browser" / "static" / "receipts.html"
 
-PAPER = "#f8f5ee"
-PAPER_2 = "#f1ece1"
-DARK_PAPER = "#1d1a14"
-DARK_PAPER_2 = "#28241c"
-SELECT_LIGHT = "#e9e0c8"
-SELECT_DARK = "#3a3324"
+# Round-11 panel finding: these background reference colors used to be
+# hardcoded here (PAPER="#f8f5ee" etc). A concurrent palette rebrand shipped
+# to style.css (:root --paper became #f7f9f8) WITHOUT touching this file, so
+# the WCAG regression guard was silently validating a phantom palette that no
+# longer matched the shipped surface. The guard now reads --paper/--paper-2/
+# --select from the live CSS in setUp (self.paper etc), so it always tracks
+# whatever palette actually ships.
 
 # Tokens confirmed used as `color:` (not just background/border) on small
 # text in browser/static/style.css, at the time of this fix.
@@ -121,6 +122,15 @@ class StyleContrastTests(unittest.TestCase):
         self.css = STYLE_CSS.read_text(encoding="utf-8")
         self.root_block = _first_root_block(self.css)
         self.dark_block = _named_block(self.css, ":root.theme-dark {")
+        # Read the actual shipped background surfaces from the live CSS rather
+        # than hardcoding them, so a palette change can't leave this guard
+        # checking a stale target (round-11 finding).
+        self.paper = self._token_value("paper")
+        self.paper_2 = self._token_value("paper-2")
+        self.select_light = self._token_value("select")
+        self.dark_paper = self._dark_token_value("paper")
+        self.dark_paper_2 = self._dark_token_value("paper-2")
+        self.select_dark = self._dark_token_value("select")
 
     def _token_value(self, token: str) -> str:
         match = re.search(rf"--{re.escape(token)}:\s*(#[0-9a-fA-F]{{6}})", self.root_block)
@@ -135,22 +145,22 @@ class StyleContrastTests(unittest.TestCase):
     def test_light_theme_status_text_colors_meet_wcag_aa(self):
         for token in TEXT_TOKENS:
             value = self._token_value(token)
-            ratio = _contrast_ratio(value, PAPER)
+            ratio = _contrast_ratio(value, self.paper)
             self.assertGreaterEqual(
                 ratio,
                 4.5,
-                f"--{token} ({value}) vs --paper ({PAPER}) is {ratio:.2f}:1, "
+                f"--{token} ({value}) vs --paper ({self.paper}) is {ratio:.2f}:1, "
                 f"below WCAG 1.4.3 AA (4.5:1) for the small text it's used at",
             )
 
     def test_light_theme_status_text_colors_meet_wcag_aa_against_paper_2(self):
         for token in TEXT_TOKENS:
             value = self._token_value(token)
-            ratio = _contrast_ratio(value, PAPER_2)
+            ratio = _contrast_ratio(value, self.paper_2)
             self.assertGreaterEqual(
                 ratio,
                 4.5,
-                f"--{token} ({value}) vs --paper-2 ({PAPER_2}) is {ratio:.2f}:1, "
+                f"--{token} ({value}) vs --paper-2 ({self.paper_2}) is {ratio:.2f}:1, "
                 f"below WCAG 1.4.3 AA (4.5:1) for the small text it's used at",
             )
 
@@ -161,22 +171,22 @@ class StyleContrastTests(unittest.TestCase):
         # against the dark-theme surfaces instead.
         for token in TEXT_TOKENS:
             value = self._dark_token_value(token)
-            ratio = _contrast_ratio(value, DARK_PAPER)
+            ratio = _contrast_ratio(value, self.dark_paper)
             self.assertGreaterEqual(
                 ratio,
                 4.5,
-                f"--{token} ({value}) vs dark --paper ({DARK_PAPER}) is "
+                f"--{token} ({value}) vs dark --paper ({self.dark_paper}) is "
                 f"{ratio:.2f}:1, below WCAG 1.4.3 AA (4.5:1)",
             )
 
     def test_dark_theme_status_text_colors_meet_wcag_aa_against_paper_2(self):
         for token in TEXT_TOKENS:
             value = self._dark_token_value(token)
-            ratio = _contrast_ratio(value, DARK_PAPER_2)
+            ratio = _contrast_ratio(value, self.dark_paper_2)
             self.assertGreaterEqual(
                 ratio,
                 4.5,
-                f"--{token} ({value}) vs dark --paper-2 ({DARK_PAPER_2}) is "
+                f"--{token} ({value}) vs dark --paper-2 ({self.dark_paper_2}) is "
                 f"{ratio:.2f}:1, below WCAG 1.4.3 AA (4.5:1)",
             )
 
@@ -187,19 +197,19 @@ class StyleContrastTests(unittest.TestCase):
         # harder surface than either in both themes and was never checked.
         for token in SELECT_TOKENS:
             light_value = self._token_value(token)
-            light_ratio = _contrast_ratio(light_value, SELECT_LIGHT)
+            light_ratio = _contrast_ratio(light_value, self.select_light)
             self.assertGreaterEqual(
                 light_ratio,
                 4.5,
-                f"--{token} ({light_value}) vs light --select ({SELECT_LIGHT}) "
+                f"--{token} ({light_value}) vs light --select ({self.select_light}) "
                 f"is {light_ratio:.2f}:1, below WCAG 1.4.3 AA (4.5:1)",
             )
             dark_value = self._dark_token_value(token)
-            dark_ratio = _contrast_ratio(dark_value, SELECT_DARK)
+            dark_ratio = _contrast_ratio(dark_value, self.select_dark)
             self.assertGreaterEqual(
                 dark_ratio,
                 4.5,
-                f"--{token} ({dark_value}) vs dark --select ({SELECT_DARK}) "
+                f"--{token} ({dark_value}) vs dark --select ({self.select_dark}) "
                 f"is {dark_ratio:.2f}:1, below WCAG 1.4.3 AA (4.5:1)",
             )
 
