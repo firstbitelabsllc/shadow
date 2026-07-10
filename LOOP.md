@@ -149,7 +149,7 @@ Blocker: [if any, or "none"]
 - [DATE TIME] Cycle N: [what happened]. Next: [next]. Blocker: [if any].
 ```
 
-Push when ready — not required per-cycle. A commit is a local code snapshot only. The checkpoint for any publishable branch/PR/release is the owning PLAN.md update plus `ledger-emit.sh --event publish` carrying summary, plan task id, proof, `handoff_status`, files claimed, next-agent resume, and the resulting ledger eid — emitted into the branch/PR/release handoff before the publish leaves the machine.
+Push when ready — not required per-cycle. A commit is a local code snapshot only. The checkpoint for any publishable branch/PR/release is the owning PLAN.md update plus the ledger emitter's `--event publish` carrying summary, plan task id, proof, `handoff_status`, files claimed, next-agent resume, and the resulting ledger eid — emitted into the branch/PR/release handoff before the publish leaves the machine.
 
 **Reconcile planned vs actual:** compare plan text against the git diff. On divergence, run `vidux drift <PLAN.md> --task ... --planned ... --actual ... --why ... --plan-update ... --next ...` or call `scripts/vidux-drift-log.py` directly. It writes `## Drift Log`, appends Progress, and can block stale tasks, add follow-up tasks, or mirror drift into subplans. Record reusable preventions with `--prevention`; emit local signposts for `drift.record` / `cache.suggest` when telemetry is on. The plan always reflects truth.
 

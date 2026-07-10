@@ -82,8 +82,9 @@ Push tiers:
   rewrite): per-action authorization required, every time.
 
 Every commit, push, PR, direct-to-main update, or trunk merge is a publish
-action: update the owning PLAN.md Progress/Tasks or Drift Log first, then emit
-`ledger-emit.sh --event publish --summary "<summary>" --task-id <task-id> --plan-path <PLAN.md> --proof "<command/artifact>"
+action: update the owning PLAN.md Progress/Tasks or Drift Log first, then emit,
+via your configured ledger emitter,
+`"$LEDGER_EMIT" --event publish --summary "<summary>" --task-id <task-id> --plan-path <PLAN.md> --proof "<command/artifact>"
 --handoff-status <done|in_progress|blocked|needs_review> --resume "<resume point>"
 --file <changed-file>
 --claim <claimed-file>`. Carry the ledger eid into the PR, merge note, or final
