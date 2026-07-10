@@ -9,6 +9,7 @@ Stdlib only. See projects/vidux-browser/PLAN.md.
 from __future__ import annotations
 
 import json
+import math
 import os
 import copy
 import ipaddress
@@ -18,12 +19,12 @@ import sys
 import threading
 import time
 import uuid
-from collections import deque
+from collections import Counter, deque
 from datetime import date
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 # Receipt corpus lab handlers (math-fortress T9). Sibling package — server.py
 # is callable both as __main__ (sys.path[0] = browser/) and via importlib spec
@@ -144,6 +145,149 @@ SIBLING_FILES = ["PROGRESS.md", "INBOX.md", "ASK-LEO.md", "DOCTRINE.md", "README
 # without this gate, a malicious page could fetch /api/file?path=…/.env or
 # …/.ssh/config from a browser tab on Leo's machine.
 ALLOWED_PLAN_FILES = frozenset({"PLAN.md", *SIBLING_FILES})
+
+SENSITIVE_REDACTION = "[REDACTED:secret]"
+SENSITIVE_PROVIDER_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    r"sk-(?:ant-)?[A-Za-z0-9_-]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|"
+    r"gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"xox[baprs]-[A-Za-z0-9-]{20,}|"
+    r"lin_api_[A-Za-z0-9]{20,}|"
+    r"AKIA[A-Z0-9]{16}|"
+    r"AIza[A-Za-z0-9_-]{30,}|"
+    r"sk_live_[A-Za-z0-9]{16,}"
+    r")(?![A-Za-z0-9])"
+)
+SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?im)(?:[\"'`])?(?:api[_-]?key|access[_-]?(?:key|token)|auth[_-]?token|"
+    r"client[_-]?secret|private[_-]?key|secret|credential|token)"
+    r"(?:[\"'`])?\s*(?:=|:)\s*"
+    r"(?P<value>\"[^\"\r\n]{12,}\"|'[^'\r\n]{12,}'|`[^`\r\n]{12,}`|[^\s,;]{12,})"
+)
+SENSITIVE_PASSWORD_ASSIGNMENT_RE = re.compile(
+    r"(?im)(?:[\"'`])?(?:password|passwd)(?:[\"'`])?\s*(?:=|:)\s*"
+    r"(?P<value>\"[^\"\r\n]{4,}\"|'[^'\r\n]{4,}'|`[^`\r\n]{4,}`|[^\s,;]{4,})"
+)
+SENSITIVE_BEARER_RE = re.compile(
+    r"(?im)\bauthorization\s*:\s*bearer\s+(?P<value>[^\s,;]{12,})"
+)
+SENSITIVE_JWT_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\."
+    r"[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
+)
+SENSITIVE_PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----.*?"
+    r"-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+    re.S,
+)
+SENSITIVE_ATOM_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?P<value>[A-Za-z0-9_#+.=-]{40,})(?![A-Za-z0-9])"
+)
+SENSITIVE_PLACEHOLDER_MARKERS = (
+    "redacted",
+    "placeholder",
+    "example",
+    "sample",
+    "dummy",
+    "fake",
+    "xxxxx",
+    "changeme",
+    "your_",
+    "your-",
+    "not-a-secret",
+    "test-secret",
+    "test_secret",
+)
+
+
+def _unquoted_secret_value(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'`":
+        return text[1:-1]
+    return text
+
+
+def _is_placeholder_secret(value: str) -> bool:
+    text = _unquoted_secret_value(value).strip().lower()
+    if not text or text.startswith(("${", "{{", "<")):
+        return True
+    if text in {"none", "null", "unset", "todo", "n/a"}:
+        return True
+    return any(marker in text for marker in SENSITIVE_PLACEHOLDER_MARKERS)
+
+
+def _looks_like_high_entropy_secret(value: str) -> bool:
+    text = _unquoted_secret_value(value).strip()
+    if len(text) < 40 or _is_placeholder_secret(text):
+        return False
+    if re.fullmatch(r"[0-9a-fA-F]+", text):
+        return False
+    if not (
+        re.search(r"[A-Z]", text)
+        and re.search(r"[a-z]", text)
+        and re.search(r"\d", text)
+        and re.search(r"[_#/+=]", text)
+    ):
+        return False
+    counts = Counter(text)
+    entropy = -sum((count / len(text)) * math.log2(count / len(text)) for count in counts.values())
+    return len(counts) >= 12 and entropy >= 3.3
+
+
+def sensitive_text_spans(text: str) -> list[tuple[int, int]]:
+    """Return merged high-confidence credential spans without their values."""
+    spans: list[tuple[int, int]] = []
+    for pattern in (SENSITIVE_PRIVATE_KEY_RE, SENSITIVE_PROVIDER_RE, SENSITIVE_JWT_RE):
+        spans.extend((match.start(), match.end()) for match in pattern.finditer(text))
+    for pattern in (
+        SENSITIVE_ASSIGNMENT_RE,
+        SENSITIVE_PASSWORD_ASSIGNMENT_RE,
+        SENSITIVE_BEARER_RE,
+    ):
+        for match in pattern.finditer(text):
+            value = match.group("value")
+            if not _is_placeholder_secret(value):
+                spans.append(match.span("value"))
+    for match in SENSITIVE_ATOM_RE.finditer(text):
+        if _looks_like_high_entropy_secret(match.group("value")):
+            spans.append(match.span("value"))
+
+    merged: list[list[int]] = []
+    for start, end in sorted(spans):
+        if merged and start < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(start, end) for start, end in merged]
+
+
+def redact_sensitive_text(text: str) -> tuple[str, int]:
+    spans = sensitive_text_spans(text)
+    if not spans:
+        return text, 0
+    redacted = text
+    for start, end in reversed(spans):
+        redacted = redacted[:start] + SENSITIVE_REDACTION + redacted[end:]
+    return redacted, len(spans)
+
+
+def has_sensitive_text(text: str) -> bool:
+    return bool(sensitive_text_spans(text))
+
+
+def redact_sensitive_value(value):
+    if isinstance(value, str):
+        return redact_sensitive_text(value)[0]
+    if isinstance(value, (list, tuple)):
+        return [redact_sensitive_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            redact_sensitive_text(key)[0] if isinstance(key, str) else key:
+            redact_sensitive_value(item)
+            for key, item in value.items()
+        }
+    return value
 
 HOT_DAYS = 7
 STALE_DAYS = 30
@@ -658,7 +802,8 @@ def claude_project_slug(repo_path: Path) -> str:
 
 
 def compact_session_text(value: str, limit: int = SESSION_EXCERPT_LIMIT) -> str:
-    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", value or "")
+    safe_value, _ = redact_sensitive_text(value or "")
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", safe_value)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= limit:
         return text
@@ -802,7 +947,8 @@ def discover_repo_sessions(repos: set[str]) -> dict[str, dict]:
 
 
 def compact_ledger_text(value: object, limit: int = 360) -> str:
-    text = re.sub(r"[\x00-\x1f]+", " ", str(value or ""))
+    safe_value, _ = redact_sensitive_text(str(value or ""))
+    text = re.sub(r"[\x00-\x1f]+", " ", safe_value)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= limit:
         return text
@@ -1005,6 +1151,8 @@ def discover_plans() -> list[dict]:
             if path in seen:
                 continue
             if "node_modules" in path.parts:
+                continue
+            if has_sensitive_text(str(path)):
                 continue
             seen.add(path)
             plans.append(plan_meta(path))
@@ -1432,9 +1580,10 @@ def plan_meta(path: Path) -> dict:
         status = "cold"
     siblings = [f for f in SIBLING_FILES if (parent_dir / f).is_file()]
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        raw_text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        text = ""
+        raw_text = ""
+    text, sensitive_redactions = redact_sensitive_text(raw_text)
     purpose = extract_purpose_from_text(text)
     stats = task_stats(text)
     decision_log = parse_decision_log(text)
@@ -1462,6 +1611,8 @@ def plan_meta(path: Path) -> dict:
         "parent_rel": parent_rel,
         "operator_brief": parse_operator_brief(text),
         "outcome_scorecard": parse_outcome_scorecard(text),
+        "content_redacted": sensitive_redactions > 0,
+        "sensitive_redactions": sensitive_redactions,
         "dashboard_tasks": extract_dashboard_tasks(text),
         "dashboard_verdicts": extract_dashboard_verdicts(text),
         "dashboard_inbox_entries": dashboard_inbox_entries,
@@ -1814,6 +1965,7 @@ def read_open_entries(path: Path) -> list[dict]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+    text, _ = redact_sensitive_text(text)
     return extract_open_entries(text)
 
 
@@ -1846,6 +1998,7 @@ def read_ask_leo_entries(path: Path) -> list[dict]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+    text, _ = redact_sensitive_text(text)
     return extract_ask_leo_entries(text)
 
 
@@ -2022,7 +2175,7 @@ def discover_investigations(plan_dir: Path, plan_text: str) -> list[str]:
     inv_dir = plan_dir / "investigations"
     if inv_dir.is_dir():
         for f in inv_dir.glob("*.md"):
-            if f.is_file():
+            if f.is_file() and not has_sensitive_text(f.name):
                 found.add(str(f.resolve()))
     for ref in INVESTIGATION_RE.findall(plan_text):
         rel = ref.strip().strip("`'\"")
@@ -2031,7 +2184,11 @@ def discover_investigations(plan_dir: Path, plan_text: str) -> list[str]:
             candidate.relative_to(plan_dir.resolve())
         except (OSError, ValueError):
             continue
-        if candidate.is_file() and candidate.suffix == ".md":
+        if (
+            candidate.is_file()
+            and candidate.suffix == ".md"
+            and not has_sensitive_text(candidate.name)
+        ):
             found.add(str(candidate))
     return sorted(found)
 
@@ -2061,6 +2218,8 @@ def discover_evidence(plan_dir: Path) -> list[dict]:
     items: list[dict] = []
     for path in evidence_dir.iterdir():
         if not path.is_file() or path.suffix.lower() != ".md":
+            continue
+        if has_sensitive_text(path.name):
             continue
         st = path.stat()
         date_match = EVIDENCE_DATE_RE.match(path.name)
@@ -2184,11 +2343,13 @@ def is_allowed_file_target(raw: str) -> bool:
 
 def read_browser_file(path: Path) -> tuple[int, bytes | str]:
     try:
-        return 200, path.read_bytes()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return 404, f"file missing: {path.name}"
     except OSError as exc:
         return 500, f"file read failed: {exc}"
+    redacted, _ = redact_sensitive_text(text)
+    return 200, redacted.encode("utf-8")
 
 
 def discover_artifacts() -> list[dict]:
@@ -2197,12 +2358,13 @@ def discover_artifacts() -> list[dict]:
         return []
     items: list[dict] = []
     for path in ARTIFACTS_DIR.glob("*.html"):
-        if not path.is_file():
+        if not path.is_file() or has_sensitive_text(str(path)):
             continue
         try:
             head = path.read_text(encoding="utf-8", errors="replace")[:4096]
         except OSError:
             head = ""
+        head, _ = redact_sensitive_text(head)
         m = ARTIFACT_TITLE_RE.search(head)
         if m:
             raw_title = (m.group(1) or m.group(2) or "").strip()
@@ -2227,8 +2389,12 @@ def write_artifact(slug: str, html: str) -> tuple[bool, str]:
     """Write an artifact. Returns (ok, message)."""
     if not ARTIFACT_SLUG_RE.match(slug):
         return False, "slug must match [a-z0-9][a-z0-9-]{0,63}"
+    if has_sensitive_text(slug):
+        return False, "artifact contains sensitive content"
     if len(html.encode("utf-8")) > ARTIFACT_MAX_BYTES:
         return False, f"html exceeds {ARTIFACT_MAX_BYTES} bytes"
+    if has_sensitive_text(html):
+        return False, "artifact contains sensitive content"
     try:
         ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
         path = ARTIFACTS_DIR / f"{slug}.html"
@@ -2379,6 +2545,14 @@ def append_comment(
         return False, "comment must be non-empty"
     if len(text.encode("utf-8")) > COMMENT_BODY_MAX_BYTES:
         return False, f"comment exceeds {COMMENT_BODY_MAX_BYTES} bytes"
+    if (
+        has_sensitive_text(str(target_path))
+        or has_sensitive_text(text)
+        or has_sensitive_text(str(author or ""))
+    ):
+        return False, "comment contains sensitive content"
+    if anchor is not None and has_sensitive_text(json.dumps(anchor, default=str)):
+        return False, "comment contains sensitive content"
 
     record = {
         "id": str(uuid.uuid4()),
@@ -2414,7 +2588,7 @@ def read_comments(target_path: Path, limit: int = 100) -> list[dict]:
             except json.JSONDecodeError:
                 continue
             if item.get("target_path") == target:
-                comments.append(item)
+                comments.append(redact_sensitive_value(item))
     except OSError:
         return []
     return comments[-limit:]
@@ -2439,6 +2613,8 @@ def write_plan_note(
         return False, "note must be non-empty"
     if len(body.encode("utf-8")) > PLAN_NOTE_MAX_BYTES:
         return False, f"note exceeds {PLAN_NOTE_MAX_BYTES} bytes"
+    if has_sensitive_text(body) or has_sensitive_text(f"{source}\n{agent}"):
+        return False, "note contains sensitive content"
 
     source = clean_note_label(source, "vidux-browse-local")
     agent = clean_note_label(agent, "") if agent else ""
@@ -2480,7 +2656,13 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "viduxBrowser/0.1"
 
     def log_message(self, fmt, *args):  # noqa: N802 — stdlib override
-        sys.stderr.write(f"[{self.log_date_time_string()}] {fmt % args}\n")
+        # Decode percent-escaped request targets before scanning; otherwise a
+        # preceding `%2F` can make its trailing `F` defeat token boundaries.
+        message, _ = redact_sensitive_text(unquote(fmt % args))
+        # Keep each request on one physical log line after decoding so encoded
+        # control characters cannot forge a second entry.
+        message = re.sub(r"[\x00-\x1f\x7f]+", " ", message).strip()
+        sys.stderr.write(f"[{self.log_date_time_string()}] {message}\n")
 
     def do_GET(self):  # noqa: N802 — stdlib override
         if not self._host_header_ok():
@@ -2871,7 +3053,7 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _json(self, payload):
-        body = json.dumps(payload, indent=2).encode("utf-8")
+        body = json.dumps(redact_sensitive_value(payload), indent=2).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2888,7 +3070,8 @@ class Handler(BaseHTTPRequestHandler):
         self._write_body(body)
 
     def _send_text(self, text: str):
-        body = text.encode("utf-8")
+        safe_text, _ = redact_sensitive_text(text)
+        body = safe_text.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/markdown; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2897,7 +3080,8 @@ class Handler(BaseHTTPRequestHandler):
         self._write_body(body)
 
     def _send(self, code: int, msg: str):
-        body = msg.encode("utf-8")
+        safe_message, _ = redact_sensitive_text(msg)
+        body = safe_message.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

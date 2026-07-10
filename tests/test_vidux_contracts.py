@@ -2669,6 +2669,25 @@ class ViduxContractTests(unittest.TestCase):
 
         self.assertIn("[--outcome <useful|busy|blocked_clarified>]", checkpoint)
 
+    def test_browser_docs_pin_sensitive_content_boundary_and_limits(self):
+        browser = _read(ROOT / "docs" / "reference" / "browser.md")
+        readme = _read(ROOT / "README.md")
+        skill = _read(SKILL)
+
+        for phrase in [
+            "content_redacted=true",
+            "sensitive_redactions=<count>",
+            "standalone mixed-character values of at least 40 characters",
+            "Hex digests and explicit example/redacted/unset placeholders remain visible",
+            "The detector does not inspect text embedded in receipt-image pixels",
+        ]:
+            self.assertIn(phrase, browser)
+
+        self.assertIn("affected plans stay visibly marked", readme)
+        self.assertIn("receipt-image pixels are not inspected", skill)
+        self.assertIn("sandboxed iframe", skill)
+        self.assertNotIn("no XSS surface", skill)
+
     def test_loop_checkpoint_wording_requires_publish_propagation(self):
         """The loop guide must not describe raw git commit as the checkpoint."""
         loop = _read(ROOT / "LOOP.md")

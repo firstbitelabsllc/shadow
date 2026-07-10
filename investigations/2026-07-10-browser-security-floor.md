@@ -40,3 +40,41 @@ The LAN opt-in was implemented as a complete bypass in `is_allowed_request_host(
 - The red request is captured before implementation and turns green against the same route after implementation.
 - No write-route relaxation, file-allowlist broadening, runner endpoint, or Resplit edit enters the slice.
 - Row 6.0.2 stays active until the remaining security surfaces above receive their own adversarial proof.
+
+## Follow-up: Sensitive Content Boundary
+
+### Reporter Says
+
+Allowed plan/proof paths can still contain credentials even when the path allowlist, Host gate, and origin checks are correct. The browser must not turn local plan state, session excerpts, ledger rows, comments, artifacts, or receipt metadata into a convenient secret-reading surface.
+
+### Red Evidence
+
+- The pre-implementation focused run executed 47 tests and produced 6 failures plus 2 errors on the intended leak paths.
+- Raw `/api/file` content and `/api/plans` metadata returned a synthetic provider-shaped value unchanged.
+- Claude session excerpts, ledger excerpts, legacy comments, artifact titles, and generic JSON metadata had no common scrubber.
+- Artifact, comment, and local plan-note writes accepted the same synthetic value.
+
+All fixtures construct synthetic values at runtime so no token-shaped test value is committed or sent to sidecars.
+
+### Root Cause
+
+The browser correctly restricted which files and routes were reachable, but it treated the contents of an allowed file as implicitly display-safe. Individual extractors and write endpoints therefore had no shared sensitive-value policy, and HTTP error/log backstops were absent.
+
+### Fix
+
+- Add one stdlib-only high-confidence detector for provider prefixes, bearer credentials, JWTs, private-key blocks, explicit secret/key/token/password assignments, and long mixed high-entropy atoms.
+- Preserve hex digests and explicit example/redacted/unset placeholders to avoid turning ordinary proof hashes into false alarms.
+- Redact before plan parsing and across raw file reads, sessions, ledgers, comments, artifact titles, receipt JSON metadata, plain-text errors, and request logs.
+- Mark affected plan payloads with `content_redacted` and `sensitive_redactions`; render a visible warning and navigator marker in the cockpit.
+- Omit plans or artifacts with secret-shaped path segments from discovery.
+- Reject detector matches on artifact, comment, and local plan-note writes rather than persisting a redacted mutation.
+
+### Remaining Boundary
+
+- Detection is defense in depth, not a credential vault; exposed credentials still require rotation.
+- Receipt-image pixels and other binary media are not inspected.
+- Artifact network isolation, symlink/hard-link mutation behavior, future runner authorization, and the rest of row 6.0.2 remain open.
+
+### Proof
+
+See `evidence/2026-07-10-browser-sensitive-content-boundary.md` for the exact command, responsive screenshot, sidecar, mount, and benchmark-honesty receipts.

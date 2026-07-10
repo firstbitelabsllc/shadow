@@ -956,6 +956,17 @@ function renderPlanBrief(plan, stats, aggregate) {
     </section>`;
 }
 
+function renderSensitiveContentNotice(plan) {
+  if (!plan?.content_redacted) return "";
+  const count = Math.max(1, Number(plan.sensitive_redactions) || 1);
+  const noun = count === 1 ? "value" : "values";
+  return `
+    <section class="sensitive-content-notice" role="status" data-sensitive-redactions="${count}">
+      <strong>Sensitive values hidden</strong>
+      <span>${count} high-confidence ${noun} replaced before display.</span>
+    </section>`;
+}
+
 // Render an at-a-glance list of immediate children with their own mini bars.
 // Each row has an "open" button that re-uses selectPlan() — same code path
 // the sidebar takes — so the URL deep-link behavior stays consistent.
@@ -1304,13 +1315,18 @@ function renderSidebar() {
               ${renderProgressLabel(agg, 0)}
             </div>` : ""}
           </div>`;
-    const ariaSummary = `${plan.status} plan: ${slug}${plan.purpose ? `, ${plan.purpose.slice(0, 80)}` : ""}, ${fmtAge(plan.age_days)}${hasChildren ? `, ${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}` : ""}`;
+    const sensitiveCount = Math.max(1, Number(plan.sensitive_redactions) || 1);
+    const sensitiveSummary = plan.content_redacted
+      ? `, ${sensitiveCount} sensitive value${sensitiveCount === 1 ? "" : "s"} hidden`
+      : "";
+    const ariaSummary = `${plan.status} plan: ${slug}${plan.purpose ? `, ${plan.purpose.slice(0, 80)}` : ""}, ${fmtAge(plan.age_days)}${hasChildren ? `, ${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}` : ""}${sensitiveSummary}`;
     const rowHTML = `
       <a class="plan-row ${active} ${isCurrentWork ? "is-current-work" : ""} ${childModifier}" href="?plan=${escapeAttr(encodeURIComponent(plan.rel))}" data-kind="plan" data-path="${escapeAttr(plan.path)}" ${indentStyle} ${active ? 'aria-current="page"' : ""} aria-label="${escapeAttr(ariaSummary)}" title="${escapeAttr(slug)}">
         <div class="plan-row-head">
           <span class="pill pill-${plan.status}" title="${plan.status} · ${fmtAge(plan.age_days)}"></span>
           <span class="plan-row-name">${escapeText(slug)}</span>
           <span class="plan-row-state status-${escapeAttr(rowState.status)}">${escapeText(rowState.label)}</span>
+          ${plan.content_redacted ? `<span class="plan-row-sensitive" title="Sensitive values hidden" aria-hidden="true">hidden</span>` : ""}
           ${isCurrentWork ? `<span class="plan-row-current">current</span>` : ""}
           ${hasChildren ? `<span class="child-count" title="${plan.children.length} sub-plan${plan.children.length === 1 ? "" : "s"}">⌐${plan.children.length}</span>` : ""}
         </div>
@@ -1828,6 +1844,7 @@ async function renderPane(opts = {}) {
         <span class="muted">${escapeText(isAdvancedMode() ? plan.path : plan.rel)}</span>
       </div>
     </div>
+    ${renderSensitiveContentNotice(plan)}
     ${renderPlanBrief(plan, stats, aggregate)}
     ${renderPaneProgress(stats)}
     ${renderPaneAggregateProgress(plan, aggregate)}
