@@ -51,3 +51,75 @@ test.describe('receipts corpus filter accessibility', () => {
     await expect(page.locator('#chip-all')).toHaveAttribute('aria-pressed', 'false');
   });
 });
+
+test.describe('receipt image access boundary', () => {
+  const publicRow = {
+    id: 'lan-public-row',
+    name: 'Public lunch receipt',
+    private: false,
+    image_path: 'images/lan-public-row.png',
+    annotations: { tags: ['lunch'] },
+    expected: null,
+  };
+
+  test('LAN state is visible and never requests host-only pixels', async ({ page }) => {
+    let imageRequests = 0;
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.route('**/api/receipts/list', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        count: 1,
+        rows: [publicRow],
+        image_access: { available: false, policy: 'loopback_only' },
+      }),
+    }));
+    await page.route('**/api/receipts/lan-public-row/image', route => {
+      imageRequests += 1;
+      return route.fulfill({ status: 500, body: 'must not be requested' });
+    });
+
+    await page.goto('/static/receipts.html');
+
+    await expect(page.locator('#image-access-banner')).toBeVisible();
+    await expect(page.locator('#image-access-banner')).toContainText('Receipt photos stay on the host');
+    await expect(page.locator('.pixel-guard')).toHaveText('Photo available on the host only');
+    await expect(page.locator('img.thumb')).toHaveCount(0);
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+    expect(imageRequests).toBe(0);
+  });
+
+  test('loopback state keeps stored photos available', async ({ page }) => {
+    let imageRequests = 0;
+    await page.route('**/api/receipts/list', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        count: 1,
+        rows: [publicRow],
+        image_access: { available: true, policy: 'loopback_only' },
+      }),
+    }));
+    await page.route('**/api/receipts/lan-public-row/image', route => {
+      imageRequests += 1;
+      const pixel = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      );
+      return route.fulfill({ status: 200, contentType: 'image/png', body: pixel });
+    });
+
+    await page.goto('/static/receipts.html');
+
+    await expect(page.locator('#image-access-banner')).toBeHidden();
+    await expect(page.locator('img.thumb')).toHaveAttribute('src', '/api/receipts/lan-public-row/image');
+    await expect.poll(() => imageRequests).toBe(1);
+    await expect(page.locator('.pixel-guard')).toHaveCount(0);
+  });
+});

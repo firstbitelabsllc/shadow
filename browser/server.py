@@ -2600,6 +2600,14 @@ def is_loopback_host(host: str) -> bool:
     return host in LOOPBACK_HOSTS
 
 
+def receipt_image_access_payload(client_host: str) -> dict[str, object]:
+    """Describe the raw receipt-image boundary without exposing peer details."""
+    return {
+        "available": is_loopback_host(client_host),
+        "policy": "loopback_only",
+    }
+
+
 def request_host_hostname(host: str) -> str:
     """Hostname portion of a Host header, tolerating IPv6 literals like [::1]:7191."""
     netloc = (host or "").strip().lower()
@@ -2953,8 +2961,14 @@ class Handler(BaseHTTPRequestHandler):
             status, body = _receipts_handler.handle_list(
                 include_private=is_loopback_host(self.client_address[0])
             )
-            self._send(status, "") if status >= 400 else self._json(body)
+            if status >= 400:
+                self._send(status, "")
+                return
+            body["image_access"] = receipt_image_access_payload(self.client_address[0])
+            self._json(body)
         elif route.startswith("/api/receipts/") and route.endswith("/image"):
+            if not self._require_receipt_image_read():
+                return
             row_id = route[len("/api/receipts/"):-len("/image")]
             status, ctype, data = _receipts_handler.handle_image(row_id)
             if status == 200:
@@ -3161,6 +3175,12 @@ class Handler(BaseHTTPRequestHandler):
             return True
         self._send(403, "Host header not recognized")
         return False
+
+    def _require_receipt_image_read(self) -> bool:
+        if not is_loopback_host(self.client_address[0]):
+            self._send(403, "receipt image pixels require loopback client")
+            return False
+        return True
 
     def _require_json_write(self) -> bool:
         if not is_loopback_host(self.client_address[0]):
