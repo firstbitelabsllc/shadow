@@ -896,7 +896,7 @@ Vidux delegates; it never duplicates. Universal companion skills may be availabl
 - `captain` — meta/skill maintenance (audit, symlink discipline). Older `skill-manager` prompts route here.
 - `maily` — email cross-referencing.
 - `ledger` — cross-tool coordination (critical for coordinated mode).
-- `nia` — external doc/package source lookup (check before WebFetch).
+- `nia` — external doc/package source lookup (check before a web-fetch tool call, e.g. `WebFetch` in Claude Code).
 - `amp` — prompt amplification for vague tasks (GATHER → steer → fire).
 
 Local skills need no manual "on" switch if the `~/.claude/skills` or repo-local symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
