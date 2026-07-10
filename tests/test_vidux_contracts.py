@@ -1217,6 +1217,37 @@ class ViduxContractTests(unittest.TestCase):
         self.assertNotIn("commands", data, "commands/ is auto-scanned; an explicit key here fails schema validation")
         self.assertNotIn("hooks", data, "hooks/ is auto-scanned; an explicit key here fails schema validation")
 
+    def test_root_skill_and_vidux_command_have_distinct_frontmatter_names(self):
+        """Round-10 panel finding, empirically resolved: root SKILL.md and
+        commands/vidux.md both declared `name: vidux` in frontmatter, and a
+        black-box test against a clean scratch plugin (claude CLI 2.1.206,
+        `Skill(skill: "vidux")` calls) showed commands/vidux.md's body wins
+        the collision -- so a plugin-path install's Skill-tool invocation
+        silently got the thin orchestrator instead of the full SKILL.md
+        doctrine. Fixed by renaming commands/vidux.md's frontmatter name to
+        `vidux-orchestrate`; the `/vidux` slash-command trigger is unaffected
+        since that comes from the filename, not this field."""
+
+        def _frontmatter_name(path: Path) -> str:
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("---\n"), f"{path} must start with YAML frontmatter")
+            end = text.index("\n---\n", 4)
+            frontmatter = text[4:end]
+            match = re.search(r"^name:\s*(\S+)\s*$", frontmatter, re.MULTILINE)
+            self.assertIsNotNone(match, f"{path} frontmatter has no `name:` field")
+            return match.group(1)
+
+        skill_name = _frontmatter_name(ROOT / "SKILL.md")
+        command_name = _frontmatter_name(ROOT / "commands" / "vidux.md")
+        self.assertNotEqual(
+            skill_name,
+            command_name,
+            "SKILL.md and commands/vidux.md declare the same frontmatter "
+            "name again -- this is the exact round-10 plugin-path Skill-tool "
+            "collision (commands/vidux.md silently wins over the full "
+            "SKILL.md doctrine)",
+        )
+
     def test_command_frontmatter_is_valid_yaml(self):
         """Round-9 panel finding: commands/vidux.md's description had an
         unquoted colon-space, which breaks plain YAML scalar parsing --
