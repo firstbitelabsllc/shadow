@@ -138,3 +138,35 @@ This closes local filesystem-alias mutation behavior, not the full 6.0.2 parent.
 ### Proof
 
 See `evidence/2026-07-10-browser-filesystem-alias-boundary.md` for the exact red/green commands, sentinel matrix, sidecar status, mount proof, and final repository gates.
+
+## Follow-up: Receipt Image Pixel Boundary
+
+### Reporter Says
+
+The sensitive-content policy explicitly does not inspect text embedded in binary receipt pixels. A public receipt row therefore exposed its raw stored image to any trusted-LAN viewer even though that peer only needed cockpit metadata.
+
+### Red Evidence
+
+- A temporary public receipt image returned `200` and 2,048 bytes through both loopback and the Mac's private LAN address while the server was bound to `0.0.0.0`.
+- The LAN receipt list returned `200` and exposed the row's image path.
+- The fixture was synthetic and temporary; no production receipt or credential was used.
+
+### Root Cause
+
+Private-row filtering applied to receipt-list metadata, while the raw image route relied only on the general Host allowlist. DNS-rebinding defense and a non-private corpus classification did not establish that LAN peers should receive image pixels.
+
+### Fix
+
+- Require the actual TCP peer to be loopback for receipt-image `GET` and `HEAD`, before consulting receipt storage.
+- Add a path-free `image_access` policy object to receipt-list responses.
+- Default the UI closed, show LAN peers an explicit host-only banner and placeholder, and never request unavailable image bytes.
+- Preserve loopback image rendering and add HTTP, storage-bypass, cross-browser, responsive, and documentation contracts.
+- Fix the 320px header/upload overflow found while reviewing the new LAN state in dark mode.
+
+### Remaining Boundary
+
+This closes the known binary receipt-pixel exposure. The parent 6.0.2 row remains active only for an explicit authorization model if an action runner endpoint is introduced; no such endpoint exists today. Benchmark v2 still has zero verified net-win scenario classes and remains blocked on an independent external fixture release.
+
+### Proof
+
+See `evidence/2026-07-10-browser-receipt-pixel-boundary.md` for live red/green traffic, regression counts, visual receipts, sidecar adjudication, and benchmark honesty.

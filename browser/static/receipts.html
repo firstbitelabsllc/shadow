@@ -87,6 +87,12 @@
     width: 100%; max-height: 200px; object-fit: contain; background: var(--paper);
     border: 1px solid var(--rule); border-radius: 3px;
   }
+  .pixel-guard {
+    box-sizing: border-box; display: grid; place-items: center; width: 100%;
+    min-height: 120px; aspect-ratio: 3 / 2; max-height: 200px; padding: 20px;
+    border: 1px dashed var(--rule); border-radius: 3px; background: var(--paper);
+    color: var(--ink-2); font-family: var(--mono); font-size: 12px; text-align: center;
+  }
   .card .id { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
   .card .name { font-family: var(--serif); font-size: 16px; }
   .card .tags { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -132,6 +138,17 @@
   .status.ok { color: var(--task-completed); }
   .private { color: var(--hot); font-family: var(--mono); font-size: 11px; }
   .muted { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+  @media (max-width: 600px) {
+    main { width: 100%; min-width: 0; }
+    .topbar { height: auto; min-height: 60px; flex-wrap: wrap; align-items: flex-start; }
+    .topbar h1 { flex: 1 1 100%; white-space: normal; }
+    .topbar > span:not(.lm-badge) { flex: 1 1 180px; min-width: 0; }
+    .lm-badge { flex: 0 1 auto; max-width: 100%; }
+    #lm-text { overflow-wrap: anywhere; }
+    input[type="text"], input[type="file"], textarea { min-width: 0; max-width: 100%; }
+    .row label { width: 100%; }
+    .grid { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 </head>
 <body>
@@ -148,6 +165,9 @@
 
 <main>
   <div id="lm-banner" class="banner hidden"></div>
+  <div id="image-access-banner" class="banner hidden" role="status">
+    Receipt photos stay on the host. Text metadata remains available in this LAN view.
+  </div>
 
   <h2>Add receipts</h2>
   <div id="dropzone">drag &amp; drop receipt photos here (multiple OK), paste an image (⌘V), or pick files below</div>
@@ -214,6 +234,7 @@ let CACHE = [];          // last-loaded rows
 let FILTER = "all";      // all | stub | ocrd | grounded
 let BUSY = new Set();    // row ids currently being analyzed (UI lock)
 let cancelBatch = false; // cooperative cancel flag for batch ops
+let IMAGE_ACCESS = { available: false, policy: "loopback_only" };
 
 // ---------------------------------------------------------------- helpers
 function splitCsv(s) { return s.split(",").map(t => t.trim()).filter(Boolean); }
@@ -286,6 +307,12 @@ function refreshList() {
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
     .then(data => {
       CACHE = data.rows || [];
+      const access = data.image_access || {};
+      IMAGE_ACCESS = {
+        available: access.available === true,
+        policy: access.policy || "loopback_only",
+      };
+      $("image-access-banner").classList.toggle("hidden", IMAGE_ACCESS.available);
       renderGrid();
       updateFilterCounts();
       setListStatus(`loaded ${data.count}`, true);
@@ -352,11 +379,13 @@ function renderGrid() {
     const card = document.createElement("div");
     card.className = "card" + (BUSY.has(row.id) ? " busy" : "");
     card.dataset.id = row.id;
-    const showImage = !row.private && row.image_path;
+    const hasImage = !row.private && row.image_path;
+    const showImage = hasImage && IMAGE_ACCESS.available;
     const canGround = !!groundSource(row);
     card.innerHTML = `
       <div class="id">${row.id}${row.private ? ' <span class="private">PRIVATE</span>' : ''}</div>
       ${showImage ? `<img class="thumb" loading="lazy" src="/api/receipts/${row.id}/image" alt="receipt ${row.id}">` : ''}
+      ${hasImage && !showImage ? '<div class="pixel-guard" role="img" aria-label="Receipt photo available on the host only">Photo available on the host only</div>' : ''}
       <div class="name">${escapeHtml(row.name || "(unnamed)")}</div>
       <div class="cap ${cap.cls}">${cap.text}</div>
       ${pillsHtml(row)}

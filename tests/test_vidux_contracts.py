@@ -2679,12 +2679,14 @@ class ViduxContractTests(unittest.TestCase):
             "sensitive_redactions=<count>",
             "standalone mixed-character values of at least 40 characters",
             "Hex digests and explicit example/redacted/unset placeholders remain visible",
-            "The detector does not inspect text embedded in receipt-image pixels",
+            "Receipt image bytes are loopback-only reads",
+            "The detector still does not inspect text embedded in receipt-image pixels",
         ]:
             self.assertIn(phrase, browser)
 
         self.assertIn("affected plans stay visibly marked", readme)
-        self.assertIn("receipt-image pixels are not inspected", skill)
+        self.assertIn("Receipt photo bytes stay loopback-only", readme)
+        self.assertIn("receipt-image bytes remain loopback-only", skill)
         self.assertIn("sandboxed iframe", skill)
         self.assertNotIn("no XSS surface", skill)
 

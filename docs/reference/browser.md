@@ -53,8 +53,8 @@ The stdlib-only server exposes these routes:
 - `GET /api/artifacts` returns the HTML artifact shelf under `browser/artifacts/`.
 - `GET /api/file?path=...` returns an allowed markdown file or HTML artifact.
 - `GET /api/comments?path=...` returns named comments attached to an allowed markdown file or HTML artifact.
-- `GET /api/receipts/list` returns the local receipt corpus rows.
-- `GET /api/receipts/<id>/image` returns a stored receipt image when the row is not private.
+- `GET /api/receipts/list` returns the local receipt corpus rows plus an `image_access` object that makes the caller's loopback-only photo access state explicit.
+- `GET /api/receipts/<id>/image` returns a stored non-private receipt image only to a loopback TCP client; LAN peers receive `403` before corpus or image storage is consulted.
 - `POST /api/artifact` writes a bounded HTML artifact (`slug` + `html` JSON payload).
 - `POST /api/comments` appends a bounded named or anchored comment to the separate comments store.
 - `POST /api/local-plan-note` appends a bounded local note to a plan directory's `INBOX.md`.
@@ -81,6 +81,7 @@ The server is narrow:
 - Artifact writes and local plan-note writes are loopback-only, require `Content-Type: application/json`, and reject cross-origin posts.
 - Artifact, comment, and local plan-note writes reject detector matches instead of persisting a redacted value. Existing comments are redacted on read. Secret-shaped artifact slugs are rejected.
 - Receipt writes and receipt OCR/analyze mutations are loopback-only JSON writes with explicit size caps.
+- Receipt image bytes are loopback-only reads. LAN viewers keep non-private text metadata, receive `image_access.available=false`, and the receipt UI shows a host-only placeholder without requesting the image route.
 - Filesystem mutations fail closed unless the destination is absent or a regular file with exactly one link. Final-component symlinks, hard links, non-regular files, symlinked store directories, and aliased receipt lock/corpus files are rejected before any payload bytes are written. Rewrites use a temporary file plus atomic replacement inside an already-opened parent directory, so a target swap cannot redirect bytes into the alias referent.
 - Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header, on top of the Host-allowlist check above.
 - Markdown rendered client-side (`marked.js` output) is sanitized through a locally vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM. This closes stored XSS through a crafted plan or comment body. Artifact HTML uses the separate boundary below.
@@ -92,7 +93,7 @@ The server is narrow:
 - When a latest signpost run is available, the band renders the runtime chain (e.g. `codex > claude > cursor > codex`); the title marks whether the expected lifecycle is complete.
 - The `Ledger` tab is read-only: it scans the activity JSONL tail, ignores noisy non-publish rows, matches plan rows by `plan_path`/`files`/`files_claimed`, and never appends, edits, or deletes ledger data.
 
-Secret detection is defense in depth, not a credential vault. Keep credentials out of plans, sessions, ledgers, comments, artifacts, and receipt annotations; rotate any credential that was exposed before the browser hid it. The detector does not inspect text embedded in receipt-image pixels or other binary media. A non-private receipt image can still reveal whatever is visibly printed in that image.
+Secret detection is defense in depth, not a credential vault. Keep credentials out of plans, sessions, ledgers, comments, artifacts, and receipt annotations; rotate any credential that was exposed before the browser hid it. The detector still does not inspect text embedded in receipt-image pixels or other binary media, so receipt photo bytes remain loopback-only even for non-private rows.
 
 ## Artifact styling
 

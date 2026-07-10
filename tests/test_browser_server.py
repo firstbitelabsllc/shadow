@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.parse import quote
 
 
@@ -405,6 +406,88 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
             browser_server.HOST = original_host
 
         self.assertEqual(status, 200, text)
+
+    def test_receipt_list_reports_loopback_image_access(self):
+        with mock.patch.object(
+            browser_server._receipts_handler,
+            "handle_list",
+            return_value=(200, {"ok": True, "count": 0, "rows": []}),
+        ) as handle_list:
+            status, text = self.get("/api/receipts/list")
+
+        self.assertEqual(status, 200, text)
+        self.assertEqual(
+            json.loads(text)["image_access"],
+            {"available": True, "policy": "loopback_only"},
+        )
+        handle_list.assert_called_once_with(include_private=True)
+
+    def test_receipt_list_reports_lan_image_boundary(self):
+        sent = []
+        payloads = []
+        handler = object.__new__(browser_server.Handler)
+        handler.path = "/api/receipts/list"
+        handler.client_address = ("192.168.1.50", 49152)
+        handler.headers = {"Host": "192.168.1.50:7191"}
+        handler._send = lambda code, msg: sent.append((code, msg))
+        handler._json = lambda payload: payloads.append(payload)
+
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            with mock.patch.object(
+                browser_server._receipts_handler,
+                "handle_list",
+                return_value=(200, {"ok": True, "count": 0, "rows": []}),
+            ) as handle_list:
+                browser_server.Handler.do_GET(handler)
+        finally:
+            browser_server.HOST = original_host
+
+        self.assertEqual(sent, [])
+        self.assertEqual(
+            payloads[0]["image_access"],
+            {"available": False, "policy": "loopback_only"},
+        )
+        handle_list.assert_called_once_with(include_private=False)
+
+    def test_receipt_image_get_and_head_reject_lan_before_storage(self):
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            for method in (browser_server.Handler.do_GET, browser_server.Handler.do_HEAD):
+                with self.subTest(method=method.__name__):
+                    sent = []
+                    handler = object.__new__(browser_server.Handler)
+                    handler.path = "/api/receipts/public-row/image"
+                    handler.client_address = ("192.168.1.50", 49152)
+                    handler.headers = {"Host": "192.168.1.50:7191"}
+                    handler._send = lambda code, msg: sent.append((code, msg))
+
+                    with mock.patch.object(
+                        browser_server._receipts_handler, "handle_image"
+                    ) as handle_image:
+                        method(handler)
+
+                    self.assertEqual(
+                        sent,
+                        [(403, "receipt image pixels require loopback client")],
+                    )
+                    handle_image.assert_not_called()
+        finally:
+            browser_server.HOST = original_host
+
+    def test_receipt_image_get_still_serves_loopback_client(self):
+        with mock.patch.object(
+            browser_server._receipts_handler,
+            "handle_image",
+            return_value=(200, "image/png", b"safe-loopback-pixels"),
+        ) as handle_image:
+            status, text = self.get("/api/receipts/public-row/image")
+
+        self.assertEqual(status, 200, text)
+        self.assertEqual(text, "safe-loopback-pixels")
+        handle_image.assert_called_once_with("public-row")
 
     def test_artifact_post_accepts_same_origin_json(self):
         status, text = self.post(
