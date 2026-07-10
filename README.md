@@ -84,12 +84,13 @@ Run `/vidux "your project description"`. The first cycle gathers evidence and wr
 This repo also ships a `.claude-plugin/plugin.json` manifest, so `claude
 --plugin-dir <vidux-dir>` (or a marketplace install, once published) works as
 an alternative to the manual symlink in the section above — pick one path,
-not both. Both the root `SKILL.md` (auto-loaded by the plugin's directory
-convention) and `commands/vidux.md` (also auto-scanned, as a slash command)
-declare `name: vidux` with different content; which one a plugin-path install
-prefers when both are present has not been resolved empirically. If you use
-the plugin path and hit ambiguity between the two, prefer the manual-symlink
-path above, which unambiguously loads the root `SKILL.md`.
+not both. The root `SKILL.md` (auto-loaded by the plugin's directory
+convention) and `commands/vidux.md` (also auto-scanned, as the `/vidux` slash
+command) used to both declare `name: vidux`; `commands/vidux.md`'s frontmatter
+name is now `vidux-orchestrate` to remove that collision outright — `/vidux`
+still works as the slash command (that trigger comes from the filename, not
+the frontmatter name), and a bare `Skill(skill: "vidux")` call now
+unambiguously resolves to the root `SKILL.md`.
 
 ## Multi-platform notes
 
