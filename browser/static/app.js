@@ -28,11 +28,13 @@ const state = {
     targetPath: "",
     items: [],
   },
+  commentHighlight: null,
   commentMarkersHidden: commentMarkers.getStoredHidden(),
 };
 let activePopoverTarget = null;
 let opsTruthRetryTimer = null;
 let commentMarkerRenderFrame = 0;
+let commentHighlightTimer = 0;
 
 const DECISION_LOG_TAB = "Decision Log";
 const SESSION_TAB = "Sessions";
@@ -45,6 +47,7 @@ const AUTO_REFRESH_INTERVAL_MS = (() => {
     : DEFAULT_AUTO_REFRESH_INTERVAL_MS;
 })();
 let autoRefreshInFlight = false;
+let activeViewRevision = 0;
 
 function currentParams() {
   return new URLSearchParams(window.location.search);
@@ -297,7 +300,9 @@ function toggleAdvancedMode() {
   // Re-render whatever's on screen so the newly shown/hidden panels take
   // effect immediately instead of waiting for the next navigation.
   if (state.active && state.active.kind === "dashboard") selectDashboard({ skipUrl: true, preserveScroll: true });
-  else if (state.active && state.active.kind === "plan") renderPane({ preserveScroll: true, preserveAnnotation: true });
+  else if (state.active && state.active.kind === "plan") {
+    renderPane({ preserveScroll: true, preserveAnnotation: true, viewRevision: startViewRevision() });
+  }
 }
 applyAdvancedModeUI();
 
@@ -1414,6 +1419,17 @@ function currentSelectionSnapshot() {
   return null;
 }
 
+function startViewRevision() {
+  activeViewRevision += 1;
+  return activeViewRevision;
+}
+
+function isCurrentViewRevision(revision, kind, path = "") {
+  return revision === activeViewRevision
+    && state.active?.kind === kind
+    && (!path || state.active.path === path);
+}
+
 function currentFocusSnapshot() {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
@@ -1462,6 +1478,7 @@ async function restoreSelection(snapshot, opts = {}) {
       skipUrl: true,
       preserveScroll: opts.preserveScroll,
       preserveAnnotation: opts.preserveAnnotation,
+      viewRevision: opts.viewRevision,
     });
     return true;
   }
@@ -1474,6 +1491,7 @@ async function restoreSelection(snapshot, opts = {}) {
       tab: snapshot.tab || "PLAN.md",
       preserveScroll: opts.preserveScroll,
       preserveAnnotation: opts.preserveAnnotation,
+      viewRevision: opts.viewRevision,
     });
     return true;
   }
@@ -1485,6 +1503,7 @@ async function restoreSelection(snapshot, opts = {}) {
       skipRecent: true,
       preserveScroll: opts.preserveScroll,
       preserveAnnotation: opts.preserveAnnotation,
+      viewRevision: opts.viewRevision,
     });
     return true;
   }
@@ -1523,6 +1542,7 @@ async function refreshVisibleComments() {
 async function loadAll(opts = {}) {
   const preserveSelection = Boolean(opts.preserveSelection);
   const snapshot = preserveSelection ? currentSelectionSnapshot() : null;
+  const viewRevision = activeViewRevision;
   const focusSnapshot = opts.preserveFocus ? currentFocusSnapshot() : null;
   const busy = annotationIsBusy();
   if (!opts.quiet) els.count.textContent = "loading…";
@@ -1540,7 +1560,7 @@ async function loadAll(opts = {}) {
     state.devRoot = plansData.dev_root || "";
     state.artifacts = artifactsData.artifacts || [];
     renderSidebar();
-    if (preserveSelection && snapshot) {
+    if (preserveSelection && snapshot && viewRevision === activeViewRevision) {
       if (busy) {
         refreshActiveMetadata(snapshot);
         renderSidebar();
@@ -1548,6 +1568,7 @@ async function loadAll(opts = {}) {
         const restored = await restoreSelection(snapshot, {
           preserveScroll: opts.preserveScroll,
           preserveAnnotation: false,
+          viewRevision,
         });
         if (!restored) {
           state.active = null;
@@ -1560,16 +1581,17 @@ async function loadAll(opts = {}) {
             </div>`;
         }
       }
-    } else {
+    } else if (!preserveSelection || !snapshot) {
       if (!applyUrlSelection()) {
         if (isAdvancedMode()) selectDashboard({ skipUrl: true });
         else renderEmptyPane();
       }
     }
     refreshOpsTruth();
-    restoreFocusSnapshot(focusSnapshot);
+    if (viewRevision === activeViewRevision) restoreFocusSnapshot(focusSnapshot);
     return true;
   } catch (e) {
+    if (viewRevision !== activeViewRevision) return false;
     els.count.textContent = "error";
     if (els.mobileCount) els.mobileCount.textContent = "error";
     els.list.innerHTML = `<div class="error">failed to load: ${escapeText(String(e))}</div>`;
@@ -1579,6 +1601,7 @@ async function loadAll(opts = {}) {
 }
 
 function selectDashboard(opts = {}) {
+  if (opts.viewRevision === undefined) startViewRevision();
   state.active = { kind: "dashboard" };
   state.activeTab = null;
   if (!opts.skipUrl) pushUrl(new URLSearchParams());
@@ -1590,6 +1613,7 @@ function selectDashboard(opts = {}) {
 }
 
 async function selectPlan(plan, opts = {}) {
+  const viewRevision = opts.viewRevision ?? startViewRevision();
   state.active = { kind: "plan", ...plan };
   state.activeTab = opts.tab || "PLAN.md";
   if (!opts.skipRecent) trackRecent("plan", plan.rel);
@@ -1601,11 +1625,14 @@ async function selectPlan(plan, opts = {}) {
   }
   renderSidebar();
   if (opts.scrollIntoView) scrollActiveRowIntoView();
-  await renderPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation });
-  if (opts.focusHeading) els.pane.querySelector(".pane-header h2")?.focus();
+  await renderPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation, viewRevision });
+  if (opts.focusHeading && isCurrentViewRevision(viewRevision, "plan", plan.path)) {
+    els.pane.querySelector(".pane-header h2")?.focus();
+  }
 }
 
 async function selectArtifact(a, opts = {}) {
+  const viewRevision = opts.viewRevision ?? startViewRevision();
   state.active = { kind: "artifact", ...a };
   state.activeTab = null;
   if (!opts.skipRecent) trackRecent("artifact", a.slug);
@@ -1616,11 +1643,14 @@ async function selectArtifact(a, opts = {}) {
   }
   renderSidebar();
   if (opts.scrollIntoView) scrollActiveRowIntoView();
-  await renderArtifactPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation });
-  if (opts.focusHeading) els.pane.querySelector(".pane-header h2")?.focus();
+  await renderArtifactPane({ preserveScroll: opts.preserveScroll, preserveAnnotation: opts.preserveAnnotation, viewRevision });
+  if (opts.focusHeading && isCurrentViewRevision(viewRevision, "artifact", a.path)) {
+    els.pane.querySelector(".pane-header h2")?.focus();
+  }
 }
 
 function setActiveTab(tab) {
+  const viewRevision = startViewRevision();
   state.activeTab = tab;
   if (state.active && state.active.kind === "plan") {
     const p = new URLSearchParams();
@@ -1628,12 +1658,14 @@ function setActiveTab(tab) {
     if (tab && tab !== "PLAN.md") p.set("tab", tab);
     pushUrl(p);
   }
-  renderPane();
+  renderPane({ viewRevision });
 }
 
 async function renderArtifactPane(opts = {}) {
   const a = state.active;
   if (!a || a.kind !== "artifact") return;
+  const viewRevision = opts.viewRevision ?? activeViewRevision;
+  if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
   els.pane.innerHTML = `
@@ -1657,19 +1689,26 @@ async function renderArtifactPane(opts = {}) {
   try {
     const res = await fetch(`/api/file?path=${encodeURIComponent(a.path)}`);
     if (!res.ok) {
-      document.getElementById("md-body").innerHTML =
-        `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
+      const text = await res.text();
+      if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
+      const body = document.getElementById("md-body");
+      if (!body) return;
+      body.innerHTML = `<div class="error">${res.status}: ${escapeText(text)}</div>`;
       if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       refreshAnnotationTargets();
       return;
     }
     const html = await res.text();
+    if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
     // Sandboxed iframe so artifact <style>/<script> can't leak into host.
     const body = document.getElementById("md-body");
+    if (!body) return;
     body.innerHTML = `<iframe class="artifact-frame" sandbox="allow-same-origin allow-popups" srcdoc="${escapeAttr(html)}" title="Artifact: ${escapeAttr(a.title || a.slug)}"></iframe>`;
     const frame = body.querySelector("iframe.artifact-frame");
+    if (!frame) return;
     // Auto-grow frame so host page scrolls (re-measure after fonts settle).
     const resizeFrame = () => {
+      if (!isCurrentViewRevision(viewRevision, "artifact", a.path) || !document.body.contains(frame)) return;
       try {
         const doc = frame.contentDocument;
         if (!doc) return;
@@ -1682,6 +1721,7 @@ async function renderArtifactPane(opts = {}) {
       } catch (e) { /* cross-origin guard, shouldn't fire for srcdoc */ }
     };
     frame.addEventListener("load", () => {
+      if (!isCurrentViewRevision(viewRevision, "artifact", a.path) || !document.body.contains(frame)) return;
       resizeFrame();
       if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       // Fonts/images can change height after first load — re-measure shortly.
@@ -1691,18 +1731,22 @@ async function renderArtifactPane(opts = {}) {
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   } catch (e) {
-    document.getElementById("md-body").innerHTML =
-      `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
+    if (!isCurrentViewRevision(viewRevision, "artifact", a.path)) return;
+    const body = document.getElementById("md-body");
+    if (!body) return;
+    body.innerHTML = `<div class="error">failed to load artifact: ${escapeText(String(e))}</div>`;
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   }
 }
 
 async function renderPane(opts = {}) {
-  if (!state.active) return;
+  const plan = state.active;
+  if (!plan || plan.kind !== "plan") return;
+  const viewRevision = opts.viewRevision ?? activeViewRevision;
+  if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
-  const plan = state.active;
   const tabs = ["PLAN.md", DECISION_LOG_TAB, ...(isAdvancedMode() ? [SESSION_TAB, LEDGER_TAB] : []), ...plan.siblings];
   const investigations = plan.investigations || [];
   const evidence = plan.evidence || [];
@@ -1853,14 +1897,20 @@ async function renderPane(opts = {}) {
 
   if (isLedgerActive) {
     const body = document.getElementById("md-body");
+    if (!body) return;
     try {
       const res = await fetch(`/api/ledger?path=${encodeURIComponent(plan.path)}`);
       if (!res.ok) {
-        body.innerHTML = `<div class="error">${res.status}: ${escapeText(await res.text())}</div>`;
+        const text = await res.text();
+        if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+        body.innerHTML = `<div class="error">${res.status}: ${escapeText(text)}</div>`;
       } else {
-        body.innerHTML = renderLedgerPanel(await res.json());
+        const ledger = await res.json();
+        if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+        body.innerHTML = renderLedgerPanel(ledger);
       }
     } catch (e) {
+      if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
       body.innerHTML = `<div class="error">failed to load ledger: ${escapeText(String(e))}</div>`;
     }
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
@@ -1872,20 +1922,26 @@ async function renderPane(opts = {}) {
     const res = await fetch(`/api/file?path=${encodeURIComponent(tabPath)}`);
     if (!res.ok) {
       const txt = await res.text();
-      document.getElementById("md-body").innerHTML =
-        `<div class="error">${res.status}: ${escapeText(txt)}</div>`;
+      if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+      const body = document.getElementById("md-body");
+      if (!body) return;
+      body.innerHTML = `<div class="error">${res.status}: ${escapeText(txt)}</div>`;
       if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
       refreshAnnotationTargets();
       return;
     }
     const md = stripParentMetadata(await res.text());
+    if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
     const body = document.getElementById("md-body");
+    if (!body) return;
     body.innerHTML = renderMarkdownBody(md);
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   } catch (e) {
-    document.getElementById("md-body").innerHTML =
-      `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
+    if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
+    const body = document.getElementById("md-body");
+    if (!body) return;
+    body.innerHTML = `<div class="error">failed to load file: ${escapeText(String(e))}</div>`;
     if (opts.preserveScroll) els.pane.scrollTop = scrollTop;
     refreshAnnotationTargets();
   }
@@ -2384,6 +2440,7 @@ function refreshAnnotationTargets() {
     el.dataset.viduxAnchorLabel = label || text;
   });
   renderCommentMarkers();
+  restoreCommentHighlight();
 }
 
 function refreshAnnotationTargetsIfNeeded() {
@@ -2486,8 +2543,41 @@ function findAnchorElement(anchor) {
   return resolveAnchorTarget(anchor)?.element || null;
 }
 
+function clearCommentHighlight() {
+  const highlight = state.commentHighlight;
+  if (commentHighlightTimer) window.clearTimeout(commentHighlightTimer);
+  commentHighlightTimer = 0;
+  state.commentHighlight = null;
+  if (!highlight || highlight.targetPath !== currentCommentTargetPath()) return;
+  commentMarkers.setHighlight(resolveAnchorTarget(highlight.anchor), false);
+}
+
+function restoreCommentHighlight() {
+  const highlight = state.commentHighlight;
+  if (!highlight) return;
+  if (highlight.targetPath !== currentCommentTargetPath() || Date.now() >= highlight.expiresAt) {
+    clearCommentHighlight();
+    return;
+  }
+  commentMarkers.setHighlight(resolveAnchorTarget(highlight.anchor), true);
+}
+
 function jumpToCommentAnchor(anchor) {
-  commentMarkers.jumpToTarget(resolveAnchorTarget(anchor));
+  const targetPath = currentCommentTargetPath();
+  const target = resolveAnchorTarget(anchor);
+  if (!targetPath || !target) return;
+  clearCommentHighlight();
+  const highlight = {
+    anchor,
+    targetPath,
+    expiresAt: Date.now() + commentMarkers.HIGHLIGHT_DURATION_MS,
+  };
+  state.commentHighlight = highlight;
+  commentMarkers.jumpToTarget(target, { highlightDuration: 0 });
+  commentHighlightTimer = window.setTimeout(() => {
+    if (state.commentHighlight !== highlight) return;
+    clearCommentHighlight();
+  }, commentMarkers.HIGHLIGHT_DURATION_MS);
 }
 
 function setCommentMarkerPreview(target, enabled) {

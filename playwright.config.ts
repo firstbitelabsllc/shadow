@@ -1,9 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
 // Playwright config for vidux-browser e2e + visual smoke. The webServer
-// directive boots browser/server.py against a fixture root + ephemeral port
+// directive boots browser/server.py against fixture roots + an ephemeral port
 // so tests are hermetic — they don't scan the contributor's real
-// ~/Development/. The argparse flags added in commit 5ac7327 make this work.
+// ~/Development/ or receipt corpus. The argparse flags added in commit
+// 5ac7327 and the explicit stores below make this work.
 //
 // Visual regression is Linux-only (font hinting diverges between macOS and
 // Ubuntu; snapshots flap otherwise). Local Mac runs skip visual specs by
@@ -43,7 +44,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `python3 browser/server.py --root browser/tests/fixtures/fake-dev-root --port ${PORT} --comments-path browser/tests/fixtures/comments.jsonl --artifacts-dir browser/tests/fixtures/artifacts`,
+    command: `python3 browser/server.py --root browser/tests/fixtures/fake-dev-root --port ${PORT} --comments-path browser/tests/fixtures/comments.jsonl --artifacts-dir browser/tests/fixtures/artifacts --receipt-corpus-path browser/tests/fixtures/receipts/corpus.jsonl`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     // Round-4 panel finding: `reuseExistingServer: !process.env.CI` only
     // verifies the health URL is *reachable* -- it never checks WHICH

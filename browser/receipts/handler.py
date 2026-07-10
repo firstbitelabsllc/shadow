@@ -47,6 +47,14 @@ DEFAULT_CORPUS_PATH = Path(
 
 DEFAULT_IMAGES_DIR = DEFAULT_CORPUS_PATH.parent / "images"
 
+
+def configure_corpus_path(path: str | Path) -> None:
+    """Set the corpus and its sibling image jail for one browser process."""
+    global DEFAULT_CORPUS_PATH, DEFAULT_IMAGES_DIR
+    DEFAULT_CORPUS_PATH = Path(path).expanduser().resolve()
+    DEFAULT_IMAGES_DIR = DEFAULT_CORPUS_PATH.parent / "images"
+
+
 # Upload size cap: 15 MB. Modern receipt photos are ~3-8 MB; 15 MB has headroom
 # without enabling abuse uploads.
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
