@@ -9,7 +9,7 @@ Provides:
 - ocr: Azure Document Intelligence v4 wrapper (POST raw JPEG, poll operation-location, decode response).
 - handler: HTTP request handlers wired into vidux-browse server.py.
 
-Schema (matches Tests/Fixtures/Receipts/corpus.jsonl in resplit-ios):
+Schema (mirrors a downstream iOS receipt app's test-fixture corpus):
     {
       "id": "<first 12 hex of SHA-256(image bytes)>",
       "name": "<human label>",
