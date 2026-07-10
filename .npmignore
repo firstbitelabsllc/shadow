@@ -31,6 +31,7 @@ scripts/vidux-snowcubes-readiness-*
 scripts/install-voxtral-launchagent.sh
 scripts/launchd/*.plist
 scripts/crashcourse-inbox-gen.py
+agent/
 
 # Repo-only control and verification surfaces.
 AGENTS.md

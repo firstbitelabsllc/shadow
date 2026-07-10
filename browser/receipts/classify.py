@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Classify a receipt's OCR text as dining / retail / invoice / unsure.
 
-Resplit splits RESTAURANT bills, so the corpus must hold dining receipts only — not grocery,
-gas, parking, cosmetics, or formal tax-invoices. This is the fast keyword gate (the Vision OCR
-heuristic, ported to a pure, testable function); borderline `unsure` rows get an LLM second pass.
+The downstream use case (splitting RESTAURANT bills) means the corpus must hold dining receipts
+only — not grocery, gas, parking, cosmetics, or formal tax-invoices. This is the fast keyword gate
+(the Vision OCR heuristic, ported to a pure, testable function); borderline `unsure` rows get an
+LLM second pass.
 
 CLI (macOS, needs the Vision OCR via vision_ocr.swift):
     python3 -m receipts.classify <image1.jpg> <image2.jpg> ...

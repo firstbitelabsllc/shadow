@@ -9,8 +9,6 @@
   "files": [
     ".claude-plugin/",
     ".claude/settings.json",
-    "agent/**/*.md",
-    "agent/**/*.ts",
     "assets/*.svg",
     "benchmarks/v2/*.json",
     "benchmarks/v2/*.md",
@@ -38,7 +36,6 @@
     "hooks/*.json",
     "hooks/*.sh",
     "references/*.md",
-    "scripts/*.mjs",
     "scripts/*.py",
     "scripts/*.sh",
     "scripts/launchd-helpers/*.sh",
