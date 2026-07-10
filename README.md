@@ -107,7 +107,7 @@ A local browser surface for reading plans, scanning the fleet queue, reviewing H
 bin/vidux-browse
 ```
 
-Opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` only on a trusted LAN to expose the same machine's plans to another device.
+Opens `http://127.0.0.1:7191`. Set `VIDUX_BROWSER_HOST=0.0.0.0` only on a trusted LAN to expose the same machine's plans to another device, and open it by the server's private IP address (for example, `http://192.168.1.50:7191`). LAN-bound requests with a domain Host are rejected to prevent DNS rebinding.
 
 The browser keeps the plan contract intact:
 

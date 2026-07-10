@@ -2268,7 +2268,16 @@ def is_private_lan_ip_literal(hostname: str) -> bool:
         addr = ipaddress.ip_address(text)
     except ValueError:
         return False
-    return addr.is_private and not addr.is_loopback and not addr.is_link_local
+    if addr.version == 4:
+        return any(
+            addr in network
+            for network in (
+                ipaddress.ip_network("10.0.0.0/8"),
+                ipaddress.ip_network("172.16.0.0/12"),
+                ipaddress.ip_network("192.168.0.0/16"),
+            )
+        )
+    return addr in ipaddress.ip_network("fc00::/7")
 
 
 def is_allowed_request_host(host: str, bind_host: str) -> bool:
@@ -2281,27 +2290,21 @@ def is_allowed_request_host(host: str, bind_host: str) -> bool:
     this loopback server. An independent Host allowlist is required because
     a rebound domain can never legitimately present as "127.0.0.1"/"localhost".
 
-    In 0.0.0.0/:: LAN-bind mode (documented trusted-LAN read mode, README/
-    SKILL.md), a real LAN peer's Host header is the server's own private-use
-    IP literal -- never an arbitrary registered domain, since an attacker
-    can't own a private-range address. Round-9 panel finding: this used to
-    return True unconditionally for that bind mode, which let a DNS-rebound
-    request's Host header (the attacker's own domain, agreeing with its own
-    Origin) sail through -- is_loopback_host(client_address) doesn't catch
-    it either, since the rebound request's TCP connection genuinely
-    originates from this machine. Empirically confirmed exploitable via a
-    live curl PoC against /api/artifact and /api/local-plan-note before this
-    fix. Now applies the same private-IP-literal check
-    _require_comment_write() already uses for its own LAN-mode write path.
+    Wildcard bind mode is still an allowlist: loopback identities and private
+    IP literals are accepted, while domain names remain denied. Otherwise a
+    DNS-rebound domain could read every plan/proof API from a LAN-bound server.
+    Writes stay loopback-gated separately via client_address, except for the
+    narrower private-LAN comment route.
     """
     hostname = request_host_hostname(host)
     if not hostname:
         return False
+    allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
+    if hostname in allowed:
+        return True
     if bind_host in ("0.0.0.0", "::"):
-        allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
-        return hostname in allowed or is_private_lan_ip_literal(hostname)
-    allowed = {"127.0.0.1", "localhost", "[::1]", "::1", bind_host.strip().lower()}
-    return hostname in allowed
+        return is_private_lan_ip_literal(hostname)
+    return hostname.strip("[]") == bind_host.strip().strip("[]").lower()
 
 
 def is_json_content_type(value: str | None) -> bool:
@@ -2943,7 +2946,8 @@ def main(argv=None):
         type=str,
         default=None,
         help="Host to bind. Defaults to env VIDUX_BROWSER_HOST or 127.0.0.1. "
-             "Use 0.0.0.0 to expose on LAN.",
+             "Use 0.0.0.0 only for trusted-LAN read access, then open the "
+             "server by private IP address (domain Host values are rejected).",
     )
     parser.add_argument(
         "--comments-path",

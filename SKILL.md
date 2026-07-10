@@ -996,7 +996,7 @@ What it shows:
 
 Discovery globs: `<repo>/ai/plans/<slug>/PLAN.md`, `<repo>/vidux/<slug>/PLAN.md`, `<repo>/projects/<slug>/PLAN.md`, `<repo>/PLAN.md`.
 
-Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` (CDN). Zero pip deps. Default bind `127.0.0.1`; `VIDUX_BROWSER_HOST=0.0.0.0` enables trusted-LAN read access. Every request's `Host` header is checked against an allowlist (independent of `Origin`/`Referer` matching) before it's served at all — closes DNS-rebinding, where a rebound page's `Host` and `Origin` headers agree with each other and would otherwise defeat an Origin-must-match-Host check alone. See `docs/reference/browser.md`'s "Read/write safety model" for the full mechanism. Code lives in `<vidux-dir>/browser/`; design decisions and browser roadmap live in the relevant repo plan.
+Stack: Python stdlib `http.server` + plain HTML/CSS + vanilla JS + `marked.js` (CDN). Zero pip deps. Default bind `127.0.0.1`; `VIDUX_BROWSER_HOST=0.0.0.0` enables trusted-LAN read access through the server's private IP address. Every request's `Host` header is checked against an allowlist (loopback identities, plus private IP literals in LAN mode) before it's served at all. Domain Host values remain denied in LAN mode; this closes DNS rebinding, where a rebound page's `Host` and `Origin` headers agree with each other and would otherwise defeat an Origin-must-match-Host check alone. See `docs/reference/browser.md`'s "Read/write safety model" for the full mechanism. Code lives in `<vidux-dir>/browser/`; design decisions and browser roadmap live in the relevant repo plan.
 
 ### Ad-hoc artifacts (anytime, anywhere in chat)
 
