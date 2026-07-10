@@ -60,11 +60,20 @@
      labels also render on --paper-2 (#f1ece1, a slightly darker surface),
      where they measured 4.23-4.26:1, still failing. Darkened again to
      clear 4.5:1 against --paper-2 specifically (the harder of the two
-     surfaces), which also clears --paper with more margin (4.98:1). */
-  --task-in-progress: #896329;
+     surfaces), which also clears --paper with more margin (4.98:1).
+     Round-10 panel finding: --task-in-progress/--task-blocked also render
+     on --select (light #e9e0c8, dark #3a3324) whenever the keyboard-
+     focusable .dashboard-item is :hover/:focus-visible -- untested by the
+     --paper/--paper-2-only checks above, and --select is a harder surface
+     than either (light task-in-progress/task-blocked measured 4.11:1,
+     dark task-blocked 4.07:1). Darkened/lightened again, same hue/
+     saturation, to also clear 4.5:1 against --select (light: #815d27/
+     #a54528 at 4.52/4.58:1 vs --select; dark task-blocked: #dd865b at
+     4.55:1 vs dark --select -- dark task-in-progress already passed). */
+  --task-in-progress: #815d27;
   --task-in-review: #48707d;
   --task-completed: #42754c;
-  --task-blocked: #b14a2b;
+  --task-blocked: #a54528;
   --task-shipped: #7e6827;
   /* Font stacks */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -108,11 +117,20 @@
      labels also render on --paper-2 (#f1ece1, a slightly darker surface),
      where they measured 4.23-4.26:1, still failing. Darkened again to
      clear 4.5:1 against --paper-2 specifically (the harder of the two
-     surfaces), which also clears --paper with more margin (4.98:1). */
-  --task-in-progress: #896329;
+     surfaces), which also clears --paper with more margin (4.98:1).
+     Round-10 panel finding: --task-in-progress/--task-blocked also render
+     on --select (light #e9e0c8, dark #3a3324) whenever the keyboard-
+     focusable .dashboard-item is :hover/:focus-visible -- untested by the
+     --paper/--paper-2-only checks above, and --select is a harder surface
+     than either (light task-in-progress/task-blocked measured 4.11:1,
+     dark task-blocked 4.07:1). Darkened/lightened again, same hue/
+     saturation, to also clear 4.5:1 against --select (light: #815d27/
+     #a54528 at 4.52/4.58:1 vs --select; dark task-blocked: #dd865b at
+     4.55:1 vs dark --select -- dark task-in-progress already passed). */
+  --task-in-progress: #815d27;
   --task-in-review: #48707d;
   --task-completed: #42754c;
-  --task-blocked: #b14a2b;
+  --task-blocked: #a54528;
   --task-shipped: #7e6827;
 }
 
@@ -142,7 +160,7 @@
   --task-in-progress: #d99c52;
   --task-in-review: #6fa6b8;
   --task-completed: #6db580;
-  --task-blocked: #d97a4a;
+  --task-blocked: #dd865b;
   --task-shipped: #d8b558;
 }
 
@@ -2272,7 +2290,7 @@ body.is-annotation-mode #filter {
     --task-in-progress: #d99c52;
     --task-in-review: #6fa6b8;
     --task-completed: #6db580;
-    --task-blocked: #d97a4a;
+    --task-blocked: #dd865b;
     --task-shipped: #d8b558;
     /* Round-9 fix: this bare @media block is the FOUC-guard's own fallback
      * path (index.html inline script) when localStorage throws -- it never
@@ -2284,6 +2302,13 @@ body.is-annotation-mode #filter {
     --warning: #c8a558;
     --warning-bg: #2e260f;
     --warning-ink: #ead495;
+    /* Round-10 fix: same reachable-fallback bug class as the --error/
+     * --warning fix above, for the shadow family -- :root.theme-dark had
+     * dark-tuned rgba(0,0,0,...) shadows but this block still carried the
+     * light-theme rgba(28,26,22,...) ones. */
+    --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.20);
+    --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.28);
+    --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.36);
   }
   .markdown pre,
   .markdown code,
