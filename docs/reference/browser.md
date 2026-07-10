@@ -81,6 +81,7 @@ The server is narrow:
 - Artifact writes and local plan-note writes are loopback-only, require `Content-Type: application/json`, and reject cross-origin posts.
 - Artifact, comment, and local plan-note writes reject detector matches instead of persisting a redacted value. Existing comments are redacted on read. Secret-shaped artifact slugs are rejected.
 - Receipt writes and receipt OCR/analyze mutations are loopback-only JSON writes with explicit size caps.
+- Filesystem mutations fail closed unless the destination is absent or a regular file with exactly one link. Final-component symlinks, hard links, non-regular files, symlinked store directories, and aliased receipt lock/corpus files are rejected before any payload bytes are written. Rewrites use a temporary file plus atomic replacement inside an already-opened parent directory, so a target swap cannot redirect bytes into the alias referent.
 - Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header, on top of the Host-allowlist check above.
 - Markdown rendered client-side (`marked.js` output) is sanitized through a locally vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM. This closes stored XSS through a crafted plan or comment body. Artifact HTML uses the separate boundary below.
 - HTML artifact responses are download-only (`Content-Disposition: attachment`) and carry `Content-Security-Policy`, `Cross-Origin-Resource-Policy: same-origin`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: SAMEORIGIN` headers.
@@ -117,6 +118,8 @@ The relative `../static/` path works when opening a local artifact file directly
 
 This behavior is covered by `tests/test_browser_server.py`.
 
+An existing `INBOX.md` must be a regular, single-link file. Vidux will not follow or replace a symlink or hard-linked inbox; it returns a bounded write error and leaves the referent unchanged.
+
 ## Comment behavior
 
 `POST /api/comments` is an annotation endpoint, not a plan-writing one. It accepts `target_path`, `author`, `body`, and optional `anchor` metadata, then appends a JSONL record to `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}`.
@@ -126,6 +129,7 @@ This behavior is covered by `tests/test_browser_server.py`.
 - The UI remembers the commenter name in browser `localStorage`.
 - Cross-machine LAN viewers can comment when on the vidux-browse origin.
 - Rejects new comment bodies, authors, anchors, or target paths that contain a high-confidence sensitive value; legacy stored values are redacted on read.
+- Rejects a comments store, lock file, or store directory that is a filesystem alias. Accepted updates are serialized across threads and server processes, then committed by atomic replacement.
 - For precise placement, use the top-bar `Annotate` control or `Cmd/Ctrl+Shift+C`, then click the target surface. Capture decorates the shared browser chrome plus generic rendered HTML elements, so artifact authors need no per-file annotation hooks. The composer opens as a target-positioned popover. Annotation/filter shortcuts are ignored while typing in inputs, textareas, selects, or contenteditable fields.
 - Anchors store sanitized selector, label, excerpt, tag, kind, and index metadata — best-effort display pointers; the source markdown or artifact stays unchanged.
 - The rendered `Target` pill scrolls to and highlights the captured element when still present.

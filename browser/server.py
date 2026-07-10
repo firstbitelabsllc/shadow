@@ -12,6 +12,7 @@ import json
 import math
 import os
 import copy
+import fcntl
 import ipaddress
 import re
 import subprocess
@@ -20,6 +21,7 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
+from contextlib import contextmanager
 from datetime import date
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,6 +33,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 # from tests (sys.path[0] = caller CWD). Insert browser/ explicitly so the
 # import resolves regardless of caller.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from safe_files import UnsafeFileAliasError, atomic_write_text, open_regular_fd, read_text
 from receipts import handler as _receipts_handler
 
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
@@ -327,6 +330,8 @@ PLAN_NOTE_SOURCE_RE = re.compile(r"[^A-Za-z0-9_.:/@ -]+")
 COMMENTS_FILE = Path(
     os.environ.get("VIDUX_BROWSER_COMMENTS_FILE", Path.home() / ".vidux-browser" / "comments.jsonl")
 ).expanduser()
+_COMMENTS_WRITE_LOCK = threading.Lock()
+_PLAN_NOTE_WRITE_LOCK = threading.Lock()
 COMMENT_BODY_MAX_BYTES = 8 * 1024
 COMMENT_AUTHOR_MAX_CHARS = 80
 COMMENT_AUTHOR_RE = re.compile(r"[^A-Za-z0-9_.:/@' -]+")
@@ -340,6 +345,23 @@ COMMENT_ANCHOR_FIELD_LIMITS = {
 COMMENT_ANCHOR_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 JSON_CONTENT_TYPE = "application/json"
+
+
+@contextmanager
+def _comments_write_guard():
+    """Serialize comment rewrites across threads and Vidux server processes."""
+    lock_path = COMMENTS_FILE.with_suffix(COMMENTS_FILE.suffix + ".lock")
+    with _COMMENTS_WRITE_LOCK:
+        with open_regular_fd(
+            lock_path,
+            os.O_RDWR | os.O_CREAT,
+            create_parent=True,
+        ) as lock_fd:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
 VIDUX_TRUTH_CACHE_TTL_SECONDS = float(os.environ.get("VIDUX_TRUTH_CACHE_TTL_SECONDS", "45"))
 _VIDUX_TRUTH_CACHE_LOCK = threading.Lock()
 _VIDUX_TRUTH_CACHE: dict[str, object] = {
@@ -2421,9 +2443,10 @@ def write_artifact(slug: str, html: str) -> tuple[bool, str]:
     if has_sensitive_text(html):
         return False, "artifact contains sensitive content"
     try:
-        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
         path = ARTIFACTS_DIR / f"{slug}.html"
-        path.write_text(html, encoding="utf-8")
+        atomic_write_text(path, html)
+    except UnsafeFileAliasError:
+        return False, "write target must be a regular single-link file"
     except OSError as e:
         return False, f"write failed: {e}"
     return True, str(path)
@@ -2593,21 +2616,27 @@ def append_comment(
         record["anchor"] = clean_anchor
 
     try:
-        COMMENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with COMMENTS_FILE.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, separators=(",", ":")) + "\n")
+        with _comments_write_guard():
+            try:
+                existing = read_text(COMMENTS_FILE, errors="replace")
+            except FileNotFoundError:
+                existing = ""
+            atomic_write_text(
+                COMMENTS_FILE,
+                existing + json.dumps(record, separators=(",", ":")) + "\n",
+            )
+    except UnsafeFileAliasError:
+        return False, "write target must be a regular single-link file"
     except OSError as e:
         return False, f"write failed: {e}"
     return True, record
 
 
 def read_comments(target_path: Path, limit: int = 100) -> list[dict]:
-    if not COMMENTS_FILE.is_file():
-        return []
     target = str(target_path)
     comments: list[dict] = []
     try:
-        for line in COMMENTS_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in read_text(COMMENTS_FILE, errors="replace").splitlines():
             try:
                 item = json.loads(line)
             except json.JSONDecodeError:
@@ -2655,23 +2684,25 @@ def write_plan_note(
         lines.append(f"- Agent: {agent}")
     entry = "\n".join(lines) + "\n\n" + quote + "\n\n"
 
-    if inbox.exists():
-        try:
-            text = inbox.read_text(encoding="utf-8")
-        except OSError as e:
-            return False, f"read failed: {e}"
-    else:
-        text = f"# {plan_path.parent.name} Inbox\n\n## Open\n\n## Processed\n"
-
-    marker = re.search(r"(^## Open\s*\n)", text, re.M)
-    if marker:
-        insert_at = marker.end()
-        text = text[:insert_at] + "\n" + entry + text[insert_at:]
-    else:
-        text = text.rstrip() + "\n\n## Open\n\n" + entry
-
     try:
-        inbox.write_text(text, encoding="utf-8")
+        with _PLAN_NOTE_WRITE_LOCK:
+            try:
+                text = read_text(inbox)
+            except FileNotFoundError:
+                text = f"# {plan_path.parent.name} Inbox\n\n## Open\n\n## Processed\n"
+
+            marker = re.search(r"(^## Open\s*\n)", text, re.M)
+            if marker:
+                insert_at = marker.end()
+                text = text[:insert_at] + "\n" + entry + text[insert_at:]
+            else:
+                text = text.rstrip() + "\n\n## Open\n\n" + entry
+
+            atomic_write_text(inbox, text)
+    except UnsafeFileAliasError:
+        return False, "write target must be a regular single-link file"
+    except UnicodeDecodeError:
+        return False, "read failed: INBOX.md is not valid UTF-8"
     except OSError as e:
         return False, f"write failed: {e}"
     return True, str(inbox)

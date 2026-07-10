@@ -17,11 +17,18 @@ import fcntl
 import hashlib
 import json
 import os
-import uuid
+import stat
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+from safe_files import (
+    UnsafeFileAliasError,
+    atomic_write_text,
+    open_regular_fd,
+    read_text,
+)
 
 
 class CorpusError(ValueError):
@@ -41,30 +48,34 @@ def iso_now() -> str:
 @contextmanager
 def _corpus_lock(corpus_path: Path) -> Iterator[None]:
     """Exclusive cross-process + cross-thread lock for a corpus's read-modify-write."""
-    corpus_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = corpus_path.with_suffix(corpus_path.suffix + ".lock")
-    with open(lock_path, "w") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+    with open_regular_fd(
+        lock_path,
+        os.O_RDWR | os.O_CREAT,
+        create_parent=True,
+    ) as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
 
 def read_all(corpus_path: Path) -> list[dict[str, Any]]:
     """Read every row from corpus.jsonl. Missing file → empty list. Bad line → CorpusError."""
-    if not corpus_path.exists():
+    try:
+        contents = read_text(corpus_path)
+    except FileNotFoundError:
         return []
     rows: list[dict[str, Any]] = []
-    with corpus_path.open("r", encoding="utf-8") as handle:
-        for line_no, raw in enumerate(handle, start=1):
-            stripped = raw.strip()
-            if not stripped:
-                continue
-            try:
-                rows.append(json.loads(stripped))
-            except json.JSONDecodeError as exc:
-                raise CorpusError(f"corpus.jsonl line {line_no} is invalid JSON: {exc}") from exc
+    for line_no, raw in enumerate(contents.splitlines(), start=1):
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        try:
+            rows.append(json.loads(stripped))
+        except json.JSONDecodeError as exc:
+            raise CorpusError(f"corpus.jsonl line {line_no} is invalid JSON: {exc}") from exc
     return rows
 
 
@@ -82,10 +93,11 @@ def append_row(corpus_path: Path, row: dict[str, Any]) -> bool:
     if not row_id:
         raise ValueError("row must have an 'id' field")
     with _corpus_lock(corpus_path):
-        if find_by_id(corpus_path, row_id) is not None:
+        rows = read_all(corpus_path)
+        if any(existing.get("id") == row_id for existing in rows):
             return False
-        with corpus_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+        rows.append(row)
+        _rewrite(corpus_path, rows)
     return True
 
 
@@ -95,15 +107,8 @@ def _rewrite(corpus_path: Path, rows: list[dict[str, Any]]) -> None:
     Caller must hold _corpus_lock. The temp name is per-process/per-call unique so
     concurrent writers never consume each other's temp file.
     """
-    tmp = corpus_path.with_suffix(corpus_path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    try:
-        with tmp.open("w", encoding="utf-8") as handle:
-            for row in rows:
-                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
-        tmp.replace(corpus_path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)  # don't orphan the temp file on a write/rename failure
-        raise
+    contents = "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
+    atomic_write_text(corpus_path, contents)
 
 
 def replace_row(corpus_path: Path, row_id: str, new_row: dict[str, Any]) -> bool:
@@ -111,8 +116,6 @@ def replace_row(corpus_path: Path, row_id: str, new_row: dict[str, Any]) -> bool
 
     Rewrites the entire file — fine for corpora up to ~10K rows.
     """
-    if not corpus_path.exists():
-        return False
     new_row["id"] = row_id  # defensive — caller must not mutate id
     with _corpus_lock(corpus_path):
         rows = read_all(corpus_path)
@@ -135,8 +138,6 @@ def update_row(corpus_path: Path, row_id: str, mutator) -> dict[str, Any] | None
     when a handler reads, mutates, and writes the same row — the two-call pattern releases the lock
     between read and write, so two concurrent edits to the same row lose one update.
     """
-    if not corpus_path.exists():
-        return None
     with _corpus_lock(corpus_path):
         rows = read_all(corpus_path)
         for index, row in enumerate(rows):
@@ -151,8 +152,6 @@ def update_row(corpus_path: Path, row_id: str, mutator) -> dict[str, Any] | None
 
 def delete_row(corpus_path: Path, row_id: str) -> bool:
     """Remove a single row by id. Returns True if removed, False if id not found."""
-    if not corpus_path.exists():
-        return False
     with _corpus_lock(corpus_path):
         rows = read_all(corpus_path)
         kept = [row for row in rows if row.get("id") != row_id]
@@ -206,9 +205,20 @@ def safe_image_abs(corpus_parent: Path, images_dir: Path, image_path: str) -> Pa
     plain file multiple tools write, so a hand-edited / round-tripped row is not trusted.
     """
     images_root = images_dir.resolve()
-    abs_path = (corpus_parent / image_path).resolve()
+    candidate = corpus_parent / image_path
+    abs_path = candidate.parent.resolve() / candidate.name
     try:
         abs_path.relative_to(images_root)
     except ValueError:
+        return None
+    try:
+        target_stat = abs_path.lstat()
+    except FileNotFoundError:
+        return abs_path
+    if (
+        stat.S_ISLNK(target_stat.st_mode)
+        or not stat.S_ISREG(target_stat.st_mode)
+        or target_stat.st_nlink != 1
+    ):
         return None
     return abs_path

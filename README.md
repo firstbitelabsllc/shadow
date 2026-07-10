@@ -117,6 +117,7 @@ The browser keeps the plan contract intact:
 - Plan files and artifacts render from disk; comments are separate append-only app data.
 - HTML artifacts are network-isolated by response headers plus a sandboxed iframe; scripts, forms, nested frames, popups, external navigation, and HTTP(S) resource loads are blocked.
 - Allowed text and JSON metadata pass through a high-confidence sensitive-value redaction boundary; affected plans stay visibly marked, while artifact/comment/plan-note writes reject matches.
+- Local write targets must be regular, single-link files: artifact, comment, plan-note, receipt-image, corpus, and lock mutations reject symlinks, hard links, and symlinked store directories before writing.
 - Comment anchors are display pointers, never source edits: they never mutate `PLAN.md`, repo code, task claims, or artifact HTML.
 - Plan-note writes are loopback-only; LAN viewers can comment but cannot write plan state.
 
