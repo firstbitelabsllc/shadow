@@ -238,8 +238,9 @@ of the maintainer's stated goal for a non-technical operator. The gap: the
 GUI is deliberately read/comment-only (README and code are explicit —
 "never mutate PLAN.md"); authoring or editing a plan still requires
 terminal + hand-edited markdown (`vidux init`, then edit by hand). So
-"Nicole can watch and comment on the work" is real today; "Nicole can plan
-the work" through the GUI is not yet. This is a real, named product-scope
+"a non-technical family member can watch and comment on the work" is real
+today; the same person planning the work through the GUI is not yet
+possible. This is a real, named product-scope
 gap worth tracking, not a release blocker on its own — the repo itself is
 clean, honest, and licensed. Minor unrelated note from the same re-run:
 `browser/static/index.html` loads the `marked` markdown library from a CDN

@@ -187,6 +187,29 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["matches"][0]["pattern"], "private username")
 
+    def test_spouse_first_name_pattern_catches_real_leak(self):
+        # Round-8 panel finding: 4 evidence files named the maintainer's
+        # real spouse by first name, once in a genuinely sensitive
+        # confidential-job-search context, with no PRIVACY_PATTERNS rule
+        # covering a family member's name at all.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Make this simple enough for Nicole to use.\n", encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["matches"][0]["pattern"], "maintainer's spouse's first name")
+
     def test_employer_source_path_pattern_was_a_silent_noop_now_catches_real_leaks(self):
         # Round-3 panel finding: the "employer source path" rule's regex had
         # been over-redacted to the literal placeholder text

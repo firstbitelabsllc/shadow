@@ -37,9 +37,9 @@ findings below were urgent enough to act on immediately rather than queue.
 `claude/export-update-path`, `claude/extract-prompt-kinds`, `claude/grounding-veto`,
 `claude/receipts-currency-truth`, `claude/receipts-tier2-invariants`,
 `claude/receipts-tier3-arbitrate`, `claude/receipts-vision-swap`. Content includes a
-real screenshot titled "Nicole Review Hub" (Leo's real spouse, named as a reviewer of
-his confidential job-search leads across dozens of filenames) and `report.md` files
-documenting live automated Browser-Use sessions against Leo's real, logged-in personal
+real screenshot naming the maintainer's spouse as a reviewer of his confidential
+job-search leads across dozens of filenames, and `report.md` files documenting live
+automated Browser-Use sessions against the maintainer's real, logged-in personal
 LinkedIn account. Actual lead data itself was verified fixture/synthetic (gitignored,
 never committed) — no third-party PII found — but the spouse's real name and the
 scraping-tool evidence are real and would be world-readable the instant repo
@@ -151,9 +151,9 @@ re-verification over trusting a prior write-up) should continue for any future r
 **Mission-fit gap (closest to Leo's actual stated goal for this whole effort):**
 - `simplicity-niche-fit`: plan/task content renders as raw AI-agent-protocol markdown
   verbatim (status FSM tags, Evidence/ETA/Findable annotations) with zero
-  task-specific simplification — the "simple enough for someone like Nicole" goal is
-  only half-delivered (the completion-bar rollup works, the actual task list doesn't).
-  Zero mention of "Nicole" or "non-technical" anywhere in shipped docs; README's own
+  task-specific simplification — the "simple enough for a non-technical family member"
+  goal is only half-delivered (the completion-bar rollup works, the actual task list
+  doesn't). Zero mention of "non-technical" anywhere in shipped docs; README's own
   comparison framing (LangGraph/CrewAI/Hermes/pgvector) is calibrated for a developer
   evaluating orchestration frameworks. This is flagged again from round-1 — still open.
 

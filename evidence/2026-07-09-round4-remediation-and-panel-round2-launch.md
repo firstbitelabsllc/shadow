@@ -76,7 +76,7 @@ re-run the panel to check real progress rather than trust an aging backlog.
    not real product behavior.
 8. **Launched a fresh 20-lens panel** (`vidux-releasability-panel-round2`,
    `wf_5cd1ad8a-619`) covering secrets/credentials, PII, license/legal, docs accuracy,
-   onboarding, CLI crash-resistance, browser security, Nicole-simplicity GUI
+   onboarding, CLI crash-resistance, browser security, non-technical-simplicity GUI
    (screenshot-based), dependency hygiene, test/CI coverage, positioning honesty,
    governance/sustainability, accessibility, naming/trademark, code quality,
    error-message UX, git-history hygiene, stranger-repro, second-order privacy, and
