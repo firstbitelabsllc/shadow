@@ -114,8 +114,8 @@ def validate_protocol_status(status: dict[str, Any], manifest: dict[str, Any]) -
         errors.append("protocol status must remain retired_non_runnable")
     if status.get("runnable") is not False:
         errors.append("protocol status runnable must remain false")
-    if status.get("replacement_protocol_id") is not None:
-        errors.append("replacement protocol id must remain null until a new protocol is frozen")
+    if status.get("replacement_protocol_id") != "vidux-cockpit-v3":
+        errors.append("replacement protocol id must equal vidux-cockpit-v3")
     for key in ("decision_basis", "next_protocol_requirements"):
         value = status.get(key)
         if not isinstance(value, list) or not value or not all(

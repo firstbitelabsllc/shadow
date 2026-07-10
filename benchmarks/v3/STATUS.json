@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "protocol_id": "vidux-cockpit-v3",
+  "status": "protocol_frozen_preflight_only",
+  "protocol_digest": "ba5a151dde4f0b767fc438bc38cb5bfe17843ef8f303a04f2c5275e1e5418dc3",
+  "frozen_at": "2026-07-10T14:43:01Z",
+  "provider_transport_enabled": false,
+  "pilot_executed": false,
+  "verified_net_win_classes": 0,
+  "next_gate": "external_evaluator_release_then_reviewed_runner"
+}

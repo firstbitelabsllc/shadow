@@ -29,6 +29,9 @@ REQUIRED_FILES = {
     "benchmarks/v2/STATUS.json",
     "benchmarks/v2/STATUS.md",
     "benchmarks/v2/manifest.json",
+    "benchmarks/v3/PROTOCOL.md",
+    "benchmarks/v3/STATUS.json",
+    "benchmarks/v3/manifest.json",
     "bin/vidux",
     "bin/vidux-browse",
     "browser/safe_files.py",
@@ -41,6 +44,7 @@ REQUIRED_FILES = {
     "package.json",
     "scripts/vidux-build.sh",
     "scripts/vidux-benchmark-v2.py",
+    "scripts/vidux-benchmark-v3.py",
     "scripts/vidux-completion.sh",
     "scripts/vidux-config.py",
     "scripts/vidux-doctor-cli.sh",
@@ -79,6 +83,11 @@ FORBIDDEN_FILES = {
     "vitest.config.mjs",
 }
 FORBIDDEN_SUFFIXES = {".jsonl", ".key", ".log", ".pem", ".pyc", ".pyo", ".token"}
+V3_ALLOWED_FILES = {
+    "benchmarks/v3/PROTOCOL.md",
+    "benchmarks/v3/STATUS.json",
+    "benchmarks/v3/manifest.json",
+}
 
 
 def source_version(root: Path) -> str:
@@ -156,6 +165,15 @@ def validate_release_candidate(
     forbidden = sorted(path for path in files if is_forbidden(path))
     if forbidden:
         errors.append("packed artifact contains forbidden files: " + ", ".join(forbidden))
+
+    unexpected_v3 = sorted(
+        path for path in files if path.startswith("benchmarks/v3/") and path not in V3_ALLOWED_FILES
+    )
+    if unexpected_v3:
+        errors.append(
+            "packed artifact contains runtime or evaluator v3 files: "
+            + ", ".join(unexpected_v3)
+        )
 
     untracked = sorted(files - tracked)
     if untracked:

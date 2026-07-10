@@ -150,6 +150,7 @@ class BenchmarkV2Tests(unittest.TestCase):
         self.assertFalse(readiness["ready"])
         self.assertEqual(readiness["status"], "protocol_frozen_pending_fixture_seal")
         self.assertEqual(readiness["protocol_status"], "retired_non_runnable")
+        self.assertEqual(protocol_status["replacement_protocol_id"], "vidux-cockpit-v3")
         self.assertIn(mod.NON_RUNNABLE_GATE, readiness["gates"])
         self.assertIn("sealed external fixture release is required", readiness["gates"])
 
