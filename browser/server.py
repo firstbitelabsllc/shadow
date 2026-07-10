@@ -2545,7 +2545,15 @@ class Handler(BaseHTTPRequestHandler):
         if not is_loopback_host(self.client_address[0]):
             self._send(403, "write endpoints require loopback client")
             return False
-        return self._require_browser_json()
+        # Round-8 panel finding: this previously allowed the request through
+        # when BOTH Origin and Referer were absent (require_origin=False),
+        # unlike /api/comments which already requires one. Not exploitable
+        # from a real browser today (a JSON POST is preflighted, and every
+        # real cross/same-origin browser POST attaches Origin), but a
+        # process that can already reach loopback directly (curl, a local
+        # binary) shouldn't get a free pass either -- defense-in-depth,
+        # matching what _require_comment_write() already does.
+        return self._require_browser_json(require_origin=True)
 
     def _require_comment_write(self) -> bool:
         """/api/comments is the one write route that's meant to work from a
