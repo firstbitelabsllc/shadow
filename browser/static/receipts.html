@@ -30,9 +30,9 @@
      inherited from the base rules and flips to near-black in dark mode,
      landing near-black text on a background that never gets lighter --
      contrast collapsed to ~1.5-2.2:1. These backgrounds are fixed brand
-     colors by design (not meant to invert), so the fix is a fixed light
-     text color instead -- #f8f5ee is --paper's literal light-mode value,
-     so light mode is visually unchanged and dark mode now passes AA
+     colors by design (not meant to invert), so the fix is a fixed near-white
+     text color (#f8f5ee) that stays light in both themes rather than tracking
+     --paper -- light mode looks unchanged and dark mode now passes AA
      (7.2-8.7:1 against all three backgrounds). */
   button.primary:hover { background: #244e30; color: #f8f5ee; }
   button.local { background: #1f3b52; color: #f8f5ee; border-color: #1f3b52; }

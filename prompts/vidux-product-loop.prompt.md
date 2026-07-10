@@ -2,7 +2,7 @@
 
 Authority Store: `PLAN.md`
 
-This prompt is a pointer and operating contract. The PLAN owns mission state, rows, blockers, evidence, scorecard values, and completion. The retired cost-100x PLAN remains historical proof and is not authority for Vidux product work.
+This prompt is a pointer and operating contract. The PLAN owns mission state, rows, blockers, evidence, scorecard values, and completion.
 
 ## First Read
 

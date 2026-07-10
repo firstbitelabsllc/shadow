@@ -7,7 +7,7 @@ Vidux turns scattered multi-project agent work into one inspectable next move wi
 ## Audience
 
 - Primary: one technical operator supervising Claude, Codex, and local/cloud workers across several repositories.
-- Secondary: a first-time open-source user who wants useful defaults without learning Leo's private workflow or choosing among internal skills.
+- Secondary: a first-time open-source user who wants useful defaults without learning the maintainer's private workflow or choosing among internal skills.
 - Pressure state: many concurrent plans, incomplete evidence, interrupted sessions, and uncertainty about whether orchestration helped.
 
 ## Visual Direction

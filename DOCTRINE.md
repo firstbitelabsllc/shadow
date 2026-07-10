@@ -107,6 +107,11 @@ Two variants: **with-vidux** (runs `vidux-loop.sh`, reads JSON, exits on blocked
 
 ## When Vidux vs When Pilot
 
+Not every task needs a plan. **Pilot** here just means coding directly — no
+`PLAN.md`, no cycle — the right call for small, short, single-session work.
+**Vidux** is the plan-first mode this doc describes, for the larger work where
+a durable paper trail pays for itself. Pick by the signals below.
+
 | Signal | Use |
 |--------|-----|
 | Quick bug fix, single file, < 2 hours | Pilot (Mode A) |
