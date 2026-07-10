@@ -40,17 +40,22 @@
   --pane-footer-reserve: 32px;
   /* Task states (vidux FSM) */
   --task-pending: #d2cab2;
-  /* Round-4 panel finding: the original values below (#c89548, #5b8d9e,
-     #4f8a5a, #c8a94d) failed WCAG 1.4.3 AA (4.5:1) at the small-text sizes
-     they're actually used at (10.5-11.5px status labels) against --paper.
-     Darkened to the minimum contrast that clears 4.5:1 with a small
-     margin, same hue/saturation, dark-theme values below untouched (they
-     already pass against the dark surface). */
-  --task-in-progress: #90682b;
-  --task-in-review: #4c7583;
-  --task-completed: #467b50;
+  /* Round-4 panel finding: the original values (#c89548, #5b8d9e, #4f8a5a,
+     #c8a94d) failed WCAG 1.4.3 AA (4.5:1) at the small-text sizes they're
+     actually used at (10.5-11.5px status labels) against --paper. Darkened
+     to clear 4.5:1 with a small margin, same hue/saturation, dark-theme
+     values below untouched (they already pass against the dark surface).
+     Round-7 panel finding: that first darkening pass (#90682b/#4c7583/
+     #467b50/#846d29) only cleared --paper (#f8f5ee) -- the same status
+     labels also render on --paper-2 (#f1ece1, a slightly darker surface),
+     where they measured 4.23-4.26:1, still failing. Darkened again to
+     clear 4.5:1 against --paper-2 specifically (the harder of the two
+     surfaces), which also clears --paper with more margin (4.98:1). */
+  --task-in-progress: #896329;
+  --task-in-review: #48707d;
+  --task-completed: #42754c;
   --task-blocked: #b14a2b;
-  --task-shipped: #846d29;
+  --task-shipped: #7e6827;
   /* Font stacks */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --serif: "Iowan Old Style", "Charter", Georgia, serif;
@@ -83,17 +88,22 @@
   --shadow-md: 0 8px 22px rgba(28, 26, 22, 0.10);
   --shadow-lg: 0 14px 36px rgba(28, 26, 22, 0.14);
   --task-pending: #d2cab2;
-  /* Round-4 panel finding: the original values below (#c89548, #5b8d9e,
-     #4f8a5a, #c8a94d) failed WCAG 1.4.3 AA (4.5:1) at the small-text sizes
-     they're actually used at (10.5-11.5px status labels) against --paper.
-     Darkened to the minimum contrast that clears 4.5:1 with a small
-     margin, same hue/saturation, dark-theme values below untouched (they
-     already pass against the dark surface). */
-  --task-in-progress: #90682b;
-  --task-in-review: #4c7583;
-  --task-completed: #467b50;
+  /* Round-4 panel finding: the original values (#c89548, #5b8d9e, #4f8a5a,
+     #c8a94d) failed WCAG 1.4.3 AA (4.5:1) at the small-text sizes they're
+     actually used at (10.5-11.5px status labels) against --paper. Darkened
+     to clear 4.5:1 with a small margin, same hue/saturation, dark-theme
+     values below untouched (they already pass against the dark surface).
+     Round-7 panel finding: that first darkening pass (#90682b/#4c7583/
+     #467b50/#846d29) only cleared --paper (#f8f5ee) -- the same status
+     labels also render on --paper-2 (#f1ece1, a slightly darker surface),
+     where they measured 4.23-4.26:1, still failing. Darkened again to
+     clear 4.5:1 against --paper-2 specifically (the harder of the two
+     surfaces), which also clears --paper with more margin (4.98:1). */
+  --task-in-progress: #896329;
+  --task-in-review: #48707d;
+  --task-completed: #42754c;
   --task-blocked: #b14a2b;
-  --task-shipped: #846d29;
+  --task-shipped: #7e6827;
 }
 
 /* Forced dark theme — explicit override of OS preference via theme toggle. */

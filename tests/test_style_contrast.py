@@ -1,6 +1,10 @@
 """Round-4 panel finding: several light-theme status colors used as small
 text (10.5-11.5px) fail WCAG 1.4.3 AA (4.5:1) against --paper. Pins the
-fixed values so a future edit can't silently regress them back below AA."""
+fixed values so a future edit can't silently regress them back below AA.
+
+Round-7 panel finding: the round-4 fix only checked --paper. The same
+status-label tokens also render on --paper-2 (a slightly darker surface
+used for cards/panels), where they still failed (4.23-4.26:1)."""
 
 from __future__ import annotations
 
@@ -13,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STYLE_CSS = ROOT / "browser" / "static" / "style.css"
 
 PAPER = "#f8f5ee"
+PAPER_2 = "#f1ece1"
 
 # Tokens confirmed used as `color:` (not just background/border) on small
 # text in browser/static/style.css, at the time of this fix.
@@ -65,6 +70,17 @@ class StyleContrastTests(unittest.TestCase):
                 ratio,
                 4.5,
                 f"--{token} ({value}) vs --paper ({PAPER}) is {ratio:.2f}:1, "
+                f"below WCAG 1.4.3 AA (4.5:1) for the small text it's used at",
+            )
+
+    def test_light_theme_status_text_colors_meet_wcag_aa_against_paper_2(self):
+        for token in TEXT_TOKENS:
+            value = self._token_value(token)
+            ratio = _contrast_ratio(value, PAPER_2)
+            self.assertGreaterEqual(
+                ratio,
+                4.5,
+                f"--{token} ({value}) vs --paper-2 ({PAPER_2}) is {ratio:.2f}:1, "
                 f"below WCAG 1.4.3 AA (4.5:1) for the small text it's used at",
             )
 
