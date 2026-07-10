@@ -11,7 +11,7 @@ File a [bug report](https://github.com/firstbitelabsllc/vidux/issues/new?templat
 Do not file public issues for security vulnerabilities. See [SECURITY.md](./SECURITY.md).
 
 ## Response expectations
-Vidux is maintained by First Bite Labs as a private collaborator project; replies are best-effort and typically arrive within a few business days. Critical bugs (data loss, security) get priority.
+Vidux is maintained by First Bite Labs as a maintainer-led MIT project; replies are best-effort and typically arrive within a few business days. Critical bugs (data loss, security) get priority.
 
 ## Where this project came from
 Vidux is a plan-first, plan/proof control plane for AI agents. See the [README](./README.md) for context.

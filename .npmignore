@@ -1,0 +1,46 @@
+# Local state and proof never belong in the installable Vidux package.
+.git/
+.github/
+.opencode/
+evaluations/
+evidence/
+investigations/
+projects/
+prompts/
+tests/
+test-results/
+playwright-report/
+blob-report/
+node_modules/
+
+# Generated and operator-local files below otherwise allowlisted directories.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.log
+**/*.jsonl
+**/.DS_Store
+browser/artifacts/*
+browser/receipts/corpus.jsonl*
+browser/receipts/images/*
+browser/tests/
+docs/.vitepress/dist/
+scripts/vidux-firstbite-*
+scripts/vidux-local-operator-*
+scripts/vidux-snowcubes-readiness-*
+scripts/install-voxtral-launchagent.sh
+scripts/launchd/*.plist
+scripts/crashcourse-inbox-gen.py
+
+# Repo-only control and verification surfaces.
+AGENTS.md
+ASK-LEO.md
+PLAN.md
+impeccable-vidux.md
+package-lock.json
+playwright.config.ts
+vitest.config.mjs
+.gitattributes
+.gitignore
+.gitleaksignore
+.gitleaks.toml

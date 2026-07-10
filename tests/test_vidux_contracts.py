@@ -4456,6 +4456,47 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn("vidux config check (source=fixture live=yes example=no)", result.stdout)
             self.assertIn("npm test (contract suite) (skipped via VIDUX_DOCTOR_SKIP_NPM_TEST=1)", result.stdout)
 
+    def test_install_doctor_treats_packaged_source_only_checks_as_warnings(self):
+        """A global package should be runnable without a git checkout or test tree."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            home = tmp / "home"
+            fakebin = tmp / "bin"
+            root = tmp / "package"
+            scripts = root / "scripts"
+            for directory in (home, fakebin, scripts, tmp / "tmp"):
+                directory.mkdir(parents=True, exist_ok=True)
+
+            gh = fakebin / "gh"
+            gh.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+            gh.chmod(0o755)
+            (root / "package.json").write_text('{"name":"vidux"}\n', encoding="utf-8")
+            (scripts / "vidux-config.py").write_text(
+                "import json\nprint(json.dumps({'status':'ok','source':'package','live_config_present':False,'using_example':True}))\n",
+                encoding="utf-8",
+            )
+
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "PATH": f"{fakebin}{os.pathsep}{env.get('PATH', '')}",
+                "TMPDIR": str(tmp / "tmp"),
+                "VIDUX_ROOT": str(root),
+            })
+            env.pop("VIDUX_DOCTOR_SKIP_NPM_TEST", None)
+            env.pop("VIDUX_DEV_ROOT", None)
+
+            result = subprocess.run(
+                ["bash", str(self.SCRIPTS_DIR / "vidux-doctor-cli.sh")],
+                capture_output=True, text=True, timeout=15, env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[WARN] gh authenticated", result.stdout)
+            self.assertIn("[WARN] development root exists", result.stdout)
+            self.assertIn("source-only check unavailable in packaged install", result.stdout)
+            self.assertIn("4/7 checks passed, 3 warning(s)", result.stdout)
+
     def test_vidux_browse_launcher_reuses_only_matching_health(self):
         """vidux-browse must not treat any listener on :7191 as the current UI."""
         with tempfile.TemporaryDirectory() as tmpdir:

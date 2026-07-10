@@ -1,6 +1,6 @@
 # Contributing
 
-This repo is public for reuse, critique, and feedback.
+Vidux is MIT-licensed and prepared for public reuse, critique, and feedback.
 
 Current policy:
 
@@ -33,6 +33,7 @@ aren't merged right now:
 npm install
 npm run verify        # npm test (JS + Python units) + the public-ready grep gate
 npm run test:e2e       # Playwright, needs `npm run playwright:install` once
+npm run release:verify # reproducible, tracked-only installable package boundary
 ```
 
 ## Code style

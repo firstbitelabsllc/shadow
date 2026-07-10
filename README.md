@@ -33,6 +33,9 @@ ln -sf ~/Development/vidux/bin/vidux /usr/local/bin/vidux
 vidux dev
 ```
 
+Core runtime prerequisites are Bash, Git, and Python 3.10+. Node 20+ is only
+needed for the npm tarball install and maintainer verification commands.
+
 The clone target matters: the browser's default scan root is `~/Development`
 (see below), so cloning vidux as a **child** of `~/Development` — not as a
 sibling like `~/vidux` — is what makes "your plans show up automatically"
@@ -51,7 +54,7 @@ Want to connect a project? Open a terminal in that project and run `vidux init -
 
 ## Install
 
-### Option A — symlink into PATH (recommended)
+### Option A — source checkout symlink (recommended)
 
 ```bash
 ln -sf <vidux-dir>/bin/vidux /usr/local/bin/vidux
@@ -65,6 +68,23 @@ exec zsh
 ```
 
 Verify with `vidux --version`.
+
+### Option C — verified npm tarball
+
+From a trusted source checkout, build and globally install the same bounded
+artifact the release gate inspects:
+
+```bash
+npm run release:verify
+TARBALL="$(npm pack --ignore-scripts --silent)"
+npm install --global "./${TARBALL}"
+vidux --version
+```
+
+The tarball contains the CLI, browser, skill/plugin surfaces, public docs, and
+runtime helpers. It deliberately excludes tests, local plans, evidence,
+evaluations, and generated state. `vidux build` and `vidux release` remain
+maintainer commands for a source checkout with `npm install` completed.
 
 ### Claude Code skill (optional)
 
@@ -236,7 +256,7 @@ Scans every `PLAN.md` under a scan root (default `~/Development`, or `VIDUX_DEV_
 
 Config lives at a local, gitignored `vidux.config.json` (the repo ships `vidux.config.example.json` as the shape). The only required key is `plan_store`, whose `mode` is `inline` (repo-local `PLAN.md`, the default), `local` (a configured path), or `external` (a path outside the scan root). Agents resolve the authority `PLAN.md` from this at session start. Use `vidux config init` to seed a local config; full schema in [`docs/reference/config.md`](docs/reference/config.md).
 
-`vidux doctor` is the install/readiness doctor (can run `npm test`); `scripts/vidux-doctor.sh --json` is the hook-safe probe. `vidux http-smoke` runs observe-only route budget checks: partial responses inside budget are `warn_partial`, zero-byte misses are `fail_budget`. On a fresh clone, run `npm install` first (see [Running the tests locally](CONTRIBUTING.md#running-the-tests-locally)) — `vidux doctor`'s `npm test` check needs `node_modules` present and otherwise fails with an opaque "command not found" instead of an actionable message.
+`vidux doctor` is the install/readiness doctor; `scripts/vidux-doctor.sh --json` is the hook-safe probe. The install doctor runs `npm test` in source checkouts and reports that source-only gate as a warning in a packaged install. `vidux http-smoke` runs observe-only route budget checks: partial responses inside budget are `warn_partial`, zero-byte misses are `fail_budget`. On a fresh clone, run `npm install` first (see [Running the tests locally](CONTRIBUTING.md#running-the-tests-locally)); a missing source dependency tree is an actionable doctor failure.
 
 ## What Ships Here
 
@@ -293,6 +313,6 @@ Guides: [automation](guides/automation.md), [references/automation](references/a
 
 ## Contributing
 
-This repo is public for reuse, critique, and feedback. Track feedback through [GitHub Issues](https://github.com/firstbitelabsllc/vidux/issues).
+Vidux is MIT-licensed and prepared for public reuse, critique, and feedback. Track feedback through [GitHub Issues](https://github.com/firstbitelabsllc/vidux/issues) when the repository is publicly reachable.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for the vulnerability reporting policy.
