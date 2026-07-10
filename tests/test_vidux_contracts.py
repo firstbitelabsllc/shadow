@@ -488,6 +488,60 @@ class ViduxContractTests(unittest.TestCase):
             self.assertIn(" 50%", rendered.stdout)
             self.assertIn("[1b]", rendered.stdout)
 
+    def test_vidux_status_honors_vidux_dev_root_env_var(self):
+        """Round-10 panel finding: README.md documents VIDUX_DEV_ROOT as an
+        alternative to --root for the status scan root (and explicitly
+        recommends it for a non-standard clone location), but vidux-status.py
+        hardcoded ~/Development as its --root default and never read the env
+        var -- only browser/server.py's DEV_ROOT did. Confirms --root's
+        argparse default now resolves from VIDUX_DEV_ROOT when --root isn't
+        passed explicitly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            proj = root / "env-root-project"
+            proj.mkdir()
+            (proj / "PLAN.md").write_text(textwrap.dedent("""\
+                # Env Root Plan
+                ## Tasks
+                - [pending] Do: something
+                ## Progress
+            """), encoding="utf-8")
+
+            env = dict(os.environ)
+            env["VIDUX_DEV_ROOT"] = str(root)
+            result = subprocess.run(
+                ["python3", str(self.SCRIPTS_DIR / "vidux-status.py"), "--json"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            self.assertEqual(result.returncode, 0, f"vidux-status.py failed: {result.stderr}")
+            data = json.loads(result.stdout)
+            names = {row["short"] for row in data["tied"] + data["other"]}
+            self.assertIn(
+                "env-root-project",
+                names,
+                "vidux-status.py did not scan VIDUX_DEV_ROOT when --root was "
+                "omitted -- it silently fell back to the hardcoded "
+                "~/Development default instead",
+            )
+
+            # Explicit --root still takes precedence over the env var.
+            other_root = root / "other"
+            other_root.mkdir()
+            (other_root / "PLAN.md").write_text(textwrap.dedent("""\
+                # Other Root Plan
+                ## Tasks
+                - [pending] Do: something else
+                ## Progress
+            """), encoding="utf-8")
+            override = subprocess.run(
+                ["python3", str(self.SCRIPTS_DIR / "vidux-status.py"), "--root", str(other_root), "--json"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            self.assertEqual(override.returncode, 0, f"vidux-status.py failed: {override.stderr}")
+            override_data = json.loads(override.stdout)
+            override_names = {row["short"] for row in override_data["tied"] + override_data["other"]}
+            self.assertNotIn("env-root-project", override_names)
+
     def test_vidux_status_recognizes_fsm_extension_tags_as_not_shipped(self):
         """Round-3 panel finding (code-quality-scripts lens): [in_review]/
         [verify]/[merged] -- SKILL.md's own documented status FSM extension
