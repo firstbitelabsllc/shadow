@@ -31,7 +31,11 @@ REQUIRED_FILES = {
     "benchmarks/v2/manifest.json",
     "benchmarks/v3/PROTOCOL.md",
     "benchmarks/v3/STATUS.json",
+    "benchmarks/v3/STATUS.md",
     "benchmarks/v3/manifest.json",
+    "benchmarks/v4/PROTOCOL.md",
+    "benchmarks/v4/STATUS.json",
+    "benchmarks/v4/manifest.json",
     "bin/vidux",
     "bin/vidux-browse",
     "browser/safe_files.py",
@@ -45,6 +49,7 @@ REQUIRED_FILES = {
     "scripts/vidux-build.sh",
     "scripts/vidux-benchmark-v2.py",
     "scripts/vidux-benchmark-v3.py",
+    "scripts/vidux-benchmark-v4.py",
     "scripts/vidux-completion.sh",
     "scripts/vidux-config.py",
     "scripts/vidux-doctor-cli.sh",
@@ -86,7 +91,13 @@ FORBIDDEN_SUFFIXES = {".jsonl", ".key", ".log", ".pem", ".pyc", ".pyo", ".token"
 V3_ALLOWED_FILES = {
     "benchmarks/v3/PROTOCOL.md",
     "benchmarks/v3/STATUS.json",
+    "benchmarks/v3/STATUS.md",
     "benchmarks/v3/manifest.json",
+}
+V4_ALLOWED_FILES = {
+    "benchmarks/v4/PROTOCOL.md",
+    "benchmarks/v4/STATUS.json",
+    "benchmarks/v4/manifest.json",
 }
 
 
@@ -173,6 +184,15 @@ def validate_release_candidate(
         errors.append(
             "packed artifact contains runtime or evaluator v3 files: "
             + ", ".join(unexpected_v3)
+        )
+
+    unexpected_v4 = sorted(
+        path for path in files if path.startswith("benchmarks/v4/") and path not in V4_ALLOWED_FILES
+    )
+    if unexpected_v4:
+        errors.append(
+            "packed artifact contains runtime or evaluator v4 files: "
+            + ", ".join(unexpected_v4)
         )
 
     untracked = sorted(files - tracked)

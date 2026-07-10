@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Deterministic preflight tools for the provider-matched Vidux benchmark v3.
+"""Historical deterministic tools for the retired Vidux benchmark v3.
 
-This module never invokes a model or runner. Provider transport remains gated by
-benchmarks/v3/STATUS.json. It validates the frozen protocol, builds complete
-schedules and arm packets, maintains a durable attempt journal, and performs
-deterministic post-run adjudication from evaluator-owned results.
+The frozen library functions remain inspectable for negative-artifact tests.
+The CLI validates the administrative disposition and refuses every operation
+that could issue artifacts, mutate a journal, adjudicate rows, or emit a claim.
 """
 
 from __future__ import annotations
@@ -80,13 +79,16 @@ STATUS_KEYS = {
     "schema_version",
     "protocol_id",
     "status",
+    "runnable",
     "protocol_digest",
-    "frozen_at",
-    "provider_transport_enabled",
-    "pilot_executed",
-    "verified_net_win_classes",
-    "next_gate",
+    "decided_at",
+    "replacement_protocol_id",
+    "decision_basis",
+    "next_protocol_requirements",
 }
+NON_RUNNABLE_GATE = (
+    "benchmark v3 is retired and non-runnable; integrity and recovery corrections require protocol v4"
+)
 RELEASE_KEYS = {
     "schema_version",
     "release_id",
@@ -723,21 +725,35 @@ def validate_status(status: dict[str, Any], manifest: dict[str, Any]) -> list[st
     errors: list[str] = []
     if set(status) != STATUS_KEYS:
         errors.append("status must contain exactly the registered fields")
-    expected = {
-        "schema_version": 1,
-        "protocol_id": PROTOCOL_ID,
-        "status": "protocol_frozen_preflight_only",
-        "protocol_digest": digest_json(manifest, "protocol"),
-        "frozen_at": manifest.get("frozen_at"),
-        "provider_transport_enabled": False,
-        "pilot_executed": False,
-        "verified_net_win_classes": 0,
-        "next_gate": "external_evaluator_release_then_reviewed_runner",
-    }
-    for key, value in expected.items():
-        if status.get(key) != value:
-            errors.append(f"status {key} must equal {value!r}")
+    if status.get("schema_version") != 1:
+        errors.append("status schema_version must equal 1")
+    if status.get("protocol_id") != manifest.get("protocol_id"):
+        errors.append("status protocol_id must match the frozen manifest")
+    if status.get("status") != "retired_non_runnable":
+        errors.append("status must remain retired_non_runnable")
+    if status.get("runnable") is not False:
+        errors.append("status runnable must remain false")
+    if status.get("protocol_digest") != digest_json(manifest, "protocol"):
+        errors.append("status protocol_digest must bind the frozen manifest")
+    if status.get("replacement_protocol_id") != "vidux-cockpit-v4":
+        errors.append("replacement protocol id must equal vidux-cockpit-v4")
+    if not isinstance(status.get("decided_at"), str) or not status.get("decided_at", "").strip():
+        errors.append("status decided_at must be a non-empty string")
+    for key in ("decision_basis", "next_protocol_requirements"):
+        value = status.get(key)
+        if not isinstance(value, list) or not value or not all(
+            isinstance(item, str) and item.strip() for item in value
+        ):
+            errors.append(f"status {key} must be a non-empty string list")
     return errors
+
+
+def require_protocol_runnable(status: dict[str, Any], manifest: dict[str, Any]) -> None:
+    errors = validate_status(status, manifest)
+    if errors:
+        raise ValidationError("protocol status is invalid: " + "; ".join(errors))
+    if status.get("runnable") is not True:
+        raise ValidationError(NON_RUNNABLE_GATE)
 
 
 def _contains_private_evaluator_key(value: Any) -> bool:
@@ -1114,6 +1130,19 @@ def readiness(
 ) -> dict[str, Any]:
     gates = validate_manifest(manifest)
     gates.extend(validate_status(status, manifest))
+    if not gates and status.get("runnable") is not True:
+        gates.append(NON_RUNNABLE_GATE)
+        return {
+            "protocol_id": PROTOCOL_ID,
+            "protocol_digest": digest_json(manifest, "protocol"),
+            "status": status.get("status"),
+            "preflight_ready": False,
+            "ready_for_provider_spend": False,
+            "provider_transport_enabled": False,
+            "pilot_executed": False,
+            "verified_net_win_classes": 0,
+            "gates": gates,
+        }
     if release is None:
         gates.append("external public evaluator release is required")
     elif fixture_root is None:
@@ -2350,7 +2379,7 @@ def main() -> int:
                 "protocol_id": PROTOCOL_ID,
                 "protocol_digest": digest_json(manifest, "protocol"),
                 "status": status.get("status"),
-                "provider_transport_enabled": status.get("provider_transport_enabled"),
+                "runnable": status.get("runnable"),
                 "errors": errors,
             }
             _print_json(receipt)
@@ -2367,6 +2396,7 @@ def main() -> int:
             )
             _print_json(receipt)
             return 0 if receipt["ready_for_provider_spend"] else 2
+        require_protocol_runnable(status, manifest)
         if args.command == "schedule":
             release = load_json(args.release)
             _print_json(build_schedule(manifest, release, fixture_root=args.fixture_root))

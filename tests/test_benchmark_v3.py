@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -25,6 +26,19 @@ mod = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
+
+
+def record_historical_journal_event(
+    path: Path,
+    schedule: dict,
+    request: dict,
+    queue: multiprocessing.Queue,
+) -> None:
+    try:
+        row, appended = mod.record_journal_event(path, schedule, request)
+        queue.put({"ok": True, "appended": appended, "sequence": row["sequence"]})
+    except Exception as error:  # pragma: no cover - reported to the parent assertion
+        queue.put({"ok": False, "error": repr(error)})
 
 
 def sha(label: str) -> str:
@@ -311,13 +325,13 @@ class BenchmarkV3Tests(unittest.TestCase):
             "payload": payload,
         }
 
-    def test_frozen_manifest_and_status_are_valid_but_transport_is_disabled(self):
+    def test_frozen_manifest_is_valid_and_status_is_retired(self):
         self.assertEqual(mod.validate_manifest(self.manifest), [])
         self.assertEqual(mod.validate_status(self.status, self.manifest), [])
         receipt = mod.readiness(self.manifest, self.status)
         self.assertFalse(receipt["preflight_ready"])
         self.assertFalse(receipt["ready_for_provider_spend"])
-        self.assertIn("external public evaluator release is required", receipt["gates"])
+        self.assertEqual(receipt["gates"], [mod.NON_RUNNABLE_GATE])
 
     def test_frozen_protocol_forbids_post_release_exclusions(self):
         self.assertEqual(
@@ -344,7 +358,7 @@ class BenchmarkV3Tests(unittest.TestCase):
                 ),
             )
 
-    def test_complete_release_is_preflight_ready_but_still_cannot_spend(self):
+    def test_synthetic_shape_complete_release_cannot_restore_runnable_state(self):
         receipt = mod.readiness(
             self.manifest,
             self.status,
@@ -352,12 +366,9 @@ class BenchmarkV3Tests(unittest.TestCase):
             fixture_root=self.fixture_root,
             schedule=self.schedule,
         )
-        self.assertTrue(receipt["preflight_ready"])
+        self.assertFalse(receipt["preflight_ready"])
         self.assertFalse(receipt["ready_for_provider_spend"])
-        self.assertEqual(
-            receipt["gates"],
-            ["provider transport is intentionally disabled pending a reviewed runner slice"],
-        )
+        self.assertEqual(receipt["gates"], [mod.NON_RUNNABLE_GATE])
 
     def test_release_freezes_disjoint_pilot_and_full_fixture_sets(self):
         self.assertEqual(mod.validate_release(self.release, self.manifest), [])
@@ -841,7 +852,7 @@ class BenchmarkV3Tests(unittest.TestCase):
             ]
         )
 
-    def test_complete_full_stage_can_emit_a_deterministic_verified_receipt(self):
+    def test_historical_library_synthetic_full_decision_proves_retirement_need(self):
         path = self.initialize_journal()
         adjudications: list[dict] = []
         native_counts: dict[tuple[str, str], int] = {}
@@ -933,39 +944,29 @@ class BenchmarkV3Tests(unittest.TestCase):
     def test_concurrent_duplicate_claim_has_one_append_and_one_sequence(self):
         path = self.initialize_journal()
         run = self.run_for()
-        schedule_path = self.root / "schedule.json"
-        request_path = self.root / "request.json"
-        schedule_path.write_text(json.dumps(self.schedule), encoding="utf-8")
-        request_path.write_text(
-            json.dumps(
-                self.request(
-                    "concurrent-claim",
-                    "attempt_claimed",
-                    run,
-                    mod.attempt_id_for(run["run_id"], 1),
-                    {"worker_id": "worker-one"},
-                )
-            ),
-            encoding="utf-8",
+        request = self.request(
+            "concurrent-claim",
+            "attempt_claimed",
+            run,
+            mod.attempt_id_for(run["run_id"], 1),
+            {"worker_id": "worker-one"},
         )
-        command = [
-            sys.executable,
-            str(SCRIPT),
-            "journal-event",
-            "--schedule",
-            str(schedule_path),
-            "--journal",
-            str(path),
-            "--request",
-            str(request_path),
-        ]
+        context = multiprocessing.get_context("fork")
+        queue = context.Queue()
         processes = [
-            subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            context.Process(
+                target=record_historical_journal_event,
+                args=(path, self.schedule, request, queue),
+            )
             for _ in range(8)
         ]
-        results = [process.communicate(timeout=20) + (process.returncode,) for process in processes]
-        self.assertTrue(all(returncode == 0 for _stdout, _stderr, returncode in results), results)
-        receipts = [json.loads(stdout) for stdout, _stderr, _returncode in results]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=20)
+        receipts = [queue.get(timeout=2) for _ in processes]
+        self.assertTrue(all(receipt["ok"] for receipt in receipts), receipts)
+        self.assertTrue(all(process.exitcode == 0 for process in processes), receipts)
         self.assertEqual(sum(receipt["appended"] for receipt in receipts), 1)
         rows = mod.load_journal(path, self.schedule)
         self.assertEqual(len(rows), 2)
@@ -980,7 +981,7 @@ class BenchmarkV3Tests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(valid.returncode, 0, valid.stderr)
-        self.assertFalse(json.loads(valid.stdout)["provider_transport_enabled"])
+        self.assertFalse(json.loads(valid.stdout)["runnable"])
 
         not_ready = subprocess.run(
             [sys.executable, str(SCRIPT), "readiness"],
@@ -990,7 +991,42 @@ class BenchmarkV3Tests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(not_ready.returncode, 2, not_ready.stderr)
-        self.assertFalse(json.loads(not_ready.stdout)["ready_for_provider_spend"])
+        receipt = json.loads(not_ready.stdout)
+        self.assertFalse(receipt["ready_for_provider_spend"])
+        self.assertEqual(receipt["gates"], [mod.NON_RUNNABLE_GATE])
+
+    def test_every_operational_cli_command_refuses_before_loading_artifacts(self):
+        missing = str(self.root / "does-not-exist.json")
+        commands = [
+            ["schedule", "--release", missing, "--fixture-root", missing],
+            [
+                "packet", "--release", missing, "--fixture-root", missing,
+                "--schedule", missing, "--run-id", "run-00000000000000000000",
+            ],
+            ["journal-init", "--schedule", missing, "--journal", missing, "--operation-id", "op"],
+            ["journal-event", "--schedule", missing, "--journal", missing, "--request", missing],
+            ["journal-verify", "--schedule", missing, "--journal", missing],
+            [
+                "adjudicate", "--schedule", missing, "--journal", missing,
+                "--result", missing, "--evaluator-result", missing, "--operation-id", "op",
+            ],
+            [
+                "decide", "--release", missing, "--fixture-root", missing,
+                "--schedule", missing, "--journal", missing, "--adjudications", missing,
+            ],
+        ]
+        for command in commands:
+            with self.subTest(command=command[0]):
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), *command],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(mod.NON_RUNNABLE_GATE, result.stderr)
+                self.assertNotIn("does-not-exist", result.stderr)
 
 
 if __name__ == "__main__":

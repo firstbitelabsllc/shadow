@@ -1,6 +1,7 @@
 # Vidux Cockpit Benchmark v3
 
-Status: protocol frozen, preflight only. Provider transport is disabled.
+Status: retired and non-runnable. This document preserves the frozen design as
+an inspectable negative artifact; `STATUS.json` is the administrative truth.
 
 Protocol ID: `vidux-cockpit-v3`
 
@@ -123,5 +124,5 @@ win. A valid loss routes that class to direct-native by default.
 ## Current Boundary
 
 No evaluator release, schedule, runner transport, raw row, pilot result, or net
-win exists yet. The next step is an independent public pilot fixture release,
-then a separate reviewed runner implementation and one bounded pilot.
+win exists. V3 cannot issue any of them. Its integrity, cumulative-measurement,
+and crash-recovery corrections require the new `vidux-cockpit-v4` protocol ID.
