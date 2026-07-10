@@ -1365,6 +1365,7 @@ def build_mission_control(plans: list[dict]) -> dict:
         item = {
             **copy.deepcopy(brief),
             "repo": plan.get("repo", ""),
+            "slug": plan.get("slug", ""),
             "rel": plan.get("rel", ""),
             "path": plan.get("path", ""),
             "source_path": str(plan_path),
@@ -1386,14 +1387,155 @@ def build_mission_control(plans: list[dict]) -> dict:
         )
     )
     selected = candidates[0] if candidates else None
+    top_priority = int(selected.get("priority") or 0) if selected else 0
+    tied = [item for item in candidates if int(item.get("priority") or 0) == top_priority]
+    tied_projects = sorted({mission_candidate_label(item) for item in tied})
     if selected:
-        selected["selection_reason"] = (
-            f"priority {int(selected.get('priority') or 0)} · newest of {len(candidates)} "
-            f"current goal{'s' if len(candidates) != 1 else ''}"
-        )
+        if len(candidates) == 1:
+            selected["selection_reason"] = "only declared current goal"
+        elif len(tied) > 1:
+            selected["selection_reason"] = (
+                f"priority {top_priority} · newest of {len(tied)} tied current goals"
+            )
+        else:
+            selected["selection_reason"] = (
+                f"priority {top_priority} · highest of {len(candidates)} current goals"
+            )
+
+    if not selected:
+        authority = {
+            "state": "missing",
+            "claims_total": 0,
+            "tied_total": 0,
+            "tied_projects": [],
+        }
+    elif len(tied) > 1:
+        selected_label = mission_candidate_label(selected)
+        authority = {
+            "state": "conflict",
+            "claims_total": len(candidates),
+            "tied_total": len(tied),
+            "priority": top_priority,
+            "tied_projects": tied_projects,
+            "explanation": (
+                f"{len(tied)} plans share priority {top_priority}. Showing {selected_label} by latest "
+                "plan change, then plan name. Change Priority in one Operator Brief to choose the default."
+            ),
+        }
+    elif len(candidates) > 1:
+        selected_label = mission_candidate_label(selected)
+        authority = {
+            "state": "ranked",
+            "claims_total": len(candidates),
+            "tied_total": 1,
+            "priority": top_priority,
+            "tied_projects": tied_projects,
+            "explanation": (
+                f"{len(candidates)} plans declare current work. Showing {selected_label} because priority "
+                f"{top_priority} is highest."
+            ),
+        }
+    else:
+        authority = {
+            "state": "selected",
+            "claims_total": 1,
+            "tied_total": 1,
+            "priority": top_priority,
+            "tied_projects": tied_projects,
+        }
     return {
         "briefs_total": len(candidates),
         "selected": selected,
+        "authority": authority,
+    }
+
+
+def mission_candidate_label(item: dict) -> str:
+    repo = clean_structured_value(item.get("repo") or "Project", 80)
+    slug = clean_structured_value(item.get("slug") or "", 80)
+    if slug and slug != "_root_":
+        return f"{repo} / {slug}"
+    return repo
+
+
+def has_current_operator_brief(plan: dict) -> bool:
+    brief = plan.get("operator_brief") or {}
+    return bool(brief.get("outcome") and brief.get("next"))
+
+
+def discover_project_inventory(plans: list[dict]) -> list[dict]:
+    """Return path-free project setup state for the first-run cockpit."""
+    inventory: dict[str, dict] = {}
+    for plan in plans:
+        name = clean_structured_value(plan.get("repo") or "", 80)
+        if not name:
+            continue
+        project = inventory.setdefault(name, {"name": name, "plans": 0, "briefs": 0})
+        project["plans"] += 1
+        if has_current_operator_brief(plan):
+            project["briefs"] += 1
+
+    try:
+        root_children = sorted(DEV_ROOT.iterdir(), key=lambda path: path.name.casefold())
+    except OSError:
+        root_children = []
+    for child in root_children:
+        name = clean_structured_value(child.name, 80)
+        if not name or name.startswith(".") or has_sensitive_text(name) or child.is_symlink():
+            continue
+        try:
+            if not child.is_dir():
+                continue
+            git_marker = child / ".git"
+            if git_marker.is_symlink() or not (git_marker.is_dir() or git_marker.is_file()):
+                continue
+        except OSError:
+            continue
+        inventory.setdefault(name, {"name": name, "plans": 0, "briefs": 0})
+
+    projects = []
+    for project in inventory.values():
+        if project["plans"] == 0:
+            state = "unconnected"
+        elif project["briefs"] == 0:
+            state = "needs_brief"
+        else:
+            state = "ready"
+        projects.append({**project, "state": state})
+    projects.sort(key=lambda item: item["name"].casefold())
+    return projects
+
+
+def build_onboarding(plans: list[dict], mission: dict, project_limit: int = 12) -> dict:
+    projects = discover_project_inventory(plans)
+    connected = sum(1 for project in projects if project["plans"] > 0)
+    unconnected = sum(1 for project in projects if project["plans"] == 0)
+    briefs_total = int(mission.get("briefs_total") or 0)
+    missing_briefs = sum(1 for plan in plans if not has_current_operator_brief(plan))
+    authority_state = (mission.get("authority") or {}).get("state")
+
+    if not projects:
+        state = "empty"
+    elif not plans:
+        state = "projects_found"
+    elif authority_state == "conflict":
+        state = "authority_conflict"
+    elif not mission.get("selected"):
+        state = "needs_brief"
+    else:
+        state = "ready"
+
+    return {
+        "state": state,
+        "projects_total": len(projects),
+        "plans_total": len(plans),
+        "connected_projects": connected,
+        "unconnected_projects": unconnected,
+        "briefs_total": briefs_total,
+        "missing_briefs_total": missing_briefs,
+        "projects": projects[:project_limit],
+        "truncated": len(projects) > project_limit,
+        "init_command": "vidux init --here",
     }
 
 
@@ -1454,12 +1596,14 @@ def build_dashboard(plans: list[dict], limit: int = DASHBOARD_ITEM_LIMIT) -> dic
         bucket["truncated"] = bucket["total"] > len(bucket["items"])
         bucket["limit"] = limit
 
+    mission = build_mission_control(plans)
     return {
         "generated_at": _truth_now(),
         "plans_scanned": len(plans),
         "repos": len({plan.get("repo", "") for plan in plans if plan.get("repo")}),
         "limit": limit,
-        "mission_control": build_mission_control(plans),
+        "mission_control": mission,
+        "onboarding": build_onboarding(plans, mission),
         "categories": categories,
     }
 

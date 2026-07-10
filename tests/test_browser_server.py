@@ -1560,6 +1560,20 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         self.assertEqual(game_plans[0]["repo"], "strongyes-web")
         self.assertEqual(Path(game_plans[0]["path"]), canonical.resolve())
 
+    def test_project_inventory_includes_git_repos_without_plans(self):
+        for name in ("alpha", "beta", "gamma"):
+            (self.dev_root / name / ".git").mkdir(parents=True)
+        self.write_plan("alpha", "projects/current", "Current")
+
+        inventory = browser_server.discover_project_inventory(browser_server.discover_plans())
+
+        self.assertEqual([item["name"] for item in inventory], ["alpha", "beta", "gamma"])
+        self.assertEqual(inventory[0]["plans"], 1)
+        self.assertEqual(inventory[0]["state"], "needs_brief")
+        self.assertEqual(inventory[1]["plans"], 0)
+        self.assertEqual(inventory[1]["state"], "unconnected")
+        self.assertTrue(all("path" not in item for item in inventory))
+
     def test_discover_plans_handles_missing_evidence_directory(self):
         plan_path = self.write_plan("demo-repo", "projects/no-evidence", "No Evidence")
 
@@ -2008,7 +2022,8 @@ class BrowserDashboardTests(unittest.TestCase):
         self.assertEqual(selected["next"], "Ship mission control.")
         self.assertEqual(selected["source_rel"], "other/projects/high/PLAN.md")
         self.assertEqual(selected["tab"], "PLAN.md")
-        self.assertEqual(selected["selection_reason"], "priority 100 · newest of 2 current goals")
+        self.assertEqual(selected["selection_reason"], "priority 100 · highest of 2 current goals")
+        self.assertEqual(dashboard["mission_control"]["authority"]["state"], "ranked")
         self.assertEqual(selected["evidence_target"]["state"], "missing")
         self.assertEqual(len(selected["scorecard"]), 2)
         self.assertEqual(selected["scorecard"][0]["status"], "losing")
@@ -2037,7 +2052,56 @@ class BrowserDashboardTests(unittest.TestCase):
 
         self.assertEqual(plan["operator_brief"], {})
         self.assertEqual(plan["outcome_scorecard"], [])
-        self.assertEqual(mission, {"briefs_total": 0, "selected": None})
+        self.assertEqual(mission["briefs_total"], 0)
+        self.assertIsNone(mission["selected"])
+        self.assertEqual(mission["authority"]["state"], "missing")
+
+    def test_onboarding_clean_root_has_public_first_step(self):
+        dashboard = browser_server.build_dashboard([])
+        onboarding = dashboard["onboarding"]
+
+        self.assertEqual(onboarding["state"], "empty")
+        self.assertEqual(onboarding["projects_total"], 0)
+        self.assertEqual(onboarding["plans_total"], 0)
+        self.assertEqual(onboarding["init_command"], "vidux init --here")
+        self.assertNotIn(str(self.dev_root), json.dumps(onboarding))
+
+    def test_onboarding_explains_tied_current_work_across_three_projects(self):
+        for name in ("alpha", "beta", "gamma"):
+            (self.dev_root / name / ".git").mkdir(parents=True)
+
+        def write_brief(repo: str, priority: int, mtime: int) -> None:
+            plan = self.dev_root / repo / "PLAN.md"
+            plan.write_text(
+                f"# {repo.title()}\n\n"
+                "## Operator Brief\n"
+                "- Status: watching\n"
+                f"- Priority: {priority}\n"
+                f"- Outcome: Ship {repo}.\n"
+                "- Next: Run the proof.\n\n"
+                "## Tasks\n- [pending] prove it\n",
+                encoding="utf-8",
+            )
+            os.utime(plan, (mtime, mtime))
+
+        write_brief("alpha", 80, 1_700_000_000)
+        write_brief("beta", 80, 1_700_000_100)
+
+        dashboard = browser_server.build_dashboard(browser_server.discover_plans())
+        mission = dashboard["mission_control"]
+        onboarding = dashboard["onboarding"]
+
+        self.assertEqual(mission["selected"]["repo"], "beta")
+        self.assertEqual(mission["selected"]["selection_reason"], "priority 80 · newest of 2 tied current goals")
+        self.assertEqual(mission["authority"]["state"], "conflict")
+        self.assertEqual(mission["authority"]["tied_total"], 2)
+        self.assertEqual(mission["authority"]["tied_projects"], ["alpha", "beta"])
+        self.assertIn("2 plans share priority 80", mission["authority"]["explanation"])
+        self.assertIn("Showing beta", mission["authority"]["explanation"])
+        self.assertEqual(onboarding["state"], "authority_conflict")
+        self.assertEqual(onboarding["projects_total"], 3)
+        self.assertEqual(onboarding["connected_projects"], 2)
+        self.assertEqual(onboarding["unconnected_projects"], 1)
 
     def test_operator_brief_freshness_is_explicit_and_deterministic(self):
         today = browser_server.date(2026, 7, 9)

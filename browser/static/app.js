@@ -1,5 +1,6 @@
 const sidebarSort = window.ViduxSidebarSort;
 const sidebarFilters = window.ViduxSidebarFilters;
+const onboardingUi = window.ViduxOnboarding;
 const annotationState = window.ViduxAnnotationState;
 const commentRail = window.ViduxCommentRail;
 const commentMarkers = window.ViduxCommentMarkers;
@@ -626,31 +627,10 @@ function renderMissionMetric(metric, selected) {
 
 function renderMissionControl() {
   const mission = state.dashboard?.mission_control || {};
+  const onboarding = state.dashboard?.onboarding || {};
   const selected = mission.selected;
   if (!selected) {
-    const planCount = state.plans.length;
-    const singlePlan = planCount === 1 ? state.plans[0] : null;
-    const title = planCount === 0
-      ? "No projects found"
-      : (singlePlan ? "Set the current goal" : "Choose current work");
-    const copy = planCount === 0
-      ? "Add a PLAN.md to a project, then scan again."
-      : (singlePlan
-          ? "This project has a plan, but it does not yet say what matters next."
-          : `${planCount} plans are indexed. Choose one to make its goal and next step explicit.`);
-    const action = planCount === 0
-      ? `<button class="mission-empty-action" type="button" data-refresh-plans>Scan again</button>`
-      : (singlePlan
-          ? `<button class="mission-empty-action" type="button" data-dashboard-rel="${escapeAttr(singlePlan.rel)}" data-dashboard-tab="PLAN.md">Open plan</button>`
-          : `<button class="mission-empty-action" type="button" data-open-sidebar>Choose a plan</button>`);
-    return `<section class="mission-control is-empty" aria-label="Mission control">
-  <div class="mission-empty-copy">
-    <div class="mission-kicker">Setup needed</div>
-    <h2>${escapeText(title)}</h2>
-    <p>${escapeText(copy)}</p>
-  </div>
-  ${action}
-</section>`;
+    return onboardingUi.renderEmpty(onboarding, state.plans);
   }
 
   const scorecard = Array.isArray(selected.scorecard) ? selected.scorecard : [];
@@ -658,6 +638,7 @@ function renderMissionControl() {
   const workflowStatus = missionStatusClass(selected.status);
   const freshness = selected.freshness || { status: "unknown" };
   const freshnessStatus = missionStatusClass(freshness.status);
+  const authorityNote = onboardingUi.renderAuthority(mission.authority || {});
   const scorecardBody = scorecard.length
     ? scorecard.map(metric => renderMissionMetric(metric, selected)).join("")
     : `<p class="mission-scorecard-empty">No measures declared.</p>`;
@@ -679,6 +660,7 @@ function renderMissionControl() {
     </div>
     <button class="mission-open-plan" type="button" data-dashboard-rel="${escapeAttr(selected.rel || "")}" data-dashboard-tab="PLAN.md">Open plan <span aria-hidden="true">→</span></button>
   </header>
+  ${authorityNote}
   <div class="mission-control-body">
     <section class="mission-next" aria-label="Next move">
       <div class="mission-section-label">Next step</div>
@@ -824,7 +806,10 @@ function setupDashboardPane() {
     });
   });
   els.pane.querySelectorAll("[data-open-sidebar]").forEach(button => {
-    button.addEventListener("click", () => setSidebarOpen(true, { focusFilter: true }));
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      setSidebarOpen(true, { focusFilter: true });
+    });
   });
   els.pane.querySelectorAll("[data-refresh-plans]").forEach(button => {
     button.addEventListener("click", () => runExplicitRefresh());
@@ -1149,14 +1134,10 @@ function renderSidebar() {
       : escapeText(sidebarFilters.summary(state.filterChips) || "current filters");
     els.list.innerHTML = noResults
       ? `<div class="empty-state">
-          <p><strong>No plans or artifacts found.</strong></p>
-          <p>vidux-browse looks for <code>PLAN.md</code> files under the dev-root directory.</p>
-          <p>Try:</p>
-          <ul>
-            <li>Add a <code>PLAN.md</code> to a project inside your dev-root</li>
-            <li>Set <code>VIDUX_DEV_ROOT</code> or pass <code>--root &lt;path&gt;</code> when launching</li>
-            <li>Click <strong>↻ refresh</strong> after adding plans</li>
-          </ul>
+          <p><strong>No plans connected.</strong></p>
+          <p>Open a terminal in your project and run:</p>
+          <p><code>vidux init --here</code></p>
+          <p>Then refresh. If the project lives outside this scan root, relaunch Vidux with <code>--root &lt;path&gt;</code>.</p>
         </div>`
       : `<p class="muted" style="padding:12px">no matches for ${activeFilterLabel}</p>`;
     refreshAnnotationTargetsIfNeeded();

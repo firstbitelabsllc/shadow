@@ -1536,6 +1536,66 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
   color: var(--ink-2);
   font-size: var(--text-body);
 }
+.mission-project-list {
+  margin-top: var(--space-2) !important;
+  color: var(--ink) !important;
+  font-family: var(--mono);
+  font-size: var(--text-label) !important;
+}
+.mission-setup-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: var(--text-small);
+}
+.mission-setup-guide code,
+.mission-brief-hint code {
+  padding: 4px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--text-label);
+  overflow-wrap: anywhere;
+}
+.mission-brief-hint {
+  margin-top: var(--space-3) !important;
+}
+.mission-authority-note {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--rule);
+  background: var(--select);
+}
+.mission-authority-note p {
+  max-width: 900px;
+  margin: var(--space-1) 0 0;
+  color: var(--ink);
+  font-size: var(--text-small);
+  line-height: 1.45;
+}
+.mission-authority-note button {
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+.mission-authority-note button:hover { background: var(--paper); }
 
 .simple-queue {
   margin: var(--space-6) 0;
@@ -2659,6 +2719,7 @@ body.is-annotation-mode #filter {
   .repo-disclosure { min-height: 44px; }
   .mission-proof-link,
   .mission-empty-action,
+  .mission-authority-note button,
   .simple-queue-row { min-height: 44px; }
   .comment-anchor button {
     min-height: 32px;
@@ -2699,6 +2760,11 @@ body.is-annotation-mode #filter {
   .mission-control.is-empty {
     grid-template-columns: 1fr;
   }
+  .mission-authority-note {
+    grid-template-columns: 1fr;
+    padding: var(--space-3);
+  }
+  .mission-authority-note button { width: 100%; }
   .mission-details dl > div { grid-template-columns: 96px minmax(0, 1fr); }
   .simple-queue-row { grid-template-columns: 88px minmax(0, 1fr) auto; }
   .dashboard-card strong {

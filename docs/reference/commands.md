@@ -60,6 +60,7 @@ It also defines a 10-cell progress bar and rules for hiding stale, inactive plan
 
 `bin/vidux` exposes helper subcommands that back the discipline:
 
+- `vidux init --here` creates a cockpit-ready `PLAN.md` in the current project; `vidux init <slug>` keeps the central `projects/<slug>/PLAN.md` form. Both refuse to overwrite and start with an explicit unproven result.
 - `vidux config path|check|show|init` resolves and validates the local
   `vidux.config.json`, falling back to `vidux.config.example.json` unless
   `--strict` is used. JSON output includes redacted inbox-source metadata for
