@@ -2274,13 +2274,21 @@ body.is-annotation-mode #filter {
     --task-completed: #6db580;
     --task-blocked: #d97a4a;
     --task-shipped: #d8b558;
+    /* Round-9 fix: this bare @media block is the FOUC-guard's own fallback
+     * path (index.html inline script) when localStorage throws -- it never
+     * gets the .theme-dark class, so --error/--warning must be redeclared
+     * here too, not just in :root.theme-dark. Same values as that block. */
+    --error: #d97a4a;
+    --error-bg: #3a221a;
+    --error-ink: #f3c1a8;
+    --warning: #c8a558;
+    --warning-bg: #2e260f;
+    --warning-ink: #ead495;
   }
   .markdown pre,
   .markdown code,
   .contact-card { background: var(--paper-2); }
   .markdown blockquote { color: var(--ink-2); }
-  /* .error already routes through tokens (--error/-bg/-ink); they're remapped
-   * for dark mode by the :root.theme-dark block above. No override needed. */
   .topbar-meta button:hover,
   .sidebar-toggle:hover { background: var(--select); }
   /* In dark mode, var(--paper) IS the base background — so the default
