@@ -102,6 +102,18 @@ class ReleasePackageTests(unittest.TestCase):
             errors,
         )
 
+    def test_requires_only_the_public_v4_preflight_surface(self) -> None:
+        package, pack, tracked = baseline()
+        pack["files"].append({"path": "benchmarks/v4/private-evaluator.json", "size": 1})
+        tracked.add("benchmarks/v4/private-evaluator.json")
+
+        errors = self.errors(package, pack, tracked)
+
+        self.assertTrue(
+            any("runtime or evaluator v4 files" in error for error in errors),
+            errors,
+        )
+
     def test_rejects_unsafe_publish_configuration(self) -> None:
         package, pack, tracked = baseline()
         package["publishConfig"] = {"access": "restricted"}

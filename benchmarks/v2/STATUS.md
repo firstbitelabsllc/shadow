@@ -12,9 +12,9 @@ outcome-determining changes to provider matching, oracle adjudication, schedule
 completeness, receipt verification, and hard budgets. The manifest's amendment
 policy requires those corrections to use a new protocol id.
 
-The tracked replacement is `vidux-cockpit-v3`. Its protocol is frozen for
-preflight, while provider transport remains disabled pending an external
-evaluator release and a separately reviewed runner.
+The direct replacement was `vidux-cockpit-v3`, which was later retired after
+integrity, cumulative-measurement, and crash-recovery falsification. The current
+replacement line is the non-runnable `vidux-cockpit-v4` integrity preflight.
 
 No fixture release or raw rows exist. Verified net-win scenario classes remain
 zero, and no Vidux superiority claim is supported by v2.

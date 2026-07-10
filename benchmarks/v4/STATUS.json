@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "protocol_id": "vidux-cockpit-v4",
+  "status": "draft_integrity_preflight",
+  "runnable": false,
+  "manifest_digest": "dfbe8444fc60580615f75eeb3749383c13e2d8e25f055acf272e684269976edb",
+  "created_at": "2026-07-10T15:20:41Z",
+  "provider_transport_enabled": false,
+  "evaluator_registration_sha256": null,
+  "claim_eligible": false,
+  "verified_net_win_classes": 0,
+  "next_gate": "freeze_authenticated_external_evaluator_registration_then_review_runner"
+}
