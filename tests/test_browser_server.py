@@ -1616,6 +1616,34 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         )
         return path
 
+    def test_symlink_escaping_dev_root_does_not_crash_discovery(self):
+        # Round-11 panel finding: a symlink under DEV_ROOT whose target
+        # resolves OUTSIDE it made glob+resolve() hand an out-of-root path to
+        # plan_meta(), whose unguarded path.relative_to(DEV_ROOT) raised
+        # ValueError and crashed the entire /api/plans dashboard (cache never
+        # populated -> every request re-crashed). discover_plans() must skip
+        # the escaping entry, not raise, and still surface the valid plans.
+        good = self.write_plan("realrepo", "projects/proj")
+        with tempfile.TemporaryDirectory() as outside:
+            outside_plan = Path(outside) / "PLAN.md"
+            outside_plan.write_text("# Outside\n\n## Purpose\nEscaped.\n", encoding="utf-8")
+            # Sits at a globbed depth (*/projects/*/PLAN.md) so it IS matched,
+            # then resolves outside DEV_ROOT via the symlink.
+            link_dir = self.dev_root / "evilrepo" / "projects" / "escape"
+            link_dir.mkdir(parents=True)
+            (link_dir / "PLAN.md").symlink_to(outside_plan)
+
+            # Must not raise (pre-fix this raised ValueError from plan_meta).
+            plans = browser_server.discover_plans()
+
+            paths = {p["path"] for p in plans}
+            self.assertIn(str(good), paths, "valid in-root plan should still be discovered")
+            self.assertNotIn(
+                str(outside_plan.resolve()),
+                paths,
+                "a symlink target resolving outside DEV_ROOT must be skipped, not surfaced",
+            )
+
     def test_repo_aliases_dedup_prefers_canonical_checkout(self):
         """When env `VIDUX_REPO_ALIASES` maps an old checkout name to a
         canonical one, discover_plans() should keep only the canonical copy
