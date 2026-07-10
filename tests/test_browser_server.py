@@ -109,35 +109,28 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
             "sanity check: Origin==Host agreement alone is not a defense",
         )
 
-    def test_allowed_request_host_permits_lan_bind_for_documented_read_mode(self):
-        # 0.0.0.0/:: is the explicit, documented trusted-LAN opt-in
-        # (README.md, SKILL.md) -- a real LAN peer's Host header, a
-        # private-use IP literal, is expected and accepted.
+    def test_allowed_request_host_permits_private_ip_in_lan_bind_mode(self):
+        # Wildcard bind exposes the server to a trusted LAN, but it must still
+        # admit a concrete private IP identity rather than every Host value.
         self.assertTrue(
             browser_server.is_allowed_request_host("192.168.1.50:7191", "0.0.0.0")
         )
 
-    def test_allowed_request_host_rejects_dns_rebound_hostname_even_in_lan_bind_mode(self):
-        # Round-9 panel finding, empirically proven with a live curl PoC
-        # before this fix: is_allowed_request_host() used to return True
-        # unconditionally for ANY Host header when bind_host is 0.0.0.0/::,
-        # which let a DNS-rebinding attacker (Host and Origin both set to
-        # their own registered domain, which resolves to this loopback
-        # server) satisfy the require_origin=True write-route check added in
-        # round 8 -- is_loopback_host(client_address) doesn't catch it
-        # either, since the rebound TCP connection genuinely originates
-        # from this machine. An attacker's domain is never a private-use IP
-        # literal, so it must be rejected in LAN-bind mode exactly like it
-        # already is in the default-bind mode.
-        self.assertFalse(
-            browser_server.is_allowed_request_host("evil.example:7191", "0.0.0.0")
-        )
-        self.assertFalse(
-            browser_server.is_allowed_request_host("evil.example:7191", "::")
+    def test_allowed_request_host_rejects_domain_in_lan_bind_mode(self):
+        # A DNS-rebound page presents its registered domain as both Host and
+        # Origin. Wildcard bind cannot mean wildcard Host trust.
+        for bind_host in ("0.0.0.0", "::"):
+            self.assertFalse(
+                browser_server.is_allowed_request_host("evil.example:7191", bind_host)
+            )
+
+    def test_allowed_request_host_normalizes_specific_ipv6_bind(self):
+        self.assertTrue(
+            browser_server.is_allowed_request_host("[fd00::1]:7191", "fd00::1")
         )
 
     def test_private_lan_ip_literal_accepts_rfc1918_and_rejects_domains(self):
-        for host in ("192.168.1.50", "10.0.0.5", "172.16.4.4"):
+        for host in ("192.168.1.50", "10.0.0.5", "172.16.4.4", "[fd00::1]"):
             self.assertTrue(
                 browser_server.is_private_lan_ip_literal(host),
                 f"expected {host!r} to be recognized as a private-LAN literal",
@@ -269,6 +262,31 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         status, text = self.get_with_headers(
             "/api/health", {"Host": f"127.0.0.1:{self.port}"}
         )
+
+        self.assertEqual(status, 200, text)
+
+    def test_get_rejects_dns_rebound_host_header_in_lan_bind_mode(self):
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            status, text = self.get_with_headers(
+                "/api/plans",
+                {"Host": "evil.example:7191", "Origin": "http://evil.example:7191"},
+            )
+        finally:
+            browser_server.HOST = original_host
+
+        self.assertEqual(status, 403, text)
+
+    def test_get_accepts_private_ip_host_header_in_lan_bind_mode(self):
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            status, text = self.get_with_headers(
+                "/api/plans", {"Host": "192.168.1.50:7191"}
+            )
+        finally:
+            browser_server.HOST = original_host
 
         self.assertEqual(status, 200, text)
 
