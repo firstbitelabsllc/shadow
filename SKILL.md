@@ -792,7 +792,7 @@ These rules apply to `/vidux loop`, `/vidux nurse`, and any coordinated tracking
 When a cron lane is firing AND the user interactively redirects mid-cycle ("revamp X next", "switch to Y"), UPDATE the cron prompt in-place rather than waiting for prior tasks to drain. Two re-arm shapes:
 
 - **Soft re-arm** (redirect EXTENDS scope) — edit the existing prompt's priority order; preserve in-flight task list. The next tick picks up the new priority.
-- **Hard re-arm** (redirect REPLACES scope) — `CronDelete` + `CronCreate` with a fresh prompt. Prior cron's working notes stay in PLAN.md as decision trail.
+- **Hard re-arm** (redirect REPLACES scope) — a cron-management primitive (e.g. `CronDelete` + `CronCreate` in Claude Code, or the equivalent scheduler tools in other harnesses) with a fresh prompt. Prior cron's working notes stay in PLAN.md as decision trail.
 
 Evidence: ~2s re-arm vs 15-20min full cron-interval drain. Generalizes to any cron + interactive overlap (release babysitters, watcher loops, polish loops).
 
@@ -899,7 +899,7 @@ Vidux delegates; it never duplicates. Universal companion skills may be availabl
 - `nia` — external doc/package source lookup (check before a web-fetch tool call, e.g. `WebFetch` in Claude Code).
 - `amp` — prompt amplification for vague tasks (GATHER → steer → fire).
 
-Local skills need no manual "on" switch if the `~/.claude/skills` or repo-local symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
+Local skills need no manual "on" switch if the harness's skills directory (e.g. `~/.claude/skills` in Claude Code, `~/.codex/skills`, `~/.cursor/skills`) or repo-local symlink is correct. MCP-backed tools are separate from skills and may still need app-side install/auth.
 
 When a repo has one active feature-reset plan and multiple agents work in parallel:
 - Reuse the existing plan; never create a competing plan doc.
