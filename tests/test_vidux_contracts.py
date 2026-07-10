@@ -1236,14 +1236,14 @@ class ViduxContractTests(unittest.TestCase):
         trunk = text[text.index("### Trunk-First Rule") : text.index("**Worktree lifecycle:**")]
 
         self.assertLess(
-            push.index("ledger-emit.sh --event publish"),
+            push.index("--event publish"),
             push.index("Open PRs ready-for-review"),
         )
         for phrase in [
             "Operational PR-branch pushes are safe without asking only after",
             "owning PLAN.md row/Progress/Drift Log is updated",
-            "ledger-emit.sh --event publish",
-            "records the publish packet",
+            "--event publish",
+            "is recorded via an external ledger emitter",
             "Direct-to-main requires explicit authorization + the same publish propagation",
             "normal publish-propagated PR-branch push",
         ]:
@@ -5174,17 +5174,23 @@ class ViduxContractTests(unittest.TestCase):
     # ===================================================================== #
 
     # -----------------------------------------------------------------------
-    # DOCTRINE.md: 12 principles
+    # DOCTRINE.md: 13 principles
     # -----------------------------------------------------------------------
 
-    def test_doctrine_has_twelve_principles(self):
-        """DOCTRINE.md must contain all 12 numbered principles."""
+    def test_doctrine_has_thirteen_principles(self):
+        """DOCTRINE.md must contain all 13 numbered principles, consecutively
+        numbered with no gap. Round-8 panel finding: principle 13 ("Hungry by
+        default") previously existed under a stray, unrenumbered "### 14"
+        heading with no "13" anywhere, while the doc's own intro and
+        ARCHITECTURE.md's cross-reference both claimed "12 principles"."""
         text = _read(DOCTRINE)
-        for n in range(1, 13):
+        for n in range(1, 14):
             self.assertTrue(
                 re.search(rf"^## {n}\.", text, re.MULTILINE),
                 f"DOCTRINE.md missing principle #{n}",
             )
+        self.assertNotIn("### 14.", text)
+        self.assertIn("13 principles", text)
 
     def test_doctrine_has_loop_discipline_section(self):
         """DOCTRINE.md must contain the Loop Discipline section covering principles 10-12."""

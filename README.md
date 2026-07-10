@@ -177,7 +177,7 @@ Vidux is the middle: more structure than bare chat, meaningfully less than an or
 
 \* Enough to write and run your first `PLAN.md`. `SKILL.md` (the full doctrine, including scheduling, multi-agent lanes, and edge cases) is much longer — most of it is reference material you'll never need to read.
 
-None of this makes vidux "better" — it's a different set of tradeoffs. Vidux's core actually does support scheduled/persistent loops, multi-agent lane coordination, and PR-nursing (see `guides/`) — it just does it with cron/launchd, plain files, and git instead of a framework's built-in Agent/Task/Crew abstractions or a hosted service. If you want those abstractions doing the wiring for you, or need dozens of coordinated roles out of the box, reach for one of those frameworks. If you want the same capabilities built from primitives you can read in a text editor, that's what vidux is for.
+None of this makes vidux "better" — it's a different set of tradeoffs. Vidux's core actually does support scheduled/persistent loops, multi-agent lane coordination, and PR-nursing (see SKILL.md's Persistent Loop Mode, Nursing Mode, and Coordination Mode sections) — it just does it with cron/launchd, plain files, and git instead of a framework's built-in Agent/Task/Crew abstractions or a hosted service. If you want those abstractions doing the wiring for you, or need dozens of coordinated roles out of the box, reach for one of those frameworks. If you want the same capabilities built from primitives you can read in a text editor, that's what vidux is for.
 
 **This design isn't a guess — it's the result of measuring a fancier version and cutting it.** Vidux used to also try to structure *how* work handed off between a planning step and an executing step (a "kernel" transport format). A 2026-07-03 evaluation (119 runs, 117 clean after protocol exclusions) tested that structured handoff against just letting an agent work freeform off the same plan file — freeform won on every frozen threshold. The clearest single head-to-head (17 runs each, same model) had freeform resolving 76% vs. the kernel handoff's 59%. So the structured-handoff layer was cut. What's left, and what this README describes, is what actually earned its keep: one plan file, one proof log, one cycle. See the 2026-07-07 Decision Log entry in `PLAN.md` and `evidence/2026-07-07-kernel-cut-pivot.md` for the full writeup (the evaluation harness itself is a local-only, unshipped tool — this repo carries the result, not the harness).
 
@@ -205,7 +205,7 @@ Hard rules that prevent the most common stateless-agent failures:
 
 **A merge never silently deletes tasks** — `.gitattributes` unions `PLAN.md` conflicts, and `scripts/vidux-plan-guard.sh` records the task count at every checkpoint and flags an unexplained drop on the next read (`plan_integrity_warning` in `vidux-loop.sh`'s JSON). Intentional cuts are authorized with a dated `- [DELETION] [YYYY-MM-DD] ...` Decision Log entry. See `investigations/2026-04-09-plan-clobber-postmortem.md`.
 
-**3x stuck rule** — same task in 3+ consecutive progress entries while in-progress = auto-exit. Brake, not kill.
+**3x stuck rule** — same task in 3+ consecutive progress entries while in-progress reports a stuck state by default; auto-blocking it in `PLAN.md` (flip to `[blocked]` + a Decision Log entry) is opt-in via `VIDUX_LOOP_AUTO_BLOCK=1`. Brake, not kill.
 
 ## Status & Config
 
@@ -259,7 +259,7 @@ Patterns:
 - **Ready-PR-first** — push ready-for-review by default so review bots run; draft is for true WIP or missing gates.
 - **Progress is code change** — PRs touching only `PLAN.md` / `investigations/` / `evidence/` are bookkeeping; bundle plan updates into the code PR or keep notes local.
 - **`observed` evidence type** — user-observed app behavior is first-class plan evidence.
-- **3x stuck rule** — same task in 3+ consecutive progress entries = auto-exit.
+- **3x stuck rule** — same task in 3+ consecutive progress entries reports a stuck state by default (auto-blocking it in `PLAN.md` is opt-in via `VIDUX_LOOP_AUTO_BLOCK=1`).
 
 Guides: [automation](guides/automation.md), [references/automation](references/automation.md), [fleet-ops](guides/fleet-ops.md), [recipes](guides/recipes.md), [recipe catalog](guides/recipes/), [draft-pr-flow](guides/draft-pr-flow.md), [subagent-delegation](guides/recipes/subagent-delegation.md).
 
