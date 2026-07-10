@@ -110,3 +110,31 @@ This closes the artifact network surface, not the full 6.0.2 parent. Symlink/har
 ### Proof
 
 See `evidence/2026-07-10-browser-artifact-network-isolation.md` for the red/green request receipts, response contract, cross-browser and visual proof, and final repository gates.
+
+## Follow-up: Filesystem Alias Mutation Boundary
+
+### Reporter Says
+
+Loopback and origin gates do not make a local path safe to mutate. Existing artifact, comment, plan-note, receipt-image, corpus, and lock paths could be symlinks or hard links to a different local file, allowing an otherwise valid write to modify that referent.
+
+### Red Evidence
+
+- The pre-fix focused matrix ran 73 tests and failed on 11 real product cases, plus 2 cleanup errors caused by the expected alias mutations.
+- Artifact, comment, and `INBOX.md` writes followed both symlink and hard-link targets and returned success.
+- Receipt upload followed pre-existing image aliases; corpus append followed corpus and lock aliases; image-jail validation accepted hard-linked images.
+- Every test used a temporary outside sentinel and proved the referent bytes changed or the write was accepted. No production path was touched.
+
+### Fix
+
+- Add one stdlib-only filesystem primitive that opens parent directories and final components with no-follow flags, requires regular single-link files, and emits a generic alias error.
+- Commit rewrites through a unique temporary file and descriptor-relative atomic replacement, preserving the existing receipt corpus lock, adding a safe cross-process comment lock, and retaining in-process plan-note serialization.
+- Route artifact, comment, `INBOX.md`, receipt-image, corpus, and lock writes through that boundary; reject hard-linked image reads at the receipt jail.
+- Keep hard-linked artifacts available as intentional read-only mirrors, while refusing to overwrite them through `POST /api/artifact`.
+
+### Remaining Boundary
+
+This closes local filesystem-alias mutation behavior, not the full 6.0.2 parent. Authorization for any future runner endpoint and sensitive text embedded in binary receipt pixels remain open. Benchmark v2 still has zero verified net-win scenario classes.
+
+### Proof
+
+See `evidence/2026-07-10-browser-filesystem-alias-boundary.md` for the exact red/green commands, sentinel matrix, sidecar status, mount proof, and final repository gates.

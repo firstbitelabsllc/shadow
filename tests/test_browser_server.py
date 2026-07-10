@@ -4,6 +4,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -415,6 +416,50 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertTrue((self.artifacts_dir / "safe-artifact.html").is_file())
 
+    def test_artifact_post_rejects_symlink_target_without_touching_referent(self):
+        self.artifacts_dir.mkdir(parents=True)
+        outside = self.dev_root / "outside-artifact.html"
+        outside.write_text("outside sentinel", encoding="utf-8")
+        (self.artifacts_dir / "aliased-artifact.html").symlink_to(outside)
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "aliased-artifact", "html": "<h1>Overwritten</h1>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "outside sentinel")
+
+    def test_artifact_post_rejects_hardlink_target_without_touching_referent(self):
+        self.artifacts_dir.mkdir(parents=True)
+        outside = self.dev_root / "outside-artifact.html"
+        outside.write_text("outside sentinel", encoding="utf-8")
+        os.link(outside, self.artifacts_dir / "aliased-artifact.html")
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "aliased-artifact", "html": "<h1>Overwritten</h1>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "outside sentinel")
+
+    def test_artifact_post_rejects_symlinked_store_directory(self):
+        outside = self.dev_root / "outside-artifacts"
+        outside.mkdir()
+        self.artifacts_dir.symlink_to(outside, target_is_directory=True)
+
+        status, text = self.post(
+            "/api/artifact",
+            {"slug": "aliased-parent", "html": "<h1>Must stay local</h1>"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertFalse((outside / "aliased-parent.html").exists())
+
     def test_artifact_post_rejects_sensitive_content(self):
         secret = synthetic_secret()
 
@@ -510,6 +555,40 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertIn("safe note", (self.plan_dir / "INBOX.md").read_text(encoding="utf-8"))
 
+    def test_plan_note_post_rejects_symlink_inbox_without_touching_referent(self):
+        outside = self.dev_root / "outside-inbox.md"
+        outside.write_text("# Outside\n\n## Open\n", encoding="utf-8")
+        (self.plan_dir / "INBOX.md").symlink_to(outside)
+
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "must stay local"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(
+            outside.read_text(encoding="utf-8"),
+            "# Outside\n\n## Open\n",
+        )
+
+    def test_plan_note_post_rejects_hardlink_inbox_without_touching_referent(self):
+        outside = self.dev_root / "outside-inbox.md"
+        outside.write_text("# Outside\n\n## Open\n", encoding="utf-8")
+        os.link(outside, self.plan_dir / "INBOX.md")
+
+        status, text = self.post(
+            "/api/local-plan-note",
+            {"plan_path": str(self.plan_path), "note": "must stay local"},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(
+            outside.read_text(encoding="utf-8"),
+            "# Outside\n\n## Open\n",
+        )
+
     def test_plan_note_post_rejects_sensitive_content_without_inbox_write(self):
         secret = synthetic_secret()
 
@@ -568,6 +647,161 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(payload["target_kind"], "plan")
         self.assertEqual(payload["comments"][0]["author"], "Viewer")
         self.assertEqual(payload["comments"][0]["body"], "This needs a quick annotation.")
+
+    def test_comments_post_rejects_symlink_store_without_touching_referent(self):
+        outside = self.dev_root / "outside-comments.jsonl"
+        outside.write_text('{"outside":true}\n', encoding="utf-8")
+        self.comments_file.symlink_to(outside)
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": "must stay local",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), '{"outside":true}\n')
+
+    def test_comments_post_rejects_hardlink_store_without_touching_referent(self):
+        outside = self.dev_root / "outside-comments.jsonl"
+        outside.write_text('{"outside":true}\n', encoding="utf-8")
+        os.link(outside, self.comments_file)
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": "must stay local",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(outside.read_text(encoding="utf-8"), '{"outside":true}\n')
+
+    def test_comments_post_rejects_aliased_lock_file(self):
+        outside = self.dev_root / "outside-comments-lock"
+        outside.write_text("outside sentinel", encoding="utf-8")
+        lock_path = self.comments_file.with_suffix(self.comments_file.suffix + ".lock")
+
+        for alias_kind in ("symlink", "hardlink"):
+            with self.subTest(alias_kind=alias_kind):
+                lock_path.unlink(missing_ok=True)
+                if alias_kind == "symlink":
+                    lock_path.symlink_to(outside)
+                else:
+                    os.link(outside, lock_path)
+
+                status, text = self.post(
+                    "/api/comments",
+                    {
+                        "target_path": str(self.plan_path),
+                        "author": "Viewer",
+                        "body": "must stay local",
+                    },
+                    self.json_headers(Origin=self.origin()),
+                )
+
+                self.assertEqual(status, 400, text)
+                self.assertFalse(self.comments_file.exists())
+                self.assertEqual(outside.read_text(encoding="utf-8"), "outside sentinel")
+
+        lock_path.unlink(missing_ok=True)
+
+    def test_comments_cross_process_writes_do_not_lose_records(self):
+        start_file = self.dev_root / "release-comment-workers"
+        script = """
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+import server
+
+original_atomic_write = server.atomic_write_text
+
+def delayed_atomic_write(*args, **kwargs):
+    time.sleep(0.05)
+    return original_atomic_write(*args, **kwargs)
+
+server.atomic_write_text = delayed_atomic_write
+while not Path(sys.argv[4]).exists():
+    time.sleep(0.01)
+ok, message = server.append_comment(
+    Path(sys.argv[2]),
+    "worker",
+    sys.argv[3],
+    "127.0.0.1",
+)
+if not ok:
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+"""
+        env = os.environ.copy()
+        env["VIDUX_DEV_ROOT"] = str(self.dev_root)
+        env["VIDUX_BROWSER_COMMENTS_FILE"] = str(self.comments_file)
+        workers = [
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    script,
+                    str(ROOT / "browser"),
+                    str(self.plan_path),
+                    f"worker-{index}",
+                    str(start_file),
+                ],
+                cwd=ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for index in range(8)
+        ]
+        start_file.touch()
+
+        failures = []
+        for worker in workers:
+            stdout, stderr = worker.communicate(timeout=15)
+            if worker.returncode != 0:
+                failures.append((worker.returncode, stdout, stderr))
+        self.assertEqual(failures, [])
+
+        records = [
+            json.loads(line)
+            for line in self.comments_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(records), 8)
+        self.assertEqual(
+            {record["body"] for record in records},
+            {f"worker-{index}" for index in range(8)},
+        )
+
+    def test_comments_post_rejects_symlinked_store_directory(self):
+        outside = self.dev_root / "outside-comments"
+        outside.mkdir()
+        alias = self.dev_root / "comments-alias"
+        alias.symlink_to(outside, target_is_directory=True)
+        browser_server.COMMENTS_FILE = alias / "comments.jsonl"
+
+        status, text = self.post(
+            "/api/comments",
+            {
+                "target_path": str(self.plan_path),
+                "author": "Viewer",
+                "body": "must stay local",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertFalse((outside / "comments.jsonl").exists())
 
     def test_comments_post_rejects_sensitive_content(self):
         secret = synthetic_secret()

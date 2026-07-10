@@ -1042,6 +1042,8 @@ ln <canonical-path>.html <vidux-dir>/browser/artifacts/<slug>.html   # no -s
 
 Constraints: same filesystem only (the home volume shares one volume on stock macOS; cross-volume `ln` fails). `Path.resolve()` does NOT cross hard links so the check passes; canonical-file updates reflect instantly. Verify: `stat -f '%i' <canonical> <artifact-path>` — matching inodes prove shared data. Evidence: a symlinked artifact rendered only its H1 plus a 403 in the console (`failed to load comments: forbidden`); switching to a hard link fixed it immediately, confirming the root cause was exactly `safe_resolve_any()`'s symlink-outside-`ARTIFACTS_DIR` guard described above.
 
+This is a **read-only mirror** technique. The browser may render and annotate an allowed hard-linked artifact, but `POST /api/artifact` deliberately refuses to overwrite a hard-link or symlink target. Replace the canonical file through its owning workflow; do not use the artifact write endpoint for mirrored content.
+
 ### Named comments / annotations
 
 vidux-browse comments are lightweight annotations on the current view, targeting an allowed markdown file (`PLAN.md`, `INBOX.md`, `investigations/*.md`, `evidence/*.md`, etc.) or an HTML artifact.
