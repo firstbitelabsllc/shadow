@@ -46,6 +46,7 @@ from steering_mailbox import (
     MailboxError as SteeringMailboxError,
     MailboxValidationError as SteeringMailboxValidationError,
     SteeringMailbox,
+    is_authority_plan_name,
 )
 
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
@@ -97,6 +98,8 @@ PLAN_GLOBS = (
         "*/vidux/**/PLAN.md",
         "*/projects/*/PLAN.md",
         "*/projects/**/PLAN.md",
+        "*/.cursor/plans/*.plan.md",
+        "*/.cursor/plans/**/*.plan.md",
         "*/PLAN.md",
     ]
 )
@@ -162,6 +165,17 @@ SIBLING_FILES = ["PROGRESS.md", "INBOX.md", "ASK-LEO.md", "DOCTRINE.md", "README
 # without this gate, a malicious page could fetch /api/file?path=…/.env or
 # …/.ssh/config from a browser tab on Leo's machine.
 ALLOWED_PLAN_FILES = frozenset({"PLAN.md", *SIBLING_FILES})
+
+
+def is_repo_native_authority_path(path: Path) -> bool:
+    """Admit named authorities only from the repo-owned .cursor/plans tree."""
+    if path.name == "PLAN.md" or not is_authority_plan_name(path.name):
+        return False
+    try:
+        relative = path.relative_to(DEV_ROOT)
+    except ValueError:
+        return False
+    return len(relative.parts) >= 4 and relative.parts[1:3] == (".cursor", "plans")
 
 SENSITIVE_REDACTION = "[REDACTED:secret]"
 SENSITIVE_PROVIDER_RE = re.compile(
@@ -1229,13 +1243,13 @@ def ledger_payload_for_plan(
 
 def resolve_ledger_plan_target(raw: str) -> Path | None:
     path = safe_resolve(raw)
-    if path and path.name == "PLAN.md":
+    if path and is_authority_plan_name(path.name):
         return path
     return None
 
 
 def discover_plans() -> list[dict]:
-    """Walk DEV_ROOT and return one entry per PLAN.md found.
+    """Walk DEV_ROOT and return one entry per discovered authority plan.
 
     Post-processing wires up:
       * `children`: list of child plan-dicts that backlink this plan via
@@ -1887,9 +1901,12 @@ def plan_meta(path: Path) -> dict:
     rel = path.relative_to(DEV_ROOT)
     parts = rel.parts
     repo = parts[0]
-    # Slug is the directory name containing PLAN.md, or "_root_" for repo-root plans.
+    # Canonical PLAN.md files inherit their directory slug. Named repo-native
+    # authorities can share one directory, so their filename supplies the slug.
     parent_dir = path.parent
-    if parent_dir == DEV_ROOT / repo:
+    if path.name != "PLAN.md":
+        slug = path.name[: -len(".plan.md")]
+    elif parent_dir == DEV_ROOT / repo:
         slug = "_root_"
     else:
         slug = parent_dir.name
@@ -2632,7 +2649,7 @@ def extract_purpose(path: Path) -> str:
 
 
 def safe_resolve(raw: str) -> Path | None:
-    """Allow PLAN.md + canonical siblings + .md files in investigations/ or evidence/.
+    """Allow authority plans + canonical siblings + scoped evidence markdown.
 
     The whitelist is the read-only contract. node_modules paths are rejected
     even when the filename matches. The `investigations/` + `evidence/` rules
@@ -2651,7 +2668,7 @@ def safe_resolve(raw: str) -> Path | None:
         return None
     if not p.is_file():
         return None
-    if p.name in ALLOWED_PLAN_FILES:
+    if p.name in ALLOWED_PLAN_FILES or is_repo_native_authority_path(p):
         return p
     if p.suffix == ".md" and ("investigations" in p.parts or "evidence" in p.parts):
         return p
@@ -2691,7 +2708,7 @@ def is_allowed_file_target(raw: str) -> bool:
     except ValueError:
         pass
     else:
-        if candidate.name in ALLOWED_PLAN_FILES:
+        if candidate.name in ALLOWED_PLAN_FILES or is_repo_native_authority_path(candidate):
             return True
         if candidate.suffix == ".md" and (
             "investigations" in candidate.parts or "evidence" in candidate.parts
@@ -2974,7 +2991,7 @@ def read_comments(target_path: Path, limit: int = 100) -> list[dict]:
 
 def resolve_plan_note_target(raw: str) -> Path | None:
     p = safe_resolve(raw)
-    if not p or p.name != "PLAN.md":
+    if not p or not is_authority_plan_name(p.name):
         return None
     return p
 

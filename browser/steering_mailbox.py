@@ -46,6 +46,8 @@ DEFAULT_PLAN_GLOBS = (
     "*/vidux/**/PLAN.md",
     "*/projects/*/PLAN.md",
     "*/projects/**/PLAN.md",
+    "*/.cursor/plans/*.plan.md",
+    "*/.cursor/plans/**/*.plan.md",
     "*/PLAN.md",
 )
 
@@ -117,13 +119,22 @@ def parse_stamp(raw: object, field: str = "timestamp") -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def is_authority_plan_name(name: str) -> bool:
+    """Accept canonical Vidux plans and repo-native named authority plans."""
+    return name == "PLAN.md" or (
+        name.endswith(".plan.md") and len(name) > len(".plan.md")
+    )
+
+
 def canonical_plan_path(raw: str | Path, dev_root: str | Path) -> Path:
     try:
         candidate = Path(raw).expanduser()
     except (TypeError, ValueError) as exc:
         raise MailboxValidationError("plan must name an existing PLAN.md") from exc
-    if candidate.name != "PLAN.md":
-        raise MailboxValidationError("plan must name an existing PLAN.md")
+    if not is_authority_plan_name(candidate.name):
+        raise MailboxValidationError(
+            "plan must name an existing PLAN.md or *.plan.md authority"
+        )
     root = Path(dev_root).expanduser().resolve()
     try:
         resolved = candidate.resolve(strict=True)
@@ -150,8 +161,10 @@ def _journal_plan_path(raw: object) -> str:
         candidate = Path(raw)
     except (TypeError, ValueError) as exc:
         raise JournalCorruptError("stored plan path must be an absolute PLAN.md") from exc
-    if not candidate.is_absolute() or candidate.name != "PLAN.md":
-        raise JournalCorruptError("stored plan path must be an absolute PLAN.md")
+    if not candidate.is_absolute() or not is_authority_plan_name(candidate.name):
+        raise JournalCorruptError(
+            "stored plan path must be an absolute PLAN.md or *.plan.md authority"
+        )
     if str(candidate) != raw or os.path.normpath(raw) != raw:
         raise JournalCorruptError("stored plan path must be canonical")
     return raw
@@ -349,7 +362,7 @@ class SteeringMailbox:
         path = canonical_plan_path(raw, self.dev_root)
         if not self._plan_matches_discovery_glob(path):
             raise MailboxValidationError(
-                "plan must be a PLAN.md discovered by the Vidux cockpit"
+                "plan must be an authority plan discovered by the Vidux cockpit"
             )
         discovered = self._discovered_plan_paths()
         relative = path.relative_to(self.dev_root)
@@ -357,7 +370,7 @@ class SteeringMailbox:
             discovered = self._discovered_plan_paths(force_refresh=True)
         if path not in discovered:
             raise MailboxValidationError(
-                "plan must be a PLAN.md discovered by the Vidux cockpit"
+                "plan must be an authority plan discovered by the Vidux cockpit"
             )
         return path
 

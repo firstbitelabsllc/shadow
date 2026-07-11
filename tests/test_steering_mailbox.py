@@ -92,6 +92,17 @@ class SteeringMailboxTests(unittest.TestCase):
         queued = self.mailbox.enqueue_intent(new_plan, "new plan is immediately allowed")
         self.assertEqual(queued["plan_path"], str(new_plan))
 
+    def test_resplit_style_named_authority_plan_is_discovered_and_steerable(self) -> None:
+        plan = self.dev_root / "resplit-ios" / ".cursor" / "plans" / "NORTH-STAR.plan.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text("# Resplit North Star\n", encoding="utf-8")
+
+        queued = self.mailbox.enqueue_intent(plan, "coordinate the next safe cycle")
+        lease = self.mailbox.lease_next_intent(plan, "resplit-loop", now=self.start)
+
+        self.assertEqual(queued["plan_path"], str(plan.resolve()))
+        self.assertEqual(lease["id"], queued["id"])
+
     def test_legacy_cached_winner_is_rechecked_when_canonical_plan_appears(self) -> None:
         legacy = self._make_plan("legacy")
         self.mailbox.repo_aliases = {"legacy": "canonical"}

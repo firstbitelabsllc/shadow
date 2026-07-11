@@ -3,7 +3,9 @@
 Vidux steering lets an operator redirect the next safe cycle of an already
 running goal or loop without creating another chat message, executor, or
 schedule. The cockpit's **Steer next turn** composer writes a transient,
-plan-scoped envelope to a local mailbox. It does not call a model.
+plan-scoped envelope to a local mailbox. Canonical `PLAN.md` files and
+repo-native named authorities such as `.cursor/plans/NORTH-STAR.plan.md` are
+supported. It does not call a model.
 
 The contract is intentionally split:
 

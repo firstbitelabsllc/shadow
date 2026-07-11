@@ -1913,6 +1913,27 @@ class BrowserPlanDiscoveryTests(unittest.TestCase):
         )
         return path
 
+    def test_discovers_repo_native_named_authority_plan(self):
+        plan = self.dev_root / "resplit-ios" / ".cursor" / "plans" / "NORTH-STAR.plan.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(
+            "# Resplit North Star\n\n## Purpose\nCanonical iOS authority.\n",
+            encoding="utf-8",
+        )
+
+        plans = browser_server.discover_plans()
+
+        discovered = {item["path"]: item for item in plans}
+        self.assertIn(str(plan.resolve()), discovered)
+        self.assertEqual(discovered[str(plan.resolve())]["slug"], "NORTH-STAR")
+        self.assertEqual(browser_server.resolve_plan_note_target(str(plan)), plan.resolve())
+
+        private = self.dev_root / "resplit-ios" / "docs" / "private.plan.md"
+        private.parent.mkdir(parents=True)
+        private.write_text("# Not an authority\n", encoding="utf-8")
+        self.assertIsNone(browser_server.safe_resolve(str(private)))
+        self.assertIsNone(browser_server.resolve_plan_note_target(str(private)))
+
     def test_symlink_escaping_dev_root_does_not_crash_discovery(self):
         # Round-11 panel finding: a symlink under DEV_ROOT whose target
         # resolves OUTSIDE it made glob+resolve() hand an out-of-root path to
