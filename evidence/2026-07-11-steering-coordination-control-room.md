@@ -35,6 +35,19 @@ Date: 2026-07-11
 - Shared and private host-adapter changes merged on 2026-07-11, keeping
   host/provider execution outside Vidux.
 
+## First live project adoption
+
+- A Resplit Web exact-plan steer transitioned from queued to claimed even
+  while direct task follow-up was failing as a separate transport path.
+- The consuming host then registered one exact active Web work claim, proving
+  the steering mailbox and coordination journal compose without a second plan.
+- Resplit iOS exposed the real `.cursor/plans/NORTH-STAR.plan.md` convention.
+  PR #12 added bounded named-authority discovery and was merged as
+  `67b6da89449ff5911653a6e72e603060c367de99`; arbitrary named markdown outside
+  `.cursor/plans/` remains rejected.
+- The actual iOS authority accepted list and enqueue after the fix, and one
+  replacement steer remains queued for the next safe host cycle.
+
 ## Reviewed browser receipt
 
 - `evidence/2026-07-11-live-work-steering-control-room.png` — current-source
