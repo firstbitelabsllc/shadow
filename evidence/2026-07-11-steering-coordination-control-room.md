@@ -2,7 +2,7 @@
 
 Date: 2026-07-11
 
-## Implemented behavior (local branch, pending Vidux merge)
+## Shipped behavior (PR #10; merge `c47006d35b87cdff3916ef61519d4d5f533a4219`)
 
 - **Steer next turn** persists one bounded, exact-plan intent for an existing
   host goal/loop. The host leases at a safe boundary and acknowledges only
@@ -20,17 +20,18 @@ Date: 2026-07-11
 
 ## Mechanical proof
 
-- `python3 -m unittest tests.test_vidux_claims tests.test_steering_mailbox -q`
-  — 45 passed.
+- Focused mailbox, claims, and release-package suites — 57 passed.
 - `python3 -m unittest tests.test_browser_server -q` — 193 passed, 1 skipped.
 - Focused launcher/dispatcher contracts passed for store identity, strict flag
   parsing, completions, and `vidux coordinate` dispatch.
 - Focused Playwright desktop journeys passed 3/3: four disjoint live owners +
   usage-exhausted resume; mocked steering lifecycle; real GUI/host CLI shared
   journal with exhaustion, retry, reply-before-ack, and disappearance.
-- `npx vitest run browser/tests/unit/coordination-panel.test.mjs` — 3 passed.
-- `npm run docs:build`, Python compile, Bash syntax, and `git diff --check`
-  passed.
+- `npm run test:js` — 20 passed, including unchanged-poll focus preservation.
+- The 193-file release-package gate, `npm run docs:build`, Python compile,
+  shell syntax, `git diff --check`, and the 426-file public-ready scan passed.
+- GitHub secret scans passed and PR #10 was squash-merged to `main` as
+  `c47006d35b87cdff3916ef61519d4d5f533a4219`.
 - Shared and private host-adapter changes merged on 2026-07-11, keeping
   host/provider execution outside Vidux.
 
