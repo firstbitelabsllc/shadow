@@ -26,6 +26,8 @@ commands:
   dev [--bg]        Start the local dev browser (foreground; auto-restart)
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
+  steer <cmd>       Queue or lease provider-neutral next-turn intent
+  coordinate <cmd>  Claim, checkpoint, and hand off live work surfaces
   benchmark [cmd]   Inspect the current fail-closed benchmark authority
   init <slug>|--here Bootstrap a cockpit-ready PLAN.md from template
   drift <PLAN.md>   Record planned-vs-actual drift and optional subplan updates
@@ -74,7 +76,8 @@ EOF
 vidux browse — launch the plan browser at :7191.
 
 usage: vidux browse [--no-open] [--foreground|-f] [--port N] [--host HOST] \\
-  [--root PATH] [--open-host HOST] [--comments-path PATH] [--receipt-corpus-path PATH] [--help|-h]
+  [--root PATH] [--open-host HOST] [--comments-path PATH] \\
+  [--receipt-corpus-path PATH] [--steering-path PATH] [--claims-path PATH] [--help|-h]
 
 Proxies to bin/vidux-browse. The launcher refuses to reuse an existing port
 listener unless /api/health matches the requested repo root, scan root, receipt
@@ -90,6 +93,8 @@ flags:
   --comments-path PATH Comments JSONL path.
   --receipt-corpus-path PATH
                        Receipt corpus JSONL path.
+  --steering-path PATH Local steering mailbox JSONL path.
+  --claims-path PATH   Local work-claims JSONL path.
 EOF
       ;;
     status)
@@ -101,6 +106,49 @@ usage: vidux status [--root <path>] [--focus <repo>...] [--all] [--json]
 Runs scripts/vidux-status.py. Default output hides empty and shipped plans;
 --all includes tracked rows, including shipped rows, and --json prints the
 same counts without the rendered board.
+EOF
+      ;;
+    steer)
+      cat <<'EOF'
+vidux steer — local one-shot steering mailbox for a running goal or loop.
+
+usage:
+  vidux steer enqueue --plan <PLAN.md> --message <text> [--json]
+  vidux steer list --plan <PLAN.md> [--all] [--json]
+  vidux steer lease --plan <PLAN.md> --consumer <label> --json
+  vidux steer ack --id <id> --lease-token <token> [--json]
+  vidux steer fail --id <id> --lease-token <token> --code <safe-code> [--json]
+  vidux steer retry --id <id> [--json]
+  vidux steer dismiss --id <id> [--json]
+
+The mailbox is local, plan-scoped, FIFO, and provider-neutral. It stores intent
+but never invokes a model, provider, shell, goal, loop, or scheduler. A host
+leases at most one item at a safe cycle boundary and acknowledges it only after
+the corresponding response was accepted.
+
+Use --stdin-json to supply missing request fields as one JSON object. This is
+the preferred host path for ack/fail because it keeps lease tokens out of argv.
+Lease is machine-only and requires --json so its one-time token is never lost.
+The steering store defaults to ~/.vidux-browser/steering.jsonl and can be
+overridden with VIDUX_BROWSER_STEERING_FILE or --store.
+EOF
+      ;;
+    coordinate)
+      cat <<'EOF'
+vidux coordinate — provider-neutral live work leases for concurrent runners.
+
+usage:
+  vidux coordinate claim --repo <repo> --claim <surface> --owner <id> --lane <lane> --plan-path <PLAN.md> --task-id <row>
+  vidux coordinate heartbeat --claim-id <id> --owner <id>
+  vidux coordinate checkpoint --claim-id <id> --owner <id> --summary <text> --resume <pointer> [--proof <receipt>]
+  vidux coordinate release --claim-id <id> --owner <id> --status usage_exhausted --resume <pointer>
+  vidux coordinate active [--repo <repo>]
+  vidux coordinate snapshot [--repo <repo>]
+
+Claims are short-lived coordination facts, not plan authority. A runner claims
+one exact plan row and work surface before editing, checkpoints at safe
+boundaries, and releases a resumable handoff on usage exhaustion.
+Active claims cannot be preempted; expiry enables takeover only after disk/PR/proof verification.
 EOF
       ;;
     benchmark)
@@ -429,6 +477,38 @@ main() {
     status)
       require_python3 "status"
       exec python3 "${VIDUX_ROOT}/scripts/vidux-status.py" "$@"
+      ;;
+    steer)
+      require_python3 "steer"
+      case "${1:-}" in
+        --help|-h|help)
+          print_subcommand_help "steer"
+          ;;
+        "")
+          echo "vidux steer: missing action" >&2
+          print_subcommand_help "steer" >&2
+          exit 2
+          ;;
+        *)
+          exec python3 "${VIDUX_ROOT}/scripts/vidux-steer.py" "$@"
+          ;;
+      esac
+      ;;
+    coordinate)
+      require_python3 "coordinate"
+      case "${1:-}" in
+        --help|-h|help)
+          print_subcommand_help "coordinate"
+          ;;
+        "")
+          echo "vidux coordinate: missing action" >&2
+          print_subcommand_help "coordinate" >&2
+          exit 2
+          ;;
+        *)
+          exec python3 "${VIDUX_ROOT}/scripts/vidux-claims.py" "$@"
+          ;;
+      esac
       ;;
     benchmark)
       require_python3 "benchmark"

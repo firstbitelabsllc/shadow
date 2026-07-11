@@ -25,6 +25,8 @@
     "browser/run_extract_pass.py",
     "browser/safe_files.py",
     "browser/server.py",
+    "browser/coordination_claims.py",
+    "browser/steering_mailbox.py",
     "browser/static/**/*",
     "commands/*.md",
     "docs/**/*.md",

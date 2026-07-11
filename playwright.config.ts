@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import { rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // Playwright config for vidux-browser e2e + visual smoke. The webServer
 // directive boots browser/server.py against fixture roots + an ephemeral port
@@ -12,6 +14,16 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = process.env.VIDUX_TEST_PORT ?? '7291';
 const isMac = process.platform === 'darwin';
+const STEERING_PATH = process.env.VIDUX_TEST_STEERING_PATH
+  ?? resolve('test-results', `steering-${PORT}-${process.pid}.jsonl`);
+process.env.VIDUX_TEST_STEERING_PATH = STEERING_PATH;
+const CLAIMS_PATH = process.env.VIDUX_TEST_CLAIMS_PATH
+  ?? resolve('test-results', `claims-${PORT}-${process.pid}.jsonl`);
+process.env.VIDUX_TEST_CLAIMS_PATH = CLAIMS_PATH;
+rmSync(STEERING_PATH, { force: true });
+rmSync(`${STEERING_PATH}.lock`, { force: true });
+rmSync(CLAIMS_PATH, { force: true });
+rmSync(`${CLAIMS_PATH}.lock`, { force: true });
 
 export default defineConfig({
   testDir: 'browser/tests/e2e',
@@ -44,7 +56,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `python3 browser/server.py --root browser/tests/fixtures/fake-dev-root --port ${PORT} --comments-path browser/tests/fixtures/comments.jsonl --artifacts-dir browser/tests/fixtures/artifacts --receipt-corpus-path browser/tests/fixtures/receipts/corpus.jsonl`,
+    command: `python3 browser/server.py --root browser/tests/fixtures/fake-dev-root --port ${PORT} --comments-path browser/tests/fixtures/comments.jsonl --steering-path ${JSON.stringify(STEERING_PATH)} --claims-path ${JSON.stringify(CLAIMS_PATH)} --artifacts-dir browser/tests/fixtures/artifacts --receipt-corpus-path browser/tests/fixtures/receipts/corpus.jsonl`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     // Round-4 panel finding: `reuseExistingServer: !process.env.CI` only
     // verifies the health URL is *reachable* -- it never checks WHICH

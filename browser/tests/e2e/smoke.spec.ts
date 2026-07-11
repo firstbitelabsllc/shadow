@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { resolve } from 'node:path';
 
 async function openDrawerIfNeeded(page: Page) {
   const toggle = page.locator('#sidebar-toggle');
@@ -330,6 +332,185 @@ test.describe('vidux-browse smoke', () => {
     await expect(page).toHaveURL(/tab=EVD%3A/);
     await expect(page.locator('.pane-header h2')).toHaveText('proj-alpha');
     await expect(page.locator('#md-body')).toContainText('Mission Control Proof');
+  });
+
+  test('live work shows four disjoint owners and a usage-exhausted resume', async ({ page }) => {
+    await page.route('**/api/coordination**', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          active: Array.from({ length: 4 }, (_, index) => ({
+            owner: `resplit-chat-${index + 1}`,
+            lane: `currency-${index + 1}`,
+            task_id: `row-${index + 1}`,
+            claim: `Sources/Currency${index + 1}.swift`,
+            checkpoint: { summary: `proof ${index + 1} green`, resume: `open row ${index + 1}` },
+            expires_at: '2099-07-11T19:12:00Z',
+          })),
+          handoffs: [{
+            owner: 'resplit-chat-old',
+            claim: 'Sources/Workbench.swift',
+            status: 'usage_exhausted',
+            checkpoint: { summary: 'layout proof pending', resume: 'run workbench tests' },
+          }],
+        }),
+      });
+    });
+
+    await page.goto('/?plan=proj-alpha%2FPLAN.md');
+    const panel = page.locator('[data-coordination-panel]');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.coordination-card')).toHaveCount(4);
+    await expect(panel).toContainText('resplit-chat-4');
+    await expect(panel).toContainText('proof 4 green');
+    await expect(panel).toContainText('Usage exhausted');
+    await expect(panel).toContainText('run workbench tests');
+    await expect(panel.locator('[data-coordination-count]')).toHaveText('4 live');
+
+    await page.setViewportSize({ width: 320, height: 760 });
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+  });
+
+  test('one-shot steering stays local, survives exhaustion, and disappears after acknowledgement', async ({ page }) => {
+    let items: Array<Record<string, unknown>> = [];
+    let enqueuePosts = 0;
+    await page.route('**/api/steering**', async route => {
+      const request = route.request();
+      if (request.method() === 'POST') {
+        const payload = request.postDataJSON() as Record<string, string>;
+        if (payload.action === 'enqueue') {
+          enqueuePosts += 1;
+          await new Promise(resolveDelay => setTimeout(resolveDelay, 100));
+          items = [{
+            id: 'steer-1',
+            message: payload.message,
+            status: 'queued',
+            created_at: '2026-07-11T18:45:00Z',
+          }];
+        } else if (payload.action === 'retry') {
+          items = items.map(item => item.id === payload.id
+            ? { ...item, status: 'queued', failure_code: null }
+            : item);
+        } else if (payload.action === 'dismiss') {
+          items = items.filter(item => item.id !== payload.id);
+        }
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true }),
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, capacity: 8, items }),
+      });
+    });
+
+    await page.goto('/?plan=proj-alpha%2FPLAN.md');
+    const inbox = page.locator('[data-steering-inbox]');
+    await expect(inbox).toBeVisible();
+    await expect(inbox).toContainText('This does not send a chat message');
+    await inbox.locator('textarea').fill('Use the intermediate plan, then re-rank the next safe slice.');
+    await inbox.locator('textarea').evaluate(element => {
+      const event = { key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true };
+      element.dispatchEvent(new KeyboardEvent('keydown', event));
+      element.dispatchEvent(new KeyboardEvent('keydown', event));
+    });
+    await expect(inbox.locator('.steering-item.is-queued')).toContainText('Use the intermediate plan');
+    await expect(inbox.locator('[data-steering-write-status]')).toContainText('Queued for the next safe boundary');
+    expect(enqueuePosts).toBe(1);
+
+    items = items.map(item => ({ ...item, status: 'claimed' }));
+    await page.reload();
+    await expect(page.locator('.steering-item.is-claimed')).toContainText('Being handled');
+
+    items = items.map(item => ({ ...item, status: 'retryable', failure_code: 'usage_exhausted' }));
+    await page.reload();
+    const retryable = page.locator('.steering-item.is-retryable');
+    await expect(retryable).toContainText('Usage window exhausted');
+    await expect(retryable).toContainText('was not delivered');
+    await retryable.locator('[data-steering-action="retry"]').click();
+    await expect(page.locator('.steering-item.is-queued')).toBeVisible();
+
+    // Simulate the outer host callback acknowledging only after its response.
+    items = [];
+    await page.reload();
+    await expect(page.locator('.steering-item')).toHaveCount(0);
+    await expect(page.locator('.steering-empty')).toContainText('No steer waiting');
+
+    await page.setViewportSize({ width: 320, height: 760 });
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+  });
+
+  test('real GUI and host CLI share one retryable one-shot journal', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-chromium', 'one shared-store lifecycle is sufficient');
+
+    const devRoot = resolve('browser/tests/fixtures/fake-dev-root');
+    const planPath = resolve(devRoot, 'proj-alpha/PLAN.md');
+    const storePath = process.env.VIDUX_TEST_STEERING_PATH;
+    if (!storePath) throw new Error('VIDUX_TEST_STEERING_PATH was not inherited from Playwright config');
+    const steerCli = resolve('scripts/vidux-steer.py');
+    const runSteer = (args: string[], input?: Record<string, unknown>) => {
+      const output = execFileSync(
+        'python3',
+        [steerCli, ...args, '--store', storePath, '--root', devRoot, '--json'],
+        {
+          encoding: 'utf8',
+          input: input ? JSON.stringify(input) : undefined,
+          env: { ...process.env, VIDUX_DEV_ROOT: devRoot, VIDUX_BROWSER_STEERING_FILE: storePath },
+        },
+      );
+      return JSON.parse(output) as Record<string, any>;
+    };
+
+    await page.goto('/?plan=proj-alpha%2FPLAN.md');
+    const inbox = page.locator('[data-steering-inbox]');
+    const message = `Playwright host handoff ${testInfo.workerIndex}-${Date.now()}`;
+    await inbox.locator('textarea').fill(message);
+    await inbox.locator('button[type="submit"]').click();
+    await expect(inbox.locator('.steering-item.is-queued')).toContainText(message);
+
+    const firstLease = runSteer([
+      'lease', '--plan', planPath, '--consumer', 'playwright-host', '--lease-seconds', '60',
+    ]).item;
+    expect(firstLease.body).toBe(message);
+    expect(firstLease.lease_token).toBeTruthy();
+    await page.reload();
+    await expect(page.locator('.steering-item.is-claimed')).toContainText(message);
+
+    runSteer(['fail', '--stdin-json'], {
+      id: firstLease.id,
+      lease_token: firstLease.lease_token,
+      code: 'usage_exhausted',
+    });
+    await page.reload();
+    const retryable = page.locator('.steering-item.is-retryable');
+    await expect(retryable).toContainText('Usage window exhausted');
+    await expect(retryable).toContainText('was not delivered');
+
+    await retryable.locator('[data-steering-action="retry"]').click();
+    await expect(page.locator('.steering-item.is-queued')).toContainText(message);
+    const secondLease = runSteer([
+      'lease', '--plan', planPath, '--consumer', 'playwright-host', '--lease-seconds', '60',
+    ]).item;
+    expect(secondLease.id).toBe(firstLease.id);
+    runSteer(['ack', '--stdin-json'], {
+      id: secondLease.id,
+      lease_token: secondLease.lease_token,
+    });
+
+    await page.reload();
+    await expect(page.locator('.steering-item')).toHaveCount(0);
+    await expect(page.locator('.steering-empty')).toContainText('No steer waiting');
   });
 
   test('core app zones remain present without FAB/player chrome', async ({ page }) => {

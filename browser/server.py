@@ -9,6 +9,7 @@ Stdlib only. See projects/vidux-browser/PLAN.md.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import copy
@@ -35,6 +36,17 @@ from urllib.parse import parse_qs, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from safe_files import UnsafeFileAliasError, atomic_write_text, open_regular_fd, read_text
 from receipts import handler as _receipts_handler
+from coordination_claims import ClaimsError, CoordinationClaims
+from steering_mailbox import (
+    ACTIVE_LIMIT_PER_PLAN as STEERING_CAPACITY,
+    DEFAULT_STORE as DEFAULT_STEERING_FILE,
+    INTENT_MAX_BYTES as STEERING_INTENT_MAX_BYTES,
+    JournalCorruptError as SteeringJournalCorruptError,
+    MailboxConflictError as SteeringMailboxConflictError,
+    MailboxError as SteeringMailboxError,
+    MailboxValidationError as SteeringMailboxValidationError,
+    SteeringMailbox,
+)
 
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
 HOST = os.environ.get("VIDUX_BROWSER_HOST", "127.0.0.1")
@@ -44,6 +56,8 @@ BROWSER_DIR = Path(__file__).resolve().parent
 VIDUX_ROOT = Path(os.environ.get("VIDUX_ROOT", BROWSER_DIR.parent)).expanduser().resolve()
 SERVER_FILE = Path(__file__).resolve()
 SERVER_MTIME_NS = SERVER_FILE.stat().st_mtime_ns
+STEERING_MODULE_MTIME_NS = (BROWSER_DIR / "steering_mailbox.py").stat().st_mtime_ns
+COORDINATION_MODULE_MTIME_NS = (BROWSER_DIR / "coordination_claims.py").stat().st_mtime_ns
 STATIC_DIR = BROWSER_DIR / "static"
 ARTIFACTS_DIR = Path(
     os.environ.get("VIDUX_BROWSER_ARTIFACTS_DIR", BROWSER_DIR / "artifacts")
@@ -330,6 +344,16 @@ PLAN_NOTE_SOURCE_RE = re.compile(r"[^A-Za-z0-9_.:/@ -]+")
 COMMENTS_FILE = Path(
     os.environ.get("VIDUX_BROWSER_COMMENTS_FILE", Path.home() / ".vidux-browser" / "comments.jsonl")
 ).expanduser()
+STEERING_FILE = Path(
+    os.environ.get("VIDUX_BROWSER_STEERING_FILE", DEFAULT_STEERING_FILE)
+).expanduser()
+CLAIMS_FILE = Path(
+    os.environ.get("VIDUX_CLAIMS_FILE", Path.home() / ".agent-ledger" / "claims.jsonl")
+).expanduser()
+# JSON may encode every decoded intent byte as a six-byte ``\u00xx`` escape.
+# Keep the HTTP envelope bounded while still admitting every valid 8 KiB
+# intent accepted by the provider-neutral journal.
+STEERING_HTTP_MAX_BYTES = STEERING_INTENT_MAX_BYTES * 6 + 4096
 _COMMENTS_WRITE_LOCK = threading.Lock()
 _PLAN_NOTE_WRITE_LOCK = threading.Lock()
 COMMENT_BODY_MAX_BYTES = 8 * 1024
@@ -3008,6 +3032,85 @@ def write_plan_note(
     return True, str(inbox)
 
 
+def steering_mailbox() -> SteeringMailbox:
+    """Bind the provider-neutral mailbox to this server's live root and policy."""
+    return SteeringMailbox(
+        STEERING_FILE,
+        dev_root=DEV_ROOT,
+        sensitive_check=has_sensitive_text,
+    )
+
+
+def coordination_claims() -> CoordinationClaims:
+    """Bind the read-only browser projection to the provider-neutral claims journal."""
+    return CoordinationClaims(CLAIMS_FILE)
+
+
+def coordination_store_id() -> str:
+    """Path-safe coordination-store identity used by launcher reuse checks."""
+    resolved = str(CLAIMS_FILE.expanduser().resolve(strict=False))
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+
+
+def coordination_module_mtime_ns() -> int:
+    return COORDINATION_MODULE_MTIME_NS
+
+
+def coordination_http_item(item: dict) -> dict:
+    """Keep only public work, lease, checkpoint, and resume fields."""
+    payload = {
+        field: item[field]
+        for field in (
+            "claim_id", "repo", "claim", "owner", "lane", "plan_path", "task_id",
+            "claimed_at", "last_heartbeat_at", "expires_at", "state", "checkpoint",
+            "release_status", "released_at", "takeover_of", "taken_over_by",
+        )
+        if field in item
+    }
+    status = item.get("release_status")
+    if status:
+        payload["status"] = status
+    elif item.get("state") == "expired":
+        payload["status"] = "expired"
+    return payload
+
+
+def steering_store_id() -> str:
+    """Path-safe listener identity used by the launcher reuse check."""
+    resolved = str(STEERING_FILE.expanduser().resolve(strict=False))
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+
+
+def steering_module_mtime_ns() -> int:
+    return STEERING_MODULE_MTIME_NS
+
+
+def steering_http_item(item: dict) -> dict:
+    """Return the cockpit-safe shape: no plan/store path, source, consumer, or token."""
+    payload = {
+        "id": item.get("id", ""),
+        "message": item.get("body", ""),
+        "status": item.get("state", "failed"),
+        "created_at": item.get("created_at", ""),
+        "attempts": item.get("attempts", 0),
+    }
+    for field in ("claimed_at", "lease_expires_at", "failure_code", "updated_at"):
+        if item.get(field):
+            payload[field] = item[field]
+    return payload
+
+
+def steering_item_belongs_to_plan(
+    mailbox: SteeringMailbox,
+    plan_path: Path,
+    item_id: str,
+) -> bool:
+    snapshot = mailbox.read_mailbox(plan_path=plan_path)
+    if not snapshot.get("ok"):
+        raise SteeringJournalCorruptError("steering journal needs local repair")
+    return any(item.get("id") == item_id for item in snapshot.get("items", []))
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "viduxBrowser/0.1"
 
@@ -3038,6 +3141,10 @@ class Handler(BaseHTTPRequestHandler):
                         "repo_root": str(VIDUX_ROOT),
                         "server_path": str(SERVER_FILE),
                         "server_mtime_ns": SERVER_MTIME_NS,
+                        "steering_store_id": steering_store_id(),
+                        "steering_module_mtime_ns": steering_module_mtime_ns(),
+                        "coordination_store_id": coordination_store_id(),
+                        "coordination_module_mtime_ns": coordination_module_mtime_ns(),
                         "artifacts_dir": str(ARTIFACTS_DIR),
                         "receipt_corpus_path": str(_receipts_handler.DEFAULT_CORPUS_PATH.resolve())})
         elif route == "/api/plans":
@@ -3065,6 +3172,62 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(403, "forbidden")
                 return
             self._json(ledger_payload_for_plan(plan_path))
+        elif route == "/api/coordination":
+            if not self._require_coordination_read():
+                return
+            raw = (qs.get("plan_path") or [""])[0]
+            plan_path = resolve_plan_note_target(raw)
+            if not plan_path:
+                self._send(403, "plan_path must be an allowed PLAN.md under dev_root")
+                return
+            try:
+                # Filter inside the store before applying its handoff limit so
+                # busy unrelated plans cannot evict this plan's resume rows.
+                snapshot = coordination_claims().snapshot(
+                    plan_path=str(plan_path),
+                    handoff_limit=16,
+                )
+            except (ClaimsError, UnsafeFileAliasError, UnicodeError, OSError):
+                self._send(409, "local coordination state is unavailable")
+                return
+            exact_plan = str(plan_path)
+            active = [
+                coordination_http_item(item)
+                for item in snapshot.get("claims", [])
+                if item.get("plan_path") == exact_plan
+            ][:64]
+            handoffs = [
+                coordination_http_item(item)
+                for item in snapshot.get("handoffs", [])
+                if item.get("plan_path") == exact_plan
+            ][:16]
+            self._json({"ok": True, "active": active, "handoffs": handoffs})
+        elif route == "/api/steering":
+            if not self._require_steering_read():
+                return
+            raw = (qs.get("plan_path") or [""])[0]
+            plan_path = resolve_plan_note_target(raw)
+            if not plan_path:
+                self._send(403, "plan_path must be an allowed PLAN.md under dev_root")
+                return
+            try:
+                snapshot = steering_mailbox().read_mailbox(plan_path=plan_path)
+            except (SteeringMailboxError, UnsafeFileAliasError, OSError):
+                self._send(409, "local steering state is unavailable")
+                return
+            if not snapshot.get("ok"):
+                # A partial journal prefix is useful to a local repair tool but
+                # must never become an apparently-authoritative browser queue.
+                self._send(409, "local steering state needs repair")
+                return
+            self._json({
+                "ok": True,
+                "capacity": STEERING_CAPACITY,
+                "items": [
+                    steering_http_item(item)
+                    for item in snapshot.get("items", [])
+                ],
+            })
         elif route == "/api/comments":
             raw = (qs.get("path") or [""])[0]
             p = safe_resolve_any(raw)
@@ -3195,6 +3358,74 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, msg)
                 return
             self._json({"ok": True, "path": msg})
+        elif url.path == "/api/steering":
+            if not self._require_json_write():
+                return
+            length = self._content_length()
+            if length is None:
+                return
+            if length <= 0 or length > STEERING_HTTP_MAX_BYTES:
+                self._send(400, "missing or oversized body")
+                return
+            try:
+                raw = self.rfile.read(length).decode("utf-8")
+            except UnicodeDecodeError:
+                self._send(400, "body must be valid UTF-8")
+                return
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._send(400, f"bad json: {e}")
+                return
+            if not isinstance(payload, dict):
+                self._send(400, "payload must be an object")
+                return
+            plan_path = resolve_plan_note_target(str(payload.get("plan_path", "")))
+            if not plan_path:
+                self._send(403, "plan_path must be an allowed PLAN.md under dev_root")
+                return
+            action = payload.get("action")
+            if not isinstance(action, str) or action not in {"enqueue", "retry", "dismiss"}:
+                self._send(400, "action must be enqueue, retry, or dismiss")
+                return
+            mailbox = steering_mailbox()
+            try:
+                if action == "enqueue":
+                    message = payload.get("message", "")
+                    if not isinstance(message, str):
+                        self._send(400, "message must be a string")
+                        return
+                    item = mailbox.enqueue_intent(
+                        plan_path,
+                        message,
+                        source=payload.get("source", ""),
+                    )
+                    self._json({"ok": True, "item": steering_http_item(item)})
+                    return
+
+                item_id = payload.get("id", "")
+                if not isinstance(item_id, str):
+                    self._send(400, "id must be a string")
+                    return
+                if not steering_item_belongs_to_plan(mailbox, plan_path, item_id):
+                    self._send(403, "steering item does not belong to this plan")
+                    return
+                if action == "retry":
+                    item = mailbox.retry_intent(item_id)
+                    self._json({"ok": True, "item": steering_http_item(item)})
+                else:
+                    mailbox.dismiss_intent(item_id)
+                    self._json({"ok": True})
+            except SteeringJournalCorruptError:
+                self._send(409, "local steering state needs repair")
+            except SteeringMailboxConflictError as e:
+                self._send(409, str(e))
+            except SteeringMailboxValidationError as e:
+                self._send(400, str(e))
+            except UnsafeFileAliasError:
+                self._send(400, "steering store must be a regular single-link file")
+            except OSError:
+                self._send(409, "local steering state is unavailable")
         elif url.path == "/api/comments":
             if not self._require_comment_write():
                 return
@@ -3327,6 +3558,18 @@ class Handler(BaseHTTPRequestHandler):
     def _require_receipt_image_read(self) -> bool:
         if not is_loopback_host(self.client_address[0]):
             self._send(403, "receipt image pixels require loopback client")
+            return False
+        return True
+
+    def _require_steering_read(self) -> bool:
+        if not is_loopback_host(self.client_address[0]):
+            self._send(403, "steering requires loopback client")
+            return False
+        return True
+
+    def _require_coordination_read(self) -> bool:
+        if not is_loopback_host(self.client_address[0]):
+            self._send(403, "coordination requires loopback client")
             return False
         return True
 
@@ -3524,6 +3767,20 @@ def main(argv=None):
              "VIDUX_BROWSER_COMMENTS_FILE or ~/.vidux-browser/comments.jsonl.",
     )
     parser.add_argument(
+        "--steering-path",
+        type=str,
+        default=None,
+        help="Path to the one-shot steering JSONL journal. Defaults to env "
+             "VIDUX_BROWSER_STEERING_FILE or ~/.vidux-browser/steering.jsonl.",
+    )
+    parser.add_argument(
+        "--claims-path",
+        type=str,
+        default=None,
+        help="Path to the work-claims JSONL journal. Defaults to env "
+             "VIDUX_CLAIMS_FILE or ~/.agent-ledger/claims.jsonl.",
+    )
+    parser.add_argument(
         "--artifacts-dir",
         type=str,
         default=None,
@@ -3545,7 +3802,7 @@ def main(argv=None):
 
     # CLI overrides module-level globals. Re-resolve so the server uses the
     # passed values rather than the env defaults captured at import time.
-    global HOST, PORT, DEV_ROOT, COMMENTS_FILE, ARTIFACTS_DIR
+    global HOST, PORT, DEV_ROOT, COMMENTS_FILE, STEERING_FILE, CLAIMS_FILE, ARTIFACTS_DIR
     if args.host is not None:
         HOST = args.host
     if args.port is not None:
@@ -3554,6 +3811,10 @@ def main(argv=None):
         DEV_ROOT = Path(args.root).expanduser().resolve()
     if args.comments_path is not None:
         COMMENTS_FILE = Path(args.comments_path).expanduser()
+    if args.steering_path is not None:
+        STEERING_FILE = Path(args.steering_path).expanduser()
+    if args.claims_path is not None:
+        CLAIMS_FILE = Path(args.claims_path).expanduser()
     if args.artifacts_dir is not None:
         ARTIFACTS_DIR = Path(args.artifacts_dir).expanduser().resolve()
     if args.receipt_corpus_path is not None:

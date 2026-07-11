@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Canonical subcommand list. Order matches print_top_help() in bin/vidux.
-VIDUX_SUBCOMMANDS="dev browse status benchmark init drift config signpost http-smoke doctor build release completion help"
+VIDUX_SUBCOMMANDS="dev browse status steer coordinate benchmark init drift config signpost http-smoke doctor build release completion help"
 VIDUX_FLAGS="--help -h --version -v"
 
 print_usage() {
@@ -62,11 +62,27 @@ _vidux_complete() {
       return 0
       ;;
     browse)
-      COMPREPLY=( \$(compgen -W "--no-open --foreground -f --port --host --root --open-host --comments-path --receipt-corpus-path --help -h" -- "\${cur}") )
+      COMPREPLY=( \$(compgen -W "--no-open --foreground -f --port --host --root --open-host --comments-path --receipt-corpus-path --steering-path --claims-path --help -h" -- "\${cur}") )
       return 0
       ;;
     status)
       COMPREPLY=( \$(compgen -W "--root --focus --all --json --help -h" -- "\${cur}") )
+      return 0
+      ;;
+    steer)
+      if [ "\$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( \$(compgen -W "enqueue list lease ack fail retry dismiss --help -h" -- "\${cur}") )
+      else
+        COMPREPLY=( \$(compgen -W "--plan --message --source --consumer --lease-seconds --id --lease-token --code --stdin-json --store --root --all --json --help -h" -- "\${cur}") )
+      fi
+      return 0
+      ;;
+    coordinate)
+      if [ "\$COMP_CWORD" -eq 2 ]; then
+        COMPREPLY=( \$(compgen -W "claim heartbeat checkpoint release active snapshot --help -h" -- "\${cur}") )
+      else
+        COMPREPLY=( \$(compgen -W "--claims-file --repo --claim --owner --lane --plan-path --task-id --claim-id --ttl-hours --summary --resume --proof --status --handoff-limit --help -h" -- "\${cur}") )
+      fi
       return 0
       ;;
     benchmark)
@@ -118,6 +134,8 @@ _vidux() {
     'dev:Start the local dev browser (foreground; auto-restart)'
     'browse:Launch the plan browser at :7191'
     'status:Print plan status across operational PLAN.md files'
+    'steer:Queue or lease provider-neutral next-turn intent'
+    'coordinate:Claim, checkpoint, and hand off live work surfaces'
     'benchmark:Inspect the current fail-closed benchmark authority'
     'init:Bootstrap a new plan PLAN.md from template'
     'drift:Record planned-vs-actual drift in PLAN.md'
@@ -175,6 +193,8 @@ _vidux() {
             '--open-host[Browser URL host]' \\
             '--comments-path[Comments JSONL path]' \\
             '--receipt-corpus-path[Receipt corpus JSONL path]' \\
+            '--steering-path[Local steering mailbox JSONL path]' \\
+            '--claims-path[Local work-claims JSONL path]' \\
             '--help[Show help]' \\
             '-h[Show help]'
           ;;
@@ -184,6 +204,45 @@ _vidux() {
             '--focus[Repo name to prioritize]' \\
             '--all[Include empty, shipped, and stale tracked rows]' \\
             '--json[Print JSON]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
+        steer)
+          _values 'steering command' enqueue list lease ack fail retry dismiss
+          _values 'flag' \\
+            '--plan[Authority PLAN.md]' \\
+            '--message[Intent text]' \\
+            '--source[Non-secret source label]' \\
+            '--consumer[Non-secret consumer label]' \\
+            '--lease-seconds[Lease lifetime]' \\
+            '--id[Steering item UUID]' \\
+            '--lease-token[Opaque lease token; prefer --stdin-json]' \\
+            '--code[Safe failure code]' \\
+            '--stdin-json[Read missing request fields from stdin]' \\
+            '--store[Local steering JSONL path]' \\
+            '--root[Allowed development root]' \\
+            '--all[Include bodyless tombstones]' \\
+            '--json[Print JSON]' \\
+            '--help[Show help]' \\
+            '-h[Show help]'
+          ;;
+        coordinate)
+          _values 'coordination command' claim heartbeat checkpoint release active snapshot
+          _values 'flag' \\
+            '--claims-file[Work-claims JSONL path]' \\
+            '--repo[Repository label]' \\
+            '--claim[Exact work surface]' \\
+            '--owner[Stable non-secret owner id]' \\
+            '--lane[Work lane label]' \\
+            '--plan-path[Authority PLAN.md]' \\
+            '--task-id[Exact plan row id]' \\
+            '--claim-id[Lease id]' \\
+            '--ttl-hours[Lease duration]' \\
+            '--summary[Checkpoint summary]' \\
+            '--resume[Exact resume pointer]' \\
+            '--proof[Mechanical proof receipt]' \\
+            '--status[Release status]' \\
+            '--handoff-limit[Maximum resumable handoffs]' \\
             '--help[Show help]' \\
             '-h[Show help]'
           ;;
@@ -264,6 +323,8 @@ complete -c vidux -f
 complete -c vidux -n '__vidux_no_subcommand' -a dev        -d 'Start the local dev browser (foreground; auto-restart)'
 complete -c vidux -n '__vidux_no_subcommand' -a browse     -d 'Launch the plan browser at :7191'
 complete -c vidux -n '__vidux_no_subcommand' -a status     -d 'Print plan status across operational PLAN.md files'
+complete -c vidux -n '__vidux_no_subcommand' -a steer      -d 'Queue or lease provider-neutral next-turn intent'
+complete -c vidux -n '__vidux_no_subcommand' -a coordinate -d 'Claim, checkpoint, and hand off live work surfaces'
 complete -c vidux -n '__vidux_no_subcommand' -a benchmark  -d 'Inspect the current fail-closed benchmark authority'
 complete -c vidux -n '__vidux_no_subcommand' -a init       -d 'Bootstrap a new plan PLAN.md from template'
 complete -c vidux -n '__vidux_no_subcommand' -a drift      -d 'Record planned-vs-actual drift in PLAN.md'
@@ -290,6 +351,8 @@ complete -c vidux -n '__fish_seen_subcommand_from browse' -l root               
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l open-host             -d 'Browser URL host'
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l comments-path         -d 'Comments JSONL path'
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l receipt-corpus-path   -d 'Receipt corpus JSONL path'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l steering-path         -d 'Local steering mailbox JSONL path'
+complete -c vidux -n '__fish_seen_subcommand_from browse' -l claims-path           -d 'Local work-claims JSONL path'
 complete -c vidux -n '__fish_seen_subcommand_from browse' -l help  -s h            -d 'Show help'
 
 complete -c vidux -n '__fish_seen_subcommand_from status' -l root                  -d 'Root path to scan'
@@ -297,6 +360,39 @@ complete -c vidux -n '__fish_seen_subcommand_from status' -l focus              
 complete -c vidux -n '__fish_seen_subcommand_from status' -l all                   -d 'Include empty, shipped, and stale tracked rows'
 complete -c vidux -n '__fish_seen_subcommand_from status' -l json                  -d 'Print JSON'
 complete -c vidux -n '__fish_seen_subcommand_from status' -l help  -s h            -d 'Show help'
+
+complete -c vidux -n '__fish_seen_subcommand_from steer' -a 'enqueue list lease ack fail retry dismiss' -d 'Steering command'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l plan                  -d 'Authority PLAN.md'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l message               -d 'Intent text'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l source                -d 'Non-secret source label'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l consumer              -d 'Non-secret consumer label'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l lease-seconds         -d 'Lease lifetime'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l id                    -d 'Steering item UUID'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l lease-token           -d 'Opaque lease token; prefer --stdin-json'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l code                  -d 'Safe failure code'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l stdin-json            -d 'Read missing request fields from stdin'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l store                 -d 'Local steering JSONL path'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l root                  -d 'Allowed development root'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l all                   -d 'Include bodyless tombstones'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l json                  -d 'Print JSON'
+complete -c vidux -n '__fish_seen_subcommand_from steer' -l help -s h             -d 'Show help'
+
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -a 'claim heartbeat checkpoint release active snapshot' -d 'Coordination command'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l claims-file       -d 'Work-claims JSONL path'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l repo              -d 'Repository label'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l claim             -d 'Exact work surface'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l owner             -d 'Stable non-secret owner id'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l lane              -d 'Work lane label'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l plan-path         -d 'Authority PLAN.md'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l task-id           -d 'Exact plan row id'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l claim-id          -d 'Lease id'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l ttl-hours         -d 'Lease duration'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l summary           -d 'Checkpoint summary'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l resume            -d 'Exact resume pointer'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l proof             -d 'Mechanical proof receipt'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l status            -d 'Release status'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l handoff-limit     -d 'Maximum resumable handoffs'
+complete -c vidux -n '__fish_seen_subcommand_from coordinate' -l help -s h         -d 'Show help'
 
 complete -c vidux -n '__fish_seen_subcommand_from benchmark' -a 'status validate readiness release-check schedule result-check journal-recover' -d 'Benchmark command'
 complete -c vidux -n '__fish_seen_subcommand_from benchmark' -l release            -d 'Authenticated evaluator release JSON'
@@ -337,7 +433,7 @@ complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l url            
 complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l timeout          -d 'Total budget per URL in seconds'
 complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l max-sample-bytes -d 'Maximum response sample bytes'
 complete -c vidux -n '__fish_seen_subcommand_from http-smoke' -l json             -d 'Print JSON'
-complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status benchmark init drift config signpost http-smoke doctor build release completion help'
+complete -c vidux -n '__fish_seen_subcommand_from help' -a 'dev browse status steer coordinate benchmark init drift config signpost http-smoke doctor build release completion help'
 EOF
 }
 

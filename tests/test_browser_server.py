@@ -271,9 +271,15 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.original_dev_root = browser_server.DEV_ROOT
         self.original_artifacts_dir = browser_server.ARTIFACTS_DIR
         self.original_comments_file = browser_server.COMMENTS_FILE
+        self.original_steering_file = browser_server.STEERING_FILE
+        self.original_claims_file = browser_server.CLAIMS_FILE
         browser_server.DEV_ROOT = self.dev_root
         browser_server.ARTIFACTS_DIR = self.artifacts_dir
         browser_server.COMMENTS_FILE = self.comments_file
+        self.steering_file = self.dev_root / ".vidux-browser-steering.jsonl"
+        browser_server.STEERING_FILE = self.steering_file
+        self.claims_file = self.dev_root / ".agent-ledger-claims.jsonl"
+        browser_server.CLAIMS_FILE = self.claims_file
 
         self.plan_dir = self.dev_root / "repo" / "projects" / "demo"
         self.plan_dir.mkdir(parents=True)
@@ -295,6 +301,8 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         browser_server.DEV_ROOT = self.original_dev_root
         browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
         browser_server.COMMENTS_FILE = self.original_comments_file
+        browser_server.STEERING_FILE = self.original_steering_file
+        browser_server.CLAIMS_FILE = self.original_claims_file
         browser_server.clear_plans_cache()
         self.tmp.cleanup()
 
@@ -303,8 +311,11 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
 
     def post(self, path: str, payload: dict | str, headers: dict[str, str]):
         body = payload if isinstance(payload, str) else json.dumps(payload)
+        return self.post_bytes(path, body.encode("utf-8"), headers)
+
+    def post_bytes(self, path: str, body: bytes, headers: dict[str, str]):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        conn.request("POST", path, body=body.encode("utf-8"), headers=headers)
+        conn.request("POST", path, body=body, headers=headers)
         res = conn.getresponse()
         text = res.read().decode("utf-8", errors="replace")
         conn.close()
@@ -488,6 +499,278 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200, text)
         self.assertEqual(text, "safe-loopback-pixels")
         handle_image.assert_called_once_with("public-row")
+
+    def test_steering_http_lifecycle_is_plan_scoped_and_hides_host_fields(self):
+        plan_query = quote(str(self.plan_path), safe="")
+        status, text = self.get(f"/api/steering?plan_path={plan_query}")
+        self.assertEqual(status, 200, text)
+        self.assertEqual(json.loads(text)["items"], [])
+
+        status, text = self.post(
+            "/api/steering",
+            {
+                "plan_path": str(self.plan_path),
+                "action": "enqueue",
+                "message": "Use the intermediate plan on the next cycle.",
+                "source": "browser-test",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+        self.assertEqual(status, 200, text)
+        item_id = json.loads(text)["item"]["id"]
+
+        status, text = self.get(f"/api/steering?plan_path={plan_query}")
+        self.assertEqual(status, 200, text)
+        payload = json.loads(text)
+        self.assertEqual(payload["capacity"], browser_server.STEERING_CAPACITY)
+        self.assertEqual(payload["items"][0]["status"], "queued")
+        self.assertEqual(
+            payload["items"][0]["message"],
+            "Use the intermediate plan on the next cycle.",
+        )
+        for private_field in (
+            "plan_path", "body", "source", "consumer", "lease_token", "lease_token_hash"
+        ):
+            self.assertNotIn(private_field, payload["items"][0])
+
+        mailbox = browser_server.steering_mailbox()
+        lease = mailbox.lease_next_intent(self.plan_path, "outer-host-test")
+        mailbox.fail_intent(item_id, lease["lease_token"], "usage_exhausted")
+        status, text = self.get(f"/api/steering?plan_path={plan_query}")
+        self.assertEqual(status, 200, text)
+        self.assertEqual(json.loads(text)["items"][0]["status"], "retryable")
+        self.assertEqual(json.loads(text)["items"][0]["failure_code"], "usage_exhausted")
+
+        status, text = self.post(
+            "/api/steering",
+            {"plan_path": str(self.plan_path), "action": "retry", "id": item_id},
+            self.json_headers(Origin=self.origin()),
+        )
+        self.assertEqual(status, 200, text)
+        lease = mailbox.lease_next_intent(self.plan_path, "outer-host-test")
+        mailbox.acknowledge_intent(item_id, lease["lease_token"])
+
+        status, text = self.get(f"/api/steering?plan_path={plan_query}")
+        self.assertEqual(status, 200, text)
+        self.assertEqual(json.loads(text)["items"], [])
+        self.assertNotIn(
+            "Use the intermediate plan on the next cycle.",
+            self.steering_file.read_text(encoding="utf-8"),
+        )
+
+    def test_coordination_http_projects_four_owners_and_resumable_handoff(self):
+        store = browser_server.coordination_claims()
+        for index in range(4):
+            store.claim(
+                claim_id=f"clm_owner_{index}",
+                repo="repo",
+                claim=f"Sources/Currency{index}.swift",
+                owner=f"resplit-chat-{index + 1}",
+                lane=f"currency-{index + 1}",
+                plan_path=str(self.plan_path),
+                task_id=f"row-{index + 1}",
+                host=f"secret-host-{index}",
+                pid=9000 + index,
+            )
+        handoff = store.claim(
+            claim_id="clm_handoff",
+            repo="repo",
+            claim="Sources/Workbench.swift",
+            owner="resplit-chat-old",
+            lane="workbench",
+            plan_path=str(self.plan_path),
+            task_id="row-handoff",
+            host="secret-handoff-host",
+            pid=9999,
+        )
+        store.checkpoint(
+            claim_id=handoff["claim"]["claim_id"],
+            owner="resplit-chat-old",
+            summary="layout proof pending",
+            resume="run focused workbench tests",
+            proof="git diff --check",
+        )
+        store.release(
+            claim_id=handoff["claim"]["claim_id"],
+            owner="resplit-chat-old",
+            status="usage_exhausted",
+        )
+        # More than the store's historical 256-row global window from another
+        # plan must not evict this plan's resume pointer before limiting.
+        other_plan = str(self.dev_root / "other" / "PLAN.md")
+        events = list(store.read().events)
+        for index in range(257):
+            claim_id = f"clm_other_{index}"
+            owner = f"other-chat-{index}"
+            events.extend(
+                [
+                    {
+                        "schema": 2,
+                        "event": "claim",
+                        "claim_id": claim_id,
+                        "ts": "2000-01-01T00:00:00Z",
+                        "repo": "repo",
+                        "claim": f"Sources/Other{index}.swift",
+                        "files_claimed": [f"Sources/Other{index}.swift"],
+                        "owner": owner,
+                        "lane": "other-plan",
+                        "plan_path": other_plan,
+                        "task_id": f"other-{index}",
+                        "ttl_hours": 2,
+                        "expires_at": "2000-01-01T02:00:00Z",
+                    },
+                    {
+                        "schema": 2,
+                        "event": "checkpoint",
+                        "claim_id": claim_id,
+                        "owner": owner,
+                        "ts": "2000-01-01T00:01:00Z",
+                        "ttl_hours": 2,
+                        "expires_at": "2000-01-01T02:01:00Z",
+                        "summary": "other work",
+                        "resume": "other resume",
+                        "proof": "",
+                    },
+                    {
+                        "schema": 2,
+                        "event": "release",
+                        "claim_id": claim_id,
+                        "owner": owner,
+                        "ts": "2000-01-01T00:02:00Z",
+                        "status": "usage_exhausted",
+                    },
+                ]
+            )
+        store._write(events)
+
+        query = quote(str(self.plan_path), safe="")
+        status, text = self.get(f"/api/coordination?plan_path={query}")
+
+        self.assertEqual(status, 200, text)
+        payload = json.loads(text)
+        self.assertEqual(len(payload["active"]), 4)
+        self.assertEqual(payload["active"][3]["owner"], "resplit-chat-4")
+        self.assertEqual(len(payload["handoffs"]), 1)
+        self.assertEqual(payload["handoffs"][0]["status"], "usage_exhausted")
+        self.assertEqual(
+            payload["handoffs"][0]["checkpoint"]["resume"],
+            "run focused workbench tests",
+        )
+        self.assertNotIn("secret-host", text)
+        self.assertNotIn('"pid"', text)
+
+    def test_coordination_get_rejects_lan_before_storage(self):
+        sent = []
+        handler = object.__new__(browser_server.Handler)
+        handler.path = f"/api/coordination?plan_path={quote(str(self.plan_path), safe='')}"
+        handler.client_address = ("192.168.1.50", 49152)
+        handler.headers = {"Host": "192.168.1.50:7191"}
+        handler._send = lambda code, msg: sent.append((code, msg))
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            with mock.patch.object(browser_server, "coordination_claims") as claims:
+                browser_server.Handler.do_GET(handler)
+        finally:
+            browser_server.HOST = original_host
+        self.assertEqual(sent, [(403, "coordination requires loopback client")])
+        claims.assert_not_called()
+
+    def test_steering_http_rejects_sensitive_and_host_only_actions(self):
+        status, text = self.post(
+            "/api/steering",
+            {
+                "plan_path": str(self.plan_path),
+                "action": "enqueue",
+                "message": f"credential={synthetic_secret()}",
+            },
+            self.json_headers(Origin=self.origin()),
+        )
+        self.assertEqual(status, 400, text)
+        self.assertFalse(self.steering_file.exists())
+
+        for action in ("lease", "ack", "fail"):
+            with self.subTest(action=action):
+                status, text = self.post(
+                    "/api/steering",
+                    {"plan_path": str(self.plan_path), "action": action},
+                    self.json_headers(Origin=self.origin()),
+                )
+                self.assertEqual(status, 400, text)
+
+    def test_steering_http_rejects_non_string_action_without_disconnect(self):
+        status, text = self.post(
+            "/api/steering",
+            {"plan_path": str(self.plan_path), "action": []},
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "action must be enqueue, retry, or dismiss")
+
+    def test_steering_http_rejects_invalid_utf8(self):
+        status, text = self.post_bytes(
+            "/api/steering",
+            b'{"plan_path":"' + str(self.plan_path).encode("utf-8") + b'","action":"enqueue","message":"\xff"}',
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 400, text)
+        self.assertEqual(text, "body must be valid UTF-8")
+
+    def test_steering_http_accepts_worst_case_encoded_valid_intent(self):
+        # ensure_ascii turns each control character into a six-byte JSON escape;
+        # decoded mailbox policy, not incidental transport expansion, is the cap.
+        message = "\x01" * browser_server.STEERING_INTENT_MAX_BYTES
+        body = json.dumps(
+            {
+                "plan_path": str(self.plan_path),
+                "action": "enqueue",
+                "message": message,
+            }
+        ).encode("utf-8")
+        self.assertGreater(len(body), browser_server.STEERING_INTENT_MAX_BYTES + 4096)
+        self.assertLessEqual(len(body), browser_server.STEERING_HTTP_MAX_BYTES)
+
+        status, text = self.post_bytes(
+            "/api/steering",
+            body,
+            self.json_headers(Origin=self.origin()),
+        )
+
+        self.assertEqual(status, 200, text)
+
+    def test_steering_get_rejects_lan_before_storage(self):
+        sent = []
+        handler = object.__new__(browser_server.Handler)
+        handler.path = f"/api/steering?plan_path={quote(str(self.plan_path), safe='')}"
+        handler.client_address = ("192.168.1.50", 49152)
+        handler.headers = {"Host": "192.168.1.50:7191"}
+        handler._send = lambda code, msg: sent.append((code, msg))
+
+        original_host = browser_server.HOST
+        browser_server.HOST = "0.0.0.0"
+        try:
+            with mock.patch.object(browser_server, "steering_mailbox") as mailbox:
+                browser_server.Handler.do_GET(handler)
+        finally:
+            browser_server.HOST = original_host
+
+        self.assertEqual(sent, [(403, "steering requires loopback client")])
+        mailbox.assert_not_called()
+
+    def test_steering_corrupt_journal_fails_closed_without_partial_items(self):
+        mailbox = browser_server.steering_mailbox()
+        mailbox.enqueue_intent(self.plan_path, "valid prefix")
+        with self.steering_file.open("a", encoding="utf-8") as handle:
+            handle.write("{not-json}\n")
+
+        status, text = self.get(
+            f"/api/steering?plan_path={quote(str(self.plan_path), safe='')}"
+        )
+        self.assertEqual(status, 409, text)
+        self.assertEqual(text, "local steering state needs repair")
+        self.assertNotIn("valid prefix", text)
 
     def test_artifact_post_accepts_same_origin_json(self):
         status, text = self.post(
@@ -1512,6 +1795,20 @@ class BrowserViduxTruthTests(unittest.TestCase):
         self.assertEqual(payload["dev_root"], str(browser_server.DEV_ROOT))
         self.assertEqual(payload["server_path"], str(browser_server.SERVER_FILE))
         self.assertEqual(payload["server_mtime_ns"], browser_server.SERVER_MTIME_NS)
+        self.assertEqual(payload["steering_store_id"], browser_server.steering_store_id())
+        self.assertEqual(
+            payload["steering_module_mtime_ns"],
+            browser_server.steering_module_mtime_ns(),
+        )
+        self.assertEqual(
+            payload["coordination_store_id"], browser_server.coordination_store_id()
+        )
+        self.assertEqual(
+            payload["coordination_module_mtime_ns"],
+            browser_server.coordination_module_mtime_ns(),
+        )
+        self.assertNotIn(str(browser_server.STEERING_FILE), text)
+        self.assertNotIn(str(browser_server.CLAIMS_FILE), text)
         self.assertEqual(
             payload["receipt_corpus_path"],
             str(browser_server._receipts_handler.DEFAULT_CORPUS_PATH.resolve()),
@@ -2803,10 +3100,13 @@ class BrowserPlanBriefTests(unittest.TestCase):
         self.assertEqual(brief["latest_progress"], "[2026-07-10] Shipped the newest cockpit slice.")
         self.assertIn("Keep PLAN.md canonical", brief["latest_decision"])
 
-    def test_plan_brief_is_read_only_and_surfaces_core_truth(self):
+    def test_plan_brief_keeps_execution_out_of_browser_and_mounts_local_steering_inbox(self):
         app = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
         comment_rail = (
             ROOT / "browser" / "static" / "comment-rail.js"
+        ).read_text(encoding="utf-8")
+        steering = (
+            ROOT / "browser" / "static" / "steering-inbox.js"
         ).read_text(encoding="utf-8")
         style = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 
@@ -2816,6 +3116,12 @@ class BrowserPlanBriefTests(unittest.TestCase):
         self.assertIn("No proof files yet", app)
         self.assertNotIn("function setupPlanSteering", app)
         self.assertNotIn("Steer this plan", app)
+        self.assertIn("ViduxSteeringInbox", app)
+        self.assertIn("function render", steering)
+        self.assertIn("function setup", steering)
+        self.assertIn("Steer next turn", steering)
+        self.assertIn("This does not send a chat message", steering)
+        self.assertIn("/api/steering", steering)
         self.assertNotIn("function codingWorkbenchUrl", app)
         self.assertNotIn("Code lane", app)
         self.assertNotIn("/api/coding-handoff", app)
@@ -2825,6 +3131,9 @@ class BrowserPlanBriefTests(unittest.TestCase):
             "plan-brief",
             "plan-brief-task",
             "comment-item.is-steering",
+            "steering-inbox",
+            "steering-composer",
+            "steering-item.is-retryable",
         ]:
             self.assertIn(klass, style)
         self.assertNotIn(".plan-steering", style)
@@ -3246,6 +3555,8 @@ class BrowserMainCliStorageIsolationTests(unittest.TestCase):
         self.original_port = browser_server.PORT
         self.original_dev_root = browser_server.DEV_ROOT
         self.original_comments_file = browser_server.COMMENTS_FILE
+        self.original_steering_file = browser_server.STEERING_FILE
+        self.original_claims_file = browser_server.CLAIMS_FILE
         self.original_artifacts_dir = browser_server.ARTIFACTS_DIR
         self.original_receipt_corpus_path = browser_server._receipts_handler.DEFAULT_CORPUS_PATH
         self.original_receipt_images_dir = browser_server._receipts_handler.DEFAULT_IMAGES_DIR
@@ -3258,6 +3569,8 @@ class BrowserMainCliStorageIsolationTests(unittest.TestCase):
         browser_server.PORT = self.original_port
         browser_server.DEV_ROOT = self.original_dev_root
         browser_server.COMMENTS_FILE = self.original_comments_file
+        browser_server.STEERING_FILE = self.original_steering_file
+        browser_server.CLAIMS_FILE = self.original_claims_file
         browser_server.ARTIFACTS_DIR = self.original_artifacts_dir
         browser_server._receipts_handler.DEFAULT_CORPUS_PATH = self.original_receipt_corpus_path
         browser_server._receipts_handler.DEFAULT_IMAGES_DIR = self.original_receipt_images_dir
@@ -3270,6 +3583,22 @@ class BrowserMainCliStorageIsolationTests(unittest.TestCase):
             browser_server.main(["--port", "0", "--artifacts-dir", str(custom)])
 
             self.assertEqual(browser_server.ARTIFACTS_DIR, custom.resolve())
+
+    def test_steering_path_flag_overrides_the_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom = Path(tmpdir) / "fixture-steering" / "steering.jsonl"
+
+            browser_server.main(["--port", "0", "--steering-path", str(custom)])
+
+            self.assertEqual(browser_server.STEERING_FILE, custom)
+
+    def test_claims_path_flag_overrides_the_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom = Path(tmpdir) / "fixture-claims" / "claims.jsonl"
+
+            browser_server.main(["--port", "0", "--claims-path", str(custom)])
+
+            self.assertEqual(browser_server.CLAIMS_FILE, custom)
 
     def test_artifacts_dir_untouched_when_flag_omitted(self):
         browser_server.main(["--port", "0"])
