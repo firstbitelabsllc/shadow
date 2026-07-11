@@ -1,6 +1,6 @@
 # Browser UI
 
-A local browser surface for inspecting plans across `DEV_ROOT`, scanning the cross-plan fleet queue, reading sibling docs, adding named or anchored comments, and dropping bounded local notes into a plan's `INBOX.md`.
+A local browser surface for inspecting plans across `DEV_ROOT`, scanning the cross-plan fleet queue, reading sibling docs, adding named or anchored comments, dropping bounded local notes into a plan's `INBOX.md`, and queueing transient next-turn direction for an existing goal or loop.
 
 ## What ships
 
@@ -9,6 +9,8 @@ A local browser surface for inspecting plans across `DEV_ROOT`, scanning the cro
 - `browser/static/` contains the frontend assets.
 - `browser/artifacts/` stores ad-hoc HTML artifacts that the UI can list and open.
 - `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}` stores named comments and optional anchor metadata as append-only app data.
+- `${VIDUX_BROWSER_STEERING_FILE:-~/.vidux-browser/steering.jsonl}` stores the local, plan-scoped one-shot steering journal.
+- `${VIDUX_CLAIMS_FILE:-~/.agent-ledger/claims.jsonl}` stores provider-neutral live work leases and bounded handoffs.
 
 ## Launching it
 
@@ -30,11 +32,13 @@ Source-grounded defaults from the launcher and server:
 - Activity ledger source: `VIDUX_LEDGER_FILE` defaults to `~/.agent-ledger/activity.jsonl`
 - Ledger tab caps: `VIDUX_LEDGER_ITEM_LIMIT` defaults to `20`; `VIDUX_LEDGER_SCAN_LIMIT` defaults to `5000`
 - Receipt corpus: `RECEIPT_CORPUS_PATH` defaults to `~/Development/vidux/browser/receipts/corpus.jsonl`
+- Steering journal: `VIDUX_BROWSER_STEERING_FILE` defaults to `~/.vidux-browser/steering.jsonl`
+- Work-claims journal: `VIDUX_CLAIMS_FILE` defaults to `~/.agent-ledger/claims.jsonl`
 
-In background mode the launcher writes a PID file and log under `${TMPDIR:-/tmp}` and waits for `GET /api/health` before declaring success. If something is already listening on the target port, the launcher reuses it only when the health payload matches the requested `repo_root`, `dev_root`, `receipt_corpus_path`, `port`, and current `browser/server.py` file mtime fingerprint.
+In background mode the launcher writes a PID file and log under `${TMPDIR:-/tmp}` and waits for `GET /api/health` before declaring success. If something is already listening on the target port, the launcher reuses it only when the health payload matches the requested `repo_root`, `dev_root`, `receipt_corpus_path`, path-safe steering and coordination store identities, `port`, and current server/mailbox/coordination module mtimes.
 
 The launcher accepts `--port`, `--host`, `--root`/`--dev-root`, `--open-host`,
-`--comments-path`, and `--receipt-corpus-path`; unknown flags exit 2. `--root`
+`--comments-path`, `--steering-path`, `--claims-path`, and `--receipt-corpus-path`; unknown flags exit 2. `--root`
 does not scope receipts, so fixture and demo runs must pass an isolated
 `--receipt-corpus-path`.
 
@@ -42,7 +46,7 @@ does not scope receipts, so fixture and demo runs must pass an isolated
 
 The stdlib-only server exposes these routes:
 
-- `GET /api/health` returns `ok`, `dev_root`, `repo_root`, `port`, `server_path`, `server_mtime_ns`, `artifacts_dir`, and `receipt_corpus_path`; `bin/vidux-browse` uses these to avoid opening a stale, older-code, foreign, or differently scoped listener on the same port.
+- `GET /api/health` returns `ok`, root/port/server identity, path-safe steering and coordination store ids, their module mtimes, `artifacts_dir`, and `receipt_corpus_path`; `bin/vidux-browse` uses these to avoid opening a stale, older-code, foreign, or differently scoped listener on the same port. Journal paths are not returned.
 - `GET /api/vidux/truth` returns cached read-only config, runtime-doctor, and signpost status for the browser chrome. Cold calls return a warming payload and refresh the truth bundle in the background, so monitor probes never block on runtime doctor.
 - `GET /api/vidux/truth?refresh=sync` forces the synchronous config/runtime-doctor/signpost proof path for manual checks and tests.
 - The truth payload includes `runtime_doctor.system_memory` (a compact copy of `system_memory_pressure`): `memory_pressure_free_pct`/`memory_pct_source` from `memory_pressure -Q`; `vm_free_mb`/`vm_speculative_mb`/`vm_pages_source` from `vm_stat`.
@@ -50,6 +54,8 @@ The stdlib-only server exposes these routes:
 - `GET /receipts` opens the local receipt corpus lab.
 - `GET /api/plans` returns discovered plans plus metadata, a server-calculated `summary` (fleet counts/task completion/remaining ETA), and a bounded `dashboard` object (`in_progress` tasks, `blocked` tasks, open `ASK-LEO.md` and `INBOX.md` entries). The dashboard also carries path-free onboarding state for empty roots, Git projects without plans, plans without an Operator Brief, and tied current-work priorities.
 - `GET /api/ledger?path=<PLAN.md>` returns bounded, newest-first publish/checkpoint ledger rows for that plan, falling back to recent same-repo rows when plan-specific proof is absent.
+- `GET /api/steering?plan_path=<PLAN.md>` returns cockpit-safe active steering state for one exact plan to loopback clients. It never returns the plan/store path, source/consumer labels, or lease material.
+- `GET /api/coordination?plan_path=<PLAN.md>` returns active owners and resumable handoffs for that exact plan to loopback clients. It omits host, PID, journal path, tokens, and provider/account identity; there is no coordination write route.
 - `GET /api/artifacts` returns the HTML artifact shelf under `browser/artifacts/`.
 - `GET /api/file?path=...` returns an allowed markdown file or HTML artifact.
 - `GET /api/comments?path=...` returns named comments attached to an allowed markdown file or HTML artifact.
@@ -58,6 +64,7 @@ The stdlib-only server exposes these routes:
 - `POST /api/artifact` writes a bounded HTML artifact (`slug` + `html` JSON payload).
 - `POST /api/comments` appends a bounded named or anchored comment to the separate comments store.
 - `POST /api/local-plan-note` appends a bounded local note to a plan directory's `INBOX.md`.
+- `POST /api/steering` lets the loopback cockpit enqueue, retry, or dismiss an active exact-plan item. Host-only lease, acknowledge, and fail transitions are not HTTP actions.
 - `POST /api/receipts/upload` writes a bounded receipt-corpus row from base64 JPEG/PNG input.
 - `POST /api/receipts/<id>/tag` patches receipt tags, known issues, or Leo notes.
 - `POST /api/receipts/<id>/ocr` runs configured OCR for a stored receipt image.
@@ -79,6 +86,9 @@ The server is narrow:
 - JSON payloads, plain-text HTTP errors, and request log lines share the same final redaction backstop. Percent-escaped request targets are decoded before log scanning so URL encoding cannot defeat token boundaries, then control characters are flattened to keep each request on one physical log line.
 - The high-confidence detector covers known provider-token prefixes, bearer credentials, JWTs, private-key blocks, values of explicit secret/key/token assignments when the value is at least 12 characters, explicit password assignments when the value is at least 4 characters, and standalone mixed-character values of at least 40 characters that clear the entropy threshold. Hex digests and explicit example/redacted/unset placeholders remain visible to reduce proof noise.
 - Artifact writes and local plan-note writes are loopback-only, require `Content-Type: application/json`, and reject cross-origin posts.
+- Steering reads and writes are loopback-only. Browser writes require same-origin JSON; the HTTP action allowlist cannot lease, acknowledge, fail, invoke a provider, or start an executor.
+- Steering bodies and labels reject sensitive-value matches. The store and lock file use the same regular-single-link and atomic-write protections as other local mutation surfaces. A corrupt journal fails closed in HTTP instead of returning a valid-looking partial queue.
+- Lease tokens are random, hash-only at rest, omitted from list/browser payloads, and intended to return through stdin JSON. Acknowledgement and dismissal compact the body into a bounded tombstone; retry preserves the original FIFO position.
 - Artifact, comment, and local plan-note writes reject detector matches instead of persisting a redacted value. Existing comments are redacted on read. Secret-shaped artifact slugs are rejected.
 - Receipt writes and receipt OCR/analyze mutations are loopback-only JSON writes with explicit size caps.
 - Receipt image bytes are loopback-only reads. LAN viewers keep non-private text metadata, receive `image_access.available=false`, and the receipt UI shows a host-only placeholder without requesting the image route.

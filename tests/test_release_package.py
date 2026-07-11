@@ -40,6 +40,18 @@ def baseline() -> tuple[dict, dict, set[str]]:
 
 
 class ReleasePackageTests(unittest.TestCase):
+    def test_steering_and_coordination_runtime_is_release_required(self) -> None:
+        self.assertTrue(
+            {
+                "browser/coordination_claims.py",
+                "browser/steering_mailbox.py",
+                "browser/static/coordination-panel.js",
+                "browser/static/steering-inbox.js",
+                "scripts/vidux-claims.py",
+                "scripts/vidux-steer.py",
+            }.issubset(mod.REQUIRED_FILES)
+        )
+
     def errors(self, package: dict, pack: dict, tracked: set[str]) -> list[str]:
         return mod.validate_release_candidate(
             package,

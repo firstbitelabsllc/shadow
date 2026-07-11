@@ -9,6 +9,7 @@ Runs on stdlib unittest — zero-bootstrap, no pip install needed.
 """
 
 import http.client
+import hashlib
 import json
 import os
 import re
@@ -966,6 +967,42 @@ class ViduxContractTests(unittest.TestCase):
         self.assertIn("-a 'bash zsh fish'", fish_completion.stdout)
         self.assertIn("__fish_seen_subcommand_from completion", fish_completion.stdout)
 
+    def test_vidux_coordinate_dispatches_provider_neutral_claims_cli(self):
+        help_result = subprocess.run(
+            [str(ROOT / "bin" / "vidux"), "coordinate", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("usage_exhausted", help_result.stdout)
+        self.assertIn("Active claims cannot be preempted", help_result.stdout)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            claims_file = Path(tmpdir) / "claims.jsonl"
+            snapshot = subprocess.run(
+                [
+                    str(ROOT / "bin" / "vidux"),
+                    "coordinate",
+                    "--claims-file",
+                    str(claims_file),
+                    "snapshot",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        self.assertEqual(snapshot.returncode, 0, snapshot.stderr)
+        self.assertEqual(json.loads(snapshot.stdout)["claims"], [])
+
+        bash_completion = subprocess.run(
+            [str(ROOT / "scripts" / "vidux-completion.sh"), "bash"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertIn("claim heartbeat checkpoint release active snapshot", bash_completion.stdout)
+
     def test_vidux_fish_help_completion_includes_help_subcommand(self):
         """Fish should complete the same help targets as the canonical subcommand list."""
         fish_completion = subprocess.run(
@@ -974,7 +1011,7 @@ class ViduxContractTests(unittest.TestCase):
         )
         self.assertEqual(fish_completion.returncode, 0, fish_completion.stderr)
         self.assertIn(
-            "__fish_seen_subcommand_from help' -a 'dev browse status benchmark init drift config signpost http-smoke doctor build release completion help'",
+            "__fish_seen_subcommand_from help' -a 'dev browse status steer coordinate benchmark init drift config signpost http-smoke doctor build release completion help'",
             fish_completion.stdout,
         )
 
@@ -4542,6 +4579,14 @@ class ViduxContractTests(unittest.TestCase):
                 "dev_root": str(dev_root.resolve()),
                 "repo_root": str(ROOT.resolve()),
                 "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
+                "steering_module_mtime_ns": (ROOT / "browser" / "steering_mailbox.py").stat().st_mtime_ns,
+                "steering_store_id": hashlib.sha256(
+                    str((home / ".vidux-browser" / "steering.jsonl").resolve()).encode()
+                ).hexdigest()[:16],
+                "coordination_module_mtime_ns": (ROOT / "browser" / "coordination_claims.py").stat().st_mtime_ns,
+                "coordination_store_id": hashlib.sha256(
+                    str((home / ".agent-ledger" / "claims.jsonl").resolve()).encode()
+                ).hexdigest()[:16],
                 "port": 7191,
                 "receipt_corpus_path": str(
                     (home / "Development" / "vidux" / "browser" / "receipts" / "corpus.jsonl").resolve()
@@ -4563,11 +4608,41 @@ class ViduxContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("vidux browser already on http://127.0.0.1:7191", result.stdout)
 
+            mismatched_steering_health = json.loads(matching_health)
+            mismatched_steering_health["steering_store_id"] = hashlib.sha256(
+                str((tmp / "different-steering.jsonl").resolve()).encode()
+            ).hexdigest()[:16]
+            (fakebin / "curl").write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' "
+                + json.dumps(json.dumps(mismatched_steering_health))
+                + "\n",
+                encoding="utf-8",
+            )
+            (fakebin / "curl").chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", str(ROOT / "bin" / "vidux-browse"), "--no-open"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("steering_store_id", result.stderr)
+
             mismatched_receipt_health = json.dumps({
                 "ok": True,
                 "dev_root": str(dev_root.resolve()),
                 "repo_root": str(ROOT.resolve()),
                 "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
+                "steering_module_mtime_ns": (ROOT / "browser" / "steering_mailbox.py").stat().st_mtime_ns,
+                "steering_store_id": hashlib.sha256(
+                    str((home / ".vidux-browser" / "steering.jsonl").resolve()).encode()
+                ).hexdigest()[:16],
+                "coordination_module_mtime_ns": (ROOT / "browser" / "coordination_claims.py").stat().st_mtime_ns,
+                "coordination_store_id": hashlib.sha256(
+                    str((home / ".agent-ledger" / "claims.jsonl").resolve()).encode()
+                ).hexdigest()[:16],
                 "port": 7191,
                 "receipt_corpus_path": str((tmp / "different-corpus.jsonl").resolve()),
             })
@@ -4693,6 +4768,8 @@ class ViduxContractTests(unittest.TestCase):
             dev_root = home / "Development"
             custom_root = tmp / "scan-root"
             custom_corpus = tmp / "fixture-receipts" / "corpus.jsonl"
+            custom_steering = tmp / "fixture-steering" / "steering.jsonl"
+            custom_claims = tmp / "fixture-claims" / "claims.jsonl"
             fakebin.mkdir()
             dev_root.mkdir(parents=True)
             custom_root.mkdir()
@@ -4704,6 +4781,14 @@ class ViduxContractTests(unittest.TestCase):
                 "dev_root": str(custom_root.resolve()),
                 "repo_root": str(ROOT.resolve()),
                 "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
+                "steering_module_mtime_ns": (ROOT / "browser" / "steering_mailbox.py").stat().st_mtime_ns,
+                "steering_store_id": hashlib.sha256(
+                    str(custom_steering.resolve()).encode()
+                ).hexdigest()[:16],
+                "coordination_module_mtime_ns": (ROOT / "browser" / "coordination_claims.py").stat().st_mtime_ns,
+                "coordination_store_id": hashlib.sha256(
+                    str(custom_claims.resolve()).encode()
+                ).hexdigest()[:16],
                 "port": 7292,
                 "receipt_corpus_path": str(custom_corpus.resolve()),
             })
@@ -4732,6 +4817,10 @@ class ViduxContractTests(unittest.TestCase):
                     str(custom_root),
                     "--receipt-corpus-path",
                     str(custom_corpus),
+                    "--steering-path",
+                    str(custom_steering),
+                    "--claims-path",
+                    str(custom_claims),
                     "--no-open",
                 ],
                 capture_output=True,
@@ -4772,6 +4861,26 @@ class ViduxContractTests(unittest.TestCase):
             self.assertEqual(missing_receipt_corpus.returncode, 2)
             self.assertIn("--receipt-corpus-path requires a value", missing_receipt_corpus.stderr)
 
+            missing_steering_path = subprocess.run(
+                ["bash", str(ROOT / "bin" / "vidux-browse"), "--steering-path"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env=env,
+            )
+            self.assertEqual(missing_steering_path.returncode, 2)
+            self.assertIn("--steering-path requires a value", missing_steering_path.stderr)
+
+            missing_claims_path = subprocess.run(
+                ["bash", str(ROOT / "bin" / "vidux-browse"), "--claims-path"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env=env,
+            )
+            self.assertEqual(missing_claims_path.returncode, 2)
+            self.assertIn("--claims-path requires a value", missing_claims_path.stderr)
+
     def test_vidux_wrapper_exports_resolved_root_to_browse_launcher(self):
         """vidux browse must launch from the checkout that owns bin/vidux."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -4790,6 +4899,14 @@ class ViduxContractTests(unittest.TestCase):
                 "dev_root": str(dev_root.resolve()),
                 "repo_root": str(ROOT.resolve()),
                 "server_mtime_ns": (ROOT / "browser" / "server.py").stat().st_mtime_ns,
+                "steering_module_mtime_ns": (ROOT / "browser" / "steering_mailbox.py").stat().st_mtime_ns,
+                "steering_store_id": hashlib.sha256(
+                    str((home / ".vidux-browser" / "steering.jsonl").resolve()).encode()
+                ).hexdigest()[:16],
+                "coordination_module_mtime_ns": (ROOT / "browser" / "coordination_claims.py").stat().st_mtime_ns,
+                "coordination_store_id": hashlib.sha256(
+                    str((home / ".agent-ledger" / "claims.jsonl").resolve()).encode()
+                ).hexdigest()[:16],
                 "port": 7293,
                 "receipt_corpus_path": str(
                     (home / "Development" / "vidux" / "browser" / "receipts" / "corpus.jsonl").resolve()

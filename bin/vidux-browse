@@ -28,6 +28,8 @@ LOG="${TMPDIR:-/tmp}/vidux-browser.log"
 PIDFILE="${TMPDIR:-/tmp}/vidux-browser.pid"
 DEV_ROOT="${VIDUX_DEV_ROOT:-$HOME/Development}"
 COMMENTS_PATH="${VIDUX_BROWSER_COMMENTS_FILE:-}"
+STEERING_PATH="${VIDUX_BROWSER_STEERING_FILE:-$HOME/.vidux-browser/steering.jsonl}"
+CLAIMS_PATH="${VIDUX_CLAIMS_FILE:-$HOME/.agent-ledger/claims.jsonl}"
 RECEIPT_CORPUS_PATH="${RECEIPT_CORPUS_PATH:-$HOME/Development/vidux/browser/receipts/corpus.jsonl}"
 
 OPEN_BROWSER=1
@@ -35,7 +37,7 @@ FOREGROUND=0
 
 usage() {
   cat <<EOF
-usage: vidux-browse [--no-open] [--foreground|-f] [--port N] [--host HOST] [--root PATH] [--open-host HOST] [--comments-path PATH] [--receipt-corpus-path PATH]
+usage: vidux-browse [--no-open] [--foreground|-f] [--port N] [--host HOST] [--root PATH] [--open-host HOST] [--comments-path PATH] [--steering-path PATH] [--claims-path PATH] [--receipt-corpus-path PATH]
   default: starts server in background, opens http://${OPEN_HOST}:${PORT}
 EOF
 }
@@ -73,6 +75,14 @@ while [[ $# -gt 0 ]]; do
       require_value "$1" "${2:-}"; COMMENTS_PATH="$2"; shift 2 ;;
     --comments-path=*)
       COMMENTS_PATH="${1#*=}"; shift ;;
+    --steering-path)
+      require_value "$1" "${2:-}"; STEERING_PATH="$2"; shift 2 ;;
+    --steering-path=*)
+      STEERING_PATH="${1#*=}"; shift ;;
+    --claims-path)
+      require_value "$1" "${2:-}"; CLAIMS_PATH="$2"; shift 2 ;;
+    --claims-path=*)
+      CLAIMS_PATH="${1#*=}"; shift ;;
     --receipt-corpus-path)
       require_value "$1" "${2:-}"; RECEIPT_CORPUS_PATH="$2"; shift 2 ;;
     --receipt-corpus-path=*)
@@ -102,8 +112,12 @@ URL="http://${OPEN_HOST}:${PORT}"
 EXPECTED_DEV_ROOT="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "${DEV_ROOT}")"
 EXPECTED_REPO_ROOT="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "${ROOT}")"
 EXPECTED_SERVER_MTIME_NS="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).stat().st_mtime_ns)' "${EXPECTED_REPO_ROOT}/browser/server.py")"
+EXPECTED_STEERING_MODULE_MTIME_NS="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).stat().st_mtime_ns)' "${EXPECTED_REPO_ROOT}/browser/steering_mailbox.py")"
+EXPECTED_STEERING_STORE_ID="$(python3 -c 'from pathlib import Path; import hashlib, sys; value = str(Path(sys.argv[1]).expanduser().resolve()); print(hashlib.sha256(value.encode()).hexdigest()[:16])' "${STEERING_PATH}")"
+EXPECTED_COORDINATION_MODULE_MTIME_NS="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).stat().st_mtime_ns)' "${EXPECTED_REPO_ROOT}/browser/coordination_claims.py")"
+EXPECTED_COORDINATION_STORE_ID="$(python3 -c 'from pathlib import Path; import hashlib, sys; value = str(Path(sys.argv[1]).expanduser().resolve()); print(hashlib.sha256(value.encode()).hexdigest()[:16])' "${CLAIMS_PATH}")"
 EXPECTED_RECEIPT_CORPUS_PATH="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "${RECEIPT_CORPUS_PATH}")"
-SERVER_ARGS=(--host "${HOST}" --port "${PORT}" --root "${EXPECTED_DEV_ROOT}" --receipt-corpus-path "${EXPECTED_RECEIPT_CORPUS_PATH}")
+SERVER_ARGS=(--host "${HOST}" --port "${PORT}" --root "${EXPECTED_DEV_ROOT}" --steering-path "${STEERING_PATH}" --claims-path "${CLAIMS_PATH}" --receipt-corpus-path "${EXPECTED_RECEIPT_CORPUS_PATH}")
 if [[ -n "${COMMENTS_PATH}" ]]; then
   SERVER_ARGS+=(--comments-path "${COMMENTS_PATH}")
 fi
@@ -117,6 +131,10 @@ health_matches_current_browser() {
     EXPECTED_REPO_ROOT="${EXPECTED_REPO_ROOT}" \
     EXPECTED_PORT="${PORT}" \
     EXPECTED_SERVER_MTIME_NS="${EXPECTED_SERVER_MTIME_NS}" \
+    EXPECTED_STEERING_MODULE_MTIME_NS="${EXPECTED_STEERING_MODULE_MTIME_NS}" \
+    EXPECTED_STEERING_STORE_ID="${EXPECTED_STEERING_STORE_ID}" \
+    EXPECTED_COORDINATION_MODULE_MTIME_NS="${EXPECTED_COORDINATION_MODULE_MTIME_NS}" \
+    EXPECTED_COORDINATION_STORE_ID="${EXPECTED_COORDINATION_STORE_ID}" \
     EXPECTED_RECEIPT_CORPUS_PATH="${EXPECTED_RECEIPT_CORPUS_PATH}" \
     python3 - <<'PY'
 import json
@@ -136,12 +154,24 @@ if str(payload.get("repo_root", "")) != os.environ["EXPECTED_REPO_ROOT"]:
     sys.exit(1)
 if str(payload.get("receipt_corpus_path", "")) != os.environ["EXPECTED_RECEIPT_CORPUS_PATH"]:
     sys.exit(1)
+if str(payload.get("steering_store_id", "")) != os.environ["EXPECTED_STEERING_STORE_ID"]:
+    sys.exit(1)
+if str(payload.get("coordination_store_id", "")) != os.environ["EXPECTED_COORDINATION_STORE_ID"]:
+    sys.exit(1)
 try:
     server_mtime_ns = int(payload.get("server_mtime_ns"))
     expected_server_mtime_ns = int(os.environ["EXPECTED_SERVER_MTIME_NS"])
+    steering_module_mtime_ns = int(payload.get("steering_module_mtime_ns"))
+    expected_steering_module_mtime_ns = int(os.environ["EXPECTED_STEERING_MODULE_MTIME_NS"])
+    coordination_module_mtime_ns = int(payload.get("coordination_module_mtime_ns"))
+    expected_coordination_module_mtime_ns = int(os.environ["EXPECTED_COORDINATION_MODULE_MTIME_NS"])
 except (TypeError, ValueError):
     sys.exit(1)
 if server_mtime_ns != expected_server_mtime_ns:
+    sys.exit(1)
+if steering_module_mtime_ns != expected_steering_module_mtime_ns:
+    sys.exit(1)
+if coordination_module_mtime_ns != expected_coordination_module_mtime_ns:
     sys.exit(1)
 try:
     port = int(payload.get("port"))
@@ -160,7 +190,7 @@ if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
     exit 0
   fi
   echo "port ${PORT} is already in use, but ${URL}/api/health does not match this Vidux checkout/root" >&2
-  echo "expected repo_root=${EXPECTED_REPO_ROOT} dev_root=${EXPECTED_DEV_ROOT} server_mtime_ns=${EXPECTED_SERVER_MTIME_NS} receipt_corpus_path=${EXPECTED_RECEIPT_CORPUS_PATH}" >&2
+  echo "expected repo_root=${EXPECTED_REPO_ROOT} dev_root=${EXPECTED_DEV_ROOT} server_mtime_ns=${EXPECTED_SERVER_MTIME_NS} steering_module_mtime_ns=${EXPECTED_STEERING_MODULE_MTIME_NS} steering_store_id=${EXPECTED_STEERING_STORE_ID} coordination_module_mtime_ns=${EXPECTED_COORDINATION_MODULE_MTIME_NS} coordination_store_id=${EXPECTED_COORDINATION_STORE_ID} receipt_corpus_path=${EXPECTED_RECEIPT_CORPUS_PATH}" >&2
   exit 1
 fi
 

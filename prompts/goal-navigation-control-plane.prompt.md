@@ -40,6 +40,15 @@ FIRST action of EVERY cycle, before git, web search, Nia, coding, browser proof,
 Fresh-read: prompt=<changed|unchanged + mtime or commit> plan=<changed|unchanged + row ids read> selected=<row/section> reason=<largest reachable improvement to goal-navigation quality>
 ```
 
+After that fresh read, an installed Vidux one-shot steering inbox may be
+checked for this exact Authority Store. Lease at most one intent at a safe
+cycle boundary. The inbox is transient user intent, not plan authority: current
+PLAN truth wins conflicts, and any lasting consequence is written to the PLAN
+before implementation. The host acknowledges the lease only after its matching
+user-facing response. Usage or transport exhaustion must fail it as retryable,
+never acknowledge or silently drop it. If the inbox is unavailable or empty,
+continue normally; do not make it a prerequisite for goal progress.
+
 This lane exists to improve the goal before improving the work. Do not plan the exact future implementation tasks. Plan how future runners will choose work after fresh disk state changes: what they read, how they rank, when they park a blocker, what primitives must be proven before use, where reusable learning belongs, and how a worktree/branch/PR is nursed until merged, parked, or collapsed.
 
 ## Goal-First Thinking Pass
@@ -83,7 +92,7 @@ Goal navigation inference: candidates=[<row/workflow + leverage + blocker status
 
 ## Work Loop
 
-1. Read `AGENTS.md` if present, this prompt, the Authority Store, latest matching publish ledger rows, and git state for touched repos.
+1. Read `AGENTS.md` if present, this prompt, the Authority Store, latest matching publish ledger rows, and git state for touched repos; then lease at most one eligible one-shot steer for this exact plan when the Vidux inbox is installed.
 2. Inspect existing dirty state and claimed work. Preserve unrelated WIP; never reset, clean, or collapse worktrees without explicit ownership and proof.
 3. Run the Goal-First Thinking Pass and update the Authority Store if the goal/plan is underspecified.
 4. Select the highest-leverage reachable row using the Selection Line.
@@ -91,7 +100,7 @@ Goal navigation inference: candidates=[<row/workflow + leverage + blocker status
 6. Prove it mechanically with the narrowest meaningful contract/test/doctor/readback.
 7. If blocked, park that row with exact proof and rerank remaining work instead of stopping the whole mission.
 8. Continue the loop while the Authority Store still has agent-reachable work needed for the goal. Do not close because one slice landed.
-9. Checkpoint the publish packet: Authority Store update, publish ledger row when shipped, proof, files claimed, path-like claims, handoff status, and next-agent resume.
+9. Checkpoint the publish packet: Authority Store update, publish ledger row when shipped, proof, files claimed, path-like claims, handoff status, and next-agent resume. Return the steering lease to the host callback so it can acknowledge only after the corresponding response; report usage/transport failure as retryable.
 
 ## Hard Stops
 
@@ -119,5 +128,5 @@ Run a final draft pass before human-facing closeout: say what changed, what pass
 ## Compact `/goal` Pointer
 
 ```text
-/goal "Use /amp + /vidux + /<your-private-dispatcher> + /nia + /glm + /grok + /skillbox. This is a pointer; the goal lives in this repo's PLAN.md. FIRST action of EVERY cycle: read this repo's prompts/goal-navigation-control-plane.prompt.md and the PLAN fresh from disk, starting with ## Current State (resume here), then state what changed and which row/section is selected. Improve the goal before improving the work: append/update real PLAN rows when discovery changes what complete means; refine how agents read, rank, park blockers, prove primitives, mutate prompts, and converge worktrees; let /<your-private-dispatcher> choose Codex/Claude/GLM/Grok leader/follower roles; emit publish ledger proof for shipped changes; continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume. End with [METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]."
+/goal "Use /amp + /vidux + /<your-private-dispatcher>. This is a pointer: fresh-read this prompt and PLAN.md every cycle, starting at Current State. Then, if installed, lease at most one Vidux steer for this exact plan; PLAN truth wins and lasting changes go into PLAN first. Continue reachable rows until exit criteria or exact hard blockers. Return any lease for host acknowledgement only after the matching reply; usage/transport failure stays retryable. Preserve proof, converge worktrees, and let the host router own providers."
 ```

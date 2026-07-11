@@ -5,6 +5,8 @@ const workQueueUi = window.ViduxWorkQueue;
 const annotationState = window.ViduxAnnotationState;
 const commentRail = window.ViduxCommentRail;
 const commentMarkers = window.ViduxCommentMarkers;
+const coordinationPanel = window.ViduxCoordinationPanel;
+const steeringInbox = window.ViduxSteeringInbox;
 const ANNOTATION_STATES = annotationState.STATES;
 const AS = ANNOTATION_STATES;
 
@@ -136,6 +138,10 @@ const APP_ANCHOR_SELECTOR = [
   ".mission-next",
   ".mission-scorecard",
   ".mission-metric",
+  ".coordination-panel",
+  ".coordination-card",
+  ".steering-inbox",
+  ".steering-item",
   ".dashboard-panel",
   ".dashboard-card",
   ".dashboard-list",
@@ -161,6 +167,9 @@ const ANNOTATION_CAPTURE_EXCLUDE_SELECTOR = [
   ".comment-marker-layer",
   ".comment-marker-layer *",
   ".comment-target-map button",
+  "[data-steering-form]",
+  "[data-steering-form] *",
+  "[data-steering-action]",
 ].join(",");
 
 function fmtAge(days) {
@@ -1456,6 +1465,10 @@ function annotationIsBusy() {
   return Boolean(state.annotation.capture || state.annotation.anchor || document.getElementById("annotation-popover"));
 }
 
+function steeringIsBusy() {
+  return steeringInbox.isBusy(document);
+}
+
 async function restoreSelection(snapshot, opts = {}) {
   if (!snapshot) return false;
   if (snapshot.kind === "dashboard") {
@@ -1529,7 +1542,7 @@ async function loadAll(opts = {}) {
   const snapshot = preserveSelection ? currentSelectionSnapshot() : null;
   const viewRevision = activeViewRevision;
   const focusSnapshot = opts.preserveFocus ? currentFocusSnapshot() : null;
-  const busy = annotationIsBusy();
+  const busy = annotationIsBusy() || steeringIsBusy();
   if (!opts.quiet) els.count.textContent = "loading…";
   try {
     const [plansRes, artifactsRes] = await Promise.all([
@@ -1908,6 +1921,8 @@ async function renderPane(opts = {}) {
     </div>
     ${renderSensitiveContentNotice(plan)}
     ${renderPlanBrief(plan, stats, aggregate)}
+    ${coordinationPanel.render(plan.path)}
+    ${steeringInbox.render(plan.path)}
     ${renderPaneProgress(stats)}
     ${renderPaneAggregateProgress(plan, aggregate)}
     ${renderPaneSubplans(plan)}
@@ -1923,6 +1938,12 @@ async function renderPane(opts = {}) {
   `;
   els.pane.innerHTML = headerHTML;
   if (!opts.preserveScroll) els.pane.scrollTop = 0;
+  coordinationPanel.setup(plan.path, {
+    isCurrent: () => state.active?.kind === "plan" && state.active.path === plan.path,
+  });
+  steeringInbox.setup(plan.path, {
+    isCurrent: () => state.active?.kind === "plan" && state.active.path === plan.path,
+  });
   refreshAnnotationTargets();
 
   // Parent backlink → navigate to parent plan in-app (preserves SPA flow,

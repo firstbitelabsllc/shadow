@@ -141,8 +141,18 @@ The browser keeps the plan contract intact:
 - Local write targets must be regular, single-link files: artifact, comment, plan-note, receipt-image, corpus, and lock mutations reject symlinks, hard links, and symlinked store directories before writing.
 - Comment anchors are display pointers, never source edits: they never mutate `PLAN.md`, repo code, task claims, or artifact HTML.
 - Plan-note writes are loopback-only; LAN viewers can comment but cannot write plan state.
+- **Steer next turn** queues one transient, exact-plan direction for an existing
+  goal or loop. Vidux never invokes the provider; the outer runtime removes the
+  active item only after a confirmed reply, while usage/transport failure stays
+  visible and retryable.
+- **Live work** projects provider-neutral leases for the selected plan: current
+  owners, exact work surfaces, lease freshness, checkpoints, resume pointers,
+  and usage-exhausted or expired handoffs. Mutation stays in the local
+  `vidux coordinate` CLI, so the page cannot impersonate another runner.
 
-See [`docs/reference/browser.md`](docs/reference/browser.md) for the HTTP surface and safety model.
+See [`guides/steering.md`](guides/steering.md) for the host adapter contract and
+[`guides/coordination.md`](guides/coordination.md) for concurrent-runner claims, plus
+[`docs/reference/browser.md`](docs/reference/browser.md) for the HTTP surface and safety model.
 
 ## How It Works
 
@@ -304,7 +314,7 @@ Patterns:
 - **`observed` evidence type** — user-observed app behavior is first-class plan evidence.
 - **3x stuck rule** — same task in 3+ consecutive progress entries reports a stuck state by default (auto-blocking it in `PLAN.md` is opt-in via `VIDUX_LOOP_AUTO_BLOCK=1`).
 
-Guides: [automation](guides/automation.md), [references/automation](references/automation.md), [fleet-ops](guides/fleet-ops.md), [recipes](guides/recipes.md), [recipe catalog](guides/recipes/), [draft-pr-flow](guides/draft-pr-flow.md), [subagent-delegation](guides/recipes/subagent-delegation.md).
+Guides: [one-shot steering](guides/steering.md), [concurrent-runner coordination](guides/coordination.md), [automation](guides/automation.md), [references/automation](references/automation.md), [fleet-ops](guides/fleet-ops.md), [recipes](guides/recipes.md), [recipe catalog](guides/recipes/), [draft-pr-flow](guides/draft-pr-flow.md), [subagent-delegation](guides/recipes/subagent-delegation.md).
 
 ## Documentation
 
