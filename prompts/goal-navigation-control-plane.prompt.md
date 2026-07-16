@@ -62,7 +62,7 @@ Before starting implementation, produce or update the goal-navigation plan in th
 5. Define the hard-blocker move-on rule. A row is parked only with exact proof, blocker, and next resume. The whole goal is blocked only when no agent-reachable work remains anywhere in the Authority Store.
 6. Define primitive readiness. Each needed primitive has an owner skill and a fresh doctor/proof receipt or an explicit fallback.
 7. Define convergence. Worktrees and branches are nursed until merged to main, safely parked, or explicitly collapsed. Do not create duplicate worktrees for the same row.
-8. Define completion. `/goal` and `/loop` do not stop after one slice; they continue until the Authority Store exit criteria are satisfied or every remaining row is parked at a named hard blocker with exact resume proof.
+8. Define completion. `/goal` and `/loop` do not stop after one slice. They continue until the Authority Store exit criteria are satisfied. For a persistent mission, every remaining row being parked at named hard blockers is `WAITING` with exact wake/resume proof, not completion.
 9. Define mutation. Update the Authority Store first; mutate this prompt only when the standing instruction changes.
 
 ## Primitive Readiness Matrix
@@ -99,12 +99,14 @@ Goal navigation inference: candidates=[<row/workflow + leverage + blocker status
 5. Append or update real work rows when discovery changes what "complete" means, then implement the smallest reversible artifact that improves goal navigation: prompt text, plan row, skill rule, test contract, doctor/readback script, or proof packet.
 6. Prove it mechanically with the narrowest meaningful contract/test/doctor/readback.
 7. If blocked, park that row with exact proof and rerank remaining work instead of stopping the whole mission.
-8. Continue the loop while the Authority Store still has agent-reachable work needed for the goal. Do not close because one slice landed.
+8. Continue the loop while the Authority Store still has agent-reachable work needed for the goal. If none is reachable, checkpoint `WAITING` with the exact wake predicate, capped backoff, resume command, last receipt, and one current lease; yield the cycle without closing the mission.
 9. Checkpoint the publish packet: Authority Store update, publish ledger row when shipped, proof, files claimed, path-like claims, handoff status, and next-agent resume. Return the steering lease to the host callback so it can acknowledge only after the corresponding response; report usage/transport failure as retryable.
 
 ## Hard Stops
 
 Stop for credentials or secrets, real-money spend beyond existing intent, destructive git/data operations, external messages to humans, irreversible public brand/hero-copy, production data-loss risk, or a genuine product-direction fork. Soft Leo gates, stale historical gates, and "not sure" are not hard stops; rewrite them into agent-owned assumptions, act reversibly, and keep the revert path clear.
+
+These hard stops pause the unsafe row or current cycle unless the user/system explicitly terminates the mission. A Codex/Claude usage limit, system error, turn/task pause, app/session restart, compaction, delayed wakeup, or temporary primitive failure is also a cycle yield. The all-blocked result is `WAITING`, never mission completion. Resume through the one existing executor after fresh-reading this prompt, the Authority Store, ledger claims, and live repo/runtime truth. Explicit user cancellation/end and system/safety termination remain terminal and must be obeyed.
 
 ## Mutation Rule
 
@@ -119,6 +121,7 @@ Goal prompt pointer: <changed|unchanged>
 Authority Store: <rows moved + ledger eid or no-op reason>
 Proof: <commands/artifacts>
 Conflicts: <dirty state, ownership collision, stale primitive, or none>
+Mission state: <RUNNABLE|WAITING|RESUMING|TERMINAL> <wake predicate/resume when WAITING>
 Next: <exact row/command>
 [METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]
 ```
@@ -128,5 +131,5 @@ Run a final draft pass before human-facing closeout: say what changed, what pass
 ## Compact `/goal` Pointer
 
 ```text
-/goal "Use /amp + /vidux + /<your-private-dispatcher>. This is a pointer: fresh-read this prompt and PLAN.md every cycle, starting at Current State. Then, if installed, lease at most one Vidux steer for this exact plan; PLAN truth wins and lasting changes go into PLAN first. Continue reachable rows until exit criteria or exact hard blockers. Return any lease for host acknowledgement only after the matching reply; usage/transport failure stays retryable. Preserve proof, converge worktrees, and let the host router own providers."
+/goal "Use /amp + /vidux + /<your-private-dispatcher>. This is a pointer: fresh-read this prompt and PLAN.md every cycle, starting at Current State. Then, if installed, lease at most one Vidux steer for this exact plan; PLAN truth wins and lasting changes go into PLAN first. This is a persistent mission: continue reachable rows until exit criteria are proven; when blocked or a Codex/Claude turn yields, checkpoint WAITING with the exact wake predicate and resume through the one existing executor. Only explicit cancellation, system/safety termination, or proven exit criteria ends the mission. Return any lease for host acknowledgement only after the matching reply; usage/transport failure stays retryable. Preserve proof, converge worktrees, and let the host router own providers."
 ```

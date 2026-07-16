@@ -64,6 +64,28 @@ class ViduxContractTests(unittest.TestCase):
     # SKILL.md contracts
     # -----------------------------------------------------------------------
 
+    def test_persistent_missions_yield_instead_of_terminate(self):
+        """Provider/cycle boundaries must preserve one durable persistent mission."""
+        skill = _read(SKILL)
+        prompt = _read(GOAL_NAV_PROMPT)
+
+        for phrase in [
+            "### Persistent mission async-yield",
+            "`cycle_exit` is not",
+            "An all-blocked state is `WAITING`, never completion.",
+            "explicit user\n  cancellation/end, or a system/safety termination instruction",
+            "never create a duplicate task, plan, queue,\nworktree, cron, or scheduler",
+        ]:
+            self.assertIn(phrase, skill)
+
+        for phrase in [
+            "The all-blocked result is `WAITING`, never mission completion.",
+            "Mission state: <RUNNABLE|WAITING|RESUMING|TERMINAL>",
+            "resume through the one existing executor",
+            "Only explicit cancellation, system/safety termination, or proven exit criteria ends the mission.",
+        ]:
+            self.assertIn(phrase, prompt)
+
     def test_skill_has_five_principles(self):
         """SKILL.md must contain all 5 numbered principles under Five Principles."""
         text = _read(SKILL)
@@ -2234,7 +2256,7 @@ class ViduxContractTests(unittest.TestCase):
             "This file is a pointer, not the goal",
             "The Vidux PLAN owns the actual goal",
             "fixed `## Current State (resume here)` header",
-            "Improve the goal before improving the work",
+            "improve the goal before improving the work",
             "Goal-First Thinking Pass",
             "append-real-work rule",
             "Primitive Readiness Matrix",
@@ -2247,12 +2269,13 @@ class ViduxContractTests(unittest.TestCase):
             "`/auto` was deleted on 2026-06-26",
             "do not load or restore it",
             "Compact `/goal` Pointer",
-            "This is a pointer; the goal lives in this repo's PLAN.md",
-            "read this repo's prompts/goal-navigation-control-plane.prompt.md",
-            "starting with ## Current State (resume here)",
-            "let /<your-private-dispatcher> choose Codex/Claude/GLM/Grok leader/follower roles",
-            "append/update real PLAN rows when discovery changes what complete means",
-            "continue until the PLAN exit criteria are satisfied or every remaining row is parked with exact hard-blocker resume",
+            "This is a pointer: fresh-read this prompt and PLAN.md every cycle",
+            "This is a persistent mission",
+            "continue reachable rows until exit criteria are proven",
+            "when blocked or a Codex/Claude turn yields, checkpoint WAITING",
+            "resume through the one existing executor",
+            "Only explicit cancellation, system/safety termination, or proven exit criteria ends the mission",
+            "Mission state: <RUNNABLE|WAITING|RESUMING|TERMINAL>",
             "[METER ▓░N] [ETA Xh/gated] [N pending, M in_progress, K done]",
         ]:
             self.assertIn(phrase, normalized)
