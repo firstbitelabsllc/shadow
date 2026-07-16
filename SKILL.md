@@ -76,8 +76,9 @@ Before long-loop work starts, the goal-navigation plan names:
 - prompt mutation rule: update the plan first, then mutate the prompt only when
   the standing instruction changes.
 - completion rule: `/goal` and `/loop` keep appending and executing real work
-  rows until the Vidux plan's exit criteria are satisfied, or every remaining
-  row is parked at a named hard blocker with exact resume proof.
+  rows until the Vidux plan's exit criteria are satisfied. For a persistent
+  mission, every remaining row being parked at a named hard blocker is
+  `WAITING` with exact resume proof, not whole-goal completion.
 
 Ownership boundary for this contract:
 
@@ -392,7 +393,7 @@ Every recurring or long-running entrypoint (cron, /loop, /goal, heartbeat, fleet
 
 3. **Cycle skeleton: Orient → Choose → Execute → Handoff.** Read store + repo state; pick ONE bounded unblocked row; do the work with verification; write progress/decisions back; exit clean. Plural scope makes agents cherry-pick easy work.
 
-4. **Stop condition + cycle cap — mandatory.** Name what "done / park the lane" looks like AND a max-cycle (or token) cap with stuck detection (same row touched N consecutive fires → halt and flag). When every remaining row is gated outside the lane's write scope, parking with a Closeout is the SUCCESS state — never grind against a gate to satisfy a meter. Loops without stop conditions end only when a human notices ("overbaking").
+4. **Cycle stop/yield condition + cycle cap — mandatory.** Name what ends or parks the current cycle AND a max-cycle (or token) cap with stuck detection (same row touched N consecutive fires → halt and flag). For a persistent mission, separately name the mission-terminal criteria. When every remaining row is gated outside the lane's write scope, checkpointing a truthful Closeout is cycle success and the mission becomes `WAITING`; a cycle cap never proves the mission complete. Never grind against a gate to satisfy a meter. Loops without cycle boundaries end only when a human notices ("overbaking").
 
 5. **Disjoint write scopes for concurrent lanes.** Every lane declares the paths/fields it may write; two lanes NEVER share a write scope or a live feature branch. Check `git status -sb` before writing to any repo a sibling may hold. Isolation is what makes parallel lanes safe.
 
@@ -773,7 +774,28 @@ Priority-order full drive, not one-bounded:
 5. Repeat inside pass: pick next-highest until no more unblocked priority-reachable work or hard gate.
 6. Checkpoint: update the owning plan/queue note, emit the publish packet with proof, handoff status, files claimed, path-like claims, and next-agent resume, then commit + push the owned branch/PR path only after those breadcrumbs exist.
 7. Record exact state (full_pass_driven / planned_compound / ...). Do not default-scheduled_resume when planning or higher work is viable.
-8. Repeat until the queue/spec is done or every remaining row is parked at a named hard blocker with exact resume proof.
+8. Repeat until the queue/spec exit criteria are proven. If every remaining row is parked at a named hard blocker, checkpoint `WAITING` with exact resume proof and yield the current cycle.
+
+### Persistent mission async-yield
+
+For a goal explicitly marked persistent, `cycle_exit` is not
+`mission_terminal`. Use the state contract owned by `/leo-flow`:
+
+- `RUNNABLE` selects and drives the next reachable row.
+- `WAITING` checkpoints `wake_condition`, `next_check`, capped `backoff`,
+  `resume`, `last_receipt`, and the one current executor/lease, then yields
+  control. An all-blocked state is `WAITING`, never completion.
+- `RESUMING` fresh-reads the prompt, Authority `PLAN.md`, recent ledger claims,
+  and live repo/runtime/proof state before reranking.
+- `TERMINAL` requires proven Authority Store exit criteria, explicit user
+  cancellation/end, or a system/safety termination instruction.
+
+Codex/Claude usage limits, system errors, turn or task pauses, app/session
+restarts, compaction, delayed wakeups, and temporary tool/auth/resource outages
+end a cycle, not the mission. Resume in place through exactly one existing
+goal/heartbeat/wakeup/executor; never create a duplicate task, plan, queue,
+worktree, cron, or scheduler because a provider yielded. The durable checkpoint
+is the `await` continuation.
 
 Persistent loop mode is **lane-persistent, not checkbox-persistent**: once vidux owns a feature, surface, or queue lane, keep driving connected follow-on work there until a verified boundary or real blocker. Do not bounce to a second mission because one checkbox landed while the same surface has obvious connected work.
 
@@ -781,7 +803,7 @@ Persistent loop mode is **lane-persistent, not checkbox-persistent**: once vidux
 
 **Blocking rule:** user-visible work is not done when unit/build gates pass — only after the first viable UI/E2E/manual smoke path passes, or a real blocker is recorded with the exact attempted command/flow. If a screenshot, simulator, browser, preview, or your own eyes reveal visible breakage, interrupt the loop and fix it before continuing status/proof narration. Green identifier tests do not override clipped controls, overlap, illegible text, or off-brand/product-fiction UI.
 
-Stops only for: an external blocker or missing credential; a real product decision that changes implementation; conflicting repo state that would sweep another agent's work; an explicit user redirect. It does NOT stop because one item landed, a test suite passed, a checkbox flipped, a connected regression remains, or only unit/build gates passed without UI/E2E smoke proof.
+The current cycle stops/yields for: an external blocker or missing credential; a real product decision that changes implementation; conflicting repo state that would sweep another agent's work; or an explicit user redirect. The persistent mission terminates only under its `TERMINAL` rules above. It does NOT finish because one item landed, a test suite passed, a checkbox flipped, a connected regression remains, only unit/build gates passed without UI/E2E smoke proof, or the provider ended a turn.
 
 ### Anti-Loop Discipline
 
@@ -793,7 +815,7 @@ These rules apply to `/vidux loop`, `/vidux nurse`, and any coordinated tracking
 
 3. **Same-command ban.** Never re-execute the exact command that failed last iteration unless the environment visibly changed (disk freed, process cleared, credential restored) — a concrete observable difference, not hope.
 
-4. **All-blocked early exit.** If every lane is blocked by the same root cause, say so in one sentence and stop. Admitting it in 30 seconds beats restating the blockage from 10 angles.
+4. **All-blocked async yield.** If every lane is blocked by the same root cause, say so in one sentence, checkpoint the exact wake predicate/resume proof, and yield the current cycle as `WAITING`. Do not rescan it from 10 angles, and do not call the persistent mission complete.
 
 5. **Compaction survival.** Long sessions can compact or lose chat context. Conversation details become summaries. Therefore:
    - **Before each checkpoint:** write iteration state to durable files + ledger rows: update the owning PLAN.md/Progress or RALPH.md queue, emit the publish packet when work shipped, use repo-local `.agent-ledger/` only for configured companion state. Repo files + append-only ledger rows survive compaction; conversation memory does not.
