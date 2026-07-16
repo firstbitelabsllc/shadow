@@ -1,0 +1,14 @@
+{
+  "fixture_id": "full-compound-06",
+  "seeded_bad_expected": "fail",
+  "hidden_checks": [
+    "fee allocation preserves every cent",
+    "sum of people equals grand total",
+    "larger weighted items receive larger total allocation"
+  ],
+  "mutation_checks": [
+    "drop remainder cents",
+    "round allocations independently",
+    "ignore one receipt participant"
+  ]
+}

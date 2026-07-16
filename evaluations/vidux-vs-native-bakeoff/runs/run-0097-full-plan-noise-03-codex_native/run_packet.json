@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0097-full-plan-noise-03-codex_native",
+  "fixture_id": "full-plan-noise-03",
+  "arm": "codex_native",
+  "task_class": "plan_noise",
+  "task_prompt": "Add missing export summary behavior in the existing canonical PLAN.md context. Do not create a second plan, duplicate queue, or extra authority file. Variant 3.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/codex-native.md",
+  "created_at": "2026-06-29T19:47:56.951271+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

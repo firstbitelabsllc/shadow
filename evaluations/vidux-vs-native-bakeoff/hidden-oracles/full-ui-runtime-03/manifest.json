@@ -1,0 +1,15 @@
+{
+  "fixture_id": "full-ui-runtime-03",
+  "seeded_bad_expected": "fail",
+  "hidden_checks": [
+    "summary renders paid count",
+    "summary renders unpaid count",
+    "empty participant state is visible",
+    "run leaves a proof or screenshot artifact"
+  ],
+  "mutation_checks": [
+    "remove unpaid count",
+    "remove empty state",
+    "delete proof artifact"
+  ]
+}

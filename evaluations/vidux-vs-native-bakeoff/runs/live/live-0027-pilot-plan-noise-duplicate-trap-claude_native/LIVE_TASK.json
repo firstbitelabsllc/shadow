@@ -1,0 +1,29 @@
+{
+  "fixture_id": "pilot-plan-noise-duplicate-trap",
+  "arm": "claude_native",
+  "task_prompt": "Add missing export summary behavior in the existing canonical PLAN.md context. Do not create a second plan, duplicate queue, or extra authority file.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "export_summary still reports the correct count",
+    "No sibling PLAN.md is created"
+  ],
+  "allowed_paths": [
+    "mammothsplit/export.py",
+    "checks/visible_check.py",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    "plans/PLAN.md",
+    "plans/**/PLAN.md",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "arm_rules": "# Arm Prompt: Claude Native\n\nYou are running the Claude-native arm of a blinded bake-off.\n\nRules:\n\n- Do not read or use Vidux `PLAN.md` files, Vidux ledger rows, Vidux step journals, or Vidux-specific skill instructions.\n- Read only the fixture, repo instructions, source files, tests, and command output.\n- Use Claude's native planning/checklist behavior.\n- Keep any plan ephemeral inside the run transcript.\n- Do not create durable planning artifacts unless the repo itself requires them for the task.\n- Count all tool use, tokens, and wall time honestly.\n- Stop when the fixture acceptance criteria are proven, a real blocker is hit, or budget expires.\n\nRequired closeout:\n\n```text\nARM=claude_native\nfixture_id=<id>\nmechanical_claim=<pass|fail|blocked>\nchanged_files=<paths>\nproof_commands=<commands and results>\nreal_surface_proof=<artifact or n/a>\nknown_issues=<issues>\nnext_action=<only if blocked>\nforbidden_actions=<none or list>\n```\n\n"
+}

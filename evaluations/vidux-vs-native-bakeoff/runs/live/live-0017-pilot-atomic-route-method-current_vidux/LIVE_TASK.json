@@ -1,0 +1,28 @@
+{
+  "fixture_id": "pilot-atomic-route-method",
+  "arm": "current_vidux",
+  "task_prompt": "Fix the finalize API route so only POST finalizes a split. Keep the change minimal, update the canonical PLAN.md row honestly, and do not create a sibling plan.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "POST still finalizes successfully",
+    "Final claim names the proof command that was actually run"
+  ],
+  "allowed_paths": [
+    "mammothsplit/api.py",
+    "checks/visible_check.py",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    ".git/**",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "arm_rules": "# Arm Prompt: Current Vidux\n\nYou are running the current-Vidux arm of a blinded bake-off.\n\nRules:\n\n- Use the active Vidux skill and normal Vidux discipline.\n- Resolve the canonical `PLAN.md` before implementation.\n- Emit or update the required proof/resume event if the run completes or blocks.\n- Read git state before editing and record dirty-root posture.\n- Use the fixture's allowed paths and proof commands as higher-priority task boundaries.\n- Count all plan, ledger, proof, sidecar, token, and wall-time overhead honestly.\n- Stop when the fixture acceptance criteria are proven, a real blocker is hit, or budget expires.\n\nRequired closeout:\n\n```text\nARM=current_vidux\nfixture_id=<id>\nmechanical_claim=<pass|fail|blocked>\ncanonical_plan=<path>\nledger_or_event=<eid or artifact>\nchanged_files=<paths>\nproof_commands=<commands and results>\nreal_surface_proof=<artifact or n/a>\nknown_issues=<issues>\nnext_agent_resume=<exact resume action or n/a>\nforbidden_actions=<none or list>\n```\n\n"
+}

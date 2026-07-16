@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0180-full-ui-runtime-04-current_vidux",
+  "fixture_id": "full-ui-runtime-04",
+  "arm": "current_vidux",
+  "task_class": "ui_runtime",
+  "task_prompt": "Make the settlement summary render exact paid and unpaid counts plus a clear empty state. Produce a real rendered proof artifact, not just a source explanation. Variant 4.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/current-vidux.md",
+  "created_at": "2026-06-29T19:48:42.121930+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

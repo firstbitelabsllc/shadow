@@ -1,0 +1,14 @@
+{
+  "keep_current_vidux": false,
+  "kernelize_vidux": null,
+  "best_native_arm": "cursor_native",
+  "routing": {
+    "atomic": "cursor_native",
+    "cold_resume": "current_vidux",
+    "compound": "thin_vidux_kernel",
+    "convergence": "cursor_native",
+    "plan_noise_stress": "codex_native",
+    "safety_proof_honesty": "claude_native",
+    "user_visible_runtime": "claude_native"
+  }
+}

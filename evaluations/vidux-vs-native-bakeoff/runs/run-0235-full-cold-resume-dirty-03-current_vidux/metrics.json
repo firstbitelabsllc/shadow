@@ -1,0 +1,17 @@
+{
+  "run_id": "run-0235-full-cold-resume-dirty-03-current_vidux",
+  "fixture_id": "full-cold-resume-dirty-03",
+  "arm": "current_vidux",
+  "execution_outcome": "success_path",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "pass",
+  "oracle_output": "full-cold-resume-dirty-03 hidden oracle PASS",
+  "wall_minutes": 0.0,
+  "time_to_first_diff_minutes": 11.0,
+  "plan_tokens": 3900,
+  "input_tokens": 5100,
+  "output_tokens": 900,
+  "cost_usd": 0.018,
+  "cold_resume_minutes": 6.5
+}

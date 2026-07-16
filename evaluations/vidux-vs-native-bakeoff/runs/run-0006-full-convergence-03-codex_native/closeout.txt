@@ -1,0 +1,6 @@
+ARM=codex_native
+fixture_id=full-convergence-03
+mechanical_claim=fail
+proof_commands=python3 checks/visible_check.py -> rc 0
+real_surface_proof=n/a
+known_issues=failure_path:no_merge

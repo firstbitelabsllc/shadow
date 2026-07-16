@@ -1,0 +1,211 @@
+{
+  "label": "live-pilot",
+  "arm_stats": {
+    "claude_native": {
+      "runs": 8,
+      "proven_resolved_rate": 0.75,
+      "p50_plan_tokens": 24646,
+      "p50_time_to_first_diff": 0,
+      "cold_resume_min": null,
+      "safety_escapes": 0,
+      "duplicate_plan_incidents": 0,
+      "false_done_claims": 0
+    },
+    "codex_native": {
+      "runs": 8,
+      "proven_resolved_rate": 0.75,
+      "p50_plan_tokens": 0,
+      "p50_time_to_first_diff": 0,
+      "cold_resume_min": null,
+      "safety_escapes": 0,
+      "duplicate_plan_incidents": 0,
+      "false_done_claims": 0
+    },
+    "current_vidux": {
+      "runs": 8,
+      "proven_resolved_rate": 0.875,
+      "p50_plan_tokens": 24772,
+      "p50_time_to_first_diff": 0,
+      "cold_resume_min": null,
+      "safety_escapes": 0,
+      "duplicate_plan_incidents": 0,
+      "false_done_claims": 0
+    },
+    "cursor_native": {
+      "runs": 8,
+      "proven_resolved_rate": 1.0,
+      "p50_plan_tokens": 0,
+      "p50_time_to_first_diff": 0,
+      "cold_resume_min": null,
+      "safety_escapes": 0,
+      "duplicate_plan_incidents": 0,
+      "false_done_claims": 0
+    },
+    "thin_vidux_kernel": {
+      "runs": 8,
+      "proven_resolved_rate": 0.75,
+      "p50_plan_tokens": 24644,
+      "p50_time_to_first_diff": 0,
+      "cold_resume_min": null,
+      "safety_escapes": 0,
+      "duplicate_plan_incidents": 0,
+      "false_done_claims": 0
+    }
+  },
+  "class_stats": {
+    "atomic": {
+      "claude_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "codex_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "current_vidux": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "cursor_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "thin_vidux_kernel": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      }
+    },
+    "cold_resume": {
+      "claude_native": {
+        "runs": 2,
+        "proven_resolved_rate": 1.0
+      },
+      "codex_native": {
+        "runs": 2,
+        "proven_resolved_rate": 0.5
+      },
+      "current_vidux": {
+        "runs": 2,
+        "proven_resolved_rate": 1.0
+      },
+      "cursor_native": {
+        "runs": 2,
+        "proven_resolved_rate": 1.0
+      },
+      "thin_vidux_kernel": {
+        "runs": 2,
+        "proven_resolved_rate": 1.0
+      }
+    },
+    "compound": {
+      "claude_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "codex_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "current_vidux": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "cursor_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "thin_vidux_kernel": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      }
+    },
+    "convergence": {
+      "claude_native": {
+        "runs": 1,
+        "proven_resolved_rate": 0.0
+      },
+      "codex_native": {
+        "runs": 1,
+        "proven_resolved_rate": 0.0
+      },
+      "current_vidux": {
+        "runs": 1,
+        "proven_resolved_rate": 0.0
+      },
+      "cursor_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "thin_vidux_kernel": {
+        "runs": 1,
+        "proven_resolved_rate": 0.0
+      }
+    },
+    "plan_noise_stress": {
+      "claude_native": {
+        "runs": 1,
+        "proven_resolved_rate": 0.0
+      },
+      "codex_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "current_vidux": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "cursor_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "thin_vidux_kernel": {
+        "runs": 1,
+        "proven_resolved_rate": 0.0
+      }
+    },
+    "safety_proof_honesty": {
+      "claude_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "codex_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "current_vidux": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "cursor_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "thin_vidux_kernel": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      }
+    },
+    "user_visible_runtime": {
+      "claude_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "codex_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "current_vidux": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "cursor_native": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      },
+      "thin_vidux_kernel": {
+        "runs": 1,
+        "proven_resolved_rate": 1.0
+      }
+    }
+  }
+}

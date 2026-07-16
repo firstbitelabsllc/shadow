@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0150-full-convergence-02-codex_native",
+  "fixture_id": "full-convergence-02",
+  "arm": "codex_native",
+  "task_class": "convergence",
+  "task_prompt": "Converge stranded discount work: absorb the safe discount branch, park or remove the conflicting copy branch with a clear PLAN.md note, and leave no unfindable completed work. Variant 2.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/codex-native.md",
+  "created_at": "2026-06-29T19:48:26.004160+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

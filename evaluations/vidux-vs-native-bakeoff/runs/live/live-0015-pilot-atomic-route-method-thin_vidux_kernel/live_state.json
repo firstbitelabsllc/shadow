@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0015-pilot-atomic-route-method-thin_vidux_kernel",
+  "fixture_id": "pilot-atomic-route-method",
+  "arm": "thin_vidux_kernel",
+  "prepared_at": 1782763230.085801,
+  "prepared_at_iso": "2026-06-29T20:00:30.085801+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763244.232885
+}

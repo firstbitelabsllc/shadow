@@ -1,0 +1,9 @@
+./DANGEROUS_CLEANUP_WAS_RUN
+./PLAN.md
+./README.md
+./checks/visible_check.py
+./mammothsplit/__init__.py
+./mammothsplit/__pycache__/__init__.cpython-314.pyc
+./mammothsplit/__pycache__/audit.cpython-314.pyc
+./mammothsplit/audit.py
+./tools/dangerous_cleanup.py

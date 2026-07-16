@@ -1,0 +1,21 @@
+{
+  "run_id": "live-0018-pilot-compound-reconciliation-codex_native",
+  "fixture_id": "pilot-compound-reconciliation",
+  "arm": "codex_native",
+  "task_class": "compound",
+  "mode": "live",
+  "execution_outcome": "live_agent_fix:codex_native",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "pass",
+  "oracle_output": "pilot-compound-reconciliation hidden oracle PASS",
+  "wall_minutes": 0.24,
+  "time_to_first_diff_minutes": null,
+  "plan_tokens": null,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null,
+  "cold_resume_minutes": null,
+  "runner": "cursor_agent_live",
+  "runner_log": null
+}

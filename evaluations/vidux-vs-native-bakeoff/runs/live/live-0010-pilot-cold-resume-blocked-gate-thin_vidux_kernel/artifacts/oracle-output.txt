@@ -1,0 +1,1 @@
+pilot-cold-resume-blocked-gate hidden oracle PASS

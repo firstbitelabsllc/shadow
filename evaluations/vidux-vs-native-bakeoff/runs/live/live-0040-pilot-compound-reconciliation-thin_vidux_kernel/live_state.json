@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0040-pilot-compound-reconciliation-thin_vidux_kernel",
+  "fixture_id": "pilot-compound-reconciliation",
+  "arm": "thin_vidux_kernel",
+  "prepared_at": 1782763237.791374,
+  "prepared_at_iso": "2026-06-29T20:00:37.791374+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763254.9180071
+}

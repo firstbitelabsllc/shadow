@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0026-pilot-runtime-ui-proof-codex_native",
+  "fixture_id": "pilot-runtime-ui-proof",
+  "arm": "codex_native",
+  "prepared_at": 1782763233.488661,
+  "prepared_at_iso": "2026-06-29T20:00:33.488661+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763248.9686558
+}

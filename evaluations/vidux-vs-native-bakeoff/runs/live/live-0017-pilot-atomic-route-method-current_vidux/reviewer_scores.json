@@ -1,0 +1,442 @@
+[
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-correctness_1",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "correctness_1",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 5.0,
+      "completeness": 4.68,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for correctness_1"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-correctness_2",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "correctness_2",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 5.0,
+      "completeness": 4.5,
+      "reliability_tests": 4.58,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for correctness_2"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-edge_case",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "edge_case",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.88,
+      "completeness": 4.5,
+      "reliability_tests": 4.64,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for edge_case"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-regression",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "regression",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.88,
+      "completeness": 4.5,
+      "reliability_tests": 4.7,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for regression"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-tests",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "tests",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.5,
+      "reliability_tests": 4.7,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.32,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for tests"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-test_gaming",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "test_gaming",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.5,
+      "reliability_tests": 4.58,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.5,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for test_gaming"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-architecture",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "architecture",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.82,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.5,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for architecture"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-repo_pattern",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "repo_pattern",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.62,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.5,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for repo_pattern"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-maintainability",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "maintainability",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.82,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.5,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for maintainability"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-ux_runtime",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "ux_runtime",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.62,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.3,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for ux_runtime"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-accessibility_performance",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "accessibility_performance",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.32,
+      "user_runtime_quality": 4.24,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for accessibility_performance"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-security_safety",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "security_safety",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.94,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.44,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for security_safety"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-data_persistence",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "data_persistence",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.94,
+      "completeness": 4.5,
+      "reliability_tests": 4.58,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for data_persistence"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-observability_proof",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "observability_proof",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.5,
+      "reliability_tests": 4.58,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.5,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for observability_proof"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-claim_honesty",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "claim_honesty",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.5,
+      "resume_convergence": 4.12
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for claim_honesty"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-convergence",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "convergence",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.32,
+      "resume_convergence": 4.3
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for convergence"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-resume_handoff",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "resume_handoff",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.62,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.3
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for resume_handoff"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-token_cost",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "token_cost",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.38,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.38,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for token_cost"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-product_owner",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "product_owner",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.7,
+      "completeness": 4.8,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.18,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for product_owner"
+  },
+  {
+    "score_id": "live-0017-pilot-atomic-route-method-current_vidux-red_team",
+    "run_id": "live-0017-pilot-atomic-route-method-current_vidux",
+    "fixture_id": "pilot-atomic-route-method",
+    "reviewer_role": "red_team",
+    "blind_packet_hash": "0b10dedc3bb7c6a1943b12cf1bb7753e129044a3fe405077bd74bd2229cb405b",
+    "scores": {
+      "correctness": 4.94,
+      "completeness": 4.5,
+      "reliability_tests": 4.4,
+      "maintainability_repo_fit": 4.2,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.44,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for red_team"
+  }
+]

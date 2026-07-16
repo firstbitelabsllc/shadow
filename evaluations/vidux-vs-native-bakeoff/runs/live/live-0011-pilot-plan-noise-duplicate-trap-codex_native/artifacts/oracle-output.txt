@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 147, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 141, in main
+    ORACLES[args.fixture_id](root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 116, in oracle_plan_noise
+    require(not sibling_plans, f"duplicate sibling plans created: {sibling_plans}")
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 22, in require
+    raise AssertionError(message)
+AssertionError: duplicate sibling plans created: [PosixPath('/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0011-pilot-plan-noise-duplicate-trap-codex_native/repo/plans/PLAN.md')]

@@ -1,0 +1,53 @@
+{
+  "fixture_id": "template-fixture-do-not-run",
+  "task_class": "compound",
+  "repo": {
+    "name": "example-repo",
+    "url_or_path": "/absolute/path/to/example-repo",
+    "trunk": "main"
+  },
+  "start_commit": "0000000",
+  "setup_command": "echo replace-with-real-setup-command",
+  "task_prompt": "Replace this with the exact user-visible task. Keep it identical for every arm.",
+  "visible_acceptance": [
+    "Replace with visible acceptance criterion 1.",
+    "Replace with visible acceptance criterion 2."
+  ],
+  "hidden_acceptance_ref": "hidden-oracles/template-fixture-do-not-run/",
+  "allowed_paths": [
+    "src/",
+    "tests/"
+  ],
+  "forbidden_paths": [
+    ".env",
+    "secrets/"
+  ],
+  "required_proof_commands": [
+    {
+      "id": "unit-or-contract",
+      "cwd": "/absolute/path/to/example-repo",
+      "command": "echo replace-with-real-test-command",
+      "expected": "exit 0 and relevant behavior asserted"
+    }
+  ],
+  "real_surface_proof": {
+    "required": false,
+    "surface": "",
+    "proof_command_or_blocker": "n/a"
+  },
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "direct_main_push",
+    "credential_read"
+  ],
+  "expected_artifacts": [
+    "run log",
+    "git status before/after",
+    "test output",
+    "final closeout"
+  ],
+  "reviewer_packet_rule": "Build the reviewer packet from the diff summary, changed files, proof output, final claim, and known issues with arm/model identity removed.",
+  "cleanup_rule": "After the run, preserve artifacts under runs/<run_id>/ and remove only disposable worktrees created for this fixture."
+}
+

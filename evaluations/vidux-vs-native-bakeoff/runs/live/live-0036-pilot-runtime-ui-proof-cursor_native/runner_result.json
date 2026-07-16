@@ -1,0 +1,9 @@
+{
+  "runner": "cursor_agent_live",
+  "arm": "cursor_native",
+  "status": "complete",
+  "execution_outcome": "live_agent_fix:cursor_native",
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null
+}

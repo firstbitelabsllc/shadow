@@ -1,0 +1,9 @@
+{
+  "runner": "cursor_agent_live",
+  "arm": "current_vidux",
+  "status": "complete",
+  "execution_outcome": "live_agent_fix:current_vidux",
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null
+}

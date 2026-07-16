@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0016-pilot-atomic-route-method-codex_native",
+  "fixture_id": "pilot-atomic-route-method",
+  "arm": "codex_native",
+  "prepared_at": 1782763230.368255,
+  "prepared_at_iso": "2026-06-29T20:00:30.368255+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763244.642802
+}

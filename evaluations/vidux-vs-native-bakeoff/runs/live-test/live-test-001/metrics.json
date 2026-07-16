@@ -1,0 +1,21 @@
+{
+  "run_id": "live-test-001",
+  "fixture_id": "pilot-atomic-route-method",
+  "arm": "claude_native",
+  "task_class": "atomic",
+  "mode": "live",
+  "execution_outcome": "claude_exit_1",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "fail",
+  "oracle_output": "Traceback (most recent call last):\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 147, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 141, in main\n    ORACLES[args.fixture_id](root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 33, in oracle_atomic\n    require(status == 405, f\"GET must be rejected, got {status} {body}\")\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 22, in require\n    raise AssertionError(message)\nAssertionError: GET must be rejected, got 200 {'ok': True, 'finalized': True, 'source': 'unsafe-get'}",
+  "wall_minutes": 0.06,
+  "time_to_first_diff_minutes": null,
+  "plan_tokens": null,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null,
+  "cold_resume_minutes": null,
+  "runner": "claude_cli",
+  "runner_log": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live-test/live-test-001/runner_claude.log"
+}

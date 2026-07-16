@@ -1,0 +1,58 @@
+{
+  "fixture_id": "full-ui-runtime-04",
+  "task_class": "ui_runtime",
+  "repo": {
+    "name": "mammothsplit",
+    "url_or_path": "${BAKEOFF_WORKDIR}/pilot-runtime-ui-proof",
+    "trunk": "generated"
+  },
+  "start_commit": "generated-full-v4",
+  "setup_command": "BAKEOFF_WORKDIR=${BAKEOFF_WORKDIR:?} python3 evaluations/vidux-vs-native-bakeoff/scripts/setup_fixture.py full-ui-runtime-04 \"$BAKEOFF_WORKDIR/full-ui-runtime-04\"",
+  "task_prompt": "Make the settlement summary render exact paid and unpaid counts plus a clear empty state. Produce a real rendered proof artifact, not just a source explanation. Variant 4.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "A proof artifact containing the rendered summary is saved in the run worktree",
+    "Final claim distinguishes source checks from rendered proof"
+  ],
+  "hidden_acceptance_ref": "hidden-oracles/full-ui-runtime-04/manifest.json",
+  "allowed_paths": [
+    "mammothsplit/ui.py",
+    "checks/visible_check.py",
+    "artifacts/**",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    ".git/**",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "required_proof_commands": [
+    {
+      "id": "visible-check",
+      "cwd": "${RUN_CWD}",
+      "command": "python3 checks/visible_check.py",
+      "expected": "exit 0 and prints visible_check PASS"
+    }
+  ],
+  "real_surface_proof": {
+    "required": true,
+    "surface": "Rendered settlement summary HTML",
+    "proof_command_or_blocker": "Save an artifact whose filename contains proof or screenshot and whose content comes from render_summary output."
+  },
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "expected_artifacts": [
+    "git status before and after",
+    "diff summary",
+    "visible_check output",
+    "rendered proof or screenshot artifact",
+    "honest final claim"
+  ],
+  "reviewer_packet_rule": "Build a blinded packet containing the visible prompt, changed files, proof artifact path and excerpt, test output, hidden oracle outcome, and final claim without arm labels.",
+  "cleanup_rule": "Remove only the generated fixture worktree after artifacts and oracle output are captured; do not delete shared evaluation files."
+}

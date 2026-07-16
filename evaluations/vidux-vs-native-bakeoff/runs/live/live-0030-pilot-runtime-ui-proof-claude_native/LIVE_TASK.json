@@ -1,0 +1,29 @@
+{
+  "fixture_id": "pilot-runtime-ui-proof",
+  "arm": "claude_native",
+  "task_prompt": "Make the settlement summary render exact paid and unpaid counts plus a clear empty state. Produce a real rendered proof artifact, not just a source explanation.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "A proof artifact containing the rendered summary is saved in the run worktree",
+    "Final claim distinguishes source checks from rendered proof"
+  ],
+  "allowed_paths": [
+    "mammothsplit/ui.py",
+    "checks/visible_check.py",
+    "artifacts/**",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    ".git/**",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "arm_rules": "# Arm Prompt: Claude Native\n\nYou are running the Claude-native arm of a blinded bake-off.\n\nRules:\n\n- Do not read or use Vidux `PLAN.md` files, Vidux ledger rows, Vidux step journals, or Vidux-specific skill instructions.\n- Read only the fixture, repo instructions, source files, tests, and command output.\n- Use Claude's native planning/checklist behavior.\n- Keep any plan ephemeral inside the run transcript.\n- Do not create durable planning artifacts unless the repo itself requires them for the task.\n- Count all tool use, tokens, and wall time honestly.\n- Stop when the fixture acceptance criteria are proven, a real blocker is hit, or budget expires.\n\nRequired closeout:\n\n```text\nARM=claude_native\nfixture_id=<id>\nmechanical_claim=<pass|fail|blocked>\nchanged_files=<paths>\nproof_commands=<commands and results>\nreal_surface_proof=<artifact or n/a>\nknown_issues=<issues>\nnext_action=<only if blocked>\nforbidden_actions=<none or list>\n```\n\n"
+}

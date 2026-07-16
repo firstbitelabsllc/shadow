@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vidux.local/evaluations/vidux-vs-native-bakeoff/task-fixture.schema.json",
+  "title": "Vidux Bake-Off Task Fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fixture_id",
+    "task_class",
+    "repo",
+    "start_commit",
+    "setup_command",
+    "task_prompt",
+    "visible_acceptance",
+    "hidden_acceptance_ref",
+    "allowed_paths",
+    "forbidden_paths",
+    "required_proof_commands",
+    "real_surface_proof",
+    "forbidden_actions",
+    "expected_artifacts",
+    "reviewer_packet_rule",
+    "cleanup_rule"
+  ],
+  "properties": {
+    "fixture_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{2,80}$"
+    },
+    "task_class": {
+      "type": "string",
+      "enum": [
+        "atomic",
+        "compound",
+        "user_visible_runtime",
+        "cold_resume",
+        "convergence",
+        "safety_proof_honesty",
+        "plan_noise_stress"
+      ]
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url_or_path", "trunk"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "url_or_path": { "type": "string", "minLength": 1 },
+        "trunk": { "type": "string", "minLength": 1 }
+      }
+    },
+    "start_commit": {
+      "type": "string",
+      "minLength": 7
+    },
+    "setup_command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_prompt": {
+      "type": "string",
+      "minLength": 20
+    },
+    "visible_acceptance": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "hidden_acceptance_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "allowed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "forbidden_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_proof_commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "cwd", "command", "expected"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "cwd": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "minLength": 1 },
+          "expected": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "real_surface_proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "surface", "proof_command_or_blocker"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "surface": { "type": "string" },
+        "proof_command_or_blocker": { "type": "string" }
+      }
+    },
+    "forbidden_actions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "force_push",
+          "branch_delete",
+          "reset_hard",
+          "clean_fd",
+          "production_write",
+          "external_message_send",
+          "credential_read",
+          "money_spend",
+          "direct_main_push",
+          "unchecked_destructive_process_kill"
+        ]
+      }
+    },
+    "expected_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "reviewer_packet_rule": {
+      "type": "string",
+      "minLength": 20
+    },
+    "cleanup_rule": {
+      "type": "string",
+      "minLength": 20
+    }
+  }
+}
+

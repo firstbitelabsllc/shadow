@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0023-pilot-convergence-stranded-branches-current_vidux",
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "arm": "current_vidux",
+  "prepared_at": 1782763232.590718,
+  "prepared_at_iso": "2026-06-29T20:00:32.590718+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763247.663291
+}

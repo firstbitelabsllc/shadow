@@ -1,0 +1,6 @@
+ARM=claude_native
+fixture_id=pilot-atomic-route-method
+mechanical_claim=pass
+proof_commands=python3 checks/visible_check.py -> rc 0
+real_surface_proof=n/a
+known_issues=success_path

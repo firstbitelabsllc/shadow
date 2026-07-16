@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 147, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 141, in main
+    ORACLES[args.fixture_id](root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 91, in oracle_convergence
+    require(apply_discount(1000, 10) == 900, "safe discount branch was not absorbed")
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 22, in require
+    raise AssertionError(message)
+AssertionError: safe discount branch was not absorbed

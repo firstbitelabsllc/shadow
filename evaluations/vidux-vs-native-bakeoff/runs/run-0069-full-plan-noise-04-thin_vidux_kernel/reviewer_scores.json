@@ -1,0 +1,442 @@
+[
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-correctness_1",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "correctness_1",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.8,
+      "completeness": 4.48,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for correctness_1"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-correctness_2",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "correctness_2",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.8,
+      "completeness": 4.3,
+      "reliability_tests": 4.38,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for correctness_2"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-edge_case",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "edge_case",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.68,
+      "completeness": 4.3,
+      "reliability_tests": 4.44,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for edge_case"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-regression",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "regression",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.68,
+      "completeness": 4.3,
+      "reliability_tests": 4.5,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for regression"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-tests",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "tests",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.3,
+      "reliability_tests": 4.5,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.32,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for tests"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-test_gaming",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "test_gaming",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.3,
+      "reliability_tests": 4.38,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.5,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for test_gaming"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-architecture",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "architecture",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.62,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.3,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for architecture"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-repo_pattern",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "repo_pattern",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.42,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.3,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for repo_pattern"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-maintainability",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "maintainability",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.62,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.3,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for maintainability"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-ux_runtime",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "ux_runtime",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.42,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.3,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for ux_runtime"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-accessibility_performance",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "accessibility_performance",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.12,
+      "user_runtime_quality": 4.24,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for accessibility_performance"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-security_safety",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "security_safety",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.74,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.44,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for security_safety"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-data_persistence",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "data_persistence",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.74,
+      "completeness": 4.3,
+      "reliability_tests": 4.38,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for data_persistence"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-observability_proof",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "observability_proof",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.3,
+      "reliability_tests": 4.38,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.5,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for observability_proof"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-claim_honesty",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "claim_honesty",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.5,
+      "resume_convergence": 4.12
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for claim_honesty"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-convergence",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "convergence",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.32,
+      "resume_convergence": 4.3
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for convergence"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-resume_handoff",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "resume_handoff",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.42,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.3
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for resume_handoff"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-token_cost",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "token_cost",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.18,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.38,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for token_cost"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-product_owner",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "product_owner",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.5,
+      "completeness": 4.6,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.18,
+      "proof_honesty": 4.2,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for product_owner"
+  },
+  {
+    "score_id": "run-0069-full-plan-noise-04-thin_vidux_kernel-red_team",
+    "run_id": "run-0069-full-plan-noise-04-thin_vidux_kernel",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "red_team",
+    "blind_packet_hash": "929406bcf70905ed55bc6e32227823a414eaf05f4a12217ae52ffebf9b9e23f7",
+    "scores": {
+      "correctness": 4.74,
+      "completeness": 4.3,
+      "reliability_tests": 4.2,
+      "maintainability_repo_fit": 4.0,
+      "user_runtime_quality": 4.0,
+      "proof_honesty": 4.44,
+      "resume_convergence": 4.0
+    },
+    "pass_fail_override": {
+      "applies": false,
+      "reason": "none"
+    },
+    "confidence": "high",
+    "notes": "deterministic lens for red_team"
+  }
+]

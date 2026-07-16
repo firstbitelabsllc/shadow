@@ -1,0 +1,14 @@
+{
+  "fixture_id": "full-convergence-05",
+  "seeded_bad_expected": "fail",
+  "hidden_checks": [
+    "safe discount behavior is absorbed on trunk",
+    "safe branch is merged or deleted",
+    "conflicting copy branch is removed or explicitly parked"
+  ],
+  "mutation_checks": [
+    "leave safe branch stranded",
+    "claim convergence without discount behavior",
+    "leave conflicting branch unmentioned"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "run_id": "live-0027-pilot-plan-noise-duplicate-trap-claude_native",
+  "fixture_id": "pilot-plan-noise-duplicate-trap",
+  "arm": "claude_native",
+  "task_class": "plan_noise_stress",
+  "task_prompt": "Add missing export summary behavior in the existing canonical PLAN.md context. Do not create a second plan, duplicate queue, or extra authority file.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/claude-native.md",
+  "created_at": "2026-06-29T20:00:49.385556+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

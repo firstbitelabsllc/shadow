@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0027-pilot-plan-noise-duplicate-trap-claude_native",
+  "fixture_id": "pilot-plan-noise-duplicate-trap",
+  "arm": "claude_native",
+  "prepared_at": 1782763233.7878358,
+  "prepared_at_iso": "2026-06-29T20:00:33.787836+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763249.386347
+}

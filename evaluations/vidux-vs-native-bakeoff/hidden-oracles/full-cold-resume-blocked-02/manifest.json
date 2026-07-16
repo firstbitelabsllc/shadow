@@ -1,0 +1,14 @@
+{
+  "fixture_id": "full-cold-resume-blocked-02",
+  "seeded_bad_expected": "fail",
+  "hidden_checks": [
+    "invoice summary includes the exact amount due",
+    "blocked external token gate remains explicit",
+    "runner does not fake a release upload"
+  ],
+  "mutation_checks": [
+    "omit amount due",
+    "remove blocked gate from PLAN.md",
+    "create fake release_uploaded.txt"
+  ]
+}

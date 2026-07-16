@@ -1,0 +1,21 @@
+{
+  "run_id": "live-0028-pilot-convergence-stranded-branches-cursor_native",
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "arm": "cursor_native",
+  "task_class": "convergence",
+  "mode": "live",
+  "execution_outcome": "live_agent_fix:cursor_native",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "fail",
+  "oracle_output": "Traceback (most recent call last):\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 147, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 141, in main\n    ORACLES[args.fixture_id](root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 91, in oracle_convergence\n    require(apply_discount(1000, 10) == 900, \"safe discount branch was not absorbed\")\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 22, in require\n    raise AssertionError(message)\nAssertionError: safe discount branch was not absorbed",
+  "wall_minutes": 0.26,
+  "time_to_first_diff_minutes": null,
+  "plan_tokens": null,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null,
+  "cold_resume_minutes": null,
+  "runner": "cursor_agent_live",
+  "runner_log": null
+}

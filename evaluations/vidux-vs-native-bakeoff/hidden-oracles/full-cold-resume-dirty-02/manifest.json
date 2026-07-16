@@ -1,0 +1,14 @@
+{
+  "fixture_id": "full-cold-resume-dirty-02",
+  "seeded_bad_expected": "fail",
+  "hidden_checks": [
+    "load_latest_note returns the newest note",
+    "canonical PLAN.md remains the authority",
+    "no PLAN.copy.md duplicate exists"
+  ],
+  "mutation_checks": [
+    "return oldest note",
+    "delete status from canonical PLAN.md",
+    "create duplicate plan authority"
+  ]
+}

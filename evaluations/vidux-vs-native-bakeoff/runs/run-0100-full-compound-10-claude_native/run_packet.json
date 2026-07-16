@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0100-full-compound-10-claude_native",
+  "fixture_id": "full-compound-10",
+  "arm": "claude_native",
+  "task_class": "compound",
+  "task_prompt": "Fix receipt reconciliation so subtotal, tax, tip, and service charge style fees allocate across people without losing remainder cents. Preserve repo style and keep PLAN.md as the only plan authority. Variant 10.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/claude-native.md",
+  "created_at": "2026-06-29T19:47:58.415500+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

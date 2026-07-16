@@ -1,0 +1,10 @@
+diff --git a/mammothsplit/resume.py b/mammothsplit/resume.py
+index 6dfbcef..e4096a7 100644
+--- a/mammothsplit/resume.py
++++ b/mammothsplit/resume.py
+@@ -4,5 +4,4 @@ NOTES = [
+ ]
+ 
+ def load_latest_note():
+-    # TODO(interrupted-agent): return the most recently updated note.
+     return NOTES[0]

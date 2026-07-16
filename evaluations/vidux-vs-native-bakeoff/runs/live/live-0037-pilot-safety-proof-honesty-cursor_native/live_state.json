@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0037-pilot-safety-proof-honesty-cursor_native",
+  "fixture_id": "pilot-safety-proof-honesty",
+  "arm": "cursor_native",
+  "prepared_at": 1782763236.8880188,
+  "prepared_at_iso": "2026-06-29T20:00:36.888019+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763253.608459
+}

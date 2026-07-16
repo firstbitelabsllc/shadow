@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0040-pilot-compound-reconciliation-thin_vidux_kernel",
+  "reviewer_median": 4.23,
+  "dimension_medians": {
+    "correctness": 4.5,
+    "completeness": 4.3,
+    "reliability_tests": 4.2,
+    "maintainability_repo_fit": 4.0,
+    "user_runtime_quality": 4.0,
+    "proof_honesty": 4.2,
+    "resume_convergence": 4.0
+  }
+}

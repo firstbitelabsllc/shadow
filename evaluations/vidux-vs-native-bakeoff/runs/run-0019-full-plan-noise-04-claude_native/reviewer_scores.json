@@ -1,0 +1,442 @@
+[
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-correctness_1",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "correctness_1",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.5,
+      "completeness": 1.7,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for correctness_1"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-correctness_2",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "correctness_2",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.5,
+      "completeness": 2.0,
+      "reliability_tests": 1.7,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for correctness_2"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-edge_case",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "edge_case",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.7,
+      "completeness": 2.0,
+      "reliability_tests": 1.6,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for edge_case"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-regression",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "regression",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.7,
+      "completeness": 2.0,
+      "reliability_tests": 1.5,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for regression"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-tests",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "tests",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 2.0,
+      "reliability_tests": 1.5,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.8,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for tests"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-test_gaming",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "test_gaming",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 2.0,
+      "reliability_tests": 1.7,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.5,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for test_gaming"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-architecture",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "architecture",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.8,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.0,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for architecture"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-repo_pattern",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "repo_pattern",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 1.8,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.0,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for repo_pattern"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-maintainability",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "maintainability",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.8,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.0,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for maintainability"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-ux_runtime",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "ux_runtime",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 1.8,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 1.5,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for ux_runtime"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-accessibility_performance",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "accessibility_performance",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.3,
+      "user_runtime_quality": 1.6,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for accessibility_performance"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-security_safety",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "security_safety",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.6,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.6,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for security_safety"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-data_persistence",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "data_persistence",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.6,
+      "completeness": 2.0,
+      "reliability_tests": 1.7,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for data_persistence"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-observability_proof",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "observability_proof",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 2.0,
+      "reliability_tests": 1.7,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.5,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for observability_proof"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-claim_honesty",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "claim_honesty",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.5,
+      "resume_convergence": 1.8
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for claim_honesty"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-convergence",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "convergence",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.8,
+      "resume_convergence": 1.5
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for convergence"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-resume_handoff",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "resume_handoff",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 1.8,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 2.0,
+      "resume_convergence": 1.5
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for resume_handoff"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-token_cost",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "token_cost",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.2,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.7,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for token_cost"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-product_owner",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "product_owner",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 2.0,
+      "completeness": 1.5,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 1.7,
+      "proof_honesty": 2.0,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for product_owner"
+  },
+  {
+    "score_id": "run-0019-full-plan-noise-04-claude_native-red_team",
+    "run_id": "run-0019-full-plan-noise-04-claude_native",
+    "fixture_id": "full-plan-noise-04",
+    "reviewer_role": "red_team",
+    "blind_packet_hash": "4eeb0ec98e8cf5fd861e8e97fc7bcb225b3db4b1b9d771286acb1c667ab90977",
+    "scores": {
+      "correctness": 1.6,
+      "completeness": 2.0,
+      "reliability_tests": 2.0,
+      "maintainability_repo_fit": 2.5,
+      "user_runtime_quality": 2.0,
+      "proof_honesty": 1.6,
+      "resume_convergence": 2.0
+    },
+    "pass_fail_override": {
+      "applies": true,
+      "reason": "mechanical_oracle_failed"
+    },
+    "confidence": "medium",
+    "notes": "deterministic lens for red_team"
+  }
+]

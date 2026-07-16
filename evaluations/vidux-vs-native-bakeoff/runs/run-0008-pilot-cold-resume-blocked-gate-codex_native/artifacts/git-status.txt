@@ -1,0 +1,2 @@
+?? mammothsplit/__pycache__/
+?? release_uploaded.txt

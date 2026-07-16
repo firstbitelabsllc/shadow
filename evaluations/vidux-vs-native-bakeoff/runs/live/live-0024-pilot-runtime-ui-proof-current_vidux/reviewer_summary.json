@@ -1,0 +1,13 @@
+{
+  "run_id": "live-0024-pilot-runtime-ui-proof-current_vidux",
+  "reviewer_median": 4.4,
+  "dimension_medians": {
+    "correctness": 4.7,
+    "completeness": 4.5,
+    "reliability_tests": 4.4,
+    "maintainability_repo_fit": 4.2,
+    "user_runtime_quality": 4.4,
+    "proof_honesty": 4.2,
+    "resume_convergence": 4.0
+  }
+}

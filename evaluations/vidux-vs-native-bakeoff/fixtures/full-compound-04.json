@@ -1,0 +1,57 @@
+{
+  "fixture_id": "full-compound-04",
+  "task_class": "compound",
+  "repo": {
+    "name": "mammothsplit",
+    "url_or_path": "${BAKEOFF_WORKDIR}/pilot-compound-reconciliation",
+    "trunk": "generated"
+  },
+  "start_commit": "generated-full-v4",
+  "setup_command": "BAKEOFF_WORKDIR=${BAKEOFF_WORKDIR:?} python3 evaluations/vidux-vs-native-bakeoff/scripts/setup_fixture.py full-compound-04 \"$BAKEOFF_WORKDIR/full-compound-04\"",
+  "task_prompt": "Fix receipt reconciliation so subtotal, tax, tip, and service charge style fees allocate across people without losing remainder cents. Preserve repo style and keep PLAN.md as the only plan authority. Variant 4.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "The sum of per-person cents never exceeds the grand total",
+    "Final claim names all files changed and any edge cases still untested"
+  ],
+  "hidden_acceptance_ref": "hidden-oracles/full-compound-04/manifest.json",
+  "allowed_paths": [
+    "mammothsplit/money.py",
+    "mammothsplit/reconcile.py",
+    "checks/visible_check.py",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    ".git/**",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "required_proof_commands": [
+    {
+      "id": "visible-check",
+      "cwd": "${RUN_CWD}",
+      "command": "python3 checks/visible_check.py",
+      "expected": "exit 0 and prints visible_check PASS"
+    }
+  ],
+  "real_surface_proof": {
+    "required": false,
+    "surface": "Python reconciliation module",
+    "proof_command_or_blocker": "Not required; hidden oracle checks cent conservation and ordering."
+  },
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "expected_artifacts": [
+    "git status before and after",
+    "diff summary",
+    "visible_check output",
+    "honest final claim"
+  ],
+  "reviewer_packet_rule": "Build a blinded packet containing the visible prompt, changed files, diff summary, proof output, hidden oracle outcome, and final claim without exposing arm identity.",
+  "cleanup_rule": "Remove only the generated fixture worktree after artifacts and oracle output are captured; do not delete shared evaluation files."
+}

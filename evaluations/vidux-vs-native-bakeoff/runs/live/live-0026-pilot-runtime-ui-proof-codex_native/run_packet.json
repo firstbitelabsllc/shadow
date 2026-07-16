@@ -1,0 +1,13 @@
+{
+  "run_id": "live-0026-pilot-runtime-ui-proof-codex_native",
+  "fixture_id": "pilot-runtime-ui-proof",
+  "arm": "codex_native",
+  "task_class": "user_visible_runtime",
+  "task_prompt": "Make the settlement summary render exact paid and unpaid counts plus a clear empty state. Produce a real rendered proof artifact, not just a source explanation.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/codex-native.md",
+  "created_at": "2026-06-29T20:00:48.967788+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}
