@@ -1,0 +1,3 @@
+  agent/conflicting-copy-edit
+  agent/safe-discount-fix
+* master

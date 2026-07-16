@@ -1,0 +1,6 @@
+ARM=current_vidux
+fixture_id=full-atomic-05
+mechanical_claim=pass
+proof_commands=python3 checks/visible_check.py -> rc 0
+real_surface_proof=n/a
+known_issues=success_path

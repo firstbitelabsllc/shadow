@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0034-pilot-compound-reconciliation-cursor_native",
+  "fixture_id": "pilot-compound-reconciliation",
+  "arm": "cursor_native",
+  "prepared_at": 1782763235.984237,
+  "prepared_at_iso": "2026-06-29T20:00:35.984237+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763252.299099
+}

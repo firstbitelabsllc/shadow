@@ -1,0 +1,13 @@
+diff --git a/PLAN.md b/PLAN.md
+index 710daac..cb5032c 100644
+--- a/PLAN.md
++++ b/PLAN.md
+@@ -1,5 +1,7 @@
+ # Convergence Fixture
+ 
+ ## Tasks
+-- [in_progress] Converge stranded discount work.
++- [completed] Converge stranded discount work.
+   Accept: merge or absorb the safe discount branch, park the conflicting branch with a resume note, and run `python3 checks/visible_check.py`.
++
++- PARKED: agent/conflicting-copy-edit needs product wording before merge.

@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0002-pilot-cold-resume-dirty-wip-claude_native",
+  "fixture_id": "pilot-cold-resume-dirty-wip",
+  "arm": "claude_native",
+  "prepared_at": 1782763225.874939,
+  "prepared_at_iso": "2026-06-29T20:00:25.874939+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763238.473758
+}

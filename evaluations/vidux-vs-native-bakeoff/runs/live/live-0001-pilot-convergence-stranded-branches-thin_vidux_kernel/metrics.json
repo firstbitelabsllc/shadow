@@ -1,0 +1,21 @@
+{
+  "run_id": "live-0001-pilot-convergence-stranded-branches-thin_vidux_kernel",
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "arm": "thin_vidux_kernel",
+  "task_class": "convergence",
+  "mode": "live",
+  "execution_outcome": "live_agent_fix:thin_vidux_kernel",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "fail",
+  "oracle_output": "Traceback (most recent call last):\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 147, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 141, in main\n    ORACLES[args.fixture_id](root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 95, in oracle_convergence\n    require(\"agent/safe-discount-fix\" not in branch_names, \"safe branch should be merged/deleted\")\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 22, in require\n    raise AssertionError(message)\nAssertionError: safe branch should be merged/deleted",
+  "wall_minutes": 0.21,
+  "time_to_first_diff_minutes": null,
+  "plan_tokens": null,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null,
+  "cold_resume_minutes": null,
+  "runner": "cursor_agent_live",
+  "runner_log": null
+}

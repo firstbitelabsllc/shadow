@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0006-pilot-plan-noise-duplicate-trap-thin_vidux_kernel",
+  "fixture_id": "pilot-plan-noise-duplicate-trap",
+  "arm": "thin_vidux_kernel",
+  "prepared_at": 1782763227.187667,
+  "prepared_at_iso": "2026-06-29T20:00:27.187667+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763240.2774668
+}

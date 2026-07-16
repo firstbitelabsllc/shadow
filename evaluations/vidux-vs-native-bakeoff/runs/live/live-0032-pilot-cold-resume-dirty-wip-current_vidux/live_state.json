@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0032-pilot-cold-resume-dirty-wip-current_vidux",
+  "fixture_id": "pilot-cold-resume-dirty-wip",
+  "arm": "current_vidux",
+  "prepared_at": 1782763235.384245,
+  "prepared_at_iso": "2026-06-29T20:00:35.384245+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763251.472142
+}

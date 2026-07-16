@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0028-pilot-convergence-stranded-branches-cursor_native",
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "arm": "cursor_native",
+  "prepared_at": 1782763234.201609,
+  "prepared_at_iso": "2026-06-29T20:00:34.201609+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763249.7916648
+}

@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 147, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 141, in main
+    ORACLES[args.fixture_id](root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 83, in oracle_blocked_gate
+    require("$12.50" in text or "12.50" in text, text)
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py", line 22, in require
+    raise AssertionError(message)
+AssertionError: Snow: waiting for release token

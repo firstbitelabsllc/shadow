@@ -1,0 +1,965 @@
+{
+  "seed": 20260629,
+  "order": [
+    {
+      "fixture_id": "full-cold-resume-blocked-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-convergence-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-atomic-05",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-safety-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-convergence-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "pilot-plan-noise-duplicate-trap",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-plan-noise-duplicate-trap",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-08",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-atomic-06",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-plan-noise-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-convergence-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-safety-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-07",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-05",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-dirty-wip",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-plan-noise-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-07",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-06",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-07",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-convergence-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-convergence-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-convergence-stranded-branches",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-compound-05",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-plan-noise-duplicate-trap",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-atomic-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-convergence-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-06",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-atomic-route-method",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-atomic-08",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-05",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-safety-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "pilot-runtime-ui-proof",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-convergence-05",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-compound-08",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-09",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-dirty-wip",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-convergence-06",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-safety-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-atomic-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-atomic-08",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-safety-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-08",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-06",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-atomic-07",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-plan-noise-duplicate-trap",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-07",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-10",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-atomic-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-runtime-ui-proof",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-plan-noise-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-atomic-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-atomic-08",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-dirty-wip",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-convergence-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-safety-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-08",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-atomic-07",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-dirty-wip",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-blocked-gate",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-convergence-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-05",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-convergence-05",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-runtime-ui-proof",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-dirty-wip",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-blocked-gate",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-convergence-05",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-compound-reconciliation",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-07",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-08",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-10",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-06",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-runtime-ui-proof",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-convergence-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-atomic-route-method",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-safety-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-06",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-convergence-stranded-branches",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-safety-proof-honesty",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-07",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-09",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-convergence-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-10",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-05",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-convergence-stranded-branches",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-08",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-ui-runtime-07",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-atomic-route-method",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-convergence-06",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-atomic-06",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-safety-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-safety-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-atomic-08",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-safety-proof-honesty",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-atomic-route-method",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-atomic-06",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-atomic-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-compound-09",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-plan-noise-duplicate-trap",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-plan-noise-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-ui-runtime-08",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "pilot-convergence-stranded-branches",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-convergence-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-atomic-06",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-convergence-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-safety-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "pilot-compound-reconciliation",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-compound-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-02",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-atomic-07",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-runtime-ui-proof",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-convergence-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-safety-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-safety-proof-honesty",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-ui-runtime-06",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-blocked-gate",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-blocked-gate",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-06",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-convergence-06",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-atomic-05",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-compound-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-02",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-atomic-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-convergence-05",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-convergence-04",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-compound-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-safety-03",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-10",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-atomic-05",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-plan-noise-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-convergence-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-10",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-05",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-compound-reconciliation",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-safety-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-plan-noise-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-convergence-stranded-branches",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-compound-reconciliation",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-atomic-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-plan-noise-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-compound-reconciliation",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-atomic-08",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-06",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-atomic-05",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-convergence-06",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-05",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "pilot-cold-resume-blocked-gate",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-04",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-02",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-07",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-04",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-safety-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-09",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-ui-runtime-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-atomic-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-07",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-atomic-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-atomic-07",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-02",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-compound-06",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-08",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-ui-runtime-06",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-convergence-06",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-09",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-07",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-08",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-safety-proof-honesty",
+      "arm": "cursor_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-03",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-ui-runtime-05",
+      "arm": "thin_vidux_kernel"
+    },
+    {
+      "fixture_id": "full-safety-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-06",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-04",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-02",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-03",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-05",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "full-compound-05",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-atomic-05",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-ui-runtime-07",
+      "arm": "codex_native"
+    },
+    {
+      "fixture_id": "pilot-safety-proof-honesty",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "full-cold-resume-dirty-03",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-cold-resume-blocked-03",
+      "arm": "claude_native"
+    },
+    {
+      "fixture_id": "pilot-atomic-route-method",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-convergence-05",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-04",
+      "arm": "current_vidux"
+    },
+    {
+      "fixture_id": "full-compound-08",
+      "arm": "claude_native"
+    }
+  ]
+}

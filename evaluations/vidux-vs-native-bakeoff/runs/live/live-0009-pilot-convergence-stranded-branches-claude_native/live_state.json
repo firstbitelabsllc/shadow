@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0009-pilot-convergence-stranded-branches-claude_native",
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "arm": "claude_native",
+  "prepared_at": 1782763228.2740119,
+  "prepared_at_iso": "2026-06-29T20:00:28.274012+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763241.594041
+}

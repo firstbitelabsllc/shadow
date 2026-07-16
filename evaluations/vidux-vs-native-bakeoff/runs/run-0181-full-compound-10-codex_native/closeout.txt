@@ -1,0 +1,6 @@
+ARM=codex_native
+fixture_id=full-compound-10
+mechanical_claim=pass
+proof_commands=python3 checks/visible_check.py -> rc 0
+real_surface_proof=n/a
+known_issues=success_path

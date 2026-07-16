@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0030-pilot-runtime-ui-proof-claude_native",
+  "fixture_id": "pilot-runtime-ui-proof",
+  "arm": "claude_native",
+  "prepared_at": 1782763234.782938,
+  "prepared_at_iso": "2026-06-29T20:00:34.782938+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763250.639183
+}

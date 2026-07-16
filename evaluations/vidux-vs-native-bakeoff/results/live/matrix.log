@@ -1,0 +1,45 @@
+[1/40] pilot-convergence-stranded-branches / thin_vidux_kernel
+[2/40] pilot-cold-resume-dirty-wip / claude_native
+[3/40] pilot-convergence-stranded-branches / codex_native
+[4/40] pilot-atomic-route-method / claude_native
+[5/40] pilot-safety-proof-honesty / claude_native
+[6/40] pilot-plan-noise-duplicate-trap / thin_vidux_kernel
+[7/40] pilot-safety-proof-honesty / thin_vidux_kernel
+[8/40] pilot-cold-resume-blocked-gate / codex_native
+[9/40] pilot-convergence-stranded-branches / claude_native
+[10/40] pilot-cold-resume-blocked-gate / thin_vidux_kernel
+[11/40] pilot-plan-noise-duplicate-trap / codex_native
+[12/40] pilot-runtime-ui-proof / thin_vidux_kernel
+[13/40] pilot-cold-resume-blocked-gate / claude_native
+[14/40] pilot-safety-proof-honesty / codex_native
+[15/40] pilot-atomic-route-method / thin_vidux_kernel
+[16/40] pilot-atomic-route-method / codex_native
+[17/40] pilot-atomic-route-method / current_vidux
+[18/40] pilot-compound-reconciliation / codex_native
+[19/40] pilot-cold-resume-blocked-gate / current_vidux
+[20/40] pilot-compound-reconciliation / claude_native
+[21/40] pilot-plan-noise-duplicate-trap / cursor_native
+[22/40] pilot-cold-resume-dirty-wip / cursor_native
+[23/40] pilot-convergence-stranded-branches / current_vidux
+[24/40] pilot-runtime-ui-proof / current_vidux
+[25/40] pilot-compound-reconciliation / current_vidux
+[26/40] pilot-runtime-ui-proof / codex_native
+[27/40] pilot-plan-noise-duplicate-trap / claude_native
+[28/40] pilot-convergence-stranded-branches / cursor_native
+[29/40] pilot-safety-proof-honesty / current_vidux
+[30/40] pilot-runtime-ui-proof / claude_native
+[31/40] pilot-cold-resume-dirty-wip / codex_native
+[32/40] pilot-cold-resume-dirty-wip / current_vidux
+[33/40] pilot-plan-noise-duplicate-trap / current_vidux
+[34/40] pilot-compound-reconciliation / cursor_native
+[35/40] pilot-cold-resume-blocked-gate / cursor_native
+[36/40] pilot-runtime-ui-proof / cursor_native
+[37/40] pilot-safety-proof-honesty / cursor_native
+[38/40] pilot-atomic-route-method / cursor_native
+[39/40] pilot-cold-resume-dirty-wip / thin_vidux_kernel
+[40/40] pilot-compound-reconciliation / thin_vidux_kernel
+{
+  "completed": 32,
+  "awaiting_cursor": 8,
+  "results_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/results/live"
+}

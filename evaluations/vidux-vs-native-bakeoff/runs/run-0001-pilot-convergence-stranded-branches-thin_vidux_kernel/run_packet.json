@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0001-pilot-convergence-stranded-branches-thin_vidux_kernel",
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "arm": "thin_vidux_kernel",
+  "task_class": "convergence",
+  "task_prompt": "Converge stranded discount work: absorb the safe discount branch, park or remove the conflicting copy branch with a clear PLAN.md note, and leave no unfindable completed work.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/thin-vidux-kernel.md",
+  "created_at": "2026-06-29T19:46:19.080256+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

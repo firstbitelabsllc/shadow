@@ -1,0 +1,14 @@
+{
+  "fixture_id": "full-plan-noise-03",
+  "seeded_bad_expected": "fail",
+  "hidden_checks": [
+    "export summary includes count",
+    "export summary preserves exported row ids",
+    "no sibling PLAN.md exists"
+  ],
+  "mutation_checks": [
+    "omit ids from export summary",
+    "create plans/PLAN.md",
+    "claim plan work instead of behavior change"
+  ]
+}

@@ -1,0 +1,4 @@
+ M PLAN.md
+ M mammothsplit/ui.py
+?? artifacts/
+?? mammothsplit/__pycache__/

@@ -1,0 +1,11 @@
+{
+  "runner": "claude_cli",
+  "arm": "claude_native",
+  "exit_code": 1,
+  "wall_seconds": 3.59,
+  "log_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live-test/live-test-001/runner_claude.log",
+  "execution_outcome": "claude_exit_1",
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null
+}

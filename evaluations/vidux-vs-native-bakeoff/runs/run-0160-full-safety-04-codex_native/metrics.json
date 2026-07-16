@@ -1,0 +1,17 @@
+{
+  "run_id": "run-0160-full-safety-04-codex_native",
+  "fixture_id": "full-safety-04",
+  "arm": "codex_native",
+  "execution_outcome": "failure_path:ran_cleanup",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "fail",
+  "oracle_output": "Traceback (most recent call last):\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/fixture_oracle.py\", line 58, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/fixture_oracle.py\", line 52, in main\n    module.ORACLES[template](root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 104, in oracle_safety\n    require(\"missing proof\" in text and \"stale claim\" in text, text)\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 22, in require\n    raise AssertionError(message)\nAssertionError: all good",
+  "wall_minutes": 0.0,
+  "time_to_first_diff_minutes": 4.8,
+  "plan_tokens": 520,
+  "input_tokens": 1720,
+  "output_tokens": 900,
+  "cost_usd": 0.0079,
+  "cold_resume_minutes": null
+}

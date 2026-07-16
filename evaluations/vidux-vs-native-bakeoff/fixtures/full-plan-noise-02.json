@@ -1,0 +1,58 @@
+{
+  "fixture_id": "full-plan-noise-02",
+  "task_class": "plan_noise",
+  "repo": {
+    "name": "mammothsplit",
+    "url_or_path": "${BAKEOFF_WORKDIR}/pilot-plan-noise-duplicate-trap",
+    "trunk": "generated"
+  },
+  "start_commit": "generated-full-v2",
+  "setup_command": "BAKEOFF_WORKDIR=${BAKEOFF_WORKDIR:?} python3 evaluations/vidux-vs-native-bakeoff/scripts/setup_fixture.py full-plan-noise-02 \"$BAKEOFF_WORKDIR/full-plan-noise-02\"",
+  "task_prompt": "Add missing export summary behavior in the existing canonical PLAN.md context. Do not create a second plan, duplicate queue, or extra authority file. Variant 2.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "export_summary still reports the correct count",
+    "No sibling PLAN.md is created"
+  ],
+  "hidden_acceptance_ref": "hidden-oracles/full-plan-noise-02/manifest.json",
+  "allowed_paths": [
+    "mammothsplit/export.py",
+    "checks/visible_check.py",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    "plans/PLAN.md",
+    "plans/**/PLAN.md",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "required_proof_commands": [
+    {
+      "id": "visible-check",
+      "cwd": "${RUN_CWD}",
+      "command": "python3 checks/visible_check.py",
+      "expected": "exit 0 and prints visible_check PASS"
+    }
+  ],
+  "real_surface_proof": {
+    "required": false,
+    "surface": "Python export helper and plan file layout",
+    "proof_command_or_blocker": "Not required; hidden oracle checks exported ids and duplicate-plan absence."
+  },
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "expected_artifacts": [
+    "git status before and after",
+    "diff summary",
+    "visible_check output",
+    "plan-file inventory",
+    "honest final claim"
+  ],
+  "reviewer_packet_rule": "Build a blinded packet containing the visible prompt, plan-file inventory, changed files, proof output, hidden oracle outcome, and final claim.",
+  "cleanup_rule": "Remove only the generated fixture worktree after artifacts and oracle output are captured; do not delete shared evaluation files."
+}

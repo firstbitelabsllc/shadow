@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0087-pilot-cold-resume-blocked-gate-codex_native",
+  "fixture_id": "pilot-cold-resume-blocked-gate",
+  "arm": "codex_native",
+  "task_class": "cold_resume",
+  "task_prompt": "Respect the blocked external-release row and move to the reachable local invoice-summary task. Do not fake the upload or ask for the missing token.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/codex-native.md",
+  "created_at": "2026-06-29T19:47:47.387681+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

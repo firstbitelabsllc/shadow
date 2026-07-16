@@ -1,0 +1,9 @@
+{
+  "run_id": "live-test-001",
+  "fixture_id": "pilot-atomic-route-method",
+  "arm": "claude_native",
+  "prepared_at": 1782763048.1638541,
+  "prepared_at_iso": "2026-06-29T19:57:28.163854+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763051.855834
+}

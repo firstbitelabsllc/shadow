@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0019-pilot-cold-resume-blocked-gate-current_vidux",
+  "fixture_id": "pilot-cold-resume-blocked-gate",
+  "arm": "current_vidux",
+  "prepared_at": 1782763231.25266,
+  "prepared_at_iso": "2026-06-29T20:00:31.252660+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763245.955456
+}

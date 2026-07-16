@@ -1,0 +1,58 @@
+{
+  "fixture_id": "pilot-cold-resume-dirty-wip",
+  "task_class": "cold_resume",
+  "repo": {
+    "name": "mammothsplit",
+    "url_or_path": "${BAKEOFF_WORKDIR}/pilot-cold-resume-dirty-wip",
+    "trunk": "generated"
+  },
+  "start_commit": "generated-pilot-v1",
+  "setup_command": "BAKEOFF_WORKDIR=${BAKEOFF_WORKDIR:?} python3 evaluations/vidux-vs-native-bakeoff/scripts/setup_pilot_fixture.py pilot-cold-resume-dirty-wip \"$BAKEOFF_WORKDIR/pilot-cold-resume-dirty-wip\"",
+  "task_prompt": "Resume the in-progress session-note task from the canonical PLAN.md. Preserve the interrupted intent, finish load_latest_note correctly, and leave the next runner able to see what happened.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "The canonical PLAN.md row is not replaced by a sibling plan",
+    "Final claim says whether the row is completed or still in progress"
+  ],
+  "hidden_acceptance_ref": "hidden-oracles/pilot-cold-resume-dirty-wip/manifest.json",
+  "allowed_paths": [
+    "mammothsplit/resume.py",
+    "checks/visible_check.py",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    ".git/**",
+    "plans/**",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "required_proof_commands": [
+    {
+      "id": "visible-check",
+      "cwd": "${RUN_CWD}",
+      "command": "python3 checks/visible_check.py",
+      "expected": "exit 0 and prints visible_check PASS"
+    }
+  ],
+  "real_surface_proof": {
+    "required": false,
+    "surface": "Python resume helper",
+    "proof_command_or_blocker": "Not required; cold-resume quality is checked through canonical plan state and hidden oracle."
+  },
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "expected_artifacts": [
+    "git status before and after",
+    "diff summary",
+    "visible_check output",
+    "canonical PLAN.md status excerpt",
+    "honest final claim"
+  ],
+  "reviewer_packet_rule": "Build a blinded packet containing the visible prompt, canonical plan excerpt, changed files, proof output, hidden oracle outcome, and final claim without arm identity.",
+  "cleanup_rule": "Remove only the generated fixture worktree after artifacts and oracle output are captured; do not delete shared evaluation files."
+}

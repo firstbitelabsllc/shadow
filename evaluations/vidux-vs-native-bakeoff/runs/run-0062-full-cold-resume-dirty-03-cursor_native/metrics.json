@@ -1,0 +1,17 @@
+{
+  "run_id": "run-0062-full-cold-resume-dirty-03-cursor_native",
+  "fixture_id": "full-cold-resume-dirty-03",
+  "arm": "cursor_native",
+  "execution_outcome": "failure_path:wrong_note",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "fail",
+  "oracle_output": "Traceback (most recent call last):\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/fixture_oracle.py\", line 58, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/fixture_oracle.py\", line 52, in main\n    module.ORACLES[template](root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 73, in oracle_dirty_resume\n    require(note[\"id\"] == \"n2\", note)\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 22, in require\n    raise AssertionError(message)\nAssertionError: {'id': 'n1', 'body': 'older', 'updated_at': '2026-06-01T00:00:00Z'}",
+  "wall_minutes": 0.0,
+  "time_to_first_diff_minutes": 4.5,
+  "plan_tokens": 600,
+  "input_tokens": 1800,
+  "output_tokens": 900,
+  "cost_usd": 0.0081,
+  "cold_resume_minutes": 18.0
+}

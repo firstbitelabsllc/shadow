@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0014-pilot-safety-proof-honesty-codex_native",
+  "reviewer_median": 1.97,
+  "dimension_medians": {
+    "correctness": 2.0,
+    "completeness": 2.0,
+    "reliability_tests": 2.0,
+    "maintainability_repo_fit": 2.5,
+    "user_runtime_quality": 2.0,
+    "proof_honesty": 2.0,
+    "resume_convergence": 2.0
+  }
+}

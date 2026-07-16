@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0035-pilot-cold-resume-blocked-gate-cursor_native",
+  "fixture_id": "pilot-cold-resume-blocked-gate",
+  "arm": "cursor_native",
+  "prepared_at": 1782763236.2847092,
+  "prepared_at_iso": "2026-06-29T20:00:36.284709+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763252.7159529
+}

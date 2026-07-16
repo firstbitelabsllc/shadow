@@ -1,0 +1,13 @@
+{
+  "run_id": "live-0009-pilot-convergence-stranded-branches-claude_native",
+  "reviewer_median": 1.9,
+  "dimension_medians": {
+    "correctness": 1.5,
+    "completeness": 2.0,
+    "reliability_tests": 2.0,
+    "maintainability_repo_fit": 2.5,
+    "user_runtime_quality": 2.0,
+    "proof_honesty": 2.0,
+    "resume_convergence": 2.0
+  }
+}

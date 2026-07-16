@@ -1,0 +1,14 @@
+{
+  "fixture_id": "full-atomic-02",
+  "seeded_bad_expected": "fail",
+  "hidden_checks": [
+    "GET /finalize must return 405",
+    "GET /finalize must not set finalized true",
+    "POST /finalize must still finalize"
+  ],
+  "mutation_checks": [
+    "remove GET guard",
+    "return finalized true for disallowed methods",
+    "weaken POST assertion"
+  ]
+}

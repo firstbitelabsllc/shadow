@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0025-pilot-compound-reconciliation-current_vidux",
+  "fixture_id": "pilot-compound-reconciliation",
+  "arm": "current_vidux",
+  "prepared_at": 1782763233.1951182,
+  "prepared_at_iso": "2026-06-29T20:00:33.195118+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763248.5345159
+}

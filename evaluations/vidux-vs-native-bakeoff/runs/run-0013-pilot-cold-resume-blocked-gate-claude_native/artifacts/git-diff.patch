@@ -1,0 +1,8 @@
+diff --git a/mammothsplit/invoice.py b/mammothsplit/invoice.py
+index dd733a2..ce6f4bc 100644
+--- a/mammothsplit/invoice.py
++++ b/mammothsplit/invoice.py
+@@ -1,2 +1,2 @@
+ def invoice_summary(customer: str, cents_due: int) -> str:
+-    return f"{customer}: payment needed"
++    return f"{customer}: waiting for release token"

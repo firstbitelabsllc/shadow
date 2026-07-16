@@ -1,0 +1,4 @@
+ M PLAN.md
+ M mammothsplit/export.py
+?? mammothsplit/__pycache__/
+?? plans/PLAN.md

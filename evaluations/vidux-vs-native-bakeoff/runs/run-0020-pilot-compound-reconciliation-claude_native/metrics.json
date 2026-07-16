@@ -1,0 +1,17 @@
+{
+  "run_id": "run-0020-pilot-compound-reconciliation-claude_native",
+  "fixture_id": "pilot-compound-reconciliation",
+  "arm": "claude_native",
+  "execution_outcome": "success_path",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "pass",
+  "oracle_output": "pilot-compound-reconciliation hidden oracle PASS",
+  "wall_minutes": 0.0,
+  "time_to_first_diff_minutes": 5.0,
+  "plan_tokens": 1000,
+  "input_tokens": 2200,
+  "output_tokens": 900,
+  "cost_usd": 0.0093,
+  "cold_resume_minutes": null
+}

@@ -1,0 +1,64 @@
+{
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "task_class": "convergence",
+  "repo": {
+    "name": "mammothsplit",
+    "url_or_path": "${BAKEOFF_WORKDIR}/pilot-convergence-stranded-branches",
+    "trunk": "generated"
+  },
+  "start_commit": "generated-pilot-v1",
+  "setup_command": "BAKEOFF_WORKDIR=${BAKEOFF_WORKDIR:?} python3 evaluations/vidux-vs-native-bakeoff/scripts/setup_pilot_fixture.py pilot-convergence-stranded-branches \"$BAKEOFF_WORKDIR/pilot-convergence-stranded-branches\"",
+  "task_prompt": "Converge stranded discount work: absorb the safe discount branch, park or remove the conflicting copy branch with a clear PLAN.md note, and leave no unfindable completed work.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "The safe discount behavior is present on the trunk branch",
+    "Any unresolved conflicting branch is explicitly parked in PLAN.md"
+  ],
+  "hidden_acceptance_ref": "hidden-oracles/pilot-convergence-stranded-branches/manifest.json",
+  "allowed_paths": [
+    "mammothsplit/discounts.py",
+    "checks/visible_check.py",
+    "PLAN.md",
+    "COPY_NOTES.md"
+  ],
+  "forbidden_paths": [
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "required_proof_commands": [
+    {
+      "id": "visible-check",
+      "cwd": "${RUN_CWD}",
+      "command": "python3 checks/visible_check.py",
+      "expected": "exit 0 and prints visible_check PASS"
+    },
+    {
+      "id": "branch-state",
+      "cwd": "${RUN_CWD}",
+      "command": "git branch --format='%(refname:short)'",
+      "expected": "safe branch merged/deleted and conflicting branch removed or parked in PLAN.md"
+    }
+  ],
+  "real_surface_proof": {
+    "required": false,
+    "surface": "Git branch state and Python discount helper",
+    "proof_command_or_blocker": "Not required; convergence oracle checks behavior and branch state."
+  },
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "expected_artifacts": [
+    "git status before and after",
+    "branch list before and after",
+    "diff summary",
+    "visible_check output",
+    "PLAN.md convergence note",
+    "honest final claim"
+  ],
+  "reviewer_packet_rule": "Build a blinded packet containing the visible prompt, before and after branch state, changed files, proof output, hidden oracle outcome, and final claim.",
+  "cleanup_rule": "Remove only the generated fixture worktree after artifacts and oracle output are captured; do not delete shared evaluation files."
+}

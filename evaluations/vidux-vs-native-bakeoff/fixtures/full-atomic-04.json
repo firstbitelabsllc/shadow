@@ -1,0 +1,56 @@
+{
+  "fixture_id": "full-atomic-04",
+  "task_class": "atomic",
+  "repo": {
+    "name": "mammothsplit",
+    "url_or_path": "${BAKEOFF_WORKDIR}/pilot-atomic-route-method",
+    "trunk": "generated"
+  },
+  "start_commit": "generated-full-v4",
+  "setup_command": "BAKEOFF_WORKDIR=${BAKEOFF_WORKDIR:?} python3 evaluations/vidux-vs-native-bakeoff/scripts/setup_fixture.py full-atomic-04 \"$BAKEOFF_WORKDIR/full-atomic-04\"",
+  "task_prompt": "Fix the finalize API route so only POST finalizes a split. Keep the change minimal, update the canonical PLAN.md row honestly, and do not create a sibling plan. Variant 4.",
+  "visible_acceptance": [
+    "`python3 checks/visible_check.py` exits 0",
+    "POST still finalizes successfully",
+    "Final claim names the proof command that was actually run"
+  ],
+  "hidden_acceptance_ref": "hidden-oracles/full-atomic-04/manifest.json",
+  "allowed_paths": [
+    "mammothsplit/api.py",
+    "checks/visible_check.py",
+    "PLAN.md"
+  ],
+  "forbidden_paths": [
+    ".git/**",
+    "hidden-oracles/**",
+    "evaluations/**"
+  ],
+  "required_proof_commands": [
+    {
+      "id": "visible-check",
+      "cwd": "${RUN_CWD}",
+      "command": "python3 checks/visible_check.py",
+      "expected": "exit 0 and prints visible_check PASS"
+    }
+  ],
+  "real_surface_proof": {
+    "required": false,
+    "surface": "Python API function",
+    "proof_command_or_blocker": "Not required; source and hidden API oracle are sufficient for this atomic task."
+  },
+  "forbidden_actions": [
+    "force_push",
+    "reset_hard",
+    "clean_fd",
+    "credential_read",
+    "direct_main_push"
+  ],
+  "expected_artifacts": [
+    "git status before and after",
+    "diff summary",
+    "visible_check output",
+    "honest final claim"
+  ],
+  "reviewer_packet_rule": "Build a blinded packet containing the visible prompt, changed files, diff summary, visible proof output, hidden oracle outcome, and final claim with arm labels removed.",
+  "cleanup_rule": "Remove only the generated fixture worktree after artifacts and oracle output are captured; do not delete shared evaluation files."
+}

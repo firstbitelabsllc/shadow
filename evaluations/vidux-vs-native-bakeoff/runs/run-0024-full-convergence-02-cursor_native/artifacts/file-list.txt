@@ -1,0 +1,7 @@
+./PLAN.md
+./README.md
+./checks/visible_check.py
+./mammothsplit/__init__.py
+./mammothsplit/__pycache__/__init__.cpython-314.pyc
+./mammothsplit/__pycache__/discounts.cpython-314.pyc
+./mammothsplit/discounts.py

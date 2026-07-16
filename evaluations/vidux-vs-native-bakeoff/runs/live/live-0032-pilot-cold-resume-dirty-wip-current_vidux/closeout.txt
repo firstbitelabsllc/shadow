@@ -1,0 +1,7 @@
+ARM=current_vidux
+fixture_id=pilot-cold-resume-dirty-wip
+mechanical_claim=pass
+mode=live
+proof_commands=python3 checks/visible_check.py -> rc 0
+real_surface_proof=n/a
+known_issues=live_agent_fix:current_vidux

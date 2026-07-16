@@ -1,0 +1,21 @@
+{
+  "run_id": "live-0038-pilot-atomic-route-method-cursor_native",
+  "fixture_id": "pilot-atomic-route-method",
+  "arm": "cursor_native",
+  "task_class": "atomic",
+  "mode": "live",
+  "execution_outcome": "live_agent_fix:cursor_native",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "pass",
+  "oracle_output": "pilot-atomic-route-method hidden oracle PASS",
+  "wall_minutes": 0.28,
+  "time_to_first_diff_minutes": null,
+  "plan_tokens": null,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null,
+  "cold_resume_minutes": null,
+  "runner": "cursor_agent_live",
+  "runner_log": null
+}

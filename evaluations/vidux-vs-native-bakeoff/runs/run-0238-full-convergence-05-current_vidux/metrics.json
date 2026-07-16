@@ -1,0 +1,17 @@
+{
+  "run_id": "run-0238-full-convergence-05-current_vidux",
+  "fixture_id": "full-convergence-05",
+  "arm": "current_vidux",
+  "execution_outcome": "success_path",
+  "visible_check_rc": 0,
+  "visible_check_output": "visible_check PASS",
+  "mechanical_outcome": "fail",
+  "oracle_output": "Traceback (most recent call last):\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/fixture_oracle.py\", line 58, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/fixture_oracle.py\", line 52, in main\n    module.ORACLES[template](root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 95, in oracle_convergence\n    require(\"agent/safe-discount-fix\" not in branch_names, \"safe branch should be merged/deleted\")\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/scripts/pilot_oracle.py\", line 22, in require\n    raise AssertionError(message)\nAssertionError: safe branch should be merged/deleted",
+  "wall_minutes": 0.0,
+  "time_to_first_diff_minutes": 11.0,
+  "plan_tokens": 4500,
+  "input_tokens": 5700,
+  "output_tokens": 900,
+  "cost_usd": 0.0198,
+  "cold_resume_minutes": null
+}

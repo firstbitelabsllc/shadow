@@ -1,0 +1,13 @@
+{
+  "run_id": "run-0141-pilot-convergence-stranded-branches-claude_native",
+  "fixture_id": "pilot-convergence-stranded-branches",
+  "arm": "claude_native",
+  "task_class": "convergence",
+  "task_prompt": "Converge stranded discount work: absorb the safe discount branch, park or remove the conflicting copy branch with a clear PLAN.md note, and leave no unfindable completed work.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/claude-native.md",
+  "created_at": "2026-06-29T19:48:19.993908+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}

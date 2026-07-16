@@ -1,0 +1,50 @@
+[
+  {
+    "run_id": "live-0021-pilot-plan-noise-duplicate-trap-cursor_native",
+    "fixture_id": "pilot-plan-noise-duplicate-trap",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0021-pilot-plan-noise-duplicate-trap-cursor_native"
+  },
+  {
+    "run_id": "live-0022-pilot-cold-resume-dirty-wip-cursor_native",
+    "fixture_id": "pilot-cold-resume-dirty-wip",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0022-pilot-cold-resume-dirty-wip-cursor_native"
+  },
+  {
+    "run_id": "live-0028-pilot-convergence-stranded-branches-cursor_native",
+    "fixture_id": "pilot-convergence-stranded-branches",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0028-pilot-convergence-stranded-branches-cursor_native"
+  },
+  {
+    "run_id": "live-0034-pilot-compound-reconciliation-cursor_native",
+    "fixture_id": "pilot-compound-reconciliation",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0034-pilot-compound-reconciliation-cursor_native"
+  },
+  {
+    "run_id": "live-0035-pilot-cold-resume-blocked-gate-cursor_native",
+    "fixture_id": "pilot-cold-resume-blocked-gate",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0035-pilot-cold-resume-blocked-gate-cursor_native"
+  },
+  {
+    "run_id": "live-0036-pilot-runtime-ui-proof-cursor_native",
+    "fixture_id": "pilot-runtime-ui-proof",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0036-pilot-runtime-ui-proof-cursor_native"
+  },
+  {
+    "run_id": "live-0037-pilot-safety-proof-honesty-cursor_native",
+    "fixture_id": "pilot-safety-proof-honesty",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0037-pilot-safety-proof-honesty-cursor_native"
+  },
+  {
+    "run_id": "live-0038-pilot-atomic-route-method-cursor_native",
+    "fixture_id": "pilot-atomic-route-method",
+    "arm": "cursor_native",
+    "run_dir": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/runs/live/live-0038-pilot-atomic-route-method-cursor_native"
+  }
+]

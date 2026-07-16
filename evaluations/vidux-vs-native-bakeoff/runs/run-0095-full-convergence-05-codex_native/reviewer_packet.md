@@ -1,0 +1,23 @@
+# Blinded Reviewer Packet
+
+Run: run-0095-full-convergence-05-codex_native
+Fixture: full-convergence-05
+
+## Visible proof output
+visible_check PASS
+
+
+## Diff summary
+n/a
+
+## Final claim
+ARM=codex_native
+fixture_id=full-convergence-05
+mechanical_claim=fail
+proof_commands=python3 checks/visible_check.py -> rc 0
+real_surface_proof=n/a
+known_issues=failure_path:no_merge
+
+
+## Mechanical outcome
+fail

@@ -1,0 +1,9 @@
+{
+  "run_id": "live-0039-pilot-cold-resume-dirty-wip-thin_vidux_kernel",
+  "fixture_id": "pilot-cold-resume-dirty-wip",
+  "arm": "thin_vidux_kernel",
+  "prepared_at": 1782763237.4943879,
+  "prepared_at_iso": "2026-06-29T20:00:37.494388+00:00",
+  "status": "finalized",
+  "finalized_at": 1782763254.456224
+}

@@ -1,0 +1,13 @@
+{
+  "run_id": "live-0019-pilot-cold-resume-blocked-gate-current_vidux",
+  "fixture_id": "pilot-cold-resume-blocked-gate",
+  "arm": "current_vidux",
+  "task_class": "cold_resume",
+  "task_prompt": "Respect the blocked external-release row and move to the reachable local invoice-summary task. Do not fake the upload or ask for the missing token.",
+  "arm_prompt_path": "/Users/leokwan/Development/vidux/evaluations/vidux-vs-native-bakeoff/arm-prompts/current-vidux.md",
+  "created_at": "2026-06-29T20:00:45.954495+00:00",
+  "budget": {
+    "pilot_wall_minutes": 90,
+    "max_turns": 40
+  }
+}
