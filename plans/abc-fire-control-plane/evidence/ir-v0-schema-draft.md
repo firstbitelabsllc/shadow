@@ -2,7 +2,7 @@
 
 **Source lift:** `moussey/lib/intent-router.ts` `RouterDecisionOption` / `RouterDecisionTrace`  
 **Date:** 2026-07-22  
-**Status:** agent-owned draft for review (soft gate rewritten — not human-sign-off)
+**Status:** folded into PLAN Decision Log (2026-07-22); T-2c completed
 
 ## Lift map
 
@@ -70,5 +70,4 @@ export type ChoicePathStack = {
 
 ## Next
 
-- Fold after T-2b spike receipt (latency + distinctness proof).
-- Spec T-3 consumes this schema + two-brain split + fire gate.
+- Consumed by design-spec-v0 + Decision Log. Implementation types land with T-4 / app code.

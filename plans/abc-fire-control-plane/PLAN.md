@@ -31,32 +31,32 @@ moussey rebuild — moussey voice parts are salvage.
 
 ## Operator Brief
 
-- Status: designing (standalone B locked; Option A dead); T-2b PROCEED (quality GO / sub-second complete NO-GO)
+- Status: designing (standalone B locked; Option A dead); T-2b/T-2c/T-3 folded — IR v0 + design-spec v0 agent-default
 - Priority: 90
 - Outcome: Approved design spec for the standalone ABC→FIRE app; Vidux stays control plane.
-- Next: T-2c IR v0 review + T-3 design spec (agent-owned). Cross-lane: `ai-leo/vidux/recognition-mission/PLAN.md`.
+- Next: T-4 implementation plan (writing-plans only). App repo create = Leo-gated hard rail. Cross-lane: `ai-leo/vidux/recognition-mission/PLAN.md`.
 - Why: Repurpose conversation reopened; Nicole barrier + on-the-go agency is the wedge.
 - Validation: Spike receipt + golden dialogues + IR draft + design sections; first vertical slice named with gates.
-- Cost: Planning + cheap-model probes; no product app code until design draft lands.
-- Evidence: evidence/t2b-feasibility-spike.receipt.md + evidence/golden-dialogues-t2b.md (+ sibling feasibility-spike/)
+- Cost: Planning + cheap-model probes; no product app code until T-4; no app repo until hard-rail pause.
+- Evidence: evidence/ir-v0-schema-draft.md + evidence/design-spec-v0.md (+ t2b receipts)
 - Updated: 2026-07-22
 
 ## Outcome Scorecard
 
 | Metric | Baseline | Current | Target | Status | Proof |
 |---|---|---|---|---|---|
-| Design draft from Claude/Fable | none | in flight | receipted draft folded here | unproven | evidence/fable-plan-draft.md |
-| Leo-approved design sections | none | not started | approaches + architecture locked | unproven | Decision Log |
-| First vertical slice named | none | not started | acceptance gates written | unproven | Tasks T-3 |
+| Design draft from Claude/Fable | none | Grok draft + agent spec | receipted draft folded here | met | evidence/design-spec-v0.md |
+| Design sections (agent-default) | none | IR + two-brain + fire gate locked | approaches + architecture locked | met | Decision Log |
+| First vertical slice named | none | Kitchen text ABC→FIRE G1–G6 | acceptance gates written | met | Tasks T-3 / design-spec §8 |
 
 ## Tasks
 
 - [completed] T-1: Read-only planning draft for ABC→FIRE (approaches + architecture + slice) — Grok build/high; Fable blocked (credits + plan-advisor sandbox 127)
 - [completed] T-2: Leo vetoed Option A — "standalone B is the plan" (standalone native iOS/SwiftUI; one adaptive loop for both users)
 - [completed] T-2b: Feasibility spike (make-or-break #4) — quality PASS (≤3 mutually-distinct + narrow) on Haiku / gpt-5.3-chat / sibling glm-max; strict sub-second complete FAIL (~2–3s Haiku gen, ~10s GLM delegate); TTFT ~0.5s Haiku. PROCEED. [validation: evidence/t2b-feasibility-spike.receipt.md + evidence/golden-dialogues-t2b.md]
-- [in_progress] T-2c: IR v0 — lift moussey `lib/intent-router.ts` `RouterDecisionTrace`/`RouterDecisionOption` as the per-question belief node; editable choice-path stack + rider field [validation: evidence/ir-v0-schema-draft.md started]
-- [in_progress] T-3: Design spec v0 drafted (agent-owned) at evidence/design-spec-v0.md — fold Decision Log defaults; residual taste pass (bounded job-template IR, two-brain split + executor capability manifest, blast-radius-gated distinct confirm word + dry-run/undo; read why StrongYes cut the suggested-prompt chips before rebuilding pick+rider)
-- [pending] T-4: Implementation plan (writing-plans) only after spec approval; app repo creation is the Leo-gated moment
+- [completed] T-2c: IR v0 — per-question belief node (`BeliefNode`/`BeliefOption`) + editable `ChoicePathStack` + rider-on-chosen; defaults folded to Decision Log. [validation: evidence/ir-v0-schema-draft.md]
+- [completed] T-3: Design spec v0 — two-brain, fire gate (confirm word + dry-run/undo), executor allow-list, Kitchen slice G1–G6, StrongYes outcome-class rule; defaults folded to Decision Log. Deferred (not blocking): confirm-word UX taste pass; local sub-second model. [validation: evidence/design-spec-v0.md]
+- [pending] T-4: Implementation plan (writing-plans) only; app repo creation is the Leo-gated moment
 
 ## Decision Log
 
@@ -68,8 +68,10 @@ moussey rebuild — moussey voice parts are salvage.
 - [DIRECTION] [2026-07-21] Scout verdicts folded: (1) Class A voice harness ships under SmartLittleApps/local-stt-mcp MIT identity, built from moussey voice-audio-corpus scaffolding — not on local-stt-mcp's code; (2) /amp is ritual not engine — highest lift is moussey `RouterDecisionTrace`; (3) StrongYes premise correction — shipped bugs were seam bugs, harness splits Class A (voice I/O) / Class B (real-seam probes; owned by strongyes-web voice-debug-harness PLAN).
 - [DIRECTION] [2026-07-21] Mac executor = clean new agent lifting moussey's HMAC + Tailscale + `claude -p` Keychain-OAuth pattern (`app/api/lan/trigger-claude/route.ts`, `lib/lan-trigger-auth.ts`). Fire gate = blast-radius-gated distinct confirm word + dry-run/undo (amp's confirmation-free fire replaced). Standing one-line veto each.
 - [DIRECTION] [2026-07-22] T-2b verdict: **PROCEED on quality**. Cheap models produce ≤3 mutually-distinct options AND narrow (Haiku / gpt-5.3-chat live; sibling glm-max/glm via delegate). Strict sub-second **complete** turn is NO-GO (~2–3s Haiku wall, ~10s+ GLM delegate); Haiku TTFT ~0.5s supports streaming skeleton UX. Sub-second complete = residual, not architecture kill. Standing veto: Leo can veto PROCEED if hard sub-second complete options are required before design. Proof: `evidence/t2b-feasibility-spike.receipt.md` + `evidence/golden-dialogues-t2b.md`.
-- [DIRECTION] [2026-07-22] IR v0 defaults (agent-owned, vetoable): rider attaches to chosen option (not 4th peer); Nicole menu starts with 3 outcome classes; car-Leo may return 2 + freeform; IR lives in app session store pre-FIRE; Vidux plan/proof only after FIRE. Schema: `evidence/ir-v0-schema-draft.md`.
-- [DIRECTION] [2026-07-22] Design-spec v0 defaults (agent-owned): two-brain (clarify cheap / executor post-FIRE); blast-radius fire gate + dry-run; first slice = Kitchen text ABC→FIRE with G1–G6. Spec: `evidence/design-spec-v0.md`.
+- [DIRECTION] [2026-07-22] **IR belief node shape (agent-owned).** One clarify turn = `BeliefNode` (prompt, mode menu|freeform|hybrid, ≤3 `BeliefOption`s, considered/discarded). Session = editable `ChoicePathStack` until FIRE freezes a sealed packet. Rider text attaches to the *chosen* option (not a 4th peer). Nicole menu starts with 3 outcome classes; car-Leo may return 2 + freeform. IR lives in app session store pre-FIRE; Vidux plan/proof only after FIRE. Options must differ by outcome class (StrongYes chip lesson: synonym spam → show freeform instead). Veto: "rider is peer" / "always 3" / "every turn in Vidux". Proof: `evidence/ir-v0-schema-draft.md`.
+- [DIRECTION] [2026-07-22] **Two-brain split (agent-owned).** Clarify brain = cheap model, tools=none, never mutates/sends/spends. Executor brain = Host/Pilot-selected, runs only after FIRE, tools from an explicit capability allow-list (draft files in claimed worktree, private draft PR, read plan/ledger). Denied by default: public repo create/push, external send, real money, destructive git. Veto: "clarify may mutate". Proof: `evidence/design-spec-v0.md` §§3,7.
+- [DIRECTION] [2026-07-22] **Fire gate (agent-owned).** Distinct confirm word per session (not always the word FIRE when blast is high); blast tiers read-only → draft-only → mutate → external-send → money; dry-run shows packet JSON before commit; undo/abort until executor acks start. Veto: "confirmation-free fire". Proof: `evidence/design-spec-v0.md` §6.
+- [DIRECTION] [2026-07-22] **First vertical slice (agent-owned).** Kitchen text ABC→FIRE (iOS SwiftUI, no voice). Gates G1 blank→3 distinct options; G2 pick+rider updates constraints; G3 FIRE seals packet file; G4 abort = no executor side effects; G5 resume restores stack from disk; G6 dry-run before high-blast FIRE. Deferred: confirm-word UX taste copy; local sub-second model. Veto: "voice is ship gate for v1". Proof: `evidence/design-spec-v0.md` §8.
 
 ## Progress
 
@@ -78,3 +80,4 @@ moussey rebuild — moussey voice parts are salvage.
 - [2026-07-21] Grok `--reasoning-effort high --permission-mode plan` draft OK (12.6KB). Evidence: `evidence/grok-build-high-plan-draft.md` + `evidence/grok-build-high-plan.receipt.json`. PONG probe green. Recommendation: Option A; first slice = Nicole text ABC→FIRE with G1–G6 gates.
 - [2026-07-22] T-2b COMPLETE (Lane A): required receipts `evidence/t2b-feasibility-spike.receipt.md` + `evidence/golden-dialogues-t2b.md` (Nicole menu-depth + car-Leo freeform live samples, Jaccard distinctness, Haiku TTFT ~0.5s). Sibling GLM-delegate samples under `evidence/feasibility-spike/`. Quality GO; sub-second complete NO-GO; product PROCEED.
 - [2026-07-22] design-spec-v0.md drafted (two-brain, fire gate, first slice G1–G6). Soft gate agent-owned.
+- [2026-07-22] T-2c + T-3 COMPLETE: IR v0 + design-spec v0 folded into Decision Log (belief node, two-brain, fire gate, Kitchen G1–G6). Next = T-4 implementation plan only; app repo still hard-rail paused.

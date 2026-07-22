@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-22  
 **Authority:** `plans/abc-fire-control-plane/PLAN.md`  
+**Status:** folded into PLAN Decision Log (2026-07-22); T-3 completed  
 **Inputs:** T-2b SPIKE-RECEIPT (quality PROCEED), IR v0 draft, Grok planning draft (Option A superseded by Leo standalone-B lock), scout lifts.
 
 Standing veto: rewrite any section; soft "approval" is agent-owned + revertable.
@@ -103,5 +104,6 @@ if distinctness fails, show "say it your way" freeform instead of three essays.
 
 ## Exit → T-4
 
-When this spec is stable in Decision Log as agent-default, write implementation
-plan only; do not create the app repo until hard-rail pause.
+Defaults are in Decision Log. Write implementation plan only; do not create
+the app repo until hard-rail pause. Residual taste pass (confirm-word UX copy)
+before human-facing screens.
