@@ -68,6 +68,8 @@ moussey rebuild — moussey voice parts are salvage.
 - [DIRECTION] [2026-07-21] Scout verdicts folded: (1) Class A voice harness ships under SmartLittleApps/local-stt-mcp MIT identity, built from moussey voice-audio-corpus scaffolding — not on local-stt-mcp's code; (2) /amp is ritual not engine — highest lift is moussey `RouterDecisionTrace`; (3) StrongYes premise correction — shipped bugs were seam bugs, harness splits Class A (voice I/O) / Class B (real-seam probes; owned by strongyes-web voice-debug-harness PLAN).
 - [DIRECTION] [2026-07-21] Mac executor = clean new agent lifting moussey's HMAC + Tailscale + `claude -p` Keychain-OAuth pattern (`app/api/lan/trigger-claude/route.ts`, `lib/lan-trigger-auth.ts`). Fire gate = blast-radius-gated distinct confirm word + dry-run/undo (amp's confirmation-free fire replaced). Standing one-line veto each.
 - [DIRECTION] [2026-07-22] T-2b verdict: **PROCEED on quality**. Cheap GLM (delegate `glm-max` / `glm`) produces ≤3 mutually-distinct outcome-class options AND narrows. Remote path is multi-second (~10–17s), not sub-second — treat sub-second as UX residual (local/small model or skeleton UI), not architecture kill.
+- [DIRECTION] [2026-07-22] IR v0 defaults (agent-owned, vetoable): rider attaches to chosen option (not 4th peer); Nicole menu starts with 3 outcome classes; car-Leo may return 2 + freeform; IR lives in app session store pre-FIRE; Vidux plan/proof only after FIRE. Schema: `evidence/ir-v0-schema-draft.md`.
+- [DIRECTION] [2026-07-22] Design-spec v0 defaults (agent-owned): two-brain (clarify cheap / executor post-FIRE); blast-radius fire gate + dry-run; first slice = Kitchen text ABC→FIRE with G1–G6. Spec: `evidence/design-spec-v0.md`.
 
 ## Progress
 
