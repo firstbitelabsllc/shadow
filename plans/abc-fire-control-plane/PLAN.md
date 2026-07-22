@@ -31,14 +31,14 @@ moussey rebuild — moussey voice parts are salvage.
 
 ## Operator Brief
 
-- Status: designing (standalone B locked; Option A dead); T-4 implementation plan landed; app repo still hard-rail paused
+- Status: designing (standalone B locked; Option A dead); T-4 + kitchen-ir SPM + offline goldens landed; app repo still hard-rail paused
 - Priority: 90
 - Outcome: Approved design spec for the standalone ABC→FIRE app; Vidux stays control plane.
-- Next: Hard-rail wait for `gh repo create` **or** wire clarify client offline fixtures into spike; no product UI yet.
+- Next: Hard-rail wait for `gh repo create` (Leo fire); no product UI yet. Confirm-word UX taste deferred.
 - Why: Repurpose conversation reopened; Nicole barrier + on-the-go agency is the wedge.
-- Validation: Spike receipt + golden dialogues + IR + design-spec + T-4 plan (Kitchen G1–G6 + M0–M7).
-- Cost: Planning done through T-4; no product app repo until hard-rail; non-repo SPM spike OK.
-- Evidence: evidence/T-4-implementation-plan.md (+ ir-v0, design-spec-v0, t2b receipts)
+- Validation: Spike receipt + golden dialogues + IR + design-spec + T-4 plan (Kitchen G1–G6 + M0–M7); `swift test` 11/11.
+- Cost: Planning + non-repo spike done; no product app repo until hard-rail.
+- Evidence: evidence/T-4-implementation-plan.md + evidence/spikes/kitchen-ir/SPIKE-RECEIPT.md
 - Updated: 2026-07-22
 
 ## Outcome Scorecard
@@ -58,6 +58,7 @@ moussey rebuild — moussey voice parts are salvage.
 - [completed] T-2c: IR v0 — per-question belief node (`BeliefNode`/`BeliefOption`) + editable `ChoicePathStack` + rider-on-chosen; defaults folded to Decision Log. [validation: evidence/ir-v0-schema-draft.md]
 - [completed] T-3: Design spec v0 — two-brain, fire gate (confirm word + dry-run/undo), executor allow-list, Kitchen slice G1–G6, StrongYes outcome-class rule; defaults folded to Decision Log. Deferred (not blocking): confirm-word UX taste pass; local sub-second model. [validation: evidence/design-spec-v0.md]
 - [completed] T-4: Implementation plan (writing-plans) only — Kitchen text slice, module walls, future package sketch, M0–M7 + G1–G6, hard rails, next = non-repo IR/FireGate spike. App repo creation remains Leo-gated hard rail. [validation: evidence/T-4-implementation-plan.md]
+- [completed] T-5: Kitchen IR SPM spike + offline golden fixtures — IR/FireGate + `Fixtures/{d-nicole-menu,d-carleo-freeform,synonym-fail}.json` + GoldenFixtureTests; `swift test` **11/11**. Hard rail held (no app repo; no public push). [validation: evidence/spikes/kitchen-ir/SPIKE-RECEIPT.md]
 
 ## Decision Log
 
@@ -85,3 +86,4 @@ moussey rebuild — moussey voice parts are salvage.
 - [2026-07-22] T-2c + T-3 COMPLETE: IR v0 + design-spec v0 folded into Decision Log (belief node, two-brain, fire gate, Kitchen G1–G6). Next = T-4 implementation plan only; app repo still hard-rail paused.
 - [2026-07-22] T-4 COMPLETE: `evidence/T-4-implementation-plan.md` (Kitchen scope, module walls, future package sketch, M0–M7↔G1–G6, hard rails). Interim `implementation-plan-v0.md` superseded (tombstone). Next = wait hard-rail for app repo **or** non-repo `evidence/spikes/kitchen-ir/` spike.
 - [2026-07-22] **Kitchen IR SPM spike started** under `evidence/spikes/kitchen-ir/` (IR types + FireGate + XCTest). `swift test` green. Hard rail held (no app repo). Why-receipt lead-direct: schema already authored; Swift SPM from IR draft is mechanical-but-domain-tight for GLM invent risk.
+- [2026-07-22] **T-5 complete:** offline golden fixtures wired from `golden-dialogues-t2b.md` into `evidence/spikes/kitchen-ir/Fixtures/` + `GoldenFixtureTests` (Nicole menu, Car-Leo freeform, synonym-fail). `swift test` **11/11**. Why-receipt lead-direct: JSON lift + path load is mechanical; public `vidux` hard-rail → local commit only, no push.

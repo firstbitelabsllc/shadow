@@ -1,0 +1,32 @@
+{
+  "id": "synonym-fail",
+  "persona": "negative-control",
+  "source": "evidence/feasibility-spike/golden-dialogues.md §G1 Bad synonyms + SessionStoreTests",
+  "roughIntent": "I don't know what to ask. I just want help with dinner tonight.",
+  "mode": "menu",
+  "restate": "You want help with dinner",
+  "options": [
+    {
+      "id": "A",
+      "label": "help dinner tonight",
+      "rationale": "help dinner tonight",
+      "outcomeClass": "same"
+    },
+    {
+      "id": "B",
+      "label": "help dinner now",
+      "rationale": "help dinner now",
+      "outcomeClass": "same"
+    },
+    {
+      "id": "C",
+      "label": "help dinner please",
+      "rationale": "help dinner please",
+      "outcomeClass": "same"
+    }
+  ],
+  "pick": null,
+  "expectDistinct": false,
+  "minJaccardDistance": 0.55,
+  "notes": "Negative control: near-synonym token spam must FAIL Distinctness (distance 0.5 < 0.55)"
+}

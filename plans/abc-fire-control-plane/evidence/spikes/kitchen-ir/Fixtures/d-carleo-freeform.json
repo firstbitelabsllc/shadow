@@ -1,0 +1,35 @@
+{
+  "id": "D-CarLeo",
+  "persona": "car-leo-freeform",
+  "source": "evidence/golden-dialogues-t2b.md",
+  "roughIntent": "while driving: fix the about page blurb on trysnowcubes, mention weekend pop-ups in Queens, keep it short, then I'll FIRE when it looks right",
+  "mode": "hybrid",
+  "restate": "Edit the About page blurb for TrySnowCubes with a mention of Queens weekend pop-ups",
+  "options": [
+    {
+      "id": "A",
+      "label": "Ultra-short blurb",
+      "rationale": "One sentence, includes Queens pop-ups mention",
+      "outcomeClass": "length-1-sentence"
+    },
+    {
+      "id": "B",
+      "label": "Short + friendly",
+      "rationale": "Two sentences, brand vibe plus Queens pop-ups",
+      "outcomeClass": "length-2-sentences-brand"
+    },
+    {
+      "id": "C",
+      "label": "Info-focused",
+      "rationale": "Brief paragraph, adds Queens pop-ups and context",
+      "outcomeClass": "length-short-paragraph"
+    }
+  ],
+  "pick": {
+    "optionId": "B",
+    "riderText": null
+  },
+  "expectDistinct": true,
+  "minJaccardDistance": 0.55,
+  "notes": "Live gpt-5.3-chat sample 2026-07-22; pairwise distance ~0.75/0.82/0.82"
+}

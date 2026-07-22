@@ -1,0 +1,35 @@
+{
+  "id": "D-Nicole",
+  "persona": "nicole-menu-depth",
+  "source": "evidence/golden-dialogues-t2b.md",
+  "roughIntent": "I want to update our Snowcubes website but I don't know what to ask for. Maybe something about weekend pop-ups?",
+  "mode": "menu",
+  "restate": "Clarify what website update you need for Snowcubes weekend pop-ups.",
+  "options": [
+    {
+      "id": "A",
+      "label": "Add pop-up event calendar",
+      "rationale": "Display weekend pop-up dates, times, locations on website",
+      "outcomeClass": "new-schedule-surface"
+    },
+    {
+      "id": "B",
+      "label": "Create pop-up landing page",
+      "rationale": "Dedicated page with details, photos, booking for each pop-up",
+      "outcomeClass": "dedicated-landing"
+    },
+    {
+      "id": "C",
+      "label": "Update homepage banner",
+      "rationale": "Highlight current/upcoming weekend pop-ups above the fold",
+      "outcomeClass": "homepage-promo-only"
+    }
+  ],
+  "pick": {
+    "optionId": "A",
+    "riderText": "keep the tone friendly not salesy"
+  },
+  "expectDistinct": true,
+  "minJaccardDistance": 0.55,
+  "notes": "Live Haiku sample 2026-07-22; pairwise Jaccard distance ~0.91/0.91/0.96"
+}
