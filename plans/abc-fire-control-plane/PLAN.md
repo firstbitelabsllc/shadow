@@ -73,3 +73,4 @@ moussey rebuild — moussey voice parts are salvage.
 - [2026-07-21] Plan initialized; moved in-repo for Pilot authority; branch `vidux/abc-fire-control-plane-design`.
 - [2026-07-21] Fable `plan-advisor` + direct Fable failed (sandbox 127 / usage credits). Receipts in `evidence/fable-plan.receipt.json`.
 - [2026-07-21] Grok `--reasoning-effort high --permission-mode plan` draft OK (12.6KB). Evidence: `evidence/grok-build-high-plan-draft.md` + `evidence/grok-build-high-plan.receipt.json`. PONG probe green. Recommendation: Option A; first slice = Nicole text ABC→FIRE with G1–G6 gates.
+- [2026-07-21 ~20:45] Recognition watchdog: Option A already vetoed in Decision Log; next reachable = T-2b feasibility spike (R3). Owner seeded this cycle — spike receipt must land in `evidence/` before T-2c/T-3.
