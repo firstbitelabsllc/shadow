@@ -1,0 +1,48 @@
+{
+  "schema": "delegate.receipt.v2",
+  "delegation_id": "del-1784681356-40031",
+  "status": "ok",
+  "model": "glm",
+  "worker_cmd": "/usr/bin/sandbox-exec -f <profile> /usr/bin/env -i <minimal-provider-env> opencode run --pure --agent worker --model zai/glm-5.2 --variant high <prefixed-task>",
+  "worker_cmd_kind": "sanitized_invocation_shape",
+  "cwd": "/Users/leokwan/Development/vidux-main-active",
+  "workspace_guard": {
+    "kind": "macos_sandbox_exec",
+    "applied": true,
+    "root": "/Users/leokwan/Development/vidux-main-active",
+    "policy": "deny-by-default; caller home, system temp siblings, workspace, and git metadata unreadable; writes isolated"
+  },
+  "context_isolation": {
+    "ephemeral_workspace": true,
+    "provider_env": "minimal",
+    "approved_files": "scanned_then_inlined",
+    "credential_access": "isolated_snapshot"
+  },
+  "allowed_paths": [
+    "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/prompt-d1.txt"
+  ],
+  "out_path": "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/glm-d1.out",
+  "out_sha256": "26428a544d80161625de8dcc04c339d80b06fa44224656d5ace68fabeea30e8b",
+  "out_bytes": 522,
+  "request_sha256": "5bdfa3bb5c3b8a3d97c50845ddb2bb96a035f98f5c7a2137b2da4baee0d8453b",
+  "context_sha256": {
+    "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/prompt-d1.txt": "bc2e49a95051a94434382fbc0b7dee63f507ba4f3efe500db57e6c05657a892a"
+  },
+  "duration_s": 11,
+  "proof_floor": null,
+  "proof_result": "not_run",
+  "proof_claim": "draft_unreviewed",
+  "worker_exit_code": 0,
+  "failure_kind": null,
+  "context_inlined": [
+    "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/prompt-d1.txt"
+  ],
+  "inline_bytes": 484,
+  "gates_skipped": [
+    "lead-review",
+    "repo-build",
+    "brand-skill",
+    "/slop"
+  ],
+  "note": "Worker output is a DRAFT lead, not a commit. Lead must review every line, run repo gates, and apply the owning brand skill before shipping."
+}
