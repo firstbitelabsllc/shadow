@@ -55,7 +55,7 @@ moussey rebuild — moussey voice parts are salvage.
 - [completed] T-2: Leo vetoed Option A — "standalone B is the plan" (standalone native iOS/SwiftUI; one adaptive loop for both users)
 - [completed] T-2b: Feasibility spike (make-or-break #4) — quality PASS via glm-max/glm delegate (3 distinct + narrow); sub-second remote FAIL (~10–17s). PROCEED. [validation: evidence/feasibility-spike/SPIKE-RECEIPT.md]
 - [in_progress] T-2c: IR v0 — lift moussey `lib/intent-router.ts` `RouterDecisionTrace`/`RouterDecisionOption` as the per-question belief node; editable choice-path stack + rider field [validation: evidence/ir-v0-schema-draft.md started]
-- [pending] T-3: Write design spec after spike (bounded job-template IR, two-brain split + executor capability manifest, blast-radius-gated distinct confirm word + dry-run/undo; read why StrongYes cut the suggested-prompt chips before rebuilding pick+rider)
+- [in_progress] T-3: Design spec v0 drafted (agent-owned) at evidence/design-spec-v0.md — fold Decision Log defaults; residual taste pass (bounded job-template IR, two-brain split + executor capability manifest, blast-radius-gated distinct confirm word + dry-run/undo; read why StrongYes cut the suggested-prompt chips before rebuilding pick+rider)
 - [pending] T-4: Implementation plan (writing-plans) only after spec approval; app repo creation is the Leo-gated moment
 
 ## Decision Log
@@ -75,3 +75,4 @@ moussey rebuild — moussey voice parts are salvage.
 - [2026-07-21] Fable `plan-advisor` + direct Fable failed (sandbox 127 / usage credits). Receipts in `evidence/fable-plan.receipt.json`.
 - [2026-07-21] Grok `--reasoning-effort high --permission-mode plan` draft OK (12.6KB). Evidence: `evidence/grok-build-high-plan-draft.md` + `evidence/grok-build-high-plan.receipt.json`. PONG probe green. Recommendation: Option A; first slice = Nicole text ABC→FIRE with G1–G6 gates.
 - [2026-07-22] T-2b COMPLETE: golden dialogues + live GLM probes + SPIKE-RECEIPT. Quality PASS; latency sub-second FAIL on remote. IR v0 draft landed at `evidence/ir-v0-schema-draft.md`. Next: finish T-2c review + T-3 design spec.
+- [2026-07-22] design-spec-v0.md drafted (two-brain, fire gate, first slice G1–G6). Soft gate agent-owned.
