@@ -1,0 +1,13 @@
+{
+  "schema": "direct-grok-plan.receipt.v1",
+  "model": "grok-build-default",
+  "reasoning_effort": "high",
+  "permission_mode": "plan",
+  "status": "ok",
+  "out_path": "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/grok-build-high-plan-draft.md",
+  "out_bytes": 12646,
+  "out_sha256": "7a877572c0d9e197eabf7a5791935287be70977046f7d698f7ecaa0acc46bab2",
+  "note": "Used grok --reasoning-effort high --permission-mode plan --prompt-file (config default=grok-build/high). Explicit --model grok-build rejected as unknown model id.",
+  "pong_probe": "PONG",
+  "started_at": "2026-07-21T22:25:48Z"
+}

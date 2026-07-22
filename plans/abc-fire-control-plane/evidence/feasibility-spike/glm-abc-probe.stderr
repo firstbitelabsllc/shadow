@@ -1,0 +1,1 @@
+delegate: allowed context must be a regular non-symlink file inside the resolved workspace

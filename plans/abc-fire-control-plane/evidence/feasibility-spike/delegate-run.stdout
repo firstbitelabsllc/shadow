@@ -1,0 +1,4 @@
+=== delegate del-1784681196-50100 -> glm-max (ok, 10s, claim=draft_unreviewed) ===
+output:  /Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/glm-abc-probe.out
+receipt: /Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/glm-abc-probe.receipt.json
+>>> REVIEW REQUIRED: this is a DRAFT. Read it, run gates, apply brand skill before shipping. <<<

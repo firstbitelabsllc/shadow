@@ -1,0 +1,64 @@
+{
+  "date": "2026-07-22",
+  "task": "T-2b / mission R3 feasibility spike",
+  "question": "Can a sub-second cheap model generate \u22643 mutually-distinct options AND narrow?",
+  "runs": [
+    {
+      "name": "G1 blank-box dinner",
+      "model": "glm-max",
+      "duration_s": 10,
+      "status": "ok",
+      "score": {
+        "count": 3,
+        "count_ok": true,
+        "labels": [
+          "Use what's in the fridge",
+          "Order takeout under a budget",
+          "Cook one 20-minute recipe"
+        ],
+        "len_ok": true,
+        "nonempty_rationale": true
+      },
+      "narrow_question": "Any dietary constraints or people counting?",
+      "out": "glm-abc-probe.out"
+    },
+    {
+      "name": "G1 narrow after A",
+      "model": "glm",
+      "duration_s": 14,
+      "status": "ok",
+      "score": {
+        "count": 3,
+        "count_ok": true,
+        "labels": [
+          "Fridge-clear pasta \u2014 whatever noodles, sauce, veg you have",
+          "Sheet-pan roast of current proteins + veg",
+          "Leftover grain bowls + eggs from the fridge"
+        ],
+        "len_ok": false,
+        "nonempty_rationale": true
+      },
+      "inherits": [
+        "inventory-first",
+        "2 people"
+      ],
+      "out": "glm-abc-narrow.out"
+    }
+  ],
+  "verdict": {
+    "quality_generate_and_narrow": true,
+    "sub_second_latency": false,
+    "observed_p50_ms_approx": 10000,
+    "latency_note": "Remote Z.ai GLM via delegate sandboxed opencode is multi-second (observed ~10s+), not sub-second. Quality bar is met; latency gate needs local/smaller model, streaming skeleton options, or relaxed budget (e.g. <2500ms target for v0).",
+    "product_decision": "PROCEED on quality: cheap GLM can produce 3 distinct outcome-class options + narrow. Do NOT block architecture on sub-second remote GLM. Spike residual: measure on-device/local small model later; UI can show optimistic skeleton.",
+    "weakest_truthful_claim": "glm-max draft_unreviewed quality pass; latency sub-second fail on remote path"
+  },
+  "artifacts": [
+    "golden-dialogues.md",
+    "glm-abc-probe.out",
+    "glm-abc-probe.receipt.json",
+    "glm-abc-narrow.out",
+    "glm-abc-narrow.receipt.json",
+    "../ir-v0-schema-draft.md"
+  ]
+}

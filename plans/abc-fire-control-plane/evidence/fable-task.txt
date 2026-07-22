@@ -1,0 +1,35 @@
+Read-only Fable planning pass. Do not edit files, run destructive commands, or invent live runtime proof.
+
+You are advising on a Vidux product-direction design. Parent lead is Cursor; you return a planning draft only.
+
+## Locked context (treat as true)
+
+1. Leo wants the spirit of work for VIDUX to be an A/B/C-until-FIRE mobile control loop for agentic work — not a desktop typing port.
+2. Metaphor: freeform SAT essay vs multiple choice. Primary wedge user: Nicole ("I don't know what to ask AI"). Secondary: Leo driving / on-the-go cmux handoff.
+3. UX loop: user states rough intent → LLM surfaces A/B/C (and clarifying Qs) → user can answer "A", or "A AND also this this", then CONTINUE or FIRE. FIRE means execute/handoff to the coding host. Until FIRE, no expensive/mutating agent work beyond clarification.
+4. Lessons from Paseo / Claude Remote Control matter for plumbing (local daemon, Tailscale, skills, Mac agency) — do NOT rebuild moussey. Moussey was killed 2026-07-19; adopt Claude iOS voice + Remote Control first; Paseo trial second.
+5. No new repos until September 2026. Work must live in existing vidux (clean 1.0.0 at ~/Development/vidux-main-active @ d5e89a49) + plan store ~/Development/vidux-projects/abc-fire-control-plane/.
+6. Adjacent pain (NOT v1 product unless you argue otherwise with a hard reason): (a) synthetic-voice test harness / fake-mic injection for StrongYes+moussey, (b) voice car mode. These are lessons and later pillars, not the first ship.
+7. Vidux today is a thin plan/proof/resume layer (init/status/browse/doctor). Pilot owns worker routing; Delegate owns provider transport (GLM/Grok currently broken when routed — do not block design on fixing them).
+8. Product-direction fork is Leo-gated. Provisional call on the table: Option A — Vidux *is* the product (repurpose 1.0 shell into this control plane). Standing veto for Leo.
+
+## Authority paths
+
+- Root repo plan: /Users/leokwan/Development/vidux-main-active/PLAN.md
+- This design plan: /Users/leokwan/Development/vidux-projects/abc-fire-control-plane/PLAN.md
+- Memory: ~/.claude/projects/-Users-leokwan-Development/memory/vidux-repurpose-intent-2026-07-20.md
+- Memory: ~/.claude/projects/-Users-leokwan-Development/memory/moussey-killed-adopt-verdict.md
+
+## Return exactly these sections
+
+1. **Verdict** — one paragraph: is provisional Option A the right home? If not, name B/C and why.
+2. **Problem statement** — one tight paragraph for Nicole + Leo.
+3. **Non-goals for v1** — bullet list.
+4. **Three approaches** — with trade-offs; mark ONE recommendation.
+5. **Minimal architecture** — components, data flow FIRE vs CONTINUE, what Vidux owns vs Pilot vs host (Claude Remote Control / Paseo / cmux).
+6. **Interaction contract** — exact turn shapes for: open intent, A/B/C render, "A and also…", CONTINUE, FIRE, abort.
+7. **First vertical slice** — smallest shippable proof that Nicole can complete one real agentic task without writing a freeform prompt. Name acceptance gates.
+8. **Concrete blockers / missing evidence** — falsifiable only (command, file, or missing proof). No vibe risk.
+9. **Next parent action** — one question for Leo OR one reversible plan edit for the lead.
+
+Keep it sharp. YAGNI. No implementation code.

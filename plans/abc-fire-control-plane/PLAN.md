@@ -31,15 +31,15 @@ moussey rebuild — moussey voice parts are salvage.
 
 ## Operator Brief
 
-- Status: designing (standalone B locked; Option A dead)
+- Status: designing (standalone B locked; Option A dead); T-2b quality PROCEED
 - Priority: 90
 - Outcome: Approved design spec for the standalone ABC→FIRE app; Vidux stays control plane.
-- Next: T-2b feasibility spike, then design spec. Cross-lane routing: `ai-leo/vidux/recognition-mission/PLAN.md`.
+- Next: T-2c IR v0 review + T-3 design spec (agent-owned). Cross-lane: `ai-leo/vidux/recognition-mission/PLAN.md`.
 - Why: Repurpose conversation reopened; Nicole barrier + on-the-go agency is the wedge.
-- Validation: Design sections approved; spec path recorded; first vertical slice named with gates.
-- Cost: Planning only this cycle; no product code until design approval.
-- Evidence: evidence/fable-plan-draft.md + later docs design spec
-- Updated: 2026-07-21
+- Validation: Spike receipt + IR draft + design sections; first vertical slice named with gates.
+- Cost: Planning + cheap GLM probes; no product app code until design draft lands.
+- Evidence: evidence/feasibility-spike/SPIKE-RECEIPT.md + evidence/ir-v0-schema-draft.md
+- Updated: 2026-07-22
 
 ## Outcome Scorecard
 
@@ -53,8 +53,8 @@ moussey rebuild — moussey voice parts are salvage.
 
 - [completed] T-1: Read-only planning draft for ABC→FIRE (approaches + architecture + slice) — Grok build/high; Fable blocked (credits + plan-advisor sandbox 127)
 - [completed] T-2: Leo vetoed Option A — "standalone B is the plan" (standalone native iOS/SwiftUI; one adaptive loop for both users)
-- [pending] T-2b: Feasibility spike (make-or-break #4) — can a sub-second cheap model generate ≤3 mutually-distinct options AND narrow? Golden dialogues; prototype before architecture commit
-- [pending] T-2c: IR v0 — lift moussey `lib/intent-router.ts` `RouterDecisionTrace`/`RouterDecisionOption` as the per-question belief node; editable choice-path stack + rider field
+- [completed] T-2b: Feasibility spike (make-or-break #4) — quality PASS via glm-max/glm delegate (3 distinct + narrow); sub-second remote FAIL (~10–17s). PROCEED. [validation: evidence/feasibility-spike/SPIKE-RECEIPT.md]
+- [in_progress] T-2c: IR v0 — lift moussey `lib/intent-router.ts` `RouterDecisionTrace`/`RouterDecisionOption` as the per-question belief node; editable choice-path stack + rider field [validation: evidence/ir-v0-schema-draft.md started]
 - [pending] T-3: Write design spec after spike (bounded job-template IR, two-brain split + executor capability manifest, blast-radius-gated distinct confirm word + dry-run/undo; read why StrongYes cut the suggested-prompt chips before rebuilding pick+rider)
 - [pending] T-4: Implementation plan (writing-plans) only after spec approval; app repo creation is the Leo-gated moment
 
@@ -67,10 +67,11 @@ moussey rebuild — moussey voice parts are salvage.
 - [DIRECTION] [2026-07-21] **Option A VETOED by Leo — "standalone B is the plan."** Standalone native iOS/SwiftUI app; one adaptive loop (Nicole menu-depth ↔ car-Leo freeform); Vidux 1.0.0 remains plan/proof control plane only. Supersedes the provisional-home entry above.
 - [DIRECTION] [2026-07-21] Scout verdicts folded: (1) Class A voice harness ships under SmartLittleApps/local-stt-mcp MIT identity, built from moussey voice-audio-corpus scaffolding — not on local-stt-mcp's code; (2) /amp is ritual not engine — highest lift is moussey `RouterDecisionTrace`; (3) StrongYes premise correction — shipped bugs were seam bugs, harness splits Class A (voice I/O) / Class B (real-seam probes; owned by strongyes-web voice-debug-harness PLAN).
 - [DIRECTION] [2026-07-21] Mac executor = clean new agent lifting moussey's HMAC + Tailscale + `claude -p` Keychain-OAuth pattern (`app/api/lan/trigger-claude/route.ts`, `lib/lan-trigger-auth.ts`). Fire gate = blast-radius-gated distinct confirm word + dry-run/undo (amp's confirmation-free fire replaced). Standing one-line veto each.
+- [DIRECTION] [2026-07-22] T-2b verdict: **PROCEED on quality**. Cheap GLM (delegate `glm-max` / `glm`) produces ≤3 mutually-distinct outcome-class options AND narrows. Remote path is multi-second (~10–17s), not sub-second — treat sub-second as UX residual (local/small model or skeleton UI), not architecture kill.
 
 ## Progress
 
 - [2026-07-21] Plan initialized; moved in-repo for Pilot authority; branch `vidux/abc-fire-control-plane-design`.
 - [2026-07-21] Fable `plan-advisor` + direct Fable failed (sandbox 127 / usage credits). Receipts in `evidence/fable-plan.receipt.json`.
 - [2026-07-21] Grok `--reasoning-effort high --permission-mode plan` draft OK (12.6KB). Evidence: `evidence/grok-build-high-plan-draft.md` + `evidence/grok-build-high-plan.receipt.json`. PONG probe green. Recommendation: Option A; first slice = Nicole text ABC→FIRE with G1–G6 gates.
-- [2026-07-21 ~20:45] Recognition watchdog: Option A already vetoed in Decision Log; next reachable = T-2b feasibility spike (R3). Owner seeded this cycle — spike receipt must land in `evidence/` before T-2c/T-3.
+- [2026-07-22] T-2b COMPLETE: golden dialogues + live GLM probes + SPIKE-RECEIPT. Quality PASS; latency sub-second FAIL on remote. IR v0 draft landed at `evidence/ir-v0-schema-draft.md`. Next: finish T-2c review + T-3 design spec.

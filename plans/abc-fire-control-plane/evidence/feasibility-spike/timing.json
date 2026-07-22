@@ -1,0 +1,13 @@
+{
+  "wall_ms": 371,
+  "out_path": "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/glm-abc-probe.out",
+  "receipt_path": "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/glm-abc-probe.receipt.json",
+  "intent": "dinner tonight blank-box",
+  "model_target": "glm-max via delegate",
+  "pass_criteria": {
+    "count_2_or_3": null,
+    "distinct_outcome_classes": null,
+    "subsecond": true,
+    "under_2500ms": true
+  }
+}

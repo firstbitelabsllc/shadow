@@ -1,0 +1,45 @@
+{
+  "context_isolation": {
+    "credential_access": "provider_native_isolated",
+    "ephemeral_workspace": true,
+    "provider_env": "minimal",
+    "task_file": "no_follow_snapshot"
+  },
+  "cwd": "/Users/leokwan/Development/vidux-main-active",
+  "duration_seconds": 0.434,
+  "error_kind": "worker_failed",
+  "exit_code": 1,
+  "gates_skipped": [
+    "lead-review",
+    "repo-build",
+    "implementation",
+    "runtime-proof"
+  ],
+  "invocation_id": "plan-1784672447797801000-35882",
+  "model": "fable",
+  "model_id": "claude-fable-5",
+  "out_path": "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/fable-plan-draft.md",
+  "out_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "proof_claim": "error",
+  "schema": "plan-advisor.receipt.v1",
+  "started_at": "2026-07-21T22:20:47.797809Z",
+  "status": "error",
+  "task_sha256": "fa15c6e7eede7c23fdfc46e061a6ad73985d3ab3bcea5a6b0cecf921197d42aa",
+  "worker_cmd": [
+    "/usr/bin/sandbox-exec",
+    "-f",
+    "<profile>",
+    "/usr/bin/env",
+    "-i",
+    "<minimal-provider-env>",
+    "<pinned-claude>",
+    "<read-only-plan-flags>"
+  ],
+  "worker_exit_code": 127,
+  "workspace_guard": {
+    "applied": true,
+    "kind": "macos_sandbox_exec",
+    "policy": "deny-by-default; caller home, system temp siblings, workspace, and git metadata unreadable; writes isolated",
+    "root": "/Users/leokwan/Development/vidux-main-active"
+  }
+}

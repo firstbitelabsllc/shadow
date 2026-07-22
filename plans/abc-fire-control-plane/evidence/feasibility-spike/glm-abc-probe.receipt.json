@@ -1,0 +1,48 @@
+{
+  "schema": "delegate.receipt.v2",
+  "delegation_id": "del-1784681196-50100",
+  "status": "ok",
+  "model": "glm-max",
+  "worker_cmd": "/usr/bin/sandbox-exec -f <profile> /usr/bin/env -i <minimal-provider-env> opencode run --pure --agent worker --model zai/glm-5.2 --variant max <prefixed-task>",
+  "worker_cmd_kind": "sanitized_invocation_shape",
+  "cwd": "/Users/leokwan/Development/vidux-main-active",
+  "workspace_guard": {
+    "kind": "macos_sandbox_exec",
+    "applied": true,
+    "root": "/Users/leokwan/Development/vidux-main-active",
+    "policy": "deny-by-default; caller home, system temp siblings, workspace, and git metadata unreadable; writes isolated"
+  },
+  "context_isolation": {
+    "ephemeral_workspace": true,
+    "provider_env": "minimal",
+    "approved_files": "scanned_then_inlined",
+    "credential_access": "isolated_snapshot"
+  },
+  "allowed_paths": [
+    "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/golden-dialogues.md"
+  ],
+  "out_path": "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/glm-abc-probe.out",
+  "out_sha256": "02de4ab30b6175ffb4b4addab12978cf1328400115e8b8262d4db619c55cb37a",
+  "out_bytes": 427,
+  "request_sha256": "6c88eb760c4e6821aba9c30016162bb7dd9922f1ceb1cf80890ecf1d830edcd6",
+  "context_sha256": {
+    "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/golden-dialogues.md": "ec35a53bcbd0e6fb1d0ff078e3d2be96c8799b5bc588d3504dae793b315d7736"
+  },
+  "duration_s": 10,
+  "proof_floor": null,
+  "proof_result": "not_run",
+  "proof_claim": "draft_unreviewed",
+  "worker_exit_code": 0,
+  "failure_kind": null,
+  "context_inlined": [
+    "/Users/leokwan/Development/vidux-main-active/plans/abc-fire-control-plane/evidence/feasibility-spike/golden-dialogues.md"
+  ],
+  "inline_bytes": 2366,
+  "gates_skipped": [
+    "lead-review",
+    "repo-build",
+    "brand-skill",
+    "/slop"
+  ],
+  "note": "Worker output is a DRAFT lead, not a commit. Lead must review every line, run repo gates, and apply the owning brand skill before shipping."
+}
