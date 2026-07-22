@@ -81,3 +81,4 @@ moussey rebuild — moussey voice parts are salvage.
 - [2026-07-22] T-2b COMPLETE (Lane A): required receipts `evidence/t2b-feasibility-spike.receipt.md` + `evidence/golden-dialogues-t2b.md` (Nicole menu-depth + car-Leo freeform live samples, Jaccard distinctness, Haiku TTFT ~0.5s). Sibling GLM-delegate samples under `evidence/feasibility-spike/`. Quality GO; sub-second complete NO-GO; product PROCEED.
 - [2026-07-22] design-spec-v0.md drafted (two-brain, fire gate, first slice G1–G6). Soft gate agent-owned.
 - [2026-07-22] T-2c + T-3 COMPLETE: IR v0 + design-spec v0 folded into Decision Log (belief node, two-brain, fire gate, Kitchen G1–G6). Next = T-4 implementation plan only; app repo still hard-rail paused.
+- [2026-07-22] T-4 implementation-plan-v0.md landed. Next human-gated hard rail = app repo create only when Leo fires it.
