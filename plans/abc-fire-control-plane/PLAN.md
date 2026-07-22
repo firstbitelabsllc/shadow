@@ -34,7 +34,7 @@ moussey rebuild — moussey voice parts are salvage.
 - Status: designing (standalone B locked; Option A dead); T-4 implementation plan landed; app repo still hard-rail paused
 - Priority: 90
 - Outcome: Approved design spec for the standalone ABC→FIRE app; Vidux stays control plane.
-- Next: Wait on hard-rail for `gh repo create` **or** continue non-repo spikes (`evidence/spikes/kitchen-ir/` IR + FireGate unit tests). Cross-lane: `ai-leo/vidux/recognition-mission/PLAN.md`.
+- Next: Hard-rail wait for `gh repo create` **or** wire clarify client offline fixtures into spike; no product UI yet.
 - Why: Repurpose conversation reopened; Nicole barrier + on-the-go agency is the wedge.
 - Validation: Spike receipt + golden dialogues + IR + design-spec + T-4 plan (Kitchen G1–G6 + M0–M7).
 - Cost: Planning done through T-4; no product app repo until hard-rail; non-repo SPM spike OK.
@@ -84,3 +84,4 @@ moussey rebuild — moussey voice parts are salvage.
 - [2026-07-22] design-spec-v0.md drafted (two-brain, fire gate, first slice G1–G6). Soft gate agent-owned.
 - [2026-07-22] T-2c + T-3 COMPLETE: IR v0 + design-spec v0 folded into Decision Log (belief node, two-brain, fire gate, Kitchen G1–G6). Next = T-4 implementation plan only; app repo still hard-rail paused.
 - [2026-07-22] T-4 COMPLETE: `evidence/T-4-implementation-plan.md` (Kitchen scope, module walls, future package sketch, M0–M7↔G1–G6, hard rails). Interim `implementation-plan-v0.md` superseded (tombstone). Next = wait hard-rail for app repo **or** non-repo `evidence/spikes/kitchen-ir/` spike.
+- [2026-07-22] **Kitchen IR SPM spike started** under `evidence/spikes/kitchen-ir/` (IR types + FireGate + XCTest). `swift test` green. Hard rail held (no app repo). Why-receipt lead-direct: schema already authored; Swift SPM from IR draft is mechanical-but-domain-tight for GLM invent risk.
