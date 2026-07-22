@@ -31,14 +31,14 @@ moussey rebuild — moussey voice parts are salvage.
 
 ## Operator Brief
 
-- Status: designing (standalone B locked; Option A dead); T-2b quality PROCEED
+- Status: designing (standalone B locked; Option A dead); T-2b PROCEED (quality GO / sub-second complete NO-GO)
 - Priority: 90
 - Outcome: Approved design spec for the standalone ABC→FIRE app; Vidux stays control plane.
 - Next: T-2c IR v0 review + T-3 design spec (agent-owned). Cross-lane: `ai-leo/vidux/recognition-mission/PLAN.md`.
 - Why: Repurpose conversation reopened; Nicole barrier + on-the-go agency is the wedge.
-- Validation: Spike receipt + IR draft + design sections; first vertical slice named with gates.
-- Cost: Planning + cheap GLM probes; no product app code until design draft lands.
-- Evidence: evidence/feasibility-spike/SPIKE-RECEIPT.md + evidence/ir-v0-schema-draft.md
+- Validation: Spike receipt + golden dialogues + IR draft + design sections; first vertical slice named with gates.
+- Cost: Planning + cheap-model probes; no product app code until design draft lands.
+- Evidence: evidence/t2b-feasibility-spike.receipt.md + evidence/golden-dialogues-t2b.md (+ sibling feasibility-spike/)
 - Updated: 2026-07-22
 
 ## Outcome Scorecard
@@ -53,7 +53,7 @@ moussey rebuild — moussey voice parts are salvage.
 
 - [completed] T-1: Read-only planning draft for ABC→FIRE (approaches + architecture + slice) — Grok build/high; Fable blocked (credits + plan-advisor sandbox 127)
 - [completed] T-2: Leo vetoed Option A — "standalone B is the plan" (standalone native iOS/SwiftUI; one adaptive loop for both users)
-- [completed] T-2b: Feasibility spike (make-or-break #4) — quality PASS via glm-max/glm delegate (3 distinct + narrow); sub-second remote FAIL (~10–17s). PROCEED. [validation: evidence/feasibility-spike/SPIKE-RECEIPT.md]
+- [completed] T-2b: Feasibility spike (make-or-break #4) — quality PASS (≤3 mutually-distinct + narrow) on Haiku / gpt-5.3-chat / sibling glm-max; strict sub-second complete FAIL (~2–3s Haiku gen, ~10s GLM delegate); TTFT ~0.5s Haiku. PROCEED. [validation: evidence/t2b-feasibility-spike.receipt.md + evidence/golden-dialogues-t2b.md]
 - [in_progress] T-2c: IR v0 — lift moussey `lib/intent-router.ts` `RouterDecisionTrace`/`RouterDecisionOption` as the per-question belief node; editable choice-path stack + rider field [validation: evidence/ir-v0-schema-draft.md started]
 - [in_progress] T-3: Design spec v0 drafted (agent-owned) at evidence/design-spec-v0.md — fold Decision Log defaults; residual taste pass (bounded job-template IR, two-brain split + executor capability manifest, blast-radius-gated distinct confirm word + dry-run/undo; read why StrongYes cut the suggested-prompt chips before rebuilding pick+rider)
 - [pending] T-4: Implementation plan (writing-plans) only after spec approval; app repo creation is the Leo-gated moment
@@ -67,7 +67,7 @@ moussey rebuild — moussey voice parts are salvage.
 - [DIRECTION] [2026-07-21] **Option A VETOED by Leo — "standalone B is the plan."** Standalone native iOS/SwiftUI app; one adaptive loop (Nicole menu-depth ↔ car-Leo freeform); Vidux 1.0.0 remains plan/proof control plane only. Supersedes the provisional-home entry above.
 - [DIRECTION] [2026-07-21] Scout verdicts folded: (1) Class A voice harness ships under SmartLittleApps/local-stt-mcp MIT identity, built from moussey voice-audio-corpus scaffolding — not on local-stt-mcp's code; (2) /amp is ritual not engine — highest lift is moussey `RouterDecisionTrace`; (3) StrongYes premise correction — shipped bugs were seam bugs, harness splits Class A (voice I/O) / Class B (real-seam probes; owned by strongyes-web voice-debug-harness PLAN).
 - [DIRECTION] [2026-07-21] Mac executor = clean new agent lifting moussey's HMAC + Tailscale + `claude -p` Keychain-OAuth pattern (`app/api/lan/trigger-claude/route.ts`, `lib/lan-trigger-auth.ts`). Fire gate = blast-radius-gated distinct confirm word + dry-run/undo (amp's confirmation-free fire replaced). Standing one-line veto each.
-- [DIRECTION] [2026-07-22] T-2b verdict: **PROCEED on quality**. Cheap GLM (delegate `glm-max` / `glm`) produces ≤3 mutually-distinct outcome-class options AND narrows. Remote path is multi-second (~10–17s), not sub-second — treat sub-second as UX residual (local/small model or skeleton UI), not architecture kill.
+- [DIRECTION] [2026-07-22] T-2b verdict: **PROCEED on quality**. Cheap models produce ≤3 mutually-distinct options AND narrow (Haiku / gpt-5.3-chat live; sibling glm-max/glm via delegate). Strict sub-second **complete** turn is NO-GO (~2–3s Haiku wall, ~10s+ GLM delegate); Haiku TTFT ~0.5s supports streaming skeleton UX. Sub-second complete = residual, not architecture kill. Standing veto: Leo can veto PROCEED if hard sub-second complete options are required before design. Proof: `evidence/t2b-feasibility-spike.receipt.md` + `evidence/golden-dialogues-t2b.md`.
 - [DIRECTION] [2026-07-22] IR v0 defaults (agent-owned, vetoable): rider attaches to chosen option (not 4th peer); Nicole menu starts with 3 outcome classes; car-Leo may return 2 + freeform; IR lives in app session store pre-FIRE; Vidux plan/proof only after FIRE. Schema: `evidence/ir-v0-schema-draft.md`.
 - [DIRECTION] [2026-07-22] Design-spec v0 defaults (agent-owned): two-brain (clarify cheap / executor post-FIRE); blast-radius fire gate + dry-run; first slice = Kitchen text ABC→FIRE with G1–G6. Spec: `evidence/design-spec-v0.md`.
 
@@ -76,5 +76,5 @@ moussey rebuild — moussey voice parts are salvage.
 - [2026-07-21] Plan initialized; moved in-repo for Pilot authority; branch `vidux/abc-fire-control-plane-design`.
 - [2026-07-21] Fable `plan-advisor` + direct Fable failed (sandbox 127 / usage credits). Receipts in `evidence/fable-plan.receipt.json`.
 - [2026-07-21] Grok `--reasoning-effort high --permission-mode plan` draft OK (12.6KB). Evidence: `evidence/grok-build-high-plan-draft.md` + `evidence/grok-build-high-plan.receipt.json`. PONG probe green. Recommendation: Option A; first slice = Nicole text ABC→FIRE with G1–G6 gates.
-- [2026-07-22] T-2b COMPLETE: golden dialogues + live GLM probes + SPIKE-RECEIPT. Quality PASS; latency sub-second FAIL on remote. IR v0 draft landed at `evidence/ir-v0-schema-draft.md`. Next: finish T-2c review + T-3 design spec.
+- [2026-07-22] T-2b COMPLETE (Lane A): required receipts `evidence/t2b-feasibility-spike.receipt.md` + `evidence/golden-dialogues-t2b.md` (Nicole menu-depth + car-Leo freeform live samples, Jaccard distinctness, Haiku TTFT ~0.5s). Sibling GLM-delegate samples under `evidence/feasibility-spike/`. Quality GO; sub-second complete NO-GO; product PROCEED.
 - [2026-07-22] design-spec-v0.md drafted (two-brain, fire gate, first slice G1–G6). Soft gate agent-owned.
