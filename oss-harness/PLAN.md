@@ -514,18 +514,32 @@ GLM shims.
   Architecture audit confirms the executor/verifier belongs in shared `/ai`;
   Vidux remains the pinned system under test and projects content-addressed
   receipts rather than resurrecting its removed non-runnable benchmark. Shared
-  `/ai` PR #123 (`41709a17`) now supplies the first one-shot integrity harness:
+  `/ai` PR #123 (`1c00ca0e`) now supplies the first one-shot integrity harness:
   exact cell custody, anonymous paired arms, fixed host/model/tool/permission/
   proof-budget bindings, process-group timeout, content-addressed artifacts,
   and fail-closed missing/duplicate/drift checks. Its independent review is
-  PASS; 43/43 Pilot Python tests and the Pilot CLI/doctor gate are green.
+  PASS; 46/46 Pilot Python tests and the Pilot CLI/doctor gate are green.
+  A durable two-arm Claude/Superpowers smoke is integrity-complete: both arms
+  independently repaired the deterministic red retry-budget fixture, each
+  passed 3/3 tests, and produced identical fixed-source SHA
+  `e0a214db60d33219914d7a71328cc56c64d3e0083184bc323e8a6c8453111c1e`.
+  The harness verifier reports `observed_run_count:2`, `errors:[]`,
+  `integrity_complete:true`, `judge_ready:false`, and `claim_ready:false`.
+  Arm receipts are `ff59101d147e6b9fb5d54008d0c07b05417157ce20b35c89feb498ef7538faca`
+  and `1452bd50f405662068e7da56c7f9e2add76e242d1701c5b3586412ed0db86a6a`.
   The receipt honestly records `filesystem_sandboxed:false`,
   `hidden_oracle_isolated:false`, `judge_ready:false`, and
-  `claim_ready:false`; therefore this is foundation, not a live comparison or
-  5x proof. Resume: merge PRs #122 and #123 only after Graphite approval,
-  refresh the clean runtime mirror, add the custodian-owned filesystem/oracle
-  sandbox and attributable one-provider-call receipt, then run the
-  Claude/Cursor × bare/Superpowers/GSD/Vidux smoke matrix.
+  `claim_ready:false`. The nominal bare arm also discovered an enabled
+  Superpowers hook, so it is not a clean no-layer baseline. Claude's advertised
+  `plugin eval` command returned only an early-access notice and created no
+  suite; two bounded Cursor Auto review attempts returned empty output. These
+  are explicit capability gaps, not accepted worker receipts. No winner,
+  quality, efficiency, or 5x claim follows from this n=1 public-fixture smoke.
+  Resume: merge PRs #122 and #123 only after Graphite approval, refresh the
+  clean runtime mirror, add the custodian-owned filesystem/oracle sandbox,
+  prove a genuinely layer-free baseline and attributable provider invocation,
+  repair the Cursor adapter, then run the Claude/Cursor × bare/Superpowers/GSD/
+  Vidux matrix across sealed tasks.
 
 ## Claim discipline
 
