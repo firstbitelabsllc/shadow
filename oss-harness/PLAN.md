@@ -492,7 +492,7 @@ GLM shims.
   voice-debug / litty; wave-21 seat closes claimed row; next niche from
   private dossier only with create/publicize gate; tag only if tip drifts
   with product code.
-- [pending] Proactive research wave 71 — next reachable win (claim first);
+- [claimed: glm-max 2026-07-24T14:07:53-04:00] Proactive research wave 71 — next reachable win (claim first);
   prefer amplify or WATCHING; tag only if tip drifts with product code;
   voice-debug publish remains human-gated.
 
