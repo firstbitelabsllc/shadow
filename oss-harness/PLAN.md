@@ -556,7 +556,11 @@ GLM shims.
   primitive. A separately bound base-repository snapshot, enforced signed-run
   to judge call path, independent judge, and descendant boundary remain
   missing, so `custody_ready:false`, `judge_ready:false`, and
-  `claim_ready:false` remain correct.
+  `claim_ready:false` remain correct. The public, private-overlay, and Vidux
+  runtime mirrors were refreshed to their current `origin/main` tips; a
+  pre-existing mirror edit was preserved in a recoverable stash rather than
+  discarded. The post-refresh `pilot doctor --roster --json` receipt is
+  `ok:true`.
   A paid GLM-5.2 max read-only architecture pass ran through OpenCode session
   `ses_069b43facffeGF3C0lvSwy0Kfx` using the primary Z.ai seat (128,465 total
   tokens; 9,577 input, 10,179 output, 108,480 cache-read; reported cost
