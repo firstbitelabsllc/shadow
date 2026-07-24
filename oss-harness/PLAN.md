@@ -513,9 +513,18 @@ GLM shims.
   Graphite, but remains unmerged until Graphite supplies the required approval.
   Architecture audit confirms the executor/verifier belongs in shared `/ai`;
   Vidux remains the pinned system under test and projects content-addressed
-  receipts rather than resurrecting its removed non-runnable benchmark.
-  Resume: merge PR #122 only after Graphite approval, refresh the clean runtime
-  mirror, then implement the sealed one-shot harness in `/ai` and run the
+  receipts rather than resurrecting its removed non-runnable benchmark. Shared
+  `/ai` PR #123 (`41709a17`) now supplies the first one-shot integrity harness:
+  exact cell custody, anonymous paired arms, fixed host/model/tool/permission/
+  proof-budget bindings, process-group timeout, content-addressed artifacts,
+  and fail-closed missing/duplicate/drift checks. Its independent review is
+  PASS; 43/43 Pilot Python tests and the Pilot CLI/doctor gate are green.
+  The receipt honestly records `filesystem_sandboxed:false`,
+  `hidden_oracle_isolated:false`, `judge_ready:false`, and
+  `claim_ready:false`; therefore this is foundation, not a live comparison or
+  5x proof. Resume: merge PRs #122 and #123 only after Graphite approval,
+  refresh the clean runtime mirror, add the custodian-owned filesystem/oracle
+  sandbox and attributable one-provider-call receipt, then run the
   Claude/Cursor × bare/Superpowers/GSD/Vidux smoke matrix.
 
 ## Claim discipline
