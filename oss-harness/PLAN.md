@@ -497,9 +497,14 @@ GLM shims.
   publicize skillbox / voice-debug / litty; wave-21 seat closes claimed
   row; next niche from private dossier only with create/publicize gate;
   tag only if tip drifts with product code.
-- [pending] Proactive research wave 72 — next reachable win (claim first);
-  prefer amplify or WATCHING; tag only if tip drifts with product code;
-  voice-debug publish remains human-gated.
+- [claimed: codex 2026-07-24T16:44:01-04:00] Proactive research wave 72 —
+  build the independent skill-layer efficiency harness for bare Claude/Cursor
+  versus Superpowers, GSD, and Vidux. Freeze identical repo/task/model/tool/
+  budget inputs; score mechanical outcome proof plus blinded acceptance;
+  include forced interruption/resume; retain raw receipts and measured usage.
+  The harness, not Vidux/Pilot or the implementing seat, owns the verdict.
+  Prove or falsify the 5x same-quality target without copying private roster,
+  provider, campaign, or Snap-plugin details into this public repository.
 
 ## Claim discipline
 
