@@ -574,7 +574,23 @@ GLM shims.
   requires fresh HOME/XDG plus API-key or dedicated sanitized auth and stronger
   filesystem custody. Provider-native raw streams must remain hash-bound, with
   normalized usage marked `provider_attested:false` unless the provider signs
-  it.
+  it. PR #123 now advances that parser at
+  `53501928d4a758c8fca6337cf48c8d94f4e0344e`: bounded Cursor and
+  OpenCode/Z.ai JSONL normalize into provider-neutral identity, model,
+  duration, token/cache, and conditional cost fields while preserving raw
+  SHA-256 and unknown values. OpenCode remains `usage_complete:false` because
+  the normalizer does not yet bind a reported model or provider request IDs;
+  all local records remain `provider_attested:false` and are not yet signed
+  into custodian receipts. A live inherited-profile Cursor/Grok 4.5 High
+  compatibility probe returned session
+  `e596cbaa-6bff-458c-8497-942e08314e18`, request
+  `d89e65e5-72c5-44b1-b6b3-9dbf08e02576`, duration 5,840 ms, input 26,889,
+  output 39, cache-read 5,376, cache-write 0. Cursor review session
+  `2566ae3d-6119-47cb-9eea-336e8f105626` rejected invented zero-cost and
+  under-tested unknown-field handling; both were repaired and the re-review
+  ended `VERDICT: PASS`. The Pilot suite is now 57/57 green. This proves native
+  stream parsing and review transport only, not a clean baseline or comparative
+  efficiency.
   A durable two-arm Claude/Superpowers smoke is integrity-complete: both arms
   independently repaired the deterministic red retry-budget fixture, each
   passed 3/3 tests, and produced identical fixed-source SHA
