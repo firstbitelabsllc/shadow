@@ -505,6 +505,18 @@ GLM shims.
   The harness, not Vidux/Pilot or the implementing seat, owns the verdict.
   Prove or falsify the 5x same-quality target without copying private roster,
   provider, campaign, or Snap-plugin details into this public repository.
+  Progress 2026-07-24: the first live Pilot GLM-max call ran for 238 seconds
+  but returned zero usable output (`worker_empty_output`); no draft was
+  accepted. The same run exposed a classifier defect for artifact-only code
+  drafts. Shared `/ai` PR #122 fixes that defect with 55 green Leo Flow tests
+  and independent authorization review; it is clean/mergeable and synced to
+  Graphite, but remains unmerged until Graphite supplies the required approval.
+  Architecture audit confirms the executor/verifier belongs in shared `/ai`;
+  Vidux remains the pinned system under test and projects content-addressed
+  receipts rather than resurrecting its removed non-runnable benchmark.
+  Resume: merge PR #122 only after Graphite approval, refresh the clean runtime
+  mirror, then implement the sealed one-shot harness in `/ai` and run the
+  Claude/Cursor × bare/Superpowers/GSD/Vidux smoke matrix.
 
 ## Claim discipline
 
