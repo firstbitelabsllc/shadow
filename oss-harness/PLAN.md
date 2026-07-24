@@ -514,11 +514,20 @@ GLM shims.
   Architecture audit confirms the executor/verifier belongs in shared `/ai`;
   Vidux remains the pinned system under test and projects content-addressed
   receipts rather than resurrecting its removed non-runnable benchmark. Shared
-  `/ai` PR #123 (`1c00ca0e`) now supplies the first one-shot integrity harness:
+  `/ai` PR #123 (`13e5531c`) now supplies the first one-shot integrity harness:
   exact cell custody, anonymous paired arms, fixed host/model/tool/permission/
   proof-budget bindings, process-group timeout, content-addressed artifacts,
   and fail-closed missing/duplicate/drift checks. Its independent review is
-  PASS; 46/46 Pilot Python tests and the Pilot CLI/doctor gate are green.
+  PASS; 50/50 Pilot Python tests and the Pilot CLI/doctor gate are green.
+  The same PR now includes a separately signed macOS Seatbelt custody backend:
+  fresh HOME, workspace-only writes, oracle/profile/key read denial, symlink
+  escape denial, six same-profile canaries, F_GETPATH-checked secret FDs closed
+  before worker launch, cross-process inspection denial, and OpenSSH Ed25519
+  verification against a preregistered public-key hash. Adversarial review is
+  PASS only as a truthful foundation: every signed receipt still binds
+  `descendant_quiescence_proven:false`, `sealed_workspace_snapshot:false`,
+  `custody_ready:false`, `judge_ready:false`, and `claim_ready:false` because
+  macOS Seatbelt supplies no cgroup-like descendant barrier.
   A durable two-arm Claude/Superpowers smoke is integrity-complete: both arms
   independently repaired the deterministic red retry-budget fixture, each
   passed 3/3 tests, and produced identical fixed-source SHA
@@ -532,14 +541,17 @@ GLM shims.
   `claim_ready:false`. The nominal bare arm also discovered an enabled
   Superpowers hook, so it is not a clean no-layer baseline. Claude's advertised
   `plugin eval` command returned only an early-access notice and created no
-  suite; two bounded Cursor Auto review attempts returned empty output. These
-  are explicit capability gaps, not accepted worker receipts. No winner,
+  suite; two bounded Cursor Auto review attempts returned empty output, while
+  a third read-only Cursor/Grok-high review emitted nothing for 150 seconds and
+  was aborted. These are explicit capability gaps, not accepted worker
+  receipts. No winner,
   quality, efficiency, or 5x claim follows from this n=1 public-fixture smoke.
   Resume: merge PRs #122 and #123 only after Graphite approval, refresh the
-  clean runtime mirror, add the custodian-owned filesystem/oracle sandbox,
-  prove a genuinely layer-free baseline and attributable provider invocation,
-  repair the Cursor adapter, then run the Claude/Cursor × bare/Superpowers/GSD/
-  Vidux matrix across sealed tasks.
+  clean runtime mirror, add a sealed workspace snapshot or stronger descendant
+  boundary plus minimal read-only credential projection, prove a genuinely
+  layer-free baseline and attributable provider invocation, repair the Cursor
+  adapter, then run the Claude/Cursor × bare/Superpowers/GSD/Vidux matrix
+  across sealed tasks.
 
 ## Claim discipline
 
