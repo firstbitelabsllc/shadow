@@ -508,9 +508,11 @@ GLM shims.
   Progress 2026-07-24: the first live Pilot GLM-max call ran for 238 seconds
   but returned zero usable output (`worker_empty_output`); no draft was
   accepted. The same run exposed a classifier defect for artifact-only code
-  drafts. Shared `/ai` PR #122 fixes that defect with 55 green Leo Flow tests
-  and independent authorization review; it is clean/mergeable and synced to
-  Graphite, but remains unmerged until Graphite supplies the required approval.
+  drafts. Shared `/ai` PR #122 fixes that defect with independent authorization
+  review. After `origin/main` advanced, its sole CHANGELOG conflict was repaired
+  at `5d7e1f0e`; 41/41 routing tests plus the four-case ledger attribution suite
+  are green. It is clean/mergeable and synced to Graphite, but remains unmerged
+  until Graphite supplies the required approval.
   Architecture audit confirms the executor/verifier belongs in shared `/ai`;
   Vidux remains the pinned system under test and projects content-addressed
   receipts rather than resurrecting its removed non-runnable benchmark. Shared
