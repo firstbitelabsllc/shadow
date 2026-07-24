@@ -612,12 +612,30 @@ GLM shims.
   8,142, cache-read 303,744; `VERDICT: PASS`). That proves the review transport,
   not benchmark-provider attribution. No winner,
   quality, efficiency, or 5x claim follows from this n=1 public-fixture smoke.
-  Resume: PRs #122 and #123 are mergeable but have no Graphite/GitHub approval;
-  do not self-merge until approval exists. Then refresh the clean runtime
-  mirror; bind and atomically copy the base-repository snapshot; connect
-  signed-run verification to an independent judge; add minimal read-only
-  credential projection plus raw provider-stream attribution; prove the clean
-  Claude and Cursor baselines above; only then run the Claude/Cursor ×
+  On 2026-07-24 PR #122's newly reintroduced `CHANGELOG.md` conflict was
+  repaired at `38ad182d16b34c71f00bd32a2e9953b8ce040859`; its 41 routing tests
+  and 11 ledger-attribution cases are green, and GitHub now reports
+  `mergeStateStatus:CLEAN`. PR #123 now binds reconstructable base-repository
+  bytes and executable modes before launch at
+  `1a9c6e312aa324b78a25f76789f8cc147cab80b4e`. The macOS custodian rejects
+  links, special files, unsafe modes, cap violations, base mismatches, and
+  copy-out races; it rechecks the base before launch, signs the
+  content-addressed base snapshot, and exposes bounded path-free atomic readers
+  for base plus changed output. A single final no-follow pass binds output
+  bytes, modes, and internal symlinks together. Cursor/Grok 4.5 High review
+  session `f9752055-ea50-4be1-9c7d-3a27deac7b1a` found and drove repairs for
+  split mode/content races and inconsistent final-pass caps; final request
+  `786dd3ab-ba94-4b30-8476-7fd183f904cc` ended `VERDICT: PASS`. Exact proof:
+  59/59 Pilot Python tests, Pilot CLI/installation doctor PASS, Python compile,
+  run-schema parse, and `git diff --check` all green. Both PRs are clean and
+  Graphite-current, but still have zero reviews and no approval, so neither may
+  self-merge. `descendant_quiescence_proven`, `custody_ready`, `judge_ready`,
+  and `claim_ready` remain false.
+  Resume: integrate normalized provider usage into the signed custodian receipt
+  without promoting incomplete OpenCode evidence; then connect the signed base
+  plus changed-output readers to an independent blinded judge. After approval,
+  merge the PRs and refresh clean runtime mirrors. Prove clean Claude and Cursor
+  baselines before running the Claude/Cursor ×
   bare/Superpowers/GSD/Vidux matrix across sealed tasks.
 
 ## Claim discipline
