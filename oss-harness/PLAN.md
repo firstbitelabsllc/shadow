@@ -516,7 +516,7 @@ GLM shims.
   Architecture audit confirms the executor/verifier belongs in shared `/ai`;
   Vidux remains the pinned system under test and projects content-addressed
   receipts rather than resurrecting its removed non-runnable benchmark. Shared
-  `/ai` PR #123 (`ebdab74d`) now supplies the first one-shot integrity harness:
+  `/ai` PR #123 (`ebdab74d`) supplied the first one-shot integrity harness:
   exact cell custody, anonymous paired arms, fixed host/model/tool/permission/
   proof-budget bindings, process-group timeout, content-addressed artifacts,
   and fail-closed missing/duplicate/drift checks. Its independent review is
@@ -537,8 +537,40 @@ GLM shims.
   is not physical filesystem immutability. Every result still binds
   `descendant_quiescence_proven:false`, `custody_ready:false`,
   `judge_ready:false`, and `claim_ready:false` because macOS Seatbelt supplies
-  no cgroup-like descendant barrier and verifier-to-judge consumption is not
-  yet atomic.
+  no cgroup-like descendant barrier and no independent judge exists.
+  Progress 2026-07-24T23:19-04:00: PR #123 is now at mergeable head
+  `eb67fe7539e6e6d3e7fbff69352c9bbff95e5f61`. It adds
+  `open_hashed_workspace_snapshot(...)`, which opens exact
+  content-addressed artifacts through no-follow directory descriptors, caps
+  snapshot/file/total bytes before and during copy, rejects linked/racing
+  sources and escaping or hash-invalid symlinks, then independently rehashes
+  bounded immutable in-memory bytes. It exposes neither a source pathname nor
+  a writable descriptor. The name and README explicitly do not claim receipt
+  authentication: callers must validate the signed run first. Cursor/Grok 4.5
+  High session `53574864-a73d-479f-9301-75a2067155b8` rejected two earlier
+  drafts for borrowed-FD ownership and a same-user named-temp mutation window;
+  both designs were removed, and its third review ended `VERDICT: PASS`.
+  Post-merge-conflict proof is 52/52 Pilot Python tests, Pilot CLI/doctor PASS,
+  11/11 ledger attribution cases, Python compilation, schema JSON parsing, and
+  `git diff --check`. This closes only the changed-output atomic-copy
+  primitive. A separately bound base-repository snapshot, enforced signed-run
+  to judge call path, independent judge, and descendant boundary remain
+  missing, so `custody_ready:false`, `judge_ready:false`, and
+  `claim_ready:false` remain correct.
+  A paid GLM-5.2 max read-only architecture pass ran through OpenCode session
+  `ses_069b43facffeGF3C0lvSwy0Kfx` using the primary Z.ai seat (128,465 total
+  tokens; 9,577 input, 10,179 output, 108,480 cache-read; reported cost
+  $0.0874078). It confirmed there is no base-repository artifact today and
+  proposed provider-neutral attribution; no generated code was accepted.
+  Independent provider-isolation review reached a stricter baseline rule:
+  inherited Claude/Cursor OAuth profiles are compatibility smoke only. A
+  claim-grade Claude baseline needs `--bare`, fresh HOME/XDG, explicit empty
+  settings/MCP/plugins, custodian-injected API credentials, and denied host
+  customization roots. Cursor exposes no comparable safe-mode flag, so it
+  requires fresh HOME/XDG plus API-key or dedicated sanitized auth and stronger
+  filesystem custody. Provider-native raw streams must remain hash-bound, with
+  normalized usage marked `provider_attested:false` unless the provider signs
+  it.
   A durable two-arm Claude/Superpowers smoke is integrity-complete: both arms
   independently repaired the deterministic red retry-budget fixture, each
   passed 3/3 tests, and produced identical fixed-source SHA
@@ -560,11 +592,12 @@ GLM shims.
   8,142, cache-read 303,744; `VERDICT: PASS`). That proves the review transport,
   not benchmark-provider attribution. No winner,
   quality, efficiency, or 5x claim follows from this n=1 public-fixture smoke.
-  Resume: merge PRs #122 and #123 only after Graphite approval, refresh the
-  clean runtime mirror, add atomic opened-and-hashed verifier-to-judge
-  consumption or a stronger descendant boundary plus minimal read-only
-  credential projection, prove a genuinely layer-free baseline and
-  attributable provider invocation, then run the Claude/Cursor ×
+  Resume: PRs #122 and #123 are mergeable but have no Graphite/GitHub approval;
+  do not self-merge until approval exists. Then refresh the clean runtime
+  mirror; bind and atomically copy the base-repository snapshot; connect
+  signed-run verification to an independent judge; add minimal read-only
+  credential projection plus raw provider-stream attribution; prove the clean
+  Claude and Cursor baselines above; only then run the Claude/Cursor ×
   bare/Superpowers/GSD/Vidux matrix across sealed tasks.
 
 ## Claim discipline
