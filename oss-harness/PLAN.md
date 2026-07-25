@@ -26,6 +26,163 @@ continue on the next healthy seat rather than shimming around it.
 
 ## Rows
 
+### vidux makeover — ordered execution plan (planned 2026-07-25)
+
+Sourced from a 17-agent audit of `origin/main` @ `0ba026af`: 188 tracked files,
+52,987 tracked lines, four user commands (`init`, `status`, `browse`, `doctor`).
+The audit found **21,079 removable lines (39.8%)** across 51 whole files. Two
+defects outranked every deletion, and one is already fixed.
+
+**Target user, and it is the whole point:** someone who has shipped a little
+code with an AI assistant and has never heard "control plane", "durable proof",
+or "resume predicate". Simple mode only. The GUI is the product surface.
+
+**PROTECTED — never propose cutting:** the telemetry path, and the ability to
+benchmark the harness against the best. Everything else is a candidate.
+
+#### Wave 0 — the two defects that outranked the cut list
+
+- [completed] **The telemetry had no producer.** `lib/ledger-emit.sh` was sourced
+  by exactly two scripts and the CLI dispatched neither, so three ledger readers
+  had nothing writing to them. Added the `checkpoint` verb. Tests assert the path
+  a user walks (run CLI, read ledger back): 4/4 pass, **4/4 fail** on the unfixed
+  CLI, **3/4 fail** on a verb wired to a non-emitting script. Landed 2026-07-25.
+- [pending] **The benchmark capability is absent AND fenced out.** No bench or
+  eval file is tracked, and the release packager rejects any packed path under
+  `benchmarks/`, locked by its own test. Deleting that gate is a prerequisite for
+  restoring the protected capability — it is the only thing standing in the way.
+  *Done when:* a benchmark file can be packed and the release verifier stays green.
+
+#### Wave 1 — provably dead, 7,362 lines, zero behaviour change
+
+Only 5 of 26 files under `scripts/` are reachable from the four commands or the
+GUI. Every item below has zero code callers; every reference is prose telling an
+agent to type a command. Ordered largest first; a reviewer can draw a line
+anywhere and stop.
+
+- [pending] worktree janitor + its test (1,761) — a multi-lane git janitor the
+  target user has no use for
+- [pending] PR-body builder + its test (1,447) — test is 2.1x the code
+- [pending] publish-scrutiny gate + its test (934)
+- [pending] four duplicated doctrine docs (794) — one is byte-identical to its
+  twin, the other three differ by 4, 4 and 20 lines
+- [pending] ledger-query lib + its dead call sites (387) — **provably cannot
+  execute**: the guard tests for a function whose only `source` sits inside the
+  block the guard protects. Not a telemetry cut; the emit path is untouched.
+- [pending] a lib that writes into another vendor's desktop SQLite database (250)
+- [pending] write-verify script + test (231) — no hooks are registered anywhere
+- [pending] a branch-handoff doc and this repo's own plan (211), both shipped to
+  strangers via the package file list
+- [pending] a test-all script (146) that already invokes a file which does not exist
+- [pending] a second machine-only representation of the plan (119) whose own header
+  concedes the plan file is the authority
+- [pending] the hooks directory (113) — nothing registers them, and the one
+  pre-commit check greps for ANY pending row, so a single stale row green-lights
+  every commit forever
+- [pending] a portability shim nobody sources (60), and a plan-store resolver
+  nobody sources (36)
+
+#### Wave 2 — real surfaces disappear, nothing breaks. **Order is not optional.**
+
+1. [pending] **Promote the Ledger tab out of the advanced-mode gate FIRST.** The
+   Session and Ledger tabs are gated together; deleting the mode first would
+   **hide the protected telemetry**. This is the hard dependency in the whole plan.
+2. [pending] Kill the ops-truth chrome strip (604) **before** the second doctor —
+   it is that script's only non-prose caller, so removing it first turns a
+   medium-risk merge into a clean delete. A simple-mode session currently shells
+   out to a 1,382-line script twice a minute and never renders the output.
+3. [pending] Kill the second doctor (1,571). Two doctors ship, totalling 2,198
+   lines, and `doctor` runs the other one. Fold forward only its stale-row and
+   merge-conflict checks.
+4. [pending] Kill the coordination tier (2,434) — for a single-agent user it
+   renders one string forever, and it is mounted ungated so simple mode shows it.
+   There is no claim command in the CLI at all.
+5. [pending] Kill comments/annotation (1,642). Its store has no consumer outside
+   the page that wrote it, and its state machine paints an element a test asserts
+   is absent. Also removes the only write route with a relaxed auth path.
+6. [pending] Kill the release self-gating (897) — this is the item that unblocks
+   Wave 0's benchmark restoration.
+7. [pending] Kill the cross-repo dashboard's four advanced-only columns (465),
+   keeping the three buckets the work queue actually reads.
+8. [pending] Kill the artifact viewer (446) — it views a directory containing only
+   a placeholder file, and its write route has zero non-test callers.
+9. [pending] Kill the step journal (422) — neither call site performs a resume;
+   actual resume derives from plan row state.
+10. [pending] Kill the session tab (283) — it parses another vendor's private
+    on-disk transcript format on every plan listing, and users on other runtimes
+    see "no session found" forever. It emits nothing, so the telemetry protection
+    does not cover it.
+11. [pending] Kill sidebar sort/filters (178) — already invisible to the target
+    user, and their own headers admit they exist to keep the main script under a
+    size limit this repo's own smoke test imposes.
+12. [pending] Delete the thin-loop verifier (39) **before** the mode machinery —
+    it asserts the advanced-mode function exists and will fail the build the
+    moment the mode is removed.
+13. [pending] Delete the mode machinery itself. **The single best GUI find:** a
+    simple-mode button whose entire body sets the advanced-mode flag — an
+    unlabelled trapdoor into the mode meant to be hidden, with no way back.
+
+#### The surviving product — two screens, ten controls
+
+Interactive controls drop from ~35 to 10.
+
+- **NOW** — replaces the home pane, the fleet dashboard, mission control, ops-truth
+  and the sidebar tree. Answers *what is the agent doing* and *did it work*, above
+  the fold: goal, next step, why-this, how-to-check, cost limit; then the outcome
+  verdict with its winning/losing/unproven tally; then a next/resume/needs-attention
+  queue capped at 8 rows. First run shows onboarding with the init command in a copy
+  block. Controls: project switcher (one select, replacing the tree), search,
+  refresh, theme, **open-proof per row** — the one control that turns a claim into a
+  file — and open-plan.
+- **PLAN** — replaces the six-tab pane with three: Plan | Decisions | Ledger. Content:
+  the rendered plan, the proof-file strip, progress rollups. Controls: the tab bar,
+  proof-strip entries, a message box, and send.
+
+- [pending] **Build item, not a deletion:** wire the message box to the local
+  plan-note endpoint. Without it the simplified GUI has zero working inputs and is a
+  read-only status page, which contradicts "the GUI is the product".
+
+#### Root cause worth more than any deletion
+
+Browse scans the user's entire dev tree by default via ten plan globs, four of them
+recursive. That single choice is what forces the secret-redaction battery, the repo
+alias map, the legacy dedupe and the plans cache. Scoping browse to one project
+would collapse more of this cluster than any deletion here — but it is a design
+change, so it is counted at zero lines. **Do not remove the redaction battery before
+scoping the glob:** while browse walks the whole tree and binds a port, a plan
+containing an API key renders verbatim in a web page.
+
+#### The smallest-slice doctrine — it loses as written
+
+The shipped rule contradicts itself three ways: one doc says execute one code change
+and never start a second task; another says drain the queue with no upper time bound;
+the agent-facing file says do not stop at the first checkbox. Enforcement is nil by
+this project's own standard ("hooks are enforcement"): the only hook that could fire
+greps for ANY pending row, so one stale row green-lights every commit — and no hooks
+are registered anyway.
+
+What slices genuinely buy: bounded blast radius, durability against mid-session death,
+revert granularity. What they lose on: coherent work where N edits share one mental
+model, since every session re-pays plan ingestion plus boot.
+
+- [pending] **Replacement rule, proposed:** *a session drains contiguous plan rows
+  that share ONE verification gate, until that gate is green or context reaches ~50%.
+  Checkpoint once, at the gate. Never split work that cannot be independently
+  verified; never batch work that cannot be independently reverted.* Make the boundary
+  a gate, not a count — and pair it with a hook that can see it, registered, or it
+  stays decoration.
+
+#### Naming — keep it
+
+The name is not the adoption problem; the sentence under it is. The current tagline
+is three pieces of jargon in nine words for a reader who has never orchestrated an
+agent. Rename cost (install URLs, config path, badges, symlinks) is not worth paying
+for a problem the tagline causes.
+
+- [pending] Replace the tagline. Candidate, same length: *"Give your AI coding agent
+  a to-do list it can't forget."*
+
+
 - [completed] vidux README overhaul — 30-persona panel, verdict trims landed
   (`7a3204bd`), CI + secret-scan green. 2026-07-23.
 - [completed] claudux wave — PRs #119/#120/#123/#124 merged: real-run terminal
