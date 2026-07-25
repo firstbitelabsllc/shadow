@@ -644,15 +644,38 @@ GLM shims.
   `157fd5f1-9c1b-403d-86d2-c01bb286129d` ended `VERDICT: PASS`. Exact proof is
   now 68/68 Pilot Python tests plus Pilot CLI/installation doctor, Python
   compile, both schema parses, and `git diff --check`.
+  PR #123 now adds the bounded independent blinded judge at
+  `7bc1e9682078ec98c57d1f7dfe029545e63bf17c`. It first authenticates the
+  signed macOS run, then atomically consumes the hashed base plus changed
+  snapshot bytes and reconstructs a private workspace. Hidden acceptance and
+  the judge key enter through owned, bounded descriptors copied to `0600`
+  private files; the source descriptors close before judging. Every acceptance
+  unit runs under a fresh macOS Seatbelt profile whose resolved-path deny rules
+  are mechanically proven to block the oracle and judge key. The separately
+  signed `pilot.skill-layer-judge.v1` receipt binds a signed nonce, run payload,
+  snapshots, hidden-oracle commitment, exact accepted-unit catalog, and
+  evidence-derived accepted units under the distinct
+  `pilot-skill-layer-judge` / `pilot-judge` namespace and key. Program v1 keeps
+  the judge contract optional so prior integrity-only programs still verify
+  without becoming custody- or judge-ready. Exact proof is 78/78 Pilot Python
+  tests, Pilot CLI/installation doctor PASS, Python compilation, all skill-layer
+  schema parses, and `git diff --check`. Cursor/Grok 4.5 High review session
+  `0444b612-ce63-40dc-b1c9-adcc861a54ad`, initial request
+  `d938d1e2-c988-4bcc-8960-207f4c4d5de2`, found no medium/high gap and ended
+  `VERDICT: PASS`; its final FD-close parity recheck request
+  `2abde690-8296-4409-b928-976e1fa7bc4d` also ended `VERDICT: PASS`.
+  This makes the implementation capable of truthful `custody_ready:true` and
+  `judge_ready:true` only when every expected live cell has valid signed
+  custody plus exactly one valid signed judge receipt. The campaign still has
+  no clean-baseline live judge packet, and `claim_ready:false` remains
+  unconditional, so no quality, winner, efficiency, or 5x claim exists.
   Both PRs are clean and
   Graphite-current, but still have zero reviews and no approval, so neither may
-  self-merge. `descendant_quiescence_proven`, `custody_ready`, `judge_ready`,
-  and `claim_ready` remain false.
-  Resume: connect the signed base plus changed-output readers to an independent
-  blinded judge, reusing the existing driver-benchmark accepted-unit contract
-  rather than inventing a second scoring model. After approval, merge the PRs
-  and refresh clean runtime mirrors. Prove clean Claude and Cursor baselines
-  before running the Claude/Cursor ×
+  self-merge. No current campaign packet is custody- or judge-ready;
+  `descendant_quiescence_proven:false` and `claim_ready:false` remain explicit.
+  Resume: obtain external approval before merging either PR, then refresh clean
+  runtime mirrors. Prove clean Claude and Cursor baselines and produce their
+  first sealed signed judge receipts before running the Claude/Cursor ×
   bare/Superpowers/GSD/Vidux matrix across sealed tasks.
 
 ## Claim discipline
