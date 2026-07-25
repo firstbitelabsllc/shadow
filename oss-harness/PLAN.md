@@ -764,13 +764,32 @@ GLM shims.
   preregistration and verifier so exact tasks, cells, repeats, stopping rule,
   quality rule, denominator, 5x confidence threshold, and balanced allocation
   are frozen before any provider invocation. Runner generalization follows only
-  after that envelope passes adversarial tests.
+  after that envelope passes adversarial tests. That envelope is now published
+  as stacked Graphite PR #127 at
+  `afad94910c81087d7e90a3476d24f9ddf04a0a8e`
+  (`https://github.com/leojkwan/ai/pull/127`), open, ready, and mergeable on PR
+  #125 with no approval or checks. It adds campaign-side non-circular
+  commitments over the complete program and cell projections, exact
+  task/program bijection, four-treatment position balance, fixed all-cells
+  stopping and all-units quality rules, exact one-sided 95% 5x confidence
+  semantics, bounded no-follow JSON custody, and explicit
+  `claim_ready:false`. Independent read-only review first reproduced two high
+  and three medium gaps (cell rebinding, unused tasks, malformed-program crash,
+  weak confidence, and schema/verifier drift), then found bounded integer,
+  nesting, non-finite-number, and Unicode-surrogate parser crashes. All were
+  repaired. Final adversarial re-review is PASS with zero medium/high findings;
+  exact proof is 121/121 Pilot Python tests, 27/27 focused campaign tests, Pilot
+  CLI/installation doctor PASS, Ruff, Python compilation, schema JSON parsing,
+  and `git diff --check`. No provider was invoked, no claim was evaluated, and
+  no unmerged code entered the runtime mirrors.
   Independent corpus selection recommends a pinned five-task SWE-bench
   Verified slice at dataset revision
   `c104f840cc67f8b6eec6f759ebc8b2693d585d4a` and evaluator revision
   `f7bbbb2ccdf479001d6467c9e34af59e44a840f9`: Django 11206, pytest 10051,
-  Sphinx 10466, SymPy 11618, and Matplotlib 24637. The preregistered floor is
-  ten balanced repeats per task across four arms (200 sessions/provider), two
+  Sphinx 10466, SymPy 11618, and Matplotlib 24637. Equal four-position balance
+  requires a multiple of four repeats, so the earlier ten-repeat proposal was
+  internally contradictory. The corrected preregistered floor is twelve
+  balanced repeats per task across four arms (240 sessions/provider), two
   forced interruption/resume blocks per task, no paired quality regression,
   and a one-sided 95% upper confidence bound below 0.20 for wrapped/bare
   provider cost per accepted task. Verdict is **NOT RUN-READY**: those
@@ -789,7 +808,7 @@ GLM shims.
   relabeling inherited OAuth is forbidden. Until that key boundary, offline
   content-addressed large-repository custody, network denial, campaign
   preregistration, and complete interruption accounting exist, do not spend the
-  200-session matrix or claim a winner.
+  240-session matrix or claim a winner.
 
 - [claimed: claude-opus5-lead 2026-07-24T22:32:42-04:00] Efficiency yardstick — supply the two
   halves the skill-layer harness row does not own: an **externally-authored task
