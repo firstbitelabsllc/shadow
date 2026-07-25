@@ -666,17 +666,52 @@ GLM shims.
   `2abde690-8296-4409-b928-976e1fa7bc4d` also ended `VERDICT: PASS`.
   This makes the implementation capable of truthful `custody_ready:true` and
   `judge_ready:true` only when every expected live cell has valid signed
-  custody plus exactly one valid signed judge receipt. The campaign still has
-  no clean-baseline live judge packet, and `claim_ready:false` remains
-  unconditional, so no quality, winner, efficiency, or 5x claim exists.
-  Both PRs are clean and
-  Graphite-current, but still have zero reviews and no approval, so neither may
-  self-merge. No current campaign packet is custody- or judge-ready;
-  `descendant_quiescence_proven:false` and `claim_ready:false` remain explicit.
-  Resume: obtain external approval before merging either PR, then refresh clean
-  runtime mirrors. Prove clean Claude and Cursor baselines and produce their
-  first sealed signed judge receipts before running the Claude/Cursor ×
-  bare/Superpowers/GSD/Vidux matrix across sealed tasks.
+  custody plus exactly one valid signed judge receipt.
+  Progress 2026-07-24: stacked `/ai` PR #124 at
+  `04663968d652b5463ad9e5e78eac575df19aaa22` now supplies the first clean
+  Claude live packet runner and retains all three falsification/fix packets.
+  It pins the native Claude Code 2.1.219 arm64 Mach-O
+  (`a8e806faaefac53c7a0f26523d8a45c60dbef3407b14ef990c75765d08febc82`),
+  uses `--bare`, fresh HOME/XDG, empty settings/MCP, two anonymous equal-bound
+  Fable arms, separate ephemeral custodian/judge Ed25519 keys, a hidden
+  behavioral oracle, exact signed base/output custody, independent judges, and
+  no retry, scheduler, daemon, queue, or Spark path. V1 falsified the original
+  temp-boundary assumption: Claude uses `CLAUDE_CODE_TMPDIR`, so outer Seatbelt
+  denied `/private/tmp/claude-*`; both arms exited 1 after raw provider-reported
+  $1.063260 / $1.013688 and earned 0/2 units. V2 proved the isolated temp fix
+  (both exit 0), then falsified the first judge: two behaviorally correct,
+  source-distinct repairs earned only the public `repair` unit because the
+  hidden proof prescribed one loop syntax; its summary also wrongly equated
+  any-unit acceptance with full acceptance. The runner now roots both
+  `TMPDIR` and `CLAUDE_CODE_TMPDIR` under fresh HOME, uses a broad hidden
+  behavioral attempt-bound/error-identity proof, reports
+  `judge_accepted_any` separately from strict `all_units_accepted`, and removes
+  newly created durable output on every failure or interrupt.
+  Final V3 is the first valid packet: summary SHA
+  `7c45b1b9a0ce7cd13ed8c6d033f310353597bb61932c74996d5617aa421124d9`;
+  independent verification reports `ok:true`, `integrity_complete:true`,
+  `custody_ready:true`, `judge_ready:true`, `errors:[]`; both arms exit 0 and
+  earn `["proof","repair"]` (2/2). Arm A is 60.157559 s with raw reported
+  $0.319590; arm B is 44.137386 s with raw reported $0.192309. These n=1 raw
+  figures are descriptive only: `provider_usage:null`, each Claude stream
+  reports Fable plus a small Haiku helper, and no Claude normalizer exists.
+  Therefore `claim_ready:false` remains correct and no quality winner,
+  efficiency advantage, or 5x claim follows. Full proof is 90/90 Pilot Python
+  tests, Pilot CLI/installation doctor PASS, Python compilation, all schema
+  parses, secret-pattern scan, independent V3 verification, and
+  `git diff --check`. Cursor/Grok 4.5 High session
+  `f718af5c-2a53-4142-a8d6-64bf5e4b282f` rejected the temp-root, partial-unit,
+  and finite-bound judge defects; final release-audit request
+  `3d6a23f8-613f-44cc-bddd-69f0edfbf708` ended `VERDICT: PASS`.
+  PRs #122, #123, and #124 are GitHub-clean and Graphite-current but still have
+  zero reviews and no approval, so none may self-merge. A claim-grade clean
+  Cursor baseline also remains blocked: fresh HOME is logged out and no
+  dedicated `CURSOR_API_KEY` is safely projected; inherited OAuth is
+  compatibility smoke only. Resume: obtain external approval for the stack,
+  land and refresh clean runtime mirrors, add independently verified Claude
+  usage normalization that counts Fable plus Haiku, provision a dedicated
+  clean Cursor credential boundary, then repeat sealed tasks across
+  Claude/Cursor × bare/Superpowers/GSD/Vidux before evaluating the 5x target.
 
 ## Claim discipline
 
