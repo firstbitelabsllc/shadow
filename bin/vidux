@@ -24,6 +24,7 @@ commands:
   init <slug>|--here Bootstrap a PLAN.md from template
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
+  checkpoint [args] Record a checkpoint on a PLAN.md and emit it to the ledger
   doctor            Install/readiness doctor for local CLI setup
   help [<cmd>]      Show this help, or help for a specific subcommand
 
@@ -202,6 +203,16 @@ main() {
     init)
       export VIDUX_ROOT
       exec bash "${VIDUX_ROOT}/scripts/vidux-init.sh" "$@"
+      ;;
+    checkpoint)
+      # The checkpoint script is the only surface that emits vidux telemetry
+      # (scripts/lib/ledger-emit.sh is sourced there and in vidux-loop.sh, and
+      # neither was reachable from this dispatcher). Without this verb the
+      # ledger readers -- vidux status, GET /api/ledger, the browser Ledger tab
+      # -- have no producer, so the whole telemetry path is a dashboard with
+      # nothing behind it.
+      export VIDUX_ROOT
+      exec bash "${VIDUX_ROOT}/scripts/vidux-checkpoint.sh" "$@"
       ;;
     doctor)
       export VIDUX_ROOT

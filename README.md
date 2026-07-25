@@ -38,23 +38,19 @@ vidux status
 vidux browse         # local cockpit (loopback by default)
 ```
 
-`vidux status` scans `VIDUX_DEV_ROOT` (default `~/Development`). If that directory is missing, it warns and still shows the `PLAN.md` in your current directory.
-
-`vidux help <command>` for options. Config lives at
-`~/.config/vidux/vidux.config.json` — see
-[`vidux.config.example.json`](vidux.config.example.json).
-
-The cockpit binds to loopback by default and scans your dev root (default
-`~/Development`, configurable) for plans; a measure with no attached artifact
-shows `PROOF MISSING` until one exists.
+`vidux status` scans `VIDUX_DEV_ROOT` (default `~/Development`) and still shows
+your current `PLAN.md` if that directory is missing. Run `vidux help <command>`
+for options; config lives at `~/.config/vidux/vidux.config.json`
+([example](vidux.config.example.json)).
 
 <p align="center">
   <img src="assets/vidux-dashboard.png" alt="The vidux browse cockpit: one project's PLAN.md at 67% with the declared current goal, the next step, and a results panel reading 0 winning / 0 losing / 1 unproven. The in-progress measure shows baseline, current, and target — and PROOF MISSING in red twice, because no artifact is attached yet. The header reads NET VALUE NOT PROVEN." width="900" />
 </p>
 
-That red `PROOF MISSING` is the point. A measure stays unproven, and the plan
-header stays `NET VALUE NOT PROVEN`, until an artifact is attached — the tool
-will not let a claim look finished on the strength of the claim.
+The cockpit binds to loopback by default and scans your dev root for plans. That
+red `PROOF MISSING` is the point: a measure stays unproven, and the plan header
+stays `NET VALUE NOT PROVEN`, until an artifact is attached. The tool will not
+let a claim look finished on the strength of the claim.
 
 ## Agent skill
 
@@ -77,36 +73,19 @@ or selects a model. The dashboard is a local view, not a hosted service.
 
 ## Docs
 
-Root is install + agent entry. Doctrine essays live under `docs/doctrine/` (not a second product).
-
-| Doc | Path |
-| --- | --- |
-| Architecture | [`docs/doctrine/ARCHITECTURE.md`](docs/doctrine/ARCHITECTURE.md) |
-| Doctrine | [`docs/doctrine/DOCTRINE.md`](docs/doctrine/DOCTRINE.md) |
-| Loop | [`docs/doctrine/LOOP.md`](docs/doctrine/LOOP.md) |
-| Enforcement hooks | [`docs/doctrine/ENFORCEMENT.md`](docs/doctrine/ENFORCEMENT.md) |
-| Core-cut handoff | [`docs/CORE-CUT.md`](docs/CORE-CUT.md) |
-| Evidence format | [`guides/evidence-format.md`](guides/evidence-format.md) |
-| Site / guides | [`docs/`](docs/) |
+Root is install + agent entry; doctrine essays live under `docs/doctrine/`, not a second product:
+[Architecture](docs/doctrine/ARCHITECTURE.md) · [Doctrine](docs/doctrine/DOCTRINE.md) · [Loop](docs/doctrine/LOOP.md) · [Enforcement hooks](docs/doctrine/ENFORCEMENT.md) · [Core-cut handoff](docs/CORE-CUT.md) · [Evidence format](guides/evidence-format.md) · [Site / guides](docs/)
 
 Community: [CONTRIBUTING](CONTRIBUTING.md) · [SECURITY](SECURITY.md) · [SUPPORT](SUPPORT.md) · [CODE_OF_CONDUCT](CODE_OF_CONDUCT.md)
 
-Repo `PLAN.md` (if present) is **this repo’s** internal queue — not required to use Vidux in your project.
+Repo `PLAN.md` (if present) is this repo's internal queue, not required to use Vidux in your project.
 
 ## Release truth
 
-Version `1.0.2` is the current source contract (`VERSION` + matching git tag).
-Vidux installs from source — there is no npm package on the registry. Prefer the
-tagged tip:
-
-```bash
-git clone https://github.com/firstbitelabsllc/vidux.git
-cd vidux && git checkout v1.0.2
-```
-
-Or track `main` for the latest. Release notes:
+Version `1.0.2` is the current source contract (`VERSION` + matching git tag);
+there is no npm package on the registry. Install from source at the tagged tip
+(`git checkout v1.0.2`) or track `main` for the latest. Release notes:
 [v1.0.2](https://github.com/firstbitelabsllc/vidux/releases/tag/v1.0.2).
-The Node toolchain is only used by contributor tests.
 
 ## Contributing
 
