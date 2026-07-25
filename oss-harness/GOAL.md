@@ -1,9 +1,19 @@
 # OSS Track — Goal Pointer
 
-Paste-ready for any agent seat (Claude Code, Cursor, Codex/Sol, GLM, Grok).
-The row-queue next door (`PLAN.md`) is the shared authority; claim a row there
-before working.
+`PLAN.md` next door is the shared row-queue and the authority. Claim a row
+there in a pushed commit before working, never touch another lane's row,
+re-read the queue from `origin/main` before every write, and fold receipts
+back into the same file.
 
-```
-Goal: OSS-track stewardship — make this portfolio's open-source repos excellent (vidux, claudux, skillbox, staged candidates) and proactively research/dev/build/test the next open-source wins. Authority: ~/Development/vidux/oss-harness/PLAN.md (shared row-queue; private campaign history: ~/Development/ai-leo/vidux/oss-harness/PLAN.md — read locally, never copy private content into public files). Multi-agent: multiple seats work this same goal concurrently — claim your row in a pushed commit before writing, never touch another lane's row, re-read the PLAN from origin/main before every write, fold receipts back to the same PLAN. Seat mix (target share of agent-reachable wave work; parent still accepts): GLM ~60% via Pilot/Delegate glm-max (opencode zai/glm-5.2 --variant max) for bounded drafts; Sol/Codex ~30% (Sol hard IC / Codex for bounded build+proof); Cursor Grok max ~10% (adversarial review, integration/debug, loop steward when other seats unavailable). Do not let Grok monopolize waves. M1 delegate-first: route bounded mechanical work to GLM/Sol before frontier hands-on-keys. M2 never stop / all boats rise: park blocked rows with a resume predicate, pick the next reachable row, commit+push green work immediately. Quality bar for already-public amplify (stranger-test + CI + zero private content). New repo create / publicize / visibility flips stay per-instance Leo-gated unless a PLAN row authorizes. Pathspec commits only.
-```
+Standing rails: route bounded mechanical work to the cheapest healthy worker
+before frontier hands-on-keys; park a blocked row with a resume predicate and
+pick the next reachable one rather than stopping; commit and push green work
+immediately; pathspec commits only. Quality bar for amplifying anything
+already public: stranger-test green from a sandboxed HOME following the README
+verbatim, suite and CI green, and zero private content in any published file.
+
+Repository creation, publicizing, and visibility flips are owner-gated per
+instance unless a queue row explicitly authorizes one.
+
+The concrete seat roster this project routes through is private and is
+deliberately not published here.
