@@ -703,15 +703,45 @@ GLM shims.
   `f718af5c-2a53-4142-a8d6-64bf5e4b282f` rejected the temp-root, partial-unit,
   and finite-bound judge defects; final release-audit request
   `3d6a23f8-613f-44cc-bddd-69f0edfbf708` ended `VERDICT: PASS`.
-  PRs #122, #123, and #124 are GitHub-clean and Graphite-current but still have
-  zero reviews and no approval, so none may self-merge. A claim-grade clean
-  Cursor baseline also remains blocked: fresh HOME is logged out and no
-  dedicated `CURSOR_API_KEY` is safely projected; inherited OAuth is
-  compatibility smoke only. Resume: obtain external approval for the stack,
-  land and refresh clean runtime mirrors, add independently verified Claude
-  usage normalization that counts Fable plus Haiku, provision a dedicated
-  clean Cursor credential boundary, then repeat sealed tasks across
-  Claude/Cursor × bare/Superpowers/GSD/Vidux before evaluating the 5x target.
+  Repository reality advanced after that receipt: PR #122 merged as
+  `d01a79fd`, and PR #123 merged as `ed8feb35`; shared `/ai` `origin/main`
+  contains the sealed harness, provider attribution, reconstructable custody,
+  and independent judge. Graphite restacked PR #124 directly onto that trunk at
+  `f77cdc7d` and created stacked PR #125 at
+  `dab3acb2c7b9059e3c96a128db02686b77fa567c`
+  (`https://github.com/leojkwan/ai/pull/125`). PR #125 adds strict Claude usage
+  normalization which aggregates every reported Fable and Haiku model entry,
+  cross-checks the primary usage and total cost, binds the normalized artifact
+  plus raw stream into signed custody, and re-normalizes it during verification.
+  Claude honestly remains `usage_complete:false`,
+  `provider_attested:false`, with empty provider request IDs and null provider
+  invocation count because its terminal stream does not expose those facts.
+  Malformed, duplicate, non-finite, negative, omitted-model, cost-drift, raw
+  mutation, artifact mutation, and binding-drift inputs fail closed.
+  The fresh sealed V4 packet
+  `claude-bare-judge-20260724-v4` is integrity-, custody-, and judge-ready:
+  both anonymous Fable arms exit 0 and earn `["proof","repair"]` (2/2).
+  Bare arm A reports 59.106 s, 591 input, 3,167 output, 29,123 cache-read,
+  7,162 cache-write, and $0.277058. Skill arm B reports 59.804 s, 587 input,
+  4,019 output, 17,306 cache-read, 7,218 cache-write, and $0.308501.
+  Therefore the equally accepted skill arm costs 11.35% more in V4, reversing
+  V3's apparent 39.83% saving. That contradiction is the result: an n=1 cost
+  advantage is unstable, `claim_ready:false` remains correct, and no efficiency
+  or 5x claim is permitted.
+  Cursor/Grok 4.5 High session `9f7e9ac4-7531-4711-b565-dd96633d3a61`
+  rejected stale documentation and an incorrectly projected receipt surface;
+  both were repaired, its adversarial re-review ended `VERDICT: PASS` with
+  `No remaining medium/high findings`, and no generated code was accepted.
+  Exact post-restack proof at PR #125 head is 94/94 Pilot Python tests, Pilot
+  CLI/installation doctor PASS, and `git diff --check`; GitHub reports the PR
+  open, ready, and mergeable with no checks or approval. It must not self-merge.
+  A claim-grade clean Cursor baseline also remains blocked: fresh HOME is logged
+  out and no dedicated `CURSOR_API_KEY` is safely projected; inherited OAuth is
+  compatibility smoke only. Resume: obtain independent approval for PRs #124
+  and #125, land and refresh clean runtime mirrors, provision a dedicated clean
+  Cursor credential boundary, then repeat sealed externally-authored tasks
+  across Claude/Cursor × bare/Superpowers/GSD/Vidux before evaluating the 5x
+  target.
 
 - [claimed: claude-opus5-lead 2026-07-24T22:32:42-04:00] Efficiency yardstick — supply the two
   halves the skill-layer harness row does not own: an **externally-authored task
