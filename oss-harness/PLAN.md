@@ -53,6 +53,41 @@ benchmark the harness against the best. Everything else is a candidate.
   restoring the protected capability — it is the only thing standing in the way.
   *Done when:* a benchmark file can be packed and the release verifier stays green.
 
+#### Live E2E evidence (driven in a real browser, 2026-07-25)
+
+Launched the cockpit against a working dev tree and drove it headless with a real
+Chrome. Every number below is read off the running page, not inferred from source.
+
+| observation | measured |
+|---|---|
+| header on first load | **"557 plans · 33 projects"** |
+| visible buttons, simple mode | **44** |
+| visible buttons, advanced mode | **49** |
+| tabs, simple mode | `PLAN.md`, `Decision Log` |
+| tabs, advanced mode | `PLAN.md`, `Decision Log`, **`Sessions`, `Ledger`** |
+| artifacts counter | **0 artifacts** |
+
+**The ordering constraint is now proven by execution, not by reading source.** The
+Ledger tab is present ONLY in advanced mode. Deleting the mode without promoting
+that tab first removes the only surface for the protected telemetry. This was
+predicted from a source read; it is now a measurement.
+
+**The coordination and steering panels render in BOTH modes** — confirmed ungated.
+A single user in simple mode sees a "SHARED CONTROL ROOM / Live work" card whose
+body reads *"Live work is available only from the local Mac"*, and a "ONE-SHOT
+INTENT / Steer next turn" card showing `0/8 active`. Neither means anything to the
+target reader.
+
+**Advanced mode's ops strip is exactly the cluster marked for deletion** — a
+"LOCAL TRUTH" bar carrying config state, a runtime-doctor score, a host memory
+pressure percentage, and a pre-hook line naming the doctor script it shells out
+to. It also renders an absolute home-directory path into the page.
+
+**What the first screen actually says to a newcomer**, verbatim from the running
+page: *"no tasks defined yet — add a `## Tasks` section to drive the bar"* and
+*"PROOF: No proof files yet."* The product's first instruction to someone who has
+never orchestrated an agent is a markdown-structure requirement.
+
 #### Wave 1 — provably dead, 7,362 lines, zero behaviour change
 
 Only 5 of 26 files under `scripts/` are reachable from the four commands or the
