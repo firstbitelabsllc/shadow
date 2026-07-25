@@ -742,6 +742,54 @@ GLM shims.
   Cursor credential boundary, then repeat sealed externally-authored tasks
   across Claude/Cursor × bare/Superpowers/GSD/Vidux before evaluating the 5x
   target.
+  Progress 2026-07-25: after Vidux `main` advanced to `126fe7b9`, its clean
+  runtime mirror was fast-forwarded to the same commit. The post-refresh
+  `pilot doctor --roster --json` receipt is `ok:true` with all 12 checks green;
+  shared `/ai` and `/ai-leo` runtime mirrors remain exactly at their respective
+  `origin/main` tips. No unmerged #124/#125 code entered runtime.
+  Independent mechanics review found the current two-arm live assembler cannot
+  be extended honestly by merely adding repeats: it executes A before B,
+  hardcodes one public ceiling-effect task, deletes partial campaigns, binds no
+  immutable stopping rule or exact cross-program cell universe, permits
+  cross-repeat binding drift, and tests a one-sentence prompt rather than real
+  Superpowers/GSD/Vidux layers. V3/V4 can therefore support transport and
+  falsification only. A paid GLM-5.2 max draft
+  (`del-1784948516-35342`, 177 s, `draft_unreviewed`) proposed a four-arm
+  refactor, but lead review rejected it because it invented comparator prompts,
+  reused mutable workspaces across repeats, accepted unverified resume
+  signatures, failed to seal allocation, and allowed missing usage contracts
+  into claim readiness. None of its code was accepted.
+  The next stacked branch is
+  `codex/pilot-campaign-envelope-20260725`: it first adds a create-once campaign
+  preregistration and verifier so exact tasks, cells, repeats, stopping rule,
+  quality rule, denominator, 5x confidence threshold, and balanced allocation
+  are frozen before any provider invocation. Runner generalization follows only
+  after that envelope passes adversarial tests.
+  Independent corpus selection recommends a pinned five-task SWE-bench
+  Verified slice at dataset revision
+  `c104f840cc67f8b6eec6f759ebc8b2693d585d4a` and evaluator revision
+  `f7bbbb2ccdf479001d6467c9e34af59e44a840f9`: Django 11206, pytest 10051,
+  Sphinx 10466, SymPy 11618, and Matplotlib 24637. The preregistered floor is
+  ten balanced repeats per task across four arms (200 sessions/provider), two
+  forced interruption/resume blocks per task, no paired quality regression,
+  and a one-sided 95% upper confidence bound below 0.20 for wrapped/bare
+  provider cost per accepted task. Verdict is **NOT RUN-READY**: those
+  repositories exceed the current 256-file/32 MiB custody cap, claim-grade
+  Seatbelt currently permits network and could fetch public solutions, and the
+  dataset card declares no dataset license, so pinned rows must be fetched
+  privately and patches must not be redistributed.
+  Clean Cursor custody was also resolved precisely without a paid call. Fresh
+  XDG with inherited HOME remains authenticated and is not clean; fresh
+  HOME+XDG plus `AGENT_CLI_CREDENTIAL_STORE=memory` correctly suppresses
+  inherited OAuth. No dedicated `CURSOR_API_KEY` is present, and the harness
+  deliberately rejects `CURSOR*` projection. The only acceptable repair is a
+  one-campaign revocable key passed to the macOS custodian through a private FD,
+  injected only into the worker environment, scanned out of every durable
+  artifact, and destroyed with the fresh HOME. Passing `--api-key` in argv or
+  relabeling inherited OAuth is forbidden. Until that key boundary, offline
+  content-addressed large-repository custody, network denial, campaign
+  preregistration, and complete interruption accounting exist, do not spend the
+  200-session matrix or claim a winner.
 
 - [claimed: claude-opus5-lead 2026-07-24T22:32:42-04:00] Efficiency yardstick — supply the two
   halves the skill-layer harness row does not own: an **externally-authored task
