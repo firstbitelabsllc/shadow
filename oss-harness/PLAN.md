@@ -627,15 +627,32 @@ GLM shims.
   split mode/content races and inconsistent final-pass caps; final request
   `786dd3ab-ba94-4b30-8476-7fd183f904cc` ended `VERDICT: PASS`. Exact proof:
   59/59 Pilot Python tests, Pilot CLI/installation doctor PASS, Python compile,
-  run-schema parse, and `git diff --check` all green. Both PRs are clean and
+  run-schema parse, and `git diff --check` all green.
+  PR #123 then signed preregistered provider attribution at
+  `6749b76bdeb76db2c2215fde036f1d5d88734226`: the cell binds provider,
+  parser/version, requested model, and raw stdout; the custodian normalizes the
+  hash-bound raw stream before signing; and the verifier independently
+  re-normalizes it and requires canonical artifact, raw SHA, model,
+  session/request, count, and completeness equality. Complete ordered Cursor
+  terminals may set `provider_invocation_count`; OpenCode/Z.ai remains
+  `usage_complete:false`, `provider_attested:false`, and count-null for
+  efficiency claims. Paired arms must share the exact attribution contract,
+  non-macOS custody rejects it, unsafe or mismatched model identities fail, and
+  a real oversized execute-path stream fails closed. Cursor/Grok 4.5 High
+  session `11a3a725-fb2d-4430-8986-7ee5b39c59ac` rejected the initial diff for
+  model alias, backend, pairing, ordering, and test gaps; final request
+  `157fd5f1-9c1b-403d-86d2-c01bb286129d` ended `VERDICT: PASS`. Exact proof is
+  now 68/68 Pilot Python tests plus Pilot CLI/installation doctor, Python
+  compile, both schema parses, and `git diff --check`.
+  Both PRs are clean and
   Graphite-current, but still have zero reviews and no approval, so neither may
   self-merge. `descendant_quiescence_proven`, `custody_ready`, `judge_ready`,
   and `claim_ready` remain false.
-  Resume: integrate normalized provider usage into the signed custodian receipt
-  without promoting incomplete OpenCode evidence; then connect the signed base
-  plus changed-output readers to an independent blinded judge. After approval,
-  merge the PRs and refresh clean runtime mirrors. Prove clean Claude and Cursor
-  baselines before running the Claude/Cursor ×
+  Resume: connect the signed base plus changed-output readers to an independent
+  blinded judge, reusing the existing driver-benchmark accepted-unit contract
+  rather than inventing a second scoring model. After approval, merge the PRs
+  and refresh clean runtime mirrors. Prove clean Claude and Cursor baselines
+  before running the Claude/Cursor ×
   bare/Superpowers/GSD/Vidux matrix across sealed tasks.
 
 ## Claim discipline
