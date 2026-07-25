@@ -1,3 +1,14 @@
+<p align="center">
+  <img src="assets/vidux-banner.svg" alt="Vidux banner: the five-step loop an agent runs each session — READ the plan and proof, ASSESS what's next, ACT on the smallest slice, VERIFY with real proof, CHECKPOINT a resume point — and the next run starts again at READ." width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/firstbitelabsllc/vidux/actions/workflows/ci.yml"><img src="https://github.com/firstbitelabsllc/vidux/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/firstbitelabsllc/vidux/stargazers"><img src="https://img.shields.io/github/stars/firstbitelabsllc/vidux?style=flat" alt="GitHub stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/python-%E2%89%A53-3776ab?style=flat" alt="Python ≥ 3" />
+</p>
+
 # Vidux
 
 Plan-first control plane for AI coding work that spans sessions, agents, or days.
@@ -36,6 +47,14 @@ vidux browse         # local cockpit (loopback by default)
 The cockpit binds to loopback by default and scans your dev root (default
 `~/Development`, configurable) for plans; a measure with no attached artifact
 shows `PROOF MISSING` until one exists.
+
+<p align="center">
+  <img src="assets/vidux-dashboard.png" alt="The vidux browse cockpit: one project's PLAN.md at 67% with the declared current goal, the next step, and a results panel reading 0 winning / 0 losing / 1 unproven. The in-progress measure shows baseline, current, and target — and PROOF MISSING in red twice, because no artifact is attached yet. The header reads NET VALUE NOT PROVEN." width="900" />
+</p>
+
+That red `PROOF MISSING` is the point. A measure stays unproven, and the plan
+header stays `NET VALUE NOT PROVEN`, until an artifact is attached — the tool
+will not let a claim look finished on the strength of the claim.
 
 ## Agent skill
 
