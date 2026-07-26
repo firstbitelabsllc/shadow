@@ -267,11 +267,13 @@ if (window.matchMedia) {
 }
 
 // Simple/Advanced mode — default Simple. vidux started as a plan browser and
-// accreted AI-agent-operator tooling (raw session transcripts, JSONL ledger
-// rows, local-runtime diagnostics, a cross-repo fleet view) into the same
-// default surface; someone who isn't the engineer who built it should be
-// able to open this and see their plan/tasks/progress without wading through
-// any of that. Advanced mode restores it all for the operator use case.
+// accreted AI-agent-operator tooling (raw session transcripts, local-runtime
+// diagnostics, a cross-repo fleet view) into the same default surface;
+// someone who isn't the engineer who built it should be able to open this
+// and see their plan/tasks/progress without wading through any of that.
+// Advanced mode restores it all for the operator use case. The activity
+// Ledger is the exception: it is the owner's protected telemetry surface and
+// is offered in Simple mode too, so removing advanced mode can never hide it.
 const ADVANCED_MODE_KEY = "vidux:advancedMode";
 function isAdvancedMode() {
   try { return localStorage.getItem(ADVANCED_MODE_KEY) === "1"; }
@@ -292,7 +294,7 @@ function applyAdvancedModeUI() {
     btn.setAttribute("aria-pressed", String(advanced));
     btn.title = advanced
       ? "Switch to the simple plan/progress view"
-      : "Switch to the advanced view (session logs, ledger, local diagnostics, fleet dashboard)";
+      : "Switch to the advanced view (session logs, local diagnostics, fleet dashboard)";
   }
 }
 function toggleAdvancedMode() {
@@ -305,7 +307,7 @@ function toggleAdvancedMode() {
   // still render that tab's content with no visible tab button pointing at
   // it (the tabs array excludes it, but activeTab/isSessionActive etc. don't
   // know that) — snap back to PLAN.md so the UI stays consistent.
-  if (!next && [SESSION_TAB, LEDGER_TAB].includes(state.activeTab)) {
+  if (!next && state.activeTab === SESSION_TAB) {
     state.activeTab = "PLAN.md";
   }
   // Re-render whatever's on screen so the newly shown/hidden panels take
@@ -1824,7 +1826,7 @@ async function renderPane(opts = {}) {
   if (!isCurrentViewRevision(viewRevision, "plan", plan.path)) return;
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
-  const tabs = ["PLAN.md", DECISION_LOG_TAB, ...(isAdvancedMode() ? [SESSION_TAB, LEDGER_TAB] : []), ...plan.siblings];
+  const tabs = ["PLAN.md", DECISION_LOG_TAB, LEDGER_TAB, ...(isAdvancedMode() ? [SESSION_TAB] : []), ...plan.siblings];
   const investigations = plan.investigations || [];
   const evidence = plan.evidence || [];
   const decisionLog = plan.decision_log || { present: false, count: 0, entries: [], recent_directions: [] };
