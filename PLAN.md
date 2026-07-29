@@ -50,6 +50,11 @@ it never routes models, schedules work, or transports provider traffic.
 
 - [completed] Cut the CLI to the minimal public surface and align docs.
 - [completed] Wire CI: tests, release verification, secret scan, public-ready gate.
+- [pending] Make the outcome-first operator experience the next Vidux product
+  capability. The user-facing working name is **90**; the durable plan is
+  [`plans/90-outcome-console/PLAN.md`](plans/90-outcome-console/PLAN.md). This
+  is a product hypothesis with a bounded dogfood gate, not a rename or a claim
+  that execution exists.
 - [pending] Triage issues and PRs after the repository is public.
 
 ## Decision Log
@@ -58,8 +63,15 @@ it never routes models, schedules work, or transports provider traffic.
   npm publication, git tag, or GitHub Release is claimed until one exists.
 - [2026-07-21] Internal helpers (steering mailbox, coordination claims, config)
   stay invoked by script path; the CLI surface stays at four commands.
+- [2026-07-29] Vidux remains the durable plan/proof/cleanup kernel. The 90
+  product layer must make that machinery quiet: one current Outcome, one
+  exceptional Ask, a Steer that supersedes stale direction, and proof at the
+  end. The coding host still owns provider routing and execution.
 
 ## Progress
 
 - 2026-07-21: 1.0.0 cut — minimal CLI surface, consolidated CI, fresh
   changelog, plan reset to the scaffold shape.
+- 2026-07-29: Recorded the Outcome Console opportunity, smallest useful GUI,
+  competitor evidence, falsification gates, and bounded first dogfood slice.
+  No GUI implementation, rename, or release claim is implied.
