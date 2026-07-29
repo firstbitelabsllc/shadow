@@ -88,7 +88,7 @@ Catches drift per-edit, not per-cycle. Evidence: agent code degradation is monot
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.\n2. Emitted a publish ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.\n3. Committed only after the plan/ledger packet exists, and only if code changed.\n4. If no work shipped, leave a plan/ledger handoff or blocker note instead of inventing a commit.\n\nThe next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail."
+            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.\n2. Emitted a internal checkpoint ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.\n3. Committed only after the plan/ledger packet exists, and only if code changed.\n4. If no work shipped, leave a plan/ledger handoff or blocker note instead of inventing a commit.\n\nThe next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail."
           }
         ]
       }
@@ -109,7 +109,7 @@ Pair the prompt with an `async` command that warns (does not block) when `## Pro
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX CHECKPOINT: Before this session ends, update the owning PLAN.md Progress/Tasks/Drift Log, emit a publish ledger row for shipped work with proof, handoff_status, files claimed, claims, and resume, then commit only after that packet exists and only if code changed. The next session knows nothing except what's in the files and matching ledger row."
+            "prompt": "VIDUX CHECKPOINT: Before this session ends, update the owning PLAN.md Progress/Tasks/Drift Log, emit a internal checkpoint ledger row for shipped work with proof, handoff_status, files claimed, claims, and resume, then commit only after that packet exists and only if code changed. The next session knows nothing except what's in the files and matching ledger row."
           },
           {
             "type": "command",
@@ -139,7 +139,7 @@ Pair the prompt with an `async` command that warns (does not block) when `## Pro
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry and matching publish/handoff ledger row — that's where shipped work resumes.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.\n5. Find the highest-priority unblocked task — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. PLAN.md is the queue/planning authority; matching publish ledger rows prove shipped work."
+            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry and matching publish/handoff ledger row — that's where shipped work resumes.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.\n5. Find the highest-priority unblocked task — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. PLAN.md is the queue/planning authority; matching internal checkpoint ledger rows prove shipped work."
           }
         ]
       }
@@ -209,7 +209,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.\n2. Emitted a publish ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.\n3. Committed only after the plan/ledger packet exists, and only if code changed.\n4. If no work shipped, leave a plan/ledger handoff or blocker note instead of inventing a commit.\n\nThe next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail."
+            "prompt": "VIDUX CHECKPOINT: Before this session ends, ensure you have:\n\n1. Updated the owning PLAN.md Progress/Tasks/Drift Log with what changed, blockers, proof, files claimed, and the next-agent resume point.\n2. Emitted a internal checkpoint ledger row for shipped work with summary, task id, plan path, proof, handoff_status, files claimed, claims, and resume.\n3. Committed only after the plan/ledger packet exists, and only if code changed.\n4. If no work shipped, leave a plan/ledger handoff or blocker note instead of inventing a commit.\n\nThe next session is a different agent. It knows nothing except what's in the files and matching ledger row. Leave it a clear trail."
           }
         ]
       }
@@ -219,7 +219,7 @@ All four hooks combined in a single `settings.local.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry and matching publish/handoff ledger row — that's where shipped work resumes.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.\n5. Find the highest-priority unblocked task — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. PLAN.md is the queue/planning authority; matching publish ledger rows prove shipped work."
+            "prompt": "VIDUX RESUME: This is a Vidux-managed project. Start by reading PLAN.md and the latest matching ledger row:\n\n1. Read PLAN.md — find the Purpose, then go to the Progress section.\n2. Find the last progress entry and matching publish/handoff ledger row — that's where shipped work resumes.\n3. Check for uncommitted work: run git status and git diff --stat.\n4. If uncommitted work exists from a crashed session, preserve it first: inspect the diff, map it to the owning plan row, and record recovery path in owning plan plus ledger handoff before any commit, push, cleanup, or overwrite.\n5. Find the highest-priority unblocked task — that's your job this session.\n6. Follow the Vidux loop: Gather -> Plan -> Execute -> Verify -> Checkpoint.\n\nDo NOT start coding until you know what the plan says. PLAN.md is the queue/planning authority; matching internal checkpoint ledger rows prove shipped work."
           }
         ]
       }

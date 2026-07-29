@@ -76,8 +76,8 @@ sight in design PRs.
 ```markdown
 Push tiers:
 
-- Tier 1 (ready PRs, feature branches): safe after publish propagation; no approval needed. Use draft only for true WIP or a missing gate.
-- Tier 2 (direct-to-main, merge to trunk): session-scope authorization required, plus the same publish propagation before the push/merge.
+- Tier 1 (ready PRs, feature branches): safe after checkpoint propagation; no approval needed. Use draft only for true WIP or a missing gate.
+- Tier 2 (direct-to-main, merge to trunk): session-scope authorization required, plus the same checkpoint propagation before the push/merge.
 - Tier 3 (destructive: force-push, branch delete, git reset --hard, history
   rewrite): per-action authorization required, every time.
 
@@ -104,7 +104,7 @@ Start every code change from the current trunk (usually `main`). Run
 `git fetch origin && git log origin/main..HEAD` before committing — if
 trunk has moved, rebase or restart from `origin/main`. Worktrees are
 disposable integration helpers, not the source of truth. A merge back to
-trunk is not enough by itself; the publish ledger row with proof, handoff
+trunk is not enough by itself; the internal checkpoint ledger row with proof, handoff
 status, files claimed, and next-agent resume is the done signal.
 ```
 
@@ -143,7 +143,7 @@ If you copy only one section, copy this:
 4. No cause attribution without concrete evidence; "I don't know yet" beats a guess.
 5. No tech-stack attribution ("Built with X") in product UI unless the user asks.
 6. Destructive git (force-push, reset --hard, branch delete) needs per-action authorization.
-7. Every code change starts from origin/main. Any commit, push, PR, direct-to-main update, or trunk merge must update the owning PLAN.md and emit a publish ledger row with proof, handoff status, files claimed, and next-agent resume before done is claimed.
+7. Every code change starts from origin/main. Any commit, push, PR, direct-to-main update, or trunk merge must update the owning PLAN.md and emit a internal checkpoint ledger row with proof, handoff status, files claimed, and next-agent resume before done is claimed.
 8. After 3 same-error failures, stop and re-diagnose. Don't sleep-loop.
 ```
 

@@ -6,7 +6,7 @@ For running vidux lanes on a schedule or in long-running sessions. Load only whe
 
 For Codex-created automations, the default run mode is **Chat**. Treat `Worktree` and `Local` as explicit opt-ins — only when the user asks for repo-bound execution or the task is impossible from chat.
 
-Control-plane overlays may choose an execution mode but do not own queue state. A control plane may store provider refs, cadence, last fire, next fire, and retirement rules; each fired run must rehydrate from `PLAN.md`, `INBOX.md`, evidence, and publish ledger rows before acting.
+Control-plane overlays may choose an execution mode but do not own queue state. A control plane may store provider refs, cadence, last fire, next fire, and retirement rules; each fired run must rehydrate from `PLAN.md`, `INBOX.md`, evidence, and internal checkpoint ledger rows before acting.
 
 ---
 
@@ -16,7 +16,7 @@ Automate when **all** of these are true:
 
 - Work spans multiple sessions and would lose context across handoff
 - The cycle is repeatable (each fire does the same kind of work on whatever's pending)
-- State orientation can live on disk: owning PLAN.md, publish ledger rows, evidence, and lane-local memory notes
+- State orientation can live on disk: owning PLAN.md, internal checkpoint ledger rows, evidence, and lane-local memory notes
 - You accept losing conversation scrollback in exchange for 24/7 progress
 
 Do NOT automate when:
@@ -39,13 +39,13 @@ Lanes (persistent)                    Sessions (disposable)
 └── memory.md   (lane-local cycle log) - shipped-work proof never lives here alone
 ```
 
-A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of which session fires them. When a session dies, the files stay; the next session re-schedules the cron, reads memory.md for lane-local orientation, and resumes from the owning PLAN.md plus publish ledger rows for shipped-work proof.
+A lane = `prompt.md` + `memory.md` on disk. These files persist regardless of which session fires them. When a session dies, the files stay; the next session re-schedules the cron, reads memory.md for lane-local orientation, and resumes from the owning PLAN.md plus internal checkpoint ledger rows for shipped-work proof.
 
 ### Hot vs cold storage
 
 | Layer | Lives here | GC |
 |---|---|---|
-| **Cold** (durable) | PLAN.md, evidence/, investigations/, publish ledger rows, lane-local memory.md notes | Agent-decided archive when the plan feels heavy |
+| **Cold** (durable) | PLAN.md, evidence/, investigations/, internal checkpoint ledger rows, lane-local memory.md notes | Agent-decided archive when the plan feels heavy |
 | **Hot** (disposable) | `~/.claude/projects/*/*.jsonl` | Automatic via the session-gc lane's operator-provided JSONL cleanup helper |
 
 ### session-gc is mandatory for 24/7
@@ -202,7 +202,7 @@ Test-fire once. If the first-fire output looks right, leave it.
 
 - Confirm the lane's `memory.md` gets its first lane-local entry on the next fire
 - Confirm the `[CYCLE] ...` log format matches the CHECKPOINT spec in prompt.md
-- If the fire shipped work, confirm the owning PLAN.md plus publish ledger row carries proof and resume metadata
+- If the fire shipped work, confirm the owning PLAN.md plus internal checkpoint ledger row carries proof and resume metadata
 - Add the lane to INBOX or coordinator memo so future sessions know it exists
 
 ---

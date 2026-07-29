@@ -2,11 +2,11 @@
 
 The doctrine. Governs every agent decision: what to do next, when to gather evidence, when to stop, how to leave things for the next agent.
 
-**publish packet** = ledger row carrying task id, proof, handoff status, files claimed, next-agent resume (defined in [The Cycle](/concepts/cycle)).
+**internal checkpoint packet** (legacy name: `publish packet`) = internal ledger row carrying task id, proof, handoff status, files claimed, and next-agent resume. It records state and grants no external publication, send, merge, deploy, or authorization authority (defined in [The Cycle](/concepts/cycle)).
 
 ## Principle 1: Plan First, Code Second
 
-PLAN.md is the planning authority for queue, decisions, constraints, progress. Code derives from plan state. To change code, update the plan first; to claim a shipped cycle, pair the plan update with the publish packet.
+PLAN.md is the planning authority for queue, decisions, constraints, progress. Code derives from plan state. To change code, update the plan first; to claim a shipped cycle, pair the plan update with the internal checkpoint packet.
 
 Every plan entry cites evidence — a codebase grep, PR comment, design doc quote, team chat message. **A plan entry without evidence is a guess. Guesses cause rework.** Evidence: evidence-first coding costs 2-5 min research, saves 15-60 min rework.
 
@@ -24,7 +24,7 @@ Every session ends. Context will be lost. Auth will expire. State lives in repo 
 
 After any interruption, re-read PLAN.md and evidence/ from disk. NEVER trust summaries or memory for plan details.
 
-Every cycle updates the owning plan/progress record. Any publishable branch, PR, or release also emits the publish packet. A fresh agent reads plan + ledger packet and knows exactly where things stand.
+Every cycle updates the owning plan/progress record. Any publishable branch, PR, or release also emits the internal checkpoint packet. A fresh agent reads plan + ledger packet and knows exactly where things stand.
 
 ## Principle 3: Investigate Before Fixing
 

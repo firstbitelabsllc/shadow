@@ -59,7 +59,7 @@ Vidux ships enforcement hooks that catch planning failures at commit time. Optio
 Treat installing or rewiring hooks as a publish/change cycle in the **target project**. Before copying or enabling hooks:
 
 1. Update the target repo's owning `PLAN.md` (Progress/Tasks/Drift Log) with what is changing, proof, `handoff_status`, files claimed, next-agent resume.
-2. Emit a publish ledger row for the target repo with the summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage. Pre-copy packet: use the updated `PLAN.md` as both `--file` and `--claim`. After copying and verifying hooks, emit the final `done` row with copied hook paths once they exist.
+2. Emit a internal checkpoint ledger row for the target repo with the summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage. Pre-copy packet: use the updated `PLAN.md` as both `--file` and `--claim`. After copying and verifying hooks, emit the final `done` row with copied hook paths once they exist.
 
 ```bash
 # "$LEDGER_EMIT" is your own configured ledger-emit executable (wired via
@@ -102,7 +102,7 @@ For stronger enforcement within Claude Code sessions, add the hooks from [`docs/
 
 - Gate file edits: require a PLAN.md entry before writing code
 - Detect drift: flag file changes that don't match the active plan task
-- Enforce checkpoints: require the owning plan/progress update and publish-ledger packet before publishable work exits
+- Enforce checkpoints: require the owning plan/progress update and checkpoint-ledger packet before publishable work exits
 - Resume protocol: prompt plan re-read on session start
 
 The repo ships `hooks/hooks-reference.json` as a checked-in example manifest: it wraps the three git hooks above plus `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.

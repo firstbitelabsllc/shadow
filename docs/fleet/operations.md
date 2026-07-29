@@ -32,7 +32,7 @@ Every dispatch cycle leaves the same local proof shape, whether the parent runti
 - `python3 scripts/vidux-config.py check --json` proves local config or example fallback before plan-store assumptions.
 - `scripts/vidux-doctor.sh --json` is the beforeTask runtime health probe; `vidux doctor` remains the terminal install/readiness doctor.
 - `VIDUX_RUNTIME=claude`, `VIDUX_RUNTIME=codex`, or `VIDUX_RUNTIME=cursor` keeps spawned-worker attribution honest.
-- The final handoff is the owning `PLAN.md` plus matching publish ledger row.
+- The final handoff is the owning `PLAN.md` plus matching internal checkpoint ledger row.
 
 ## Coordination checks
 
@@ -52,7 +52,7 @@ Mandatory before a lane acts:
 
 PR sweep and worktree handoff are operational requirements:
 
-- The owning `PLAN.md` plus matching publish ledger row is the durable shipped-work recovery packet; open automation PRs are transport/review handles, swept before new branch work starts.
+- The owning `PLAN.md` plus matching internal checkpoint ledger row is the durable shipped-work recovery packet; open automation PRs are transport/review handles, swept before new branch work starts.
 - Resume or garbage-collect active worktrees instead of duplicating.
 - `vidux-worktree-gc.py` protects both the primary checkout and the checkout it is invoked from; only `merged_clean` rows are auto-removable.
 - Keep PLAN changes append-mostly so stale merges do not clobber task queues.

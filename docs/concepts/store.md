@@ -1,12 +1,12 @@
 # The Store
 
-The persistence layer. Every fact needed to survive an interrupted session lives in repo files — `PLAN.md`, `evidence/`, `investigations/`, git history — plus the append-only publish ledger rows that prove shipped cycles. `INBOX.md` is the intake queue. No databases. No daemons. No in-memory state.
+The persistence layer. Every fact needed to survive an interrupted session lives in repo files — `PLAN.md`, `evidence/`, `investigations/`, git history — plus the append-only internal checkpoint ledger rows that prove shipped cycles. `INBOX.md` is the intake queue. No databases. No daemons. No in-memory state.
 
-**publish packet** = ledger row carrying task id, proof, handoff status, claimed files, resume point (defined in [The Cycle](/concepts/cycle)).
+**internal checkpoint packet** (legacy name: `publish packet`) = internal ledger row carrying task id, proof, handoff status, claimed files, and resume point. It records state and grants no external publication, send, merge, deploy, or authorization authority (defined in [The Cycle](/concepts/cycle)).
 
 ## Why Files?
 
-AI agents are stateless. Auth expires. Sessions crash. State that survives a dead session is the repo plan/evidence tree plus the publish packet for shipped work.
+AI agents are stateless. Auth expires. Sessions crash. State that survives a dead session is the repo plan/evidence tree plus the internal checkpoint packet for shipped work.
 
 One constraint: **any agent, resuming cold, must reach full context within 90 seconds of reading the Store.**
 
@@ -22,11 +22,11 @@ vidux-project/
     └── slug.md                ← root cause analysis + fix specs
 ```
 
-`INBOX.md` is part of the on-disk workflow, but the durable repo state stores are `PLAN.md`, `evidence/`, `investigations/`, git history. Publish ledger rows live outside the repo in the append-only ledger.
+`INBOX.md` is part of the on-disk workflow, but the durable repo state stores are `PLAN.md`, `evidence/`, `investigations/`, git history. Internal checkpoint ledger rows live outside the repo in the append-only ledger.
 
 ### PLAN.md
 
-One per project. Planning authority for queue, decisions, constraints, Progress/Drift record. For a publish cycle, the publish packet is the proof of what shipped and how the next agent resumes.
+One per project. Planning authority for queue, decisions, constraints, Progress/Drift record. For a publish cycle, the internal checkpoint packet is the proof of what shipped and how the next agent resumes.
 
 Six required sections — missing any produces known failure modes:
 
@@ -82,7 +82,7 @@ The transport timeline. When code changed, a commit records the local diff and w
 vidux: add rate limiting to login endpoint
 ```
 
-Cycle truth lives in the owning `PLAN.md` Progress, Tasks, or Drift Log entry plus the publish packet. Git history is evidence that transport happened; it does not outrank a missing or stale plan/ledger packet.
+Cycle truth lives in the owning `PLAN.md` Progress, Tasks, or Drift Log entry plus the internal checkpoint packet. Git history is evidence that transport happened; it does not outrank a missing or stale plan/ledger packet.
 
 ## INBOX.md
 

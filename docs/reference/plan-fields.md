@@ -73,7 +73,7 @@ Agents grep the log by tag: forbidden (`[DELETION]`), architectural choices (`[D
 
 ## Progress Entry Format
 
-One line per meaningful cycle. The Progress line orients future agents to the owning plan state; the matching publish ledger row carries shipped-cycle proof, handoff status, claimed files, and next-agent resume. Git diff/log evidence supports but does not replace the plan plus ledger packet.
+One line per meaningful cycle. The Progress line orients future agents to the owning plan state; the matching internal checkpoint ledger row carries shipped-cycle proof, handoff status, claimed files, and next-agent resume. Git diff/log evidence supports but does not replace the plan plus ledger packet.
 
 ```
 - [YYYY-MM-DD HH:MM] What happened. Next: what's next. Blocker: if any.

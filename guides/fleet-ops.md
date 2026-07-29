@@ -28,7 +28,7 @@ Every automation MUST read sibling state during its READ step -- structural, not
 
 > A dirty or diverged canonical checkout is a fleet-level infrastructure failure, not a per-task blocker. Detect it in 10 seconds, not after 45 minutes of deep work.
 
-Every automation works in a worktree and must leave a durable handoff packet before the local worktree is discarded: owning PLAN.md update plus publish ledger row first, then branch + PR as git transport and review handles. If the canonical checkout is dirty, diverged, or behind origin, that PR flow starts from a stale base and the lane burns time on avoidable conflict resolution.
+Every automation works in a worktree and must leave a durable handoff packet before the local worktree is discarded: owning PLAN.md update plus internal checkpoint ledger row first, then branch + PR as git transport and review handles. If the canonical checkout is dirty, diverged, or behind origin, that PR flow starts from a stale base and the lane burns time on avoidable conflict resolution.
 
 Overnight this compounds: 10 automations x 8 hours = 80 cycles producing stale branches or PRs nobody can safely land. vidux-loop.sh counts these as "unproductive" because no PLAN.md task state changed, triggering auto-pause, which makes it worse.
 
@@ -55,7 +55,7 @@ An automation that ships code to a branch, pushes it to origin, opens or updates
 
 ## PR Sweep
 
-The lead writer or coordinator sweeps open automation PRs. `gh pr list` is the transport/review recovery index for branch-backed work; the owning PLAN.md plus matching publish ledger row remains the durable shipped-work recovery packet. A branch with no PR is drift. Without a sweep, lanes keep creating fresh work while already-shipped work rots in review or sits only on a branch.
+The lead writer or coordinator sweeps open automation PRs. `gh pr list` is the transport/review recovery index for branch-backed work; the owning PLAN.md plus matching internal checkpoint ledger row remains the durable shipped-work recovery packet. A branch with no PR is drift. Without a sweep, lanes keep creating fresh work while already-shipped work rots in review or sits only on a branch.
 
 ### Protocol (run during the lead writer's READ step, before popping new tasks)
 

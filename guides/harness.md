@@ -8,7 +8,7 @@ Reference for writing cron automation prompts (harnesses). Loaded by `/codex` an
 
 A cron prompt is a **stateless harness** -- it encodes the end goal and project-specific instructions the agent cannot infer. It never contains current state.
 
-**The harness is the PROCESS.** The owning PLAN.md is the queue/planning authority, and matching publish ledger rows carry shipped-work proof/resume. Never mix current-state snapshots into the harness.
+**The harness is the PROCESS.** The owning PLAN.md is the queue/planning authority, and matching internal checkpoint ledger rows carry shipped-work proof/resume. Never mix current-state snapshots into the harness.
 
 **IN the harness:** end goal, authority plan path, role boundary, design DNA, guardrails, skills to invoke.
 
@@ -114,6 +114,6 @@ RAW INPUT -> GATHER -> AMPLIFY -> PRESENT -> [STEER...] -> FIRE -> EXECUTE
 
 **FIRE**: Strip scaffolding, execute the amplified prompt as the task spec.
 
-**Rules:** Real context only. Never hallucinate sources. If GATHER finds 3+ unrelated candidates, disambiguate. For HARNESS mode, never include task numbers, cycle counts, or progress -- state orientation lives in the owning PLAN.md plus matching publish ledger rows, not in the harness prompt.
+**Rules:** Real context only. Never hallucinate sources. If GATHER finds 3+ unrelated candidates, disambiguate. For HARNESS mode, never include task numbers, cycle counts, or progress -- state orientation lives in the owning PLAN.md plus matching internal checkpoint ledger rows, not in the harness prompt.
 
 **Skip amplification when:** cron automation running, `[in_progress]` task exists, user says "fire"/"go"/"continue".

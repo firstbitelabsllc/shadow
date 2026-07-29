@@ -16,7 +16,7 @@ hero:
 features:
   - icon: 📄
     title: One Planning Authority
-    details: Every project has one owning PLAN.md for queue, decisions, and progress. Publish ledger rows carry shipped-cycle proof and resume metadata. Chat is not the control plane.
+    details: Every project has one owning PLAN.md for queue, decisions, and progress. Internal checkpoint ledger rows carry shipped-cycle proof and resume metadata. Chat is not the control plane.
 
   - icon: 🔄
     title: Stateless Agents

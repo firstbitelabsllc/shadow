@@ -6,14 +6,14 @@ Every agent session — human-triggered or cron — runs five steps in order. No
 READ → ASSESS → ACT → VERIFY → CHECKPOINT → (next session) → READ → ...
 ```
 
-**publish packet** = ledger row carrying task id, plan path, proof, handoff status, files claimed, path-like claims, next-agent resume. Emitted via the configured ledger emitter's `--event publish` for any branch/PR/release cycle, before the work leaves the machine.
+**internal checkpoint packet** (legacy name: `publish packet`) = ledger row carrying task id, plan path, proof, handoff status, files claimed, path-like claims, next-agent resume. It records durable internal plan/proof/resume state only; it grants no authority to publish or send externally, merge, deploy, or authorize any action. Existing schemas and commands keep the legacy `--event publish` value for compatibility. Record it before authorized branch/PR/release transport leaves the machine.
 
 ## Step 1: READ
 
 Read:
 - `PLAN.md` — queue/planning authority: tasks, decisions, constraints, progress
 - `INBOX.md` — unprocessed findings from humans or external tools
-- Latest publish ledger rows — shipped-cycle proof and resume metadata
+- Latest internal checkpoint ledger rows — shipped-cycle proof and resume metadata
 - `git log --oneline -10` — recent history
 - `git diff` — uncommitted work from a crashed session
 
@@ -91,7 +91,7 @@ Never assert "it works." Prove it.
 
 ## Step 5: CHECKPOINT
 
-Every cycle ends with a plan/progress checkpoint. Publishable branch, PR, or release work also emits the publish packet.
+Every cycle ends with a plan/progress checkpoint. Publishable branch, PR, or release work also emits the internal checkpoint packet.
 
 **Commit format (code changed):**
 ```
@@ -123,7 +123,7 @@ Same task in 3+ Progress entries while still `[in_progress]` → force a surface
 
 ## Push Authorization
 
-Operational PR branch pushes are safe without asking only after the owning `PLAN.md` Progress/Tasks/Drift Log is updated AND the publish packet is recorded. Open PRs ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main and destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization plus the same publish propagation before transport.
+Operational PR branch pushes are safe without asking only after the owning `PLAN.md` Progress/Tasks/Drift Log is updated AND the internal checkpoint packet is recorded. Open PRs ready-for-review by default so configured review bots can run; use draft only for true WIP with a missing gate. Direct-to-main and destructive operations (force push, branch delete, `git reset --hard`) require explicit authorization plus the same checkpoint propagation before transport.
 
 ## Escalation Statuses
 

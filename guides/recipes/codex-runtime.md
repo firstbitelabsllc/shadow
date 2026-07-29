@@ -17,7 +17,7 @@ This is the exception path. In normal vidux flow, Codex defaults to **Chat** exe
 
 ## Runtime parity
 
-Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern work identically on Codex and Claude. A Codex-run cycle reads PLAN.md, picks a task, ships code, runs the verification gate, records a lane-local memory note, and — for shipped work — updates the owning plan plus matching publish ledger row before any commit/push transport.
+Vidux core doctrine is **tool-agnostic**. The five principles, the cycle, the PLAN.md template, and the investigation pattern work identically on Codex and Claude. A Codex-run cycle reads PLAN.md, picks a task, ships code, runs the verification gate, records a lane-local memory note, and — for shipped work — updates the owning plan plus matching internal checkpoint ledger row before any commit/push transport.
 
 What differs between runtimes:
 
@@ -71,12 +71,12 @@ Codex caches `automation.toml` at startup, so editing TOML normally requires a f
 <lane-dir>/<lane-id>/memory.md       — lane-local cycle log
 ```
 
-Lane instructions and the lane-local cycle log live under a shared `<lane-dir>/` — pick one convention per fleet (e.g. `~/.vidux/lanes/`, `~/.claude-automations/`, `~/.codex-automations/`, or a project-scoped directory) and reuse it across runtimes. Mixing conventions is fine; keeping prompt + memory paired inside the same `<lane-dir>/<lane-id>/` gives the next fire local continuity. Shipped-cycle proof and resume metadata still live in the owning `PLAN.md` plus matching publish ledger row.
+Lane instructions and the lane-local cycle log live under a shared `<lane-dir>/` — pick one convention per fleet (e.g. `~/.vidux/lanes/`, `~/.claude-automations/`, `~/.codex-automations/`, or a project-scoped directory) and reuse it across runtimes. Mixing conventions is fine; keeping prompt + memory paired inside the same `<lane-dir>/<lane-id>/` gives the next fire local continuity. Shipped-cycle proof and resume metadata still live in the owning `PLAN.md` plus matching internal checkpoint ledger row.
 
 **The static shim prompt** (goes in `automation.toml`):
 
 ```
-prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching publish ledger row before any commit/push transport."
+prompt = "Read <lane-dir>/<lane-id>/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching internal checkpoint ledger row before any commit/push transport."
 ```
 
 Edits to `prompt.md` take effect on the **next fire** with no restart — the primary win, letting you iterate on lane behavior freely.

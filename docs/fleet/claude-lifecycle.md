@@ -18,7 +18,7 @@ Two files per lane on disk:
 ```
 
 - **prompt.md** — full instruction set ([8-block structure](../reference/prompt-template.md)): mission, read list, gate, assess, act, authority, checkpoint.
-- **memory.md** — lane-local cycle log, one line per cycle. A new session reads it for local orientation, then resumes shipped work from the owning `PLAN.md` plus matching publish ledger row carrying the durable proof/resume packet.
+- **memory.md** — lane-local cycle log, one line per cycle. A new session reads it for local orientation, then resumes shipped work from the owning `PLAN.md` plus matching internal checkpoint ledger row carrying the durable proof/resume packet.
 
 ## Creation
 
@@ -43,7 +43,7 @@ Each fire injects the prompt into the live session; the agent runs one vidux cyc
 4. ASSESS   Priority: CI red -> PR fix -> PR merge -> resume in_progress -> next pending -> filler audit
 5. ACT      Worktree per code change. Set `VIDUX_RUNTIME=claude` for Claude workers, `VIDUX_RUNTIME=cursor` for Cursor-attributed workers.
 6. VERIFY   Build + tests pass; visual check for UI.
-7. CHECKPOINT  Update the owning PLAN.md status/Progress and emit the matching publish ledger row with task id, proof, handoff status, files claimed, and next-agent resume. Append the lane-local memory line; commit/push only after the plan/ledger packet exists.
+7. CHECKPOINT  Update the owning PLAN.md status/Progress and emit the matching internal checkpoint ledger row with task id, proof, handoff status, files claimed, and next-agent resume. Append the lane-local memory line; commit/push only after the plan/ledger packet exists.
 ```
 
 ### Post-push defer
@@ -52,7 +52,7 @@ After pushing a PR, the lane MUST NOT merge in the same cycle. Merge eligibility
 
 ## Session Cycling
 
-Sessions are disposable (death causes: multi-account rotation, laptop sleep, compaction pressure, manual `/resume`, crash). When a session dies, the cron dies with it; lane files (`prompt.md` + `memory.md`) survive as instructions plus lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching publish ledger rows. On a new session:
+Sessions are disposable (death causes: multi-account rotation, laptop sleep, compaction pressure, manual `/resume`, crash). When a session dies, the cron dies with it; lane files (`prompt.md` + `memory.md`) survive as instructions plus lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching internal checkpoint ledger rows. On a new session:
 
 1. Re-schedule `CronCreate` with the same prompt pointing to the same `prompt.md`.
 2. First cycle reads `memory.md` for lane-local orientation.

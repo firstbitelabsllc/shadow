@@ -12,7 +12,7 @@ Every vidux lane — Claude Code or Codex — has a `prompt.md` on disk that dri
 5. Assess        — priority rules for picking the next action
 6. Act           — how to actually do the work
 7. Authority     — paths owned vs paths forbidden
-8. Checkpoint    — lane-local memory note plus publish packet fields for shipped work
+8. Checkpoint    — lane-local memory note plus internal checkpoint packet fields for shipped work
 ```
 
 Every block is required. A lane missing any is underspecified and will drift.
@@ -147,7 +147,7 @@ How to do the work — the heavy rules: worktree discipline, verification comman
   emit an `--event publish` row (via your configured ledger emitter) with
   concise summary, plan task id, plan path, proof, `handoff_status`, files claimed,
   next-agent resume, changed files, and path-like claims.
-- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --summary "{summary}" --plan-path "{PLAN.md}" --proof "{command/artifact}" --handoff-status "{done|in_progress|blocked|needs_review}" --ledger "{publish-ledger-eid}" --file-claimed "{path}" --review-pass "invariant-audit:pass:{plan/ledger/drift proof}" --review-pass "regression-runner:pass:{tests/docs proof}" --review-pass "adversarial-reviewer:pass:{overclaim/stale-proof check}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
+- Build the PR body with `python3 scripts/vidux-pr-body.py --lane "{lane}" --task "{task-id}" --summary "{summary}" --plan-path "{PLAN.md}" --proof "{command/artifact}" --handoff-status "{done|in_progress|blocked|needs_review}" --ledger "{checkpoint-ledger-eid}" --file-claimed "{path}" --review-pass "invariant-audit:pass:{plan/ledger/drift proof}" --review-pass "regression-runner:pass:{tests/docs proof}" --review-pass "adversarial-reviewer:pass:{overclaim/stale-proof check}" --resume "{resume point}" --change "{summary}" > /tmp/vidux-pr-body.md`
 - Open a ready PR with `gh pr create --base main --head "{branch}" --title "{title}" --body-file /tmp/vidux-pr-body.md`
 
 ### Merge (only when gate allows)
@@ -262,7 +262,7 @@ the last entry already said, skip the entry entirely.
 ```
 
 **Rules:**
-- One line, not a paragraph. The owning plan plus matching publish ledger row carries the shipped-cycle story; memory.md only orients the lane-local cycle note.
+- One line, not a paragraph. The owning plan plus matching internal checkpoint ledger row carries the shipped-cycle story; memory.md only orients the lane-local cycle note.
 - ALWAYS tag. Untagged entries are unsearchable by future agents.
 - Include the session SHA (`{session-sha}`) when the lane hosts cross-session state.
 

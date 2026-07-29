@@ -6,7 +6,7 @@ Cloud-agnostic. Works with any git remote that supports `gh pr create`. No paid-
 
 ## Why
 
-Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. The owning PLAN.md plus matching publish ledger row is the durable shipped-work recovery packet; Pull requests on GitHub are transport/review handles. `gh pr list` shows which branch-backed work needs review or nursing, and the PR body points the next agent back to the owning plan and ledger row.
+Local worktrees are ephemeral. Crashes, disk cleanup, and `git worktree remove` destroy in-progress work silently. The owning PLAN.md plus matching internal checkpoint ledger row is the durable shipped-work recovery packet; Pull requests on GitHub are transport/review handles. `gh pr list` shows which branch-backed work needs review or nursing, and the PR body points the next agent back to the owning plan and ledger row.
 
 Ready-for-review PRs also let review bots, preview comments, and CI gates run immediately. Draft PRs are useful only when a real gate is missing and the PR should not yet enter review.
 
@@ -18,7 +18,7 @@ Every automation lane that ships code follows this after a green local build + t
 # 0. Update the owning PLAN.md Progress/Tasks/Drift Log before publish.
 #    Record what changed, proof, handoff_status, path-like files claimed/claims, and resume point.
 
-# 1. Emit the publish ledger row before the branch leaves the machine.
+# 1. Emit the internal checkpoint ledger row before the branch leaves the machine.
 # "$LEDGER_EMIT" is your own configured ledger-emit executable (wired via
 # `vidux-release.sh --ledger-emit <path>` or the LEDGER_EMIT env var) --
 # scripts/lib/ledger-emit.sh is a sourced-only function library, not a
@@ -106,7 +106,7 @@ When a worktree is lost:
 gh pr list --state open --json number,title,isDraft,headRefName --jq '.[]'
 ```
 
-Each open PR is a transport/review handle. Before checkout, read the PR body for its plan path and ledger eid, then re-read the owning plan plus matching publish ledger row. Inspect the branch with `gh pr checkout <number>`. If the PR is draft and no longer blocked, flip it ready with `gh pr ready <number>`.
+Each open PR is a transport/review handle. Before checkout, read the PR body for its plan path and ledger eid, then re-read the owning plan plus matching internal checkpoint ledger row. Inspect the branch with `gh pr checkout <number>`. If the PR is draft and no longer blocked, flip it ready with `gh pr ready <number>`.
 
 ## Fallback
 
@@ -132,7 +132,7 @@ Replace any existing push policy with the block below. In particular, replace an
 **PUSH POLICY (ready-PR-first per vidux):**
 After green build + test in the worktree:
 1. Update owning PLAN.md Progress/Tasks/Drift Log with proof, `handoff_status`, path-like files claimed/claims, and resume point.
-2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit publish ledger row before push via your configured ledger emitter: `"$LEDGER_EMIT" --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
+2. Set `LEDGER_EID="evt_$(date -u +%Y%m%d%H%M%S)_${RANDOM}"`, then emit internal checkpoint ledger row before push via your configured ledger emitter: `"$LEDGER_EMIT" --event publish --repo-path "$(pwd)" --lane "<lane>" --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<path>" --claim "<path>" --skills vidux --eid "$LEDGER_EID" --summary "<summary>"`.
 3. Push branch: `git push origin HEAD:claude/<lane>-<task-id>`.
 4. Body: `python3 scripts/vidux-pr-body.py --lane "<lane>" --task "<task-id>" --summary "<summary>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --ledger "$LEDGER_EID" --file-claimed "<path>" --review-pass "invariant-audit:pass:<plan/ledger/drift proof>" --review-pass "regression-runner:pass:<tests/docs proof>" --review-pass "adversarial-reviewer:pass:<overclaim/stale-proof check>" --resume "<resume point>" --change "<summary>" > /tmp/vidux-pr-body.md`.
 5. Ready PR: `gh pr create --base main --head "claude/<lane>-<task-id>" --title "[<lane>] <summary>" --body-file /tmp/vidux-pr-body.md`.

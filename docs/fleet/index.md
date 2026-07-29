@@ -16,7 +16,7 @@ Read in this order:
 
 ## When to automate
 
-Automate only when ALL hold: work spans multiple sessions and would lose context across handoff; the cycle is repeatable across fires; State orientation can live on disk (owning `PLAN.md`, publish ledger rows, evidence, lane-local `memory.md` notes); you accept disposable sessions for steady progress.
+Automate only when ALL hold: work spans multiple sessions and would lose context across handoff; the cycle is repeatable across fires; State orientation can live on disk (owning `PLAN.md`, internal checkpoint ledger rows, evidence, lane-local `memory.md` notes); you accept disposable sessions for steady progress.
 
 Stay manual when ANY hold: work needs live human judgment every step; the cycle can't be described in a self-contained prompt; state would have to live in session memory; it's a one-off fix done directly.
 
@@ -27,4 +27,4 @@ Every runtime follows the same proof spine; only scheduling differs:
 1. Resolve local config: `python3 scripts/vidux-config.py check --json`.
 2. Pre-task runtime health: `scripts/vidux-doctor.sh --json` (not the slower terminal `vidux doctor`).
 3. Attribute spawned workers with `VIDUX_RUNTIME=claude`, `VIDUX_RUNTIME=codex`, or `VIDUX_RUNTIME=cursor` when the ambient env would mislabel the event.
-4. Finish by updating the owning `PLAN.md` plus the matching publish ledger row with proof, handoff status, files claimed, and next-agent resume.
+4. Finish by updating the owning `PLAN.md` plus the matching internal checkpoint ledger row with proof, handoff status, files claimed, and next-agent resume.

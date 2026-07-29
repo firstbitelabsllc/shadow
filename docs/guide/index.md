@@ -28,7 +28,7 @@ PLAN.md - queue/planning authority
 ├── What happened (Progress log)
 └── What we know (Evidence citations)
 
-publish ledger rows - shipped-cycle proof packet
+internal checkpoint ledger rows - shipped-cycle proof packet
 ├── What shipped (summary + task id)
 ├── How it was proved (proof command or artifact)
 ├── What changed (files claimed + path-like claims)
@@ -49,7 +49,7 @@ Inside each agent run, five steps execute in order — none skippable. Canonical
 2. **ASSESS** — Does the next task have evidence? Code or refine?
 3. **ACT** — Execute tasks until queue empty, blocker, or context budget
 4. **VERIFY** — Build, test, visual proof
-5. **CHECKPOINT** — Plan/progress update plus publish ledger row; git transport only after propagation
+5. **CHECKPOINT** — Plan/progress update plus internal checkpoint ledger row; git transport only after propagation
 
 Code wrong = plan wrong. Fix the plan first. The owning plan plus publish ledger
 row persists across sessions; each run dies. Any fresh agent rehydrates from repo

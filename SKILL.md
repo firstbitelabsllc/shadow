@@ -9,7 +9,7 @@ description: "Thin plan, proof, and resume discipline for work that must survive
 
 Vidux is a thin durability layer, not a model router. The owning plan records queue, decisions, constraints, progress; matching ledger rows carry shipped-cycle proof.
 
-**Publish packet:** one append-only ledger row containing `summary`, task id, plan path, proof, `handoff_status`, files claimed, path-like claims, and next-agent resume. Plan = planning authority; publish packet = shipped-cycle proof; git = transport.
+**Internal checkpoint packet** (legacy name: `publish packet`): one append-only ledger row containing `summary`, task id, plan path, proof, `handoff_status`, files claimed, path-like claims, and next-agent resume. It records durable internal plan/proof/resume state only. It grants no authority to publish or send externally, merge, deploy, or authorize any action. Plan = planning authority; internal checkpoint packet = shipped-cycle proof; git = transport. Existing schemas and commands keep the legacy `publish` event and names for compatibility.
 
 Vidux owns plan/proof/resume semantics. The coding host or supervisor owns runner selection, leader/follower roles, worker foldback, and evaluation. Use direct native work when a durable plan adds no value.
 
@@ -39,7 +39,7 @@ Copy/naming/lookup; bounded fix with obvious cause/owner/proof/exit; or a plan t
 
 ### 1. Plan first, code second
 
-`PLAN.md` is the planning authority for queue, decisions, constraints, Progress/Drift record. Update plan before compound code. When work ships, update authority and emit the publish packet. Plan prose is not proof.
+`PLAN.md` is the planning authority for queue, decisions, constraints, Progress/Drift record. Update plan before compound code. When work ships, update authority and emit the internal checkpoint packet. Plan prose is not proof.
 
 ### 2. Design for interruption
 
@@ -74,7 +74,7 @@ READ       -> instructions, canonical plan, ledger, git state, proof surface
 ASSESS     -> resume in_progress; else highest-impact reachable row
 ACT        -> smallest reviewable vertical slice; host runtime chooses workers
 VERIFY     -> declared acceptance on the real surface; weakest truthful claim
-CHECKPOINT -> Update the plan/queue note, emit the publish packet, then
+CHECKPOINT -> Update the plan/queue note, emit the internal checkpoint packet, then
               commit/push only after those breadcrumbs exist; reconcile
               planned vs actual and record any divergence in Progress
 ```
@@ -85,11 +85,11 @@ Read: repo instructions; plan/queue; claims + `~/.agent-ledger/activity.jsonl`; 
 
 Ad hoc scratch files are helpers, never authority. Do not read another repo's queue to choose this repo's work. Never commit, overwrite, or discard unknown WIP; preserve it first and record its recovery path in the owning plan plus a ledger handoff before commit, cleanup, or overwrite.
 
-**Push authorization:** Operational PR-branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated and a `--event publish` packet is recorded via an external ledger emitter, when one is configured. Open PRs ready-for-review by default; draft means a real missing gate. Direct-to-main requires explicit authorization + the same publish propagation. A normal publish-propagated PR-branch push is not direct-to-main authority.
+**Push authorization:** Operational PR-branch pushes are safe without asking only after the owning PLAN.md row/Progress/Drift Log is updated and a `--event publish` packet is recorded via an external ledger emitter, when one is configured. Open PRs ready-for-review by default; draft means a real missing gate. Direct-to-main requires explicit authorization + the same checkpoint propagation. A normal publish-propagated PR-branch push is not direct-to-main authority.
 
 ### Trunk-First Rule
 
-Start from current `origin/<trunk>`. Isolate writers. Publish only owned files. Before calling a slice landed, require publish propagation recorded in the owning plan row + publish packet, final proof, and release gates. If they publish externally, record the plan + ledger propagation first.
+Start from current `origin/<trunk>`. Isolate writers. Publish only owned files. Before calling a slice landed, require checkpoint propagation recorded in the owning plan row + internal checkpoint packet, final proof, and release gates. If they publish externally, record the plan + ledger propagation first.
 
 **Worktree lifecycle:** `merged_clean` may be proposed for guarded cleanup; `open_pr`, `dirty`, `closed_unmerged`, and `unmerged_no_pr` require nursing, recovery, or an explicit abandoned record.
 
@@ -148,12 +148,12 @@ Loop body:
 1. Re-read plan, claims, git/runtime state, latest proof.
 2. Drive highest-impact reachable row through proof.
 3. Drain connected reachable work; do not stop at the first checkbox.
-4. Checkpoint: update the owning plan/queue note, emit the publish packet, then commit + push the owned branch/PR path.
+4. Checkpoint: update the owning plan/queue note, emit the internal checkpoint packet, then commit + push the owned branch/PR path.
 5. Repeat until exit criteria pass or remaining rows have named hard blockers + resume proof.
 
 Persistent loop mode is lane-persistent, not narration-persistent. Three iterations without shipped code → surface change or concise blocker.
 
-**Compaction survival:** Before each checkpoint, update durable repo files, emit the publish packet when work shipped, and use repo-local `.agent-ledger/` only for configured companion state. Repo files + append-only ledger rows survive compaction. After compaction, re-read the plan and latest matching ledger entry.
+**Compaction survival:** Before each checkpoint, update durable repo files, emit the internal checkpoint packet when work shipped, and use repo-local `.agent-ledger/` only for configured companion state. Repo files + append-only ledger rows survive compaction. After compaction, re-read the plan and latest matching ledger entry.
 
 ### Cron + interactive interleave
 
@@ -173,7 +173,7 @@ Vidux may record claims and disjoint slices, but it does not select models. The 
 
 ## Browser
 
-Read-mostly projection. Markdown remains queue/planning authority; the publish packet remains the shipped-cycle proof. Use `vidux-browse`; load `docs/reference/browser.md` only when operating routes/storage.
+Read-mostly projection. Markdown remains queue/planning authority; the internal checkpoint packet remains the shipped-cycle proof. Use `vidux-browse`; load `docs/reference/browser.md` only when operating routes/storage.
 
 Security invariants: artifact HTML uses a network-isolated, sandboxed iframe; artifact code never receives `allow-scripts` or `allow-popups`; sensitive text redacted. Never claim no XSS risk.
 
@@ -183,7 +183,7 @@ Optional visual receipts, not plan state — load browser reference before write
 
 ## Checkpoint Breadcrumbs
 
-1. **Plan / queue** — current row, decision, drift, resume, carrying the publish packet fields.
+1. **Plan / queue** — current row, decision, drift, resume, carrying the internal checkpoint packet fields.
 2. **Ledger** — the ledger emitter's `--event publish`; keep eid with the branch/PR handoff.
 3. **Git** — transport only owned work after the plan + ledger breadcrumbs exist.
 

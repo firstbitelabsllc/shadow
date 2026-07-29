@@ -31,7 +31,7 @@ A small set of ideas, each solving a specific failure mode of stateless AI agent
 
 **Without the cycle**, agents skip steps under time pressure: evidence gathering when work looks "obvious," verification when the diff "looks right," checkpointing when the session ends abruptly.
 
-**Without the store**, state lives in chat history or agent memory — both die when the session ends. Repo files plus matching publish ledger rows are the reliable recovery packet; git transports the diff when code changed, but does not replace a missing plan/ledger packet.
+**Without the store**, state lives in chat history or agent memory — both die when the session ends. Repo files plus matching internal checkpoint ledger rows are the reliable recovery packet; git transports the diff when code changed, but does not replace a missing plan/ledger packet.
 
 ## Key Concepts
 

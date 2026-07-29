@@ -22,7 +22,7 @@ Four pieces that must stay in sync:
 {lane-dir}/{lane-id}/memory.md             ← lane-local cycle log
 ```
 
-TOML + DB row register the automation. `prompt.md` holds instructions; `memory.md` holds the lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching publish ledger rows. DB-only inserts run but stay UI-invisible (Bug #16); TOML-only files show but never fire. The shared lane directory lets the next fire pick up prompt edits and cycle history without re-registering.
+TOML + DB row register the automation. `prompt.md` holds instructions; `memory.md` holds the lane-local cycle log. Shipped-cycle state lives in the owning `PLAN.md` plus matching internal checkpoint ledger rows. DB-only inserts run but stay UI-invisible (Bug #16); TOML-only files show but never fire. The shared lane directory lets the next fire pick up prompt edits and cycle history without re-registering.
 
 ## Creation
 
@@ -62,7 +62,7 @@ Each rrule fire launches a fresh agent in the configured `cwds` and runs one vid
 4. ASSESS   Priority: CI red -> PR fix -> PR merge -> resume in_progress -> next pending -> filler audit
 5. ACT      Worktree per code change. Research dispatch (read-only) / implementation dispatch (workspace-write) per task. Set `VIDUX_RUNTIME=codex` for Codex workers or `VIDUX_RUNTIME=cursor` for Cursor-attributed workers.
 6. VERIFY   Build + tests pass; visual check for UI.
-7. CHECKPOINT  Update the owning PLAN.md status/Progress and emit the matching publish ledger row with task id, proof, handoff status, files claimed, and next-agent resume. Append the lane-local memory line; commit/push only after the plan/ledger packet exists.
+7. CHECKPOINT  Update the owning PLAN.md status/Progress and emit the matching internal checkpoint ledger row with task id, proof, handoff status, files claimed, and next-agent resume. Append the lane-local memory line; commit/push only after the plan/ledger packet exists.
 ```
 
 ### Sandbox modes
@@ -84,7 +84,7 @@ Same as Claude lanes: no merge in the push cycle. Merge eligibility: CI green + 
 ## Persistence Model
 
 - **TOML + DB row** live on disk; survive app quit, reboot, account changes.
-- **`prompt.md` + `memory.md`** live in the shared lane directory as instructions plus lane-local cycle log; durable shipped work lives in the owning `PLAN.md` plus matching publish ledger rows.
+- **`prompt.md` + `memory.md`** live in the shared lane directory as instructions plus lane-local cycle log; durable shipped work lives in the owning `PLAN.md` plus matching internal checkpoint ledger rows.
 - **Agent sessions** live in the desktop app process; die on quit.
 - **No session GC** — the Codex app manages its own memory (no growing JSONL files).
 

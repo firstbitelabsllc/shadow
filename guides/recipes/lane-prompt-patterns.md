@@ -20,7 +20,7 @@ Every lane prompt has these eight blocks, in this order. Rearranging or omitting
 5. Assess       — priority rule for picking the ONE thing to do this cycle.
 6. Act          — how to do the work (worktree, verify, commit, merge).
 7. Authority    — paths owned vs paths forbidden (+ push tier).
-8. Checkpoint   — lane-local memory format plus plan/ledger publish packet for shipped work.
+8. Checkpoint   — lane-local memory format plus plan/ledger internal checkpoint packet for shipped work.
 ```
 
 Full reference: `docs/reference/prompt-template.md`. Size target: 2000-3000 chars total.

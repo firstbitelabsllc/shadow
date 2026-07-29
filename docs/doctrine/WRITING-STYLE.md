@@ -44,16 +44,16 @@ Coding more than planning? Stop. Target 50% plan / 30% code / 20% last-mile.
 
 ## 3. Define repeated phrases ONCE as a named term
 
-The field list "publish ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume" appears 15+ times. Name it once; reference it forever.
+The field list "internal checkpoint ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume" appears 15+ times. Name it once; reference it forever.
 
 <bad>
-...pair the shipped change with a publish ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume point.
+...pair the shipped change with a internal checkpoint ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume point.
 </bad>
 
 <good>
-publish packet = {summary, task-id, plan-path, proof, handoff_status, files, claims, resume}
+internal checkpoint packet (legacy name: publish packet) = {summary, task-id, plan-path, proof, handoff_status, files, claims, resume}; internal record only, never external publication/send/merge/deploy/authorization authority
 
-...ship the change + emit the publish packet.
+...ship the change + emit the internal checkpoint packet.
 </good>
 
 ---

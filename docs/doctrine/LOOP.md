@@ -296,7 +296,7 @@ For a 20-minute cron interval:
 | Assess | 30s | Simple if the plan is good |
 | Act (plan refinement) | 15 min | Research agents + synthesis |
 | Act (code execution) | 15 min | One task + build/test |
-| Checkpoint | 1 min | Plan update + publish ledger row + resume; git transport follows when needed |
+| Checkpoint | 1 min | Plan update + internal checkpoint ledger row + resume; git transport follows when needed |
 | Buffer | 3 min | Retries, errors |
 
 If a task exceeds 15 min, break it into sub-tasks that each fit one cycle.

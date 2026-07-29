@@ -258,7 +258,7 @@ FIX (if issues found):
 3. Edit exactly one skill file plus any focused regression test/doc reference.
 4. Update the owning PLAN.md Progress/Tasks or Drift Log with what changed,
    proof to run, `handoff_status`, files claimed, and next-agent resume point.
-5. Emit the publish ledger row before the branch leaves the machine, via your configured ledger emitter:
+5. Emit the internal checkpoint ledger row before the branch leaves the machine, via your configured ledger emitter:
    `"$LEDGER_EMIT" --event publish --repo-path "$(pwd)" --lane skill-refiner --task-id "<task-id>" --plan-path "<PLAN.md>" --proof "<command/artifact>" --handoff-status done --resume "<resume point>" --file "<skill-file>" --claim "<PLAN.md-or-skill-file>" --skills vidux,ledger --summary "skill(<name>): <improvement>"`.
 6. git checkout -b claude/skill-refine-<name>
 7. git add <skill-file> <test-or-doc-file> <PLAN.md>

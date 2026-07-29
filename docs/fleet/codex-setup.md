@@ -47,7 +47,7 @@ version = 1
 id = "project-coordinator"
 kind = "cron"
 name = "project coordinator"
-prompt = "Read {lane-dir}/project-coordinator/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching publish ledger row before any commit/push."
+prompt = "Read {lane-dir}/project-coordinator/prompt.md FIRST. Execute one vidux cycle: READ → ASSESS → ACT → VERIFY → CHECKPOINT.\nHonor all constraints in the prompt file.\nRecord the lane-local memory note, and for shipped work update the owning PLAN.md plus matching internal checkpoint ledger row before any commit/push."
 status = "ACTIVE"
 rrule = "FREQ=MINUTELY;INTERVAL=30"
 model = "gpt-5.4"
@@ -155,7 +155,7 @@ Before the lane is "live," confirm all:
 - [ ] `source scripts/lib/codex-db.sh && codex_verify_tomls` — exits 0.
 - [ ] `python3 scripts/vidux-config.py check --json` — local config resolves or example fallback is explicit.
 - [ ] Codex app shows the lane in the Automations UI.
-- [ ] After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note; if work shipped, the owning `PLAN.md` plus publish ledger row carries the proof/resume packet.
+- [ ] After the first fire, `tail -1 $LANE_DIR/memory.md` shows a lane-local cycle note; if work shipped, the owning `PLAN.md` plus internal checkpoint ledger row carries the proof/resume packet.
 
 If any check fails, re-read [codex-lifecycle.md § Known Bugs](codex-lifecycle.md#known-bugs--troubleshooting).
 

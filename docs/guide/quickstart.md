@@ -101,7 +101,7 @@ On the second `/vidux` invocation (READ → ASSESS → ACT → VERIFY → CHECKP
 2. **ASSESS**: first pending task has evidence → ready to code
 3. **ACT**: sets task to `[in_progress]`, executes it
 4. **VERIFY**: runs build and tests, shows proof
-5. **CHECKPOINT**: updates the plan/progress record and emits the publish ledger row before any branch/PR/release publish
+5. **CHECKPOINT**: updates the plan/progress record and emits the internal checkpoint ledger row before any branch/PR/release publish
 
 When code changed, the local commit stays concise:
 

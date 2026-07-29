@@ -9,7 +9,7 @@ When the human returns: brief what happened, the options, your pick + why, then 
 
 ## 1. Plan is authority
 
-PLAN.md owns work, decisions, constraints, progress. Code derives from it; shipped-cycle proof/resume lives in the matching publish ledger row (proof, handoff status, files claimed, next-agent resume). Wrong code: reconcile the plan first, then ship + emit the ledger row. Edit code with no plan entry = violation. Why: without a plan anchor, agents drift from intent across cycles and the divergence compounds.
+PLAN.md owns work, decisions, constraints, progress. Code derives from it; shipped-cycle proof/resume lives in the matching internal checkpoint ledger row (proof, handoff status, files claimed, next-agent resume). Wrong code: reconcile the plan first, then ship + emit the ledger row. Edit code with no plan entry = violation. Why: without a plan anchor, agents drift from intent across cycles and the divergence compounds.
 
 ## 2. Unidirectional flow
 
