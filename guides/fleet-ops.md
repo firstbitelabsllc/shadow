@@ -103,15 +103,15 @@ Cron agents are stateless but worktrees are not. When a session dies mid-task in
    ```
    If the count drops, abort the merge and escalate. Worktree branches should minimize PLAN.md edits -- confine changes to their own task status updates.
 
-6. **PR sweep role.** In a fleet, open PRs are the transport/review recovery index complementing the owning plan plus publish ledger packet. Branches without PRs are drift. The lead writer or coordinator owns the sweep -- see "PR Sweep" above.
+6. **PR sweep role.** In a fleet, open PRs are the transport/review recovery index complementing the owning plan plus internal checkpoint packet. Branches without PRs are drift. The lead writer or coordinator owns the sweep -- see "PR Sweep" above.
 
 ### Worktree PR handoff rule (for prompts)
 
-Every automation using `execution_environment = "worktree"` MUST hand off durable state before exiting: owning plan plus publish ledger packet first; branch + PR are the transport and review handles. Without this, the runtime creates a fresh worktree each cycle and the old one becomes invisible local state.
+Every automation using `execution_environment = "worktree"` MUST hand off durable state before exiting: owning plan plus internal checkpoint packet first; branch + PR are the transport and review handles. Without this, the runtime creates a fresh worktree each cycle and the old one becomes invisible local state.
 
 **The rule (add to block 7 -- Execution in the prompt):**
 ```
-WORKTREE RULE: Before stopping, update the plan, emit publish ledger, push the branch, and open/update the PR.
+WORKTREE RULE: Before stopping, update the plan, emit the internal checkpoint ledger row, push the branch, and open/update the PR.
 - First update the owning PLAN.md Progress/Tasks/Drift Log with what changed, proof, `handoff_status`, files claimed, and the next-agent resume point.
 - Then emit the ledger emitter's `--event publish` with non-empty `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status`, `--resume`, changed-file `--file` entries, and path-like `--claim` entries for claimed files; keep the eid in `$LEDGER_EID`.
 - If work is complete and tests pass: push branch, build the PR body with `scripts/vidux-pr-body.py` including `--summary`, `--plan-path`, `--proof`, `--handoff-status`, `--ledger "$LEDGER_EID"`, `--file-claimed`, `--resume`, and the three `--review-pass` self-scrutiny entries, open a ready PR, and record the resume point in the PR body.

@@ -81,7 +81,7 @@ One-line lane-local `memory.md` append, always tagged. Future agents scan the la
 
 **QC exit.** Cheap exits for concurrent-cycle, stuck tasks, red CI. Always tagged `[QC] <reason>`. A `[QC]` exit is not a failure — it's the correct move when preconditions aren't met.
 
-**Signal-only lane note vs full publish checkpoint.** Default: signal-only `memory.md` note (one line, tag + summary). Only expand the lane note to multi-line when crossing a plan-phase boundary (`[MILESTONE]`). Reading memory.md's last 3 entries should take 5 seconds; shipped work still needs the owning PLAN.md plus publish ledger packet.
+**Signal-only lane note vs full internal checkpoint packet.** Default: signal-only `memory.md` note (one line, tag + summary). Only expand the lane note to multi-line when crossing a plan-phase boundary (`[MILESTONE]`). Reading memory.md's last 3 entries should take 5 seconds; shipped work still needs the owning PLAN.md plus internal checkpoint packet.
 
 **Worktree-per-change.** Every code edit happens in a fresh worktree from `origin/main`. Never edit on the main worktree. Merge back to trunk before closing the task.
 

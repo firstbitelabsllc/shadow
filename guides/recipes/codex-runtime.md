@@ -165,7 +165,7 @@ After the INSERTs and before the first fire, source `scripts/lib/codex-db.sh` an
 
 ## Cycling Codex sessions
 
-Claude Code's `/resume` picks up lanes from disk for fresh sessions; Codex's equivalent is a full-quit + reopen — the app restarts, re-reads the DB, and resumes scheduling. Lanes use `prompt.md` + `memory.md` for next-fire local continuity, then the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
+Claude Code's `/resume` picks up lanes from disk for fresh sessions; Codex's equivalent is a full-quit + reopen — the app restarts, re-reads the DB, and resumes scheduling. Lanes use `prompt.md` + `memory.md` for next-fire local continuity, then the owning plan plus internal checkpoint packet for shipped-cycle proof and resume metadata.
 
 Codex state GC is external, not Codex's job. Worktree cleanup for Codex-spawned worktrees is the operator's responsibility — auto-delete is OFF; use a 3h-minimum retention on `~/Development/<repo>-worktrees/codex-*`. Without external GC, worktrees accumulate at ~84/day, 10 GB, under a heavy-cadence fleet.
 

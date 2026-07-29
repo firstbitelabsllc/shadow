@@ -88,7 +88,7 @@ Same as Claude lanes: no merge in the push cycle. Merge eligibility: CI green + 
 - **Agent sessions** live in the desktop app process; die on quit.
 - **No session GC** — the Codex app manages its own memory (no growing JSONL files).
 
-On reopen, the app reads the DB, resumes all `ACTIVE` automations, and fires per rrule. Each fire reads the shared `prompt.md`/`memory.md` for lane-local continuity, then uses the owning plan plus publish ledger packet for shipped-cycle proof and resume metadata.
+On reopen, the app reads the DB, resumes all `ACTIVE` automations, and fires per rrule. Each fire reads the shared `prompt.md`/`memory.md` for lane-local continuity, then uses the owning plan plus internal checkpoint packet for shipped-cycle proof and resume metadata.
 
 **No auto-expire** — automations run until manually stopped (`status = 'PAUSED'` or DB delete) or the app closes permanently.
 
