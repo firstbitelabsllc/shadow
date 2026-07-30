@@ -86,9 +86,9 @@ Repo `PLAN.md` (if present) is this repo's internal queue, not required to use V
 
 ## Release truth
 
-Version `1.1.0` is the current source-contract target; its tag and GitHub
-Release are pending, and there is no npm package on the registry. Track `main` until the
-`v1.1.0` tag exists.
+Version `1.1.0` is the current source contract (`VERSION` + matching git tag);
+there is no npm package on the registry. Install from source at the tagged tip
+(`git checkout v1.1.0`) or track `main`. [Release notes](https://github.com/firstbitelabsllc/vidux/releases/tag/v1.1.0).
 
 ## Contributing
 

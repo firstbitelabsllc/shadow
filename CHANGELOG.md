@@ -7,7 +7,7 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 
 ## [Unreleased]
 
-## [1.1.0] — Pending
+## [1.1.0] — 2026-07-29
 
 ### Added
 
@@ -21,6 +21,18 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 
 ### Fixed
 
+- Browser file APIs now resolve only catalog-discovered, regular files beneath
+  trusted roots; request text can no longer become a filesystem path. The same
+  hardening closes the prior CodeQL path, clear-text fixture, ReDoS, and
+  JavaScript identity findings.
+- The validator enforces its 64-level JSON nesting limit before the
+  version-dependent standard-library decoder runs, keeping Python 3.9, 3.12,
+  and 3.14 behavior identical.
+- Public-release scanning fails closed on unreadable and binary tracked files,
+  scans the full relevant history without whole-file exemptions, and keeps
+  synthetic credential regressions out of distributable source.
+- CI action references and the gitleaks release checksum are pinned; the clean
+  package gate is part of the release path.
 - **SECURITY.md** documents shared-temp / multi-user threat class, XDG
   `browser.{pid,log}`, and an honest 1.0.x support table (drops stale
   “unreleased 3.0”) ([#11](https://github.com/firstbitelabsllc/vidux/pull/11)).
