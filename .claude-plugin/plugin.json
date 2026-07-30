@@ -1,7 +1,7 @@
 {
   "name": "vidux",
-  "version": "1.0.2",
-  "description": "Plan-first control plane for long-running AI coding loops.",
+  "version": "1.1.0",
+  "description": "Local-first plan, proof, and resume contract for long-running AI coding work.",
   "author": {
     "name": "First Bite Labs"
   },

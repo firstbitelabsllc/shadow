@@ -34,7 +34,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 # from tests (sys.path[0] = caller CWD). Insert browser/ explicitly so the
 # import resolves regardless of caller.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from safe_files import UnsafeFileAliasError, atomic_write_text, open_regular_fd, read_text
+from safe_files import (
+    UnsafeFileAliasError,
+    atomic_write_text,
+    open_regular_fd,
+    read_bytes,
+    read_text,
+)
 from coordination_claims import ClaimsError, CoordinationClaims
 from steering_mailbox import (
     ACTIVE_LIMIT_PER_PLAN as STEERING_CAPACITY,
@@ -129,6 +135,11 @@ _PLANS_CACHE: dict[str, object] = {
     "expires_at": 0.0,
     "plans": None,
 }
+_BROWSER_FILE_CATALOG_LOCK = threading.Lock()
+_BROWSER_FILE_CATALOG_CACHE: dict[str, object] = {
+    "plans": None,
+    "catalog": None,
+}
 
 
 def clear_plans_cache() -> None:
@@ -136,6 +147,9 @@ def clear_plans_cache() -> None:
         _PLANS_CACHE["key"] = None
         _PLANS_CACHE["expires_at"] = 0.0
         _PLANS_CACHE["plans"] = None
+    with _BROWSER_FILE_CATALOG_LOCK:
+        _BROWSER_FILE_CATALOG_CACHE["plans"] = None
+        _BROWSER_FILE_CATALOG_CACHE["catalog"] = None
 
 
 def discover_plans_cached() -> list[dict]:
@@ -799,7 +813,7 @@ OUTCOME_SCORECARD_HEADERS = ("metric", "baseline", "current", "target", "status"
 TERMINAL_OPERATOR_STATUSES = frozenset({"archived", "closed", "complete", "completed", "done", "exhausted"})
 TASK_SEVERITY_ORDER = {"p0": 0, "p1": 1, "p2": 2, "p3": 3, "unspecified": 4}
 PROOF_FILE_RE = re.compile(
-    r"(?P<path>(?:(?:\.\.?/)?[^\s|]+/)*(?:evidence|investigations)/[^\s|]+\.md)"
+    r"(?<![^\s|])(?P<path>/?(?:[^\s|/]+/)*(?:evidence|investigations)/[^\s|/]+\.md)"
 )
 EVIDENCE_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[-_].*)?\.md$")
 DECISION_LOG_HEADING_RE = re.compile(
@@ -2613,82 +2627,187 @@ def extract_purpose(path: Path) -> str:
     return extract_purpose_from_text(text)
 
 
-def safe_resolve(raw: str) -> Path | None:
-    """Allow authority plans + canonical siblings + scoped evidence markdown.
-
-    The whitelist is the read-only contract. node_modules paths are rejected
-    even when the filename matches. The `investigations/` + `evidence/` rules
-    are the canonical /vidux nesting per DOCTRINE.md + guides/investigation.md
-    + guides/evidence-format.md — surfacing them is part of the viewer's job.
-    """
+def _trusted_regular_file(candidate: Path, root: Path) -> Path | None:
+    """Return one canonical, non-aliased file already discovered from a trusted root."""
     try:
-        p = Path(raw).resolve()
+        if candidate.is_symlink():
+            return None
+        resolved_root = root.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(resolved_root)
+        target_stat = resolved.stat()
     except (OSError, ValueError):
         return None
+    if not resolved.is_file() or target_stat.st_nlink != 1:
+        return None
+    return resolved
+
+
+def _browser_file_catalog() -> dict[str, Path]:
+    """Build the request allowlist from files discovered by the cockpit itself.
+
+    Request text is only an exact lookup key. It never becomes a filesystem
+    path, so validation and use cannot diverge through normalization, symlinks,
+    or a later time-of-check/time-of-use path substitution.
+    """
+    plans = discover_plans_cached()
+    with _BROWSER_FILE_CATALOG_LOCK:
+        if _BROWSER_FILE_CATALOG_CACHE["plans"] is plans:
+            cached = _BROWSER_FILE_CATALOG_CACHE["catalog"]
+            if isinstance(cached, dict):
+                return cached  # type: ignore[return-value]
+
+    catalog: dict[str, Path] = {}
+    for plan in plans:
+        try:
+            plan_path = Path(str(plan.get("path", "")))
+        except (TypeError, ValueError):
+            continue
+        catalog[str(plan_path)] = plan_path
+
+        for name in plan.get("siblings", ()):
+            if name in SIBLING_FILES:
+                sibling = plan_path.parent / name
+                catalog[str(sibling)] = sibling
+
+        proof_paths = [
+            *(item.get("path", "") for item in plan.get("evidence", ())),
+            *plan.get("investigations", ()),
+        ]
+        for raw_path in proof_paths:
+            try:
+                candidate = Path(str(raw_path))
+            except (TypeError, ValueError):
+                continue
+            if (
+                candidate.suffix.lower() == ".md"
+                and "node_modules" not in candidate.parts
+                and (
+                    "evidence" in candidate.parts
+                    or "investigations" in candidate.parts
+                )
+            ):
+                catalog[str(candidate)] = candidate
+    with _BROWSER_FILE_CATALOG_LOCK:
+        _BROWSER_FILE_CATALOG_CACHE["plans"] = plans
+        _BROWSER_FILE_CATALOG_CACHE["catalog"] = catalog
+    return catalog
+
+
+def _artifact_file_catalog() -> dict[str, Path]:
+    catalog: dict[str, Path] = {}
     try:
-        p.relative_to(DEV_ROOT)
-    except ValueError:
+        candidates = ARTIFACTS_DIR.glob("*.html") if ARTIFACTS_DIR.is_dir() else ()
+        for candidate in candidates:
+            allowed = _trusted_regular_file(candidate, ARTIFACTS_DIR)
+            if allowed is not None:
+                catalog[str(allowed)] = allowed
+    except OSError:
+        pass
+    return catalog
+
+
+def _static_file_catalog() -> dict[str, Path]:
+    catalog: dict[str, Path] = {}
+    try:
+        static_root = STATIC_DIR.resolve(strict=True)
+        for candidate in STATIC_DIR.rglob("*"):
+            allowed = _trusted_regular_file(candidate, static_root)
+            if allowed is not None:
+                catalog[allowed.relative_to(static_root).as_posix()] = allowed
+    except OSError:
+        pass
+    return catalog
+
+
+def _request_path_text(raw: object) -> str | None:
+    try:
+        requested = os.fspath(raw)
+    except TypeError:
         return None
-    if "node_modules" in p.parts:
+    return requested if isinstance(requested, str) and requested else None
+
+
+def _select_catalog_file(
+    raw: object,
+    catalog: dict[str, Path],
+    root: Path,
+) -> Path | None:
+    requested = _request_path_text(raw)
+    if requested is None:
         return None
-    if not p.is_file():
-        return None
-    if p.name in ALLOWED_PLAN_FILES or is_repo_native_authority_path(p):
-        return p
-    if p.suffix == ".md" and ("investigations" in p.parts or "evidence" in p.parts):
-        return p
-    return None
+    candidate = next(
+        (
+            candidate
+            for identity, candidate in catalog.items()
+            if identity == requested
+        ),
+        None,
+    )
+    return _trusted_regular_file(candidate, root) if candidate is not None else None
+
+
+def safe_resolve(raw: str) -> Path | None:
+    """Return an exact cockpit-discovered plan, sibling, or proof file.
+
+    The whitelist is the read-only contract. ``node_modules`` and filesystem
+    aliases are rejected even when the filename otherwise matches.
+    """
+    return _select_catalog_file(raw, _browser_file_catalog(), DEV_ROOT)
 
 
 def safe_resolve_any(raw: str) -> Path | None:
-    """safe_resolve() OR an .html artifact under ARTIFACTS_DIR. Read-only either way."""
-    p = safe_resolve(raw)
-    if p:
-        return p
-    try:
-        candidate = Path(raw).resolve()
-    except (OSError, ValueError):
+    """safe_resolve() OR one exact discovered HTML artifact. Read-only either way."""
+    return _select_catalog_file(
+        raw, _browser_file_catalog(), DEV_ROOT
+    ) or _select_catalog_file(
+        raw, _artifact_file_catalog(), ARTIFACTS_DIR
+    )
+
+
+def _relative_request_parts(raw: str, root: Path) -> tuple[str, ...] | None:
+    """Lexically split one canonical absolute request without touching the filesystem."""
+    root_text = str(root)
+    prefix = root_text.rstrip(os.sep) + os.sep
+    if not raw.startswith(prefix):
         return None
-    try:
-        candidate.relative_to(ARTIFACTS_DIR.resolve())
-    except ValueError:
+    relative = raw[len(prefix):]
+    parts = tuple(relative.split(os.sep))
+    if not parts or any(part in {"", ".", ".."} for part in parts):
         return None
-    if candidate.suffix.lower() != ".html":
-        return None
-    if not candidate.is_file():
-        return None
-    return candidate
+    return parts
 
 
 def is_allowed_file_target(raw: str) -> bool:
-    """Return True when a missing /api/file target would otherwise be allowed."""
-    try:
-        candidate = Path(raw).resolve(strict=False)
-    except (OSError, ValueError):
+    """Return True when a missing /api/file target has an allowed path shape."""
+    requested = _request_path_text(raw)
+    if requested is None:
         return False
-    if "node_modules" in candidate.parts:
-        return False
-    try:
-        candidate.relative_to(DEV_ROOT)
-    except ValueError:
-        pass
-    else:
-        if candidate.name in ALLOWED_PLAN_FILES or is_repo_native_authority_path(candidate):
+
+    parts = _relative_request_parts(requested, DEV_ROOT)
+    if parts is not None and "node_modules" not in parts:
+        name = parts[-1]
+        if name in ALLOWED_PLAN_FILES:
             return True
-        if candidate.suffix == ".md" and (
-            "investigations" in candidate.parts or "evidence" in candidate.parts
+        if (
+            len(parts) >= 4
+            and parts[1:3] == (".cursor", "plans")
+            and name.endswith(".plan.md")
+            and len(name) > len(".plan.md")
         ):
             return True
-    try:
-        candidate.relative_to(ARTIFACTS_DIR.resolve(strict=False))
-    except (OSError, ValueError):
-        return False
-    return candidate.suffix.lower() == ".html"
+        if name.endswith(".md") and (
+            "investigations" in parts or "evidence" in parts
+        ):
+            return True
+
+    artifact_parts = _relative_request_parts(requested, ARTIFACTS_DIR)
+    return artifact_parts is not None and artifact_parts[-1].lower().endswith(".html")
 
 
 def read_browser_file(path: Path) -> tuple[int, bytes | str]:
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = read_text(path, errors="replace")
     except FileNotFoundError:
         return 404, f"file missing: {path.name}"
     except OSError as exc:
@@ -3216,7 +3335,7 @@ class Handler(BaseHTTPRequestHandler):
             p = safe_resolve_any(raw)  # plans + artifacts
             if not p:
                 if is_allowed_file_target(raw):
-                    self._send(404, f"file missing: {Path(raw).name}")
+                    self._send(404, f"file missing: {raw.rsplit(os.sep, 1)[-1]}")
                     return
                 self._send(403, "forbidden")
                 return
@@ -3506,16 +3625,15 @@ class Handler(BaseHTTPRequestHandler):
         if not name:
             self._send(404, "not found")
             return
-        try:
-            candidate = (STATIC_DIR / name).resolve()
-            candidate.relative_to(STATIC_DIR.resolve())
-        except (OSError, ValueError):
-            self._send(404, "not found")
-            return
-        if not candidate.is_file():
+        candidate = _select_catalog_file(name, _static_file_catalog(), STATIC_DIR)
+        if candidate is None:
             self._send(404, f"static asset missing: {name}")
             return
-        body = candidate.read_bytes()
+        try:
+            body = read_bytes(candidate)
+        except (UnsafeFileAliasError, OSError):
+            self._send(404, f"static asset unavailable: {name}")
+            return
         self.send_response(200)
         self.send_header("Content-Type", ctype or guess_content_type(candidate.name))
         self.send_header("Content-Length", str(len(body)))

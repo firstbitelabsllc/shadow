@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['browser/tests/unit/**/*.test.{js,mjs,ts}'],
+    globalSetup: ['browser/tests/unit/hydrate-test-inputs.mjs'],
     coverage: {
       reporter: ['text', 'lcov'],
       include: ['browser/static/**/*.{js,mjs}'],

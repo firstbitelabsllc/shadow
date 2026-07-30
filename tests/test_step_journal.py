@@ -137,7 +137,11 @@ class StepJournalWiringTests(unittest.TestCase):
         self.journal_dir = self.repo_dir / ".journals"
         self.env = {**os.environ, "VIDUX_JOURNAL_DIR": str(self.journal_dir)}
         subprocess.run(["git", "init", "-q"], cwd=self.repo_dir, check=True)
-        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=self.repo_dir, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "tester@example.invalid"],
+            cwd=self.repo_dir,
+            check=True,
+        )
         subprocess.run(["git", "config", "user.name", "Test"], cwd=self.repo_dir, check=True)
         self.plan = self.repo_dir / "PLAN.md"
 

@@ -1,7 +1,7 @@
 {
   "name": "vidux",
-  "version": "1.0.2",
-  "description": "Plan-first control plane for long-running AI coding loops.",
+  "version": "1.1.0",
+  "description": "Local-first plan, proof, and resume contract for long-running AI coding work.",
   "private": false,
   "bin": {
     "vidux": "bin/vidux"
@@ -28,6 +28,7 @@
     "scripts/*.py",
     "scripts/*.sh",
     "scripts/lib/*.sh",
+    "schemas/**/*.json",
     "CHANGELOG.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
@@ -65,7 +66,7 @@
     "test:py": "python3 -m unittest discover -s tests -p 'test_*.py'",
     "public-ready:grep": "python3 scripts/vidux-public-ready-grep-gate.py --tracked-only --metadata",
     "verify": "npm test && npm run public-ready:grep",
-    "prepublishOnly": "npm run public-ready:grep",
+    "prepublishOnly": "npm run verify && npm run release:verify",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:visual:update": "playwright test browser/tests/e2e/visual.spec.ts --update-snapshots=all",
@@ -83,6 +84,7 @@
     "vue": "3.5.13"
   },
   "overrides": {
+    "postcss": "8.5.25",
     "vitepress": {
       "vite": "6.4.3"
     }

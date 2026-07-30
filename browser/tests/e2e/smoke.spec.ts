@@ -23,7 +23,9 @@ async function expandGroup(page: Page, name: string) {
 
 async function expandProjectGroups(page: Page) {
   await openDrawerIfNeeded(page);
-  const names = await page.locator('.repo-disclosure').allTextContents();
+  const disclosures = page.locator('.repo-disclosure');
+  await disclosures.first().waitFor();
+  const names = await disclosures.allTextContents();
   for (const raw of names) {
     const name = raw.replace(/[▾▸]/g, '').replace(/\d+\s*$/, '').trim();
     if (name && name !== 'artifacts' && name !== 'recently viewed') {

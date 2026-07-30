@@ -126,27 +126,47 @@ def is_authority_plan_name(name: str) -> bool:
     )
 
 
-def canonical_plan_path(raw: str | Path, dev_root: str | Path) -> Path:
+def _canonical_plan_request(
+    raw: str | Path,
+    dev_root_identities: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Validate one canonical absolute identity without using it as a filesystem path."""
     try:
-        candidate = Path(raw).expanduser()
-    except (TypeError, ValueError) as exc:
+        requested = os.fspath(raw)
+    except TypeError as exc:
         raise MailboxValidationError("plan must name an existing PLAN.md") from exc
-    if not is_authority_plan_name(candidate.name):
+    if not isinstance(requested, str) or not requested:
+        raise MailboxValidationError("plan must name an existing PLAN.md")
+
+    relative: str | None = None
+    for root_text in dev_root_identities:
+        prefix = root_text.rstrip(os.sep) + os.sep
+        if requested.startswith(prefix):
+            relative = requested[len(prefix):]
+            break
+    if relative is None:
+        raise MailboxValidationError("plan must be inside the configured development root")
+    parts = tuple(relative.split(os.sep))
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise MailboxValidationError("plan path must be canonical")
+    if not is_authority_plan_name(parts[-1]):
         raise MailboxValidationError(
             "plan must name an existing PLAN.md or *.plan.md authority"
         )
-    root = Path(dev_root).expanduser().resolve()
+    return parts
+
+
+def canonical_plan_path(raw: str | Path, dev_root: str | Path) -> Path:
+    """Resolve a canonical authority path for non-cockpit library callers."""
+    requested_dev_root = os.path.abspath(os.path.expanduser(os.fspath(dev_root)))
+    root = Path(requested_dev_root).resolve()
+    root_identities = tuple(dict.fromkeys((requested_dev_root, str(root))))
+    parts = _canonical_plan_request(raw, root_identities)
     try:
-        resolved = candidate.resolve(strict=True)
-    except OSError as exc:
-        raise MailboxValidationError("plan must name an existing PLAN.md") from exc
-    try:
+        resolved = root.joinpath(*parts).resolve(strict=True)
         resolved.relative_to(root)
-    except ValueError as exc:
-        raise MailboxValidationError("plan must be inside the configured development root") from exc
-    try:
         path_stat = resolved.stat()
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise MailboxValidationError("plan must name an existing PLAN.md") from exc
     if not resolved.is_file() or path_stat.st_nlink != 1:
         raise MailboxValidationError("plan must be a regular single-link file")
@@ -263,7 +283,13 @@ class SteeringMailbox:
         if tombstone_limit < 0:
             raise ValueError("tombstone_limit must not be negative")
         self.store_path = Path(store_path).expanduser()
-        self.dev_root = Path(dev_root).expanduser().resolve()
+        requested_dev_root = os.path.abspath(
+            os.path.expanduser(os.fspath(dev_root))
+        )
+        self.dev_root = Path(requested_dev_root).resolve()
+        self.dev_root_identities = tuple(
+            dict.fromkeys((requested_dev_root, str(self.dev_root)))
+        )
         self.sensitive_check = sensitive_check
         self.active_limit = active_limit
         self.tombstone_limit = tombstone_limit
@@ -359,19 +385,35 @@ class SteeringMailbox:
         return set(paths)
 
     def _canonical_discovered_plan(self, raw: str | Path) -> Path:
-        path = canonical_plan_path(raw, self.dev_root)
-        if not self._plan_matches_discovery_glob(path):
-            raise MailboxValidationError(
-                "plan must be an authority plan discovered by the Vidux cockpit"
-            )
+        relative_parts = _canonical_plan_request(raw, self.dev_root_identities)
         discovered = self._discovered_plan_paths()
-        relative = path.relative_to(self.dev_root)
-        if path not in discovered or relative.parts[0] in self.repo_aliases:
+        path = next(
+            (
+                candidate
+                for candidate in discovered
+                if candidate.relative_to(self.dev_root).parts == relative_parts
+            ),
+            None,
+        )
+        if path is None or relative_parts[0] in self.repo_aliases:
             discovered = self._discovered_plan_paths(force_refresh=True)
-        if path not in discovered:
+            path = next(
+                (
+                    candidate
+                    for candidate in discovered
+                    if candidate.relative_to(self.dev_root).parts == relative_parts
+                ),
+                None,
+            )
+        if path is None:
             raise MailboxValidationError(
                 "plan must be an authority plan discovered by the Vidux cockpit"
             )
+        try:
+            if not path.is_file() or path.stat().st_nlink != 1:
+                raise MailboxValidationError("plan must be a regular single-link file")
+        except OSError as exc:
+            raise MailboxValidationError("plan must name an existing PLAN.md") from exc
         return path
 
     @property

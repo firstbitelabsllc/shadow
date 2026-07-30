@@ -527,7 +527,7 @@ function renderOpsTruth() {
   const configNote = config.live_config_present
     ? "live config"
     : (config.using_example ? "example fallback" : "no config");
-  const updated = truth.generated_at ? truth.generated_at.replace("T", " ").replace("Z", "Z") : "";
+  const updated = truth.generated_at ? truth.generated_at.replace("T", " ") : "";
   return `
     <section class="ops-truth" id="ops-truth" aria-label="Vidux local truth">
       <div class="ops-truth-head">
@@ -799,7 +799,7 @@ function renderDashboardPane(opts = {}) {
   const scrollTop = opts.preserveScroll ? els.pane.scrollTop : 0;
   if (!opts.preserveAnnotation) clearAnnotationState();
   const dashboard = state.dashboard || {};
-  const generated = dashboard.generated_at ? dashboard.generated_at.replace("T", " ").replace("Z", "Z") : "";
+  const generated = dashboard.generated_at ? dashboard.generated_at.replace("T", " ") : "";
   els.pane.innerHTML = `
     ${renderMissionControl()}
     ${renderOpsTruth()}

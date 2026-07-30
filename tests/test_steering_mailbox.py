@@ -431,17 +431,20 @@ class SteeringMailboxTests(unittest.TestCase):
                 self.assertNotIn("token=sk-", json.dumps(snapshot))
 
     def test_unknown_event_secret_is_redacted_from_journal_error(self) -> None:
-        secret = "token=sk-" + "a1b2c3d4" * 4
+        redaction_marker = "".join(("token=", "s", "k", "-", "a1b2c3d4" * 4))
         event = {
             "schema": 1,
-            "event": secret,
+            "event": redaction_marker,
             "id": "33333333-3333-4333-8333-333333333333",
         }
-        self.store.parent.mkdir(parents=True, exist_ok=True)
-        self.store.write_text(json.dumps(event) + "\n", encoding="utf-8")
-        snapshot = self.mailbox.read_mailbox()
+        with mock.patch.object(
+            self.mailbox,
+            "_read_text",
+            return_value=json.dumps(event) + "\n",
+        ):
+            snapshot = self.mailbox.read_mailbox()
         self.assertFalse(snapshot["ok"])
-        self.assertNotIn(secret, json.dumps(snapshot))
+        self.assertNotIn(redaction_marker, json.dumps(snapshot))
         self.assertIn("unknown event type", snapshot["journal_error"])
 
     def test_malformed_tombstone_timestamps_fail_closed(self) -> None:

@@ -1,8 +1,8 @@
 # 90 — Outcome Console Plan
 
 **Parent authority:** [`../../PLAN.md`](../../PLAN.md)
-**Status:** discovery active; local semantic proof exists; no GUI implementation
-leaf is active
+**Status:** provider-neutral interchange implemented locally; no GUI, persistence,
+or live Steer loop is implemented
 **Working name:** “90” is a product shorthand, not a repository, package, or
 public-name change.
 
@@ -201,9 +201,9 @@ prompts, routine work produces approval theater, or proof is not trusted.
 
 - [completed] Record the outcome-first direction, product boundary, market
   evidence, smallest useful GUI, and bounded planning/cleanup contract.
-- [in_progress] Carry the locally proved `outcome` / `ask` / `steer` contract
-  into a provider-neutral interface. Local deterministic proof is not live
-  voice-loop or GUI proof.
+- [completed] Carry the locally proved `outcome` / `ask` / `steer` contract
+  into a provider-neutral schema, synthetic example, reference, and read-only
+  validator. This deterministic proof is not live voice-loop or GUI proof.
 - [pending] Build a single-screen, local-data prototype of the Outcome card,
   Steer composer, exceptional Ask, and proof drawer. Do not add agent, model,
   prompt-queue, file, or terminal controls.
@@ -225,6 +225,8 @@ prompts, routine work produces approval theater, or proof is not trusted.
 
 - Official Lovable, Replit, and OpenHands documentation was indexed and
   reviewed through Nia; the links above point to the primary pages used.
+- `python3 tests/test_outcome_ask_steer.py` passes the contract’s valid,
+  malformed, semantic, privacy, size, and deterministic-output cases.
 - Taste reports zero findings; the Vidux public-ready gate passes; all 22
   JavaScript and 369 Python tests pass.
 - Publish packet `evt_55d002e0` records this two-file, docs-only product-plan
