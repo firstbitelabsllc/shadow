@@ -24,6 +24,7 @@ SCHEMA = ROOT / "schemas" / "outcome-ask-steer.v1.json"
 DOC = ROOT / "docs" / "reference" / "outcome-ask-steer.md"
 PACKAGE = ROOT / "package.json"
 MAX_INPUT_BYTES = 1 * 1024 * 1024
+MAX_JSON_DEPTH = 64
 
 
 def base_document() -> Dict[str, Any]:
@@ -421,6 +422,23 @@ class OutcomeAskSteerValidatorTests(unittest.TestCase):
         result = self.run_validator(stdin_data=raw, extra_args=[])
         self.assert_invalid(result, code="depth")
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_depth_limit_is_identical_before_decoder_recursion_ceiling(self):
+        raw = ("[" * (MAX_JSON_DEPTH + 1) + "0" + "]" * (MAX_JSON_DEPTH + 1)).encode(
+            "utf-8"
+        )
+        result = self.run_validator(stdin_data=raw, extra_args=[])
+        self.assert_invalid(result, code="depth")
+
+    def test_depth_preflight_ignores_delimiters_and_escapes_inside_strings(self):
+        doc = base_document()
+        doc["outcome"]["summary"] = 'Literal [{"quoted": "\\"]"}] delimiters stay text.'
+        result = self.run_json_doc(doc)
+        self.assert_valid(result)
+
+    def test_mismatched_delimiter_remains_a_parse_error(self):
+        result = self.run_validator(stdin_data=b'{"schema":[]]', extra_args=[])
+        self.assert_invalid(result, code="parse_error", exit_code=2)
 
     def test_privacy_absolute_home_path_rejected(self):
         doc = base_document()

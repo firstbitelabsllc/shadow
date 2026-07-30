@@ -357,6 +357,53 @@ def parse_json_document(text: str) -> Tuple[Optional[Any], Optional[Dict[str, An
     return document, None
 
 
+def nesting_depth_failure(text: str) -> Optional[Dict[str, Any]]:
+    """Reject excessive JSON nesting before the recursive stdlib decoder runs.
+
+    CPython versions have different JSON decoder recursion ceilings. A small,
+    string-aware lexical pass keeps the public depth contract deterministic
+    without raising the process-wide recursion limit. Syntax errors still flow
+    to ``json.loads`` for its normal structured parse error.
+    """
+    expected_closers: List[str] = []
+    in_string = False
+    escaped = False
+
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+
+        if character == '"':
+            in_string = True
+            continue
+        if character in "[{":
+            expected_closers.append("]" if character == "[" else "}")
+            if len(expected_closers) > MAX_JSON_DEPTH:
+                return result_payload(
+                    False,
+                    [
+                        error(
+                            "depth",
+                            "",
+                            f"JSON nesting exceeds maximum depth {MAX_JSON_DEPTH}",
+                        )
+                    ],
+                )
+            continue
+        if character in "]}":
+            if not expected_closers or expected_closers[-1] != character:
+                return None
+            expected_closers.pop()
+
+    return None
+
+
 def _reject_json_constant(name: str) -> Any:
     raise ValueError(f"non-finite or unsupported JSON constant: {name}")
 
@@ -1137,6 +1184,9 @@ def validate_document(document: Any) -> List[Dict[str, str]]:
 
 
 def validate_text(text: str) -> Tuple[Dict[str, Any], int]:
+    depth_failure = nesting_depth_failure(text)
+    if depth_failure is not None:
+        return depth_failure, 1
     document, failure = parse_json_document(text)
     if failure is not None:
         return failure, 2
