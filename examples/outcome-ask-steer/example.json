@@ -1,0 +1,48 @@
+{
+  "schema": "vidux.outcome.v1",
+  "revision": 3,
+  "updated_at": "2026-07-29T18:00:00Z",
+  "outcome": {
+    "id": "ship-release-notes",
+    "summary": "Publish accurate release notes for the next tagged build.",
+    "state": "needs_input",
+    "current_move": "Waiting on the product naming choice before drafting notes."
+  },
+  "ask": {
+    "id": "name-choice",
+    "category": "product_choice",
+    "question": "Which product name should the release notes use?",
+    "options": [
+      {
+        "id": "keep-current-name",
+        "label": "Keep the current name",
+        "consequence": "Notes use the existing public name with no rename callout."
+      },
+      {
+        "id": "use-working-name",
+        "label": "Use the working name",
+        "consequence": "Notes introduce the working name and mark the old name as legacy."
+      }
+    ],
+    "state": "open",
+    "answer_option_id": null
+  },
+  "steers": [
+    {
+      "id": "prefer-short-notes",
+      "outcome_id": "ship-release-notes",
+      "summary": "Keep release notes under one screen and link deeper docs.",
+      "state": "applied",
+      "proof_ref": null
+    }
+  ],
+  "proof": [
+    {
+      "id": "notes-outline-doc",
+      "type": "document",
+      "locator": "docs/reference/outcome-ask-steer.md",
+      "verification_summary": "Outline references the Outcome Ask Steer interchange shape and privacy boundary.",
+      "delivery": "delivered"
+    }
+  ]
+}

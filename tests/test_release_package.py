@@ -45,6 +45,17 @@ def baseline() -> tuple[dict, dict, set[str]]:
 
 
 class ReleasePackageTests(unittest.TestCase):
+    def test_outcome_interchange_contract_is_release_required(self) -> None:
+        self.assertTrue(
+            {
+                "docs/reference/outcome-ask-steer.md",
+                "examples/outcome-ask-steer/example.json",
+                "examples/outcome-ask-steer/privacy-fragmented.invalid.json",
+                "schemas/outcome-ask-steer.v1.json",
+                "scripts/vidux-outcome-validate.py",
+            }.issubset(mod.REQUIRED_FILES)
+        )
+
     def test_steering_and_coordination_runtime_is_release_required(self) -> None:
         self.assertTrue(
             {

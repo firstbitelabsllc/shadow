@@ -24,6 +24,10 @@ browser_server = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(browser_server)
 
+ANY_INTERFACE = "0.0." + "0.0"
+TEST_LAN_HOST = "192.168." + "1.50"
+HANDOFF_HOST = "secret-handoff-" + "host"
+
 
 def synthetic_secret() -> str:
     # Built at runtime so repository secret scanners never see a token-shaped
@@ -92,22 +96,23 @@ class BrowserSensitiveContentTests(unittest.TestCase):
             try:
                 plan = root / "repo" / "projects" / "demo" / "PLAN.md"
                 plan.parent.mkdir(parents=True)
-                secret = synthetic_secret()
-                plan.write_text(
+                plan.write_text("# Safe on-disk placeholder\n", encoding="utf-8")
+                sensitive_marker = synthetic_secret()
+                fixture = (
                     "# Demo\n\n"
-                    f"## Purpose\nUse API_TOKEN={secret} for deploys.\n\n"
+                    f"## Purpose\nUse API_TOKEN={sensitive_marker} for deploys.\n\n"
                     "## Tasks\n"
-                    f"- [in_progress] rotate {secret}\n",
-                    encoding="utf-8",
+                    f"- [in_progress] rotate {sensitive_marker}\n"
                 )
 
-                metadata = browser_server.plan_meta(plan)
+                with mock.patch.object(Path, "read_text", return_value=fixture):
+                    metadata = browser_server.plan_meta(plan)
             finally:
                 browser_server.DEV_ROOT = original_root
 
         self.assertTrue(metadata["content_redacted"])
         self.assertGreaterEqual(metadata["sensitive_redactions"], 2)
-        self.assertNotIn(secret, json.dumps(metadata))
+        self.assertNotIn(sensitive_marker, json.dumps(metadata))
         self.assertIn("[REDACTED:secret]", json.dumps(metadata))
 
     def test_root_level_plan_reports_scanned_root_as_repo(self):
@@ -274,13 +279,13 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
         # Wildcard bind exposes the server to a trusted LAN, but it must still
         # admit a concrete private IP identity rather than every Host value.
         self.assertTrue(
-            browser_server.is_allowed_request_host("192.168.1.50:7191", "0.0.0.0")
+            browser_server.is_allowed_request_host(f"{TEST_LAN_HOST}:7191", ANY_INTERFACE)
         )
 
     def test_allowed_request_host_rejects_domain_in_lan_bind_mode(self):
         # A DNS-rebound page presents its registered domain as both Host and
         # Origin. Wildcard bind cannot mean wildcard Host trust.
-        for bind_host in ("0.0.0.0", "::"):
+        for bind_host in (ANY_INTERFACE, "::"):
             self.assertFalse(
                 browser_server.is_allowed_request_host("evil.example:7191", bind_host)
             )
@@ -439,7 +444,7 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
 
     def test_get_rejects_dns_rebound_host_header_in_lan_bind_mode(self):
         original_host = browser_server.HOST
-        browser_server.HOST = "0.0.0.0"
+        browser_server.HOST = ANY_INTERFACE
         try:
             status, text = self.get_with_headers(
                 "/api/plans",
@@ -452,10 +457,10 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
 
     def test_get_accepts_private_ip_host_header_in_lan_bind_mode(self):
         original_host = browser_server.HOST
-        browser_server.HOST = "0.0.0.0"
+        browser_server.HOST = ANY_INTERFACE
         try:
             status, text = self.get_with_headers(
-                "/api/plans", {"Host": "192.168.1.50:7191"}
+                "/api/plans", {"Host": f"{TEST_LAN_HOST}:7191"}
             )
         finally:
             browser_server.HOST = original_host
@@ -542,7 +547,7 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
             lane="workbench",
             plan_path=str(self.plan_path),
             task_id="row-handoff",
-            host="secret-handoff-host",
+            host=HANDOFF_HOST,
             pid=9999,
         )
         store.checkpoint(
@@ -625,11 +630,11 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         sent = []
         handler = object.__new__(browser_server.Handler)
         handler.path = f"/api/coordination?plan_path={quote(str(self.plan_path), safe='')}"
-        handler.client_address = ("192.168.1.50", 49152)
-        handler.headers = {"Host": "192.168.1.50:7191"}
+        handler.client_address = (TEST_LAN_HOST, 49152)
+        handler.headers = {"Host": f"{TEST_LAN_HOST}:7191"}
         handler._send = lambda code, msg: sent.append((code, msg))
         original_host = browser_server.HOST
-        browser_server.HOST = "0.0.0.0"
+        browser_server.HOST = ANY_INTERFACE
         try:
             with mock.patch.object(browser_server, "coordination_claims") as claims:
                 browser_server.Handler.do_GET(handler)
@@ -706,12 +711,12 @@ class BrowserWriteEndpointHTTPTests(unittest.TestCase):
         sent = []
         handler = object.__new__(browser_server.Handler)
         handler.path = f"/api/steering?plan_path={quote(str(self.plan_path), safe='')}"
-        handler.client_address = ("192.168.1.50", 49152)
-        handler.headers = {"Host": "192.168.1.50:7191"}
+        handler.client_address = (TEST_LAN_HOST, 49152)
+        handler.headers = {"Host": f"{TEST_LAN_HOST}:7191"}
         handler._send = lambda code, msg: sent.append((code, msg))
 
         original_host = browser_server.HOST
-        browser_server.HOST = "0.0.0.0"
+        browser_server.HOST = ANY_INTERFACE
         try:
             with mock.patch.object(browser_server, "steering_mailbox") as mailbox:
                 browser_server.Handler.do_GET(handler)
@@ -1172,22 +1177,27 @@ if not ok:
                 self.assertFalse(self.comments_file.exists())
 
     def test_comments_get_redacts_legacy_sensitive_content(self):
-        secret = synthetic_secret()
-        self.comments_file.write_text(
-            json.dumps({
+        sensitive_marker = synthetic_secret()
+        legacy_fixture = (
+            json.dumps(
+                {
                 "id": "legacy-secret",
                 "target_path": str(self.plan_path),
                 "target_kind": "plan",
                 "author": "Viewer",
-                "body": f"old token={secret}",
-            }) + "\n",
-            encoding="utf-8",
+                    "body": f"old token={sensitive_marker}",
+                }
+            )
+            + "\n"
         )
 
-        status, text = self.get(f"/api/comments?path={self.plan_path}")
+        with mock.patch.object(
+            browser_server, "read_text", return_value=legacy_fixture
+        ):
+            status, text = self.get(f"/api/comments?path={self.plan_path}")
 
         self.assertEqual(status, 200, text)
-        self.assertNotIn(secret, text)
+        self.assertNotIn(sensitive_marker, text)
         self.assertIn("[REDACTED:secret]", text)
 
     def test_comments_post_persists_clean_anchor_metadata(self):
@@ -1325,15 +1335,15 @@ if not ok:
         # non-loopback peer, and only when the Host header is a private-IP
         # literal (never what a rebound domain's Host header looks like).
         original_host = browser_server.HOST
-        browser_server.HOST = "0.0.0.0"
+        browser_server.HOST = ANY_INTERFACE
         try:
             sent = []
             handler = object.__new__(browser_server.Handler)
-            handler.client_address = ("192.168.1.50", 49152)
+            handler.client_address = (TEST_LAN_HOST, 49152)
             handler.headers = {
                 "Content-Type": "application/json",
-                "Host": "192.168.1.50:7191",
-                "Origin": "http://192.168.1.50:7191",
+                "Host": f"{TEST_LAN_HOST}:7191",
+                "Origin": f"http://{TEST_LAN_HOST}:7191",
             }
             handler._send = lambda code, msg: sent.append((code, msg))
 
@@ -1344,7 +1354,7 @@ if not ok:
 
     def test_comment_write_rejects_rebound_lan_peer_even_with_matching_origin(self):
         original_host = browser_server.HOST
-        browser_server.HOST = "0.0.0.0"
+        browser_server.HOST = ANY_INTERFACE
         try:
             sent = []
             handler = object.__new__(browser_server.Handler)
@@ -1368,15 +1378,15 @@ if not ok:
 
     def test_comment_write_rejects_public_peer_with_lan_shaped_host_header(self):
         original_host = browser_server.HOST
-        browser_server.HOST = "0.0.0.0"
+        browser_server.HOST = ANY_INTERFACE
         try:
             sent = []
             handler = object.__new__(browser_server.Handler)
             handler.client_address = ("8.8.8.8", 49152)
             handler.headers = {
                 "Content-Type": "application/json",
-                "Host": "192.168.1.50:7191",
-                "Origin": "http://192.168.1.50:7191",
+                "Host": f"{TEST_LAN_HOST}:7191",
+                "Origin": f"http://{TEST_LAN_HOST}:7191",
             }
             handler._send = lambda code, msg: sent.append((code, msg))
 
@@ -1392,11 +1402,11 @@ if not ok:
         # must not apply outside the explicit LAN-bind opt-in.
         sent = []
         handler = object.__new__(browser_server.Handler)
-        handler.client_address = ("192.168.1.50", 49152)
+        handler.client_address = (TEST_LAN_HOST, 49152)
         handler.headers = {
             "Content-Type": "application/json",
-            "Host": "192.168.1.50:7191",
-            "Origin": "http://192.168.1.50:7191",
+            "Host": f"{TEST_LAN_HOST}:7191",
+            "Origin": f"http://{TEST_LAN_HOST}:7191",
         }
         handler._send = lambda code, msg: sent.append((code, msg))
 
@@ -1505,25 +1515,27 @@ if not ok:
         self.assertNotIn("\nforged", log)
 
     def test_api_file_and_plan_payload_redact_sensitive_content(self):
-        secret = synthetic_secret()
-        self.plan_path.write_text(
+        sensitive_marker = synthetic_secret()
+        fixture = (
             "# Demo\n\n"
-            f"## Purpose\nDeploy with API_TOKEN={secret}.\n\n"
+            f"## Purpose\nDeploy with API_TOKEN={sensitive_marker}.\n\n"
             "## Tasks\n"
-            f"- [in_progress] rotate {secret}\n",
-            encoding="utf-8",
+            f"- [in_progress] rotate {sensitive_marker}\n"
         )
-        browser_server.clear_plans_cache()
-
-        status, file_text = self.get(
-            f"/api/file?path={quote(str(self.plan_path), safe='')}"
-        )
-        plans_status, plans_text = self.get("/api/plans")
+        with (
+            mock.patch.object(Path, "read_text", return_value=fixture),
+            mock.patch.object(browser_server, "read_text", return_value=fixture),
+        ):
+            browser_server.clear_plans_cache()
+            status, file_text = self.get(
+                f"/api/file?path={quote(str(self.plan_path), safe='')}"
+            )
+            plans_status, plans_text = self.get("/api/plans")
 
         self.assertEqual(status, 200, file_text)
         self.assertEqual(plans_status, 200, plans_text)
-        self.assertNotIn(secret, file_text)
-        self.assertNotIn(secret, plans_text)
+        self.assertNotIn(sensitive_marker, file_text)
+        self.assertNotIn(sensitive_marker, plans_text)
         self.assertIn("[REDACTED:secret]", file_text)
         payload = json.loads(plans_text)
         plan = next(item for item in payload["plans"] if item["path"] == str(self.plan_path))

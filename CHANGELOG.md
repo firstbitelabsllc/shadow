@@ -7,6 +7,18 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 
 ## [Unreleased]
 
+## [1.1.0] — Pending
+
+### Added
+
+- A closed, provider-neutral `vidux.outcome.v1` JSON Schema for one Outcome,
+  an optional genuine Ask, bounded Steers, and proof references.
+- A standard-library, read-only validator that enforces cross-field identity,
+  lifecycle, delivery, and privacy invariants with deterministic JSON output.
+- Synthetic example and reference documentation that explicitly separate the
+  interchange contract from execution, routing, persistence, GUI, and live
+  steering claims.
+
 ### Fixed
 
 - **SECURITY.md** documents shared-temp / multi-user threat class, XDG

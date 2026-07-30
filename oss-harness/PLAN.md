@@ -438,7 +438,7 @@ for a problem the tagline causes.
 - [completed 2026-07-24T02:08:44-04:00] Proactive research wave 23 — residual docs
   oversell honesty → claudux#130 (smart-cleanup stub, accuracy/zero-config,
   technical privacy). Content public-ready gate green; metadata gate still
-  fails on historical test@test.com (pre-existing).
+  fails on a historical synthetic foreign identity (pre-existing).
 - [completed 2026-07-24T02:23:50-04:00] Proactive research wave 24 (sol /
   cursor-parent) — merged claudux#130 (squash 63fc9f4); HEAD `npm run
   public-ready` green (no history wipe; gate is HEAD-scoped). Tagged+pushed

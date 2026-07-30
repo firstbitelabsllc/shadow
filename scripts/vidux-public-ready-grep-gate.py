@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 # SCAN_TARGETS used to be a
@@ -21,35 +23,7 @@ from typing import Any
 # unless it's named in the denylist below, so a new file is covered the
 # moment it's created.
 EXCLUDED_DIR_NAMES = {".git", "__pycache__", "node_modules"}
-EXCLUDED_RELATIVE_PATHS = {
-    # a bare `Path("docs/.vitepress")` entry used to
-    # sit here, exempting the entire tree -- the identical "whole directory,
-    # not the one file that needs it" bug just fixed for tests/, one entry
-    # over. Checked: docs/.vitepress/dist/ is already git-ignored (dropped
-    # by _drop_git_ignored below without needing an exemption) and
-    # docs/.vitepress/config.ts -- the only tracked file in the tree --
-    # contains zero content that trips any FORBIDDEN_PATTERN. No exemption
-    # is actually needed here; the entry is removed rather than narrowed.
-    #
-    # This script's own comments and the test file below intentionally pin
-    # the forbidden strings verbatim as documentation/fixtures, not leaks.
-    Path("scripts/vidux-public-ready-grep-gate.py"),
-    Path("tests/test_public_ready_grep_gate.py"),
-    # tests/test_vidux_contracts.py legitimately pins some of these strings
-    # as required test content (the private-path contract tests) -- scanning
-    # it would flag the test file, not a leak.
-    #
-    # this used to
-    # be the bare directory `Path("tests")`, exempting all 36 tracked files
-    # under tests/ -- not just these 2 -- from every FORBIDDEN_PATTERN,
-    # including PRIVACY_PATTERNS. Reproduced live: a scratch file dropped
-    # into tests/ containing real employer-path/email leak-class strings
-    # passed the gate with zero matches. Same "allowlist only protects what
-    # someone remembered to add" failure the SCAN_TARGETS redesign
-    # was built to eliminate, reintroduced one directory level down via an
-    # over-broad denylist entry. Narrowed to exactly the 2 files that need it.
-    Path("tests/test_vidux_contracts.py"),
-}
+EXCLUDED_RELATIVE_PATHS: set[Path] = set()
 
 # Purist-cut artifacts are forbidden by path, not just by package allowlist.
 # This catches a restored file even when its contents contain no searchable
@@ -61,90 +35,114 @@ REMOVED_ARTIFACT_PREFIXES = (
     Path("commands"),
 )
 
+# Fragment private product markers so this file's own source does not contain
+# a contiguous matchable token for rules that would otherwise self-hit.
+_PRIVATE_FLOW_LANE = "Leo" + " Flow"
+_PRIVATE_FLOW_HYPHEN = "leo" + "-flow"
+_PRIVATE_SLOP_LANE = "/" + "ai-slop"
+_PRIVATE_VIDUX_OVERLAY = "/" + "vidux-leo"
+_PRIVATE_PILOT_OVERLAY = "pilot" + "-leo"
+
 # Privacy/PII/confidentiality patterns: enforced everywhere scanned,
-# regardless of tense. A personal home path or an employer-internal path
-# is unsafe to publish whether it appears in live doctrine or a dated
-# historical record.
+# regardless of tense. Category-based and synthetic-safe: no personal names,
+# employer brands, machine-local emails, or private business names appear as
+# detection literals. A personal home path or private snapshot is unsafe to
+# publish whether it appears in live doctrine or a dated historical record.
+#
+# Pattern labels intentionally avoid the matchable surface of their own rules
+# (never put the matchable phrase itself into a label or comment).
 PRIVACY_PATTERNS = (
-    # this pattern originally only matched the spaced
-    # "Leo Flow" form and missed the hyphenated slash-command form actually
-    # used in prose ("/leo-flow", "leo-flow") -- 6 live occurrences in
-    # SKILL.md's own doctrine section passed the gate green while the exact
-    # leak class this pattern exists to catch sat in the flagship file.
-    ("private Leo Flow lane", re.compile(r"\bLeo[ -]Flow\b", re.IGNORECASE)),
-    ("private slop lane", re.compile(r"/ai-slop\b")),
-    ("private vidux overlay name", re.compile(r"/vidux-leo\b")),
-    # the old pattern only matched the /Users/leokwan
-    # PATH form and missed the maintainer's bare username elsewhere -- a
-    # historical evidence file leaked 26 `com.leokwan.<private-project>`
-    # macOS LaunchAgent labels (naming several unrelated private repos) and
-    # a live setup doc leaked one more, both unscanned because neither is a
-    # /Users/ path. \bleokwan\b / \bredacted-operator\b subsumes the old path form (a
-    # path boundary is also a \b boundary) while also catching every bare
-    # mention.
-    ("private username", re.compile(r"\b(?:leokwan|redacted-operator)\b")),
-    # A prior repository-local Claude setting explained a valid attribution
-    # policy by naming the maintainer's private account and private command
-    # doctrine. Keep the rule narrow so public author credits remain valid.
-    ("private maintainer account note", re.compile(r"\bLeo's\s+(?:work\s+)?account\b", re.IGNORECASE)),
-    # 4 evidence files named the maintainer's real
-    # spouse by first name -- once in a genuinely sensitive context (a
-    # confidential job-search screenshot, now purged from the branches
-    # that carried it), the rest as a recurring "make this simple enough
-    # for X" persona shorthand. No PRIVACY_PATTERNS rule existed for a
-    # family member's name at all. Placeholder-safe: this name never
-    # appears in this repo's own shipped code/docs otherwise, so the
-    # false-positive risk is the same as any other named-individual rule
-    # already in this list.
-    # an earlier version of this rule had no re.IGNORECASE, so it
-    # only ever matched the capitalized prose form and gave false
-    # confidence -- the dominant lowercase/kebab-case usage (this repo's
-    # own project-naming convention lowercases everything, e.g.
-    # "family-member-fpa-ai") sailed through every prior grep-gate run
-    # unnoticed. Added re.IGNORECASE to match every casing.
-    ("maintainer's spouse's first name", re.compile(r"\bNicole\b", re.IGNORECASE)),
-    # this rule's own regex had been over-redacted to
-    # the literal placeholder text "REDACTED-EMPLOYER-PATH" -- a string that
-    # never appears in real content, so the check was a permanent silent
-    # no-op. It missed a live leak: this session's own evidence file quoting
-    # the maintainer's real employer-issued-laptop home path and corporate
-    # email verbatim while documenting a confidentiality finding about that
-    # exact content.
-    ("employer source path", re.compile(r"\b(?:lkwan|Snapchat/Dev)\b")),
-    # Bare-domain form, not just the `@`-prefixed email form -- a real
-    # instance found live was an internal registry hostname with no `@`.
-    ("employer email or domain", re.compile(r"\bsnapchat\.com\b", re.IGNORECASE)),
-    ("employer internal hostname", re.compile(r"\bsc-corp\.net\b", re.IGNORECASE)),
-    # no rule existed for the employer's internal
-    # `.snap` TLD (distinct from the public `snapchat.com` domain above) --
-    # a real instance (an internal inference-service hostname) shipped
-    # unredacted in a tracked evidence file and this gate reported "passed"
-    # with zero matches.
-    #
-    # the comments above and this rule's own test
-    # fixtures used to reproduce the actual leaked strings verbatim
-    # (a real coworker's email, a real internal hostname) -- gratuitous,
-    # since these regexes match on domain/TLD only and a synthetic example
-    # exercises them identically without adding a second, avoidable copy of
-    # someone else's PII to the repo. Comments and fixtures now use made-up
-    # placeholders; only the regex patterns themselves need the real
-    # domain/TLD strings to detect a leak.
-    ("employer internal .snap TLD", re.compile(r"\.snap\b", re.IGNORECASE)),
-    # no rule existed for a gmail address or the
-    # maintainer's separate small consumer-goods business name -- both
-    # leaked live in commit-message quotes inside tracked evidence files,
-    # unscanned because PRIVACY_PATTERNS had no entry for either.
-    # `leojkwan@gmail.com` is excluded: it's the maintainer's permanent,
-    # by-design public commit-author identity on every commit on
-    # `origin/main` today (confirmed via `git log --format='%ae'`) -- unlike
-    # every other gmail address, it isn't slated for removal/rewrite, so
-    # quoting it in evidence prose adds no incremental exposure.
-    ("gmail address other than the maintainer's public commit identity",
-     re.compile(r"\b(?!leojkwan@gmail\.com\b)[\w.+-]+@gmail\.com\b", re.IGNORECASE)),
-    ("maintainer's other business name", re.compile(r"\btrysnowcubes\b", re.IGNORECASE)),
-    ("private skills repo path", re.compile(r"\bDevelopment/ai(?:-leo)?/(?:hooks|skills)\b")),
+    # Private product lane / overlay markers used by this repo's surface.
     (
-        "private machine ownership assignment",
+        "private flow-lane marker",
+        re.compile(
+            rf"\b(?:{re.escape(_PRIVATE_FLOW_LANE)}|{re.escape(_PRIVATE_FLOW_HYPHEN)})\b",
+            re.IGNORECASE,
+        ),
+    ),
+    ("private slop-lane marker", re.compile(re.escape(_PRIVATE_SLOP_LANE) + r"\b")),
+    (
+        "private overlay marker",
+        re.compile(re.escape(_PRIVATE_VIDUX_OVERLAY) + r"\b"),
+    ),
+    # Absolute POSIX home directories for any username, not one operator.
+    (
+        "absolute home path",
+        re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+/"),
+    ),
+    # Home-relative paths that expose private local structure.
+    # Intentionally excludes publicly documented product paths such as
+    # ~/Development/vidux and ~/.config/vidux.
+    (
+        "home-relative private path",
+        re.compile(
+            r"~/(?:Documents|Library|Desktop|Downloads|"
+            r"\.ssh|\.aws|\.gnupg)/"
+        ),
+    ),
+    # Non-public email addresses. Allowlisted public identities are filtered
+    # in _privacy_hits (metadata allowlist is the single source of truth for
+    # the repository's public commit identity).
+    (
+        "non-public email address",
+        re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+    ),
+    # Credential / auth material by structural field shape.
+    (
+        "credential-field payload",
+        re.compile(
+            r'"(?:api[_-]?key|access[_-]?token|refresh[_-]?token|'
+            r'client[_-]?secret|id_token|private_key)"\s*:\s*"[^"]+"',
+            re.IGNORECASE,
+        ),
+    ),
+    # Quota / roster / account snapshots by structural field or prose category.
+    (
+        "category_quota_payload",
+        re.compile(
+            r'(?:'
+            r'"(?:quota_remaining|remaining_percent|roster|'
+            r'seat_roster|account_roster)"\s*:'
+            r'|'
+            r'\b(?:quota|roster|auth)\s+(?:snapshot|dump|export|payload)\b'
+            r')',
+            re.IGNORECASE,
+        ),
+    ),
+    # Raw chat / transcript / session dumps by prose category.
+    # Structural chat message JSON is not matched: this product legitimately
+    # tests and documents role/content shapes.
+    (
+        "category_transcript_payload",
+        re.compile(
+            r'\b(?:raw\s+)?(?:chat|conversation|session)\s+'
+            r'(?:transcript|dump|export)\b',
+            re.IGNORECASE,
+        ),
+    ),
+    # Private finance / account material by category (not provider brands).
+    # Avoid bare "account balance" prose — redaction tests mention it without
+    # shipping finance data.
+    (
+        "finance-account payload",
+        re.compile(
+            r'(?:'
+            r'\b(?:bank\s+account\s+number|routing\s+number|tax\s+id)\b'
+            r'|'
+            r'"(?:account_number|routing_number|balance_cents|iban)"\s*:'
+            r')',
+            re.IGNORECASE,
+        ),
+    ),
+    # Structural private skills path (no operator username).
+    (
+        "private skills-path marker",
+        re.compile(
+            r"\b(?:Development|Documents)/(?:ai(?:-leo)?|skills)/(?:hooks|skills)\b"
+        ),
+    ),
+    (
+        "private machine-ownership assignment",
         re.compile(
             r"(?:"
             r"\b(?:Mac Studio|M[1-9]\s+(?:Pro|Max|Ultra)|this Mac)\b[^\n]{0,100}"
@@ -158,6 +156,50 @@ PRIVACY_PATTERNS = (
             re.IGNORECASE,
         ),
     ),
+    (
+        "private project category path",
+        re.compile(
+            r"\bprojects/[A-Za-z0-9._-]+-(?:personal|family|finance|career)"
+            r"(?:/|\b)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "named-person private context",
+        re.compile(
+            r"(?:"
+            r"\b(?:persona|wife|husband|spouse|partner|daughter|son|"
+            r"mother|father)\s*(?:name\s*)?(?:is|[:=])\s*[\"'`]*"
+            r"[A-Z][a-z]{2,}\b"
+            r"|"
+            r"\b[A-Z][a-z]{2,}\s+is\s+(?:my|the user's)\s+"
+            r"(?:wife|husband|spouse|partner|daughter|son|mother|father)\b"
+            r"|"
+            r"\b(?:for|about)\s+[A-Z][a-z]{2,}[’']s\s+"
+            r"(?:personal|family|career|financ(?:e|ial))\b"
+            r")"
+        ),
+    ),
+    (
+        "private organization marker",
+        re.compile(
+            r"(?:"
+            r"[\"'](?:business|brand|company)(?:_name)?[\"']\s*:\s*"
+            r"[\"'][^\"'\n]{2,}[\"']"
+            r"|"
+            r"\b(?:private|personal|family)\s+(?:business|brand|company)"
+            r"\s*(?:is|[:=])\s*[\"'`]*[A-Z][A-Za-z0-9& .-]{1,80}"
+            r")",
+        ),
+    ),
+    (
+        "private launch service label",
+        re.compile(
+            r"\b(?:launchctl|LaunchAgent)\b[^\n]{0,160}"
+            r"\b(?:com|net|org|io|ai|dev)\.[a-z0-9][a-z0-9.-]+\b",
+            re.IGNORECASE,
+        ),
+    ),
 )
 
 # Retired-terminology hygiene patterns: only meaningful as a "don't market
@@ -166,7 +208,10 @@ PRIVACY_PATTERNS = (
 # or PLAN.md's append-only Decision Log) is the record doing its job, not
 # a leak — see HISTORICAL_TARGETS below.
 HYGIENE_PATTERNS = (
-    ("private pilot overlay", re.compile(r"\bpilot" r"-leo\b", re.IGNORECASE)),
+    (
+        "private pilot overlay",
+        re.compile(rf"\b{re.escape(_PRIVATE_PILOT_OVERLAY)}\b", re.IGNORECASE),
+    ),
     ("retired board brand", re.compile(r"\bLinear\b")),
     ("retired board lowercase", re.compile(r"\blinear\b")),
     ("retired GitHub Projects config key", re.compile(r"\bgh_projects\b")),
@@ -180,37 +225,103 @@ HYGIENE_PATTERNS = (
 
 FORBIDDEN_PATTERNS = PRIVACY_PATTERNS + HYGIENE_PATTERNS
 
-# Commit-identity allowlist for the metadata scan (--metadata). A public repo
-# publishes every reachable commit's author/committer email, and a foreign
-# identity renders a real, unrelated GitHub account as a public contributor
-# (proven live: a `test@test.com` author renders as the "TESTPERSONAL" account
-# on the sibling claudux repo). Only these identities are legitimate:
-#   - leojkwan@gmail.com: the maintainer's permanent, by-design public commit
-#     identity on every legitimate commit (git log --format='%ae').
-#   - noreply@github.com: GitHub's web-UI / squash-merge committer identity.
-# Any other author or committer email is a finding. This is deliberately an
-# allowlist, not a denylist, for the same reason SCAN_TARGETS is default-on: a
-# new stray identity is caught the moment it appears, not when someone
-# remembers to add it.
-#   - codesmith-bot@users.noreply.github.com: the Codesmith reviewer identity
-#     of the blacksmith.sh GitHub App installed on this repo (its "Codesmith"
-#     check runs on every PR). With autofix enabled it lands commits as the
-#     committer, and applied review suggestions carry it as a Co-authored-by
-#     trailer (first on the PR #1 merge, a1e46e63). Intended participant, not
-#     a foreign identity.
+# Commit-identity allowlist for the metadata scan (--metadata) and for the
+# non-public-email privacy rule. A public repo publishes every reachable
+# commit's author/committer email, and a foreign identity renders a real,
+# unrelated GitHub account as a public contributor. Only these identities are
+# legitimate public commit participants:
+#   - leojkwan@gmail.com: maintainer public commit identity on origin/main
+#   - noreply@github.com: GitHub web-UI / squash-merge committer identity
+#   - codesmith-bot@users.noreply.github.com: Codesmith autofix / review bot
+#   - cursoragent@cursor.com: Cursor agent committer identity
+# Machine-local emails and private account addresses are intentionally absent.
 ALLOWED_COMMIT_EMAILS = frozenset(
     {
         "leojkwan@gmail.com",
         "noreply@github.com",
         "codesmith-bot@users.noreply.github.com",
         "cursoragent@cursor.com",
-        "leokwan@Leos-Mac-Studio-10442.local",
     }
+)
+
+# One machine-local identity was already published before metadata enforcement.
+# Scope the waiver to its exact immutable commit, role, and normalized digest so
+# the same address cannot authorize a new commit, trailer, or different role.
+LEGACY_COMMIT_IDENTITY_WAIVERS = frozenset(
+    {
+        (
+            "d79cfb869cc6f9d5c886f85e82df8553cd41bc49",
+            "author",
+            "c535b8d5ff96384e34e93c92085ea40bad15b20f97b9733aa719c1043f1ff9b8",
+        ),
+        (
+            "d79cfb869cc6f9d5c886f85e82df8553cd41bc49",
+            "committer",
+            "c535b8d5ff96384e34e93c92085ea40bad15b20f97b9733aa719c1043f1ff9b8",
+        ),
+    }
+)
+
+# Domains commonly used in public documentation / synthetic fixtures.
+# Kept separate from commit-identity allowlisting so docs can show
+# user@example.com without a false privacy hit, while still catching
+# non-public addresses. Reserved TLDs (.invalid/.test/.example/.localhost)
+# are handled in _email_is_allowed.
+ALLOWED_EMAIL_DOMAINS = frozenset(
+    {
+        "example.com",
+        "example.org",
+        "example.net",
+        "localhost",
+    }
+)
+_RESERVED_EMAIL_TLDS = (".invalid", ".test", ".example", ".localhost")
+
+# Absolute network references are public surface too. A new external host must
+# be consciously added here; arbitrary intranet, private DNS, and raw LAN
+# addresses fail. Reserved documentation domains and loopback are synthetic
+# development fixtures, not routable private hosts.
+ALLOWED_PUBLIC_HOSTS = frozenset(
+    {
+        "127.0.0.1",
+        "0.0.0.0",
+        "claude.ai",
+        "cdn.jsdelivr.net",
+        "docs.lovable.dev",
+        "docs.openhands.dev",
+        "docs.replit.com",
+        "example.com",
+        "example.net",
+        "example.org",
+        "github.com",
+        "img.shields.io",
+        "json-schema.org",
+        "json.schemastore.org",
+        "keepachangelog.com",
+        "localhost",
+        "opencollective.com",
+        "registry.npmjs.org",
+        "semver.org",
+        "tidelift.com",
+        "vidux.dev",
+        "www.apache.org",
+        "www.contributor-covenant.org",
+        "www.w3.org",
+    }
+)
+_RESERVED_HOST_SUFFIXES = (".example", ".invalid", ".test", ".localhost")
+ABSOLUTE_URL_RE = re.compile(r"https?://[^\s<>{}\[\]\"'`]+", re.IGNORECASE)
+HOST_FIELD_RE = re.compile(
+    r"(?:[\"'](?:host|hostname|domain)[\"']|"
+    r"\b(?:host|hostname|domain)\b)\s*[:=]\s*[\"']"
+    r"(?P<host>[^\"'\s/]+)[\"']",
+    re.IGNORECASE,
 )
 
 CO_AUTHOR_TRAILER_RE = re.compile(
     r"^\s*Co-authored-by:\s*(?P<name>.*?)\s*<(?P<email>[^>]+)>", re.IGNORECASE
 )
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 # Historical-record targets: chronological, dated, append-only-by-design.
 # HYGIENE_PATTERNS are skipped here (retired terms in past tense are the
@@ -252,10 +363,20 @@ MARKDOWN_SETEXT_RE = re.compile(r"^[ ]{0,3}(?P<marks>=+|-+)[ \t]*$")
 # integration. Found when default-on scanning first surfaced 9 new matches
 # the moment style/tooling-config files were scanned for the first time --
 # all 9 were this class, zero were real. PRIVACY_PATTERNS still apply to
-# these files (a leaked path/username is not exempt just because the file
-# is CSS); only the retired-terminology HYGIENE_PATTERNS are skipped.
+# these files (a leaked path is not exempt just because the file is CSS);
+# only the retired-terminology HYGIENE_PATTERNS are skipped.
+#
+# This gate script is hygiene-exempt for the same reason: it must document
+# retired board terms. The gate's unit test is likewise hygiene-exempt because
+# it constructs those fixtures. Privacy rules still apply to both files; hostile
+# regression tests prove an unrelated privacy category cannot hide there.
 HYGIENE_EXEMPT_SUFFIXES = {".css", ".svg"}
-HYGIENE_EXEMPT_NAMES = {".gitignore", ".gitleaks.toml"}
+HYGIENE_EXEMPT_NAMES = {
+    ".gitignore",
+    ".gitleaks.toml",
+    "test_public_ready_grep_gate.py",
+    "vidux-public-ready-grep-gate.py",
+}
 
 
 def _is_historical(rel: Path) -> bool:
@@ -264,6 +385,81 @@ def _is_historical(rel: Path) -> bool:
 
 def _hygiene_exempt(rel: Path) -> bool:
     return rel.suffix in HYGIENE_EXEMPT_SUFFIXES or rel.name in HYGIENE_EXEMPT_NAMES
+
+
+def _email_is_allowed(email: str) -> bool:
+    """Content-scan allow for non-public-email privacy hits."""
+    lowered = email.strip().casefold()
+    if lowered in {item.casefold() for item in ALLOWED_COMMIT_EMAILS}:
+        return True
+    if "@" not in lowered:
+        return False
+    domain = lowered.rsplit("@", 1)[1]
+    if domain in ALLOWED_EMAIL_DOMAINS:
+        return True
+    # RFC 2606 / 6761 reserved names used only as synthetic fixtures in docs/tests.
+    return any(domain == tld[1:] or domain.endswith(tld) for tld in _RESERVED_EMAIL_TLDS)
+
+
+def _legacy_identity_digest_allowed(commit_sha: str, role: str, digest: str) -> bool:
+    """Return whether an exact historical commit-role-digest tuple is waived."""
+    return (commit_sha, role, digest) in LEGACY_COMMIT_IDENTITY_WAIVERS
+
+
+def _commit_identity_allowed(email: str, *, commit_sha: str, role: str) -> bool:
+    """Metadata allowlist for author/committer/trailer identities.
+
+    Public identities are explicit. One already-published legacy identity is
+    accepted by digest; this prevents a category-wide ``*.local`` bypass.
+    """
+    lowered = email.strip().casefold()
+    if lowered in {item.casefold() for item in ALLOWED_COMMIT_EMAILS}:
+        return True
+    digest = hashlib.sha256(lowered.encode("utf-8")).hexdigest()
+    return _legacy_identity_digest_allowed(commit_sha, role, digest)
+
+
+def _privacy_hits(label: str, pattern: re.Pattern[str], text: str) -> bool:
+    """Return True when *text* contains a privacy hit for *label*/*pattern*."""
+    if label != "non-public email address":
+        return pattern.search(text) is not None
+    for match in pattern.finditer(text):
+        if not _email_is_allowed(match.group(0)):
+            return True
+    return False
+
+
+def _host_is_allowed(host: str) -> bool:
+    normalized = host.strip().rstrip(".").casefold()
+    if not normalized:
+        return False
+    if any(char in normalized for char in "{}$"):
+        return True
+    if ":" in normalized and normalized.count(":") == 1:
+        normalized = normalized.rsplit(":", 1)[0]
+    if normalized in ALLOWED_PUBLIC_HOSTS:
+        return True
+    return any(
+        normalized == suffix[1:] or normalized.endswith(suffix)
+        for suffix in _RESERVED_HOST_SUFFIXES
+    )
+
+
+def _network_privacy_hits(text: str) -> list[tuple[str, str]]:
+    hits: list[tuple[str, str]] = []
+    for match in ABSOLUTE_URL_RE.finditer(text):
+        token = match.group(0).rstrip(".,;:)")
+        try:
+            host = urlsplit(token).hostname or ""
+        except ValueError:
+            host = ""
+        if not _host_is_allowed(host):
+            hits.append(("unapproved absolute URL host", token))
+    for match in HOST_FIELD_RE.finditer(text):
+        host = match.group("host")
+        if not _host_is_allowed(host):
+            hits.append(("unapproved host-valued field", host))
+    return hits
 
 
 def _plan_historical_lines(lines: list[str]) -> list[bool]:
@@ -377,20 +573,31 @@ def _iter_files(repo_root: Path, *, tracked_only: bool = False) -> list[Path]:
 
 def _read_scanned_lines(path: Path, repo_root: Path, *, tracked_only: bool) -> list[str]:
     if not tracked_only:
-        return path.read_text(encoding="utf-8").splitlines()
-    rel = path.relative_to(repo_root).as_posix()
-    proc = subprocess.run(
-        ["git", "-C", str(repo_root), "show", f":{rel}"],
-        capture_output=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise OSError(f"cannot read staged content for {rel}")
-    return proc.stdout.decode("utf-8").splitlines()
+        payload = path.read_bytes()
+    else:
+        rel = path.relative_to(repo_root).as_posix()
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f":{rel}"],
+            capture_output=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise OSError(f"cannot read staged content for {rel}")
+        payload = proc.stdout
+
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        # Binary files are not exempt. Latin-1 is a one-byte-to-one-codepoint
+        # mapping, so every source byte remains available to the ASCII privacy
+        # and hygiene regexes without lossy replacement or an external tool.
+        text = payload.decode("latin-1")
+    return text.splitlines()
 
 
 def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
     matches: list[dict[str, Any]] = []
+    errors: list[str] = []
     try:
         scanned_files = _iter_files(repo_root, tracked_only=tracked_only)
     except RuntimeError as exc:
@@ -426,7 +633,7 @@ def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
         # as visible whether or not the file's own content is exempt.
         rel_str = str(rel)
         for label, pattern in PRIVACY_PATTERNS:
-            if pattern.search(rel_str):
+            if _privacy_hits(label, pattern, rel_str):
                 matches.append(
                     {
                         "file": rel_str,
@@ -435,18 +642,19 @@ def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
                         "text": rel_str,
                     }
                 )
+        for label, token in _network_privacy_hits(rel_str):
+            matches.append(
+                {
+                    "file": rel_str,
+                    "line": 0,
+                    "pattern": f"{label} (in filename)",
+                    "text": token,
+                }
+            )
         try:
             lines = _read_scanned_lines(path, repo_root, tracked_only=tracked_only)
-        except UnicodeDecodeError:
-            continue
-        except OSError:
-            # an unreadable file (permissions) or one
-            # deleted between _iter_files() listing and this read (plausible
-            # if the gate runs while other automation is writing to
-            # evidence/) previously propagated as an unhandled traceback --
-            # exit 1 either way, indistinguishable from a real leak match to
-            # a caller checking only the exit code, and --json mode emitted
-            # no parseable output at all. Treat as unscannable, not fatal.
+        except OSError as exc:
+            errors.append(f"{rel}: cannot scan content: {exc}")
             continue
         plan_history = _plan_historical_lines(lines) if rel.name == "PLAN.md" else None
         for lineno, line in enumerate(lines, start=1):
@@ -460,7 +668,11 @@ def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
                 else FORBIDDEN_PATTERNS
             )
             for label, pattern in patterns:
-                if pattern.search(line):
+                if label in {item[0] for item in PRIVACY_PATTERNS}:
+                    hit = _privacy_hits(label, pattern, line)
+                else:
+                    hit = pattern.search(line) is not None
+                if hit:
                     matches.append(
                         {
                             "file": str(rel),
@@ -469,13 +681,22 @@ def run_gate(repo_root: Path, *, tracked_only: bool = False) -> dict[str, Any]:
                             "text": line.strip(),
                         }
                     )
+            for label, token in _network_privacy_hits(line):
+                matches.append(
+                    {
+                        "file": str(rel),
+                        "line": lineno,
+                        "pattern": label,
+                        "text": token,
+                    }
+                )
 
     return {
-        "status": "failed" if matches else "passed",
+        "status": "failed" if matches or errors else "passed",
         "scope": "tracked" if tracked_only else "working-tree",
         "scanned_files": len(scanned_files),
         "matches": matches,
-        "errors": [],
+        "errors": errors,
     }
 
 
@@ -485,15 +706,15 @@ def run_metadata_gate(repo_root: Path, *, rev: str = "HEAD") -> dict[str, Any]:
     ``run_gate`` reads blobs (and now filenames) but never commit metadata, so
     it cannot see the two exposure classes that survive a clean tree:
 
-    1. A foreign author/committer email (e.g. ``test@test.com``) renders a
+    1. A foreign author/committer email renders a
        real, unrelated GitHub account as a public contributor. Enforced by
        ALLOWED_COMMIT_EMAILS: any identity not on the allowlist is a finding.
     2. A foreign ``Co-authored-by`` trailer email, which renders in the
        contributor sidebar exactly like an author. Enforced against the same
        allowlist.
-    3. A privacy string in a commit message or trailer (e.g. a
-       ``Co-authored-by: ... <name@snapchat.com>`` trailer). PRIVACY_PATTERNS
-       apply to every reachable commit's message body.
+    3. A privacy string in a commit message or trailer (e.g. a non-public
+       email in a ``Co-authored-by`` trailer). PRIVACY_PATTERNS apply to every
+       reachable commit's message body.
 
     HYGIENE_PATTERNS are intentionally *not* applied here: a retired term in an
     immutable historical commit message is the record, not a live surface.
@@ -538,7 +759,7 @@ def run_metadata_gate(repo_root: Path, *, rev: str = "HEAD") -> dict[str, Any]:
             ("committer", cn_b, ce_b),
         ):
             email = email_b.decode("utf-8", "replace")
-            if email not in ALLOWED_COMMIT_EMAILS:
+            if not _commit_identity_allowed(email, commit_sha=sha, role=role):
                 key = (role, name_b.decode("utf-8", "replace"), email)
                 bad_identities[key] = bad_identities.get(key, 0) + 1
         body = body_b.decode("utf-8", "surrogateescape")
@@ -546,14 +767,22 @@ def run_metadata_gate(repo_root: Path, *, rev: str = "HEAD") -> dict[str, Any]:
             trailer = CO_AUTHOR_TRAILER_RE.match(line)
             if trailer:
                 trailer_email = trailer.group("email").strip()
-                if trailer_email not in ALLOWED_COMMIT_EMAILS:
+                if not _commit_identity_allowed(
+                    trailer_email,
+                    commit_sha=sha,
+                    role="co-author trailer",
+                ):
                     key = ("co-author trailer", trailer.group("name"), trailer_email)
                     bad_identities[key] = bad_identities.get(key, 0) + 1
             for label, pattern in PRIVACY_PATTERNS:
-                if pattern.search(line):
+                if _privacy_hits(label, pattern, line):
                     key = (label, line.strip())
                     hit = message_hits.setdefault(key, {"sha": sha, "count": 0})
                     hit["count"] += 1
+            for label, token in _network_privacy_hits(line):
+                key = (label, token)
+                hit = message_hits.setdefault(key, {"sha": sha, "count": 0})
+                hit["count"] += 1
 
     matches: list[dict[str, Any]] = []
     for (role, name, email), count in sorted(bad_identities.items()):

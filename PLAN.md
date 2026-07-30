@@ -50,7 +50,7 @@ it never routes models, schedules work, or transports provider traffic.
 
 - [completed] Cut the CLI to the minimal public surface and align docs.
 - [completed] Wire CI: tests, release verification, secret scan, public-ready gate.
-- [pending] Make the outcome-first operator experience the next Vidux product
+- [in_progress] Make the outcome-first operator experience the next Vidux product
   capability. The user-facing working name is **90**; the durable plan is
   [`plans/90-outcome-console/PLAN.md`](plans/90-outcome-console/PLAN.md). This
   is a product hypothesis with a bounded dogfood gate, not a rename or a claim
@@ -67,6 +67,9 @@ it never routes models, schedules work, or transports provider traffic.
   product layer must make that machinery quiet: one current Outcome, one
   exceptional Ask, a Steer that supersedes stale direction, and proof at the
   end. The coding host still owns provider routing and execution.
+- [2026-07-29] The first public slice is an interchange schema plus read-only
+  validator. It proves bounded state shape and privacy invariants only; GUI,
+  persistence, worker control, and a live stop-stale-work loop remain unproved.
 
 ## Progress
 
@@ -75,3 +78,5 @@ it never routes models, schedules work, or transports provider traffic.
 - 2026-07-29: Recorded the Outcome Console opportunity, smallest useful GUI,
   competitor evidence, falsification gates, and bounded first dogfood slice.
   No GUI implementation, rename, or release claim is implied.
+- 2026-07-29: Added the `vidux.outcome.v1` schema, synthetic example,
+  reference, and deterministic validator as the provider-neutral boundary.
