@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""The telemetry path must have a producer reachable from the CLI.
+"""The optional local ledger path has a producer reachable from the CLI.
 
-Vidux ships a ledger reader on three surfaces -- `vidux status`,
-`GET /api/ledger`, and the browser Ledger tab -- but for the whole of its
-history nothing a user could type emitted a row into it. `scripts/lib/
-ledger-emit.sh` is sourced by exactly two files, `vidux-loop.sh` and
-`vidux-checkpoint.sh`, and `bin/vidux` dispatched neither. Consumers worked;
-the producer was orphaned.
+Vidux ships local ledger readers in `vidux status`, `GET /api/ledger`, and the
+browser Ledger tab. When a user configures that optional store, the public
+checkpoint command must be able to append the corresponding proof/resume row.
+The repository plan remains authority even when no ledger is configured.
 
 These tests assert the end-to-end path a user actually walks, not the presence
 of a verb: run the CLI, then read the ledger file back and check a row landed
@@ -104,6 +102,43 @@ class CheckpointTelemetryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("checkpoint", result.stdout)
 
+    def test_checkpoint_help_discloses_proof_and_opt_in_commit(self) -> None:
+        result = self._run("help", "checkpoint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--proof", result.stdout)
+        self.assertIn("--commit", result.stdout)
+        self.assertIn("remain uncommitted", result.stdout)
+
+    def test_completion_without_proof_does_not_mutate_or_commit(self) -> None:
+        before_plan = self.plan.read_text()
+        before_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+        result = self._run(
+            "checkpoint",
+            str(self.plan),
+            "wire the emitter",
+            "unproved completion",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--proof is required", result.stderr)
+        self.assertEqual(self.plan.read_text(), before_plan)
+        self.assertEqual(self._rows(), [])
+        after_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertEqual(after_head, before_head)
+
     def test_running_the_cli_actually_lands_a_ledger_row(self) -> None:
         """The assertion that matters.
 
@@ -118,6 +153,8 @@ class CheckpointTelemetryTests(unittest.TestCase):
             str(self.plan),
             "wire the emitter",
             "emitter reachable from the CLI",
+            "--proof",
+            "unit gate passed",
         )
         self.assertEqual(result.returncode, 0, f"{result.stdout}\n{result.stderr}")
         rows = self._rows()
@@ -135,6 +172,18 @@ class CheckpointTelemetryTests(unittest.TestCase):
             checkpoint_rows,
             f"a row landed but none of them is a checkpoint event: {rows}",
         )
+        self.assertTrue(
+            all(row.get("handoff_status") == "needs_review" for row in checkpoint_rows),
+            checkpoint_rows,
+        )
+        self.assertTrue(
+            all("commit" not in row for row in checkpoint_rows),
+            checkpoint_rows,
+        )
+        self.assertTrue(
+            all("unit gate passed" in row.get("proof", "") for row in checkpoint_rows),
+            checkpoint_rows,
+        )
 
     def test_emitted_row_carries_the_plan_it_checkpointed(self) -> None:
         """A row that cannot be traced to a plan is ledger volume, not proof."""
@@ -143,6 +192,8 @@ class CheckpointTelemetryTests(unittest.TestCase):
             str(self.plan),
             "wire the emitter",
             "emitter reachable from the CLI",
+            "--proof",
+            "unit gate passed",
         )
         rows = self._rows()
         self.assertTrue(rows, "no rows emitted")
@@ -152,6 +203,122 @@ class CheckpointTelemetryTests(unittest.TestCase):
             blob,
             f"emitted rows do not reference the plan path: {rows}",
         )
+        self.assertIn("unit gate passed", blob)
+
+    def test_checkpoint_leaves_plan_uncommitted_by_default(self) -> None:
+        before_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        result = self._run(
+            "checkpoint",
+            str(self.plan),
+            "wire the emitter",
+            "safe local checkpoint",
+            "--proof",
+            "unit gate passed",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("left uncommitted", result.stdout)
+        after_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertEqual(after_head, before_head)
+        self.assertIn("PLAN.md", subprocess.run(
+            ["git", "status", "--short"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout)
+
+    def test_blocked_checkpoint_requires_a_concrete_blocker_before_mutation(self) -> None:
+        before_plan = self.plan.read_text()
+        result = self._run(
+            "checkpoint",
+            str(self.plan),
+            "wire the emitter",
+            "blocked without a reason",
+            "--status",
+            "blocked",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--blocker is required", result.stderr)
+        self.assertEqual(self.plan.read_text(), before_plan)
+        self.assertEqual(self._rows(), [])
+
+    def test_commit_requires_explicit_flag(self) -> None:
+        before_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        result = self._run(
+            "checkpoint",
+            str(self.plan),
+            "wire the emitter",
+            "explicit local commit",
+            "--proof",
+            "unit gate passed",
+            "--commit",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertNotEqual(after_head, before_head)
+
+    def test_explicit_commit_uses_the_target_repo_outside_caller_cwd(self) -> None:
+        before_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        env = dict(os.environ)
+        env["VIDUX_LEDGER_FILE"] = str(self.ledger)
+        env.pop("VIDUX_LEDGER_APPEND", None)
+        with tempfile.TemporaryDirectory() as outside:
+            result = subprocess.run(
+                [
+                    str(CLI),
+                    "checkpoint",
+                    str(self.plan),
+                    "wire the emitter",
+                    "explicit outside-cwd commit",
+                    "--proof",
+                    "unit gate passed",
+                    "--commit",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=outside,
+                env=env,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertNotEqual(after_head, before_head)
 
 
 if __name__ == "__main__":

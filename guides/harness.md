@@ -1,18 +1,25 @@
 # Automation Prompt Authoring
 
-Reference for writing cron automation prompts (harnesses). Loaded by `/codex` and `/claude` when creating or updating automation prompts.
+Reference for writing bounded automation prompts, or harnesses.
 
 ---
 
 ## Core Rule (Doctrine 8)
 
-A cron prompt is a **stateless harness** -- it encodes the end goal and project-specific instructions the agent cannot infer. It never contains current state.
+An automation prompt is a **stateless harness**: it encodes the end goal and
+project-specific instructions an agent cannot infer. It never contains current
+state.
 
-**The harness is the PROCESS.** The owning PLAN.md is the queue/planning authority, and matching internal checkpoint ledger rows carry shipped-work proof/resume. Never mix current-state snapshots into the harness.
+**The harness is the process.** The owning `PLAN.md` is the queue, decision,
+proof-reference, and resume authority. Never mix current-state snapshots into
+the harness.
 
-**IN the harness:** end goal, authority plan path, role boundary, design DNA, guardrails, skills to invoke.
+**In the harness:** end goal, authority plan path, role boundary, project
+constraints, verification, and retirement condition.
 
-**NEVER in the harness:** task numbers, cycle counts, progress summaries, branch names, file lists, implementation tasks, current blockers, or any snapshot of state.
+**Never in the harness:** task numbers, progress summaries, current branches,
+current blockers, account data, session identifiers, usage, costs, credentials,
+or private machine paths.
 
 One loop per project/mission. If a loop exists, refine it -- do not create a sibling.
 
@@ -24,54 +31,47 @@ Every harness follows these eight blocks, in this order. Rearranging or omitting
 
 ```
 1. MISSION        -- One line. User-visible goal. No implementation details.
-2. SKILLS         -- Load skills: $vidux, $pilot, $picasso, etc.
-3. GATE           -- Quick check or SCAN. Runs FIRST. Decides work/exit in <60 sec.
+2. SKILLS         -- Load only public, mission-relevant guidance.
+3. GATE           -- Read-only check that decides work or a cited exit.
 4. AUTHORITY      -- Read order for plan files. Primary state file is #1.
 5. CROSS-LANE     -- Read sibling memory + hot-files. Dedup, yield, skip.
 6. ROLE BOUNDARY  -- What this lane owns. What belongs to siblings.
-7. EXECUTION      -- How to do the work. Mid-zone kill. Queue drain. PR-first worktree closeout.
-8. CHECKPOINT     -- Memory format. Lead line. What to leave explicit. Worktree state.
+7. EXECUTION      -- One bounded row, its real gate, and an exit.
+8. CHECKPOINT     -- Proof, remaining risk, and one resume action.
 ```
 
-**Why this order:** Gate runs before authority reads. An agent that reads 6 files before discovering it has nothing to do wastes 90 seconds. Cross-lane comes after authority but before execution so the agent never starts work without knowing fleet state.
+**Why this order:** the gate prevents unnecessary mutation. Cross-lane
+coordination follows authority so the agent can detect ownership conflicts
+before editing.
 
 ---
 
 ## Writer, Radar, and Coordinator Roles
 
-Fleet automations use one of three roles (see `/vidux` Part 2, `references/automation.md`, and `guides/fleet-ops.md`):
+Automations use one of three roles:
 
-- **Writer** — ships code, executes plan tasks, merges. The default.
-- **Radar** — read-only monitoring, evidence gathering, no code changes. Reports findings to INBOX.md for the writer to promote.
-- **Coordinator** — fleet-level health: detects idle/stuck/colliding automations, adjusts focus.
+- **Writer** — advances owned plan rows and verifies changes.
+- **Reviewer** — gathers evidence and returns findings; no code changes.
+- **Coordinator** — resolves ownership and ordering across several lanes.
 
 **Gate pattern (writers):**
-1. Trunk health check (dirty = escalate, diverged >5 = exit)
-2. Read plan for [pending] tasks in this lane's scope
-3. If tasks exist: execute them
-4. If no tasks: scan owned surfaces for issues, fix what you find, add unfixable items as [pending] tasks
-5. If all clean: exit with proof of what was scanned
+1. Check the named revision and working-tree state.
+2. Read the plan for actionable rows in this lane's scope.
+3. If a task exists: execute one bounded row.
+4. If no task exists: exit without inventing work.
+5. Record proof, uncertainty, and one resume action.
 
-Gate must complete in under 60 seconds. The full cycle (scan + fix) has no time limit — keep working until the queue is empty.
-
-**Gate pattern (radars):** Use the SCAN gate (see `guides/fleet-ops.md`). Radars check git history and codebase state, not plan state. A radar on a writer's quick check gate is permanently dead.
-
-**Key principle (docs/doctrine/DOCTRINE.md):** "Every agent finds work AND does work." Even radars are doers — they produce evidence, not empty reports. A radar that scans and finds nothing ships a checkpoint proving what was scanned.
+**Gate pattern (reviewers):** use the SCAN gate in `guides/fleet-ops.md`.
+Reviewers inspect the named scope and return cited findings or a cited clean
+result. They do not claim implementation work.
 
 ---
 
 ## Size Guidance
 
-**Target: 2000-3000 characters.**
-
-| Range | Signal |
-|---|---|
-| < 1500 chars | Missing a block. Check: gate? cross-lane? role boundary? |
-| 1500-3000 chars | Healthy. Each block is present and concise. |
-| 3000-4000 chars | Audit for doctrine restatement or verbose gate logic. |
-| 4000+ chars | Almost certainly restating things skill files already provide. |
-
-**Where bloat hides:** doctrine restatement (the agent loads it via `$vidux`), verbose execution philosophy, authority listing files already loaded via skill tokens, inline explanations of why gate steps matter.
+Use the shortest prompt that preserves all eight blocks. Bloat usually hides in
+repeated doctrine, copied current state, or explanations that do not change
+behavior.
 
 **The test:** Can you delete a sentence without changing the agent's behavior? If yes, delete it.
 
@@ -79,41 +79,38 @@ Gate must complete in under 60 seconds. The full cycle (scan + fix) has no time 
 
 ## Common Mistakes
 
-1. **Gating on the wrong file.** Three of six automations gated on a meta-plan marked "done." The agent saw "complete" and exited before loading a single skill.
-2. **Scanner with a writer gate.** Checks plan state, finds no tasks, exits. Never scans.
-3. **Restating doctrine.** 500-1000 chars of "plan is truth" prose the agent already knows from `$vidux`. Delete it.
-4. **Vague authority.** "Read the bug tracker" forces a search. Give absolute paths.
-5. **Missing mid-zone kill.** Without "if 3+ min pass with no file write, exit," agents drift into plan-reading loops.
-6. **Missing role boundary.** Agent drifts into sibling work, creates merge conflicts.
-7. **Missing cross-lane.** Agent duplicates work a sibling just shipped.
-8. **Empty queue = exit.** Wrong. `guides/fleet-ops.md`'s five-point idle scan is required before any "nothing to do" exit. Cite what was scanned.
+1. **Wrong authority.** A meta-plan or copied task list can hide live work.
+2. **Reviewer with a writer gate.** It checks the queue but never scans its
+   review surface.
+3. **Restated doctrine.** Repetition makes the prompt harder to audit.
+4. **Vague authority.** Name a repo-relative plan and exact owned paths.
+5. **Missing stop rule.** A blocked lane keeps rereading without new evidence.
+6. **Missing role boundary.** Two lanes edit the same surface.
+7. **Missing cross-lane check.** A lane duplicates work already in progress.
+8. **Uncited empty exit.** A clean exit must name what was checked.
 
 ---
 
-## Prompt Amplification (Amp Flow)
+## Interactive request refinement
 
-When `/vidux` is invoked interactively, amplify the request before executing.
+For an ambiguous interactive request, gather repository context and restate a
+bounded execution brief before acting.
 
 ```
-RAW INPUT -> GATHER -> AMPLIFY -> PRESENT -> [STEER...] -> FIRE -> EXECUTE
+RAW INPUT -> GATHER -> BOUND -> EXECUTE -> VERIFY
 ```
 
-**GATHER** (10 sec max): git status/log, glob/grep keywords, check existing plans/automations, active tasks, recent evidence.
+**GATHER:** current revision, working-tree state, existing plan, relevant files,
+and recent proof.
 
-**AMPLIFY** -- detect mode from input:
+**BOUND:** choose the smallest fitting mode:
 
 | Signal | Mode |
 |---|---|
-| cron, automation, schedule, loop, recurring | **HARNESS** -- produce evergreen cron prompt per Doctrine 8 (every automation is a doer) |
+| automation, schedule, loop, recurring | **HARNESS** -- produce an evergreen prompt per Doctrine 8 |
 | plan, project, investigate, research | **PLAN** -- produce mission description, no code |
 | Everything else | **EXECUTE** -- produce specific, evidence-cited, actionable prompt |
 
-**PRESENT**: Show amplified prompt in a box. End with "steer me or say fire."
-
-**STEER**: "fire"/"go" = proceed. "closer" = minor tweak. "no" = major redirect. "add/drop X" = scope change. Max 5 rounds.
-
-**FIRE**: Strip scaffolding, execute the amplified prompt as the task spec.
-
-**Rules:** Real context only. Never hallucinate sources. If GATHER finds 3+ unrelated candidates, disambiguate. For HARNESS mode, never include task numbers, cycle counts, or progress -- state orientation lives in the owning PLAN.md plus matching internal checkpoint ledger rows, not in the harness prompt.
-
-**Skip amplification when:** cron automation running, `[in_progress]` task exists, user says "fire"/"go"/"continue".
+**Rules:** use real context only. Never invent sources. If several unrelated
+missions fit, narrow to the one owned by the named plan. A harness never embeds
+current task numbers, branches, blockers, or runtime receipts.

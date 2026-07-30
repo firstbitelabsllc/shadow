@@ -7,7 +7,7 @@ A local browser surface for inspecting plans across `DEV_ROOT`, scanning the cro
 - `bin/vidux-browse` starts the local server and, by default, opens the UI in a browser.
 - `browser/server.py` serves the read-mostly HTTP API and static frontend.
 - `browser/static/` contains the frontend assets.
-- `browser/artifacts/` stores ad-hoc HTML artifacts that the UI can list and open.
+- `${VIDUX_BROWSER_ARTIFACTS_DIR:-${XDG_DATA_HOME:-~/.local/share}/vidux/artifacts}` stores ad-hoc HTML artifacts that the UI can list and open, outside the installed package.
 - `${VIDUX_BROWSER_COMMENTS_FILE:-~/.vidux-browser/comments.jsonl}` stores named comments and optional anchor metadata as append-only app data.
 - `${VIDUX_BROWSER_STEERING_FILE:-~/.vidux-browser/steering.jsonl}` stores the local, plan-scoped one-shot steering journal.
 - `${VIDUX_CLAIMS_FILE:-~/.agent-ledger/claims.jsonl}` stores provider-neutral live work leases and bounded handoffs.
@@ -33,6 +33,7 @@ Source-grounded defaults from the launcher and server:
 - Ledger tab caps: `VIDUX_LEDGER_ITEM_LIMIT` defaults to `20`; `VIDUX_LEDGER_SCAN_LIMIT` defaults to `5000`
 - Steering journal: `VIDUX_BROWSER_STEERING_FILE` defaults to `~/.vidux-browser/steering.jsonl`
 - Work-claims journal: `VIDUX_CLAIMS_FILE` defaults to `~/.agent-ledger/claims.jsonl`
+- Artifact shelf: `VIDUX_BROWSER_ARTIFACTS_DIR` defaults to `${XDG_DATA_HOME:-~/.local/share}/vidux/artifacts`
 
 In background mode the launcher writes a PID file and log under
 `${XDG_STATE_HOME:-~/.local/state}/vidux/` (`browser.pid` / `browser.log`;
@@ -45,13 +46,14 @@ requested `repo_root`, `dev_root`, path-safe steering and coordination store
 identities, `port`, and current server/mailbox/coordination module mtimes.
 
 The launcher accepts `--port`, `--host`, `--root`/`--dev-root`, `--open-host`,
-`--comments-path`, `--steering-path`, and `--claims-path`; unknown flags exit 2.
+`--comments-path`, `--steering-path`, `--claims-path`, and
+`--artifacts-dir`; unknown flags exit 2.
 
 ## HTTP surface
 
 The stdlib-only server exposes these routes:
 
-- `GET /api/health` returns `ok`, root/port/server identity, path-safe steering and coordination store ids, their module mtimes, and `artifacts_dir`; `bin/vidux-browse` uses these to avoid opening a stale, older-code, foreign, or differently scoped listener on the same port. Journal paths are not returned.
+- `GET /api/health` returns `ok`, root/port/server identity, path-safe comment, artifact, steering, and coordination store ids, plus the relevant module mtimes; `bin/vidux-browse` uses these to avoid opening a stale, older-code, foreign, or differently scoped listener on the same port. Store paths are not returned.
 - `GET /api/vidux/truth` returns cached read-only config and runtime-doctor status for the browser chrome. Cold calls return a warming payload and refresh the truth bundle in the background, so monitor probes never block on runtime doctor.
 - `GET /api/vidux/truth?refresh=sync` forces the synchronous config/runtime-doctor proof path for manual checks and tests.
 - The truth payload includes `runtime_doctor.system_memory` (a compact copy of `system_memory_pressure`): `memory_pressure_free_pct`/`memory_pct_source` from `memory_pressure -Q`; `vm_free_mb`/`vm_speculative_mb`/`vm_pages_source` from `vm_stat`.
@@ -60,7 +62,7 @@ The stdlib-only server exposes these routes:
 - `GET /api/steering?plan_path=<PLAN.md>` returns cockpit-safe active steering state for one exact plan to loopback clients. It never returns the plan/store path, source/consumer labels, or lease material.
 - `GET /api/coordination?plan_path=<PLAN.md>` returns active owners and resumable handoffs for that exact plan to loopback clients. It omits host, PID, journal path, tokens, and provider/account identity; there is no coordination write route.
 - `POST /api/steering` lets the loopback cockpit enqueue, retry, or dismiss an active exact-plan item. Host-only lease, acknowledge, and fail transitions are not HTTP actions.
-- `GET /api/artifacts` returns the HTML artifact shelf under `browser/artifacts/`.
+- `GET /api/artifacts` returns the HTML artifact shelf under the configured durable artifact directory.
 - `GET /api/file?path=...` returns an allowed markdown file or HTML artifact.
 - `GET /api/comments?path=...` returns named comments attached to an allowed markdown file or HTML artifact.
 - `POST /api/artifact` writes a bounded HTML artifact (`slug` + `html` JSON payload).
@@ -75,7 +77,7 @@ The server is narrow:
 - `POST /api/comments` is the one write route that intentionally accepts real cross-machine LAN peers (see below). When the peer is not loopback, LAN-bind mode requires both the actual TCP peer and the `Host` header to be private-use IP literals (RFC 1918/4193). A public or spoofed TCP peer therefore cannot borrow a private `Host`, and a DNS-rebound domain's `Host` is not a raw private-IP literal.
 - Reads are limited to `DEV_ROOT` and an allowlist of plan-adjacent files: `PLAN.md`, `PROGRESS.md`, `INBOX.md`, `ASK-OWNER.md`, `DOCTRINE.md`, and `README.md`.
 - Markdown under `investigations/` and `evidence/` is also allowed.
-- HTML reads are limited to `browser/artifacts/`.
+- HTML reads are limited to the configured artifact directory.
 - `node_modules` paths are rejected even if the filename matches the allowlist.
 - Allowed text is redacted before it is parsed or returned. This covers raw plan-adjacent files, plan/dashboard metadata, Claude session excerpts, ledger excerpts, artifact titles, and comments returned through JSON routes. Plans or artifacts with a secret-shaped path segment are omitted from discovery. A plan with one or more matches reports `content_redacted=true` and `sensitive_redactions=<count>`; the UI keeps that incomplete-content state visible.
 - JSON payloads, plain-text HTTP errors, and request log lines share the same final redaction backstop. Percent-escaped request targets are decoded before log scanning so URL encoding cannot defeat token boundaries, then control characters are flattened to keep each request on one physical log line.
@@ -107,7 +109,7 @@ Shared visual scaffolding lives in `browser/static/artifact-base.css`. Put this 
 <link rel="stylesheet" href="../static/artifact-base.css" data-vidux-artifact-base>
 ```
 
-The relative `../static/` path works when opening a local artifact file directly from `browser/artifacts/`. In vidux-browse, the cockpit removes every artifact-owned `<link>`, fetches the trusted `artifact-base.css` bytes itself, and injects those bytes as an inline `<style>` only when this marker is present. This keeps the iframe self-contained without broadening `style-src` to same-origin URLs. Keep OS dark-mode tokens in the shared CSS, not in a per-artifact `prefers-color-scheme: dark` block.
+The marker is interpreted by vidux-browse; its relative URL is not a promise that a file opened directly from the external artifact directory can resolve package assets. The cockpit removes every artifact-owned `<link>`, fetches the trusted `artifact-base.css` bytes itself, and injects those bytes as an inline `<style>` only when this marker is present. This keeps the iframe self-contained without broadening `style-src` to same-origin URLs. Keep OS dark-mode tokens in the shared CSS, not in a per-artifact `prefers-color-scheme: dark` block.
 
 ## Plan-note behavior
 

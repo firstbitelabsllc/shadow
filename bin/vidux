@@ -16,7 +16,7 @@ VIDUX_ROOT="${VIDUX_ROOT:-$(cd "${VIDUX_BIN_DIR}/.." && pwd)}"
 
 print_top_help() {
   cat <<EOF
-vidux — plan-first control plane for AI agents
+vidux — local plan, proof, and resume tools for AI coding work
 
 usage: vidux <command> [args...]
 
@@ -24,7 +24,7 @@ commands:
   init <slug>|--here Bootstrap a PLAN.md from template
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
-  checkpoint [args] Record a checkpoint on a PLAN.md and emit it to the ledger
+  checkpoint [args] Update a PLAN.md; optionally append to a local ledger
   doctor            Install/readiness doctor for local CLI setup
   help [<cmd>]      Show this help, or help for a specific subcommand
 
@@ -95,6 +95,22 @@ exit codes:
   0   plan created
   1   target PLAN.md already exists
   2   invalid usage (no slug, bad slug, unknown flag)
+EOF
+      ;;
+    checkpoint)
+      cat <<EOF
+vidux checkpoint — update a plan and optionally append a local ledger row.
+
+usage: vidux checkpoint <plan-path> <task> <summary> \\
+  --proof <text> \\
+  [--blocker <text>] [--status done|done_with_concerns|blocked] \\
+  [--outcome useful|busy|blocked_clarified] [--commit]
+       vidux checkpoint <plan-path> --archive [--commit]
+
+The repository plan remains authority. A configured local ledger is an
+optional proof/resume projection; a row never authorizes push, merge, deploy,
+spend, or external communication. Completion requires explicit proof text.
+Changes remain uncommitted unless --commit is supplied.
 EOF
       ;;
     doctor)
@@ -205,12 +221,8 @@ main() {
       exec bash "${VIDUX_ROOT}/scripts/vidux-init.sh" "$@"
       ;;
     checkpoint)
-      # The checkpoint script is the only surface that emits vidux telemetry
-      # (scripts/lib/ledger-emit.sh is sourced there and in vidux-loop.sh, and
-      # neither was reachable from this dispatcher). Without this verb the
-      # ledger readers -- vidux status, GET /api/ledger, the browser Ledger tab
-      # -- have no producer, so the whole telemetry path is a dashboard with
-      # nothing behind it.
+      # Plan mutation is the primary behavior. A configured ledger is an
+      # optional local proof/resume projection.
       export VIDUX_ROOT
       exec bash "${VIDUX_ROOT}/scripts/vidux-checkpoint.sh" "$@"
       ;;

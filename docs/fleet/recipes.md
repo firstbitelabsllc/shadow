@@ -1,34 +1,26 @@
-# Recipe Catalog
+# Small coordination recipes
 
-Two recipe surfaces, mapped into the docs site so VitePress nav matches the repo:
+Vidux supplies a plan/proof/resume contract, not a worker catalog. These
+provider-neutral patterns are enough for most multi-agent work:
 
-- `guides/recipes.md` — the main automation recipe catalog.
-- `guides/recipes/` — focused guides for recurring patterns.
+## Read-only research
 
-## Core automation recipes
+Give the worker a question, bounded sources, and a short evidence format. The
+owner checks important claims before changing the plan.
 
-`guides/recipes.md` ships:
+## Bounded implementation
 
-| # | Recipe | Notes |
-|---|---|---|
-| 1 | Fleet Watcher | deprecated 2026-04-17 |
-| 2 | PR Reviewer | review automation for PRs |
-| 3 | PR Lifecycle Manager | triage, promote, clean up PRs |
-| 4 | Observer Pair | deprecated 2026-04-17 |
-| 5 | Deploy Watcher | verify deploys; stop after a bounded number of checks |
-| 6 | Trunk Health | detect dirty or diverged main early |
-| 7 | Skill Refiner | audit skill descriptions, stale references, overlap |
-| 8 | Self-Improvement Loop | repo improves itself from current plan and docs |
-| 9 | Edit-Then-Verify | pair changes with a verification pass |
-| 10 | Cron Retry with Backoff | bound repeated retries |
-| 11 | Multi-PR Dependency Shipping | handle ordered PR stacks |
+Give the worker exact files, the expected behavior, and a verification command.
+The owner reviews the diff and reruns the gate.
 
-## Supplemental guides in `guides/recipes/`
+## Adversarial review
 
-`claude-md-rules.md`, `codex-runtime.md`, `env-var-forensics.md`, `evidence-discipline.md`, `lane-prompt-patterns.md`, `lightweight-first.md`, `proactive-surfacing.md`, `subagent-delegation.md`, `user-value-triage.md`, `visual-proof-required.md`, `webfetch-fallback.md`.
+Give the reviewer an exact revision and explicit failure classes. Findings are
+drafts until reproduced against that revision.
 
-## How to choose
+## Cold resume
 
-1. Start with the `guides/recipes.md` recipe matching the automation you want — a lane shape or operating pattern.
-2. Pull a focused `guides/recipes/` doc only for a narrow problem (Codex runtime setup, evidence discipline).
-3. [Fleet Operations](/fleet/operations) covers always-on rules that apply when no recipe is active; [Harness Authoring](/fleet/harness) keeps the prompt short and stable.
+Read the plan, revision, working tree, and named proof. Continue the active row
+instead of reconstructing project state from a chat.
+
+Keep provider setup and scheduling in the coding host.

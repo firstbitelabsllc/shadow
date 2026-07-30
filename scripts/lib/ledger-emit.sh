@@ -83,15 +83,11 @@ _vidux_abs_path() {
   fi
 }
 
-# Convergence ladder (Harness Contract block 8): branch_pushed < pr_open < merged < findable.
-# "done"/"completed" are NOT terminal status words — they map down to the rung the
-# caller can actually prove. A row is only `findable` (the true terminal) with a
-# merge SHA reachable from trunk AND a build/URL locator; `merged` requires a SHA.
-# Legacy callers passing done|completed are mapped to `merged` ONLY when a merge SHA
-# is present in the environment (VIDUX_MERGE_SHA), else demoted to `pr_open` so the
-# ledger can never overclaim convergence the work has not reached.
+# Transport states require transport evidence. A local `done` checkpoint says
+# only that a plan row is ready for review; it does not imply an open pull
+# request. A merge SHA may raise it to `merged`.
 _vidux_handoff_status() {
-  local raw="${1:-pr_open}"
+  local raw="${1:-needs_review}"
   case "$raw" in
     findable)
       printf 'findable'
@@ -103,12 +99,10 @@ _vidux_handoff_status() {
       printf '%s' "$raw"
       ;;
     done|completed)
-      # Honest-status rule: a bare "done"/"completed" cannot certify a merge.
-      # Only stamp `merged` when a SHA proves it; otherwise it is still `pr_open`.
       if [[ -n "${VIDUX_MERGE_SHA:-}" ]]; then
         printf 'merged'
       else
-        printf 'pr_open'
+        printf 'needs_review'
       fi
       ;;
     blocked)
@@ -225,15 +219,21 @@ vidux_emit_loop_end() {
   vidux_emit "vidux_loop_end" "$summary" "$files" "$extra"
 }
 
-# Emitted after checkpoint state is recorded and before git transport; commit hash is optional for legacy callers.
-# Args: PROJECT_NAME PLAN_PATH COMMIT_HASH [STATUS] [NEXT_TASK] [TASK_TEXT]
+# Emitted after checkpoint state is recorded. Commit hash and explicit proof
+# are optional for legacy callers.
+# Args: PROJECT_NAME PLAN_PATH COMMIT_HASH [STATUS] [NEXT_TASK] [TASK_TEXT] [PROOF_TEXT]
 vidux_emit_checkpoint() {
-  local project="${1:-unknown}" plan="${2:-}" commit="${3:-}" status="${4:-done}" next_task="${5:-}" task_text="${6:-}"
+  local project="${1:-unknown}" plan="${2:-}" commit="${3:-}" status="${4:-done}" next_task="${5:-}" task_text="${6:-}" proof_text="${7:-}"
   local plan_path handoff proof resume task_id
+  if [[ -n "$commit" && ! "$commit" =~ ^[0-9a-fA-F]{7,64}$ ]]; then
+    echo "vidux ledger: refusing non-SHA commit value" >&2
+    return 1
+  fi
   plan_path="$(_vidux_abs_path "$plan")"
   handoff="$(_vidux_handoff_status "$status")"
   task_id="$(_vidux_task_id_from_text "$task_text")"
-  proof="vidux-checkpoint handoff_status=${handoff}"
+  proof="${proof_text:-Checkpoint state recorded}"
+  proof="${proof}; handoff_status=${handoff}"
   [[ -n "$commit" ]] && proof="${proof}; commit=${commit}"
   [[ -n "$plan_path" ]] && proof="${proof}; plan=${plan_path}"
   [[ -n "$task_id" ]] && proof="${proof}; task_id=${task_id}"

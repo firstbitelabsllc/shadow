@@ -458,7 +458,9 @@ class OutcomeAskSteerValidatorTests(unittest.TestCase):
 
     def test_privacy_absolute_home_path_rejected(self):
         doc = base_document()
-        doc["outcome"]["summary"] = "Do not read /" + "Users/example/secret-notes.txt"
+        doc["outcome"]["summary"] = "/".join(
+            ("Do not read ", "Users", "example", "secret-notes.txt")
+        )
         result = self.run_json_doc(doc)
         self.assert_invalid(result, code="privacy_path", path="/outcome/summary")
 

@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 # SCAN_TARGETS used to be a
 # hand-maintained ALLOWLIST of top-level files/dirs. That design has already
-# let a real, live leak ship unscanned twice before (ASK-LEO.md, `projects/`)
+# let a real, live leak ship unscanned twice before (an ask file, `projects/`)
 # and recurred a third time (AGENTS.md, CHANGELOG.md were simply never named
 # here) -- an allowlist only protects what someone remembered to add, and a
 # new/renamed top-level file ships unscanned by default until someone
@@ -35,14 +35,21 @@ REMOVED_ARTIFACT_PREFIXES = (
     Path("commands"),
 )
 
-# Fragment private product markers so this file's own source does not contain
-# a contiguous matchable token for rules that would otherwise self-hit.
-_PRIVATE_FLOW_LANE = "Leo" + " Flow"
-_PRIVATE_FLOW_HYPHEN = "leo" + "-flow"
-_PRIVATE_SLOP_LANE = "/" + "ai-slop"
-_PRIVATE_VIDUX_OVERLAY = "/" + "vidux-leo"
-_PRIVATE_PILOT_OVERLAY = "pilot" + "-leo"
-
+# The scanner deliberately contains no private-name denylist. Publishing a
+# fragmented private token in the scanner would still publish that token.
+# Instead, rules below detect risky data shapes and local-machine structure.
+PUBLIC_REPOSITORY_SLUGS = frozenset({"vidux"})
+HOME_RELATIVE_DEVELOPMENT_RE = re.compile(
+    r"~/Development/(?P<repo>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"(?=/|(?![A-Za-z0-9._-]))",
+    re.IGNORECASE,
+)
+STRING_FRAGMENT_RE = re.compile(
+    r"""(?P<left_quote>["'])(?P<left>[^"'\\]*)"""
+    r"""(?P=left_quote)\s*(?:\+|\|\||\.)\s*"""
+    r"""(?P<right_quote>["'])(?P<right>[^"'\\]*)"""
+    r"""(?P=right_quote)"""
+)
 # Privacy/PII/confidentiality patterns: enforced everywhere scanned,
 # regardless of tense. Category-based and synthetic-safe: no personal names,
 # employer brands, machine-local emails, or private business names appear as
@@ -52,23 +59,17 @@ _PRIVATE_PILOT_OVERLAY = "pilot" + "-leo"
 # Pattern labels intentionally avoid the matchable surface of their own rules
 # (never put the matchable phrase itself into a label or comment).
 PRIVACY_PATTERNS = (
-    # Private product lane / overlay markers used by this repo's surface.
+    # A concrete checkout other than this public repository exposes local
+    # machine structure. Documentation placeholders such as <repo> do not
+    # match; the project checkout itself is explicitly public.
     (
-        "private flow-lane marker",
-        re.compile(
-            rf"\b(?:{re.escape(_PRIVATE_FLOW_LANE)}|{re.escape(_PRIVATE_FLOW_HYPHEN)})\b",
-            re.IGNORECASE,
-        ),
+        "home-relative concrete development path",
+        HOME_RELATIVE_DEVELOPMENT_RE,
     ),
-    ("private slop-lane marker", re.compile(re.escape(_PRIVATE_SLOP_LANE) + r"\b")),
-    (
-        "private overlay marker",
-        re.compile(re.escape(_PRIVATE_VIDUX_OVERLAY) + r"\b"),
-    ),
-    # Absolute POSIX home directories for any username, not one operator.
+    # Absolute POSIX home directories for any username.
     (
         "absolute home path",
-        re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+/"),
+        re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+/", re.IGNORECASE),
     ),
     # Home-relative paths that expose private local structure.
     # Intentionally excludes publicly documented product paths such as
@@ -77,7 +78,8 @@ PRIVACY_PATTERNS = (
         "home-relative private path",
         re.compile(
             r"~/(?:Documents|Library|Desktop|Downloads|"
-            r"\.ssh|\.aws|\.gnupg)/"
+            r"\.ssh|\.aws|\.gnupg)/",
+            re.IGNORECASE,
         ),
     ),
     # Non-public email addresses. Allowlisted public identities are filtered
@@ -120,6 +122,38 @@ PRIVACY_PATTERNS = (
             re.IGNORECASE,
         ),
     ),
+    # Execution receipts and transport identifiers are operational data, not
+    # product documentation. Match populated structural fields while allowing
+    # schemas, empty values, and placeholders such as <request-id>.
+    (
+        "execution-identifier payload",
+        re.compile(
+            r"""["'](?:receipt|request|session|conversation|run)[_-]?id["']"""
+            r"""\s*[:=]\s*["']"""
+            r"""(?!\s*(?:<|\{|\$|example\b|sample\b|redacted\b))"""
+            r"""(?![^"'\n]*(?:synthetic|fixture|test|fake|old|latest)[^"'\n]*["'])"""
+            r"""[A-Za-z0-9][A-Za-z0-9._:/-]{7,}["']""",
+            re.IGNORECASE,
+        ),
+    ),
+    # Cost/account/session snapshots are sensitive by shape regardless of
+    # which execution provider emitted them.
+    (
+        "execution-accounting payload",
+        re.compile(
+            r"(?:"
+            r"""["'](?:account[_-]?id|cost[_-]?(?:usd|cents)|"""
+            r"""input[_-]?tokens|output[_-]?tokens)["']\s*[:=]\s*"""
+            r"""(?:"(?!\s*(?:<|\{|\$|example\b|sample\b|redacted\b))"""
+            r"""[^"\n]{2,}"|'(?!\s*(?:<|\{|\$|example\b|sample\b|redacted\b))"""
+            r"""[^'\n]{2,}'|[1-9][0-9]*(?:\.[0-9]+)?)"""
+            r"|"
+            r"\bprovider\s+(?:receipt|request|account|session|cost)\s*"
+            r"(?:id|data|payload|snapshot|[:=])"
+            r")",
+            re.IGNORECASE,
+        ),
+    ),
     # Private finance / account material by category (not provider brands).
     # Avoid bare "account balance" prose — redaction tests mention it without
     # shipping finance data.
@@ -134,11 +168,13 @@ PRIVACY_PATTERNS = (
             re.IGNORECASE,
         ),
     ),
-    # Structural private skills path (no operator username).
+    # Concrete local tooling/skills layout without naming any private repo.
     (
-        "private skills-path marker",
+        "local tooling-layout path",
         re.compile(
-            r"\b(?:Development|Documents)/(?:ai(?:-leo)?|skills)/(?:hooks|skills)\b"
+            r"\b(?:Development|Documents)/"
+            r"[A-Za-z0-9][A-Za-z0-9._-]*/(?:hooks|skills)\b",
+            re.IGNORECASE,
         ),
     ),
     (
@@ -208,10 +244,6 @@ PRIVACY_PATTERNS = (
 # or PLAN.md's append-only Decision Log) is the record doing its job, not
 # a leak — see HISTORICAL_TARGETS below.
 HYGIENE_PATTERNS = (
-    (
-        "private pilot overlay",
-        re.compile(rf"\b{re.escape(_PRIVATE_PILOT_OVERLAY)}\b", re.IGNORECASE),
-    ),
     ("retired board brand", re.compile(r"\bLinear\b")),
     ("retired board lowercase", re.compile(r"\blinear\b")),
     ("retired GitHub Projects config key", re.compile(r"\bgh_projects\b")),
@@ -219,25 +251,24 @@ HYGIENE_PATTERNS = (
     ("retired external-state label", re.compile(r"\bexternal-state\b")),
     ("retired inbox sync script", re.compile(r"\bvidux-inbox-sync\b")),
     ("retired audit script", re.compile(r"\blinear-audit\b")),
-    ("retired pilot path", re.compile(r"\bpilot/")),
     ("retired hosted routines wording", re.compile(r"\bClaude Routines\b")),
 )
 
 FORBIDDEN_PATTERNS = PRIVACY_PATTERNS + HYGIENE_PATTERNS
 
 # Commit-identity allowlist for the metadata scan (--metadata) and for the
-# non-public-email privacy rule. A public repo publishes every reachable
-# commit's author/committer email, and a foreign identity renders a real,
-# unrelated GitHub account as a public contributor. Only these identities are
-# legitimate public commit participants:
-#   - leojkwan@gmail.com: maintainer public commit identity on origin/main
-#   - noreply@github.com: GitHub web-UI / squash-merge committer identity
-#   - codesmith-bot@users.noreply.github.com: Codesmith autofix / review bot
-#   - cursoragent@cursor.com: Cursor agent committer identity
-# Machine-local emails and private account addresses are intentionally absent.
+# non-public-email privacy rule. Human identities are stored only as one-way
+# digests, so the public scanner does not become an identity disclosure.
+ALLOWED_COMMIT_IDENTITY_DIGESTS = frozenset(
+    {
+        "6cee42833d61d42b77990a6f02ddc22246560792bbe79b3ef161feea5eb67d6e",
+    }
+)
+
+# Public automation identities are not private human data and remain
+# readable so contributors can audit which bots are authorized.
 ALLOWED_COMMIT_EMAILS = frozenset(
     {
-        "leojkwan@gmail.com",
         "noreply@github.com",
         "codesmith-bot@users.noreply.github.com",
         "cursoragent@cursor.com",
@@ -333,7 +364,7 @@ EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 # legitimately mention retired terms like "Linear" many times in past
 # tense) but full exclusion also hid real PRIVACY_PATTERNS leaks in
 # CHANGELOG.md -- the fix is the
-# same one already applied to PLAN.md/ASK-LEO.md/projects: HISTORICAL_
+# same one already applied to PLAN.md/ask files/projects: HISTORICAL_
 # TARGETS membership, not exclusion. Privacy leaks aren't legitimate in any
 # tense; retired-terminology hygiene noise is the only thing past tense
 # excuses.
@@ -343,7 +374,6 @@ HISTORICAL_TARGETS = {
     "PLAN.md",
     "projects",
     "ASK-OWNER.md",
-    "ASK-LEO.md",
     "ARCHIVE.md",
     "CHANGELOG.md",
 }
@@ -380,7 +410,10 @@ HYGIENE_EXEMPT_NAMES = {
 
 
 def _is_historical(rel: Path) -> bool:
-    return rel.parts[0] in HISTORICAL_TARGETS
+    return (
+        rel.parts[0] in HISTORICAL_TARGETS
+        or (len(rel.parts) == 1 and rel.name.startswith("ASK-") and rel.suffix == ".md")
+    )
 
 
 def _hygiene_exempt(rel: Path) -> bool:
@@ -391,6 +424,9 @@ def _email_is_allowed(email: str) -> bool:
     """Content-scan allow for non-public-email privacy hits."""
     lowered = email.strip().casefold()
     if lowered in {item.casefold() for item in ALLOWED_COMMIT_EMAILS}:
+        return True
+    digest = hashlib.sha256(lowered.encode("utf-8")).hexdigest()
+    if digest in ALLOWED_COMMIT_IDENTITY_DIGESTS:
         return True
     if "@" not in lowered:
         return False
@@ -416,16 +452,44 @@ def _commit_identity_allowed(email: str, *, commit_sha: str, role: str) -> bool:
     if lowered in {item.casefold() for item in ALLOWED_COMMIT_EMAILS}:
         return True
     digest = hashlib.sha256(lowered.encode("utf-8")).hexdigest()
+    if digest in ALLOWED_COMMIT_IDENTITY_DIGESTS:
+        return True
     return _legacy_identity_digest_allowed(commit_sha, role, digest)
+
+
+def _collapse_literal_fragments(text: str) -> str:
+    """Join adjacent quoted literals so concatenation cannot evade a shape rule."""
+    collapsed = text
+    while True:
+        updated = STRING_FRAGMENT_RE.sub(
+            lambda match: (
+                f"{match.group('left_quote')}"
+                f"{match.group('left')}{match.group('right')}"
+                f"{match.group('left_quote')}"
+            ),
+            collapsed,
+        )
+        if updated == collapsed:
+            return collapsed
+        collapsed = updated
 
 
 def _privacy_hits(label: str, pattern: re.Pattern[str], text: str) -> bool:
     """Return True when *text* contains a privacy hit for *label*/*pattern*."""
-    if label != "non-public email address":
-        return pattern.search(text) is not None
-    for match in pattern.finditer(text):
-        if not _email_is_allowed(match.group(0)):
-            return True
+    candidates = (text, _collapse_literal_fragments(text))
+    for candidate in candidates:
+        if label == "home-relative concrete development path":
+            for match in pattern.finditer(candidate):
+                if match.group("repo").casefold() not in PUBLIC_REPOSITORY_SLUGS:
+                    return True
+            continue
+        if label != "non-public email address":
+            if pattern.search(candidate) is not None:
+                return True
+            continue
+        for match in pattern.finditer(candidate):
+            if not _email_is_allowed(match.group(0)):
+                return True
     return False
 
 
@@ -522,8 +586,8 @@ def _is_excluded(path: Path, repo_root: Path) -> bool:
 
 
 def _drop_git_ignored(repo_root: Path, files: list[Path]) -> list[Path]:
-    """Scan only what ships. Drop git-ignored files (Leo keeps private tooling on
-    disk locally); no-op outside a git repo so tmp-dir tests still scan all files."""
+    """Scan only what ships. Drop git-ignored local tooling; no-op outside a
+    git repo so temporary-directory tests still scan all files."""
     try:
         inside = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "--is-inside-work-tree"],

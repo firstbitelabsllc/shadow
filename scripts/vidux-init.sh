@@ -247,7 +247,10 @@ main() {
 
   local title
   title="$(slug_to_title "${slug}")"
-  emit_template "${title}" "$(date -u +%F)" > "${target_file}"
+  # Plan progress is a human-facing local-day journal. Keep initialization on
+  # the same date basis as checkpoint/loop entries so a late-evening local
+  # checkpoint cannot be hidden behind a next-day UTC initialization row.
+  emit_template "${title}" "$(date +%F)" > "${target_file}"
 
   # Print the real absolute path, not a bare "projects/<slug>/PLAN.md" --
   # that reads as relative to $PWD but it's actually relative to VIDUX_ROOT

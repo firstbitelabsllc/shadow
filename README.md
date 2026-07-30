@@ -10,8 +10,7 @@
 
 Local-first plan, proof, and resume contract for AI coding work across sessions, agents, or days.
 
-One `PLAN.md` holds the queue, decisions, and progress. Agents read it, do one task,
-write proof, and exit. Chat is not the control plane.
+One `PLAN.md` holds the queue, decisions, and progress. Agents do one task, write proof, and exit; chat is not the control plane.
 
 ## Install
 
@@ -35,14 +34,12 @@ vidux status
 vidux browse         # local cockpit (loopback by default)
 ```
 
-`vidux status` scans `VIDUX_DEV_ROOT` (default `~/Development`) and still shows your
-current `PLAN.md` if that directory is missing. Options: `vidux help <command>`.
+`vidux status` scans `VIDUX_DEV_ROOT` (default `~/Development`) and still shows the current repository's `PLAN.md` if that development root is missing.
 Config: [`~/.config/vidux/vidux.config.json`](vidux.config.example.json).
 
 <p align="center"><img src="assets/vidux-dashboard.png" alt="The vidux browse cockpit: one project's PLAN.md at 67% with the declared current goal, the next step, and a results panel reading 0 winning / 0 losing / 1 unproven. The in-progress measure shows baseline, current, and target — and PROOF MISSING in red twice, because no artifact is attached yet. The header reads NET VALUE NOT PROVEN." width="900" /></p>
 
-The loopback cockpit scans your dev root for plans. `PROOF MISSING` means a measure
-and `NET VALUE NOT PROVEN` header stay unproven until an artifact is attached.
+`PROOF MISSING` and `NET VALUE NOT PROVEN` remain until evidence is attached.
 
 ## Agent skill
 
@@ -50,23 +47,25 @@ Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code:
 
 ```bash
 ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"
-# or: claude --plugin-dir /path/to/vidux
 ```
 
-Claude Code is the tested host. Agents that read [`SKILL.md`](SKILL.md) and plain
-files can follow the contract; other hosts are untested.
+Claude Code is the tested host; other hosts are untested.
 
 ## Where Vidux stops
 
 Vidux does not schedule agents, route models, execute workers, or hold provider
-credentials. Vidux can record provider-neutral claims, but it never launches a provider
-or selects a model. The dashboard is local, not hosted.
+credentials. Vidux can record provider-neutral claims, but it never launches a
+provider or selects a model. The dashboard and optional checkpoint ledger are
+local; neither replaces the repository plan.
+
+`vidux checkpoint` requires proof text before completing a row and leaves its
+plan edit uncommitted unless `--commit` is explicit.
 
 ## Outcome / Ask / Steer interchange
 
-Vidux `1.1.0` adds a provider-neutral JSON contract for one Outcome, an
-exceptional Ask, Steers, and proof references. It is an interchange boundary,
-not a GUI, worker runtime, shared-memory layer, or live-steering claim.
+Vidux `1.1.1` defines provider-neutral JSON for one Outcome, an exceptional Ask,
+Steers, and proof references—not a GUI, worker runtime, shared-memory layer, or
+live-steering claim.
 
 ```bash
 python3 scripts/vidux-outcome-validate.py \
@@ -80,15 +79,16 @@ and [schema](schemas/outcome-ask-steer.v1.json).
 ## Docs
 
 Root is install + agent entry; deeper material stays in docs:
-[Architecture](docs/doctrine/ARCHITECTURE.md) · [Doctrine](docs/doctrine/DOCTRINE.md) · [Loop](docs/doctrine/LOOP.md) · [Enforcement hooks](docs/doctrine/ENFORCEMENT.md) · [Core-cut handoff](docs/CORE-CUT.md) · [Evidence format](guides/evidence-format.md) · [Site / guides](docs/)
+[Architecture](docs/doctrine/ARCHITECTURE.md) · [Doctrine](docs/doctrine/DOCTRINE.md) · [Loop](docs/doctrine/LOOP.md) · [Enforcement hooks](docs/doctrine/ENFORCEMENT.md) · [Core boundary](docs/CORE-CUT.md) · [Evidence format](guides/evidence-format.md) · [Site / guides](docs/)
 Community: [CONTRIBUTING](CONTRIBUTING.md) · [SECURITY](SECURITY.md) · [SUPPORT](SUPPORT.md) · [CODE_OF_CONDUCT](CODE_OF_CONDUCT.md)
 Repo `PLAN.md` (if present) is this repo's internal queue, not required to use Vidux in your project.
 
 ## Release truth
 
-Version `1.1.0` is the current source contract (`VERSION` + matching git tag);
-there is no npm package on the registry. Install from source at the tagged tip
-(`git checkout v1.1.0`) or track `main`. [Release notes](https://github.com/firstbitelabsllc/vidux/releases/tag/v1.1.0).
+`VERSION` marks `1.1.1`. A release is valid only when its tag and GitHub Release
+resolve to the same commit; there is no npm package. The historical
+[`v1.1.0` release](https://github.com/firstbitelabsllc/vidux/releases/tag/v1.1.0)
+remains unchanged; this successor sanitizes the tip/package without rewriting ancestry.
 
 ## Contributing
 

@@ -1,29 +1,25 @@
-# Vidux Ingredients
+# Vidux design ingredients
 
-> The 10 open-source patterns vidux adopted. Surveyed 26 tools; selected for pattern quality, not stars.
+Vidux intentionally uses a small set of durable software-work patterns:
 
-| # | Pattern | Source · stars | Vidux home | Adopt | Skip |
-|---|---------|----------------|------------|-------|------|
-| 1 | Brainstorm→Plan→Execute→Verify chain | superpowers · 128K | SKILL Five Principles | Plan-as-gate: each phase is a durable artifact before the next | Interactive brainstorm (use MCP evidence fan-out); skill-per-phase (one SKILL.md) |
-| 2 | Spec-Plan-Tasks three-doc chain | spec-kit · 84K | PLAN.md template | Purpose+Evidence+Constraints+Decisions+Tasks in one git-tracked file; Constraints = constitution | Per-stack presets (live in companion skills); in-doc revision tracking (git history does it) |
-| 3 | Stuck-loop detection + crash recovery | GSD · 46K | LOOP | 3-strike escalation; crash recovery preserves dirty WIP → plan/ledger handoff before any commit | Cost tracking; multi-runtime abstraction (markdown+bash is the runtime) |
-| 4 | Execute/Qualify/Unify + escalation statuses | PAUL · 603 | LOOP | 4 statuses (done / concerns / needs-context / blocked); UNIFY reconciles plan vs git diff at checkpoint | Per-task E/Q/U sequencing (escalation applies to whichever task is active, not vidux's whole draining cycle) |
-| 5 | Markdown-native coordination, git-backed state | tick-md · 18 | SKILL Principle 2 | Markdown checkboxes as queue, git as transport, plan + publish ledger survive sessions | Flat task model (vidux adds deps, parallel flags, context sections) |
-| 6 | Multi-perspective review gate | claude-code-harness · 383 | SKILL orchestration | Simulate tech-lead / reviewer / PM before ready, grounded in real MCP data | TS guardrail engine + routing DSL (markdown constraints); fixed 4 perspectives (data-driven) |
-| 7 | One-agent-per-criterion + judge | opslane/verify · 100 | LOOP fan-out | One agent per concern, synthesizer as judge; readiness = atomic checks | Literal one-agent-per-criterion at code time (cap 4 + hierarchy instead) |
-| 8 | Dual-workflow routing (feature vs bugfix) | claude-code-spec-workflow · 3.6K | DOCTRINE | vidux = multi-day features, overlay = quick fixes; activation criteria are the routing rules | MCP dashboard (Progress + ledger); steering docs (signal-based activation) |
-| 9 | Research-before-planning, multi-source interview | deep-plan · 80 | SKILL Principle 1 | Every plan entry cites evidence; research-before-code; 4-group fan-out | Multi-LLM review (single-model critic); deep-implement codegen |
-| 10 | Adversarial debate for spec hardening | adversarial-spec · 517 | SKILL fan-out | Tier-3 critic challenges assumptions; failure → adversarial five-whys | Multi-provider debate; anti-laziness monitors (gate + evidence enforce) |
+- **Repository-owned authority:** one `PLAN.md` records outcome, queue,
+  constraints, decisions, progress, and resume state.
+- **Bounded execution:** one active row becomes one reversible change and one
+  named verification gate.
+- **Mechanical proof:** a row is complete only when its requested outcome and
+  named gate exist; activity or transport alone is not proof.
+- **Cold resume:** a reader starts from the plan, current revision, working
+  tree, and linked evidence instead of reconstructing chat.
+- **Explicit ownership:** concurrent writers use disjoint surfaces and treat
+  worker output as a draft until reviewed.
+- **Optional projections:** the local browser and ledger can project plan
+  state, but neither becomes a second authority.
+- **Host boundary:** the coding host owns provider selection, dispatch,
+  authentication, retries, scheduling, and process lifecycle.
 
-## Surveyed but not selected
+## Deliberate exclusions
 
-| Tool | Stars | Why not |
-|------|-------|---------|
-| anthropics/skills | 107K | SKILL.md frontmatter is the envelope we use, not a pattern we adopt |
-| cc-sdd | 3K | Cross-agent compat is a goal, not a pattern — vidux gets it via markdown + env vars |
-| smart-ralph | 269 | Queue contract absorbed into PLAN.md's task FSM |
-| agent-teams-lite | 1.1K | Fresh-context sub-agents subsumed by the fan-out pattern (7, 9) |
-| claude-orchestration | 201 | Workflow DSL conflicts with the markdown-only constraint |
-| metaswarm | 169 | Self-improving loop underspecified; the Failure Protocol covers it more concretely |
-
-*Surveyed 26 tools, selected 10. Last updated 2026-06.*
+Vidux does not provide a workflow DSL, provider router, worker runtime, hosted
+dashboard, shared-memory system, automatic worktree cleanup, or background
+session manager. Those capabilities belong to the coding host or a separate
+execution cockpit.

@@ -1,8 +1,8 @@
 # Installation
 
-Vidux has two compatible install surfaces: a source checkout for contributors
-and skill development, or a bounded npm tarball for the global CLI and local
-browser. Both expose the same plan-first runtime.
+Vidux has two CLI install surfaces: a source checkout for contributors and
+skill development, or a locally built npm tarball for the global CLI and local
+browser. Claude Code can also load the checkout as a skill.
 
 ## Prerequisites
 
@@ -37,7 +37,10 @@ vidux --version
 The package root is treated as immutable. Live config belongs at
 `$XDG_CONFIG_HOME/vidux/vidux.config.json` (or
 `~/.config/vidux/vidux.config.json`), and project plans belong in their owning
-repositories. Upgrades therefore cannot erase either one.
+repositories. Browser artifacts belong at
+`${VIDUX_BROWSER_ARTIFACTS_DIR:-${XDG_DATA_HOME:-~/.local/share}/vidux/artifacts}`;
+`vidux browse --artifacts-dir <path>` selects another durable directory.
+Upgrades therefore cannot erase config, plans, or browser artifacts.
 
 The release verifier builds the artifact twice and requires byte-identical
 SHA-256 output, exact version agreement, required runtime files, tracked-only
@@ -52,64 +55,48 @@ ln -sfn /path/to/vidux ~/.claude/skills/vidux
 
 Replace `/path/to/vidux` with your clone path. `/vidux` is then a slash command in any Claude Code session.
 
-## Optional: Git Hooks
+## Optional: Git hooks
 
-Vidux ships enforcement hooks that catch planning failures at commit time. Optional; recommended for teams or long-running projects.
-
-Treat installing or rewiring hooks as a publish/change cycle in the **target project**. Before copying or enabling hooks:
-
-1. Update the target repo's owning `PLAN.md` (Progress/Tasks/Drift Log) with what is changing, proof, `handoff_status`, files claimed, next-agent resume.
-2. Emit a internal checkpoint ledger row for the target repo with the summary, task id that matches the plan row, existing owning `PLAN.md` path, proof, handoff status, next-agent resume, path-like existing/git-known changed file, and matching claim coverage. Pre-copy packet: use the updated `PLAN.md` as both `--file` and `--claim`. After copying and verifying hooks, emit the final `done` row with copied hook paths once they exist.
-
-```bash
-# "$LEDGER_EMIT" is your own configured ledger-emit executable (wired via
-# `vidux-release.sh --ledger-emit <path>` or the LEDGER_EMIT env var) --
-# scripts/lib/ledger-emit.sh is a sourced-only function library, not a
-# --event-flag CLI. No emitter configured means this row is skipped by
-# design, not a failure.
-"$LEDGER_EMIT" \
-  --event publish \
-  --repo-path /path/to/your/project \
-  --lane hook-install \
-  --task-id hook-install \
-  --plan-path /path/to/your/project/PLAN.md \
-  --proof "hook install dry-run / shell syntax passed" \
-  --handoff-status needs_review \
-  --resume "copy hooks, verify installed hook paths exist, then emit final done row" \
-  --file /path/to/your/project/PLAN.md \
-  --claim /path/to/your/project/PLAN.md \
-  --skills vidux \
-  --summary "Planned Vidux planning hook install"
-```
-
-Then copy the hooks into your **target project's** `.git/hooks/` directory (not the vidux repo itself):
+Vidux ships small repository-local hooks. Review each script and preserve any
+existing target hook before installing it:
 
 ```bash
 cp hooks/pre-commit-plan-check.sh /path/to/your/project/.git/hooks/pre-commit
 cp hooks/post-commit-checkpoint.sh /path/to/your/project/.git/hooks/post-commit
-cp hooks/three-strike-gate.sh /path/to/your/project/.git/hooks/
+chmod +x /path/to/your/project/.git/hooks/pre-commit
+chmod +x /path/to/your/project/.git/hooks/post-commit
 ```
 
 | Hook | What it checks |
 |------|---------------|
-| `pre-commit-plan-check.sh` | Blocks staged non-markdown code changes when `PLAN.md` has no active or pending task. |
-| `post-commit-checkpoint.sh` | Prints a reminder when `PLAN.md` has no progress entry for today. |
-| `three-strike-gate.sh` | Warns after 3 recent `fix` / `retry` / `attempt` commits so you step up an abstraction level. |
+| `pre-commit-plan-check.sh` | Blocks staged non-Markdown changes when a root `PLAN.md` exists but has no pending or in-progress task. |
+| `post-commit-checkpoint.sh` | Prints a reminder when the root `PLAN.md` has no progress entry for today. It does not mutate the plan. |
+| `three-strike-gate.sh` | A manual advisory that warns when three of the last ten commit subjects contain `fix`, `retry`, or `attempt`. |
 
-## Optional: Claude Code Enforcement Hooks
+`hooks/hooks-reference.json` describes these files for inspection. It is not a
+Claude Code plugin, an auto-installer, or a host lifecycle configuration. See
+[Hooks Reference](/reference/hooks).
 
-For stronger enforcement within Claude Code sessions, add the hooks from [`docs/doctrine/ENFORCEMENT.md`](../doctrine/ENFORCEMENT.md) to your `settings.local.json`. They:
+## Optional: record a checkpoint
 
-- Gate file edits: require a PLAN.md entry before writing code
-- Detect drift: flag file changes that don't match the active plan task
-- Enforce checkpoints: require the owning plan/progress update and checkpoint-ledger packet before publishable work exits
-- Resume protocol: prompt plan re-read on session start
+The CLI exposes a local checkpoint helper:
 
-The repo ships `hooks/hooks-reference.json` as a checked-in example manifest: it wraps the three git hooks above plus `beforeTask` / `afterTask` entries pointing at `scripts/vidux-doctor.sh --json` and `scripts/vidux-checkpoint.sh`.
+```bash
+vidux checkpoint PLAN.md "exact task text" "short summary" \
+  --proof "named gate passed"
+```
 
-`vidux-before-task` runs as shown. `vidux-after-task` is illustrative, not zero-config: raw `scripts/vidux-checkpoint.sh` expects `<plan-path> <task> <summary>` (plus optional flags) or `--archive`, so an app-level `afterTask` hook needs a wrapper that supplies those arguments.
+The task must already exist in the plan as pending or in progress. The helper
+updates that row and `## Progress`. Completion requires `--proof`; a blocked
+checkpoint requires a concrete `--blocker`. Changes remain uncommitted unless
+`--commit` is explicit. If local ledger discovery succeeds, the helper also
+appends a bounded checkpoint entry; `VIDUX_LEDGER_FILE` can select an existing
+readable local ledger. Without one, ledger emission is skipped.
 
-See [Hooks Reference](/reference/hooks) for the full configuration.
+This helper is optional. It does not replace `PLAN.md` as authority, recover a
+session automatically, run workers, or grant permission to push, merge,
+publish, deploy, spend, or contact anyone. The coding host owns automation and
+execution.
 
 ## Verifying Installation
 
@@ -137,18 +124,12 @@ For the optional Claude Code skill, open a session and run:
 /vidux "test project"
 ```
 
-If installed correctly, the agent reads the skill, loads the XDG user config
-when present, resolves the authority plan store, then drafts or resumes the
-authoritative `PLAN.md` before executing the stateless cycle.
+If installed correctly, Claude Code reads the skill, inspects the owning
+`PLAN.md` and repository state, then resumes one in-progress row or takes one
+bounded unblocked row through verification and checkpoint.
 
-## Ecosystem Skills
+Claude Code is the tested skill integration. Other coding hosts can read
+`SKILL.md` as instructions, but this release does not claim a tested native
+skill install or lifecycle integration for them.
 
-Vidux is a **single entry point** — `/vidux` — covering both planning and automation. As of 2026-04-17, previously separate planning, automation, platform-specific, and fleet companion commands were merged into `/vidux` or pruned.
-
-| Skill | What it does |
-|---|---|
-| `/vidux` | Full plan-first cycle (Part 1) + automation patterns (Part 2) — one entry point covers planning, lane bootstrap, delegation, session GC |
-
-For deep automation details (session-gc internals, Codex shim registration, PR lifecycle nursing, cross-fleet coordination), `/vidux` reads `references/automation.md` on demand.
-
-See [Commands Reference](/reference/commands).
+See [Commands Reference](/reference/commands) for the shipped CLI surface.

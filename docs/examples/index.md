@@ -16,23 +16,31 @@ The repo ships worked example directories under `examples/`. This page maps them
 
 It is the smallest concrete example of the plan-first cycle in this repo.
 
-### Fleet reference
+### Outcome / Ask / Steer interchange
 
-`examples/fleet-reference/README.md` shows a four-automation layout:
+`examples/outcome-ask-steer/example.json` is a synthetic example of the
+provider-neutral interchange schema. The neighboring invalid fixture exercises
+the public-data boundary.
 
-- one writer
-- two radars
-- one coordinator
+Validate either file directly:
 
-That directory also includes sample TOML files for each lane role.
+```bash
+python3 scripts/vidux-outcome-validate.py \
+  --input examples/outcome-ask-steer/example.json
+```
+
+The schema and validator prove bounded data shape only. They do not implement a
+GUI, persistence, worker execution, or live steering.
 
 ## When to use these examples
 
-- Read the bug-fix example if you are new to vidux and want the smallest possible cycle.
-- Read the fleet reference if you already understand the core cycle and want to see a scheduled multi-lane shape.
+- Read the bug-fix example if you are new to Vidux and want the smallest
+  plan/proof/resume cycle.
+- Read the interchange example when integrating a read-only status surface.
 - The `## Drift Log` section records planned-vs-actual deviations manually (see `docs/reference/plan-fields.md`).
 
 ## Related docs
 
 - [Quick Start](/guide/quickstart) explains the first interactive cycle.
-- [Fleet Overview](/fleet/) shows where the automation docs fit.
+- [Outcome / Ask / Steer](/reference/outcome-ask-steer) defines the interchange
+  boundary.

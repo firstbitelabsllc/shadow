@@ -1,11 +1,11 @@
 # Quick Start
 
-Your first Vidux cycle, install to checkpoint.
+Install Vidux, create an owning plan, and leave a cold-resume handoff.
 
 ## 1. Install Vidux
 
-Vidux is an agent skill first: you tell your agent what you're working on, and
-the skill runs the plumbing. Mount it once:
+Vidux is an agent skill first: it gives the coding host the plan/proof/resume
+contract. Mount it once in the tested host:
 
 ```bash
 git clone https://github.com/firstbitelabsllc/vidux.git ~/Development/vidux
@@ -13,9 +13,9 @@ mkdir -p "$HOME/.claude/skills"
 ln -sfn "$HOME/Development/vidux" "$HOME/.claude/skills/vidux"
 ```
 
-Other coding hosts read [`SKILL.md`](https://github.com/firstbitelabsllc/vidux/blob/main/SKILL.md)
-directly. If you also want the CLI on your PATH — for scripts, hooks, or hosts
-without a skill runtime — add:
+Other coding hosts are untested. If you evaluate one, use
+[`SKILL.md`](https://github.com/firstbitelabsllc/vidux/blob/main/SKILL.md) as the
+contract. To add the CLI to your PATH:
 
 ```bash
 mkdir -p "$HOME/.local/bin"
@@ -29,79 +29,85 @@ See [Installation](/guide/installation) for an optional locally-built tarball
 
 ## 2. Start a Session
 
-Open Claude Code in the project you want Vidux to track and run:
+Claude Code is the tested skill host. Open it in the repository and request:
 
 ```
 /vidux "your project description"
 ```
 
-**On the first cycle**, Vidux scaffolds `PLAN.md`, gathers evidence, and fills
-it in. No code until the plan is ready — "plan first, code second" is the core
-discipline. To watch the work, say **"open the vidux dashboard"** — the agent
-starts the local cockpit scoped to your repo.
+The skill should read repository instructions and reuse an existing `PLAN.md`.
+If none exists, it can scaffold one and replace the starter row with a concrete
+outcome and gate before editing code. The coding host—not Vidux—executes the
+work.
 
 The same plumbing is available directly when you'd rather drive it yourself:
 
 ```bash
 cd /path/to/your-project   # the repo you want Vidux to track
 vidux init --here
-vidux browse --root .   # scoped to this repo; browse scans ~/Development by default
+vidux status
+vidux browse --root .   # loopback, read-mostly local cockpit
 ```
 
 ## 3. Understand the Startup Contract
 
-`/vidux` resolves state first, then decides whether to plan or execute:
+The skill resolves repository state before the coding host acts:
 
-1. **Load the skill** and read `vidux.config.json` if present.
-2. **Resolve the authority plan store** (`PLAN.md` in the repo, or an external/local plan store from config).
-3. **Read current state**: authority `PLAN.md`, recent progress, Decision Log, git diff.
-4. **Choose the next path**:
-   - no authority plan yet -> gather evidence and draft one
-   - authority plan exists -> resume `[in_progress]` work first, otherwise pick the next ready `[pending]` task
+1. Read repository instructions and the owning `PLAN.md`.
+2. Inspect the current revision and working tree.
+3. Read the proof named by the active row.
+4. Resume `[in_progress]`; otherwise select the highest unblocked row.
 
-The public `/vidux` spec requires no intermediate "amplified prompt" review step or "fire" confirmation. The command resolves the plan, reads repo state, runs the stateless cycle.
+Vidux does not select a model, launch a worker, schedule a session, or manage
+provider authentication. Those are coding-host responsibilities.
 
-## 4. The First Cycle: Evidence Gathering
+## 4. Establish the First Row
 
-The first cycle always produces a `PLAN.md`, not code. Rule:
+`vidux init --here` creates `PLAN.md` only when it is missing. Its starter row
+is deliberately unproven. Replace it with a bounded outcome and a real gate:
 
 > **A plan entry without evidence is a guess. Guesses cause rework.**
-
-The agent:
-1. Greps the codebase for relevant patterns
-2. Reads related files
-3. Checks git log for recent changes
-4. Synthesizes findings into a structured PLAN.md
-
-After the first cycle, you'll have a `PLAN.md` that looks like:
 
 ```markdown
 # My Project
 
 ## Purpose
-Why this exists. One paragraph.
+Ship a rate limit for the login endpoint without changing other routes.
 
 ## Evidence
 - [Source: codebase grep] src/auth/login.ts:42 — missing rate limit
-- [Source: git log] commit abc123 — "fix: auth bypass" (3 days ago)
+
+## Constraints
+- Keep existing authentication behavior.
+
+## Operator Brief
+- Status: working
+- Outcome: Login bursts receive a bounded response.
+- Next: Add the smallest rate-limit change and its regression test.
+- Validation: Run the named login test and a six-request manual check.
+
+## Outcome Scorecard
+| Metric | Baseline | Current | Target | Status | Proof |
+|---|---|---|---|---|---|
+| Sixth burst request | unbounded | unproven | HTTP 429 | unproven | test output |
 
 ## Tasks
-- [pending] Task 1: Add rate limiting to login endpoint [Evidence: ...]
-- [pending] Task 2: Write tests for auth bypass fix [Evidence: ...]
+- [pending] T-1: Add and prove login rate limiting.
 
 ## Decision Log
 ## Progress
 ```
 
-## 5. Subsequent Cycles: Stateless Execution
+## 5. Run One Bounded Cycle
 
-On the second `/vidux` invocation (READ → ASSESS → ACT → VERIFY → CHECKPOINT):
+For the selected row:
 
-1. **READ**: loads PLAN.md, checks for `[in_progress]` tasks (crash recovery)
-2. **ASSESS**: first pending task has evidence → ready to code
-3. **ACT**: sets task to `[in_progress]`, executes it
-4. **VERIFY**: runs build and tests, shows proof
-5. **CHECKPOINT**: updates the plan/progress record and emits the internal checkpoint ledger row before any branch/PR/release publish
+1. **READ**: inspect the plan, revision, working tree, and named proof.
+2. **ASSESS**: resume the active row or select one unblocked row.
+3. **ACT**: make one bounded, reversible change.
+4. **VERIFY**: run the row's real gate.
+5. **CHECKPOINT**: record result, proof, uncertainty, and one next move in
+   repository files, then exit.
 
 When code changed, the local commit stays concise:
 
@@ -109,39 +115,47 @@ When code changed, the local commit stays concise:
 vidux: add rate limiting to login endpoint
 
 - Added express-rate-limit middleware to /auth/login
-- Configured: 5 requests per 15 minutes per IP
-- Tests: auth.test.ts passes (12/12)
+- Added a focused regression test
+- Proof: the named login test passes
 ```
 
-The durable handoff is the owning `PLAN.md` update plus the matching publish
-ledger row: task id, proof, handoff status, files claimed, next-agent resume.
+The durable handoff is the owning `PLAN.md`, linked proof, and Git revision.
 
-## 6. Crash Recovery
+### Optional checkpoint helper
 
-If a session dies mid-task, the next cycle auto-recovers:
+For a task whose text already appears in the plan:
 
-```
-CRASH RECOVERY: uncommitted work detected
-git diff shows changes to src/auth/login.ts
-
-Preserving WIP: map changes to the owning PLAN.md row
-Recording: plan + ledger handoff before commit/push/cleanup
+```bash
+vidux checkpoint PLAN.md "T-1: Add and prove login rate limiting." \
+  "login test and manual check passed" \
+  --proof "focused test passed; first request beyond the limit returned 429"
 ```
 
-The agent preserves in-progress work first, records a plan/ledger handoff, then commits only after the plan/ledger packet exists and only if code changed.
+Completion requires `--proof`; a blocked checkpoint requires a concrete
+`--blocker`. The helper updates the task and Progress entry and leaves them
+uncommitted by default. `--commit` stages the plan and asks Git to create a
+commit; review the existing index first.
+
+If a local ledger is configured, the helper may append a row. Local `done` maps
+to `needs_review`, not an open pull request or shipped state. The row is an
+optional local projection; it is not authority and is never a publication gate.
+
+## 6. Resume After an Interruption
+
+Vidux does not auto-recover a session. A new reader reconstructs state by
+reading `PLAN.md`, checking the current revision and working tree, and opening
+the row's linked proof. Preserve unexplained work before editing or creating a
+duplicate lane.
 
 ## 7. When All Tasks Complete
 
-When the queue empties, the agent scans for new work:
-
-1. Checks `INBOX.md` for unprocessed findings
-2. Scans owned paths for issues
-3. Checks git log for changes needing follow-up
-4. Rechecks blocked tasks for resolved blockers
-
-If nothing is found, it checkpoints and exits with proof of what was scanned.
+Verify the plan's stated outcome and final gate, record the result, and stop.
+Finding or scheduling more work is a coding-host or maintainer decision, not an
+automatic Vidux runtime behavior.
 
 ## Common Patterns
+
+These are tested-host skill requests, not CLI flags.
 
 **Starting a new feature:**
 ```
@@ -164,7 +178,8 @@ If nothing is found, it checkpoints and exits with proof of what was scanned.
 /vidux "investigate performance issues in the dashboard. Plan only, no code this cycle."
 ```
 
-No `/vidux --plan` flag exists in the shipped command spec. For a planning-only pass, say so in the request.
+No `/vidux --plan` CLI flag exists. For a planning-only pass, say so in the
+skill request.
 
 ## Next Steps
 

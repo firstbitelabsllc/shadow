@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ MAX_UNPACKED_BYTES = 4_000_000
 
 REQUIRED_FILES = {
     ".claude-plugin/plugin.json",
+    "assets/vidux-dashboard.png",
     "LICENSE",
     "README.md",
     "SECURITY.md",
@@ -73,8 +75,6 @@ FORBIDDEN_FILES = {
     ".gitleaks.toml",
     ".gitleaksignore",
     "AGENTS.md",
-    "ASK-OWNER.md",
-    "ASK-LEO.md",
     "PLAN.md",
     "browser/run_extract_pass.py",
     "impeccable-vidux.md",
@@ -82,6 +82,9 @@ FORBIDDEN_FILES = {
     "playwright.config.ts",
     "vitest.config.mjs",
 }
+FORBIDDEN_FILE_PATTERNS = (
+    re.compile(r"(?:^|/)ASK-[A-Z0-9_-]+\.md$", re.IGNORECASE),
+)
 FORBIDDEN_PREFIXES = ("browser/receipts/",)
 FORBIDDEN_SUFFIXES = {".jsonl", ".key", ".log", ".pem", ".pyc", ".pyo", ".token"}
 
@@ -106,6 +109,7 @@ def is_forbidden(path: str) -> bool:
     if (
         pure.parts[0] in FORBIDDEN_ROOTS
         or path in FORBIDDEN_FILES
+        or any(pattern.search(path) for pattern in FORBIDDEN_FILE_PATTERNS)
         or path.startswith(FORBIDDEN_PREFIXES)
     ):
         return True

@@ -154,6 +154,33 @@ class ViduxInitTests(unittest.TestCase):
         self.assertIn("## Operator Brief", text)
         self.assertIn("- Status: watching", text)
 
+    def test_here_uses_the_local_day_shared_with_checkpoint(self):
+        fakebin = Path(self._tmp.name) / "fakebin"
+        fakebin.mkdir()
+        fake_date = fakebin / "date"
+        fake_date.write_text(
+            "#!/usr/bin/env bash\n"
+            "if [[ \"${1:-}\" == \"-u\" ]]; then\n"
+            "  printf '2026-07-30\\n'\n"
+            "else\n"
+            "  printf '2026-07-29\\n'\n"
+            "fi\n",
+            encoding="utf-8",
+        )
+        fake_date.chmod(0o755)
+
+        rc, _out, err = run_init(
+            self.vidux_root,
+            self.elsewhere,
+            "--here",
+            env_overrides={"PATH": f"{fakebin}{os.pathsep}{os.environ['PATH']}"},
+        )
+
+        self.assertEqual(rc, 0, err)
+        text = (self.elsewhere / "PLAN.md").read_text(encoding="utf-8")
+        self.assertIn("[2026-07-29] Plan initialized", text)
+        self.assertNotIn("[2026-07-30] Plan initialized", text)
+
     def test_here_refuses_to_overwrite_repo_plan(self):
         target = self.elsewhere / "PLAN.md"
         target.write_text("# Existing\n", encoding="utf-8")

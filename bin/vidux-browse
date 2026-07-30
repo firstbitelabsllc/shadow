@@ -31,16 +31,17 @@ mkdir -p "${VIDUX_STATE_DIR}"
 LOG="${VIDUX_BROWSER_LOG:-$VIDUX_STATE_DIR/browser.log}"
 PIDFILE="${VIDUX_BROWSER_PIDFILE:-$VIDUX_STATE_DIR/browser.pid}"
 DEV_ROOT="${VIDUX_DEV_ROOT:-$HOME/Development}"
-COMMENTS_PATH="${VIDUX_BROWSER_COMMENTS_FILE:-}"
+COMMENTS_PATH="${VIDUX_BROWSER_COMMENTS_FILE:-$HOME/.vidux-browser/comments.jsonl}"
 STEERING_PATH="${VIDUX_BROWSER_STEERING_FILE:-$HOME/.vidux-browser/steering.jsonl}"
 CLAIMS_PATH="${VIDUX_CLAIMS_FILE:-$HOME/.agent-ledger/claims.jsonl}"
+ARTIFACTS_PATH="${VIDUX_BROWSER_ARTIFACTS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/vidux/artifacts}"
 
 OPEN_BROWSER=1
 FOREGROUND=0
 
 usage() {
   cat <<EOF
-usage: vidux-browse [--no-open] [--foreground|-f] [--port N] [--host HOST] [--root PATH] [--open-host HOST] [--comments-path PATH] [--steering-path PATH] [--claims-path PATH]
+usage: vidux-browse [--no-open] [--foreground|-f] [--port N] [--host HOST] [--root PATH] [--open-host HOST] [--comments-path PATH] [--steering-path PATH] [--claims-path PATH] [--artifacts-dir PATH]
   default: starts server in background, opens http://${OPEN_HOST}:${PORT}
 EOF
 }
@@ -86,6 +87,10 @@ while [[ $# -gt 0 ]]; do
       require_value "$1" "${2:-}"; CLAIMS_PATH="$2"; shift 2 ;;
     --claims-path=*)
       CLAIMS_PATH="${1#*=}"; shift ;;
+    --artifacts-dir)
+      require_value "$1" "${2:-}"; ARTIFACTS_PATH="$2"; shift 2 ;;
+    --artifacts-dir=*)
+      ARTIFACTS_PATH="${1#*=}"; shift ;;
     -h|--help)
       usage
       exit 0
@@ -115,10 +120,9 @@ EXPECTED_STEERING_MODULE_MTIME_NS="$(python3 -c 'from pathlib import Path; impor
 EXPECTED_STEERING_STORE_ID="$(python3 -c 'from pathlib import Path; import hashlib, sys; value = str(Path(sys.argv[1]).expanduser().resolve()); print(hashlib.sha256(value.encode()).hexdigest()[:16])' "${STEERING_PATH}")"
 EXPECTED_COORDINATION_MODULE_MTIME_NS="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).stat().st_mtime_ns)' "${EXPECTED_REPO_ROOT}/browser/coordination_claims.py")"
 EXPECTED_COORDINATION_STORE_ID="$(python3 -c 'from pathlib import Path; import hashlib, sys; value = str(Path(sys.argv[1]).expanduser().resolve()); print(hashlib.sha256(value.encode()).hexdigest()[:16])' "${CLAIMS_PATH}")"
-SERVER_ARGS=(--host "${HOST}" --port "${PORT}" --root "${EXPECTED_DEV_ROOT}" --steering-path "${STEERING_PATH}" --claims-path "${CLAIMS_PATH}")
-if [[ -n "${COMMENTS_PATH}" ]]; then
-  SERVER_ARGS+=(--comments-path "${COMMENTS_PATH}")
-fi
+EXPECTED_COMMENTS_STORE_ID="$(python3 -c 'from pathlib import Path; import hashlib, sys; value = str(Path(sys.argv[1]).expanduser().resolve()); print(hashlib.sha256(value.encode()).hexdigest()[:16])' "${COMMENTS_PATH}")"
+EXPECTED_ARTIFACTS_STORE_ID="$(python3 -c 'from pathlib import Path; import hashlib, sys; value = str(Path(sys.argv[1]).expanduser().resolve()); print(hashlib.sha256(value.encode()).hexdigest()[:16])' "${ARTIFACTS_PATH}")"
+SERVER_ARGS=(--host "${HOST}" --port "${PORT}" --root "${EXPECTED_DEV_ROOT}" --comments-path "${COMMENTS_PATH}" --steering-path "${STEERING_PATH}" --claims-path "${CLAIMS_PATH}" --artifacts-dir "${ARTIFACTS_PATH}")
 
 health_matches_current_browser() {
   local health
@@ -133,6 +137,8 @@ health_matches_current_browser() {
     EXPECTED_STEERING_STORE_ID="${EXPECTED_STEERING_STORE_ID}" \
     EXPECTED_COORDINATION_MODULE_MTIME_NS="${EXPECTED_COORDINATION_MODULE_MTIME_NS}" \
     EXPECTED_COORDINATION_STORE_ID="${EXPECTED_COORDINATION_STORE_ID}" \
+    EXPECTED_COMMENTS_STORE_ID="${EXPECTED_COMMENTS_STORE_ID}" \
+    EXPECTED_ARTIFACTS_STORE_ID="${EXPECTED_ARTIFACTS_STORE_ID}" \
     python3 - <<'PY'
 import json
 import os
@@ -152,6 +158,10 @@ if str(payload.get("repo_root", "")) != os.environ["EXPECTED_REPO_ROOT"]:
 if str(payload.get("steering_store_id", "")) != os.environ["EXPECTED_STEERING_STORE_ID"]:
     sys.exit(1)
 if str(payload.get("coordination_store_id", "")) != os.environ["EXPECTED_COORDINATION_STORE_ID"]:
+    sys.exit(1)
+if str(payload.get("comments_store_id", "")) != os.environ["EXPECTED_COMMENTS_STORE_ID"]:
+    sys.exit(1)
+if str(payload.get("artifacts_store_id", "")) != os.environ["EXPECTED_ARTIFACTS_STORE_ID"]:
     sys.exit(1)
 try:
     server_mtime_ns = int(payload.get("server_mtime_ns"))
@@ -185,7 +195,7 @@ if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
     exit 0
   fi
   echo "port ${PORT} is already in use, but ${URL}/api/health does not match this Vidux checkout/root" >&2
-  echo "expected repo_root=${EXPECTED_REPO_ROOT} dev_root=${EXPECTED_DEV_ROOT} server_mtime_ns=${EXPECTED_SERVER_MTIME_NS} steering_module_mtime_ns=${EXPECTED_STEERING_MODULE_MTIME_NS} steering_store_id=${EXPECTED_STEERING_STORE_ID} coordination_module_mtime_ns=${EXPECTED_COORDINATION_MODULE_MTIME_NS} coordination_store_id=${EXPECTED_COORDINATION_STORE_ID}" >&2
+  echo "expected repo_root=${EXPECTED_REPO_ROOT} dev_root=${EXPECTED_DEV_ROOT} server_mtime_ns=${EXPECTED_SERVER_MTIME_NS} steering_module_mtime_ns=${EXPECTED_STEERING_MODULE_MTIME_NS} steering_store_id=${EXPECTED_STEERING_STORE_ID} coordination_module_mtime_ns=${EXPECTED_COORDINATION_MODULE_MTIME_NS} coordination_store_id=${EXPECTED_COORDINATION_STORE_ID} comments_store_id=${EXPECTED_COMMENTS_STORE_ID} artifacts_store_id=${EXPECTED_ARTIFACTS_STORE_ID}" >&2
   echo "hint: pass --port N (or set VIDUX_BROWSER_PORT) to run on a free port" >&2
   exit 1
 fi

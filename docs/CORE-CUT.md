@@ -1,146 +1,49 @@
-# Vidux core cut — handoff
+# Vidux core boundary
 
-**Date:** 2026-07-22  
-**Branch:** `docs/root-readme-cut` (checkout: `vidux-main-active`)  
-**Repo:** `firstbitelabsllc/vidux` (public)  
-**Hard rail:** **no public push/PR without Leo yes.** Local commit OK. Private `ai-leo` dossier wording may push separately.
+Vidux is the public plan/proof/resume layer. It keeps one repository-owned
+`PLAN.md`, records bounded proof, and makes interrupted work understandable to
+the next person or agent.
 
-## One product, not two
+## What belongs here
 
-Vidux **is** the public core. There is **no** second “public cut” product, no overlay package inside this repo, and no “thin fork” story.
-
-| Concept | Where it lives |
+| Surface | Purpose |
 |---|---|
-| **Vidux (this repo)** | Plan/proof/resume control plane: CLI, browser, SKILL, doctrine essays, guides |
-| **Personal overlays** | Operator-private skill overlays live beside Pilot in a separate private repo — not under Vidux |
-| **Missions / PLANs** | e.g. recognition-mission, bakeoffs — **private `ai-leo/vidux/`**, not shipped with Vidux |
-| **Legacy** | `vidux-legacy-private` — out of scope |
+| `bin/` | Small command-line entry points |
+| `browser/` | Read-mostly local cockpit |
+| `SKILL.md` | Agent entry point |
+| `schemas/` and `examples/` | Provider-neutral interchange contracts |
+| `scripts/` | Deterministic validation and release gates |
+| `docs/`, `guides/`, `references/` | Public operating guidance |
+| `PLAN.md` | Authority for work on Vidux itself |
 
-Kill language: “private monorepo with thin public cut,” “overlay product,” “cruft fork.”
+## What does not belong here
 
----
+- provider credentials, account state, quotas, costs, or session identifiers
+- private repository links or private portfolio decisions
+- personal filesystem paths or machine-specific ownership instructions
+- raw worker transcripts, prompts, or model receipts
+- execution, scheduling, or routing engines presented as Vidux capability
 
-## Keep / move / kill table
+## Product boundary
 
-### KEEP at package root (agent + install surface)
+Vidux can describe current work, validate a bounded status contract, and expose
+local proof. The coding host still owns model selection, worker dispatch,
+execution, authentication, and durable workflow infrastructure.
 
-| Path | Why |
-|---|---|
-| `bin/` (`vidux`, `vidux-browse`) | CLI entry |
-| `browser/` (server + static needed to run) | Cockpit |
-| `SKILL.md` | Agent entry (stays root) |
-| `LICENSE` | Legal |
-| `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md` | Community |
-| `VERSION`, `vidux.config.example.json` | Runtime contract |
-| `package.json` / `files` | Publish surface |
-| `scripts/` needed by CLI doctor/init/status/browse | Runtime |
-| `hooks/` | Optional enforcement wiring |
-| `guides/` needed for init/status/browse/doctor | Operator |
-| `docs/**` (incl. doctrine essays + CORE-CUT) | Docs site + long form |
-| `references/` | JIT deep docs |
-| `examples/` | Init templates |
-| `.claude-plugin/`, `.claude/settings.json` | Plugin install |
+That separation is intentional: an orchestration engine may run the work while
+Vidux remains the repository-owned source of truth that a human can inspect,
+edit, commit, and resume without adopting a particular agent framework.
 
-### MOVE (this cut — done on branch)
+## Release boundary
 
-| From root | To |
-|---|---|
-| `ARCHITECTURE.md` | `docs/doctrine/ARCHITECTURE.md` |
-| `DOCTRINE.md` | `docs/doctrine/DOCTRINE.md` |
-| `LOOP.md` | `docs/doctrine/LOOP.md` |
-| `ENFORCEMENT.md` | `docs/doctrine/ENFORCEMENT.md` |
-| `INGREDIENTS.md` | `docs/doctrine/INGREDIENTS.md` |
-| `WRITING-STYLE.md` | `docs/doctrine/WRITING-STYLE.md` |
+A public release must pass:
 
-Essays **stay in-tree**; they leave the **root agent path** so install + SKILL stay short.
+1. unit and browser tests;
+2. package-content verification;
+3. secret and public-boundary scans;
+4. exact-tag identity checks; and
+5. a stranger-readable review of every shipped plan, guide, and example.
 
-### KEEP (call) — root `PLAN.md`
-
-| Path | Call |
-|---|---|
-| `PLAN.md` | **Stay at root** as *this repo’s* internal authority queue (contributors/agents working on Vidux itself). **Not** required for consumers who only `vidux init` in their app. Do not ship as “user product surface” in README primary path. |
-
-### KILL (language / non-goals — not necessarily delete from disk elsewhere)
-
-| Item | Action |
-|---|---|
-| “Public cut” / “thin cut of private monorepo” | **Kill wording** in dossier/market (private ai-leo) |
-| Operator-private skill overlays inside Vidux | **Never land here** — keep them out of this repo |
-| ai-leo recognition/bakeoff PLANs | **Never land here** |
-| Second product name for the same core | **Do not invent** |
-| Root doctrine files in `package.json` `files` | **Removed** (covered by `docs/**/*.md`) |
-
-### OUT OF SCOPE this PR
-
-| Item | Notes |
-|---|---|
-| Deleting guides cruft beyond link fixups | Later diet PR |
-| npm publish / GitHub Release | Separate |
-| History rewrite / public force-push | Hard rail |
-| Moving SKILL.md under docs/ | No — agents expect root skill |
-
----
-
-## What this branch changes (finish list)
-
-- [x] `git mv` six doctrine essays → `docs/doctrine/`
-- [x] README install-first; docs table points at `docs/doctrine/*`
-- [x] `package.json` `files`: drop root doctrine filenames; keep `docs/**/*.md` + LICENSE
-- [x] `SKILL.md` JIT list → `docs/doctrine/…`
-- [x] Link fixups: installation, hooks, CONTRIBUTING, ARCHITECTURE layout
-- [x] This handoff: `docs/CORE-CUT.md`
-- [ ] **Leo:** open PR / push to public `origin` when ready
-
----
-
-## Verify commands (run from repo root)
-
-```bash
-# 1) Root is not a doctrine landfill
-test ! -f DOCTRINE.md && test ! -f LOOP.md && test ! -f ARCHITECTURE.md
-test -f docs/doctrine/DOCTRINE.md && test -f docs/doctrine/LOOP.md
-
-# 2) package.json does not list root doctrine files
-! grep -E '"(ARCHITECTURE|DOCTRINE|ENFORCEMENT|INGREDIENTS|LOOP|WRITING-STYLE)\.md"' package.json
-
-# 3) SKILL JIT points under docs/doctrine
-grep -q 'docs/doctrine/DOCTRINE.md' SKILL.md
-
-# 4) README points at doctrine paths
-grep -q 'docs/doctrine/ARCHITECTURE.md' README.md
-
-# 5) Public-ready + unit gates (local)
-npm run public-ready:grep
-npm test   # or: npm run test:py && npm run test:js
-
-# 6) Optional full verify
-npm run verify
-```
-
-Expected: all path tests pass; public-ready/grep and unit tests green on a clean tree.
-
----
-
-## Suggested PR title / body (for Leo)
-
-**Title:** `docs: root install cut — doctrine essays under docs/doctrine`
-
-**Body:**  
-Vidux remains one product (the core). Root is install + SKILL + community. Long doctrine essays move to `docs/doctrine/`. `package.json` `files` no longer lists root doctrine names. No operator-private overlays or private missions. See `docs/CORE-CUT.md`.
-
----
-
-## Private follow-ups (ai-leo, not this repo)
-
-- Patch DOSSIER/market lines that still say “vidux public cut / private monorepo extract”
-- Recognition/bakeoff language: Vidux = public control plane; private work lives in ai-leo
-
----
-
-## Resume
-
-| If | Then |
-|---|---|
-| Branch uncommitted | commit on `docs/root-readme-cut` locally |
-| Leo says ship | push branch + open PR to `firstbitelabsllc/vidux` main |
-| Links still break | `rg -n 'DOCTRINE\.md|ENFORCEMENT\.md' --glob '!docs/doctrine/**'` and fix |
+Historical releases are never silently moved. If a release claim or public
+surface is wrong, publish a corrected successor and mark the earlier release as
+superseded.

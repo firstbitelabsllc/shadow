@@ -64,13 +64,17 @@ class PuristIntegrityTests(unittest.TestCase):
             self.assertNotIn(dependency, package_deps)
         self.assertNotIn("node_modules/eve", lock["packages"])
 
-    def test_public_gate_rejects_removed_paths_and_private_release_overlay(self) -> None:
+    def test_public_gate_rejects_removed_paths_and_local_release_material(self) -> None:
+        synthetic_dev_root = "~/" + "Development"
         cases = [
             (Path("agent") / "runtime.ts", "harmless\n"),
             (Path("browser") / ("run_" + "extract_pass.py"), "harmless\n"),
             (Path("browser") / "receipts" / "handler.py", "harmless\n"),
             (Path("commands") / "vidux.md", "harmless\n"),
-            (Path("README.md"), "load " + "pilot" + "-leo for publishing\n"),
+            (
+                Path("README.md"),
+                f"local checkout: {synthetic_dev_root}/internal-toolkit/\n",
+            ),
         ]
         for rel, body in cases:
             with self.subTest(path=rel), tempfile.TemporaryDirectory() as tmp:

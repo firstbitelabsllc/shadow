@@ -214,7 +214,14 @@ class StepJournalWiringTests(unittest.TestCase):
         )
         journal_file = self.journal_dir / "Ship_the_widget.jsonl"
         self.assertTrue(journal_file.exists())
-        rc, _out, err = self.run_checkpoint("Ship the widget", "shipped it", "--status", "done")
+        rc, _out, err = self.run_checkpoint(
+            "Ship the widget",
+            "shipped it",
+            "--status",
+            "done",
+            "--proof",
+            "unit gate passed",
+        )
         self.assertEqual(rc, 0, err)
         self.assertFalse(journal_file.exists())
         self.assertEqual(len(list(self.journal_dir.glob("Ship_the_widget.jsonl.*.bak"))), 1)
@@ -226,7 +233,14 @@ class StepJournalWiringTests(unittest.TestCase):
             env=self.env, check=True,
         )
         journal_file = self.journal_dir / "Ship_the_widget.jsonl"
-        rc, _out, err = self.run_checkpoint("Ship the widget", "waiting on API key", "--status", "blocked")
+        rc, _out, err = self.run_checkpoint(
+            "Ship the widget",
+            "waiting on API key",
+            "--status",
+            "blocked",
+            "--blocker",
+            "API key unavailable",
+        )
         self.assertEqual(rc, 0, err)
         self.assertTrue(journal_file.exists(), "blocked tasks may resume later -- journal must survive")
 
@@ -266,7 +280,14 @@ class StepJournalWiringTests(unittest.TestCase):
         journal_file = self.journal_dir / "Ship_the_widget.jsonl"
         self.assertTrue(journal_file.exists())
 
-        rc, _out, err = self.run_checkpoint("Ship the widget", "shipped it", "--status", "done")
+        rc, _out, err = self.run_checkpoint(
+            "Ship the widget",
+            "shipped it",
+            "--status",
+            "done",
+            "--proof",
+            "unit gate passed",
+        )
         self.assertEqual(rc, 0, err)
         self.assertFalse(journal_file.exists(), "checkpoint clear must archive the tagged journal, not orphan it")
         self.assertEqual(len(list(self.journal_dir.glob("Ship_the_widget.jsonl.*.bak"))), 1)

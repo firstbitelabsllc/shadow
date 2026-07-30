@@ -1,10 +1,8 @@
-# 90 — Outcome Console Plan
+# Outcome Console Plan
 
 **Parent authority:** [`../../PLAN.md`](../../PLAN.md)
 **Status:** provider-neutral interchange implemented locally; no GUI, persistence,
 or live Steer loop is implemented
-**Working name:** “90” is a product shorthand, not a repository, package, or
-public-name change.
 
 ## Outcome
 
@@ -13,11 +11,11 @@ implementation details. They state an outcome, receive a concise grounded
 answer, and steer the work without assembling an agent stack, choosing models,
 reading code, or managing a fleet.
 
-The product should make the routine ninety percent boring: choose a sensible,
-explainable recipe; keep the work safe; and interrupt only for a real product
-choice, security boundary, money, external communication, or irreversible
-action. A plan remains mandatory underneath, but it is a reliability mechanism,
-not an interface the person must learn.
+The product should make the routine path boring: choose a sensible, explainable
+recipe; keep the work safe; and interrupt only for a real product choice,
+security boundary, money, external communication, or irreversible action. A
+plan remains mandatory underneath, but it is a reliability mechanism, not an
+interface the person must learn.
 
 ## Opportunity Decision
 
@@ -29,10 +27,10 @@ ordinary execution requires no approval ritual, a Steer replaces stale
 direction in place, and an Ask appears only for a genuine fork. The user sees
 proof without having to watch the machinery.
 
-The internal “90% true vibe code” hypothesis means a non-coder can direct the
-routine build, fix, and release loop from intent and evidence. It does not mean
-the system hides uncertainty, skips engineering proof, or silently crosses a
-hard safety boundary.
+The product hypothesis is that a non-coder can direct the routine build, fix,
+and release loop from intent and evidence. It does not mean the system hides
+uncertainty, skips engineering proof, or silently crosses a hard safety
+boundary.
 
 Stop this direction if dogfood shows that people primarily want a code editor,
 agent selector, editable prompt queue, or plan-approval screen. Those are
@@ -59,9 +57,10 @@ This is an initial official-documentation snapshot, not a market-size claim.
   confirmation policy and risk analysis as execution controls.
 
 These products validate goals, progress, interruption, and safety controls.
-They do not by themselves validate 90’s proposed differentiation. The testable
-bet is that a non-coder values less operational interface: one Outcome, one
-exceptional Ask, one Steer surface, and proof when finished.
+They do not by themselves validate the Outcome Console's proposed
+differentiation. The testable bet is that a non-coder values less operational
+interface: one Outcome, one exceptional Ask, one Steer surface, and proof when
+finished.
 
 ## Product Contract
 
@@ -223,15 +222,14 @@ prompts, routine work produces approval theater, or proof is not trusted.
 
 ## Current Proof
 
-- Official Lovable, Replit, and OpenHands documentation was indexed and
-  reviewed through Nia; the links above point to the primary pages used.
-- `python3 tests/test_outcome_ask_steer.py` passes the contract’s valid,
-  malformed, semantic, privacy, size, and deterministic-output cases.
-- Taste reports zero findings; the Vidux public-ready gate passes; all 22
-  JavaScript and 369 Python tests pass.
-- Publish packet `evt_55d002e0` records this two-file, docs-only product-plan
-  handoff. No GUI, live execution loop, microphone path, or product-name change
-  is claimed.
+- The market-evidence links above point to the primary product documentation
+  reviewed for this hypothesis.
+- `python3 tests/test_outcome_ask_steer.py` covers valid, malformed, semantic,
+  privacy, size, and deterministic-output cases.
+- Repository verification, the public-boundary scan, and source-package
+  verification pass at the corrective candidate head.
+- No GUI, live execution loop, microphone path, or product-name change is
+  claimed.
 
 ## Non-goals
 

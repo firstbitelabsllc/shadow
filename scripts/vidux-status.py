@@ -67,6 +67,7 @@ TASK_LINE_RE = re.compile(
 )
 ETA_RE = re.compile(r"\[ETA:\s*(\d+(?:\.\d+)?)h\]")
 PROGRESS_LINE_RE = re.compile(r"^-\s*\[?(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?Z?)?)")
+PROGRESS_CYCLE_RE = re.compile(r"\bCycle\s+(\d+):", re.I)
 NEGATIVE_PROSE_BLOCKER_RE = re.compile(r"\b(?:not|no longer|not currently)\s+blocked\s+by\b", re.I)
 OWNER_REVIEW_RE = re.compile(r"\bownership\s+review\b", re.I)
 OWNER_REVIEW_GATE_RE = re.compile(
@@ -281,7 +282,7 @@ def flags_for_plan(
     if any(token in active_text for token in ("auth", "signin", "sign-in", "oauth")):
         flags.append("auth_gap")
     if "ASK-OWNER" in active_text or "ask-owner" in active_text:
-        flags.append("leo_gate")
+        flags.append("owner_gate")
     return flags
 
 
@@ -297,6 +298,7 @@ def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
 
     progress_ts: Optional[str] = None
     latest_progress: Optional[str] = None
+    progress_entries: list[tuple[str, str, Optional[int]]] = []
     in_progress_section = False
     for line in text.splitlines():
         stripped = line.strip()
@@ -309,9 +311,27 @@ def parse_plan(p: Path, dev_root: Path) -> PlanStatus:
             m = PROGRESS_LINE_RE.match(line.lstrip())
             if m:
                 ts = m.group(1)
-                if progress_ts is None or ts > progress_ts:
-                    progress_ts = ts
-                    latest_progress = stripped
+                cycle_match = PROGRESS_CYCLE_RE.search(stripped)
+                cycle = int(cycle_match.group(1)) if cycle_match else None
+                progress_entries.append((ts, stripped, cycle))
+
+    # Dates are labels, not sequence numbers: corrected/backfilled entries,
+    # clock skew, and a UTC/local boundary can make lexical max pick an older
+    # row. Checkpoint rows carry a monotonic Cycle number even though that
+    # command inserts the newest row at the top of the section. Prefer the
+    # highest cycle when present; for ordinary hand-authored progress, use
+    # document append order.
+    cycle_entries = [
+        (cycle, index, ts, entry)
+        for index, (ts, entry, cycle) in enumerate(progress_entries)
+        if cycle is not None
+    ]
+    if cycle_entries:
+        _cycle, _index, progress_ts, latest_progress = max(
+            cycle_entries, key=lambda item: (item[0], item[1])
+        )
+    elif progress_entries:
+        progress_ts, latest_progress, _cycle = progress_entries[-1]
 
     try:
         mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)

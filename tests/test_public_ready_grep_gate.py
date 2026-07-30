@@ -1,6 +1,6 @@
 """Tests for scripts/vidux-public-ready-grep-gate.py.
 
-All fixtures are synthetic. No real operator, family, employer, account,
+All fixtures are synthetic. No real person, family, employer, account,
 machine-local, finance, or private-repository content is copied here.
 """
 
@@ -28,16 +28,16 @@ SPEC.loader.exec_module(GATE)
 SYN_USER = "ops-user"
 SYN_HOME_MAC = f"/Use{'rs'}/{SYN_USER}/Projects/demo/"
 SYN_HOME_LINUX = f"/ho{'me'}/{SYN_USER}/work/demo/"
-SYN_EMAIL = "ops.user@" + "private-corp.dev"
-SYN_PUBLIC_EMAIL = "leojkwan@" + "gmail.com"
+SYN_EMAIL = "@".join(("ops.user", "private-corp.dev"))
+SYN_PUBLIC_EMAIL = "noreply@" + "github.com"
 RETIRED_BOARD = "Lin" + "ear"
-PRIVATE_FLOW = "/leo" + "-flow"
-PRIVATE_OVERLAY = "/vidux" + "-leo"
+SYN_LOCAL_REPO = "internal-toolkit"
+SYN_DEV_PATH = f"~/Development/{SYN_LOCAL_REPO}/"
 MACHINE_NAME = "M4" + " Pro"
 STUDIO_NAME = "Mac" + " Studio"
-PRIVATE_TEST_EMAIL = "test@" + "test.com"
-LOCAL_TEST_EMAIL = "operator@" + "workstation.local"
-FOREIGN_BOT_EMAIL = "stranger-bot@" + "users.noreply.github.com"
+PRIVATE_TEST_EMAIL = "@".join(("test", "test.com"))
+LOCAL_TEST_EMAIL = "@".join(("local-build", "workstation.local"))
+FOREIGN_BOT_EMAIL = "@".join(("stranger-bot", "users.noreply.github.com"))
 PRIVATE_HOST = "handoff." + "corp.internal"
 
 
@@ -48,7 +48,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(root)], check=True)
             (root / "README.md").write_text("Vidux is markdown-plan-first.\n", encoding="utf-8")
             leak = root / "LOCAL-NOTES.md"
-            leak.write_text(f"Use `{PRIVATE_FLOW}` locally.\n", encoding="utf-8")
+            leak.write_text(f"Local checkout: `{SYN_DEV_PATH}`.\n", encoding="utf-8")
             subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
 
             clean = subprocess.run(
@@ -115,7 +115,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
             # A leak-class string in the FILENAME, with clean redacted body
             # content -- content-only scanning once missed a real leak
             # sitting in a tracked filename.
-            (evidence / f"2026-06-08-{PRIVATE_FLOW[1:]}-anti-slop.md").write_text(
+            (evidence / f"2026-06-08-{SYN_EMAIL}-local-note.md").write_text(
                 "Redacted body, no leak here.\n", encoding="utf-8",
             )
 
@@ -456,13 +456,13 @@ class PublicReadyGrepGateTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stdout)
 
-    def test_ask_leo_is_in_scope_but_hygiene_exempt(self):
-        # ASK-LEO.md is live and must be privacy-scanned, while historical
+    def test_named_ask_file_is_in_scope_but_hygiene_exempt(self):
+        # ASK-OWNER.md is live and must be privacy-scanned, while historical
         # hygiene terms in resolved Q&A remain exempt.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "README.md").write_text("Vidux is markdown-plan-first.\n", encoding="utf-8")
-            (root / "ASK-LEO.md").write_text(
+            (root / "ASK-OWNER.md").write_text(
                 f"## Q1\nAnswer: migrated off {RETIRED_BOARD} sync in 2026-04.\n"
                 f"Private path leak: {SYN_HOME_MAC}secret.md\n",
                 encoding="utf-8",
@@ -478,15 +478,15 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "failed")
         files_matched = {m["file"] for m in payload["matches"]}
-        self.assertEqual(files_matched, {"ASK-LEO.md"})
+        self.assertEqual(files_matched, {"ASK-OWNER.md"})
         patterns_matched = {m["pattern"] for m in payload["matches"]}
         self.assertEqual(patterns_matched, {"absolute home path"})
 
-    def test_leo_flow_pattern_catches_hyphenated_slash_command_form(self):
+    def test_concrete_development_checkout_is_caught(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "README.md").write_text(
-                f"Use `{PRIVATE_FLOW}` for lane routing.\n", encoding="utf-8",
+                f"Use `{SYN_DEV_PATH}` for local work.\n", encoding="utf-8",
             )
 
             result = subprocess.run(
@@ -499,7 +499,10 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "failed")
-        self.assertEqual(payload["matches"][0]["pattern"], "private flow-lane marker")
+        self.assertEqual(
+            payload["matches"][0]["pattern"],
+            "home-relative concrete development path",
+        )
 
     def test_generic_macos_and_linux_home_paths_are_caught(self):
         fixtures = [
@@ -507,6 +510,10 @@ class PublicReadyGrepGateTests(unittest.TestCase):
             (f"Path: {SYN_HOME_LINUX}\n", "absolute home path"),
             ("Notes under ~/" + "Documents/local-tools/README.md\n", "home-relative private path"),
             ("Key material under ~/." + "ssh/id_ed25519\n", "home-relative private path"),
+            (
+                f"Skills under {SYN_DEV_PATH}skills/\n",
+                "home-relative concrete development path",
+            ),
         ]
         for body, expected in fixtures:
             with self.subTest(body=body), tempfile.TemporaryDirectory() as tmp:
@@ -521,6 +528,114 @@ class PublicReadyGrepGateTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout)
                 payload = json.loads(result.stdout)
                 self.assertEqual(payload["matches"][0]["pattern"], expected)
+
+    def test_development_checkout_rule_is_case_insensitive_and_consumes_full_slug(self):
+        home_prefix = "~/"
+        mixed_development = "dEvElOpMeNt/"
+        mixed_repo = "Internal-Toolkit/skills/"
+        mixed_case_path = f"{home_prefix}{mixed_development}{mixed_repo}"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                f"Local path: {mixed_case_path}\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        payload = json.loads(result.stdout)
+        self.assertIn(
+            "home-relative concrete development path",
+            {match["pattern"] for match in payload["matches"]},
+        )
+        standard_development = "Development/"
+        synthetic_slug = "ai-public/"
+        synthetic_prefixed_slug = f"{home_prefix}{standard_development}{synthetic_slug}"
+        match = GATE.HOME_RELATIVE_DEVELOPMENT_RE.search(synthetic_prefixed_slug)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group("repo"), "ai-public")
+
+    def test_development_checkout_placeholders_and_project_path_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "Template: ~/Development/<repo>/README.md\n"
+                "Shell template: ~/Development/${REPO}/README.md\n"
+                "Project checkout: ~/Development/VIDUX/README.md\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_adjacent_string_fragments_cannot_hide_local_path_shape(self):
+        first = "~/"
+        second = "Development/"
+        third = f"{SYN_LOCAL_REPO}/skills/"
+        fragmented_source = f'"{first}" + "{second}" + "{third}"\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config.py").write_text(fragmented_source, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            payload["matches"][0]["pattern"],
+            "home-relative concrete development path",
+        )
+
+    def test_adjacent_fragments_cannot_hide_other_privacy_shapes(self):
+        email_user = "ops.user"
+        email_domain = "private-corp.dev"
+        home_prefix = "/Users/"
+        home_suffix = "ops-user/private"
+        identifier_field = "session_id"
+        identifier_left = "abcd"
+        identifier_right = "efgh1234"
+        fixtures = [
+            (
+                f'OWNER = "{email_user}@" + "{email_domain}"\n',
+                "non-public email address",
+            ),
+            (
+                f'ROOT = "{home_prefix}" + "{home_suffix}"\n',
+                "absolute home path",
+            ),
+            (
+                f'{{"{identifier_field}": "{identifier_left}" + "{identifier_right}"}}\n',
+                "execution-identifier payload",
+            ),
+        ]
+        for body, expected in fixtures:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "config.py").write_text(body, encoding="utf-8")
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 1, result.stdout)
+                payload = json.loads(result.stdout)
+                self.assertIn(expected, {match["pattern"] for match in payload["matches"]})
 
     def test_non_public_email_is_caught_public_identity_is_not(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -607,6 +722,77 @@ class PublicReadyGrepGateTests(unittest.TestCase):
                 payload = json.loads(result.stdout)
                 self.assertEqual(payload["matches"][0]["pattern"], expected)
 
+    def test_receipt_request_and_session_identifiers_are_caught_case_insensitively(self):
+        fields = ("ReCeIpT_Id", "ReQuEsT_Id", "SeSsIoN_Id")
+        for field in fields:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                body = json.dumps({field: f"{field[:3].lower()}_7fa31d905bc2"})
+                (root / "receipt.json").write_text(body + "\n", encoding="utf-8")
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 1, result.stdout)
+                payload = json.loads(result.stdout)
+                self.assertEqual(
+                    payload["matches"][0]["pattern"],
+                    "execution-identifier payload",
+                )
+
+    def test_identifier_placeholders_and_schema_fields_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "schema.json").write_text(
+                '{"request_id": {"type": "string"}}\n'
+                '{"session_id": "<request-id>"}\n'
+                '{"receipt_id": "${RECEIPT_ID}"}\n'
+                '{"run_id": "redacted"}\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_provider_receipt_cost_account_and_session_data_are_caught_by_shape(self):
+        account_field = "account_id"
+        cost_field = "cost_usd"
+        token_field = "input_tokens"
+        provider_subject = "Provider"
+        provider_kind = "session"
+        provider_snapshot = "payload: synthetic execution metadata"
+        fixtures = [
+            json.dumps({account_field: "acct_synthetic_123456"}),
+            json.dumps({cost_field: 2.75}),
+            json.dumps({token_field: 1200}),
+            f"{provider_subject} {provider_kind} {provider_snapshot}",
+        ]
+        for body in fixtures:
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "NOTES.md").write_text(body + "\n", encoding="utf-8")
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--repo-root", str(root), "--json"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 1, result.stdout)
+                payload = json.loads(result.stdout)
+                self.assertEqual(
+                    payload["matches"][0]["pattern"],
+                    "execution-accounting payload",
+                )
+
     def test_raw_transcript_and_session_dumps_are_caught(self):
         fixtures = [
             "Attached raw chat " + "transcript from the debug session.\n",
@@ -647,7 +833,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         fixtures = [
             "routing " + "number 021000021 appears in the receipt.\n",
             '{"account_' + 'number": "000111222", "balance_' + 'cents": 1200}\n',
-            "Export includes bank account " + "number and tax " + "id.\n",
+            " ".join(("Export includes bank", "account", "number and tax", "id.")) + "\n",
         ]
         for body in fixtures:
             with self.subTest(body=body), tempfile.TemporaryDirectory() as tmp:
@@ -740,7 +926,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
             root = Path(tmp)
             (root / "README.md").write_text("Clean.\n", encoding="utf-8")
             (root / "NOTES-NOBODY-NAMED-YET.md").write_text(
-                f"Use `{PRIVATE_FLOW}` for lane routing.\n", encoding="utf-8",
+                f"Local checkout: `{SYN_DEV_PATH}`.\n", encoding="utf-8",
             )
 
             result = subprocess.run(
@@ -784,7 +970,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "style.css").write_text(
-                f"/* generated from {PRIVATE_OVERLAY}/tokens.json */\n", encoding="utf-8",
+                f"/* generated from {SYN_HOME_MAC}tokens.json */\n", encoding="utf-8",
             )
 
             result = subprocess.run(
@@ -797,7 +983,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "failed")
-        self.assertEqual(payload["matches"][0]["pattern"], "private overlay marker")
+        self.assertEqual(payload["matches"][0]["pattern"], "absolute home path")
 
     def test_changelog_is_privacy_scanned_but_hygiene_exempt(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -805,7 +991,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
             (root / "README.md").write_text("Clean.\n", encoding="utf-8")
             (root / "CHANGELOG.md").write_text(
                 f"## [1.0.0]\n- Migrated off {RETIRED_BOARD}.\n"
-                f"- Kept locally under {PRIVATE_OVERLAY}.\n",
+                f"- Kept locally under {SYN_HOME_MAC}.\n",
                 encoding="utf-8",
             )
 
@@ -822,7 +1008,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
         matches = payload["matches"]
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["file"], "CHANGELOG.md")
-        self.assertEqual(matches[0]["pattern"], "private overlay marker")
+        self.assertEqual(matches[0]["pattern"], "absolute home path")
 
     def test_formerly_excluded_test_paths_are_scanned(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -870,7 +1056,7 @@ class PublicReadyGrepGateTests(unittest.TestCase):
                 "export default { title: 'Vidux' }\n", encoding="utf-8",
             )
             vitepress_dir.joinpath("theme.ts").write_text(
-                f"// LEAK = '{PRIVATE_FLOW}'\n", encoding="utf-8",
+                f"// LEAK = '{SYN_HOME_MAC}'\n", encoding="utf-8",
             )
 
             result = subprocess.run(
@@ -1056,7 +1242,7 @@ class PublicReadyMetadataGateTests(unittest.TestCase):
             self._commit(
                 root,
                 "chore: seed",
-                name="Local Operator",
+                name="Local Builder",
                 email=LOCAL_TEST_EMAIL,
             )
             result = self._run_metadata(root)

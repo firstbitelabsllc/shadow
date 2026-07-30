@@ -1,36 +1,42 @@
 # Five Principles
 
-The doctrine. Governs every agent decision: what to do next, when to gather evidence, when to stop, how to leave things for the next agent.
-
-**internal checkpoint packet** (legacy name: `publish packet`) = internal ledger row carrying task id, proof, handoff status, files claimed, and next-agent resume. It records state and grants no external publication, send, merge, deploy, or authorization authority (defined in [The Cycle](/concepts/cycle)).
+Five rules for deciding what to do next, what counts as proof, and how to leave
+work resumable.
 
 ## Principle 1: Plan First, Code Second
 
-PLAN.md is the planning authority for queue, decisions, constraints, progress. Code derives from plan state. To change code, update the plan first; to claim a shipped cycle, pair the plan update with the internal checkpoint packet.
+`PLAN.md` is planning authority for the outcome, queue, decisions, constraints,
+progress, proof references, and next move. When evidence changes the direction,
+update the plan before extending the implementation.
 
-Every plan entry cites evidence — a codebase grep, PR comment, design doc quote, team chat message. **A plan entry without evidence is a guess. Guesses cause rework.** Evidence: evidence-first coding costs 2-5 min research, saves 15-60 min rework.
+Material plan claims should cite inspectable evidence: a repository path,
+revision, test result, review finding, or linked artifact. Separate facts,
+inferences, and unknowns.
 
 ```markdown
 # Bad (no evidence)
 - [pending] Task 1: Add rate limiting
 
 # Good (evidence cited)
-- [pending] Task 1: Add rate limiting [Evidence: Sentry logs — 47 burst errors in 7 days, src/api/login.ts:42 — no throttle]
+- [pending] T-1: Add rate limiting [Evidence: src/api/login.ts:42 — no throttle; focused regression missing]
 ```
 
 ## Principle 2: Design for Interruption
 
-Every session ends. Context will be lost. Auth will expire. State lives in repo files plus append-only ledger rows, never in memory. Checkpoints are structured, not freeform. Any agent resumes from the last plan/ledger packet.
+Sessions end and workers change. A cold reader should resume from `PLAN.md`,
+the current Git revision and working tree, and the proof linked by the active
+row. Preserve unexplained work before editing.
 
-After any interruption, re-read PLAN.md and evidence/ from disk. NEVER trust summaries or memory for plan details.
-
-Every cycle updates the owning plan/progress record. Any publishable branch, PR, or release also emits the internal checkpoint packet. A fresh agent reads plan + ledger packet and knows exactly where things stand.
+Vidux does not auto-recover sessions. It makes manual reconstruction bounded and
+inspectable.
 
 ## Principle 3: Investigate Before Fixing
 
-Bug tickets are not line items. Before coding, map root cause, related surfaces, impact. A fix without investigation is a guess.
+When root cause is unclear, map the relevant surfaces and competing hypotheses
+before choosing a fix.
 
-2+ tickets touch the same surface → bundle into one investigation. It produces a root cause analysis, impact map, fix spec. Investigation notes live locally in the working tree until the fix ships — not a separate deliverable. No investigation PR, no evidence PR, no plan-flip PR. The unit of progress is code change.
+Use a linked investigation for a genuinely complex surface. Skip it for a small
+repair with an obvious cause, owner, and gate.
 
 ```
 Bug reported: "checkout double-charges on fast retry"
@@ -49,17 +55,16 @@ Right:
 
 ## Principle 4: Self-Extend with a Brake
 
-Agents add tasks they discover. Fix a bug → log the related bugs you saw. Add a feature → log the edge cases you spotted.
-
-But a shipped surface that works is done — stop polishing, move to the next gap. Polish on a done surface while the mission has gaps elsewhere is procrastination. Re-extend plans only when investigation reveals new surfaces, never to tweak finished work.
-
-**The brake:** Surface works and tests pass → log what you noticed, move to the next task. Don't re-open completed work to "clean it up."
-
-**Evidence changes mid-cycle → the queue re-sorts.** No permission needed; note the reorder in the next Progress entry.
+A maintainer or coding host may add newly discovered work when it belongs to
+the stated outcome or closes a material risk. Vidux does not scan for or create
+work automatically. Stop when the selected row's outcome exists and its gate
+passes; record optional polish without reopening proven work.
 
 ## Principle 5: Prove It Mechanically
 
-Never assert "it works." Run the build, run the tests, show the screenshot. Definition of done for UI work is visual proof, never just "the build passes."
+Never assert "it works" from source inspection alone. Run the smallest real gate
+that proves the requested outcome. User-visible work normally needs direct
+interaction or visual proof.
 
 When an audit or grep produces a count or classification, spot-check at least one entry from each category before deciding on it. A grep hit is a lead, not a fact — a line matching "git push" might be a prohibition ("NEVER git push"), not an instruction.
 
@@ -67,24 +72,20 @@ When an audit or grep produces a count or classification, spot-check at least on
 Wrong: "The rate limiter is working — I can see it in the code."
 
 Right:
-- Build: passes (17 tests, 0 failures)
-- Test: rate_limit_test.ts passes (5/5)
-- Manual: curl -X POST /api/login 6x → 6th request returns 429
+- Build: passes
+- Test: rate_limit_test.ts passes
+- Manual: the first request beyond the declared limit returns 429
 ```
 
-**After a failure:** produce two artifacts — a code fix (immediate repair) and a process fix (a hook, test, constraint, or plan update). The process fix is the valuable output; it makes the system smarter next time.
+When a failure exposes a repeatable class, add a proportionate regression test,
+constraint, or documented check.
 
-## The Quick Check / Deep Work Model
+## One-row default
 
-Beyond the five principles, every run is one of two modes:
+The default cycle advances one bounded row through proof, records the result and
+one cold-resume next move, then exits. The coding host may start another cycle;
+Vidux itself does not drain queues, schedule work, or choose workers.
 
-| Mode | Duration | Description |
-|---|---|---|
-| **Quick Check** | < 2 min | Nothing to do. Scan 5 surfaces, prove clean, exit with evidence. |
-| **Deep Work** | 15+ min | Real work. Execute tasks until queue empties or a blocker hits. |
-
-**The mid-zone (3-8 min) is the anti-pattern.** "A little checking" plus "a small fix" without committing to either mode produces the worst outcomes: shallow investigation that misses root cause, partial fixes leaving the codebase worse than before, checkpoints that don't tell the next agent what happened.
-
-**Quick Check exit criteria:** Cite exactly what was scanned (file paths, git log range, grep patterns). A quick check without proof is an agent that gave up.
-
-**Deep Work exit criteria:** Queue drained, or explicit blocker documented. Never exit deep work because progress feels slow.
+`vidux checkpoint` is an optional local convenience. If a local ledger is
+configured it may append a row, but repository files and Git remain sufficient
+authority. The row is neither proof by itself nor a publication gate.

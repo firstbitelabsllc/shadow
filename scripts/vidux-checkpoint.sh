@@ -7,9 +7,10 @@
 #   v2: - [pending], - [in_progress], - [completed], - [blocked]
 #
 # --status flag distinguishes checkpoint outcomes:
-#   done             (default) — task complete, verified
+#   done             (default) — task complete; requires --proof
 #   done_with_concerns         — works but has caveats (adds [concerns noted] to Progress)
 #   blocked                    — external dependency; marks task [blocked], not [completed]
+# Changes remain uncommitted unless --commit is supplied explicitly.
 set -euo pipefail
 
 # Platform-aware sed -i (macOS vs Linux)
@@ -18,8 +19,8 @@ sedi() { if [[ "$(uname)" == "Darwin" ]]; then sed -i '' "$@"; else sed -i "$@";
 usage() {
   cat <<'USAGE'
 Usage:
-  vidux-checkpoint.sh <plan-path> <task-description> <summary> [--blocker <text>] [--status <done|done_with_concerns|blocked>] [--outcome <useful|busy|blocked_clarified>]
-  vidux-checkpoint.sh <plan-path> --archive
+  vidux-checkpoint.sh <plan-path> <task-description> <summary> [--proof <text>] [--blocker <text>] [--status <done|done_with_concerns|blocked>] [--outcome <useful|busy|blocked_clarified>] [--commit]
+  vidux-checkpoint.sh <plan-path> --archive [--commit]
 USAGE
   exit 1
 }
@@ -88,6 +89,11 @@ process_fix_matches_type() {
 # --archive mode: move old completed tasks to ARCHIVE.md
 # =============================================================================
 if [[ "${2:-}" == "--archive" ]]; then
+  COMMIT_CHANGES=false
+  if [[ $# -gt 3 || ( $# -eq 3 && "${3:-}" != "--commit" ) ]]; then
+    usage
+  fi
+  [[ "${3:-}" == "--commit" ]] && COMMIT_CHANGES=true
   ARCHIVE="${PLAN_DIR}/ARCHIVE.md"
 
   # Read archive_threshold from config (same pattern as vidux-loop.sh)
@@ -164,14 +170,16 @@ HEADER
     echo "<!-- ${ARCHIVE_COUNT} tasks archived to ARCHIVE.md -->" >> "$PLAN"
   fi
 
-  # --- Commit ---
-  git add "$PLAN" "$ARCHIVE"
-  if ! git commit -m "vidux: archive ${ARCHIVE_COUNT} completed tasks to ARCHIVE.md"; then
-    echo "Error: git commit failed — archive not saved" >&2
-    exit 1
+  if [[ "$COMMIT_CHANGES" == true ]]; then
+    git -C "$REPO_ROOT" add -- "$PLAN" "$ARCHIVE"
+    if ! git -C "$REPO_ROOT" commit -m "vidux: archive ${ARCHIVE_COUNT} completed tasks to ARCHIVE.md"; then
+      echo "Error: git commit failed — archive changes remain in the working tree" >&2
+      exit 1
+    fi
   fi
 
   echo "Archived ${ARCHIVE_COUNT} completed tasks to ${ARCHIVE}"
+  [[ "$COMMIT_CHANGES" == false ]] && echo "Changes left uncommitted. Review them before committing."
   exit 0
 fi
 
@@ -185,13 +193,17 @@ SUMMARY="$3"
 BLOCKER="none"
 STATUS="done"
 OUTCOME=""
+PROOF=""
+COMMIT_CHANGES=false
 
 shift 3
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --proof) PROOF="$2"; shift 2 ;;
     --blocker) BLOCKER="$2"; shift 2 ;;
     --status) STATUS="$2"; shift 2 ;;
     --outcome) OUTCOME="$2"; shift 2 ;;
+    --commit) COMMIT_CHANGES=true; shift ;;
     *) usage ;;
   esac
 done
@@ -206,6 +218,15 @@ if [[ -n "$OUTCOME" ]]; then
     useful|busy|blocked_clarified) ;;
     *) echo "Error: --outcome must be useful, busy, or blocked_clarified" >&2; exit 1 ;;
   esac
+fi
+
+if [[ "$STATUS" != "blocked" && -z "$PROOF" ]]; then
+  echo "Error: --proof is required for done and done_with_concerns checkpoints" >&2
+  exit 1
+fi
+if [[ "$STATUS" == "blocked" && ( -z "$BLOCKER" || "$BLOCKER" == "none" ) ]]; then
+  echo "Error: --blocker is required for blocked checkpoints" >&2
+  exit 1
 fi
 
 # --- Idempotency: skip if task is already in a terminal FSM state ---
@@ -262,7 +283,9 @@ STATUS_NOTE=""
 [[ "$STATUS" == "blocked" ]] && STATUS_NOTE=" [BLOCKED]"
 OUTCOME_NOTE=""
 [[ -n "$OUTCOME" ]] && OUTCOME_NOTE=" outcome=${OUTCOME}"
-PROGRESS_LINE="- [${DATE}] Cycle ${CYCLE}: ${SUMMARY}${STATUS_NOTE}${OUTCOME_NOTE}. Next: ${NEXT_TASK}. Blocker: ${BLOCKER}."
+PROOF_NOTE=""
+[[ -n "$PROOF" ]] && PROOF_NOTE=" Proof: ${PROOF}."
+PROGRESS_LINE="- [${DATE}] Cycle ${CYCLE}: ${SUMMARY}${STATUS_NOTE}${OUTCOME_NOTE}.${PROOF_NOTE} Next: ${NEXT_TASK}. Blocker: ${BLOCKER}."
 
 # --- Idempotency: don't double-append the same cycle summary ---
 if grep -qF "Cycle ${CYCLE}: ${SUMMARY}" "$PLAN"; then
@@ -303,17 +326,18 @@ fi
 # --- Emit checkpoint ledger before git transport --------------------------- #
 if type vidux_emit_checkpoint &>/dev/null 2>&1; then
   _PROJECT_NAME="$(basename "$PLAN_DIR")"
-  if ! vidux_emit_checkpoint "$_PROJECT_NAME" "$PLAN" "" "$STATUS" "$NEXT_TASK" "$TASK"; then
-    echo "Error: ledger checkpoint emit failed - git transport not attempted" >&2
+  if ! vidux_emit_checkpoint "$_PROJECT_NAME" "$PLAN" "" "$STATUS" "$NEXT_TASK" "$TASK" "$PROOF"; then
+    echo "Error: optional ledger checkpoint emit failed" >&2
     exit 1
   fi
 fi
 
-# --- Commit (propagate failures: a failed commit means git transport did not land) ---
-git add "$PLAN"
-if ! git commit -m "vidux: ${SUMMARY}"; then
-  echo "Error: git commit failed - git transport did not land" >&2
-  exit 1
+if [[ "$COMMIT_CHANGES" == true ]]; then
+  git -C "$REPO_ROOT" add -- "$PLAN"
+  if ! git -C "$REPO_ROOT" commit -m "vidux: ${SUMMARY}"; then
+    echo "Error: git commit failed — checkpoint changes remain in the working tree" >&2
+    exit 1
+  fi
 fi
 
 # --- Refresh the plan-integrity baseline (warn-only; never blocks checkpoint) ---
@@ -338,6 +362,8 @@ if [[ "$STATUS" != "blocked" ]]; then
 fi
 
 echo "Checkpoint complete. Cycle ${CYCLE}: ${SUMMARY}${STATUS_NOTE}"
+[[ -n "$PROOF" ]] && echo "Proof: ${PROOF}"
 echo "Next: ${NEXT_TASK}"
 [[ "$BLOCKER" != "none" ]] && echo "Blocker: ${BLOCKER}"
+[[ "$COMMIT_CHANGES" == false ]] && echo "Changes left uncommitted. Review them before committing."
 exit 0

@@ -76,6 +76,30 @@ class StatusFocusTests(unittest.TestCase):
         payload = json.loads(out)
         self.assertIn("myproject", [p["short"] for p in payload["tied"]], payload)
 
+    def test_latest_progress_prefers_checkpoint_cycle_over_future_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(tmp, "myproject")
+            (repo / "PLAN.md").write_text(
+                """# My Project
+
+## Tasks
+- [completed] Task 1
+
+## Progress
+- [2026-07-29] Cycle 2: packed proof completed. Proof: gate passed.
+- [2026-07-30] Plan initialized with an unproven starter outcome.
+""",
+                encoding="utf-8",
+            )
+
+            rc, out, err = run_status(repo, "--root", ".", "--all", "--json")
+
+        self.assertEqual(rc, 0, err)
+        payload = json.loads(out)
+        plan = payload["tied"][0]
+        self.assertEqual(plan["progress_ts"], "2026-07-29")
+        self.assertIn("Cycle 2: packed proof completed", plan["latest_progress"])
+
 
     def test_missing_default_dev_root_falls_back_to_cwd(self):
         """Stranger machine: ~/Development absent → warn + still show cwd PLAN."""

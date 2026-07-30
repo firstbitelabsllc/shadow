@@ -66,7 +66,12 @@ STEERING_MODULE_MTIME_NS = (BROWSER_DIR / "steering_mailbox.py").stat().st_mtime
 COORDINATION_MODULE_MTIME_NS = (BROWSER_DIR / "coordination_claims.py").stat().st_mtime_ns
 STATIC_DIR = BROWSER_DIR / "static"
 ARTIFACTS_DIR = Path(
-    os.environ.get("VIDUX_BROWSER_ARTIFACTS_DIR", BROWSER_DIR / "artifacts")
+    os.environ.get(
+        "VIDUX_BROWSER_ARTIFACTS_DIR",
+        Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+        / "vidux"
+        / "artifacts",
+    )
 ).expanduser().resolve()
 CLAUDE_PROJECTS_DIR = Path(
     os.environ.get("VIDUX_CLAUDE_PROJECTS_DIR", Path.home() / ".claude" / "projects")
@@ -1276,7 +1281,6 @@ def plan_list_payload(plans: list[dict]) -> list[dict]:
                 "dashboard_verdicts",
                 "dashboard_inbox_entries",
                 "dashboard_ask_owner_entries",
-                "dashboard_ask_leo_entries",  # legacy key, if any residual payloads
             )
         }
         item["child_rels"] = [child["rel"] for child in plan.get("children", [])]
@@ -2342,11 +2346,6 @@ def read_ask_owner_entries(path: Path) -> list[dict]:
     return extract_ask_owner_entries(text)
 
 
-# Back-compat aliases for older call sites / tests.
-extract_ask_leo_entries = extract_ask_owner_entries
-read_ask_leo_entries = read_ask_owner_entries
-
-
 def extract_focus_tasks(text: str, limit: int = 3) -> list[dict]:
     body = section_body(text, "Tasks")
     if not body:
@@ -3145,6 +3144,18 @@ def coordination_store_id() -> str:
     return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
 
 
+def comments_store_id() -> str:
+    """Path-safe comment-store identity used by launcher reuse checks."""
+    resolved = str(COMMENTS_FILE.expanduser().resolve(strict=False))
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+
+
+def artifacts_store_id() -> str:
+    """Path-safe artifact-store identity used by launcher reuse checks."""
+    resolved = str(ARTIFACTS_DIR.expanduser().resolve(strict=False))
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+
+
 def coordination_module_mtime_ns() -> int:
     return COORDINATION_MODULE_MTIME_NS
 
@@ -3236,7 +3247,8 @@ class Handler(BaseHTTPRequestHandler):
                         "steering_module_mtime_ns": steering_module_mtime_ns(),
                         "coordination_store_id": coordination_store_id(),
                         "coordination_module_mtime_ns": coordination_module_mtime_ns(),
-                        "artifacts_dir": str(ARTIFACTS_DIR)})
+                        "comments_store_id": comments_store_id(),
+                        "artifacts_store_id": artifacts_store_id()})
         elif route == "/api/plans":
             plans = discover_plans_cached()
             self._json({
@@ -3247,7 +3259,7 @@ class Handler(BaseHTTPRequestHandler):
             })
         elif route == "/api/artifacts":
             self._json({"artifacts": discover_artifacts(),
-                        "artifacts_dir": str(ARTIFACTS_DIR)})
+                        "artifacts_store_id": artifacts_store_id()})
         elif route == "/api/vidux/truth":
             refresh = (qs.get("refresh") or [""])[0]
             self._json(
@@ -3764,7 +3776,8 @@ def main(argv=None):
         type=str,
         default=None,
         help="Directory the Artifacts panel reads/writes. Defaults to env "
-             "VIDUX_BROWSER_ARTIFACTS_DIR or <this checkout>/browser/artifacts "
+             "VIDUX_BROWSER_ARTIFACTS_DIR or "
+             "${XDG_DATA_HOME:-~/.local/share}/vidux/artifacts "
              "-- NOT scoped by --root, so pass this explicitly for hermetic "
              "test/demo runs against a fixture root.",
     )

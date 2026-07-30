@@ -6,7 +6,7 @@
 
 - Creating a new automation lane (writer, radar, or coordinator)
 - Auditing an existing `prompt.md` that's drifting, stalling, or duplicating work
-- Migrating a legacy cron prompt to the vidux 2.10.0 single-tool model
+- Migrating a legacy prompt to the current repo-owned authority model
 
 ## The 8-block structure
 
@@ -14,16 +14,17 @@ Every lane prompt has these eight blocks, in this order. Rearranging or omitting
 
 ```
 1. Mission      — why this lane exists; retirement condition. One paragraph.
-2. Skills       — skill tokens to activate each cycle (/vidux first).
+2. Skills       — public, mission-relevant guidance to load.
 3. Read         — explicit file-read order every cycle.
 4. Gate         — pre-flight checks that can abort the cycle cheaply.
 5. Assess       — priority rule for picking the ONE thing to do this cycle.
 6. Act          — how to do the work (worktree, verify, commit, merge).
 7. Authority    — paths owned vs paths forbidden (+ push tier).
-8. Checkpoint   — lane-local memory format plus plan/ledger internal checkpoint packet for shipped work.
+8. Checkpoint   — proof, remaining risk, and one resume action.
 ```
 
-Full reference: `docs/reference/prompt-template.md`. Size target: 2000-3000 chars total.
+Full reference: `docs/reference/prompt-template.md`. Keep the prompt as short as
+possible while preserving all eight blocks.
 
 ## Block-by-block guide
 
@@ -33,18 +34,17 @@ One paragraph. Present-tense and concrete. Name the PLAN.md the lane drives. **N
 > Ship and maintain example.com. Every cycle moves PLAN.md forward, fixes CI, merges eligible PRs, or rotates a filler audit. Retires when Phase 9 launch ships.
 
 ### 2. Skills
-Skill tokens to load each cycle. `/vidux` first — it loads cycle + FSM + checkpoint format before anything else.
-
-> `/vidux` `/brand-<project>` `/frontend-design`
+Name only public guidance that the lane actually needs. Do not embed private
+skill catalogs, operator aliases, provider settings, or account details.
 
 ### 3. Read
-Literal shell commands and absolute file paths. Start with own `memory.md` (self-awareness), end with cross-lane reads (concurrent-cycle detection).
+Use repository-relative authority paths and commands that work from the named
+working directory. End with a bounded ownership check.
 
-> 1. `memory.md` (last 3 entries)
-> 2. `~/Development/<project>/vidux/PLAN.md`
+> 1. `PLAN.md`
 > 3. `git fetch && git status --short && git log --oneline -10`
 > 4. `gh pr list --json number,title,mergeable,statusCheckRollup`
-> 5. (cross-lane) `<lane-dir>/session-gc/memory.md` last 1 entry
+> 5. active claims for the paths this lane may edit
 
 ### 4. Gate
 Binary pre-flight aborts. Trigger → exit cheaply with `[QC] <reason>`. Don't "maybe work around it." Keep the list short; too many gates and cycles never fire.
@@ -52,14 +52,19 @@ Binary pre-flight aborts. Trigger → exit cheaply with `[QC] <reason>`. Don't "
 Typical gates: dirty tree not mine → `[QC] concurrent-cycle`; same task `[in_progress]` 3+ cycles → set `[blocked]` + exit; main CI red → fix-first mode; post-push defer (see below).
 
 ### 5. Assess
-One deterministic priority order. "First match wins" so two agents running the same lane pick the same task. Drain connected reachable work — never stop at the first checkbox.
+One deterministic priority order. Resume the active row; otherwise take the
+highest unblocked row. Complete one bounded row, checkpoint, and exit.
 
 > Priority: CI red > failing PR fix > eligible PR merge > resume `[in_progress]` > first `[pending]` with evidence > promote INBOX > rotate filler audit > `[IDLE]`.
 
 ### 6. Act
 Worktree discipline + verification commands + commit/push/merge procedure. Every command literal — don't paraphrase.
 
-Mandatory: fresh worktree per code change; `npm run lint` + `npm run build` must pass; never `git add -A`; UI change needs a screenshot, not a green test. Before pushing a branch, update the owning PLAN.md and emit the ledger emitter's `--event publish` with `--summary`, `--task-id`, `--plan-path`, `--proof`, `--handoff-status`, `--resume`, `--file`, and `--claim`; keep the eid in `$LEDGER_EID`. Before `gh pr create`, build the body with `scripts/vidux-pr-body.py --summary "<summary>" --ledger "$LEDGER_EID"` plus the three `--review-pass` entries so every PR carries `Lane:`, `Plan task:`, `Summary:`, `Plan path:`, `Proof:`, `Ledger:`, `Handoff status:`, `Files claimed:`, `Self-Scrutiny`, and `Resume point:`.
+Mandatory: isolate each code change; name the repository's lint, test, and build
+checks; never use broad staging; and require direct visual proof for UI changes.
+Before handoff, update the owning `PLAN.md` with the revision, checks run,
+remaining risk, and one resume action. Provider receipts and private runtime
+records are not public proof.
 
 ### 7. Authority
 Explicit owned paths + explicit forbidden paths with reasons. The authority block is the lane's immune system. **Mandatory push-tier line** for any code-writing lane.
@@ -69,9 +74,11 @@ Explicit owned paths + explicit forbidden paths with reasons. The authority bloc
 > Push tier: operational PRs only; open ready-for-review by default with the canonical vidux PR body. No direct-to-main, no destructive ops.
 
 ### 8. Checkpoint
-One-line lane-local `memory.md` append, always tagged. Future agents scan the last 3 entries for cycle orientation. When the cycle ships work, the owning PLAN.md update plus a matching ledger emitter `--event publish` row carries the durable proof, handoff status, files claimed, and next-agent resume.
+Update the owning `PLAN.md` with result, named proof, uncertainty, and one
+cold-resume next move. A host-local note or ledger projection is optional and
+never outranks the plan.
 
-> `- [YYYY-MM-DDThh:mm:ssZ claude coord] [SHIP] <what>. <next-cycle hint>.`
+> `- [YYYY-MM-DDThh:mm:ssZ] [SHIP] <what>. <next-cycle hint>.`
 > Tags: `SHIP` / `MERGED` / `FIX` / `PROMOTE` / `DEFER` / `IDLE` / `QC` / `AUDIT-N` / `MILESTONE`.
 > No "everything fine" entries.
 
@@ -81,7 +88,8 @@ One-line lane-local `memory.md` append, always tagged. Future agents scan the la
 
 **QC exit.** Cheap exits for concurrent-cycle, stuck tasks, red CI. Always tagged `[QC] <reason>`. A `[QC]` exit is not a failure — it's the correct move when preconditions aren't met.
 
-**Signal-only lane note vs full internal checkpoint packet.** Default: signal-only `memory.md` note (one line, tag + summary). Only expand the lane note to multi-line when crossing a plan-phase boundary (`[MILESTONE]`). Reading memory.md's last 3 entries should take 5 seconds; shipped work still needs the owning PLAN.md plus internal checkpoint packet.
+**Optional host note.** A coding host may keep a short local activity note, but
+the repository plan and linked proof are the durable handoff.
 
 **Worktree-per-change.** Every code edit happens in a fresh worktree from `origin/main`. Never edit on the main worktree. Merge back to trunk before closing the task.
 
@@ -92,11 +100,15 @@ One-line lane-local `memory.md` append, always tagged. Future agents scan the la
 ## Anti-patterns
 
 - **Hard-coded transient state.** A prompt that says "fix the auth flow" will stop making sense once auth is fixed. Put task-level specifics in PLAN.md; the prompt stays evergreen.
-- **Multi-tasking in parallel.** Working unrelated surfaces at once breaks checkpointing — the tag no longer describes what happened. Sequential actions, one action, one line — draining the queue is fine, doing two things at once is not.
+- **Queue draining.** Completing several rows in one run blurs proof and resume
+  state. Do one bounded row, checkpoint, and exit.
 - **No retirement condition.** Lane runs forever, ships polish PRs no one reads. Every mission names an exit ("retires when Phase 9 launches" / "retires after the backfill completes").
-- **Skipping the Authority block.** Lane drifts into sibling work, creates merge conflicts, edits Leo's historical prose. Authority is load-bearing.
-- **Cross-tool delegation language.** Deprecated in vidux 2.10.0. A lane runs on Claude OR on Codex, never both. For Codex-native lanes, see `guides/recipes/codex-runtime.md`. For same-tool parallelism, see `guides/recipes/subagent-delegation.md`.
-- **Doctrine restatement.** Don't repeat "plan is truth" or "five principles" prose in the prompt — `/vidux` loads it. Every sentence you can delete without changing behavior, delete.
+- **Skipping the Authority block.** The lane drifts into sibling work or edits
+  user-owned prose. Authority is load-bearing.
+- **Provider-specific runtime receipts.** Account, session, usage, cost, or
+  private log data does not belong in a public lane prompt.
+- **Doctrine restatement.** Do not repeat plan-first prose when a reference is
+  enough. Delete sentences that do not change behavior.
 - **Gating on the wrong file.** If Block 4 checks a meta-plan marked "done," the agent exits before loading any skill. Gate on actual work state (dirty tree, CI status, queue depth).
 
 ## See Also

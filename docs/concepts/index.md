@@ -1,13 +1,14 @@
 # Core Concepts
 
-A small set of ideas, each solving a specific failure mode of stateless AI agents.
+A small set of ideas for keeping long-running coding work inspectable and
+resumable.
 
 ## The Three Layers
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  DOCTRINE                   │
-│  5 principles + gate patterns + stuck detect│
+│                  CONTRACT                   │
+│  repository plan + proof + resume boundary  │
 └──────────────────────┬──────────────────────┘
                        │ governs
 ┌──────────────────────▼──────────────────────┐
@@ -16,28 +17,34 @@ A small set of ideas, each solving a specific failure mode of stateless AI agent
 └──────────────────────┬──────────────────────┘
                        │ reads/writes
 ┌──────────────────────▼──────────────────────┐
-│                  THE STORE                  │
-│  PLAN.md + ledger + evidence/ + git         │
+│             REPOSITORY AUTHORITY            │
+│  PLAN.md + linked proof + Git revision      │
 └─────────────────────────────────────────────┘
 ```
 
-- **Doctrine** — the rules. Five principles and gate patterns governing agent behavior.
-- **The Cycle** — the loop. Five steps every session follows, in order, without skipping.
-- **The Store** — files plus ledger rows. Where queue state, evidence, investigations, shipped-cycle proof, and git transport evidence live.
+- **Contract** — the boundary. Vidux owns repository plan/proof/resume state;
+  the coding host owns execution.
+- **The Cycle** — one bounded row through read, assess, act, verify, checkpoint.
+- **Repository authority** — the plan, linked proof, current revision, and
+  working tree.
 
 ## Why These Three Layers?
 
-**Without doctrine**, agents make different decisions each session and drift apart. Two agents on the same project eventually contradict each other.
+**Without the contract**, a plan tool can quietly become a scheduler, router,
+or second source of truth.
 
-**Without the cycle**, agents skip steps under time pressure: evidence gathering when work looks "obvious," verification when the diff "looks right," checkpointing when the session ends abruptly.
+**Without the cycle**, a worker can act before reading current state or claim
+completion before running the named gate.
 
-**Without the store**, state lives in chat history or agent memory — both die when the session ends. Repo files plus matching internal checkpoint ledger rows are the reliable recovery packet; git transports the diff when code changed, but does not replace a missing plan/ledger packet.
+**Without repository authority**, the next reader must reconstruct mutable state
+from chat, provider history, or private runtime data. `PLAN.md`, linked proof,
+and Git are sufficient; an optional local ledger is only a projection.
 
 ## Key Concepts
 
 - [Five Principles](/concepts/principles) — the doctrine that governs agent behavior
 - [The Cycle](/concepts/cycle) — READ → ASSESS → ACT → VERIFY → CHECKPOINT mechanics
 - [PLAN.md Structure](/concepts/plan-structure) — the full template with all required sections
-- [The Store](/concepts/store) — how state persists across sessions and agents
+- [Repository Authority](/concepts/store) — how state persists across sessions and workers
 - [No External Integrations](/concepts/extensions) — why Vidux does not sync
   with external boards or issue trackers

@@ -5,7 +5,8 @@
 # Checks cross-plan, cross-repo runtime state. Complements `vidux doctor`
 # / scripts/vidux-doctor-cli.sh, which checks installation and local CLI
 # readiness. This script is the JSON-friendly runtime doctor used by hooks and
-# monitors; use --fix only for explicit operator-approved cleanup.
+# monitors. --fix is retained for compatibility but performs no destructive
+# cleanup; the doctor reports paths for manual review.
 #
 # Exit codes: 0 = pass/warn, 1 = block (merge conflicts), 2 = script error
 set -euo pipefail
@@ -634,21 +635,12 @@ _check_detached_same_head() {
         [[ -z "$p" ]] && continue
         [[ "$first" = true ]] && first=false || details_json="$details_json,"
         details_json="$details_json\"$p\""
-        if [[ "$FIX_MODE" = true ]]; then
-          git -C "$REPO" worktree remove "$p" --force 2>/dev/null || true
-        fi
       done
     done <<< "$detached_wts"
     details_json="$details_json]"
 
-    if [[ "$FIX_MODE" = true ]]; then
-      _ok "$count detached same-HEAD worktrees (pruned)"
-      PASS_COUNT=$((PASS_COUNT + 1))
-      _add_check "{\"id\":\"detached_same_head\",\"category\":\"worktrees\",\"status\":\"pass\",\"count\":$count,\"details\":$details_json,\"fix_available\":true,\"fixed\":true}"
-    else
-      _warn "$count detached same-HEAD worktrees (run with --fix to prune)"
-      _add_check "{\"id\":\"detached_same_head\",\"category\":\"worktrees\",\"status\":\"warn\",\"count\":$count,\"details\":$details_json,\"fix_available\":true}"
-    fi
+    _warn "$count detached same-HEAD worktrees (manual review required; no automatic removal)"
+    _add_check "{\"id\":\"detached_same_head\",\"category\":\"worktrees\",\"status\":\"warn\",\"count\":$count,\"details\":$details_json,\"fix_available\":false,\"fixed\":false}"
   else
     _ok "No detached same-HEAD worktrees"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -722,9 +714,6 @@ _check_dual_active_automations() {
 _check_orphan_automations() {
   TOTAL=$((TOTAL + 1))
   local orphans="" count=0
-  local removed="" removed_count=0
-  local retained="" retained_count=0
-
   if [[ -d "$AUTOMATIONS_DIR" ]]; then
     for d in "$AUTOMATIONS_DIR"/*/; do
       [[ -d "$d" ]] || continue
@@ -733,41 +722,15 @@ _check_orphan_automations() {
         name="$(basename "$d")"
         orphans="${orphans:+$orphans|}$name"
         count=$((count + 1))
-        if [[ "$FIX_MODE" = true ]]; then
-          local lines
-          lines="$(wc -l < "$d/memory.md" | tr -d ' ')"
-          if [[ "$lines" -le 5 ]]; then
-            rm -rf "$d"
-            removed="${removed:+$removed|}$name"
-            removed_count=$((removed_count + 1))
-          else
-            retained="${retained:+$retained|}$name"
-            retained_count=$((retained_count + 1))
-          fi
-        fi
       fi
     done
   fi
 
   if [[ "$count" -gt 0 ]]; then
-    if [[ "$FIX_MODE" = true ]]; then
-      local removed_json retained_json
-      removed_json="$(_pipe_list_json "$removed")"
-      retained_json="$(_pipe_list_json "$retained")"
-      if [[ "$retained_count" -gt 0 ]]; then
-        _warn "$retained_count orphan automation directories retained after --fix: $(echo "$retained" | tr '|' ', ')"
-        _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"warn\",\"count\":$retained_count,\"details\":$retained_json,\"fix_available\":true,\"fixed\":false,\"fixed_count\":$removed_count,\"retained_count\":$retained_count,\"removed\":$removed_json}"
-      else
-        _ok "$count orphan automation directories (cleaned)"
-        PASS_COUNT=$((PASS_COUNT + 1))
-        _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"pass\",\"count\":0,\"details\":[],\"fix_available\":true,\"fixed\":true,\"fixed_count\":$removed_count,\"retained_count\":0,\"removed\":$removed_json}"
-      fi
-    else
-      local details_json
-      details_json="$(_pipe_list_json "$orphans")"
-      _warn "$count orphan automation directories: $(echo "$orphans" | tr '|' ', ')"
-      _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"warn\",\"count\":$count,\"details\":$details_json,\"fix_available\":true}"
-    fi
+    local details_json
+    details_json="$(_pipe_list_json "$orphans")"
+    _warn "$count orphan automation directories (manual review required): $(echo "$orphans" | tr '|' ', ')"
+    _add_check "{\"id\":\"orphan_automations\",\"category\":\"automations\",\"status\":\"warn\",\"count\":$count,\"details\":$details_json,\"fix_available\":false,\"fixed\":false}"
   else
     _ok "No orphan automation directories"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -1253,42 +1216,27 @@ _check_cadence_runtime() {
   fi
 }
 
-# ScheduleWakeup-vs-CronCreate doctrine drift check.
-#
-# Honesty note: vidux cannot observe a live session's ScheduleWakeup tool
-# calls -- that state lives entirely inside a running Claude Code session and
-# is never persisted anywhere this repo can read. A "doctor check that flags
-# ScheduleWakeup misuse" would be a fake gate pretending to see something it
-# can't. What IS mechanizable, and what this checks: the two places the
-# CronCreate-over-ScheduleWakeup-for-10+-fires rule is documented
-# (guides/automation.md and docs/fleet/claude-lifecycle.md's troubleshooting
-# table) still state it. This catches silent doctrine drift/deletion, not a
-# live violation -- see guides/recipes.md Recipe 12 note and CHANGELOG for the
-# fuller reasoning.
-_check_schedulewakeup_doctrine_intact() {
+# Keep the public host boundary from drifting back into scheduler claims.
+_check_host_execution_boundary_intact() {
   TOTAL=$((TOTAL + 1))
   local missing=""
   local automation_doc="$VIDUX_ROOT/guides/automation.md"
-  local lifecycle_doc="$VIDUX_ROOT/docs/fleet/claude-lifecycle.md"
+  local operations_doc="$VIDUX_ROOT/docs/fleet/operations.md"
 
-  # A deleted/renamed doc must flag too -- `-f` short-circuiting the check
-  # means a whole-file deletion silently read as "doctrine intact" (adversarial
-  # review, 2026-07-08), the same fail-open class as the plan-guard corrupt-
-  # sidecar bug this facelift already closed.
-  if [[ ! -f "$automation_doc" ]] || ! grep -qE 'CronCreate.{0,10}over.{0,10}ScheduleWakeup' "$automation_doc"; then
+  if [[ ! -f "$automation_doc" ]] || ! grep -qiE 'coding host owns scheduling' "$automation_doc"; then
     missing="${missing:+$missing, }guides/automation.md"
   fi
-  if [[ ! -f "$lifecycle_doc" ]] || ! grep -qE 'CronCreate.{0,10}over.{0,10}ScheduleWakeup' "$lifecycle_doc"; then
-    missing="${missing:+$missing, }docs/fleet/claude-lifecycle.md"
+  if [[ ! -f "$operations_doc" ]] || ! grep -qiE 'Vidux is not an agent scheduler' "$operations_doc"; then
+    missing="${missing:+$missing, }docs/fleet/operations.md"
   fi
 
   if [[ -n "$missing" ]]; then
-    _warn "ScheduleWakeup-vs-CronCreate doctrine missing/reworded in: $missing"
-    _add_check "{\"id\":\"schedulewakeup_doctrine_intact\",\"category\":\"quality\",\"status\":\"warn\",\"details\":\"$(json_escape "$missing")\"}"
+    _warn "Host-owned execution boundary missing/reworded in: $missing"
+    _add_check "{\"id\":\"host_execution_boundary_intact\",\"category\":\"quality\",\"status\":\"warn\",\"details\":\"$(json_escape "$missing")\"}"
   else
-    _ok "ScheduleWakeup-vs-CronCreate doctrine intact in both canonical locations"
+    _ok "Host-owned execution boundary intact"
     PASS_COUNT=$((PASS_COUNT + 1))
-    _add_check "{\"id\":\"schedulewakeup_doctrine_intact\",\"category\":\"quality\",\"status\":\"pass\"}"
+    _add_check "{\"id\":\"host_execution_boundary_intact\",\"category\":\"quality\",\"status\":\"pass\"}"
   fi
 }
 
@@ -1341,7 +1289,7 @@ fi
 
 _check_bimodal_runtime
 _check_cadence_runtime
-_check_schedulewakeup_doctrine_intact
+_check_host_execution_boundary_intact
 
 # --- summary ---------------------------------------------------------------- #
 WARN_COUNT=$((TOTAL - PASS_COUNT))

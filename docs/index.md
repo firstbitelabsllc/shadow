@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: "Vidux"
-  text: "Plan first, code second."
-  tagline: A thin plan/proof control plane for AI coding work that spans multiple sessions, agents, or days.
+  text: "Plan. Prove. Resume."
+  tagline: A repository-owned contract for AI coding work that must survive sessions, workers, or interruptions.
   actions:
     - theme: brand
       text: Get Started
@@ -15,18 +15,18 @@ hero:
 
 features:
   - icon: 📄
-    title: One Planning Authority
-    details: Every project has one owning PLAN.md for queue, decisions, and progress. Internal checkpoint ledger rows carry shipped-cycle proof and resume metadata. Chat is not the control plane.
+    title: Repository Authority
+    details: One owning PLAN.md records the outcome, queue, decisions, progress, proof references, and next cold-resume move. Repository files and Git are sufficient; chat is not authority.
 
-  - icon: 🔄
-    title: Stateless Agents
-    details: Each run starts fresh, reads the plan, drains connected reachable work, checkpoints, and exits. No memory tricks. Sessions die; durable recovery lives in repo files plus append-only ledger rows.
+  - icon: ✅
+    title: Proof Before Done
+    details: A row completes only when its requested outcome exists and its named gate passes. Commits, pull requests, and activity counts are transport or signals—not proof by themselves.
 
-  - icon: 🌐
-    title: Works Everywhere
-    details: Claude Code, Cursor, Codex. Any agent that can read markdown can pick up where the last one stopped. No SDK, no API, no vendor lock-in.
+  - icon: ↩️
+    title: Cold Resume
+    details: A new reader starts from the plan, current revision, working tree, and linked proof. No automatic recovery or hidden runtime state is required.
 
-  - icon: 🚢
-    title: Automation Receipts (opt-in)
-    details: Scheduled lanes and subagents still read the same plan/proof packet. Runtime dispatch lives in the coding host or supervisor — loaded from guides/automation.md and guides/recipes/ when needed, not core doctrine.
+  - icon: 🧰
+    title: Host-Neutral Discipline
+    details: The coding host owns execution, scheduling, routing, authentication, retries, and worker lifecycle. Vidux supplies the plan/proof/resume boundary and local inspection helpers.
 ---

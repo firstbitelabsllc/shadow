@@ -14,7 +14,7 @@ TODAY=$(date +%Y-%m-%d)
 if ! grep -q "$TODAY" "$PLAN" 2>/dev/null; then
   echo ""
   echo "VIDUX REMINDER: PLAN.md has no progress entry for today ($TODAY)."
-  echo "Update PLAN.md, then emit ledger-emit.sh --event publish before branch/PR/release publish."
+  echo "Update PLAN.md with proof, uncertainty, and one resume action."
   echo ""
 fi
 

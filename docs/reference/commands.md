@@ -16,8 +16,8 @@ Root `SKILL.md` owns the plan-first cycle. On activation it should:
 2. Resolve config with `python3 scripts/vidux-config.py check --json`, keeping
    a missing live config distinct from the checked-in example fallback.
 3. Resume `in_progress` work before choosing the highest-impact reachable row.
-4. Verify mechanically, then record the plan and checkpoint-ledger breadcrumbs
-   needed for another session or agent to resume.
+4. Verify mechanically, then record the plan state and linked proof needed for
+   another session or agent to resume.
 
 ## Shell CLI
 

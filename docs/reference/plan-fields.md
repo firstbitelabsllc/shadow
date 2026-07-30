@@ -1,10 +1,12 @@
 # PLAN.md Field Reference
 
-Every section and annotation a vidux `PLAN.md` uses. For the discipline and cycle, see [Five Principles](/concepts/principles), [The Cycle](/concepts/cycle), and [PLAN.md Structure](/concepts/plan-structure).
+Fields scaffolded by `vidux init --here`. For the discipline and cycle, see
+[Five Principles](/concepts/principles), [The Cycle](/concepts/cycle), and
+[PLAN.md Structure](/concepts/plan-structure).
 
 ## Section Order
 
-Canonical order below. *Optional* sections may be omitted on small plans; NEVER re-order the required ones — tooling and agent muscle memory expect the sequence.
+The scaffold uses this order:
 
 | # | Section | Required | Purpose |
 |---|---|:---:|---|
@@ -12,44 +14,46 @@ Canonical order below. *Optional* sections may be omitted on small plans; NEVER 
 | 2 | `## Purpose` | ✔ | One paragraph. User-visible goal. |
 | 3 | `## Evidence` | ✔ | Cited facts the plan is built on |
 | 4 | `## Constraints` | ✔ | ALWAYS / NEVER rules |
-| 5 | `## Tasks` | ✔ | Ordered task queue with status tags |
-| 6 | `## Decision Log` | ✔ | Intentional choices future agents must not undo |
-| 7 | `## Drift Log` |  | Optional structured planned-vs-actual deviation log, recorded manually before Progress |
-| 8 | `## Progress` | ✔ | Living per-cycle log (unexpected findings + reorder notes live here) |
+| 5 | `## Operator Brief` | ✔ | Current status, outcome, next move, and validation |
+| 6 | `## Outcome Scorecard` | ✔ | Baseline, target, current result, and proof |
+| 7 | `## Tasks` | ✔ | Ordered task queue with status tags |
+| 8 | `## Decision Log` | ✔ | Intentional choices future readers must preserve |
+| 9 | `## Progress` | ✔ | Results, uncertainty, and cold-resume state |
 
 ## Task Status FSM
 
 ```
-  pending ─────▶ in_progress ─────▶ in_review (optional) ─────▶ completed
+  pending ─────▶ in_progress ─────▶ completed
                       │
-                      └── blocked (terminal)
+                      └── blocked
 ```
 
 | Status | Meaning | Who sets it |
 |---|---|---|
-| `[pending]` | Queued with evidence, not yet started | Writer during plan authoring |
-| `[in_progress]` | Actively being worked (one cycle or across cycles) | Any agent picking up the task |
-| `[in_review]` | Optional PR-backed state while CI or review gates are still pending | The agent that opened or is nursing the PR |
-| `[completed]` | Verified done: build ran, tests passed, visual check done | The agent that finished it |
-| `[blocked]` | Terminal — replaced by a new task with a Decision Log entry | Any agent that hits the block |
+| `[pending]` | Queued, not yet started | Plan owner |
+| `[in_progress]` | The row to resume first | Current owner |
+| `[completed]` | Requested outcome exists and named gate passed | Current owner |
+| `[blocked]` | Cannot proceed; reason and resume condition recorded | Current owner |
 
-`[in_review]` is optional. Core shell helpers (`scripts/vidux-status.py`, `scripts/vidux-loop.sh`, `scripts/vidux-checkpoint.sh`) and the contract tests center the four-state subset: `pending`, `in_progress`, `completed`, `blocked`. Use `in_review` only when your repo has an explicit PR/review workflow; otherwise the four-state flow is the safest default.
+Repository-specific hosts may project review state separately. The portable
+plan contract uses the four states above.
 
 **Rules:**
 
-- A task is `[in_progress]` for at most one cycle at a time. If the session dies mid-task, the next agent resumes it.
-- 3+ Progress entries while still `[in_progress]` → force a surface switch. Default reduce mode reports the next runnable candidate in JSON; auto-blocking and Decision Log writes require explicit opt-in.
-- `[completed]` is earned by verification evidence (command, screenshot, build output), never assertion. Claiming complete without evidence is a lie (SKILL.md Principle 5).
-- Status flows UP from sub-plans: an L1 task stays `[in_progress]` while its L2 investigation has any `(pending)` section.
+- Resume `[in_progress]` before selecting another row.
+- The default cycle advances one bounded row, checkpoints, then exits.
+- `[completed]` is earned by inspectable proof, never assertion.
+- `[blocked]` names the exact condition that would make the row runnable again.
 
 ## Task Annotations
 
-Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API docs [Depends: Task 3] [Evidence: Sentry def-123]`.
+Inline markers are optional and should stay readable:
+`- [pending] T-7: update install docs [Depends: T-3] [Evidence: README.md]`.
 
 | Annotation | Purpose | Example |
 |---|---|---|
 | `[Evidence: ...]` | Cited source backing this task | `[Evidence: src/auth.ts:42 — no idempotency key]` |
-| `[Depends: Task N]` | Blocks until task N is `[completed]` | `[Depends: Task 3]` |
+| `[Depends: T-N]` | Blocks until the named row is `[completed]` | `[Depends: T-3]` |
 | `[Investigation: path]` | Compound task — read sub-plan before coding | `[Investigation: investigations/payment-flow.md]` |
 | `[Blocker: ...]` | What's blocking, on `[blocked]` tasks | `[Blocker: needs production analytics credentials]` |
 | `[Drift: ...]` | Drift Log entry that explains why a stale task was blocked or replaced | `[Drift: D-20260522-01]` |
@@ -58,78 +62,79 @@ Inline markers on a task line. Multiple can stack: `- [pending] Task 7: ship API
 
 ## Decision Log Entry Types
 
-The Decision Log is the **lock file** that stops stateless agents from undoing prior choices. Every entry opens with a bracketed type tag and a bracketed date — `[TAG] [YYYY-MM-DD]` — matching the canonical form in `SKILL.md`'s `## Decision Log` section. `scripts/vidux-plan-guard.sh`'s `has_authorizing_deletion()` specifically requires the bracketed-date form on `[DELETION]` entries to authorize a task-count drop; an unbracketed date is not recognized and will not silence an integrity warning.
+The Decision Log records choices a cold reader might otherwise undo or repeat.
+Use a bracketed type and date when a decision needs a stable identifier:
+`[TAG] [YYYY-MM-DD]`.
 
 | Type | When to use | Template |
 |---|---|---|
 | `[DELETION]` | Removed something deliberately — future agents must not re-add it | `[DELETION] [2026-04-16] Removed X-endpoint. Reason: deprecated by Y. Do not re-add.` |
-| `[DIRECTION]` | Chose approach X over Y for a stated reason | `[DIRECTION] [2026-04-16] Chose idempotency key over distributed lock. Reason: lock adds 80ms p99.` |
+| `[DIRECTION]` | Chose approach X over Y for a stated reason | `[DIRECTION] [2026-04-16] Chose an idempotency key. Reason: it fits the existing request boundary.` |
 | `[SCOPE]` | Cut scope — what's in, what's explicitly out | `[SCOPE] [2026-04-16] Email notifications deferred to v2. Reason: requires SES provisioning.` |
 | `[PIVOT]` | Course correction — old direction obsolete, new direction active | `[PIVOT] [2026-04-16] Was targeting Postgres; now targeting Cloudflare D1. Reason: edge-compatible.` |
-| `[CONSTRAINT]` | Discovered a hard constraint (infra limit, compliance, budget) | `[CONSTRAINT] [2026-04-16] Function timeout 300s. Reason: Vercel Fluid Compute ceiling.` |
-| `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] [2026-04-16] Revert [DIRECTION 2026-03-12]. Reason: benchmarks showed 3x regression.` |
+| `[CONSTRAINT]` | Discovered a hard constraint | `[CONSTRAINT] [2026-04-16] Requests must remain idempotent. Reason: clients retry.` |
+| `[REVERSAL]` | Undoing a prior Decision Log entry — reference the old one | `[REVERSAL] [2026-04-16] Revert [DIRECTION 2026-03-12]. Reason: the named gate regressed.` |
 
-Agents grep the log by tag: forbidden (`[DELETION]`), architectural choices (`[DIRECTION]`), recent changes (`[PIVOT]` / `[REVERSAL]`).
+Tags make later inspection deterministic; they do not trigger automation.
 
 ## Progress Entry Format
 
-One line per meaningful cycle. The Progress line orients future agents to the owning plan state; the matching internal checkpoint ledger row carries shipped-cycle proof, handoff status, claimed files, and next-agent resume. Git diff/log evidence supports but does not replace the plan plus ledger packet.
+One line per meaningful cycle. The Progress line orients the next reader to the
+result, proof, remaining uncertainty, and one next move.
 
 ```
-- [YYYY-MM-DD HH:MM] What happened. Next: what's next. Blocker: if any.
+- [YYYY-MM-DD] Outcome and proof. Risk: remaining uncertainty. Next: one move.
 ```
 
 **Do:**
 - Open with a verb (shipped, investigated, blocked, promoted, archived)
-- Reference task numbers: `shipped Task 7`
+- Reference stable row ids: `completed T-7`
 - Cite files when the reader needs them: `see fix at src/auth.ts:42`
 
 **Don't:**
-- Treat the diff or git log as the whole handoff — cite the task, proof, resume point
+- Treat the diff or git log as the whole handoff — cite the row, proof, and resume point
 - Write "everything fine" lines — nothing to report, no entry
-- Paraphrase the plan — reference it by task number
+- Paraphrase the plan — reference it by row id
+
+### Optional checkpoint helper
+
+`vidux checkpoint` requires `--proof` for completion and a concrete `--blocker`
+for blocked work. It edits the matching task and Progress entry but leaves those
+changes uncommitted unless `--commit` is supplied. A configured local ledger may
+receive a projection; local `done` maps to `needs_review`, not an open pull
+request or shipped state.
 
 ## Drift Entry Format
 
-When implementation diverged from the plan, add a `## Drift Log` section (if
-needed) and append an entry in this shape:
+When implementation materially diverges from the plan, an optional
+`## Drift Log` entry can preserve why:
 
 ```
-- [YYYY-MM-DD] D-YYYYMMDD-NN — Task N
+- [YYYY-MM-DD] D-YYYYMMDD-NN — T-N
   - Planned: ...
   - Actual: ...
   - Why: ...
-  - Cause: wrong_surface
-  - Impact: material
   - Plan update: ...
   - Next: ...
-  - Prevention: ...
-  - Subplans: ...
 ```
 
-Drift invalidates a task → `--block-task` (`[blocked] ... [Drift: D-...]`). Drift
-creates work → `--add-task`. Named `--subplan` paths get a mirrored entry with
-the same id. With `--cache`, JSONL rows include `schema_version`, `drift_id`,
-`date`, `plan_path`, `task`, `planned`, `actual`, `why`, `cause`, `impact`,
-`plan_update`, `next`, `prevention_hints`, `subplans`, `added_tasks`,
-`blocked_task`.
+This is repository prose, not an automation trigger. Update affected task rows
+explicitly.
 
 ## Evidence Source Tags
 
-Every item in the Evidence section cites a source. Standard tags:
+Use inspectable, public-safe sources:
 
 | Tag | Points to |
 |---|---|
 | `[Source: codebase grep]` | A grep hit in the repo, format `file:line pattern` |
-| `[Source: GitHub PR #N]` | A comment, review, or decision on a PR |
-| `[Source: GitHub issue #N]` | An issue report or discussion |
-| `[Source: observed]` | A directly observed runtime behavior or repro |
-| `[Source: Sentry <id>]` | A Sentry issue with occurrences + user impact |
-| `[Source: design doc]` | An architecture or product doc (inline quote preferred) |
-| `[Source: team chat]` | A Slack / email / issue-tracker decision (screenshot or quote) |
-| `[Source: measurement]` | A benchmark, perf measurement, or experiment result |
+| `[Source: revision]` | A Git revision and relevant path |
+| `[Source: test]` | A command and bounded result |
+| `[Source: observed]` | A directly observed behavior or reproduction |
+| `[Source: artifact]` | A repository-local screenshot, report, or receipt |
 
-**Rule:** a plan entry without a source is a guess. Guesses cause rework (SKILL.md Principle 1).
+Keep credentials, private account data, personal paths, raw chats, and runtime
+identifiers out of public plans.
 
 ## Constraints Block Format
 
@@ -174,12 +179,11 @@ A task with `[Investigation: investigations/<slug>.md]` has a sub-plan in this s
 <build passes, tests pass, visual check (for UI)>
 ```
 
-Sections fill in as the investigation progresses. **No `## Fix Spec` → no PR** — notes stay local until the fix ships alongside them in one code PR.
+Use the investigation only while it reduces genuine uncertainty. The owning row
+completes when its requested outcome exists and named gate passes.
 
 ## See Also
 
 - [Five Principles](/concepts/principles) — the doctrine behind the queue
 - [The Cycle](/concepts/cycle) — how a plan gets executed each run
 - [PLAN.md Structure](/concepts/plan-structure) — template shape and section order
-- [Prompt Template](prompt-template.md) — the 8-block prompt shape for a vidux worker
-- [Fleet / Claude Lifecycle](../fleet/claude-lifecycle.md) — how a cycle actually fires

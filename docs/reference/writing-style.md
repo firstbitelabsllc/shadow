@@ -1,22 +1,26 @@
 # Vidux Writing Style — say less
 
-Agents follow ~150-200 instructions reliably. Compliance degrades **uniformly** as you add more — one anecdote dilutes *every* rule, not just itself. So: spend the budget on testable directives. Delete the prose around them. This doc is a model of its own rules.
+Spend the prompt budget on testable directives. Delete prose that does not
+change behavior. This document is a model of its own rules.
 
 ---
 
 ## 1. State the rule. Don't narrate it.
 
-Drop "Why this exists / Why this matters" framing. Keep a story ONLY if it carries a hard number; fold it into a one-clause `Evidence:` tag and move the long version to an appendix.
+Drop "Why this exists / Why this matters" framing. Keep a claim only when its
+evidence is public, reproducible, and relevant.
 
 <bad>
-PLAN.md is the queue/planning authority for work, decisions, constraints, and progress. Code is derived from that plan state... *Why this matters: The Acme iOS fleet drifted 400+ lines from spec in 6 cycles before this rule existed.*
+`PLAN.md` is the queue, decision, constraint, progress, and proof-reference
+authority. Code derives from that plan state.
 </bad>
 
 <good>
-PLAN.md owns work, decisions, constraints, progress. Code derives from it. Edit code with no plan entry = violation. Evidence: Acme drifted 400+ lines in 6 cycles pre-rule; SlopCodeBench: agent degradation is monotonic.
+`PLAN.md` owns work, decisions, constraints, progress, and proof references.
+Code derives from it.
 </good>
 
-Anecdotes with no number are pure decoration — cut them whole.
+Private anecdotes and unsupported metrics are decoration — cut them.
 
 ---
 
@@ -37,23 +41,23 @@ If you are coding more than planning, stop. Front-load thinking.
 </bad>
 
 <good>
-Coding more than planning? Stop. Target 50% plan / 30% code / 20% last-mile.
+Name the outcome and acceptance check before implementation.
 </good>
 
 ---
 
 ## 3. Define repeated phrases ONCE as a named term
 
-The field list "internal checkpoint ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume" appears 15+ times. Name it once; reference it forever.
+If a field list repeats, name it once and reference it.
 
 <bad>
-...pair the shipped change with a internal checkpoint ledger row carrying proof, handoff status, files claimed, path-like claims, and next-agent resume point.
+...pair the shipped change with a checkpoint.
 </bad>
 
 <good>
-internal checkpoint packet (legacy name: publish packet) = {summary, task-id, plan-path, proof, handoff_status, files, claims, resume}; internal record only, never external publication/send/merge/deploy/authorization authority
+checkpoint = {outcome, revision, proof, risk, resume}
 
-...ship the change + emit the internal checkpoint packet.
+...ship the change and record the checkpoint in the owning plan.
 </good>
 
 ---
@@ -85,21 +89,22 @@ Point to a canonical file/script. Never render the same content twice in two for
 {hook JSON with prompt text}
 
 ### What gets injected
-> VIDUX CHECKPOINT: Before this session ends, ensure you have: {identical text re-printed verbatim}
+> CHECKPOINT: Record outcome, revision, proof, risk, and one resume action.
 </bad>
 
 <good>
-Reminds the agent to checkpoint before exit so the next session resumes. Config: see `settings.local.json` example (shown once).
+Reference the canonical checkpoint definition rather than copying it.
 </good>
 
-Move war-stories out of the kernel doc:
+Remove private incident narratives from the kernel doc:
 
 <bad>
-**Real-world incident (2026-05-12).** `...html` dropped into `artifacts/` as a symlink... rendered 403... {+25 lines of walkthrough}
+An internal incident narrative with machine paths and timestamps.
 </bad>
 
 <good>
-Artifacts sharing an inode with a canonical source must be HARD links, not symlinks (server fails-closed on out-of-tree symlinks -> 403). Full case: `browser/INCIDENTS.md`.
+Verify the served artifact through the public boundary; a local filesystem entry
+alone is not proof.
 </good>
 
 ---
@@ -127,12 +132,15 @@ Prove it mechanically:
 U-shaped attention: the start and end of a file get read. Don't bury a NEVER mid-paragraph.
 
 <bad>
-Prereqs: clone the repo... Verify: resolve the plan path... Safety: do not create duplicate plans, execute local-CI lanes, install LaunchAgents, delete worktrees, or push/merge unless the owning plan and user authorization make that operation explicit.
+Prereqs: clone the repo. Verify: resolve the repo-relative plan path. Safety:
+do not create duplicate plans, delete worktrees, or push/merge without authority.
 </bad>
 
 <good>
-NEVER: duplicate plans, run local-CI lanes, install LaunchAgents, delete worktrees, or push/merge unless plan AND user auth make it explicit.
-Prereqs: clone the repo + ~/Development/vidux, install toolchain, read AGENTS.md/PLAN.md.
+NEVER: duplicate plans, delete worktrees, or push/merge unless the owning plan
+and authorization make it explicit.
+Prereqs: clone the repo, install its documented toolchain, and read
+`AGENTS.md` plus `PLAN.md`.
 Verify: resolve plan path, inspect git state, run the smallest repo-owned proof.
 </good>
 
@@ -181,7 +189,8 @@ Keep ONE memorable metaphor if it earns its line. Delete the rest. Prefer the ba
 
 **Progress entry:**
 <bad>I went ahead and made good progress on the reviews widget — got it mostly wired up and it's looking pretty solid, will pick up the remaining bits next session.</bad>
-<good>Progress: reviews widget wired to metaobject backend. Done: render + submit. Next: Turnstile gate (Leo-gated). Files: reviews-widget.js, worker/reviews.ts.</good>
+<good>Progress: reviews widget wired to the backend. Done: render + submit.
+Next: verification gate. Files: reviews-widget.js, worker/reviews.ts.</good>
 
 ---
 

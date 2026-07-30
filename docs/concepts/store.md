@@ -1,58 +1,54 @@
-# The Store
+# Repository Authority
 
-The persistence layer. Every fact needed to survive an interrupted session lives in repo files — `PLAN.md`, `evidence/`, `investigations/`, git history — plus the append-only internal checkpoint ledger rows that prove shipped cycles. `INBOX.md` is the intake queue. No databases. No daemons. No in-memory state.
+Vidux authority lives in repository files and Git. The owning `PLAN.md` records
+the outcome, queue, decisions, progress, proof references, and one next move.
+Linked evidence carries details that would make the plan hard to scan.
 
-**internal checkpoint packet** (legacy name: `publish packet`) = internal ledger row carrying task id, proof, handoff status, claimed files, and resume point. It records state and grants no external publication, send, merge, deploy, or authorization authority (defined in [The Cycle](/concepts/cycle)).
+## Why Repository Files?
 
-## Why Files?
-
-AI agents are stateless. Auth expires. Sessions crash. State that survives a dead session is the repo plan/evidence tree plus the internal checkpoint packet for shipped work.
-
-One constraint: **any agent, resuming cold, must reach full context within 90 seconds of reading the Store.**
+Sessions and workers change. A repository path and revision are inspectable by
+the current maintainer and the next reader without trusting chat history,
+provider state, or a hidden service.
 
 ## The Durable Locations
 
 ```
 vidux-project/
 ├── PLAN.md                    ← queue/planning authority
-├── INBOX.md                   ← unprocessed findings
 ├── evidence/
-│   └── YYYY-MM-DD-slug.md     ← research snapshots
+│   └── result.md              ← optional linked proof
 └── investigations/
-    └── slug.md                ← root cause analysis + fix specs
+    └── slug.md                ← optional linked investigation
 ```
 
-`INBOX.md` is part of the on-disk workflow, but the durable repo state stores are `PLAN.md`, `evidence/`, `investigations/`, git history. Internal checkpoint ledger rows live outside the repo in the append-only ledger.
+`INBOX.md` or another repo-native intake file may be used when the project
+already has one. Vidux does not require it.
 
 ### PLAN.md
 
-One per project. Planning authority for queue, decisions, constraints, Progress/Drift record. For a publish cycle, the internal checkpoint packet is the proof of what shipped and how the next agent resumes.
+One owning plan per outcome. Reuse an existing plan when it already owns the
+work instead of creating a competing queue.
 
-Six required sections — missing any produces known failure modes:
+`vidux init --here` scaffolds eight sections:
 
-| Section | What happens without it |
+| Section | Purpose |
 |---|---|
-| Purpose | Agents optimize for the wrong goal |
-| Evidence | Tasks are guesses; wrong fixes get shipped |
-| Constraints | Agents violate hard requirements |
-| Tasks | No queue — agents improvise unpredictably |
-| Decision Log | Agents re-add deleted code or undo deliberate pivots |
-| Progress | No history — agents can't tell what actually happened |
-
-Unknowns and unexpected findings don't need their own sections. Promote a question to a `[pending]` research task (or note `[Blocker: need X]`); note a surprise in the Progress entry.
+| Purpose | User-visible outcome |
+| Evidence | Facts that shape the work |
+| Constraints | Boundaries that must survive handoff |
+| Operator Brief | Current status, outcome, next move, and validation |
+| Outcome Scorecard | Baseline, target, current result, and proof |
+| Tasks | Ordered rows with explicit state |
+| Decision Log | Choices a future reader must preserve or revisit deliberately |
+| Progress | Results, uncertainty, and cold-resume state |
 
 See [PLAN.md Structure](/concepts/plan-structure) for the full template.
 
-### evidence/
+### Linked evidence
 
-Snapshots that back PLAN.md decisions. Named `YYYY-MM-DD-<slug>.md` so they stay sorted and interpretable over time.
-
-Write an evidence snapshot when:
-- A grep or audit produces findings that inform a task
-- An external API response, PR comment, or design doc needs citing
-- A Decision Log entry references a data point that might disappear
-
-Evidence files are **append-only**. Update by adding a new dated file, never by editing an old one. The old file records what was believed at a point in time.
+Put large test output, screenshots, investigations, or decision detail in
+repository files and link them from the active row. Git preserves revision
+history; Vidux does not require a particular evidence directory or filename.
 
 ### investigations/
 
@@ -70,32 +66,25 @@ Sub-plans for complex bugs or surfaces needing root cause analysis before code. 
 ## Gate                 — build passes, tests pass, visual check (for UI)
 ```
 
-**No Fix Spec = no code.** The investigation IS the work until Fix Spec is filled.
-
-Investigations are **durable**. They stay in `investigations/` after the parent task completes. Future agents who touch the same surface read them first.
+Use this shape when root cause is genuinely uncertain. Small, obvious repairs
+do not need an investigation document.
 
 ### Git History
 
-The transport timeline. When code changed, a commit records the local diff and why it moved, in a format any agent can parse:
+Git supplies revision and diff identity. A commit or pull request is not proof
+that the requested outcome exists; the plan should point to the test, artifact,
+or observation that proves it.
 
-```
-vidux: add rate limiting to login endpoint
-```
+## Optional Local Ledger
 
-Cycle truth lives in the owning `PLAN.md` Progress, Tasks, or Drift Log entry plus the internal checkpoint packet. Git history is evidence that transport happened; it does not outrank a missing or stale plan/ledger packet.
+`vidux checkpoint` edits the matching task and Progress entry, requires explicit
+proof for completion, and leaves plan changes uncommitted by default. `--commit`
+is opt-in.
 
-## INBOX.md
+When a local ledger is configured, the helper may append a row for local
+inspection. Local `done` maps to `needs_review`, not an open pull request or
+shipped state.
 
-`INBOX.md` is the drop zone for unprocessed findings from humans, external tools, or scanners.
-
-Rules:
-- Agents check `INBOX.md` during READ, before tasks
-- Promote actionable findings to `[pending]` tasks in PLAN.md
-- Annotate non-actionable ones with `[SKIP: reason]`
-- Max 20 entries — if full, archive oldest to `evidence/`
-
-## The Invariant
-
-> **State lives in files, never in memory.**
-
-If it's not in the Store, it doesn't exist. Summaries in chat history, notes in agent memory, to-do lists in scratch pads — all die when the session ends. Only the Store survives.
+Repository files and Git remain sufficient authority. A ledger row is not a
+publication gate and grants no push, merge, release, deploy, or external-send
+authority.

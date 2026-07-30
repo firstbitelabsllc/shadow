@@ -45,6 +45,9 @@ def baseline() -> tuple[dict, dict, set[str]]:
 
 
 class ReleasePackageTests(unittest.TestCase):
+    def test_readme_dashboard_image_is_release_required(self) -> None:
+        self.assertIn("assets/vidux-dashboard.png", mod.REQUIRED_FILES)
+
     def test_outcome_interchange_contract_is_release_required(self) -> None:
         self.assertTrue(
             {
@@ -117,6 +120,7 @@ class ReleasePackageTests(unittest.TestCase):
         pack["files"] = [entry for entry in pack["files"] if entry["path"] != "bin/vidux"]
         for path in [
             "agent/runtime.ts",
+            "ASK-PRIVATE.md",
             "commands/vidux.md",
             "evaluations/run.json",
             ".opencode/agent.md",

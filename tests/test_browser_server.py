@@ -1542,7 +1542,7 @@ if not ok:
         self.assertTrue(plan["content_redacted"])
         self.assertGreaterEqual(plan["sensitive_redactions"], 2)
 
-    def test_json_response_backstop_redacts_route_metadata(self):
+    def test_health_returns_path_safe_artifact_identity_not_route_metadata(self):
         secret = synthetic_secret()
         original_artifacts_dir = browser_server.ARTIFACTS_DIR
         browser_server.ARTIFACTS_DIR = self.dev_root / secret
@@ -1553,7 +1553,9 @@ if not ok:
 
         self.assertEqual(status, 200, text)
         self.assertNotIn(secret, text)
-        self.assertIn("[REDACTED:secret]", text)
+        payload = json.loads(text)
+        self.assertNotIn("artifacts_dir", payload)
+        self.assertRegex(payload["artifacts_store_id"], r"^[0-9a-f]{16}$")
 
 
 class BrowserArtifactBaseCssTests(unittest.TestCase):

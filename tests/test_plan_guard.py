@@ -166,13 +166,11 @@ class PlanGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertTrue(json.loads(result.stdout)["integrity_warning"])
 
-    # -- regressions found by adversarial (Grok) review, 2026-07-08 --------- #
+    # -- regressions found by adversarial review, 2026-07-08 ---------------- #
 
     def test_counts_in_review_verify_and_merged_states(self):
-        # SKILL.md's generator/evaluator and convergence-ladder FSMs use
-        # [in_review], [verify], [merged] as real task-line states -- a
-        # clobber that only removes tasks sitting in these states must not
-        # be invisible to the guard.
+        # Long-running plans may retain optional transitional states. A
+        # clobber that removes only those rows must not be invisible.
         write_plan(self.plan, ["pending", "in_review", "verify", "merged"])
         rc, _out, _err = run_guard("snapshot", str(self.plan))
         self.assertEqual(rc, 0)
