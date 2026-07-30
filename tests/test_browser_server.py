@@ -3074,7 +3074,7 @@ class BrowserPlanBriefTests(unittest.TestCase):
         self.assertIn("ViduxSteeringInbox", app)
         self.assertIn("function render", steering)
         self.assertIn("function setup", steering)
-        self.assertIn("Steer next turn", steering)
+        self.assertIn("Change direction", steering)
         self.assertIn("This does not send a chat message", steering)
         self.assertIn("/api/steering", steering)
         self.assertNotIn("function codingWorkbenchUrl", app)
@@ -3401,7 +3401,10 @@ class BrowserReadaloudStaticContractTests(unittest.TestCase):
         self.assertIn("setPopoverStatus(AS.ERROR", app)
         self.assertIn("aria-pressed", annotation_helper)
         self.assertIn("z-index: var(--z-skip-link)", style)
-        self.assertIn("padding: 24px clamp(20px, 3vw, 40px) var(--pane-footer-reserve)", style)
+        self.assertIn(
+            "padding: clamp(24px, 4vw, 56px) clamp(16px, 5vw, 72px) var(--pane-footer-reserve)",
+            style,
+        )
 
 
     def test_annotation_review_rail_contract_is_named(self):

@@ -29,8 +29,9 @@ python3 scripts/vidux-outcome-validate.py \
   --input examples/outcome-ask-steer/example.json
 ```
 
-The schema and validator prove bounded data shape only. They do not implement a
-GUI, persistence, worker execution, or live steering.
+The schema and validator prove bounded data shape only. The local cockpit can
+render an Outcome and save a local Steer request, but it does not implement
+worker execution or guarantee live Steer application.
 
 ## When to use these examples
 

@@ -8,9 +8,8 @@
 
 # Vidux
 
-Local-first plan, proof, and resume contract for AI coding work across sessions, agents, or days.
-
-One `PLAN.md` holds the queue, decisions, and progress. Agents do one task, write proof, and exit; chat is not the control plane.
+One calm, local view of AI-assisted project work: the outcome, what is happening
+now, a place to change direction, and proof. One `PLAN.md` keeps it durable.
 
 ## Install
 
@@ -34,22 +33,23 @@ vidux status
 vidux browse         # local cockpit (loopback by default)
 ```
 
-`vidux status` scans `VIDUX_DEV_ROOT` (default `~/Development`) and still shows the current repository's `PLAN.md` if that development root is missing.
-Config: [`~/.config/vidux/vidux.config.json`](vidux.config.example.json).
+The browser opens one Outcome card. Projects, diagnostics, and the full plan
+stay tucked away. A Steer stays local; it does not send chat or launch a model.
+`vidux status` scans `VIDUX_DEV_ROOT` (default `~/Development`). [Config](vidux.config.example.json).
 
-<p align="center"><img src="assets/vidux-dashboard.png" alt="The vidux browse cockpit: one project's PLAN.md at 67% with the declared current goal, the next step, and a results panel reading 0 winning / 0 losing / 1 unproven. The in-progress measure shows baseline, current, and target — and PROOF MISSING in red twice, because no artifact is attached yet. The header reads NET VALUE NOT PROVEN." width="900" /></p>
+<p align="center"><img src="assets/vidux-dashboard.png" alt="Vidux desktop view showing one project outcome, the current move, a local Change direction box, and collapsed proof details." width="900" /></p>
 
-`PROOF MISSING` and `NET VALUE NOT PROVEN` remain until evidence is attached.
+<p align="center"><img src="assets/vidux-mobile.png" alt="The same Vidux outcome view on a phone, stacked in reading order: outcome, current move, steering, then proof details." width="390" /></p>
+
+The card answers: What is the outcome? What is happening now? Does the work need
+me? Where is the proof? Open **See proof and plan details** for evidence and the
+full plan. `PROOF MISSING` remains explicit until evidence exists.
 
 ## Agent skill
 
-Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code:
-
-```bash
-ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"
-```
-
-Claude Code is the tested host; other hosts are untested.
+Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code is the tested host;
+other hosts are untested. Mount with
+`ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
 
 ## Where Vidux stops
 
@@ -63,9 +63,9 @@ plan edit uncommitted unless `--commit` is explicit.
 
 ## Outcome / Ask / Steer interchange
 
-Vidux `1.1.1` defines provider-neutral JSON for one Outcome, an exceptional Ask,
-Steers, and proof references—not a GUI, worker runtime, shared-memory layer, or
-live-steering claim.
+Vidux `1.2.0` includes provider-neutral JSON for one Outcome, an exceptional Ask,
+Steers, and proof references. That interchange is separate from the local GUI:
+neither is a worker runtime, shared-memory layer, or live model-steering claim.
 
 ```bash
 python3 scripts/vidux-outcome-validate.py \
@@ -85,10 +85,11 @@ Repo `PLAN.md` (if present) is this repo's internal queue, not required to use V
 
 ## Release truth
 
-`VERSION` marks `1.1.1`. A release is valid only when its tag and GitHub Release
+`VERSION` marks `1.2.0`. A release is valid only when its tag and GitHub Release
 resolve to the same commit; there is no npm package. The historical
-[`v1.1.0` release](https://github.com/firstbitelabsllc/vidux/releases/tag/v1.1.0)
-remains unchanged; this successor sanitizes the tip/package without rewriting ancestry.
+[`v1.1.1` release](https://github.com/firstbitelabsllc/vidux/releases/tag/v1.1.1)
+remains unchanged. This release adds the Outcome-first local view without
+turning Vidux into a model runner or hosted control plane.
 
 ## Contributing
 
@@ -96,5 +97,4 @@ remains unchanged; this successor sanitizes the tip/package without rewriting an
 npm ci
 npm run verify
 ```
-
 MIT licensed.

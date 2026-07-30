@@ -76,7 +76,10 @@ describe('app.js source health (smoke)', () => {
     expect(app).toContain('vidux:advancedMode');
     // FOUC + runtime both treat Advanced as opt-in (=== '1'), so default is Simple.
     expect(indexHtml).toContain("getItem('vidux:advancedMode') === '1'");
-    expect(indexHtml).toContain('id="mode-toggle"');
+    // Technical mode remains available, but it no longer competes in the
+    // primary header with the current Outcome.
+    expect(indexHtml).not.toContain('id="mode-toggle"');
+    expect(indexHtml).toContain('id="sidebar-mode-toggle"');
     // Main shell no longer mounts FAB / read-aloud player.
     expect(indexHtml).not.toContain('id="root-annotation-toggle"');
     expect(indexHtml).not.toContain('id="readaloud-player"');

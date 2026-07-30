@@ -290,11 +290,11 @@ function applyAdvancedModeUI() {
     document.getElementById("sidebar-mode-toggle"),
   ].filter(Boolean);
   for (const btn of buttons) {
-    btn.textContent = advanced ? "Simple" : "Advanced";
+    btn.textContent = advanced ? "Hide technical view" : "Show technical view";
     btn.setAttribute("aria-pressed", String(advanced));
     btn.title = advanced
-      ? "Switch to the simple plan/progress view"
-      : "Switch to the advanced view (session logs, local diagnostics, fleet dashboard)";
+      ? "Return to the simple outcome view"
+      : "Show session logs and local diagnostics";
   }
 }
 function toggleAdvancedMode() {
@@ -592,14 +592,28 @@ function missionEvidenceSummary(scorecard) {
   return { ...counts, status: "unknown", label: "Results not measured" };
 }
 
+function missionHumanState(summary, workflowStatus, taskStats, briefState, nextMove) {
+  const counts = taskStats?.counts || {};
+  const blocked = Number(counts.blocked || 0);
+  const open = blocked || ["pending", "in_progress", "in_review"].some(state => Number(counts[state] || 0));
+  const brief = missionStatusClass(briefState);
+  const terminal = (Number(taskStats?.total || 0) > 0 && !open)
+    || ["shipped", "completed", "done"].includes(brief);
+  if (summary.status === "losing" || workflowStatus === "blocked" || brief === "blocked" || blocked) return { label: "Needs attention", detail: "A result or blocker needs a decision.", tone: "needs-you" };
+  if (summary.status === "winning" && terminal) return { label: "Finished with proof", detail: "The result has supporting proof.", tone: "finished" };
+  if (terminal) return { label: "Needs attention", detail: "Tasks are done, but the outcome needs proof.", tone: "needs-you", next: "Attach proof for the declared outcome." };
+  if (!String(nextMove || "").trim()) return { label: "Needs attention", detail: "Choose a next move to continue.", tone: "needs-you", next: "Choose or record the next move." };
+  return { label: "Working now", detail: "The next move is clear. No decision is needed from you.", tone: "working" };
+}
+
 function renderMissionProof(target, rel, className = "mission-proof-link") {
   const stateName = missionStatusClass(target?.state);
   if (stateName === "available" && target?.tab) {
     return `<button class="${escapeAttr(className)}" type="button" data-dashboard-rel="${escapeAttr(rel || "")}" data-dashboard-tab="${escapeAttr(target.tab)}">Open proof</button>`;
   }
   const label = stateName === "missing"
-    ? "Proof missing"
-    : (stateName === "invalid" ? "Proof path rejected" : "Proof needed");
+    ? "No proof yet"
+    : (stateName === "invalid" ? "Proof link unavailable" : "Proof is still being gathered");
   return `<span class="mission-proof-state status-${escapeAttr(stateName)}">${escapeText(label)}</span>`;
 }
 
@@ -634,6 +648,17 @@ function renderMissionControl() {
     : `${scorecardTotal}`;
   const summary = missionEvidenceSummary(scorecard);
   const workflowStatus = missionStatusClass(selected.status);
+  const selectedPlan = state.plans.find(plan => (
+    plan.path === selected.path
+    || (plan.repo === selected.repo && plan.rel === selected.rel)
+  ));
+  const humanState = missionHumanState(
+    summary,
+    workflowStatus,
+    selectedPlan?.task_stats,
+    selectedPlan?.brief?.state,
+    selected.next,
+  );
   const freshness = selected.freshness || { status: "unknown" };
   const freshnessStatus = missionStatusClass(freshness.status);
   const authorityNote = onboardingUi.renderAuthority(mission.authority || {});
@@ -641,48 +666,48 @@ function renderMissionControl() {
     ? scorecard.map(metric => renderMissionMetric(metric, selected)).join("")
     : `<p class="mission-scorecard-empty">No measures declared.</p>`;
 
-  return `<section class="mission-control status-${escapeAttr(summary.status)}" aria-label="Current work: ${escapeAttr(summary.label)}">
+  return `<section class="mission-control outcome-card status-${escapeAttr(summary.status)}" aria-label="Current outcome: ${escapeAttr(humanState.label)}">
   <header class="mission-control-head">
     <div class="mission-title-block">
       <div class="mission-kicker">
-        <span class="mission-verdict status-${escapeAttr(summary.status)}"><i aria-hidden="true"></i>${escapeText(summary.label)}</span>
-        <span class="mission-work-state">Work ${escapeText(workflowStatus)}</span>
+        <span class="outcome-state state-${escapeAttr(humanState.tone)}"><i aria-hidden="true"></i>${escapeText(humanState.label)}</span>
+        <span class="outcome-project">${escapeText(selected.repo || "Current project")}</span>
       </div>
-      <div class="mission-section-label">Goal</div>
+      <div class="mission-section-label">Outcome</div>
       <h2>${escapeText(selected.outcome || "Outcome not declared")}</h2>
-      <div class="mission-source-line">
-        <strong>${escapeText(selected.repo || "Unknown project")}</strong>
-        <span class="freshness-${escapeAttr(freshnessStatus)}">${escapeText(selected.updated ? `brief updated ${selected.updated} · ${freshnessStatus}` : "brief update unknown")}</span>
-        <span>${escapeText(selected.selection_reason || "Focused plan")}</span>
-      </div>
+      <p class="outcome-state-copy">${escapeText(humanState.detail)}</p>
     </div>
-    <button class="mission-open-plan" type="button" data-dashboard-rel="${escapeAttr(selected.rel || "")}" data-dashboard-tab="PLAN.md">Open plan <span aria-hidden="true">→</span></button>
   </header>
   ${authorityNote}
   <div class="mission-control-body">
     <section class="mission-next" aria-label="Next move">
-      <div class="mission-section-label">Next step</div>
-      <h3>${escapeText(selected.next || "No next move declared")}</h3>
+      <div class="mission-section-label">Now</div>
+      <h3>${escapeText(humanState.next || selected.next || "No next move declared")}</h3>
     </section>
-    <section class="mission-scorecard" aria-label="Outcome scorecard">
-      <div class="mission-scorecard-head">
-        <div><div class="mission-section-label">Results</div><h3>${scorecardCount} ${scorecardTotal === 1 ? "measure" : "measures"}</h3></div>
-        <div class="mission-scorecard-tally" aria-label="${summary.winning} winning, ${summary.losing} losing, ${summary.unproven} unproven">
-          <span class="is-winning">${summary.winning} winning</span>
-          <span class="is-losing">${summary.losing} losing</span>
-          <span class="is-unproven">${summary.unproven} unproven</span>
+    <section class="outcome-steer" aria-label="Steer this outcome">
+      ${steeringInbox.render(selected.path)}
+    </section>
+    <details class="mission-details" aria-label="Outcome details">
+      <summary>See proof and plan details</summary>
+      <div class="outcome-detail-body">
+        <section class="mission-scorecard" aria-label="Outcome proof">
+          <div class="mission-scorecard-head">
+            <div><div class="mission-section-label">Proof</div><h3>${scorecardCount} ${scorecardTotal === 1 ? "measure" : "measures"}</h3></div>
+          </div>
+          <div class="mission-metrics">${scorecardBody}</div>
+        </section>
+        <dl>
+          <div><dt>Why</dt><dd>${escapeText(selected.why || "No reason declared")}</dd></div>
+          <div><dt>How it will be checked</dt><dd>${escapeText(selected.validation || "No check declared")}</dd></div>
+          <div><dt>Limit</dt><dd>${escapeText(selected.cost || "No limit declared")}</dd></div>
+          <div><dt>Outcome proof</dt><dd>${renderMissionProof(selected.evidence_target, selected.rel)}</dd></div>
+        </dl>
+        <div class="outcome-detail-actions">
+          <span class="freshness-${escapeAttr(freshnessStatus)}">${escapeText(selected.updated ? `Updated ${selected.updated}` : "Update date unknown")}</span>
+          <button class="mission-open-plan" type="button" data-dashboard-rel="${escapeAttr(selected.rel || "")}" data-dashboard-tab="PLAN.md">Open full plan</button>
         </div>
       </div>
-      <div class="mission-metrics">${scorecardBody}</div>
-    </section>
-    <section class="mission-details" aria-label="Decision details">
-      <dl>
-        <div><dt>Why this</dt><dd>${escapeText(selected.why || "No reason declared")}</dd></div>
-        <div><dt>How to check</dt><dd>${escapeText(selected.validation || "No check declared")}</dd></div>
-        <div><dt>Time / cost limit</dt><dd>${escapeText(selected.cost || "No limit declared")}</dd></div>
-        <div><dt>Proof</dt><dd>${renderMissionProof(selected.evidence_target, selected.rel)}</dd></div>
-      </dl>
-    </section>
+    </details>
   </div>
 </section>`;
 }
@@ -793,6 +818,12 @@ function setupDashboardPane() {
       selectDashboard();
     });
   });
+  const selected = state.dashboard?.mission_control?.selected;
+  if (selected?.path && els.pane.querySelector("[data-steering-inbox]")) {
+    steeringInbox.setup(selected.path, {
+      isCurrent: () => state.dashboard?.mission_control?.selected?.path === selected.path,
+    });
+  }
 }
 
 function renderDashboardPane(opts = {}) {
@@ -2841,11 +2872,12 @@ if (els.annotate) {
   });
 }
 
-// Mobile sidebar drawer toggle (visible only at narrow widths via CSS).
+// The project list is an on-demand drawer at every viewport. The Outcome stays
+// primary; project browsing is available without permanently crowding it.
 const sidebarEl = document.getElementById("sidebar");
 const sidebarToggleBtn = document.getElementById("sidebar-toggle");
 function usesSidebarDrawer() {
-  return Boolean(window.matchMedia && window.matchMedia("(max-width: 768px)").matches);
+  return true;
 }
 function setSidebarOpen(open, opts = {}) {
   if (!sidebarToggleBtn || !sidebarEl) return;
@@ -2874,7 +2906,6 @@ if (sidebarToggleBtn && sidebarEl) {
     if (sidebarEl.classList.contains("is-open")) setSidebarOpen(false);
   });
   setSidebarOpen(false);
-  window.matchMedia?.("(max-width: 768px)").addEventListener("change", () => setSidebarOpen(false));
 }
 
 // The mobile drawer (.sidebar, position:fixed at <=768px) needs a `top`

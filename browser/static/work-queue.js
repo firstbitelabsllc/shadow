@@ -34,7 +34,7 @@
     ].filter(Boolean).join(" · ");
   }
 
-  function renderList(title, category, selectedRel, emptyText) {
+  function renderList(title, category, selectedRel) {
     const shown = items(category, selectedRel);
     const excluded = (category?.items || []).filter(item => item?.rel === selectedRel).length;
     const fallbackTotal = Number(category?.total || 0) - excluded;
@@ -54,7 +54,7 @@
         <span class="simple-queue-severity severity-${escapeAttr(item.severity || "unspecified")}">${escapeText(severity)}</span>
       </button>`;
       }).join("")
-      : `<p>${escapeText(emptyText)}</p>`;
+      : "";
     const count = total ? `${shown.length} of ${total}` : "0";
     const viewAll = total > shown.length
       ? `<button class="simple-queue-view-all" type="button" data-view-all-work>View all</button>`
@@ -67,12 +67,16 @@
 
   function render(categories = {}, selectedRel = "") {
     const category = key => categories[key] || { items: [], total: 0 };
+    const visible = [
+      ["Needs attention", category("blocked")],
+      ["In progress", category("in_progress")],
+      ["Up next", category("next")],
+    ].filter(([, value]) => items(value, selectedRel).length);
+    if (!visible.length) return "";
     return `<section class="simple-queue" aria-label="Project work queue">
-    <header><div class="mission-section-label">Across projects</div><h2>Next, resume, or unblock</h2></header>
+    <header><h2>Other work</h2><p>Only items that may need your attention are shown here.</p></header>
     <div class="simple-queue-grid">
-      ${renderList("Next", category("next"), selectedRel, "No urgent work is queued.")}
-      ${renderList("Resume", category("in_progress"), selectedRel, "Nothing else is in progress.")}
-      ${renderList("Needs attention", category("blocked"), selectedRel, "No other work is blocked.")}
+      ${visible.map(([title, value]) => renderList(title, value, selectedRel)).join("")}
     </div>
   </section>`;
   }

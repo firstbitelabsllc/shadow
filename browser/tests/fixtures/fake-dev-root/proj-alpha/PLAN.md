@@ -8,9 +8,9 @@ Hermetic test fixture for vidux-browse e2e specs. Two tasks, one in-progress + o
 
 - Status: shipping
 - Priority: 90
-- Outcome: Prove the browser leads with one evidence-backed mission.
-- Next: Open the selected plan without entering Advanced view.
-- Why: A first-time operator needs direction before the full fleet queue.
+- Outcome: Make every project handoff clear at a glance.
+- Next: Put the outcome, next move, and steering in one calm view.
+- Why: Anyone should be able to understand the work without learning an agent dashboard.
 - Validation: Hermetic Playwright smoke.
 - Cost: No paid runtime dependency.
 - Evidence: evidence/mission-control.md
@@ -20,8 +20,8 @@ Hermetic test fixture for vidux-browse e2e specs. Two tasks, one in-progress + o
 
 | Metric | Baseline | Current | Target | Status | Proof |
 |---|---|---|---|---|---|
-| First-viewport direction | Missing | Visible | Visible | winning | evidence/mission-control.md |
-| Benchmark conclusion | Losing | Losing | Winning | losing | evidence/mission-control.md |
+| Handoff direction | Missing | Visible | Visible | winning | evidence/mission-control.md |
+| First-time comprehension | Losing | Losing | Winning | losing | evidence/mission-control.md |
 
 ## Tasks
 

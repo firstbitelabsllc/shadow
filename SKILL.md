@@ -106,9 +106,10 @@ Use synthetic examples. Keep provider routing and execution in the coding host.
 proof. Markdown remains authority. The browser does not make Vidux a hosted
 control plane or worker runtime.
 
-The Outcome / Ask / Steer schema and read-only validator are interchange
-contracts only; they do not prove a GUI, persistence, execution, or live
-steering.
+The Outcome / Ask / Steer schema and read-only validator prove only the
+interchange contract. The local cockpit renders an Outcome / Now / Change
+direction view from repository and local steering state; it does not execute
+work or guarantee that a saved Steer will be applied.
 
 ## References
 

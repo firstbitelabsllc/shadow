@@ -53,11 +53,12 @@
 <body>
   <a href="#pane" class="skip-link">Skip to content</a>
   <header class="topbar" data-vidux-zone="status-header">
-    <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Open projects" aria-controls="sidebar" aria-expanded="false">☰</button>
+    <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Open projects" aria-controls="sidebar" aria-expanded="false">
+      <span aria-hidden="true">☰</span> Projects
+    </button>
     <h1>Vidux</h1>
     <div class="topbar-meta">
-      <span id="meta-count">…</span>
-      <button id="mode-toggle" type="button" aria-pressed="false">Advanced</button>
+      <span id="meta-count" class="visually-hidden">…</span>
       <button id="theme-toggle" type="button" title="Toggle light/dark theme" aria-label="Toggle light or dark theme"></button>
       <button id="refresh" type="button" title="Refresh plans" aria-label="Refresh plans"><span aria-hidden="true">↻</span><span class="refresh-label">Refresh</span></button>
     </div>
@@ -68,7 +69,6 @@
     <aside class="sidebar" id="sidebar" aria-label="Projects" data-vidux-zone="navigation-sidebar">
       <div class="sidebar-mobile-tools" aria-label="View settings">
         <span id="sidebar-meta-count">…</span>
-        <button id="sidebar-mode-toggle" type="button" aria-pressed="false">Advanced</button>
         <button id="sidebar-theme-toggle" type="button">Theme</button>
         <button id="sidebar-refresh" type="button"><span aria-hidden="true">↻</span> Refresh</button>
       </div>
@@ -90,6 +90,10 @@
       <nav class="sidebar-list" id="sidebar-list" aria-label="Projects and plans">
         <p class="muted">loading…</p>
       </nav>
+      <details class="sidebar-technical">
+        <summary>Technical options</summary>
+        <button id="sidebar-mode-toggle" type="button" aria-pressed="false">Show technical view</button>
+      </details>
     </aside>
 
     <section class="pane" id="pane" tabindex="-1" data-vidux-zone="content-pane">

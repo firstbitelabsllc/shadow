@@ -41,8 +41,9 @@ contract.
 ## Interchange contract
 
 The Outcome / Ask / Steer schema is a small provider-neutral status boundary.
-Its validator proves only data shape and privacy invariants. It does not prove
-a GUI, shared memory, persistence, execution, or live steering.
+Its validator proves only data shape and privacy invariants. The local cockpit
+now renders that shape alongside existing plan and steering stores, but it
+does not prove shared memory, worker execution, or live Steer application.
 
 ## Public boundary
 

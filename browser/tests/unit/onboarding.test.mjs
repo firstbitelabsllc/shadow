@@ -20,7 +20,7 @@ describe('onboarding UI', () => {
       init_command: 'vidux init --here',
     }, []);
 
-    expect(html).toContain('Connect your first project');
+    expect(html).toContain('Add your first project');
     expect(html).toContain('<code>vidux init --here</code>');
     expect(html).toContain('data-refresh-plans');
     expect(html).not.toContain('/Users/');

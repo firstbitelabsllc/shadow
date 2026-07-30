@@ -29,8 +29,8 @@ models, schedules work, or transports provider traffic.
 
 ## Operator Brief
 
-- Status: 1.1.1 corrective source; release identity requires an exact matching
-  tag and GitHub Release. The historical 1.1.0 release is unchanged.
+- Status: 1.2.0 Outcome-first GUI source; release identity requires an exact
+  matching tag and GitHub Release. The historical 1.1.1 release is unchanged.
 - Outcome: keep the minimal public surface — `init`, `status`, `browse`,
   `checkpoint`, `doctor` — with tests, release-package verification, and the
   public-ready gate wired into CI.
@@ -54,8 +54,11 @@ models, schedules work, or transports provider traffic.
 - [completed] Reduce the root skill and public fleet guidance to the
   plan/proof/resume boundary; remove private material and references to absent
   helpers; add documentation-target and public-data regressions.
-- [in_progress] Make the outcome-first operator experience the next Vidux
-  product capability. The durable product plan is
+- [completed] Ship the first Outcome-first browser slice: one calm Outcome,
+  honest state, current move, local change-direction request, and collapsed
+  proof/plan details.
+- [in_progress] Dogfood the exceptional Ask and live Steer application. The
+  durable product plan is
   [`plans/outcome-console/PLAN.md`](plans/outcome-console/PLAN.md). This is a
   bounded product hypothesis, not a rename or a claim that execution exists.
 - [pending] Triage issues and PRs after the repository is public.
@@ -79,6 +82,9 @@ models, schedules work, or transports provider traffic.
 - [2026-07-29] Public source carries product authority, not portfolio
   operations. Provider receipts, private repository links, personal paths,
   costs, and session identifiers are rejected from the maintained surface.
+- [2026-07-29] The Outcome-first GUI may save a Steer locally, but it must not
+  claim delivery or application until a compatible coding host acknowledges
+  it.
 
 ## Progress
 
@@ -86,7 +92,11 @@ models, schedules work, or transports provider traffic.
   changelog, plan reset to the scaffold shape.
 - 2026-07-29: Recorded the Outcome Console opportunity, smallest useful GUI,
   competitor evidence, falsification gates, and bounded first dogfood slice.
-  No GUI implementation, rename, or release claim is implied.
+  No rename or release claim is implied.
+- 2026-07-29: Implemented the first local Outcome view in the existing browser:
+  one outcome, current move, local Steer, and proof on demand, with projects
+  and technical diagnostics moved out of the default surface. Exceptional Ask
+  dogfood and live Steer application remain.
 - 2026-07-29: Added the `vidux.outcome.v1` schema, synthetic example,
   reference, and deterministic validator as the provider-neutral boundary.
 - 2026-07-29: Sanitized the maintained tip and `1.1.1` source package and
@@ -96,3 +106,5 @@ models, schedules work, or transports provider traffic.
 - 2026-07-29: Replaced stale host-database, scheduler, private-ledger, and
   nonexistent-helper guidance with the narrow public contract. Vidux owns
   inspectable repository authority; the coding host owns execution.
+- 2026-07-29: Prepared 1.2.0 with the Outcome-first desktop/mobile view,
+  truthful completed-without-proof state, and local-only Steer wording.

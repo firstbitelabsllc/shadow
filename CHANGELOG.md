@@ -9,6 +9,30 @@ tighten doctrine; major bumps change the cycle or `PLAN.md` shape.
 
 No entries.
 
+## [1.2.0] — 2026-07-29
+
+### Added
+
+- Added one calm Outcome-first browser view: current outcome, honest state,
+  current move, a local change-direction request, and collapsed proof/plan
+  details.
+- Added desktop and phone screenshots plus responsive browser coverage across
+  desktop, tablet, and phone layouts.
+
+### Changed
+
+- Moved project browsing into an on-demand drawer and technical diagnostics
+  behind an explicit technical-view control.
+- Simplified first-run copy and removed empty cross-project work machinery from
+  the ordinary view.
+- Kept local steering honest: a saved request is waiting for a compatible
+  coding host; Vidux does not claim it was sent to a chat or applied.
+
+### Fixed
+
+- Completed tasks without outcome proof now show **Needs attention** and ask
+  for proof instead of incorrectly claiming work is still running.
+
 ## [1.1.1] — 2026-07-29
 
 ### Security

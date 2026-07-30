@@ -55,18 +55,17 @@
       <section class="steering-inbox" data-steering-inbox data-plan-path="${escapeAttr(planPath)}" data-steering-state="loading" aria-labelledby="steering-title">
         <div class="steering-head">
           <div>
-            <p class="steering-kicker">One-shot intent</p>
-            <h3 id="steering-title">Steer next turn</h3>
-            <p>Queued locally for the next safe loop boundary. This does not send a chat message.</p>
+            <h3 id="steering-title">Change direction</h3>
+            <p>This does not send a chat message; your note stays on this Mac.</p>
           </div>
-          <span class="steering-capacity" data-steering-capacity>…</span>
+          <span class="steering-capacity visually-hidden" data-steering-capacity>…</span>
         </div>
         <form class="steering-composer" data-steering-form>
-          <label class="visually-hidden" for="steering-message">Steer the next loop turn</label>
-          <textarea id="steering-message" name="message" rows="2" maxlength="8192" placeholder="What should the running goal consider next?"></textarea>
+          <label class="visually-hidden" for="steering-message">Change direction</label>
+          <textarea id="steering-message" name="message" rows="2" maxlength="8192" placeholder="What should change?"></textarea>
           <div class="steering-compose-actions">
             <span>⌘/Ctrl + Enter</span>
-            <button type="submit">Queue steer</button>
+            <button type="submit">Save request</button>
           </div>
         </form>
         <p class="steering-write-status" data-steering-write-status role="status" aria-live="polite"></p>
@@ -77,15 +76,15 @@
   }
 
   function statusLabel(status) {
-    if (status === "claimed") return "Being handled";
-    if (status === "retryable") return "Retry needed";
-    if (status === "failed") return "Needs attention";
-    return "Queued";
+    if (status === "claimed") return "Applying";
+    if (status === "retryable") return "Try again";
+    if (status === "failed") return "Not applied";
+    return "Saved";
   }
 
   function renderItems(items) {
     if (!Array.isArray(items) || items.length === 0) {
-      return `<div class="steering-empty">No steer waiting. The loop continues from its plan.</div>`;
+      return `<div class="steering-empty">No change requested.</div>`;
     }
     return items.map(item => {
       const status = ["queued", "claimed", "retryable", "failed"].includes(item.status)
@@ -148,6 +147,7 @@
       replaceTextIfChanged(capacity, `${activeItems.length}/${Number(data.capacity || 8)} active`);
     } catch (_error) {
       panel.setAttribute("data-steering-state", "error");
+      panel.querySelector("[data-steering-form]")?.setAttribute("hidden", "");
       replaceHTMLIfChanged(
         items,
         `<div class="steering-empty">Could not read local steering state.</div>`,
@@ -166,8 +166,8 @@
     if (!res.ok) throw new Error((await res.text()) || `request failed (${res.status})`);
     if (statusNode) {
       statusNode.textContent = payload.action === "enqueue"
-        ? "Queued for the next safe boundary."
-        : "Steering state updated.";
+        ? "Saved locally. It is waiting for your coding tool."
+        : "Request updated.";
     }
     await refresh(planPath, isCurrent);
   }
@@ -186,12 +186,12 @@
       if (writing) return;
       const message = String(textarea?.value || "").trim();
       if (!message || !form || !textarea) {
-        if (statusNode) statusNode.textContent = "Write a steer first.";
+        if (statusNode) statusNode.textContent = "Write what should change first.";
         return;
       }
       writing = true;
       if (submit) submit.disabled = true;
-      if (statusNode) statusNode.textContent = "Queueing locally…";
+      if (statusNode) statusNode.textContent = "Saving…";
       try {
         await postAction(planPath, { action: "enqueue", message, source: "vidux-cockpit" }, statusNode, isCurrent);
         textarea.value = "";

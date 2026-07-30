@@ -39,7 +39,13 @@ async function clickModeToggle(page: Page) {
     return;
   }
   await openDrawerIfNeeded(page);
-  await page.locator('#sidebar-mode-toggle').click();
+  const technical = page.locator('.sidebar-technical');
+  await technical.evaluate((element: HTMLDetailsElement) => {
+    element.open = true;
+  });
+  const sidebarToggle = page.locator('#sidebar-mode-toggle');
+  await expect(sidebarToggle).toBeVisible();
+  await sidebarToggle.click();
   await closeDrawerIfOpen(page);
 }
 

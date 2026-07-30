@@ -1,8 +1,9 @@
 # Outcome Console Plan
 
 **Parent authority:** [`../../PLAN.md`](../../PLAN.md)
-**Status:** provider-neutral interchange implemented locally; no GUI, persistence,
-or live Steer loop is implemented
+**Status:** provider-neutral interchange plus a local Outcome/Steer/proof
+prototype implemented; exceptional Ask dogfood and live Steer application
+remain
 
 ## Outcome
 
@@ -203,9 +204,11 @@ prompts, routine work produces approval theater, or proof is not trusted.
 - [completed] Carry the locally proved `outcome` / `ask` / `steer` contract
   into a provider-neutral schema, synthetic example, reference, and read-only
   validator. This deterministic proof is not live voice-loop or GUI proof.
-- [pending] Build a single-screen, local-data prototype of the Outcome card,
-  Steer composer, exceptional Ask, and proof drawer. Do not add agent, model,
-  prompt-queue, file, or terminal controls.
+- [completed] Build a single-screen, local-data prototype. The Outcome card,
+  local Steer composer, and proof drawer are implemented and browser-proved;
+  no agent, model, prompt-queue, file, or terminal controls were added.
+- [pending] Add and dogfood one exceptional Ask state in the same card. It
+  appears only for a genuine fork and never becomes routine approval theater.
 - [pending] Run the three-person dogfood gate and record the exact places where
   status, steering, Ask frequency, or proof trust fails.
 - [pending] Implement one end-to-end Steer loop against the existing plan and
@@ -226,10 +229,21 @@ prompts, routine work produces approval theater, or proof is not trusted.
   reviewed for this hypothesis.
 - `python3 tests/test_outcome_ask_steer.py` covers valid, malformed, semantic,
   privacy, size, and deterministic-output cases.
-- Repository verification, the public-boundary scan, and source-package
-  verification pass at the corrective candidate head.
-- No GUI, live execution loop, microphone path, or product-name change is
-  claimed.
+- The local browser now defaults to one Outcome card with current move, local
+  Steer composer, and proof/plan details on demand. Desktop and phone
+  screenshots are in `assets/vidux-dashboard.png` and `assets/vidux-mobile.png`.
+- Browser proof covers the collapsed default, responsive order, local steering
+  states, project drawer, technical escape hatch, and proof-plan navigation.
+- Candidate proof: 22 JavaScript tests, 458 Python tests, and 136 real-browser
+  flows pass across desktop, tablet, and phone; 2 Linux visual baselines are
+  intentionally skipped on macOS. Docs build, the tracked-source boundary scan,
+  and dirty-development package verification also pass.
+- Disposable-project dogfood proved `init`, `status`, the Git boundary,
+  proof-required `checkpoint`, the Outcome validator, and the real browser.
+  It also caught and closed the false `Working now` state when all tasks were
+  complete but outcome proof was still missing.
+- No live Steer application loop, microphone path, exceptional Ask dogfood, or
+  product-name change is claimed.
 
 ## Non-goals
 
@@ -241,8 +255,8 @@ prompts, routine work produces approval theater, or proof is not trusted.
 
 ## Resume Here
 
-Start with the first in-progress row. Bind the already-proved semantic states to
-one local-data Outcome card, then run the dogfood gate before building backend
-surface area. Keep provider routing and execution in the coding host. Do not
-begin microphone capture, rename Vidux, or expand into an IDE until the typed
-Steer loop is demonstrably useful.
+Start with the exceptional Ask row on top of the already-proved local Outcome
+card, then run the full dogfood gate. Implement live Steer application only
+after the typed flow survives that dogfood. Keep provider routing and execution
+in the coding host. Do not begin microphone capture, rename Vidux, or expand
+into an IDE until the typed Steer loop is demonstrably useful.

@@ -1,7 +1,7 @@
 {
   "name": "vidux",
-  "version": "1.1.1",
-  "description": "Local-first plan, proof, and resume contract for long-running AI coding work.",
+  "version": "1.2.0",
+  "description": "Local-first outcome, plan, proof, and resume view for AI-assisted software work.",
   "private": false,
   "bin": {
     "vidux": "bin/vidux"

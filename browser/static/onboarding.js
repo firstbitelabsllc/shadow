@@ -17,12 +17,12 @@
     const onboardingState = onboarding.state || (planCount === 0 ? "empty" : "needs_brief");
     const projectCount = Number(onboarding.projects_total || 0);
     const title = onboardingState === "empty"
-      ? "Connect your first project"
+      ? "Add your first project"
       : (onboardingState === "projects_found"
         ? `${projectCount} ${projectCount === 1 ? "project" : "projects"} found`
         : (singlePlan ? "Set the current goal" : "Choose current work"));
     const copy = onboardingState === "empty"
-      ? "No Git projects or PLAN.md files were found under this scan root."
+      ? "Vidux needs one project with a PLAN.md before it can show the current outcome."
       : (onboardingState === "projects_found"
         ? `${projectCount} Git ${projectCount === 1 ? "project was" : "projects were"} found, but none has a PLAN.md yet.`
         : (singlePlan
@@ -41,14 +41,14 @@
       : "";
     const setupGuide = (onboardingState === "empty" || onboardingState === "projects_found")
       ? `<div class="mission-setup-guide">
-          <span>Open a terminal in your project</span>
+          <span>In the project folder, run</span>
           <code>${escapeText(onboarding.init_command || "vidux init --here")}</code>
-          <span>Then return here and scan again.</span>
+          <span>Then choose Scan again.</span>
         </div>`
-      : `<p class="mission-brief-hint">Add an <code>Operator Brief</code> with an outcome and next step; Vidux will keep the highest priority in focus.</p>`;
-    return `<section class="mission-control is-empty" data-onboarding-state="${escapeAttr(onboardingState)}" aria-label="Mission control">
+      : `<p class="mission-brief-hint">Add an outcome and next step to the plan so Vidux knows what to show here.</p>`;
+    return `<section class="mission-control is-empty" data-onboarding-state="${escapeAttr(onboardingState)}" aria-label="Project setup">
   <div class="mission-empty-copy">
-    <div class="mission-kicker">Setup needed</div>
+    <div class="mission-kicker">Get started</div>
     <h2>${escapeText(title)}</h2>
     <p>${escapeText(copy)}</p>
     ${projectLine}
