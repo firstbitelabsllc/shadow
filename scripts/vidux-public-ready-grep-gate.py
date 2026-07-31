@@ -331,6 +331,13 @@ ALLOWED_PUBLIC_HOSTS = frozenset(
         "keepachangelog.com",
         "localhost",
         "opencollective.com",
+        # codesmith (Blacksmith) is installed on this repo and appends a
+        # footer with dashboard + asset-CDN links to every PR body; a squash
+        # merge that keeps the PR body carries these URLs into the commit
+        # message (first hit: the #25 squash). Public GitHub-app hosts, no
+        # private data.
+        "app.blacksmith.sh",
+        "pr-comments-assets.blacksmith.sh",
         "registry.npmjs.org",
         "semver.org",
         "tidelift.com",

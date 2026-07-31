@@ -19,8 +19,8 @@ sedi() { if [[ "$(uname)" == "Darwin" ]]; then sed -i '' "$@"; else sed -i "$@";
 usage() {
   cat <<'USAGE'
 Usage:
-  vidux-checkpoint.sh <plan-path> <task-description> <summary> [--proof <text>] [--blocker <text>] [--status <done|done_with_concerns|blocked>] [--outcome <useful|busy|blocked_clarified>] [--commit]
-  vidux-checkpoint.sh <plan-path> --archive [--commit]
+  vidux checkpoint <plan-path> <task-description> <summary> [--proof <text>] [--blocker <text>] [--status <done|done_with_concerns|blocked>] [--outcome <useful|busy|blocked_clarified>] [--commit]
+  vidux checkpoint <plan-path> --archive [--commit]
 USAGE
   exit 1
 }
