@@ -194,13 +194,6 @@ def validate_release_candidate(
             + (", ".join(skill_files) if skill_files else "none")
         )
 
-    unexpected_benchmarks = sorted(path for path in files if path.startswith("benchmarks/"))
-    if unexpected_benchmarks:
-        errors.append(
-            "packed artifact contains benchmark files (the local harness was removed): "
-            + ", ".join(unexpected_benchmarks)
-        )
-
     untracked = sorted(files - tracked)
     if untracked:
         errors.append("packed artifact contains files not tracked by git: " + ", ".join(untracked))

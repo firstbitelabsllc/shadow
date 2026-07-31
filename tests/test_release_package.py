@@ -154,19 +154,17 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertTrue(any("not tracked by git" in error for error in errors), errors)
         self.assertTrue(any("unpacked bytes" in error for error in errors), errors)
 
-    def test_rejects_any_benchmark_files(self) -> None:
-        # The local benchmark harness (v2/v3/v4) was removed; a purist build
-        # ships no benchmarks/ surface at all, so any such file is rejected.
+    def test_accepts_tracked_benchmark_files(self) -> None:
+        # Benchmarking the harness is a protected capability. The packager
+        # previously fenced out any benchmarks/ path, which blocked restoring
+        # it; a tracked benchmark file must now pack cleanly.
         package, pack, tracked = baseline()
-        pack["files"].append({"path": "benchmarks/v4/private-evaluator.json", "size": 1})
-        tracked.add("benchmarks/v4/private-evaluator.json")
+        pack["files"].append({"path": "benchmarks/harness/scenario.json", "size": 1})
+        tracked.add("benchmarks/harness/scenario.json")
 
         errors = self.errors(package, pack, tracked)
 
-        self.assertTrue(
-            any("benchmark files" in error for error in errors),
-            errors,
-        )
+        self.assertEqual(errors, [], errors)
 
     def test_rejects_removed_extractor_and_receipt_lab_files(self) -> None:
         package, pack, tracked = baseline()
