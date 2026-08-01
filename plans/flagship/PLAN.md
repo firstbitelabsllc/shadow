@@ -253,6 +253,11 @@ redaction regression prove otherwise.
   desk and on-the-go consumer both render this projection from the same
   validated Outcome plus redacted plan/receipt summary, with one shared proof
   showing at most three choices and no implementation fields.
+  **Active claim:** the current lead owns a public desk-side renderer and its
+  focused tests only. It will accept an already-validated
+  `vidux.chief-of-staff.v1` object, render the bounded report when supplied, and
+  remain inert without that semantic payload; it will not add transport, plan
+  reads, provider routing, or private 90 wiring.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch

@@ -976,6 +976,97 @@ code { font-family: var(--mono); background: var(--paper-2); padding: 1px 5px; b
 .plan-brief-status.status-blocked {
   color: var(--task-blocked);
 }
+
+/* ---- Pilot Puppy Chief of Staff ---- */
+
+.chief-of-staff-brief {
+  margin: 0 0 12px;
+  padding: 16px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--paper-2);
+}
+.chief-of-staff-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chief-of-staff-kicker,
+.chief-of-staff-label,
+.chief-of-staff-field > span {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+.chief-of-staff-head h3 {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+.chief-of-staff-state {
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.chief-of-staff-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin-top: 14px;
+}
+.chief-of-staff-field p {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.chief-of-staff-choices {
+  margin-top: 14px;
+}
+.chief-of-staff-choices ul {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chief-of-staff-choices li {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.chief-of-staff-choices li span { color: var(--ink-2); }
+.chief-of-staff-proof {
+  margin-top: 12px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.chief-of-staff-proof summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+.chief-of-staff-proof p {
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
 /* ---- Pane progress block (the "moving target" headline) ----
  * Sits above the markdown body. Bar + counts legend + completion %.
  * Designed to make completion a visually celebrated, key-of-vidux concept. */
@@ -3058,6 +3149,8 @@ body.is-annotation-mode #filter {
     gap: var(--space-1);
   }
   .plan-brief { grid-template-columns: 1fr; }
+  .chief-of-staff-fields { grid-template-columns: 1fr; }
+  .chief-of-staff-choices li { grid-template-columns: 1fr; gap: 3px; }
   .ops-truth-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-header {
     display: grid;

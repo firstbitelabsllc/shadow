@@ -1940,6 +1940,7 @@ async function renderPane(opts = {}) {
     </div>
     ${renderSensitiveContentNotice(plan)}
     ${renderPlanBrief(plan, stats, aggregate)}
+    ${window.ViduxChiefOfStaff?.render(plan.chief_of_staff) || ""}
     ${coordinationPanel.render(plan.path)}
     ${steeringInbox.render(plan.path)}
     ${renderPaneProgress(stats)}

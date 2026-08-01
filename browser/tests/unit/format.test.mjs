@@ -60,7 +60,9 @@ describe('app.js source health (smoke)', () => {
     // Soft budget: the focused mission/proof/resume cockpit remains a small
     // dependency-free script. Leave headroom for the accessibility and proof
     // contracts, while still catching an accidental bundled dependency.
-    expect(stat.size).toBeLessThan(125_000);
+    // The optional Chief-of-Staff projection hook is intentionally kept in
+    // this dependency-free shell; leave a small allowance for that seam.
+    expect(stat.size).toBeLessThan(125_500);
   });
   it('fmtAge is defined in app.js', () => {
     const src = fs.readFileSync(APP_JS, 'utf8');
