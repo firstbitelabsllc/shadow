@@ -282,8 +282,12 @@ redaction regression prove otherwise.
   green. A clean release package is 142 files, 1,297,652 unpacked bytes, and
   SHA-256 `6f703aca6cb71d4dfd6921c9cc7ea454c15426984fabe1773f855e4ae22946fe`.
   Public PR #27 merged as `c6e96f60`; its source branch remains preserved. F3
-  remains open only for reproducing the same receipt round-trip through the
-  private 90 consumer; this public plan does not claim or edit that consumer.
+  remains open only for the private 90 consumer. Resume when its owner supplies
+  one sanitized run showing: a validated current `vidux.outcome.v1` revision,
+  one exact `vidux.drive-steer.v1` envelope emitted by 90, the owning host's
+  `receive_choice` result with `received`, `superseded`, or `not_delivered`, the
+  next revision, and canonical-validator exit 0. This public plan does not claim
+  or edit that private consumer.
 - [ ] **F4 — Local transport.** Serve the semantic API on loopback and a
   tailnet-only endpoint. Gate: local integration passes; a non-tailnet request
   is rejected; no Funnel/public listener or credential endpoint exists.
