@@ -9,55 +9,59 @@ This plan defines the future flagship product. It does not change the current
 
 ## The decision
 
-Keep **Vidux** as the public name and make it the calm local work conductor:
+Adopt **Pilot Puppy** as the product umbrella and make it the calm local work
+conductor. Keep **Vidux** as the existing public repository and durable core
+name during the migration:
 
-> State the outcome once. Vidux keeps the plan and proof. Its little Pilot Puppy
-> driver moves the work. Native Codex, Claude, or Cursor executes it. 90 lets
+> State the outcome once. Pilot Puppy keeps the human flow; Vidux keeps the plan
+> and proof. Its little driver moves the work. Native Codex, Claude, or Cursor executes it. 90 lets
 > you choose the next move from your phone or voice without staring at the
 > machinery.
 
-Do not create a new repository, rewrite the Vidux history, or replace the name
-before a working successor exists. The name search found Wayline in live
-navigation, communications, and property-management products, including active
-marks; it is not a clean open-source identity. A later rename remains possible,
-but it is not the product strategy.
+Do not create a new repository, rewrite the Vidux history, or rename the
+repository/package in this cycle. The existing Vidux release and links remain
+the compatibility base; the successor brand is Pilot Puppy, with any repository
+rename deferred until a working successor release proves the migration safe.
 
 The shipping shape is **one installable product with strict internal modules**,
 not one fused mega-runtime and not a collection of competing products.
 
 ### One product, a friendly internal cast
 
-**Vidux is the only product and the only name a normal user needs.** Pilot Puppy
-is the cute internal name for Vidux's right-hand driver: a small, dependable
-helper that plans, delegates, checks proof, and reports back. It is not a second
-app, install choice, queue, or authority. The maintainer/developer entry point
-is `/pilot-puppy`; `/pilot` remains a compatibility alias, and the existing
-`pilot.*` schemas and environment names remain stable. This is a brand layer,
-not a history rewrite or a second runtime.
+**Pilot Puppy is the only product and the only name a normal user needs.** It is
+the friendly umbrella for the Vidux core, the Chief of Staff briefing, the 90
+on-the-go client, and the hidden right-hand driver that plans, delegates, checks
+proof, and reports back. It is not a second app, install choice, queue, or
+authority. The maintainer/developer entry point is `/pilot-puppy`; `/pilot`
+remains a compatibility alias, and the existing `pilot.*` schemas and
+environment names remain stable. This is an additive brand/product layer, not
+a history rewrite or a second runtime.
 
 The same product may later ship through three thin distribution surfaces:
 
 1. a local skill/CLI for developers who want full custody;
-2. optional ChatGPT, Claude, or Cursor wrappers that present Vidux's typed
+2. optional ChatGPT, Claude, or Cursor wrappers that present Pilot Puppy's typed
    semantic API; and
 3. a native iOS/iPad client for the same tailnet-only API.
 
-Those wrappers are Vidux interfaces, not cloud executors. They never receive source,
+Those wrappers are Pilot Puppy interfaces, not cloud executors. They never receive source,
 credentials, raw transcripts, or a second plan store. A non-technical user can
-discover Vidux through a hosted or marketplace surface without a GitHub or npm
+discover Pilot Puppy through a hosted or marketplace surface without a GitHub or npm
 workflow, while the Mac remains the execution and credential boundary.
 
-In the interface, the cast stays plain: Vidux says what is happening, Pilot
-Puppy may be mentioned as the helper handling the current move, and 90 asks
-which useful choice comes next. The system never requires a user to understand
-agents, providers, queues, or the name Pilot Puppy to get work done.
+In the interface, the cast stays plain: Pilot Puppy gives the Chief of Staff
+brief, Vidux keeps the durable truth, and 90 asks which useful choice comes
+next. The system never requires a user to understand agents, providers, queues,
+or implementation modules to get work done.
 
 ## Roles (one sentence each)
 
 | Surface | Owns | Must not own |
 |---|---|---|
+| **Pilot Puppy umbrella** | The single product identity and its human-scale flow across briefing, driving, proof, and choice | a second plan store, raw chat memory, silent provider decisions, user-facing fleet clutter |
+| **Chief of Staff brief** | Concise status, material changes, risks, Leo's needed actions, recommendation, and proof/unknowns | execution, provider routing, acceptance, hidden background watching, a second authority |
 | **Vidux core** | `PLAN.md`, Outcome / Ask / Steer, proof references, resume, worktree and ownership contracts | provider choice, worker execution, credentials, cloud orchestration |
-| **Pilot Puppy** | Leo's main right-hand driver: plan, split, dispatch, supervise, accept, and fold receipts start-to-finish | a second plan store, raw chat memory, silent provider decisions, user-facing fleet clutter |
+| **Pilot Puppy driver** | Leo's hidden right-hand driver: plan, split, dispatch, supervise, accept, and fold receipts start-to-finish | a second plan store, raw chat memory, silent provider decisions, user-facing fleet clutter |
 | **Native host adapters** | The concrete Codex, Claude Code, and Cursor invocation and host-native lifecycle | changing the canonical plan without a receipt, exposing credentials to a remote client |
 | **90** | Car/on-the-go UX: read concise status, speak one next move, present A/B/C, forward the selected Steer, round-robin ready outcomes | coding, provider routing, background observation, transcript storage, a second driver loop |
 | **Ledger** | Append-only bounded activity and handoff evidence | priority, routing, acceptance, or a second authority |
@@ -67,34 +71,47 @@ agents, providers, queues, or the name Pilot Puppy to get work done.
 | **Telemetry** | Redacted completion/quality signals | raw prompts, transcripts, secrets, personal paths, or activity theater |
 | **Native iOS/iPad app** | A typed remote client over the local semantic API | an execution host, credential vault, or cloud copy of the codebase |
 
-Vidux is therefore the product. Pilot Puppy is its internal driver, 90 is its
-steering wheel and dashboard, and the native hosts are its execution
-connections. They ship as one umbrella with contracts that remain testable
-independently.
+Pilot Puppy is therefore the product. Vidux is its durable core, the Chief of
+Staff is its reporting voice, 90 is its steering wheel and dashboard, and the
+native hosts are its execution connections. They ship as one umbrella with
+contracts that remain testable independently.
 
 ### Relatable language
 
-The brand promise is **one calm place that tells you what is happening and what
-you can do next**. Warmth belongs in the words and the recovery moments, not in
-fake progress, mascot clutter, or gamification. Use the same plain translation
-everywhere:
+The Pilot Puppy brand promise is **one calm place that tells you what is
+happening and what you can do next**. Warmth belongs in the words and the
+recovery moments, not in fake progress, mascot clutter, or gamification. Use the
+same plain translation everywhere:
 
-| Internal contract | Vidux-facing language |
+| Internal contract | Pilot Puppy-facing language |
 |---|---|
 | Outcome | What you want |
 | Current move | What's happening now |
 | Ask | Needs your choice |
 | Steer | Change direction |
-| Proof | Why Vidux says it's done |
-| Working | Vidux is on the next move |
+| Proof | Why Pilot Puppy says it's done |
+| Working | Pilot Puppy is on the next move |
 | Blocked | Can't continue yet |
 | Not delivered | Didn't run |
 | Resume | Pick up where you left off |
 
 Pilot Puppy may appear as a small line of personality (for example, “Pilot
-Puppy is checking the proof”), but it never becomes a required concept or a
-second navigation surface. The default screen stays Outcome → Now → Change →
-Proof; technical detail remains available one tap away for people who want it.
+Puppy is checking the proof”), but it never becomes mascot clutter or a second
+navigation surface. The default screen stays Brief → Now → Change → Proof;
+technical detail remains available one tap away for people who want it.
+
+### Chief of Staff briefing
+
+The Chief of Staff is the default reporting behavior, not another agent or
+runtime. Every brief answers five questions in plain language: **what changed,
+what matters, what is blocked or uncertain, what Leo needs to decide or do, and
+what Pilot Puppy recommends next**. It may include one proof link or bounded
+receipt, while implementation detail stays collapsed unless Leo asks for it.
+
+When Leo is driving, 90 presents that brief as speech plus at most three
+choices. At a desk, the same brief is the default Vidux/Pilot Puppy view. Both
+surfaces derive from the same Outcome, PLAN, receipts, and live evidence; neither
+creates a second queue, memory, or acceptance authority.
 
 ## Why this survives vendor catch-up
 
@@ -128,11 +145,11 @@ all three providers, Vidux should shrink rather than add an agent platform.
                          typed Outcome / Ask / Steer
                                       ^
                                       |
-        iPhone / iPad / Codex Voice  90 Drive mode (A/B/C + concise status)
+        iPhone / iPad / Codex Voice  90 Drive mode (brief + A/B/C)
                                       |
                        local semantic API (tailnet only)
                                       |
-       PLAN.md + proof + ownership  Vidux core
+       PLAN.md + proof + ownership  Vidux core inside Pilot Puppy
                                       ^
                                       |
       Pilot Puppy driver (hidden; one lifecycle, one acceptance owner)
@@ -211,7 +228,8 @@ redaction regression prove otherwise.
 - no automatic merge, publish, payment, destructive action, or external message;
 - no four-level recursive planning tree without an independent proof/revert
   boundary;
-- no rebrand, repo split, or history rewrite before the successor is proven.
+- no repository/package rename, repo split, or history rewrite in this cycle;
+  Pilot Puppy branding can ship over the existing Vidux compatibility base.
 
 ## Ordered work and gates
 
@@ -220,6 +238,15 @@ redaction regression prove otherwise.
   Gate: `vidux.lifecycle.v1` schema, fixtures, deterministic validator, and
   negative privacy/transition tests describe the new lifecycle. The contract
   is additive; the existing `vidux.outcome.v1` document remains compatible.
+- [in_progress] **F0.5 — Pilot Puppy umbrella and Chief of Staff brief.** Adopt
+  Pilot Puppy as the user-facing product umbrella while retaining Vidux as the
+  public repository/core compatibility base. Make the Chief of Staff brief the
+  default reporting surface: status, material change, blocker/uncertainty, Leo's
+  action or decision, recommendation, and one proof reference. Gate: the desk
+  and on-the-go surfaces use the same typed Outcome/PLAN/receipt source, expose
+  at most three choices, hide implementation detail by default, and create no
+  second queue, runtime, or authority. Repository/package rename remains
+  deferred until a successor release proves migration safe.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch
@@ -341,8 +368,9 @@ receipt and release notes may carry the reviewed links separately.
   validates ordered state transitions and terminal proof references without
   embedding provider, model, prompt, transcript, credential, or machine-path
   data. F1 now owns the first real Pilot Puppy lifecycle.
-- 2026-08-01: Chose **Vidux** as the only user-facing product. **Pilot Puppy**
-  is the approachable internal driver/mascot; `/pilot-puppy` is a maintainer
-  entry point, while `/pilot` and `pilot.*` remain compatibility aliases.
-  Optional hosted wrappers are Vidux interfaces only and do not move execution
-  or credentials off the user's Mac.
+- 2026-08-01: Adopted **Pilot Puppy** as the user-facing product umbrella.
+  Vidux remains the public repository and durable core during migration; the
+  Chief of Staff is the default reporting behavior, 90 is the on-the-go
+  multiple-choice client, and `/pilot` plus `pilot.*` remain compatibility
+  aliases behind `/pilot-puppy`. Optional hosted wrappers are Pilot Puppy
+  interfaces only and do not move execution or credentials off the user's Mac.
