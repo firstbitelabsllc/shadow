@@ -69,6 +69,15 @@ class ReleasePackageTests(unittest.TestCase):
             }.issubset(mod.REQUIRED_FILES)
         )
 
+    def test_chief_of_staff_contract_is_release_required(self) -> None:
+        self.assertTrue(
+            {
+                "browser/chief_of_staff.py",
+                "docs/reference/chief-of-staff.md",
+                "schemas/chief-of-staff.v1.json",
+            }.issubset(mod.REQUIRED_FILES)
+        )
+
     def test_lifecycle_receipt_contract_is_release_required(self) -> None:
         self.assertTrue(
             {

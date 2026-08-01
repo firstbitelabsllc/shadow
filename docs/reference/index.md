@@ -16,6 +16,8 @@ The repo's durable reference material: prompt structure, plan structure, the roo
 - [Configuration](/reference/config) summarizes `vidux.config.json` and `vidux.config.example.json`.
 - [Pilot Puppy](/reference/pilot-puppy) explains the friendly driver name,
   compatibility aliases, and the local-custody distribution boundary.
+- [Chief of Staff](/reference/chief-of-staff) defines the bounded shared brief
+  rendered by the desk view and 90.
 
 ## Suggested use
 

@@ -246,7 +246,11 @@ redaction regression prove otherwise.
   and on-the-go surfaces use the same typed Outcome/PLAN/receipt source, expose
   at most three choices, hide implementation detail by default, and create no
   second queue, runtime, or authority. Repository/package rename remains
-  deferred until a successor release proves migration safe.
+  deferred until a successor release proves migration safe. **Claim:** the
+  current lead owns the provider-neutral brief projection, schema, docs, and
+  tests in this slice. It is a small coupled contract, so it stays local rather
+  than opening a disjoint worker lane; no F3 private consumer or F4 transport
+  surface is touched.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch

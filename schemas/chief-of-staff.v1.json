@@ -1,0 +1,117 @@
+{
+  "$id": "vidux.chief-of-staff.v1",
+  "title": "Vidux Chief of Staff brief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "revision",
+    "outcome_id",
+    "state",
+    "changed",
+    "matters",
+    "blocker",
+    "action",
+    "recommendation",
+    "choices",
+    "proof"
+  ],
+  "properties": {
+    "schema": {
+      "const": "vidux.chief-of-staff.v1"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "outcome_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+    },
+    "state": {
+      "enum": [
+        "working",
+        "needs_you",
+        "blocked",
+        "finished_with_proof",
+        "not_delivered"
+      ]
+    },
+    "changed": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "matters": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "blocker": {
+      "type": ["string", "null"],
+      "maxLength": 280
+    },
+    "action": {
+      "type": ["string", "null"],
+      "maxLength": 280
+    },
+    "recommendation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "choices": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "consequence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "consequence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 280
+          }
+        }
+      }
+    },
+    "proof": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["id", "type", "locator", "verification_summary", "delivery"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$"
+        },
+        "type": {
+          "enum": ["test", "runtime", "ui", "release", "document", "other"]
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "verification_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "delivery": {
+          "enum": ["delivered", "not_delivered"]
+        }
+      }
+    }
+  }
+}
