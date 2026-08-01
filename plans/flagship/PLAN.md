@@ -267,9 +267,10 @@ redaction regression prove otherwise.
   `65fe5e92` + revision/privacy corrections `2769c362` (now included in the
   public flagship merge). F3b remains: one local revision-safe handshake that records
   `received`/`applied` or `superseded`/non-delivery in the same authority,
-  without executing, routing, or creating a queue. Private `/ninety` now
-  consumes the core in Drive mode; this row stays open until that receipt
-  round-trip is reproduced. Public F3b implementation `414096cd` adds the
+  without executing, routing, or creating a queue. Private `/ninety` has a
+  Drive-mode handoff prepared at the contract level, but no executable
+  consumer or receipt round-trip is claimed; this row stays open until its
+  owner supplies that proof. Public F3b implementation `414096cd` adds the
   pure local `receive_choice` compare-and-set and the
   `vidux.drive-receipt.v1` schema: a current visible choice records
   `received`, a stale choice records `superseded`, and hidden or mismatched
