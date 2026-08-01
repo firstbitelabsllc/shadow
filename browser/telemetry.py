@@ -19,7 +19,7 @@ import os
 import re
 from typing import Any
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 
 SCHEMA = "vidux.telemetry.v1"
@@ -60,6 +60,16 @@ _ALLOWED_FIELDS = {
     "at",
 }
 _REQUIRED_FIELDS = {"event", "outcome_id", "plan_revision", "state"}
+
+
+def _loopback_open(request: Request, timeout: float) -> Any:
+    """Open a validated loopback request without consulting proxy settings.
+
+    The endpoint is already constrained to loopback, so an ambient HTTP_PROXY
+    (without 127.0.0.1 in NO_PROXY) must not divert the request off-host.
+    """
+
+    return build_opener(ProxyHandler({})).open(request, timeout=timeout)
 
 
 class TelemetryInputError(ValueError):
@@ -215,13 +225,15 @@ def emit_local(
     event: Mapping[str, Any],
     *,
     endpoint: str | None = None,
-    opener: Callable[..., Any] = urlopen,
+    opener: Callable[..., Any] = _loopback_open,
 ) -> dict[str, Any]:
     """Send one event only to an explicitly configured loopback collector.
 
     With no endpoint, export is deliberately disabled and no network call is
-    attempted. The opener is injectable so tests can prove the payload without
-    starting a collector or contacting a service.
+    attempted. The default opener ignores ambient proxy settings so a validated
+    loopback endpoint is never diverted off-host. The opener is injectable so
+    tests can prove the payload without starting a collector or contacting a
+    service.
     """
 
     target = endpoint if endpoint is not None else os.environ.get("VIDUX_TELEMETRY_ENDPOINT", "")

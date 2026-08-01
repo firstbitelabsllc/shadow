@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 from pathlib import Path
 import sys
+from threading import Thread
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,6 +129,57 @@ class TelemetryTests(unittest.TestCase):
         self.assertNotIn("Authorization", request.headers)
         body = json.loads(request.data.decode("utf-8"))
         self.assertIn("resourceSpans", body)
+
+    def test_real_loopback_collector_receives_completion_and_failure_spans(self):
+        received = []
+
+        class Collector(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802 - stdlib handler hook
+                length = int(self.headers["Content-Length"])
+                received.append(json.loads(self.rfile.read(length).decode("utf-8")))
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *_args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Collector)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        endpoint = f"http://127.0.0.1:{server.server_port}/v1/traces"
+        proxy_env = {
+            "HTTP_PROXY": "http://127.0.0.1:9/",
+            "http_proxy": "http://127.0.0.1:9/",
+            "ALL_PROXY": "http://127.0.0.1:9/",
+            "all_proxy": "http://127.0.0.1:9/",
+        }
+        try:
+            for payload in (
+                BASE,
+                {
+                    **BASE,
+                    "event": "outcome.failed",
+                    "state": "not_delivered",
+                    "proof_status": "not_delivered",
+                    "failure_class": "host_receipt_missing",
+                },
+            ):
+                with mock.patch.dict(os.environ, proxy_env, clear=False):
+                    os.environ.pop("NO_PROXY", None)
+                    os.environ.pop("no_proxy", None)
+                    result = emit_local(build_event(payload), endpoint=endpoint)
+                self.assertEqual(result["status"], "sent")
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+        self.assertEqual(len(received), 2)
+        names = [
+            item["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"]
+            for item in received
+        ]
+        self.assertEqual(names, ["outcome.finished", "outcome.failed"])
 
 
 if __name__ == "__main__":

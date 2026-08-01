@@ -353,10 +353,11 @@ redaction regression prove otherwise.
   Langfuse exporter. Gate: a local collector receives completion/failure spans,
   the redaction suite rejects content/path/secret leakage, and disabling the
   exporter leaves the product fully functional.
-  **Active claim:** a contract-only, loopback-gated telemetry seed is being
-  added. It does not start a collector, add a runtime dependency, contact a
-  remote sink, or close this row; the F5 collector/exporter receipt remains
-  required.
+  **Claim in progress:** the contract-only seed is now being exercised against
+  a real ephemeral loopback collector for both completion and failure spans.
+  It still adds no runtime dependency, remote sink, credential path, or
+  automatic emission; the final F5 receipt must name the exact collector test
+  and state whether an optional self-hosted Langfuse adapter is warranted.
 - [ ] **F6 — Native iOS/iPad client.** Build the smallest read/status/Ask/Steer
   client after F3/F4, not before. Gate: it can reconnect, show stale/offline
   state, send one typed Steer, and never needs source or provider credentials.
