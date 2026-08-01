@@ -253,11 +253,16 @@ redaction regression prove otherwise.
   desk and on-the-go consumer both render this projection from the same
   validated Outcome plus redacted plan/receipt summary, with one shared proof
   showing at most three choices and no implementation fields.
-  **Active claim:** the current lead owns a public desk-side renderer and its
-  focused tests only. It will accept an already-validated
-  `vidux.chief-of-staff.v1` object, render the bounded report when supplied, and
-  remain inert without that semantic payload; it will not add transport, plan
-  reads, provider routing, or private 90 wiring.
+  **Claim receipt:** the public desk-side renderer shipped in merge `2a6b11a9`
+  (PR #35; source commit `d1031119`). It accepts an already-validated
+  `vidux.chief-of-staff.v1` object, renders the bounded report when supplied,
+  caps choices at three, keeps proof collapsed, and fails closed on missing,
+  malformed, private, or implementation payloads. It remains inert without
+  that semantic payload; no transport, plan reads, provider routing, or private
+  90 wiring was added. Local proof was Vitest 26/26, Python 484/484, and
+  Playwright desktop smoke 43/43; public-ready and hosted required checks were
+  green. The desk and private 90 consumers still need the same-source
+  integration proof before F0.5 can close.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch
@@ -391,3 +396,10 @@ receipt and release notes may carry the reviewed links separately.
   three and proof at one, rejects private/implementation detail, and is covered
   by the release allowlist. Desk and private 90 wiring remain the next F0.5/F3
   proof; no transport or second authority was added.
+- 2026-08-01: Shipped the optional desk consumer in public merge `2a6b11a9`
+  (PR #35). The browser loads a provider-neutral renderer before the main app;
+  it only displays a supplied `vidux.chief-of-staff.v1` payload, caps choices
+  at three, collapses proof, and fails closed on unsafe or absent input. The
+  existing shell stays unchanged when no semantic payload is present. The
+  private 90 consumer and the same-source desk/on-the-go round-trip remain
+  unproven; F0.5 stays open and F3 remains owner-bound.
