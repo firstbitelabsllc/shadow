@@ -276,12 +276,13 @@ redaction regression prove otherwise.
   document is not mutated and no host, provider, shell, network, storage, or
   queue is touched. Focused Drive plus release-contract tests pass 30/30;
   release packaging passes for 142 files and the public-ready gate passes for
-  201 tracked files. The full Python sweep is 476/478 because the pre-existing
-  README line-budget test remains red; the JS gate is not runnable in this
-  isolated worktree because `vitest` is unavailable. F3 remains open only for
-  reproducing the same receipt round-trip through the private 90 consumer. The
-  public handoff is preserved as draft PR #27; it does not claim or edit the
-  private consumer.
+  201 tracked files. The full Python sweep is 478/478 and the JS suite is 22/22;
+  hosted CI, CodeQL, gitleaks, public-ready, and language-analysis checks are
+  green. A clean release package is 142 files, 1,297,652 unpacked bytes, and
+  SHA-256 `6f703aca6cb71d4dfd6921c9cc7ea454c15426984fabe1773f855e4ae22946fe`.
+  Public PR #27 merged as `c6e96f60`; its source branch remains preserved. F3
+  remains open only for reproducing the same receipt round-trip through the
+  private 90 consumer; this public plan does not claim or edit that consumer.
 - [ ] **F4 — Local transport.** Serve the semantic API on loopback and a
   tailnet-only endpoint. Gate: local integration passes; a non-tailnet request
   is rejected; no Funnel/public listener or credential endpoint exists.
