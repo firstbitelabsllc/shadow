@@ -349,21 +349,24 @@ redaction regression prove otherwise.
   same-source desk/on-the-go receipt and a durable validated Outcome source to
   serve. The current public core has typed projections but no runtime Outcome
   store; adding transport before that proof would create a second state source.
-- [ ] **F5 — Telemetry.** Add redacted OpenTelemetry events and an optional
-  Langfuse exporter. Gate: a local collector receives completion/failure spans,
-  the redaction suite rejects content/path/secret leakage, and disabling the
-  exporter leaves the product fully functional.
+- [completed] **F5 — Local telemetry contract (MVP).** Provide an opt-in,
+  loopback-only OTLP projection from bounded semantic lifecycle facts. Gate:
+  the allowlist/redaction suite rejects prompt, transcript, content, path,
+  secret, and credential leakage; a real local collector receives completion
+  and failure spans; non-loopback/auth/proxy diversion is rejected; and
+  disabled export leaves the product functional.
   **Claim receipt:** public merge `dcf1fa0a` (PR #41; source head
   `4ce6ad15`) adds the real `TelemetryTests.test_real_loopback_collector_receives_completion_and_failure_spans`
   receipt. Focused telemetry is 8/8, the full Python suite is 492/492, the
   hosted required checks are green, and the clean release/public-ready gates
-  pass. The test proves both `outcome.finished` and `outcome.failed` OTLP spans
-  reach an ephemeral `127.0.0.1` collector even when ambient proxy variables
-  are set; redaction, disabled-export, and non-loopback rejection tests remain
-  in the same suite. This is still contract-only: no runtime dependency,
-  remote sink, credential path, or automatic emission was added. The optional
-  self-hosted Langfuse adapter and runtime producer wiring remain explicitly
-  deferred, so F5 stays open for that decision.
+  pass. The contract is caller-driven and default-off: it adds no runtime
+  dependency, automatic producer, remote sink, credential path, or relay.
+- [ ] **F5b — Optional telemetry sink and runtime producer.** Revisit a
+  self-hosted Langfuse adapter and automatic lifecycle emission only when a
+  concrete local consumer, bounded credential-free configuration, and a
+  separate end-to-end producer receipt exist. Until then, keep the MVP
+  contract-only and local; this row must not add a second state source or
+  change F0.5/F3/F4 sequencing.
 - [ ] **F6 — Native iOS/iPad client.** Build the smallest read/status/Ask/Steer
   client after F3/F4, not before. Gate: it can reconnect, show stale/offline
   state, send one typed Steer, and never needs source or provider credentials.
@@ -428,3 +431,8 @@ receipt and release notes may carry the reviewed links separately.
   existing shell stays unchanged when no semantic payload is present. The
   private 90 consumer and the same-source desk/on-the-go round-trip remain
   unproven; F0.5 stays open and F3 remains owner-bound.
+- 2026-08-01: Closed F5 for the MVP as the local telemetry contract. The real
+  loopback collector, redaction, disabled-export, non-loopback, and proxy
+  diversion proof is public; Langfuse/runtime producer work is isolated as F5b
+  and remains deferred until a concrete local consumer and end-to-end receipt
+  exist.
