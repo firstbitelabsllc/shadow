@@ -436,3 +436,8 @@ receipt and release notes may carry the reviewed links separately.
   diversion proof is public; Langfuse/runtime producer work is isolated as F5b
   and remains deferred until a concrete local consumer and end-to-end receipt
   exist.
+- 2026-08-01: Added a public same-source Chief-of-Staff projection assertion in
+  `browser/tests/unit/chief-of-staff.test.mjs`. One typed brief is normalized
+  and rendered by both the desk HTML view and the on-the-go plain-text adapter;
+  the focused suite is now 7/7. This strengthens the public half of F0.5 but
+  does not claim the private 90 consumer or close the owner-bound receipt gate.

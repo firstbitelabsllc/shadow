@@ -92,4 +92,22 @@ describe('Chief of Staff desk brief', () => {
     expect(chief.toSpeech({ ...brief(), matters: privatePath })).toBe('');
     expect(chief.toSpeech({ ...brief(), schema: 'vidux.outcome.v1' })).toBe('');
   });
+
+  it('keeps desk and on-the-go views on one typed brief source', () => {
+    const payload = brief();
+    const normalized = chief.normalize(payload);
+    const html = chief.render(payload);
+    const speech = chief.toSpeech(payload);
+
+    expect(normalized).toMatchObject({
+      revision: payload.revision,
+      outcome_id: payload.outcome_id,
+      changed: payload.changed,
+      recommendation: payload.recommendation,
+    });
+    expect(html).toContain(normalized.changed);
+    expect(html).toContain(normalized.recommendation);
+    expect(speech).toContain(normalized.changed);
+    expect(speech).toContain(normalized.recommendation);
+  });
 });
