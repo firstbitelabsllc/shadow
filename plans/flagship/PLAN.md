@@ -246,11 +246,13 @@ redaction regression prove otherwise.
   and on-the-go surfaces use the same typed Outcome/PLAN/receipt source, expose
   at most three choices, hide implementation detail by default, and create no
   second queue, runtime, or authority. Repository/package rename remains
-  deferred until a successor release proves migration safe. **Claim:** the
-  current lead owns the provider-neutral brief projection, schema, docs, and
-  tests in this slice. It is a small coupled contract, so it stays local rather
-  than opening a disjoint worker lane; no F3 private consumer or F4 transport
-  surface is touched.
+  deferred until a successor release proves migration safe. **Claim receipt:**
+  the current lead shipped the provider-neutral brief projection, schema, docs,
+  and tests in public merge `c37c26c5` (PR #33); no F3 private consumer or F4
+  transport surface was touched. **Resume predicate:** keep F0.5 open until a
+  desk and on-the-go consumer both render this projection from the same
+  validated Outcome plus redacted plan/receipt summary, with one shared proof
+  showing at most three choices and no implementation fields.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch
@@ -378,3 +380,9 @@ receipt and release notes may carry the reviewed links separately.
   multiple-choice client, and `/pilot` plus `pilot.*` remain compatibility
   aliases behind `/pilot-puppy`. Optional hosted wrappers are Pilot Puppy
   interfaces only and do not move execution or credentials off the user's Mac.
+- 2026-08-01: Shipped the shared `vidux.chief-of-staff.v1` projection in public
+  merge `c37c26c5` (PR #33). It derives one bounded report from the typed
+  Outcome/Drive source and an optional redacted plan summary, caps choices at
+  three and proof at one, rejects private/implementation detail, and is covered
+  by the release allowlist. Desk and private 90 wiring remain the next F0.5/F3
+  proof; no transport or second authority was added.
