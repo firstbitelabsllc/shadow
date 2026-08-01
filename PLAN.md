@@ -61,6 +61,9 @@ models, schedules work, or transports provider traffic.
   durable product plan is
   [`plans/outcome-console/PLAN.md`](plans/outcome-console/PLAN.md). This is a
   bounded product hypothesis, not a rename or a claim that execution exists.
+- [in_progress] Define and prove the flagship convergence described in
+  [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md). This is a successor
+  product plan, not permission to widen the current 1.2.0 release surface.
 - [pending] Triage issues and PRs after the repository is public.
 
 ## Decision Log
@@ -85,6 +88,16 @@ models, schedules work, or transports provider traffic.
 - [2026-07-29] The Outcome-first GUI may save a Steer locally, but it must not
   claim delivery or application until a compatible coding host acknowledges
   it.
+- [2026-08-01] Keep **Vidux** as the public umbrella and converge the durable
+  plan/proof kernel, Pilot driver, 90 car client, and three native host
+  adapters behind one installable product. A new name was rejected for now:
+  Wayline is already used by live software products and active marks.
+  Rebranding is deferred until the product earns a successor release; the
+  existing CLI, package, history, and links remain valid.
+- [2026-08-01] Freeze the additive `vidux.lifecycle.v1` receipt as the
+  provider-neutral transition seam. Pilot owns dispatch and acceptance; the
+  receipt records ordered state and bounded proof references without provider,
+  model, prompt, transcript, credential, or machine-path data.
 
 ## Progress
 
@@ -108,3 +121,8 @@ models, schedules work, or transports provider traffic.
   inspectable repository authority; the coding host owns execution.
 - 2026-07-29: Prepared 1.2.0 with the Outcome-first desktop/mobile view,
   truthful completed-without-proof state, and local-only Steer wording.
+- 2026-08-01: Opened the flagship convergence plan. It makes Pilot the main
+  start-to-finish driver, keeps 90 as the on-the-go A/B/C client, and preserves
+  Vidux as the provider-neutral durable authority.
+- 2026-08-01: Added the lifecycle receipt schema, examples, public reference,
+  deterministic validator, focused tests, and release-package requirements.

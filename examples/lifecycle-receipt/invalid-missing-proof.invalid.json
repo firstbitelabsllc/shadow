@@ -1,0 +1,27 @@
+{
+  "schema": "vidux.lifecycle.v1",
+  "revision": 1,
+  "outcome_id": "publish-notes",
+  "plan_revision": 3,
+  "updated_at": "2026-08-01T16:20:00Z",
+  "events": [
+    {
+      "id": "planned-001",
+      "from_state": null,
+      "to_state": "planned",
+      "at": "2026-08-01T16:00:00Z",
+      "actor": "pilot",
+      "summary": "Pilot recorded the requested outcome.",
+      "proof_ref": null
+    },
+    {
+      "id": "finished-001",
+      "from_state": "planned",
+      "to_state": "finished_with_proof",
+      "at": "2026-08-01T16:20:00Z",
+      "actor": "pilot",
+      "summary": "The outcome was marked complete without a proof reference.",
+      "proof_ref": null
+    }
+  ]
+}

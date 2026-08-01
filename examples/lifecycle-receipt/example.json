@@ -1,0 +1,54 @@
+{
+  "schema": "vidux.lifecycle.v1",
+  "revision": 1,
+  "outcome_id": "publish-notes",
+  "plan_revision": 3,
+  "updated_at": "2026-08-01T16:20:00Z",
+  "events": [
+    {
+      "id": "planned-001",
+      "from_state": null,
+      "to_state": "planned",
+      "at": "2026-08-01T16:00:00Z",
+      "actor": "pilot",
+      "summary": "Pilot recorded the requested outcome before any code change.",
+      "proof_ref": null
+    },
+    {
+      "id": "dispatched-001",
+      "from_state": "planned",
+      "to_state": "dispatched",
+      "at": "2026-08-01T16:02:00Z",
+      "actor": "pilot",
+      "summary": "Pilot assigned the smallest bounded implementation slice.",
+      "proof_ref": null
+    },
+    {
+      "id": "working-001",
+      "from_state": "dispatched",
+      "to_state": "working",
+      "at": "2026-08-01T16:04:00Z",
+      "actor": "native_host",
+      "summary": "The native coding host began the claimed worktree slice.",
+      "proof_ref": null
+    },
+    {
+      "id": "proving-001",
+      "from_state": "working",
+      "to_state": "proving",
+      "at": "2026-08-01T16:15:00Z",
+      "actor": "native_host",
+      "summary": "The host finished the edit and started the required checks.",
+      "proof_ref": null
+    },
+    {
+      "id": "finished-001",
+      "from_state": "proving",
+      "to_state": "finished_with_proof",
+      "at": "2026-08-01T16:20:00Z",
+      "actor": "pilot",
+      "summary": "Pilot accepted the bounded receipts and marked the outcome complete.",
+      "proof_ref": "tests-green"
+    }
+  ]
+}

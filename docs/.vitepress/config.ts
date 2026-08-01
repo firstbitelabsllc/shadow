@@ -45,6 +45,7 @@ const sidebar = [
       { text: 'Enforcement Hooks', link: '/reference/enforcement' },
       { text: 'Configuration', link: '/reference/config' },
       { text: 'Ingredients', link: '/reference/ingredients' },
+      { text: 'Pilot Puppy', link: '/reference/pilot-puppy' },
     ],
   },
   {

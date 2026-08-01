@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vidux.dev/schemas/drive-receipt.v1.json",
+  "title": "Vidux Drive Receipt v1",
+  "description": "A bounded local compare-and-set receipt for one typed Drive choice. It does not claim execution or route a provider.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "state",
+    "reason",
+    "observed_revision",
+    "authority_revision",
+    "next_revision",
+    "outcome_id",
+    "ask_id",
+    "option_id",
+    "steer_id",
+    "proof_ref"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "vidux.drive-receipt.v1"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["received", "superseded", "not_delivered"]
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "stale_revision",
+        "ask_closed",
+        "option_not_visible",
+        "identity_mismatch"
+      ]
+    },
+    "observed_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "authority_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "next_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "outcome_id": {
+      "$ref": "outcome-ask-steer.v1.json#/$defs/identifier"
+    },
+    "ask_id": {
+      "$ref": "outcome-ask-steer.v1.json#/$defs/identifier"
+    },
+    "option_id": {
+      "$ref": "outcome-ask-steer.v1.json#/$defs/identifier"
+    },
+    "steer_id": {
+      "$ref": "outcome-ask-steer.v1.json#/$defs/identifier"
+    },
+    "proof_ref": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "outcome-ask-steer.v1.json#/$defs/identifier" }
+      ]
+    }
+  }
+}

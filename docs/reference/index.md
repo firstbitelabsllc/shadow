@@ -14,6 +14,8 @@ The repo's durable reference material: prompt structure, plan structure, the roo
 - [Browser UI](/reference/browser) documents the local `vidux-browse` launcher plus the read-mostly browser server, artifact shelf, and anchored comment surface in `browser/`.
 - [Hooks](/reference/hooks) explains the optional git hooks in `hooks/`.
 - [Configuration](/reference/config) summarizes `vidux.config.json` and `vidux.config.example.json`.
+- [Pilot Puppy](/reference/pilot-puppy) explains the friendly driver name,
+  compatibility aliases, and the local-custody distribution boundary.
 
 ## Suggested use
 

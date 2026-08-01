@@ -13,6 +13,7 @@
     "assets/*.svg",
     "bin/*",
     "browser/safe_files.py",
+    "browser/drive_mode.py",
     "browser/server.py",
     "browser/coordination_claims.py",
     "browser/steering_mailbox.py",
