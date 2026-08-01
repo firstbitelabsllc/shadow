@@ -263,6 +263,16 @@ redaction regression prove otherwise.
   Playwright desktop smoke 43/43; public-ready and hosted required checks were
   green. The desk and private 90 consumers still need the same-source
   integration proof before F0.5 can close.
+  **Claim receipt:** the public reference on-the-go adapter is in source commit
+  `0efca758` on the preserved branch
+  `codex/pilot-puppy-chief-brief-speech-clean-20260801`. Its `toSpeech` projection
+  consumes the exact normalized `vidux.chief-of-staff.v1` payload, returns
+  concise plain speech and at most three labels, and performs no speech-engine
+  call, I/O, routing, queue, or private 90 wiring. Local proof is Vitest 28/28,
+  full Python 484/484, desktop Playwright smoke 43/43, public-ready grep
+  passed, and the development release pack contained 146 files. This is
+  evidence for the shared projection, not the private 90 consumer or the F0.5
+  close; the desk and private 90 still need one same-source integration receipt.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch

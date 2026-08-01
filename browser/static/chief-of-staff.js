@@ -92,5 +92,23 @@
     </section>`;
   }
 
-  window.ViduxChiefOfStaff = { BRIEF_SCHEMA, normalize, render };
+  // The on-the-go client uses the same normalized brief as the desk renderer.
+  // This returns plain text only; it never speaks, fetches, routes, or queues.
+  function toSpeech(brief) {
+    const safe = normalize(brief);
+    if (!safe) return "";
+    const parts = [`Pilot Puppy. ${safe.changed}`, `Why it matters: ${safe.matters}`];
+    if (safe.blocker) parts.push(`Needs you: ${safe.blocker}`);
+    if (safe.action) parts.push(`Next: ${safe.action}`);
+    parts.push(`Recommendation: ${safe.recommendation}`);
+    if (safe.choices.length) {
+      const choices = safe.choices
+        .map((choice, index) => `${String.fromCharCode(65 + index)}: ${choice.label}`)
+        .join("; ");
+      parts.push(`Choices: ${choices}.`);
+    }
+    return parts.join(" ");
+  }
+
+  window.ViduxChiefOfStaff = { BRIEF_SCHEMA, normalize, render, toSpeech };
 })();

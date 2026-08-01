@@ -74,4 +74,22 @@ describe('Chief of Staff desk brief', () => {
     expect(html).not.toContain(privateLocator);
     expect(html).not.toContain('do not display');
   });
+
+  it('projects the same bounded brief into concise on-the-go speech', () => {
+    const speech = chief.toSpeech(brief());
+
+    expect(speech).toContain('Pilot Puppy. The current move is ready for your choice.');
+    expect(speech).toContain('Needs you: Which direction should Pilot Puppy take?');
+    expect(speech).toContain('Choices: A: Hold review; B: Continue; C: Pause.');
+    expect(speech).not.toContain('Hidden fourth');
+    expect(speech).not.toContain('<');
+  });
+
+  it('fails closed for the same malformed or private payloads as the desk view', () => {
+    const privatePath = ['', 'Users', 'leo', 'private'].join('/');
+
+    expect(chief.toSpeech()).toBe('');
+    expect(chief.toSpeech({ ...brief(), matters: privatePath })).toBe('');
+    expect(chief.toSpeech({ ...brief(), schema: 'vidux.outcome.v1' })).toBe('');
+  });
 });
