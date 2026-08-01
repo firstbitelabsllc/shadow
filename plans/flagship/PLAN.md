@@ -226,8 +226,8 @@ redaction regression prove otherwise.
   `codex/vidux-f1-real-20260801` at `73fcb419`: the provider receipt named
   `f1-real-host`, proof `f1-real-proof` passed, lead acceptance was explicit,
   and the foldback was appended on that evidence branch. Projection-only runs
-  still fail closed; F2 owns parity through the other two hosts. This prepared
-  branch records the gate only; public `origin/main` has not merged it.
+  still fail closed; F2 owns parity through the other two hosts. The public
+  flagship merge now records this gate; the evidence branch remains preserved.
 - [completed] **F2 — Host parity.** Add only the three first-party adapters and capability
   probes, then reproduce the same bounded task through the other two hosts while
   recording honest capability differences. Gate: no adapter writes outside its
@@ -243,8 +243,9 @@ redaction regression prove otherwise.
   recorded the real receipt and explicit lead acceptance at `c0ee4c13`, changing
   only `f2-parity.txt` and folding proof `f2-parity-proof` into its isolated
   plan. A model list, login status, or empty provider response is not parity
-  evidence. Public `origin/main` still has not merged this prepared gate. A
-  final follow-up diagnostic against the earlier prepared ref used the
+  evidence. The public flagship merge now carries this prepared gate; the
+  evidence branches remain preserved. A final follow-up diagnostic against the
+  earlier prepared ref used the
   corrected stdin adapter at shared commit `f4c7ca57` with one exact allowed
   marker path. Cursor exited zero but emitted no `pilot.host-receipt.v1`,
   changed no files, and the host attempt was recorded as `host_receipt_missing`
@@ -263,8 +264,8 @@ redaction regression prove otherwise.
   `superseded`) visible, allowlists semantic fields, and binds the choice to
   the observed `revision`. Focused proof is `tests/test_drive_mode.py` (6/6),
   with the existing outcome validator still green (56/56). Prepared commits:
-  `65fe5e92` + revision/privacy corrections `2769c362` (not merged to
-  `origin/main`). F3b remains: one local revision-safe handshake that records
+  `65fe5e92` + revision/privacy corrections `2769c362` (now included in the
+  public flagship merge). F3b remains: one local revision-safe handshake that records
   `received`/`applied` or `superseded`/non-delivery in the same authority,
   without executing, routing, or creating a queue. Private `/ninety` now
   consumes the core in Drive mode; this row stays open until that receipt
