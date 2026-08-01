@@ -353,11 +353,17 @@ redaction regression prove otherwise.
   Langfuse exporter. Gate: a local collector receives completion/failure spans,
   the redaction suite rejects content/path/secret leakage, and disabling the
   exporter leaves the product fully functional.
-  **Claim in progress:** the contract-only seed is now being exercised against
-  a real ephemeral loopback collector for both completion and failure spans.
-  It still adds no runtime dependency, remote sink, credential path, or
-  automatic emission; the final F5 receipt must name the exact collector test
-  and state whether an optional self-hosted Langfuse adapter is warranted.
+  **Claim receipt:** public merge `dcf1fa0a` (PR #41; source head
+  `4ce6ad15`) adds the real `TelemetryTests.test_real_loopback_collector_receives_completion_and_failure_spans`
+  receipt. Focused telemetry is 8/8, the full Python suite is 492/492, the
+  hosted required checks are green, and the clean release/public-ready gates
+  pass. The test proves both `outcome.finished` and `outcome.failed` OTLP spans
+  reach an ephemeral `127.0.0.1` collector even when ambient proxy variables
+  are set; redaction, disabled-export, and non-loopback rejection tests remain
+  in the same suite. This is still contract-only: no runtime dependency,
+  remote sink, credential path, or automatic emission was added. The optional
+  self-hosted Langfuse adapter and runtime producer wiring remain explicitly
+  deferred, so F5 stays open for that decision.
 - [ ] **F6 — Native iOS/iPad client.** Build the smallest read/status/Ask/Steer
   client after F3/F4, not before. Gate: it can reconnect, show stale/offline
   state, send one typed Steer, and never needs source or provider credentials.
