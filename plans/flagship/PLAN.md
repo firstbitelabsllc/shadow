@@ -335,6 +335,10 @@ redaction regression prove otherwise.
 - [ ] **F4 — Local transport.** Serve the semantic API on loopback and a
   tailnet-only endpoint. Gate: local integration passes; a non-tailnet request
   is rejected; no Funnel/public listener or credential endpoint exists.
+  **Sequencing predicate:** do not implement this row until F0.5/F3 supply one
+  same-source desk/on-the-go receipt and a durable validated Outcome source to
+  serve. The current public core has typed projections but no runtime Outcome
+  store; adding transport before that proof would create a second state source.
 - [ ] **F5 — Telemetry.** Add redacted OpenTelemetry events and an optional
   Langfuse exporter. Gate: a local collector receives completion/failure spans,
   the redaction suite rejects content/path/secret leakage, and disabling the
