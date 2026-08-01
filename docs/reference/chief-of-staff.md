@@ -4,7 +4,7 @@ Pilot Puppy's Chief of Staff is a concise report over the same provider-neutral
 state used by Vidux and 90. It is not an agent, queue, router, background
 watcher, or acceptance authority.
 
-The pure projection lives in [`browser/chief_of_staff.py`](../../browser/chief_of_staff.py)
+The pure projection lives in [`browser/chief_of_staff.py`](https://github.com/firstbitelabsllc/vidux/blob/main/browser/chief_of_staff.py)
 and its closed output contract is [`schemas/chief-of-staff.v1.json`](../../schemas/chief-of-staff.v1.json).
 The caller supplies one validated `vidux.outcome.v1` document and, when
 available, a small redacted plan summary. The projection never reads a plan or

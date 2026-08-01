@@ -18,6 +18,8 @@ The repo's durable reference material: prompt structure, plan structure, the roo
   compatibility aliases, and the local-custody distribution boundary.
 - [Chief of Staff](/reference/chief-of-staff) defines the bounded shared brief
   rendered by the desk view and 90.
+- [Local telemetry](/reference/telemetry) defines the optional redacted event
+  contract and loopback-only export boundary.
 
 ## Suggested use
 
