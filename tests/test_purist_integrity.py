@@ -120,6 +120,7 @@ class PuristIntegrityTests(unittest.TestCase):
         self.assertIn("private/native host surfaces may retain `/pilot`", boundary)
         self.assertIn("this public repository", flagship)
         self.assertIn("exposes `/vidux`", flagship)
+        self.assertIn("public repository's maintainer/developer entry is `/vidux`", flagship)
 
 
 if __name__ == "__main__":

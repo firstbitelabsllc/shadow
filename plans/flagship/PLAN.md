@@ -32,10 +32,12 @@ not one fused mega-runtime and not a collection of competing products.
 the friendly umbrella for the Vidux core, the Chief of Staff briefing, the 90
 on-the-go client, and the hidden right-hand driver that plans, delegates, checks
 proof, and reports back. It is not a second app, install choice, queue, or
-authority. The maintainer/developer entry point remains `/pilot`; Pilot Puppy
-is the product name around that one front door. The existing `pilot.*` schemas
-and environment names remain stable. This is an additive brand/product layer,
-not a history rewrite or a second runtime.
+authority. Pilot Puppy is the product name around these compatibility front
+doors. The public repository's maintainer/developer entry is `/vidux` with
+`vidux` as the local shell. Private/native host surfaces may retain `/pilot`,
+`/leo-flow`, `pilot.*`, and
+`PILOT_*` compatibility names. This is an additive brand/product layer, not a
+history rewrite or a second runtime.
 
 The same product may later ship through three thin distribution surfaces:
 
