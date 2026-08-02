@@ -2,8 +2,8 @@
 
 **Parent authority:** [`../../PLAN.md`](../../PLAN.md)
 **Status:** provider-neutral interchange plus a local Outcome/Steer/proof
-prototype implemented; exceptional Ask dogfood and live Steer application
-remain
+prototype implemented; the canonical local Outcome source is the next gate,
+then exceptional Ask dogfood and live Steer application
 
 ## Outcome
 
@@ -129,6 +129,16 @@ Raw transcripts, provider prompts, secrets, and untrusted retrieved text never
 become this state. The coding host may derive a bounded semantic summary, but
 the durable plan and audit receipt remain the authority.
 
+### Current gate (2026-08-02)
+
+The next implementation is the smallest canonical source for one validated
+`vidux.outcome.v1` projection from the owning plan. Do not add a second outcome
+file, database, queue, router, transport, or synthetic browser payload. Until
+the existing plan can produce one revision that the desk and 90 can both read,
+the Ask example and validator remain contract proof only, and live Steer
+application remains out of scope. This is the resume predicate for the rows
+below.
+
 ## Default Recipe Boundary
 
 Recipes are versioned, tested defaults for common work—not a large prompt that
@@ -207,13 +217,16 @@ prompts, routine work produces approval theater, or proof is not trusted.
 - [completed] Build a single-screen, local-data prototype. The Outcome card,
   local Steer composer, and proof drawer are implemented and browser-proved;
   no agent, model, prompt-queue, file, or terminal controls were added.
-- [pending] Add and dogfood one exceptional Ask state in the same card. It
+- [blocked] Add and dogfood one exceptional Ask state in the same card. It
   appears only for a genuine fork and never becomes routine approval theater.
-- [pending] Run the three-person dogfood gate and record the exact places where
-  status, steering, Ask frequency, or proof trust fails.
-- [pending] Implement one end-to-end Steer loop against the existing plan and
+  Resume only after the current gate produces one validated Outcome revision.
+- [blocked] Run the three-person dogfood gate and record the exact places where
+  status, steering, Ask frequency, or proof trust fails. Resume only after the
+  typed Outcome/Ask/Steer loop has one canonical source.
+- [blocked] Implement one end-to-end Steer loop against the existing plan and
   proof stores: persist acknowledgment, supersede stale direction, surface the
-  lifecycle, and show linked proof or honest non-delivery.
+  lifecycle, and show linked proof or honest non-delivery. Resume only after the
+  current gate; do not create a second store to make this row appear green.
 - [pending] Add a recipe registry for the six initial families. Each recipe
   exposes its safety boundary, verification gate, and escalation triggers; it
   does not route models or execute work itself.
@@ -242,8 +255,8 @@ prompts, routine work produces approval theater, or proof is not trusted.
   proof-required `checkpoint`, the Outcome validator, and the real browser.
   It also caught and closed the false `Working now` state when all tasks were
   complete but outcome proof was still missing.
-- No live Steer application loop, microphone path, exceptional Ask dogfood, or
-  product-name change is claimed.
+- No canonical local Outcome source, live Steer application loop, microphone
+  path, exceptional Ask dogfood, or product-name change is claimed.
 
 ## Non-goals
 
@@ -255,8 +268,9 @@ prompts, routine work produces approval theater, or proof is not trusted.
 
 ## Resume Here
 
-Start with the exceptional Ask row on top of the already-proved local Outcome
-card, then run the full dogfood gate. Implement live Steer application only
-after the typed flow survives that dogfood. Keep provider routing and execution
-in the coding host. Do not begin microphone capture, rename Vidux, or expand
-into an IDE until the typed Steer loop is demonstrably useful.
+Start by proving the single canonical local Outcome source from the owning plan;
+the existing plan remains authority and must feed both the desk and 90 at one
+revision. Then add one exceptional Ask state, run the dogfood gate, and only
+then implement live Steer application. Keep provider routing and execution in
+the coding host. Do not begin microphone capture, rename Vidux, or expand into
+an IDE until the typed Steer loop is demonstrably useful.

@@ -407,3 +407,9 @@ receipt and release notes may carry the reviewed links separately.
   implementation fields, and matches the public plain-speech projection. F4
   remains gated only by the missing durable public Outcome source; no transport
   or second authority was introduced.
+- 2026-08-02: Thermo/Ponytail stop-work audit: the existing browser surface is
+  the highest-value reachable proof and is green across desktop, iPad, and
+  iPhone. Do not wire an exceptional Ask, live Steer, F4 transport, or F6
+  client from a synthetic payload. The next predicate is one canonical local
+  `vidux.outcome.v1` projection from the owning plan, shared by desk and 90 at
+  one revision; no second store, queue, router, or transport is allowed.
