@@ -44,12 +44,9 @@ still being gathered** (`PROOF MISSING` in the durable contract) until a reposit
 
 Root [`SKILL.md`](SKILL.md) is Pilot Puppy's public agent entry. Claude Code is the tested host for the stable `/vidux` compatibility skill mount; other hosts are untested by this skill mount. Host-owned Pilot adapters are external to this repository; this tree proves only the provider-neutral contracts. A login check or model list is not execution proof. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
 
-## Where Pilot Puppy stops
+## Where the public core stops
 
-Pilot Puppy does not schedule agents, route models, execute workers, or hold provider
-credentials. Vidux, its compatibility core, can record provider-neutral claims, but it never launches a provider
-or selects a model. The dashboard and optional checkpoint ledger are local; neither
-replaces the repository plan.
+The public Vidux compatibility core does not schedule agents, route models, execute workers, or hold provider credentials. The replaceable Pilot Puppy driver may turn an Outcome into a bounded packet for a native Codex, Claude Code, or Cursor host and accept its proof receipt, but its host-owned adapter stays outside this repository. Vidux records only provider-neutral claims; it never launches a provider or selects a model. The dashboard and optional checkpoint ledger are local; neither replaces the repository plan.
 
 `vidux checkpoint` requires proof text before completing a row and leaves its
 plan edit uncommitted unless `--commit` is explicit.
