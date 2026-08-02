@@ -259,14 +259,16 @@ redaction regression prove otherwise.
   validated Outcome; no transport, routing, second queue, or second authority was added. F4 is
   deliberately deferred until a concrete client needs private transport;
   repository/package rename remains deferred.
-- [completed] **F1 — Pilot Puppy driver contract.** The public tree preserves
-  the `/pilot` and `/leo-flow` compatibility boundary and defines the bounded
-  lifecycle handoff in `docs/reference/lifecycle-receipt.md`,
+- [completed] **F1 — Pilot Puppy driver contract.** The public tree defines the
+  bounded lifecycle handoff in `docs/reference/lifecycle-receipt.md`,
   `schemas/lifecycle-receipt.v1.json`, and
   `scripts/vidux-lifecycle-validate.py`. Projection-only behavior remains
   non-executing. A real host invocation, provider receipt, explicit lead
   acceptance, and foldback are host-authority evidence; they are not copied or
-  claimed in this public Vidux plan. F2 owns the public host-parity boundary.
+  claimed in this public Vidux plan. The private/native host surfaces retain
+  `/pilot` and `/leo-flow` compatibility boundaries; this public repository
+  exposes `/vidux` and does not claim those host skills as shipped. F2 owns the
+  public host-parity boundary.
 - [completed] **F2 — Host parity contract and direct runtime proof.** Freeze the
   three-host receipt contract and capability probes, then reproduce the same
   bounded task through the other two hosts while recording honest capability
@@ -366,10 +368,10 @@ receipt and release notes may carry the reviewed links separately.
 - 2026-08-01: Adopted **Pilot Puppy** as the user-facing product umbrella.
   Vidux remains the public repository and durable core during migration; the
   Chief of Staff is the default reporting behavior, 90 is the on-the-go
-  multiple-choice client, and `/pilot` plus `pilot.*` remain the stable
-  maintainer surface under the Pilot Puppy product name. Optional hosted
-  wrappers are Pilot Puppy interfaces only and do not move execution or
-  credentials off the user's Mac.
+  multiple-choice client, and private/native host surfaces retain `/pilot`
+  plus `pilot.*` compatibility names. The public repository exposes `/vidux`.
+  Optional hosted wrappers are Pilot Puppy interfaces only and do not move
+  execution or credentials off the user's Mac.
 - 2026-08-01: Shipped the shared `vidux.chief-of-staff.v1` projection in public
   merge `c37c26c5` (PR #33). It derives one bounded report from the typed
   Outcome/Drive source and an optional redacted plan summary, caps choices at

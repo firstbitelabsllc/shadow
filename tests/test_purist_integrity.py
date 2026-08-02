@@ -104,8 +104,22 @@ class PuristIntegrityTests(unittest.TestCase):
         self.assertIn("## Where Pilot Puppy stops", readme)
         self.assertIn("Vidux, its compatibility core, can record provider-neutral claims", normalized)
         self.assertIn("it never launches a provider or selects a model", normalized)
+        self.assertIn("Host-owned Pilot adapters are external to this repository", normalized)
+        self.assertIn("stable `/vidux` compatibility skill mount", normalized)
         self.assertIn("default `~/Development`", normalized)
         self.assertNotIn("/usr/local/bin", readme)
+
+    def test_public_boundary_does_not_claim_private_host_skills_are_shipped(self) -> None:
+        boundary = (ROOT / "docs" / "reference" / "pilot-puppy.md").read_text(
+            encoding="utf-8"
+        )
+        flagship = (ROOT / "plans" / "flagship" / "PLAN.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("public repository's shipped entry point is root `SKILL.md`", boundary)
+        self.assertIn("private/native host surfaces may retain `/pilot`", boundary)
+        self.assertIn("this public repository", flagship)
+        self.assertIn("exposes `/vidux`", flagship)
 
 
 if __name__ == "__main__":

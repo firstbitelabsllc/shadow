@@ -29,11 +29,13 @@ hides a blocked state.
 
 ## Friendly name, stable contract
 
-The maintainer entry point remains `/pilot` in a skill host and `pilot` in a
-local shell. Pilot Puppy is the product name around that one front door; it is
-not a second slash command or executable. The `pilot.*` schemas and `PILOT_*`
-environment names remain stable. This is an additive product layer; it does not
-rewrite history, rename the repository in this cycle, or create a second
+The public repository's shipped entry point is root `SKILL.md`, mounted through
+the stable `/vidux` compatibility skill, with `vidux` as its local shell. The
+private/native host surfaces may retain `/pilot`, `/leo-flow`, `pilot.*`, and
+`PILOT_*` compatibility names; those are not public entry points shipped by
+this repository. Pilot Puppy is the product name around these contracts, not a
+second slash command or executable. This is an additive product layer; it does
+not rewrite history, rename the repository in this cycle, or create a second
 runtime.
 
 ## Distribution without an install ritual
