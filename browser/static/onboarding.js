@@ -1,4 +1,4 @@
-// Pure first-run and authority-state rendering for the Vidux cockpit.
+// Pure first-run and authority-state rendering for the Pilot Puppy cockpit.
 (function () {
   function escapeText(value) {
     return String(value ?? "")
@@ -22,7 +22,7 @@
         ? `${projectCount} ${projectCount === 1 ? "project" : "projects"} found`
         : (singlePlan ? "Set the current goal" : "Choose current work"));
     const copy = onboardingState === "empty"
-      ? "Vidux needs one project with a PLAN.md before it can show the current outcome."
+      ? "Pilot Puppy needs one project with a PLAN.md before it can show the current outcome."
       : (onboardingState === "projects_found"
         ? `${projectCount} Git ${projectCount === 1 ? "project was" : "projects were"} found, but none has a PLAN.md yet.`
         : (singlePlan
@@ -45,7 +45,7 @@
           <code>${escapeText(onboarding.init_command || "vidux init --here")}</code>
           <span>Then choose Scan again.</span>
         </div>`
-      : `<p class="mission-brief-hint">Add an outcome and next step to the plan so Vidux knows what to show here.</p>`;
+      : `<p class="mission-brief-hint">Add an outcome and next step to the plan so Pilot Puppy knows what to show here.</p>`;
     return `<section class="mission-control is-empty" data-onboarding-state="${escapeAttr(onboardingState)}" aria-label="Project setup">
   <div class="mission-empty-copy">
     <div class="mission-kicker">Get started</div>

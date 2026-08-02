@@ -21,6 +21,8 @@ describe('onboarding UI', () => {
     }, []);
 
     expect(html).toContain('Add your first project');
+    expect(html).toContain('Pilot Puppy needs one project');
+    expect(html).not.toContain('Vidux needs one project');
     expect(html).toContain('<code>vidux init --here</code>');
     expect(html).toContain('data-refresh-plans');
     expect(html).not.toContain('/Users/');
@@ -35,6 +37,16 @@ describe('onboarding UI', () => {
 
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>');
+  });
+
+  it('uses the Pilot Puppy name in the plan-needed hint', () => {
+    const html = onboarding.renderEmpty({
+      state: 'needs_brief',
+      projects_total: 1,
+    }, [{ rel: 'projects/demo/PLAN.md' }]);
+
+    expect(html).toContain('so Pilot Puppy knows what to show here.');
+    expect(html).not.toContain('so Vidux knows what to show here.');
   });
 
   it('renders only concrete authority conflicts and escapes their explanation', () => {
