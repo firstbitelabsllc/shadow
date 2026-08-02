@@ -29,11 +29,12 @@ hides a blocked state.
 
 ## Friendly name, stable contract
 
-Maintainers may use `/pilot-puppy` in a skill host or `pilot-puppy` in a local
-shell. Existing `/pilot` and `pilot` callers remain supported as compatibility
-aliases, and the `pilot.*` schemas and `PILOT_*` environment names remain
-stable. This is an additive product layer; it does not rewrite history, rename
-the repository in this cycle, or create a second runtime.
+The maintainer entry point remains `/pilot` in a skill host and `pilot` in a
+local shell. Pilot Puppy is the product name around that one front door; it is
+not a second slash command or executable. The `pilot.*` schemas and `PILOT_*`
+environment names remain stable. This is an additive product layer; it does not
+rewrite history, rename the repository in this cycle, or create a second
+runtime.
 
 ## Distribution without an install ritual
 

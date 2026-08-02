@@ -32,10 +32,10 @@ not one fused mega-runtime and not a collection of competing products.
 the friendly umbrella for the Vidux core, the Chief of Staff briefing, the 90
 on-the-go client, and the hidden right-hand driver that plans, delegates, checks
 proof, and reports back. It is not a second app, install choice, queue, or
-authority. The maintainer/developer entry point is `/pilot-puppy`; `/pilot`
-remains a compatibility alias, and the existing `pilot.*` schemas and
-environment names remain stable. This is an additive brand/product layer, not
-a history rewrite or a second runtime.
+authority. The maintainer/developer entry point remains `/pilot`; Pilot Puppy
+is the product name around that one front door. The existing `pilot.*` schemas
+and environment names remain stable. This is an additive brand/product layer,
+not a history rewrite or a second runtime.
 
 The same product may later ship through three thin distribution surfaces:
 
@@ -258,8 +258,8 @@ redaction regression prove otherwise.
   deliberately deferred until a concrete client needs private transport;
   repository/package rename remains deferred.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
-  `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
-  compatibility. Codex completed one small task on local branch
+  `pilot run` seam preserves `/pilot` and `/leo-flow` compatibility. Codex
+  completed one small task on local branch
   `codex/vidux-f1-real-20260801` at `73fcb419`: the provider receipt named
   `f1-real-host`, proof `f1-real-proof` passed, lead acceptance was explicit,
   and the foldback was appended on that evidence branch. Projection-only runs
@@ -364,9 +364,10 @@ receipt and release notes may carry the reviewed links separately.
 - 2026-08-01: Adopted **Pilot Puppy** as the user-facing product umbrella.
   Vidux remains the public repository and durable core during migration; the
   Chief of Staff is the default reporting behavior, 90 is the on-the-go
-  multiple-choice client, and `/pilot` plus `pilot.*` remain compatibility
-  aliases behind `/pilot-puppy`. Optional hosted wrappers are Pilot Puppy
-  interfaces only and do not move execution or credentials off the user's Mac.
+  multiple-choice client, and `/pilot` plus `pilot.*` remain the stable
+  maintainer surface under the Pilot Puppy product name. Optional hosted
+  wrappers are Pilot Puppy interfaces only and do not move execution or
+  credentials off the user's Mac.
 - 2026-08-01: Shipped the shared `vidux.chief-of-staff.v1` projection in public
   merge `c37c26c5` (PR #33). It derives one bounded report from the typed
   Outcome/Drive source and an optional redacted plan summary, caps choices at
