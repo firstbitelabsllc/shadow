@@ -20,7 +20,9 @@ provider runtime is needed.
 
 ## Bounded follow-up
 
-Add one sentence to the unavailable-Steering state telling the operator to
-reply in the host chat with the Outcome, what is happening now, the next move,
-and proof status. Re-run this same card check after the copy change. Do not
-store a transcript or add another interaction surface.
+The one-sentence host-chat instruction shipped in PR #68 and is covered by the
+steering unit regression and the focused desktop/iPad/iPhone browser checks.
+The correction remains non-executing: it does not add an Ask, Steer runtime,
+queue, transport, or transcript store. A corrected-card human rerun is still
+required; until one ordinary person supplies the four answers, comprehension
+remains unproven.
