@@ -62,7 +62,7 @@ or implementation modules to get work done.
 | **Chief of Staff brief** | Concise status, material changes, risks, Leo's needed actions, recommendation, and proof/unknowns | execution, provider routing, acceptance, hidden background watching, a second authority |
 | **Vidux core** | `PLAN.md`, Outcome / Ask / Steer, proof references, resume, worktree and ownership contracts | provider choice, worker execution, credentials, cloud orchestration |
 | **Pilot Puppy driver** | Leo's hidden right-hand driver: plan, split, dispatch, supervise, accept, and fold receipts start-to-finish | a second plan store, raw chat memory, silent provider decisions, user-facing fleet clutter |
-| **Native host adapters** | The concrete Codex, Claude Code, and Cursor invocation and host-native lifecycle | changing the canonical plan without a receipt, exposing credentials to a remote client |
+| **Host adapter boundary** | The Codex, Claude Code, and conditional Cursor invocation and host-native lifecycle contracts | changing the canonical plan without a receipt, exposing credentials to a remote client |
 | **90** | Car/on-the-go UX: read concise status, speak one next move, present A/B/C, forward the selected Steer, round-robin ready outcomes | coding, provider routing, background observation, transcript storage, a second driver loop |
 | **Ledger** | Append-only bounded activity and handoff evidence | priority, routing, acceptance, or a second authority |
 | **Sidekick patterns** | Checkpoint, watchdog, retry, refutation, cold-review behaviors inside Pilot Puppy | a separate runtime or install choice |
@@ -178,17 +178,21 @@ Pilot Puppy's first flagship gate is one real, boring lifecycle:
 `start → freeze packet/context → invoke one native host → resume or Steer →
 prove → lead acceptance → fold back to PLAN.md → close or hand off`
 
-The lifecycle must work through Codex, Claude Code, and Cursor adapters with the
-same packet/receipt contract. A projection, model list, or empty provider
-response is never a run receipt.
+The lifecycle is proven through Codex and Claude Code today. Cursor remains a
+conditional path: a provider worker bridge is not native host parity, and a
+Cursor run counts only when the native host returns `pilot.host-receipt.v1`.
+A projection, model list, or empty provider response is never a run receipt.
 
 ### Host adapters
 
-Support exactly three first-party host adapters: Codex, Claude Code, and Cursor.
-Each adapter is a thin translation layer for the host's current native hooks,
-subagents, or task APIs. It reports capabilities and proof; it does not move
-private credentials into Vidux or invent a shared provider API that the hosts do
-not actually implement.
+Declare exactly three first-party host paths: Codex, Claude Code, and Cursor.
+Codex and Claude Code are current native adapters. Cursor is a conditional
+adapter until its native hook returns `pilot.host-receipt.v1`; the generic
+Cursor worker bridge does not satisfy this gate. Each accepted adapter is a
+thin translation layer for the host's current native hooks, subagents, or task
+APIs. It reports capabilities and proof; it does not move private credentials
+into Vidux or invent a shared provider API that the hosts do not actually
+implement.
 
 ### 90 and mobile
 
@@ -260,8 +264,9 @@ redaction regression prove otherwise.
   and the foldback was appended on that evidence branch. Projection-only runs
   still fail closed; F2 owns parity through the other two hosts. The public
   flagship merge now records this gate; the evidence branch remains preserved.
-- [completed] **F2 — Host parity.** Add only the three first-party adapters and capability
-  probes, then reproduce the same bounded task through the other two hosts while
+- [completed] **F2 — Host parity contract; runtime parity conditional.** Freeze the
+  three-host receipt contract and capability probes, then reproduce the same
+  bounded task through the other two hosts while
   recording honest capability differences. Gate: no adapter writes outside its
   assigned worktree; missing host, auth, or proof is an explicit
   blocked/non-delivery result; no lossy lowest-common-denominator contract.
