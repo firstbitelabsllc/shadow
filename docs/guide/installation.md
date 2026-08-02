@@ -1,8 +1,10 @@
-# Installation
+# Install Pilot Puppy
 
-Vidux has two CLI install surfaces: a source checkout for contributors and
-skill development, or a locally built npm tarball for the global CLI and local
-browser. Claude Code can also load the checkout as a skill.
+Pilot Puppy has two local install surfaces: a source checkout for contributors
+and skill development, or a locally built npm tarball for the global CLI and
+local browser. The stable `vidux` command and `/vidux` skill path are the
+compatibility entry points for this release. Claude Code can load the checkout
+as a skill.
 
 ## Prerequisites
 
@@ -10,9 +12,9 @@ browser. Claude Code can also load the checkout as a skill.
 - Python 3.9+
 - Git for a source checkout
 - Node 20+ and npm for a tarball install or maintainer verification
-- [Claude Code](https://claude.ai/code) only when using Vidux as a slash-command skill
+- [Claude Code](https://claude.ai/code) only when using Pilot Puppy as a slash-command skill
 
-## Install from a source checkout
+## Install Pilot Puppy from a source checkout
 
 ```bash
 git clone https://github.com/firstbitelabsllc/vidux.git
@@ -23,7 +25,7 @@ vidux --version
 If `/usr/local/bin` is not writable, add `/path/to/vidux/bin` to `PATH`
 instead. The CLI self-locates through either form.
 
-## Install a verified tarball
+## Install a verified Pilot Puppy tarball
 
 From a trusted source checkout:
 
@@ -47,17 +49,19 @@ SHA-256 output, exact version agreement, required runtime files, tracked-only
 contents, and bounded size. Local plans, evidence, evaluations, tests, and
 generated state are excluded.
 
-## Install the Claude Code skill
+## Install the Pilot Puppy skill
 
 ```bash
 ln -sfn /path/to/vidux ~/.claude/skills/vidux
 ```
 
-Replace `/path/to/vidux` with your clone path. `/vidux` is then a slash command in any Claude Code session.
+Replace `/path/to/vidux` with your clone path. `/vidux` is the stable
+compatibility slash command in any Claude Code session; its user-facing product
+name is Pilot Puppy.
 
 ## Optional: Git hooks
 
-Vidux ships small repository-local hooks. Review each script and preserve any
+Pilot Puppy ships small repository-local hooks. Review each script and preserve any
 existing target hook before installing it:
 
 ```bash
@@ -118,7 +122,7 @@ store outside the package root; see [Configuration](/reference/config).
 in a packaged install; warnings do not hide hard Python, config, token-permission,
 or stale-runtime failures.
 
-For the optional Claude Code skill, open a session and run:
+For the optional Pilot Puppy Claude Code skill, open a session and run:
 
 ```
 /vidux "test project"
@@ -132,4 +136,5 @@ Claude Code is the tested skill integration. Other coding hosts can read
 `SKILL.md` as instructions, but this release does not claim a tested native
 skill install or lifecycle integration for them.
 
-See [Commands Reference](/reference/commands) for the shipped CLI surface.
+See [Commands Reference](/reference/commands) for the shipped Pilot Puppy CLI
+surface and its stable `vidux` compatibility commands.

@@ -193,3 +193,7 @@ models, schedules work, or transports provider traffic.
   `npm run release:verify` package check passed with SHA-256
   `bacd8e706797e9d023ba034bc0be399643a43df5ce10cac82d61a7c8cef73ca9`, and
   `npm run public-ready:grep` passed. Card comprehension remains unproven.
+- 2026-08-02: Clarified the remaining public entry guides: Pilot Puppy is the
+  product name, while the stable `vidux` CLI and `/vidux` skill path remain the
+  compatibility entry points. No technical identifier, repository slug, schema,
+  install path, or history was renamed.

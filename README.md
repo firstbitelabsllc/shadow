@@ -42,7 +42,7 @@ plan. Missing or unlinked proof stays explicit as **No proof yet** or **Proof is
 still being gathered** (`PROOF MISSING` in the durable contract) until a repository evidence file exists.
 ## Agent skill
 
-Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code is the tested host for this Vidux skill mount; other hosts are untested by this skill mount. The shared Pilot host adapter separately records bounded Codex, Claude Code, and direct Cursor proof; a login check or model list is not execution proof. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
+Root [`SKILL.md`](SKILL.md) is Pilot Puppy's agent entry. Claude Code is the tested host for the stable `/vidux` compatibility skill mount; other hosts are untested by this skill mount. The shared Pilot host adapter separately records bounded Codex, Claude Code, and direct Cursor proof; a login check or model list is not execution proof. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
 
 ## Where Pilot Puppy stops
 

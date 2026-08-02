@@ -1,11 +1,12 @@
-# Quick Start
+# Pilot Puppy Quick Start
 
-Install Vidux, create an owning plan, and leave a cold-resume handoff.
+Install Pilot Puppy, create an owning plan, and leave a cold-resume handoff.
 
-## 1. Install Vidux
+## 1. Install Pilot Puppy
 
-Vidux is an agent skill first: it gives the coding host the plan/proof/resume
-contract. Mount it once in the tested host:
+Pilot Puppy is an agent skill first: it gives the coding host the
+plan/proof/resume contract. Mount the stable `vidux` compatibility skill once
+in the tested host:
 
 ```bash
 git clone https://github.com/firstbitelabsllc/vidux.git ~/Development/vidux
@@ -13,10 +14,12 @@ mkdir -p "$HOME/.claude/skills"
 ln -sfn "$HOME/Development/vidux" "$HOME/.claude/skills/vidux"
 ```
 
-This quick start covers the Claude Code skill mount. Pilot's shared direct
+This quick start covers the Claude Code skill mount. Pilot Puppy's shared direct
 Cursor adapter has a separate bounded host-receipt proof; it does not turn
-Vidux into a provider runtime. Use [`SKILL.md`](https://github.com/firstbitelabsllc/vidux/blob/main/SKILL.md)
-as the Vidux contract. To add the CLI to your PATH:
+the compatibility core into a provider runtime. Use
+[`SKILL.md`](https://github.com/firstbitelabsllc/vidux/blob/main/SKILL.md) as
+the Pilot Puppy contract. The `vidux` command remains the stable compatibility
+CLI. To add it to your PATH:
 
 ```bash
 mkdir -p "$HOME/.local/bin"
@@ -28,7 +31,7 @@ vidux --version
 See [Installation](/guide/installation) for an optional locally-built tarball
 (`npm pack`) that does not require keeping the checkout on `PATH`.
 
-## 2. Start a Session
+## 2. Start a Pilot Puppy session
 
 Claude Code is the tested skill host. Open it in the repository and request:
 
@@ -38,13 +41,14 @@ Claude Code is the tested skill host. Open it in the repository and request:
 
 The skill should read repository instructions and reuse an existing `PLAN.md`.
 If none exists, it can scaffold one and replace the starter row with a concrete
-outcome and gate before editing code. The coding host—not Vidux—executes the
-work.
+outcome and gate before editing code. The coding host—not the Pilot Puppy
+compatibility core—executes the work.
 
-The same plumbing is available directly when you'd rather drive it yourself:
+The same local plumbing is available directly when you'd rather drive it
+yourself:
 
 ```bash
-cd /path/to/your-project   # the repo you want Vidux to track
+cd /path/to/your-project   # the repo you want Pilot Puppy to track
 vidux init --here
 vidux status
 vidux browse --root .   # loopback, read-mostly local cockpit
@@ -59,7 +63,7 @@ The skill resolves repository state before the coding host acts:
 3. Read the proof named by the active row.
 4. Resume `[in_progress]`; otherwise select the highest unblocked row.
 
-Vidux does not select a model, launch a worker, schedule a session, or manage
+Pilot Puppy does not select a model, launch a worker, schedule a session, or manage
 provider authentication. Those are coding-host responsibilities.
 
 ## 4. Establish the First Row
@@ -143,7 +147,7 @@ optional local projection; it is not authority and is never a publication gate.
 
 ## 6. Resume After an Interruption
 
-Vidux does not auto-recover a session. A new reader reconstructs state by
+Pilot Puppy does not auto-recover a session. A new reader reconstructs state by
 reading `PLAN.md`, checking the current revision and working tree, and opening
 the row's linked proof. Preserve unexplained work before editing or creating a
 duplicate lane.
@@ -152,7 +156,7 @@ duplicate lane.
 
 Verify the plan's stated outcome and final gate, record the result, and stop.
 Finding or scheduling more work is a coding-host or maintainer decision, not an
-automatic Vidux runtime behavior.
+automatic compatibility-runtime behavior.
 
 ## Common Patterns
 

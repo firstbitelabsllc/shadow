@@ -1,13 +1,14 @@
-# Entrypoints and CLI Reference
+# Pilot Puppy Entrypoints and CLI Reference
 
-Vidux ships one discoverable skill surface: root `SKILL.md`. Loading `/vidux`
-activates that plan/proof/resume contract. Historical `commands/` wrappers were
-removed because recursive plugin discovery exposed them as competing skills.
+Pilot Puppy ships one discoverable skill surface: root `SKILL.md`. Loading the
+stable `/vidux` compatibility command activates that plan/proof/resume
+contract. Historical `commands/` wrappers were removed because recursive plugin
+discovery exposed them as competing skills.
 
 The read-only status board remains available as `vidux status`; it is a shell
 CLI subcommand, not a second `/vidux-status` skill.
 
-## Root `/vidux` skill
+## Root `/vidux` compatibility skill
 
 Root `SKILL.md` owns the plan-first cycle. On activation it should:
 
@@ -19,9 +20,10 @@ Root `SKILL.md` owns the plan-first cycle. On activation it should:
 4. Verify mechanically, then record the plan state and linked proof needed for
    another session or agent to resume.
 
-## Shell CLI
+## Stable `vidux` shell CLI
 
-`bin/vidux` exposes helper subcommands that back the discipline:
+`bin/vidux` exposes the compatibility helper subcommands that back Pilot
+Puppy's discipline:
 
 - `vidux status [--root <path>] [--focus <repo>...] [--all] [--json]` renders
   task counts, progress, remaining `[ETA: Xh]` hours, and last activity across
@@ -29,7 +31,8 @@ Root `SKILL.md` owns the plan-first cycle. On activation it should:
 - `vidux init --here` is the canonical first-run path and creates a
   cockpit-ready `PLAN.md` in the current project. The compatibility form
   `vidux init <slug>` requires `--plan-store <path>`, `VIDUX_PLAN_STORE`, or a
-  live config with a persistent plan-store path outside the Vidux install.
+  live config with a persistent plan-store path outside the Pilot Puppy
+  compatibility install.
   Both refuse to overwrite and start with an explicit unproven result.
 - `vidux browse` starts the local cockpit (see [Browser](/reference/browser)).
 - `python3 scripts/vidux-config.py path|check|show|init` resolves and validates
