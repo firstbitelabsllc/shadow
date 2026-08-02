@@ -644,6 +644,14 @@ test.describe('vidux-browse smoke', () => {
 
     await page.unroute('**/api/steering**');
     await page.route('**/api/steering**', async route => {
+      await route.fulfill({ status: 409, body: 'not ready' });
+    });
+    await page.reload();
+    await expect(inbox.locator('.steering-empty')).toContainText(
+      'reply in your host chat with four short answers',
+    );
+
+    await page.route('**/api/steering**', async route => {
       await route.abort('failed');
     });
     await page.reload();

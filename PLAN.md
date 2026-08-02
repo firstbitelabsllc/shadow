@@ -69,6 +69,10 @@ models, schedules work, or transports provider traffic.
   Keep the current 1.2.0 surface narrow and use
   [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for evidence-triggered
   follow-ups; do not build another interaction to manufacture this receipt.
+- [in_progress] Clarify the non-executing response path exposed by the first
+  dogfood: when local steering is unavailable, tell the person to answer the
+  four questions in their host chat. Re-run the same card check after this
+  copy-only correction; do not add an Ask, Steer runtime, queue, or transport.
 - [deferred] Triage public issues and PRs only when an assigned issue changes
   the current Outcome gate; it is not a second work queue.
 
@@ -122,6 +126,11 @@ models, schedules work, or transports provider traffic.
   resume only when `evidence/outcome-card-dogfood.md` contains the four
   ordinary-human answers. No Ask, voice, routing, rename, or second runtime
   work is opened while that predicate is false.
+- [2026-08-02] First ordinary card dogfood exposed a real comprehension gap:
+  the operator saw `Needs attention` and `Steering unavailable (409)` but did
+  not know what response would unblock the check. Record the failed receipt,
+  add one host-chat instruction to that unavailable state, and rerun the same
+  read-only check. This is copy-only; it does not make Steering live.
 - [2026-08-02] Merged the canonical Outcome-source slice as PR #55 at
   `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b0`. Hosted CI, CodeQL, gitleaks,
   public-ready, and Graphite gates passed. The durable next move is card

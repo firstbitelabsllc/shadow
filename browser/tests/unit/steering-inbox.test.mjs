@@ -38,4 +38,19 @@ describe('one-shot steering inbox', () => {
     expect(document.activeElement).toBe(retry);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  it('explains the host-chat response when local steering is unavailable', async () => {
+    fetchImpl = vi.fn(async () => ({ ok: false, status: 409 }));
+    document.body.innerHTML = inbox.render('/repo/PLAN.md');
+
+    await inbox.refresh('/repo/PLAN.md');
+
+    expect(document.querySelector('[data-steering-inbox]')?.getAttribute('data-steering-state')).toBe(
+      'unavailable',
+    );
+    expect(document.querySelector('.steering-empty')?.textContent).toContain(
+      'reply in your host chat with four short answers',
+    );
+    expect(document.querySelector('[data-steering-form]')?.hasAttribute('hidden')).toBe(true);
+  });
 });

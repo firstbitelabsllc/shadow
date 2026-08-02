@@ -27,6 +27,10 @@
     invalid_intent: "This steer could not be applied safely.",
   };
 
+  const UNAVAILABLE_COPY = {
+    409: "Change direction is not available in this view yet. For this check, reply in your host chat with four short answers: outcome, what is happening now, next move, and proof status.",
+  };
+
   function escapeText(value) {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -127,7 +131,7 @@
       if (!res.ok) {
         const message = res.status === 403
           ? "Steering is available only from the local Mac."
-          : `Steering unavailable (${res.status}).`;
+          : (UNAVAILABLE_COPY[res.status] || `Steering unavailable (${res.status}).`);
         panel.setAttribute("data-steering-state", "unavailable");
         panel.querySelector("[data-steering-form]")?.setAttribute("hidden", "");
         replaceHTMLIfChanged(
