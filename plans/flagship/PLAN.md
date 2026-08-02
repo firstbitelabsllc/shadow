@@ -249,9 +249,9 @@ redaction regression prove otherwise.
   same-source receipt are recorded in
   [`evidence/2026-08-02-private-chief-of-staff-receipt.md`](evidence/2026-08-02-private-chief-of-staff-receipt.md).
   The desk and 90 render the same bounded payload from one validated Outcome;
-  no transport, routing, second queue, or second authority was added. F4
-  remains gated only on a durable Outcome source; repository/package rename
-  remains deferred.
+  no transport, routing, second queue, or second authority was added. F4 is
+  deliberately deferred until a concrete client needs private transport;
+  repository/package rename remains deferred.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch
@@ -295,16 +295,17 @@ redaction regression prove otherwise.
   private-consumer half is recorded once in
   [`evidence/2026-08-02-private-90-drive-receipt.md`](evidence/2026-08-02-private-90-drive-receipt.md).
   F3 is complete; F0.5 is now complete through the owner-supplied
-  Chief-of-Staff report-surface receipt, and F4 stays gated on a durable
-  Outcome source.
-- [ ] **F4 — Local transport.** Serve the semantic API on loopback and a
-  tailnet-only endpoint. Gate: local integration passes; a non-tailnet request
-  is rejected; no Funnel/public listener or credential endpoint exists.
-  **Sequencing predicate:** F0.5/F3 now supply the same-source desk/on-the-go
-  receipt. Do not implement this row until a durable validated Outcome source
-  exists to serve; the current public core has typed projections but no runtime
-  Outcome store, and adding transport before that proof would create a second
-  state source.
+  Chief-of-Staff report-surface receipt. F4 is deliberately deferred until a
+  concrete on-the-go client needs private transport.
+- [deferred] **F4 — Local transport.** Serve the semantic API on loopback and a
+  tailnet-only endpoint only after a concrete on-the-go client requires it.
+  The transport mechanism is technically feasible, but it is not the next
+  product proof: it adds a network admission and privacy surface without
+  answering whether a person understands or trusts the existing local Outcome
+  card. Resume only with a named 90/iOS/client use case, one exact read/write
+  contract, and a local integration receipt that rejects non-tailnet access.
+  Until then, keep the canonical PLAN.md-derived source local and do not add a
+  listener, router, queue, credential endpoint, or second state source.
 - [completed] **F5 — Local telemetry contract (MVP).** Provide an opt-in,
   loopback-only OTLP projection from bounded semantic lifecycle facts. Gate:
   the allowlist/redaction suite rejects prompt, transcript, content, path,
@@ -404,12 +405,19 @@ receipt and release notes may carry the reviewed links separately.
 - 2026-08-02: Closed F0.5 with the owner-supplied private Chief-of-Staff
   consumer and same-source receipt. The private adapter preserves the Outcome
   revision and identity, presents only A/B/C, strips proof locators and
-  implementation fields, and matches the public plain-speech projection. F4
-  remains gated only by the missing durable public Outcome source; no transport
-  or second authority was introduced.
+  implementation fields, and matches the public plain-speech projection. The
+  canonical source gate is now satisfied; F4 remains deliberately deferred
+  because no concrete client needs transport yet. No transport or second
+  authority was introduced.
 - 2026-08-02: Thermo/Ponytail stop-work audit: the existing browser surface is
   the highest-value reachable proof and is green across desktop, iPad, and
   iPhone. Do not wire an exceptional Ask, live Steer, F4 transport, or F6
   client from a synthetic payload. The next predicate is one canonical local
   `vidux.outcome.v1` projection from the owning plan, shared by desk and 90 at
   one revision; no second store, queue, router, or transport is allowed.
+- 2026-08-02: Follow-up focus audit after the canonical source merged: F4 is
+  deliberately deferred, not blocked by missing code. Transport is a separate
+  networking/security surface and does not validate the core promise. The next
+  move is local human dogfood of the existing Outcome/Chief-of-Staff card;
+  resume F4 only when a named on-the-go client needs a private connection and
+  supplies the exact contract and rejection proof.
