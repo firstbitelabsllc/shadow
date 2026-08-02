@@ -205,7 +205,8 @@ a plan editor, or a worker dashboard:
 - state the Outcome without naming a repository, provider, or implementation;
 - explain what is happening now and whether the system needs them;
 - identify the next useful action (or say that no action is needed); and
-- find the final proof or honest non-delivery state.
+- find final proof or non-delivery when present, or correctly identify that no
+  terminal proof is available yet.
 
 Record confusion and recovery, not only task completion. Do not seed an Ask or
 require a delivered Steer for this first gate: those are follow-ups only when

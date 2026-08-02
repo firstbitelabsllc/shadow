@@ -38,7 +38,8 @@ scans `VIDUX_DEV_ROOT` (default `~/Development`). [Config](vidux.config.example.
 <p align="center"><img src="assets/vidux-mobile.png" alt="The same Vidux outcome view on a phone, stacked in reading order: outcome, current move, steering, then proof details." width="390" /></p>
 The card answers: What is the outcome? What is happening now? Does the work need me?
 Where is the proof? Open **See proof and plan details** for evidence and the full
-plan. `PROOF MISSING` remains explicit until evidence exists.
+plan. Missing or unlinked proof stays explicit as **No proof yet** or **Proof is
+still being gathered** (`PROOF MISSING` in the durable contract) until a repository evidence file exists.
 ## Agent skill
 
 Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code is the tested host for this Vidux skill mount; other hosts are untested by this skill mount. The shared Pilot host adapter separately records bounded Codex, Claude Code, and direct Cursor proof; a login check or model list is not execution proof. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.

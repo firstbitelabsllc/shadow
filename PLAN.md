@@ -29,29 +29,24 @@ models, schedules work, or transports provider traffic.
 
 ## Operator Brief
 
-- Status: 1.2.0 Outcome-first GUI source; release identity requires an exact
-  matching tag and GitHub Release. The historical 1.1.1 release is unchanged.
+- Status: working
 - Outcome ID: vidux-public
-- Outcome Revision: 2
-- Outcome Updated At: 2026-08-02T04:57:24Z
+- Outcome Revision: 3
+- Outcome Updated At: 2026-08-02T07:09:21Z
 - Outcome State: working
-- Outcome: keep the minimal public surface — `init`, `status`, `browse`,
-  `checkpoint`, `doctor` — with tests, release-package verification, and the
-  public-ready gate wired into CI.
-- Next: dogfood the existing canonical Outcome card and its proof/state wording
-  before adding any new interaction. Ask, live Steer, transport, router,
-  queue, and iOS work remain deferred until a real user fork proves they are
-  necessary.
-- Validation: `npm run verify` (tests + public-ready gate) and
-  `npm run release:verify`.
+- Outcome: Help a person understand what the work is trying to achieve, what is happening now, and where to verify proof without opening code or agent machinery.
+- Next: Correct this card's plan wording, then run one ordinary four-question comprehension dogfood before adding any new interaction.
+- Validation: Run the public tests and release checks, then record one bounded human card-comprehension receipt.
+- Evidence: evidence/outcome-card-dogfood.md
 
 ## Outcome Scorecard
 
-| Metric | Current | Target | Proof |
-|---|---|---|---|
-| Test suites | green | green | `npm test` |
-| Package byte-identity | passing | passing | `npm run release:verify` |
-| Public-ready gate | passing | passing | `npm run public-ready:grep` |
+| Metric | Baseline | Current | Target | Status | Proof |
+|---|---|---|---|---|---|
+| Test suites | required | green | green | unproven | `npm test` |
+| Package byte-identity | required | passing | passing | unproven | `npm run release:verify` |
+| Public-ready gate | required | passing | passing | unproven | `npm run public-ready:grep` |
+| Card comprehension | not run | not run | four accurate answers | unproven | evidence/outcome-card-dogfood.md |
 
 ## Tasks
 
@@ -67,12 +62,13 @@ models, schedules work, or transports provider traffic.
   `vidux.outcome.v1` source only after real Outcome-card dogfood shows a
   genuine fork. Do not build an Ask parser, answer flow, second state store,
   or approval queue to prove the concept.
-- [in_progress] Dogfood the flagship convergence through the existing
-  canonical Outcome card and proof/state wording. The source predicate is now
-  satisfied; keep the current 1.2.0 surface narrow and use
-  [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for evidence-triggered
-  follow-ups.
-- [pending] Triage issues and PRs after the repository is public.
+- [in_progress] Correct the canonical plan-derived Outcome data (plain-language
+  brief, valid scorecard, proof target, and umbrella wording), then dogfood the
+  existing Outcome card and proof/state wording. Keep the current 1.2.0 surface
+  narrow and use [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for
+  evidence-triggered follow-ups.
+- [deferred] Triage public issues and PRs only when an assigned issue changes
+  the current Outcome gate; it is not a second work queue.
 
 ## Decision Log
 
@@ -96,11 +92,10 @@ models, schedules work, or transports provider traffic.
 - [2026-07-29] The Outcome-first GUI may save a Steer locally, but it must not
   claim delivery or application until a compatible coding host acknowledges
   it.
-- [2026-08-01] Keep **Vidux** as the public umbrella and converge the durable
-  plan/proof kernel, Pilot driver, 90 car client, and three native host
-  adapters behind one installable product. A new name was rejected for now:
-  Wayline is already used by live software products and active marks.
-  Rebranding is deferred until the product earns a successor release; the
+- [2026-08-01] Keep **Pilot Puppy** as the user-facing product umbrella and
+  keep **Vidux** as the public repository and durable plan/proof core. Converge
+  the Pilot driver, 90 car client, and three native host adapters behind one
+  installable product. A repository/package rename remains deferred; the
   existing CLI, package, history, and links remain valid.
 - [2026-08-01] Freeze the additive `vidux.lifecycle.v1` receipt as the
   provider-neutral transition seam. Pilot owns dispatch and acceptance; the
@@ -124,6 +119,12 @@ models, schedules work, or transports provider traffic.
   `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b0`. Hosted CI, CodeQL, gitleaks,
   public-ready, and Graphite gates passed. The durable next move is card
   dogfood; no new runtime, queue, router, or Ask surface is implied.
+- [2026-08-02] The live card gate is data-first: the Operator Brief now uses
+  one-line human fields, an explicit Outcome revision, the shipped six-column
+  scorecard shape, and a bounded dogfood proof target. A working Outcome with
+  no terminal receipt must say that proof is not available yet; it must not
+  imply completion. Ask, live Steer, routing, transport, and new UI remain
+  deferred until a real operator exposes a missing decision.
 
 ## Progress
 

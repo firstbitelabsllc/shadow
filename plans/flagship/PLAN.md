@@ -109,9 +109,10 @@ what Pilot Puppy recommends next**. It may include one proof link or bounded
 receipt, while implementation detail stays collapsed unless Leo asks for it.
 
 When Leo is driving, 90 presents that brief as speech plus at most three
-choices. At a desk, the same brief is the default Vidux/Pilot Puppy view. Both
-surfaces derive from the same Outcome, PLAN, receipts, and live evidence; neither
-creates a second queue, memory, or acceptance authority.
+choices. At a desk, the existing Outcome card is the default view and the typed
+Chief-of-Staff projection is available in its details. Both surfaces derive
+from the same Outcome, PLAN, receipts, and live evidence; neither creates a
+second queue, memory, or acceptance authority.
 
 ## Why this survives vendor catch-up
 
