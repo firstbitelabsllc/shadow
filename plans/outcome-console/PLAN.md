@@ -137,7 +137,8 @@ The owning plan now provides the smallest canonical source for one validated
 explicit Outcome identity, revision, timestamp, state, summary, and current
 move; the browser attaches the same document to its Drive and Chief-of-Staff
 projections. Local proof preserved one revision and Outcome id through the
-validator, desk projections, and the private 90 client; PR #55 merged that
+validator and desk projections; external consumer validation remains outside
+the public source; PR #55 merged that
 source to public main at `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b` after green
 hosted CI, CodeQL, gitleaks, public-ready, and Graphite gates. Do not add a
 second outcome file, database, queue, router, transport, synthetic browser
@@ -224,7 +225,8 @@ three build/bug-fix/release scenarios only after this first gate passes.
   local Steer composer, and proof drawer are implemented and browser-proved;
   no agent, model, prompt-queue, file, or terminal controls were added.
 - [completed] Add the canonical plan-derived Outcome source and feed the same
-  typed document to the desk, Drive, and private 90 Chief-of-Staff adapters.
+  typed document to the desk, Drive, and the provider-neutral on-the-go
+  projection contract.
   [Evidence: `browser/outcome_source.py`, `tests/test_outcome_source.py`,
   canonical validator exit `0`, same-revision semantic check; PR #55 merged at
   `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b`; hosted gates green]

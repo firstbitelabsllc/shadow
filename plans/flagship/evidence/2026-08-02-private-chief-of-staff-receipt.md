@@ -1,27 +1,25 @@
-# F0.5 private Chief-of-Staff receipt
+# F0.5 public Chief-of-Staff semantic-boundary note
 
-This is a sanitized semantic receipt for the private 90 Chief-of-Staff client.
-It contains no transcript, screen, command path, provider, credential, or raw
-source content.
+This file is retained as a public-safe contract note. It is not a private
+execution receipt and contains no external repository locator, source
+revision, provider, credential, machine path, transcript, or raw payload.
+External on-the-go consumer validation is intentionally outside this public
+repository and is not claimed here.
 
-## Source references
+## Public proof surface
 
-| Surface | Exact reference |
-| --- | --- |
-| Public Vidux projection | `firstbitelabsllc/vidux` `e4e60968afad2dad0e0bfd0b0a5b481eb0d6a87` |
-| Private 90 implementation | ai-leo PR #209; source `7d63c775fdd277962e7c12e8b0f94220a567efa4`; private main `5f58daae358ab8b3b132ef2eb13b15c69082dfad` |
-| Private focused unit gate | `test_chief_client.py`: 6/6 |
-| Public focused projection gate | `test_chief_of_staff` + `test_drive_mode`: 16/16 |
+The maintained Vidux tree defines and tests the typed
+`vidux.chief-of-staff.v1` projection:
 
-## One same-source run
+- `browser/chief_of_staff.py` accepts only bounded semantic fields and rejects
+  implementation or private detail.
+- `browser/static/chief-of-staff.js` renders the same provider-neutral brief,
+  caps choices, and fails closed on unsafe input.
+- `tests/test_chief_of_staff.py` and
+  `browser/tests/unit/chief-of-staff.test.mjs` cover projection, rendering,
+  escaping, and privacy rejection.
 
-One validated `vidux.outcome.v1` document at revision `4` was projected by the
-public Chief-of-Staff adapter and consumed by the private 90 adapter. Both
-retained Outcome `publish-notes`; 90 exposed exactly `A/B/C`, omitted the proof
-locator and private/provider fields, and reproduced the public plain-speech
-string. The source document was unchanged.
-
-The combined private record, Drive, and Chief client gate was 17/17 and the
-private record validator returned `0`. This proves semantic presentation from
-one source revision only; it does not prove execution, routing, or provider
-selection.
+These checks prove the public semantic presentation boundary only. They do
+not prove that an external consumer ran, selected a provider, executed coding
+work, or transported credentials. An external consumer may validate this
+contract in its own authority without adding a receipt to the public source.

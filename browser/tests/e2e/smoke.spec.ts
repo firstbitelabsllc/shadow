@@ -70,7 +70,7 @@ test.describe('vidux-browse smoke', () => {
 
   test('GET / renders topbar', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.topbar h1')).toHaveText('Vidux');
+    await expect(page.locator('.topbar h1')).toHaveText('Pilot Puppy');
   });
 
   test('clean first run gives one public setup command and rescans', async ({ page }) => {

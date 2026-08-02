@@ -3,9 +3,10 @@ name: vidux
 description: "Thin plan, proof, and resume discipline for work that must survive sessions, agents, and tools."
 ---
 
-# Vidux
+# Pilot Puppy (Vidux compatibility skill)
 
-Vidux is a repository-owned plan/proof/resume contract. It is not a model
+Pilot Puppy is a repository-owned plan/proof/resume contract under the stable
+Vidux compatibility namespace. It is not a model
 router, scheduler, worker runtime, or provider transport.
 
 Use it when work crosses sessions, workers, releases, or interruptions and a

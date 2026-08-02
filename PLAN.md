@@ -126,6 +126,12 @@ models, schedules work, or transports provider traffic.
   resume only when `evidence/outcome-card-dogfood.md` contains the four
   ordinary-human answers. No Ask, voice, routing, rename, or second runtime
   work is opened while that predicate is false.
+- [2026-08-02] Product naming call: **Pilot Puppy** is the visible product
+  brand and user-facing umbrella. Keep `Vidux`, `vidux.*` schemas, existing
+  CLI/package identifiers, repository slug, and compatibility links as the
+  stable public namespace until a separately proved migration can preserve
+  installs, integrations, and history. Do not perform a global text
+  replacement or history rewrite as branding work.
 - [2026-08-02] First ordinary card dogfood exposed a real comprehension gap:
   the operator saw `Needs attention` and `Steering unavailable (409)` but did
   not know what response would unblock the check. Record the failed receipt,

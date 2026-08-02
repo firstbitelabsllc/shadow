@@ -474,7 +474,7 @@ function renderOpsTruth() {
   const truth = state.opsTruth;
   if (!truth) {
     return `
-      <section class="ops-truth is-loading" id="ops-truth" aria-label="Vidux local truth">
+      <section class="ops-truth is-loading" id="ops-truth" aria-label="Pilot Puppy local truth">
         <div class="ops-truth-head">
           <span class="ops-kicker">Local truth</span>
           <span class="ops-chip is-muted">loading</span>
@@ -483,7 +483,7 @@ function renderOpsTruth() {
   }
   if (truth.error) {
     return `
-      <section class="ops-truth is-error" id="ops-truth" aria-label="Vidux local truth">
+      <section class="ops-truth is-error" id="ops-truth" aria-label="Pilot Puppy local truth">
         <div class="ops-truth-head">
           <span class="ops-kicker">Local truth</span>
           <span class="ops-chip is-blocked">error</span>
@@ -529,7 +529,7 @@ function renderOpsTruth() {
     : (config.using_example ? "example fallback" : "no config");
   const updated = truth.generated_at ? truth.generated_at.replace("T", " ") : "";
   return `
-    <section class="ops-truth" id="ops-truth" aria-label="Vidux local truth">
+    <section class="ops-truth" id="ops-truth" aria-label="Pilot Puppy local truth">
       <div class="ops-truth-head">
         <span class="ops-kicker">Local truth</span>
         <span class="ops-chip ${doctorStatusClass(configStatus)}">config ${escapeText(configStatus)}</span>
@@ -1157,7 +1157,7 @@ function renderSidebar() {
           <p><strong>No plans connected.</strong></p>
           <p>Open a terminal in your project and run:</p>
           <p><code>vidux init --here</code></p>
-          <p>Then refresh. If the project lives outside this scan root, relaunch Vidux with <code>--root &lt;path&gt;</code>.</p>
+          <p>Then refresh. If the project lives outside this scan root, relaunch Pilot Puppy with <code>--root &lt;path&gt;</code>.</p>
         </div>`
       : `<p class="muted" style="padding:12px">no matches for ${activeFilterLabel}</p>`;
     refreshAnnotationTargetsIfNeeded();

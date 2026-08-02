@@ -249,12 +249,12 @@ redaction regression prove otherwise.
   blocked or uncertain, what Leo must do, the recommendation, one proof
   reference, and at most three choices. The desk renderer and public on-the-go
   speech projection already consume the typed `vidux.chief-of-staff.v1`
-  contract; the private 90 Drive receipt proves the separate revision-bound
-  `vidux.drive.v1` handoff. The private Chief-of-Staff consumer and sanitized
-  same-source receipt are recorded in
-  [`evidence/2026-08-02-private-chief-of-staff-receipt.md`](evidence/2026-08-02-private-chief-of-staff-receipt.md).
-  The desk and 90 render the same bounded payload from one validated Outcome;
-  no transport, routing, second queue, or second authority was added. F4 is
+  contract; the public tree defines and tests the separate revision-bound
+  `vidux.drive.v1` handoff. External consumer execution is intentionally not
+  stored in this public repository; public proof is the projection and privacy
+  test suite named by the contract.
+  The desk and on-the-go projections render the same bounded payload from one
+  validated Outcome; no transport, routing, second queue, or second authority was added. F4 is
   deliberately deferred until a concrete client needs private transport;
   repository/package rename remains deferred.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
@@ -283,12 +283,12 @@ redaction regression prove otherwise.
   host adapter's.
 - [completed] **F3 — 90 semantic client.** Public F3a/F3b provide the pure
   revision-bound Drive projection and compare-and-set receipt without host,
-  provider, storage, shell, network, or queue behavior. The owner-supplied
-  private-consumer half is recorded once in
-  [`evidence/2026-08-02-private-90-drive-receipt.md`](evidence/2026-08-02-private-90-drive-receipt.md).
-  F3 is complete; F0.5 is now complete through the owner-supplied
-  Chief-of-Staff report-surface receipt. F4 is deliberately deferred until a
-  concrete on-the-go client needs private transport.
+  provider, storage, shell, network, or queue behavior. External consumer
+  execution is not a public proof claim; the maintained tree records only the
+  public semantic contract and its tests. F3's public contract is complete, while
+  external consumer validation remains outside this repository. F4 is
+  deliberately deferred until a concrete on-the-go client needs private
+  transport.
 - [deferred] **F4 — Local transport.** Serve the semantic API on loopback and a
   tailnet-only endpoint only after a concrete on-the-go client requires it.
   The transport mechanism is technically feasible, but it is not the next
@@ -372,15 +372,15 @@ receipt and release notes may carry the reviewed links separately.
   merge `c37c26c5` (PR #33). It derives one bounded report from the typed
   Outcome/Drive source and an optional redacted plan summary, caps choices at
   three and proof at one, rejects private/implementation detail, and is covered
-  by the release allowlist. Desk and private 90 wiring remain the next F0.5/F3
-  proof; no transport or second authority was added.
+  by the release allowlist. External consumer wiring is outside the public
+  proof surface; no transport or second authority was added.
 - 2026-08-01: Shipped the optional desk consumer in public merge `2a6b11a9`
   (PR #35). The browser loads a provider-neutral renderer before the main app;
   it only displays a supplied `vidux.chief-of-staff.v1` payload, caps choices
   at three, collapses proof, and fails closed on unsafe or absent input. The
   existing shell stays unchanged when no semantic payload is present. The
-  private 90 consumer and the same-source desk/on-the-go round-trip remain
-  unproven; F0.5 stays open and F3 remains owner-bound.
+  external consumer and same-source desk/on-the-go round-trip remain outside
+  the public proof claim; F0.5 and F3 retain their public semantic contracts.
 - 2026-08-01: Closed F5 for the MVP as the local telemetry contract. The real
   loopback collector, redaction, disabled-export, non-loopback, and proxy
   diversion proof is public; Langfuse/runtime producer work is isolated as F5b
@@ -390,16 +390,11 @@ receipt and release notes may carry the reviewed links separately.
   `browser/tests/unit/chief-of-staff.test.mjs`. One typed brief is normalized
   and rendered by both the desk HTML view and the on-the-go plain-text adapter;
   the focused suite is now 7/7. This strengthens the public half of F0.5 but
-  does not claim the private 90 consumer or close the owner-bound receipt gate.
-- 2026-08-02: Closed F3's private-consumer half with the owner-supplied
-  sanitized Drive receipt. F0.5 remains open for the exact Chief-of-Staff
-  brief consumer; F4 stays gated because public Vidux has no durable Outcome
-  store.
-- 2026-08-02: Closed F0.5 with the owner-supplied private Chief-of-Staff
-  consumer and same-source receipt. The private adapter preserves the Outcome
-  revision and identity, presents only A/B/C, strips proof locators and
-  implementation fields, and matches the public plain-speech projection. The
-  canonical source gate is now satisfied; F4 remains deliberately deferred
+  does not claim an external consumer or close an external execution gate.
+- 2026-08-02: Kept external F3/F0.5 consumer validation outside the public
+  source. The public tree retains only semantic-boundary notes and tests; no
+  private repository locator, source revision, provider, credential, or
+  execution receipt is maintained here. F4 remains deliberately deferred
   because no concrete client needs transport yet. No transport or second
   authority was introduced.
 - 2026-08-02: Thermo/Ponytail stop-work audit: the existing browser surface is
