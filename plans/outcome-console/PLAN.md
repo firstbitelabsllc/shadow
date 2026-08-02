@@ -3,7 +3,8 @@
 **Parent authority:** [`../../PLAN.md`](../../PLAN.md)
 **Status:** provider-neutral interchange plus a local Outcome/Steer/proof
 prototype and canonical plan-derived Outcome source merged to public main;
-Ask is deferred until the current card is dogfooded
+the current gate is one ordinary card-comprehension dogfood. Ask and live
+Steer remain evidence-triggered follow-ups.
 
 ## Outcome
 
@@ -196,20 +197,20 @@ Root product plan → outcome/release plan → execution leaf
 
 ## Dogfood Gate
 
-Use three non-coder dogfooders across one build, one bug-fix, and one release
-scenario. A scenario passes only when the person can:
+Start with one real operator using the existing local Outcome card and its
+proof/state wording. This is a comprehension gate, not a feature-completeness
+contest. It passes only when the person can, without opening code, a terminal,
+a plan editor, or a worker dashboard:
 
 - state the Outcome without naming a repository, provider, or implementation;
-- explain the current state and whether the system needs them;
-- submit one Steer and see stale direction stop;
-- receive zero Asks for routine work and exactly one Ask for a deliberately
-  seeded genuine fork; and
-- identify the final proof or honest non-delivery state without opening code,
-  a terminal, a plan editor, or a worker dashboard.
+- explain what is happening now and whether the system needs them;
+- identify the next useful action (or say that no action is needed); and
+- find the final proof or honest non-delivery state.
 
-Record confusion and recovery, not only task completion. The hypothesis is
-falsified if a human translator is repeatedly needed, Steers behave like queued
-prompts, routine work produces approval theater, or proof is not trusted.
+Record confusion and recovery, not only task completion. Do not seed an Ask or
+require a delivered Steer for this first gate: those are follow-ups only when
+the card exposes a genuine fork or a real need to change direction. Expand to
+three build/bug-fix/release scenarios only after this first gate passes.
 
 ## Ordered Work
 
@@ -226,16 +227,17 @@ prompts, routine work produces approval theater, or proof is not trusted.
   [Evidence: `browser/outcome_source.py`, `tests/test_outcome_source.py`,
   canonical validator exit `0`, same-revision semantic check; PR #55 merged at
   `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b`; hosted gates green]
+- [in_progress] Dogfood the existing Outcome card and proof/state wording with
+  one real operator. Record the exact comprehension result and any missing
+  decision; do not build an Ask or live Steer to make this receipt green.
 - [deferred] Add and dogfood one exceptional Ask state in the same card only
-  if real use reveals a genuine fork. Do not build an Ask parser, answer flow,
-  queue, or second state to manufacture that evidence.
-- [blocked] Run the three-person dogfood gate and record the exact places where
-  status, steering, Ask frequency, or proof trust fails. Resume only after the
-  the exceptional Ask implementation has one canonical source.
-- [blocked] Implement one end-to-end Steer loop against the existing plan and
-  proof stores: persist acknowledgment, supersede stale direction, surface the
-  lifecycle, and show linked proof or honest non-delivery. Resume only after the
-  current gate; do not create a second store to make this row appear green.
+  when the first gate records a genuine binary fork that the current card
+  cannot express. Resume with one canonical source, two bounded choices, and
+  fail-closed validation; no parser, answer queue, or second state store.
+- [deferred] Implement one end-to-end Steer loop against the existing plan and
+  proof stores only when a real operator needs direction applied across a named
+  host boundary. Resume with an explicit acknowledgement/non-delivery receipt;
+  do not create a second store, queue, or router.
 - [pending] Add a recipe registry for the six initial families. Each recipe
   exposes its safety boundary, verification gate, and escalation triggers; it
   does not route models or execute work itself.

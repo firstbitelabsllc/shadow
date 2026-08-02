@@ -67,10 +67,11 @@ models, schedules work, or transports provider traffic.
   `vidux.outcome.v1` source only after real Outcome-card dogfood shows a
   genuine fork. Do not build an Ask parser, answer flow, second state store,
   or approval queue to prove the concept.
-- [blocked] Define and prove flagship convergence only after that same
-  canonical Outcome source exists. Do not widen the current 1.2.0 release
-  surface while this predicate is false; see
-  [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md).
+- [in_progress] Dogfood the flagship convergence through the existing
+  canonical Outcome card and proof/state wording. The source predicate is now
+  satisfied; keep the current 1.2.0 surface narrow and use
+  [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for evidence-triggered
+  follow-ups.
 - [pending] Triage issues and PRs after the repository is public.
 
 ## Decision Log
