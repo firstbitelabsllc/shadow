@@ -43,9 +43,9 @@ models, schedules work, or transports provider traffic.
 
 | Metric | Baseline | Current | Target | Status | Proof |
 |---|---|---|---|---|---|
-| Test suites | required | green | green | unproven | `npm test` |
-| Package byte-identity | required | passing | passing | unproven | `npm run release:verify` |
-| Public-ready gate | required | passing | passing | unproven | `npm run public-ready:grep` |
+| Test suites | required | green | green | proven | `npm test` |
+| Package byte-identity | required | passing | passing | proven | `npm run release:verify` |
+| Public-ready gate | required | passing | passing | proven | `npm run public-ready:grep` |
 | Card comprehension | not run | not run | four accurate answers | unproven | evidence/outcome-card-dogfood.md |
 
 ## Tasks
@@ -188,3 +188,8 @@ models, schedules work, or transports provider traffic.
   Pilot Puppy while CLI, schema, repository, and compatibility identifiers
   remain Vidux. The docs description no longer calls the product a control
   plane.
+- 2026-08-02: Re-ran the mechanical scorecard at the merged docs-shell tip:
+  `npm test` passed with 30 JavaScript and 502 Python tests, the clean
+  `npm run release:verify` package check passed with SHA-256
+  `bacd8e706797e9d023ba034bc0be399643a43df5ce10cac82d61a7c8cef73ca9`, and
+  `npm run public-ready:grep` passed. Card comprehension remains unproven.
