@@ -38,8 +38,8 @@ Where is the proof? Open **See proof and plan details** for evidence and the ful
 plan. `PROOF MISSING` remains explicit until evidence exists.
 ## Agent skill
 
-Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code is the tested host;
-other hosts are untested. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
+Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code is the tested host; other hosts are untested by this skill mount.
+The flagship plan records bounded Codex proof; Cursor remains conditional until `pilot.host-receipt.v1`; a login check or model list is not execution proof. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
 
 ## Where Vidux stops
 

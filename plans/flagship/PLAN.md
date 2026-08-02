@@ -238,48 +238,19 @@ redaction regression prove otherwise.
   Gate: `vidux.lifecycle.v1` schema, fixtures, deterministic validator, and
   negative privacy/transition tests describe the new lifecycle. The contract
   is additive; the existing `vidux.outcome.v1` document remains compatible.
-- [in_progress] **F0.5 — Pilot Puppy umbrella and Chief of Staff brief.** Adopt
-  Pilot Puppy as the user-facing product umbrella while retaining Vidux as the
-  public repository/core compatibility base. Make the Chief of Staff brief the
-  default reporting surface: status, material change, blocker/uncertainty, Leo's
-  action or decision, recommendation, and one proof reference. Gate: the desk
-  and on-the-go surfaces use the same typed Outcome/PLAN/receipt source, expose
-  at most three choices, hide implementation detail by default, and create no
-  second queue, runtime, or authority. Repository/package rename remains
-  deferred until a successor release proves migration safe. **Claim receipt:**
-  the current lead shipped the provider-neutral brief projection, schema, docs,
-  and tests in public merge `c37c26c5` (PR #33); no F3 private consumer or F4
-  transport surface was touched. **Resume predicate:** keep F0.5 open until a
-  desk and on-the-go consumer both render this projection from the same
-  validated Outcome plus redacted plan/receipt summary, with one shared proof
-  showing at most three choices and no implementation fields.
-  **Claim receipt:** the public desk-side renderer shipped in merge `2a6b11a9`
-  (PR #35; source commit `d1031119`). It accepts an already-validated
-  `vidux.chief-of-staff.v1` object, renders the bounded report when supplied,
-  caps choices at three, keeps proof collapsed, and fails closed on missing,
-  malformed, private, or implementation payloads. It remains inert without
-  that semantic payload; no transport, plan reads, provider routing, or private
-  90 wiring was added. Local proof was Vitest 26/26, Python 484/484, and
-  Playwright desktop smoke 43/43; public-ready and hosted required checks were
-  green. The desk and private 90 consumers still need the same-source
-  integration proof before F0.5 can close.
-  **Claim receipt:** the public reference on-the-go adapter is in source commit
-  `0efca758` on the preserved branch
-  `codex/pilot-puppy-chief-brief-speech-clean-20260801`. Its `toSpeech` projection
-  consumes the exact normalized `vidux.chief-of-staff.v1` payload, returns
-  concise plain speech and at most three labels, and performs no speech-engine
-  call, I/O, routing, queue, or private 90 wiring. Local proof is Vitest 28/28,
-  full Python 484/484, desktop Playwright smoke 43/43, public-ready grep
-  passed, and the development release pack contained 146 files. This is
-  evidence for the shared projection, not the private 90 consumer or the F0.5
-  close; the desk and private 90 still need one same-source integration receipt.
-  **Claim receipt:** F3's private-consumer half is closed by the owner-supplied
-  sanitized receipt
-  [`evidence/2026-08-02-private-90-drive-receipt.md`](evidence/2026-08-02-private-90-drive-receipt.md).
-  It proves the revision-bound Drive handoff only. F0.5 remains open for one
-  exact `vidux.chief-of-staff.v1` payload to be rendered by both the desk and
-  private 90 report surfaces; F4 remains gated on that predicate and a durable
-  Outcome source.
+- [in_progress] **F0.5 — Pilot Puppy umbrella and Chief of Staff brief.** Keep
+  Pilot Puppy as the user-facing umbrella over Vidux's durable core. The Chief
+  of Staff brief is the default report: what changed, why it matters, what is
+  blocked or uncertain, what Leo must do, the recommendation, one proof
+  reference, and at most three choices. The desk renderer and public on-the-go
+  speech projection already consume the typed `vidux.chief-of-staff.v1`
+  contract; the private 90 Drive receipt proves only the separate
+  revision-bound `vidux.drive.v1` handoff. **Resume predicate:** add one pure
+  private 90 brief consumer and one sanitized same-source receipt showing that
+  the desk and 90 render the exact Chief-of-Staff payload from one validated
+  Outcome. Do not add transport, routing, a second queue, or a second
+  authority. F4 remains gated on this predicate and a durable Outcome source;
+  repository/package rename remains deferred.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch
