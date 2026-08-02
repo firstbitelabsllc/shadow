@@ -62,10 +62,13 @@ models, schedules work, or transports provider traffic.
   `vidux.outcome.v1` source only after real Outcome-card dogfood shows a
   genuine fork. Do not build an Ask parser, answer flow, second state store,
   or approval queue to prove the concept.
-- [in_progress] Run one ordinary comprehension dogfood against the corrected
-  canonical Outcome card and proof/state wording. Keep the current 1.2.0
-  surface narrow and use [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for
-  evidence-triggered follow-ups.
+- [blocked] Run one ordinary comprehension dogfood against the corrected
+  canonical Outcome card and proof/state wording. Resume only when
+  `evidence/outcome-card-dogfood.md` exists with one ordinary human's four
+  answers (outcome, now/needed action, next move, and proof availability).
+  Keep the current 1.2.0 surface narrow and use
+  [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for evidence-triggered
+  follow-ups; do not build another interaction to manufacture this receipt.
 - [deferred] Triage public issues and PRs only when an assigned issue changes
   the current Outcome gate; it is not a second work queue.
 
@@ -114,6 +117,11 @@ models, schedules work, or transports provider traffic.
 - [2026-08-02] Thermo/Ponytail focus audit: keep this one source boundary;
   defer Ask, live Steer, voice, provider routing, and rename work until a
   human can use the current Outcome card and name the missing decision.
+- [2026-08-02] Mechanical gates remain green, but the human comprehension
+  receipt is still absent. Park the dogfood row rather than imply execution;
+  resume only when `evidence/outcome-card-dogfood.md` contains the four
+  ordinary-human answers. No Ask, voice, routing, rename, or second runtime
+  work is opened while that predicate is false.
 - [2026-08-02] Merged the canonical Outcome-source slice as PR #55 at
   `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b0`. Hosted CI, CodeQL, gitleaks,
   public-ready, and Graphite gates passed. The durable next move is card
