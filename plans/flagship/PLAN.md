@@ -257,14 +257,14 @@ redaction regression prove otherwise.
   validated Outcome; no transport, routing, second queue, or second authority was added. F4 is
   deliberately deferred until a concrete client needs private transport;
   repository/package rename remains deferred.
-- [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
-  `pilot run` seam preserves `/pilot` and `/leo-flow` compatibility. Codex
-  completed one small task on local branch
-  `codex/vidux-f1-real-20260801` at `73fcb419`: the provider receipt named
-  `f1-real-host`, proof `f1-real-proof` passed, lead acceptance was explicit,
-  and the foldback was appended on that evidence branch. Projection-only runs
-  still fail closed; F2 owns parity through the other two hosts. The public
-  flagship merge now records this gate; the evidence branch remains preserved.
+- [completed] **F1 — Pilot Puppy driver contract.** The public tree preserves
+  the `/pilot` and `/leo-flow` compatibility boundary and defines the bounded
+  lifecycle handoff in `docs/reference/lifecycle-receipt.md`,
+  `schemas/lifecycle-receipt.v1.json`, and
+  `scripts/vidux-lifecycle-validate.py`. Projection-only behavior remains
+  non-executing. A real host invocation, provider receipt, explicit lead
+  acceptance, and foldback are host-authority evidence; they are not copied or
+  claimed in this public Vidux plan. F2 owns the public host-parity boundary.
 - [completed] **F2 — Host parity contract and direct runtime proof.** Freeze the
   three-host receipt contract and capability probes, then reproduce the same
   bounded task through the other two hosts while recording honest capability
@@ -359,7 +359,8 @@ receipt and release notes may carry the reviewed links separately.
 - 2026-08-01: Froze the additive `vidux.lifecycle.v1` receipt contract. It
   validates ordered state transitions and terminal proof references without
   embedding provider, model, prompt, transcript, credential, or machine-path
-  data. F1 now owns the first real Pilot Puppy lifecycle.
+  data. F1 now owns the public lifecycle handoff boundary; host execution and
+  acceptance remain in the owning host authority.
 - 2026-08-01: Adopted **Pilot Puppy** as the user-facing product umbrella.
   Vidux remains the public repository and durable core during migration; the
   Chief of Staff is the default reporting behavior, 90 is the on-the-go
