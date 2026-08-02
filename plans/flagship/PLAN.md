@@ -62,7 +62,7 @@ or implementation modules to get work done.
 | **Chief of Staff brief** | Concise status, material changes, risks, Leo's needed actions, recommendation, and proof/unknowns | execution, provider routing, acceptance, hidden background watching, a second authority |
 | **Vidux core** | `PLAN.md`, Outcome / Ask / Steer, proof references, resume, worktree and ownership contracts | provider choice, worker execution, credentials, cloud orchestration |
 | **Pilot Puppy driver** | Leo's hidden right-hand driver: plan, split, dispatch, supervise, accept, and fold receipts start-to-finish | a second plan store, raw chat memory, silent provider decisions, user-facing fleet clutter |
-| **Host adapter boundary** | The Codex, Claude Code, and conditional Cursor invocation and host-native lifecycle contracts | changing the canonical plan without a receipt, exposing credentials to a remote client |
+| **Host adapter boundary** | The Codex, Claude Code, and direct Cursor invocation and host-native lifecycle contracts | changing the canonical plan without a receipt, exposing credentials to a remote client |
 | **90** | Car/on-the-go UX: read concise status, speak one next move, present A/B/C, forward the selected Steer, round-robin ready outcomes | coding, provider routing, background observation, transcript storage, a second driver loop |
 | **Ledger** | Append-only bounded activity and handoff evidence | priority, routing, acceptance, or a second authority |
 | **Sidekick patterns** | Checkpoint, watchdog, retry, refutation, cold-review behaviors inside Pilot Puppy | a separate runtime or install choice |
@@ -178,21 +178,21 @@ Pilot Puppy's first flagship gate is one real, boring lifecycle:
 `start → freeze packet/context → invoke one native host → resume or Steer →
 prove → lead acceptance → fold back to PLAN.md → close or hand off`
 
-The lifecycle is proven through Codex and Claude Code today. Cursor remains a
-conditional path: a provider worker bridge is not native host parity, and a
-Cursor run counts only when the native host returns `pilot.host-receipt.v1`.
+The lifecycle is proven through Codex, Claude Code, and the direct Cursor host
+adapter. The generic provider worker bridge is not native host parity, and a
+Cursor run counts only when the adapter validates one `pilot.host-receipt.v1`.
 A projection, model list, or empty provider response is never a run receipt.
 
 ### Host adapters
 
 Declare exactly three first-party host paths: Codex, Claude Code, and Cursor.
-Codex and Claude Code are current native adapters. Cursor is a conditional
-adapter until its native hook returns `pilot.host-receipt.v1`; the generic
-Cursor worker bridge does not satisfy this gate. Each accepted adapter is a
-thin translation layer for the host's current native hooks, subagents, or task
-APIs. It reports capabilities and proof; it does not move private credentials
-into Vidux or invent a shared provider API that the hosts do not actually
-implement.
+All three have current native adapters. The direct Cursor path invokes the
+current `cursor-agent` CLI once for a frozen task and validates its bounded
+receipt; the generic Cursor worker bridge does not satisfy this gate. Each
+adapter is a thin translation layer for the host's current native hooks,
+subagents, or task APIs. It reports capabilities and proof; it does not move
+private credentials into Vidux or invent a shared provider API that the hosts
+do not actually implement.
 
 ### 90 and mobile
 
@@ -264,36 +264,22 @@ redaction regression prove otherwise.
   and the foldback was appended on that evidence branch. Projection-only runs
   still fail closed; F2 owns parity through the other two hosts. The public
   flagship merge now records this gate; the evidence branch remains preserved.
-- [completed] **F2 — Host parity contract; runtime parity conditional.** Freeze the
+- [completed] **F2 — Host parity contract and direct runtime proof.** Freeze the
   three-host receipt contract and capability probes, then reproduce the same
-  bounded task through the other two hosts while
-  recording honest capability differences. Gate: no adapter writes outside its
-  assigned worktree; missing host, auth, or proof is an explicit
-  blocked/non-delivery result; no lossy lowest-common-denominator contract.
-  Current evidence: Claude Code completed the parity marker with proof and
-  foldback at local commit `805050ec`; Cursor was tried twice before and three
-  times after the shared adapter command-shape corrections (`ad4cc02c`,
-  `941883fd`, `89263542`). Every attempt failed closed with
-  `host_receipt_missing` without changing a file or producing an accepted
-  foldback. The final bounded Cursor run used the corrected stdin adapter at
-  shared commit `f4c7ca57`; local branch `codex/vidux-f2-cursor-20260801`
-  recorded the real receipt and explicit lead acceptance at `c0ee4c13`, changing
-  only `f2-parity.txt` and folding proof `f2-parity-proof` into its isolated
-  plan. A model list, login status, or empty provider response is not parity
-  evidence. The public flagship merge now carries this prepared gate; the
-  evidence branches remain preserved. A final follow-up diagnostic against the
-  earlier prepared ref used the
-  corrected stdin adapter at shared commit `f4c7ca57` with one exact allowed
-  marker path. Cursor exited zero but emitted no `pilot.host-receipt.v1`,
-  changed no files, and the host attempt was recorded as `host_receipt_missing`
-  with no acceptance. This is an explicit `not_delivered` result for that
-  packet, not a replacement for the accepted `c0ee4c13` receipt and not
-  evidence that a model list or login probe is execution proof. The three-host
-  decision is therefore conditional and provider-neutral: Codex, Claude Code,
-  and Cursor are supported only when the native host returns the required
-  receipt; a missing receipt stays non-delivery and cannot advance a gate. No
-  further Cursor audit is authorized in F2; the next work follows the next
-  unblocked row after this decision.
+  bounded task through the other two hosts while recording honest capability
+  differences. Gate: no adapter writes outside its assigned worktree; missing
+  host, auth, or proof is an explicit blocked/non-delivery result; no lossy
+  lowest-common-denominator contract. Codex and Claude Code retain their
+  earlier accepted marker receipts. Shared Pilot PR #151 merged at
+  `d9ebdbe1`, adding the direct Cursor adapter and its fail-closed parser. A
+  fresh run without an explicit binary invoked `cursor-agent` in a clean
+  disposable Git worktree, exited `0`, changed exactly
+  `cursor-native-marker.txt`, returned proof `cursor-native-default`, and
+  passed the marker test. Earlier missing-receipt attempts remain historical
+  `not_delivered` evidence; they do not override this current adapter proof.
+  A model list, login status, or empty provider response is never parity
+  evidence. Lead acceptance and foldback remain the owning plan's job, not the
+  host adapter's.
 - [completed] **F3 — 90 semantic client.** Public F3a/F3b provide the pure
   revision-bound Drive projection and compare-and-set receipt without host,
   provider, storage, shell, network, or queue behavior. The owner-supplied
@@ -426,3 +412,9 @@ receipt and release notes may carry the reviewed links separately.
   move is local human dogfood of the existing Outcome/Chief-of-Staff card;
   resume F4 only when a named on-the-go client needs a private connection and
   supplies the exact contract and rejection proof.
+- 2026-08-02: Shared Pilot PR #151 merged the smallest direct Cursor host seam.
+  It is one bounded `cursor-agent` invocation with a clean worktree, exact
+  allowed paths, and one validated `pilot.host-receipt.v1`; it adds no queue,
+  router, model selector, credential relay, or acceptance authority. The
+  flagship now records the direct runtime proof while keeping the next product
+  gate unchanged: dogfood the existing Outcome/Chief-of-Staff card.

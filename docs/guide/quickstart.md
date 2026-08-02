@@ -13,9 +13,10 @@ mkdir -p "$HOME/.claude/skills"
 ln -sfn "$HOME/Development/vidux" "$HOME/.claude/skills/vidux"
 ```
 
-Other coding hosts are untested. If you evaluate one, use
-[`SKILL.md`](https://github.com/firstbitelabsllc/vidux/blob/main/SKILL.md) as the
-contract. To add the CLI to your PATH:
+This quick start covers the Claude Code skill mount. Pilot's shared direct
+Cursor adapter has a separate bounded host-receipt proof; it does not turn
+Vidux into a provider runtime. Use [`SKILL.md`](https://github.com/firstbitelabsllc/vidux/blob/main/SKILL.md)
+as the Vidux contract. To add the CLI to your PATH:
 
 ```bash
 mkdir -p "$HOME/.local/bin"

@@ -11,7 +11,7 @@
 One calm, local view of AI-assisted project work: the outcome, what is happening now,
 a place to change direction, and proof. One `PLAN.md` keeps it durable.
 
-**Pilot Puppy** is the friendly product umbrella; Vidux is its public plan/proof core. Native Codex and Claude Code execute locally. Cursor is a conditional host path: it counts as execution only when it returns `pilot.host-receipt.v1`. 90 is the planned on-the-go briefing and choice surface, not shipped in `1.2.0`. [Boundary](docs/reference/pilot-puppy.md).
+**Pilot Puppy** is the friendly product umbrella; Vidux is its public plan/proof core. Native Codex, Claude Code, and Cursor execute locally when their bounded host adapter returns `pilot.host-receipt.v1`; the generic provider bridge remains non-native. 90 is the planned on-the-go briefing and choice surface, not shipped in `1.2.0`. [Boundary](docs/reference/pilot-puppy.md).
 
 ## Install
 Needs Bash, Git, and Python 3. Node is only for contributor tests and docs.
@@ -41,8 +41,7 @@ Where is the proof? Open **See proof and plan details** for evidence and the ful
 plan. `PROOF MISSING` remains explicit until evidence exists.
 ## Agent skill
 
-Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code is the tested host; other hosts are untested by this skill mount.
-The flagship plan records bounded Codex proof; Cursor remains conditional until `pilot.host-receipt.v1`; a login check or model list is not execution proof. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
+Root [`SKILL.md`](SKILL.md) is the agent entry. Claude Code is the tested host for this Vidux skill mount; other hosts are untested by this skill mount. The shared Pilot host adapter separately records bounded Codex, Claude Code, and direct Cursor proof; a login check or model list is not execution proof. Mount with `ln -sfn /path/to/vidux "$HOME/.claude/skills/vidux"`.
 
 ## Where Vidux stops
 
