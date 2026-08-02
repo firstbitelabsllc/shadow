@@ -93,6 +93,7 @@ class BrowserLauncherStorageTests(unittest.TestCase):
                 "coordination_store_id": store_id(claims),
                 "comments_store_id": store_id(comments_a),
                 "artifacts_store_id": store_id(artifacts_a),
+                "allowed_hosts_id": hashlib.sha256(b"").hexdigest()[:16],
             }
             self.assertNotIn(str(home), json.dumps(health))
             self.assertNotIn(str(data), json.dumps(health))
@@ -138,6 +139,16 @@ class BrowserLauncherStorageTests(unittest.TestCase):
                 text=True,
                 env=env,
             )
+            changed_allowed_hosts_env = dict(env)
+            changed_allowed_hosts_env["VIDUX_BROWSER_ALLOWED_HOSTS"] = (
+                "leos-mac-studio-10442.tail4cfd4f.ts.net"
+            )
+            wrong_allowed_hosts = subprocess.run(
+                [*base_args, "--comments-path", str(comments_a)],
+                capture_output=True,
+                text=True,
+                env=changed_allowed_hosts_env,
+            )
 
         self.assertEqual(matched.returncode, 0, matched.stderr)
         self.assertIn("already on", matched.stdout)
@@ -145,6 +156,8 @@ class BrowserLauncherStorageTests(unittest.TestCase):
         self.assertIn("does not match", wrong_comments.stderr)
         self.assertEqual(wrong_artifacts.returncode, 1)
         self.assertIn("does not match", wrong_artifacts.stderr)
+        self.assertEqual(wrong_allowed_hosts.returncode, 1)
+        self.assertIn("does not match", wrong_allowed_hosts.stderr)
 
 
 if __name__ == "__main__":

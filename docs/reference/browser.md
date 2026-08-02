@@ -33,6 +33,7 @@ Source-grounded defaults from the launcher and server:
 - Ledger tab caps: `VIDUX_LEDGER_ITEM_LIMIT` defaults to `20`; `VIDUX_LEDGER_SCAN_LIMIT` defaults to `5000`
 - Steering journal: `VIDUX_BROWSER_STEERING_FILE` defaults to `~/.vidux-browser/steering.jsonl`
 - Work-claims journal: `VIDUX_CLAIMS_FILE` defaults to `~/.agent-ledger/claims.jsonl`
+- `VIDUX_BROWSER_ALLOWED_HOSTS` is an optional comma-separated list of exact Host identities for a private authenticated reverse proxy (for example, the current Tailscale Serve MagicDNS name). It never accepts a wildcard or domain suffix; LAN DNS-rebinding protection remains in force.
 - Artifact shelf: `VIDUX_BROWSER_ARTIFACTS_DIR` defaults to `${XDG_DATA_HOME:-~/.local/share}/vidux/artifacts`
 
 In background mode the launcher writes a PID file and log under
@@ -42,8 +43,9 @@ overridable via `VIDUX_BROWSER_PIDFILE` / `VIDUX_BROWSER_LOG`) and waits for
 `${TMPDIR:-/tmp}/vidux-browser.{pid,log}` — `vidux doctor` warns if that
 legacy shared path still exists. If something is already listening on the
 target port, the launcher reuses it only when the health payload matches the
-requested `repo_root`, `dev_root`, path-safe steering and coordination store
-identities, `port`, and current server/mailbox/coordination module mtimes.
+requested `repo_root`, `dev_root`, path-safe steering, coordination, artifact,
+and exact proxy-host allowlist identities, `port`, and current
+server/mailbox/coordination module mtimes.
 
 The launcher accepts `--port`, `--host`, `--root`/`--dev-root`, `--open-host`,
 `--comments-path`, `--steering-path`, `--claims-path`, and
@@ -53,7 +55,7 @@ The launcher accepts `--port`, `--host`, `--root`/`--dev-root`, `--open-host`,
 
 The stdlib-only server exposes these routes:
 
-- `GET /api/health` returns `ok`, root/port/server identity, path-safe comment, artifact, steering, and coordination store ids, plus the relevant module mtimes; `bin/vidux-browse` uses these to avoid opening a stale, older-code, foreign, or differently scoped listener on the same port. Store paths are not returned.
+- `GET /api/health` returns `ok`, root/port/server identity, path-safe comment, artifact, steering, coordination, and exact proxy-host allowlist ids, plus the relevant module mtimes; `bin/vidux-browse` uses these to avoid opening a stale, older-code, foreign, or differently scoped listener on the same port. Store paths and configured host values are not returned.
 - `GET /api/vidux/truth` returns cached read-only config and runtime-doctor status for the browser chrome. Cold calls return a warming payload and refresh the truth bundle in the background, so monitor probes never block on runtime doctor.
 - `GET /api/vidux/truth?refresh=sync` forces the synchronous config/runtime-doctor proof path for manual checks and tests.
 - The truth payload includes `runtime_doctor.system_memory` (a compact copy of `system_memory_pressure`): `memory_pressure_free_pct`/`memory_pct_source` from `memory_pressure -Q`; `vm_free_mb`/`vm_speculative_mb`/`vm_pages_source` from `vm_stat`.
@@ -63,7 +65,7 @@ The stdlib-only server exposes these routes:
 - `GET /api/coordination?plan_path=<PLAN.md>` returns active owners and resumable handoffs for that exact plan to loopback clients. It omits host, PID, journal path, tokens, and provider/account identity; there is no coordination write route.
 - `POST /api/steering` lets the loopback cockpit enqueue, retry, or dismiss an active exact-plan item. Host-only lease, acknowledge, and fail transitions are not HTTP actions.
 - `GET /api/artifacts` returns the HTML artifact shelf under the configured durable artifact directory.
-- `GET /api/file?path=...` returns an allowed markdown file or HTML artifact.
+- `GET /api/file?path=...` returns an allowed markdown file or HTML artifact; exact HTML artifacts remain download-only unless a same-origin presentation wrapper adds `view=inline`.
 - `GET /api/comments?path=...` returns named comments attached to an allowed markdown file or HTML artifact.
 - `POST /api/artifact` writes a bounded HTML artifact (`slug` + `html` JSON payload).
 - `POST /api/comments` appends a bounded named or anchored comment to the separate comments store.
@@ -73,7 +75,7 @@ The stdlib-only server exposes these routes:
 
 The server is narrow:
 
-- **Every request's `Host` header is checked against an allowlist before anything else runs** — independent of, and prior to, the `Origin`/`Referer` matching described below. This closes DNS rebinding: a page served from an attacker-registered domain that resolves to `127.0.0.1` (or the LAN bind address) presents a `Host` header equal to that attacker domain, and its `Origin`/`Referer` headers agree with that same `Host` — so an Origin-must-match-Host check alone can't tell the rebound request apart from a legitimate one. The Host allowlist accepts loopback identities (`127.0.0.1`, `localhost`, `::1`) plus, in `VIDUX_BROWSER_HOST=0.0.0.0` LAN-bind mode, RFC 1918 IPv4 or RFC 4193 IPv6 literals. Open a LAN-bound server by its private IP address; domain Host values remain denied.
+- **Every request's `Host` header is checked against an allowlist before anything else runs** — independent of, and prior to, the `Origin`/`Referer` matching described below. This closes DNS rebinding: a page served from an attacker-registered domain that resolves to `127.0.0.1` (or the LAN bind address) presents a `Host` header equal to that attacker domain, and its `Origin`/`Referer` headers agree with that same `Host` — so an Origin-must-match-Host check alone can't tell the rebound request apart from a legitimate one. The Host allowlist accepts loopback identities (`127.0.0.1`, `localhost`, `::1`) plus, in `VIDUX_BROWSER_HOST=0.0.0.0` LAN-bind mode, RFC 1918 IPv4 or RFC 4193 IPv6 literals. A private authenticated reverse proxy may add exact domain identities through `VIDUX_BROWSER_ALLOWED_HOSTS`; wildcard and suffix matching are never accepted. Open a LAN-bound server by its private IP address; all other domain Host values remain denied.
 - `POST /api/comments` is the one write route that intentionally accepts real cross-machine LAN peers (see below). When the peer is not loopback, LAN-bind mode requires both the actual TCP peer and the `Host` header to be private-use IP literals (RFC 1918/4193). A public or spoofed TCP peer therefore cannot borrow a private `Host`, and a DNS-rebound domain's `Host` is not a raw private-IP literal.
 - Reads are limited to `DEV_ROOT` and an allowlist of plan-adjacent files: `PLAN.md`, `PROGRESS.md`, `INBOX.md`, `ASK-OWNER.md`, `DOCTRINE.md`, and `README.md`.
 - Markdown under `investigations/` and `evidence/` is also allowed.
@@ -90,7 +92,7 @@ The server is narrow:
 - Filesystem mutations fail closed unless the destination is absent or a regular file with exactly one link. Final-component symlinks, hard links, non-regular files, symlinked store directories, and aliased lock/store files are rejected before any payload bytes are written. Rewrites use a temporary file plus atomic replacement inside an already-opened parent directory, so a target swap cannot redirect bytes into the alias referent.
 - Comment writes may come from LAN viewers of the vidux-browse UI but still require JSON and a same-origin `Origin` or `Referer` header, on top of the Host-allowlist check above.
 - Markdown rendered client-side (`marked.js` output) is sanitized through a locally vendored DOMPurify (`browser/static/vendor/dompurify.min.js`) before it reaches the DOM. This closes stored XSS through a crafted plan or comment body. Artifact HTML uses the separate boundary below.
-- HTML artifact responses are download-only (`Content-Disposition: attachment`) and carry `Content-Security-Policy`, `Cross-Origin-Resource-Policy: same-origin`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: SAMEORIGIN` headers.
+- HTML artifact responses are download-only by default (`Content-Disposition: attachment`) and carry `Content-Security-Policy`, `Cross-Origin-Resource-Policy: same-origin`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: SAMEORIGIN` headers. A same-origin presentation wrapper may request `view=inline` for an exact discovered artifact; the inline response keeps the same network-isolated security headers.
 - The cockpit parses artifact HTML before rendering, removes scripts, bases, nested frames, objects, embeds, stylesheet/network-hint links, refresh policies, event handlers, form targets, and non-fragment navigation, then prepends its own CSP to a sandboxed `srcdoc`. The iframe grants only `allow-same-origin` for host-owned sizing and annotations; it does not grant scripts, forms, popups, or top-level navigation.
 - Comments NEVER edit plan files, `INBOX.md`, or artifact HTML — they append JSONL to the comments store; optional anchors point back to rendered elements only.
 - The local truth band is read-only: `GET /api/vidux/truth` returns cached/warming state quickly, then refreshes `python3 scripts/vidux-config.py check --json` and `scripts/vidux-doctor.sh --json` in the background. Use `?refresh=sync` for the synchronous path. Neither route runs `vidux doctor` or runtime doctor `--fix`; warning-only runtime state stays a warning, never proof of a clean fleet.

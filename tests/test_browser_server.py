@@ -275,6 +275,34 @@ class BrowserLocalPlanNoteTests(unittest.TestCase):
             "sanity check: Origin==Host agreement alone is not a defense",
         )
 
+    def test_allowed_request_host_permits_exact_private_proxy_host(self):
+        tailnet_host = "leos-mac-studio-10442.tail4cfd4f.ts.net"
+        allowed = browser_server.configured_allowed_request_hosts(tailnet_host)
+
+        self.assertTrue(
+            browser_server.is_allowed_request_host(
+                f"{tailnet_host}:7191", "0.0.0.0", allowed
+            )
+        )
+        self.assertFalse(
+            browser_server.is_allowed_request_host(
+                "other-device.tail4cfd4f.ts.net:7191", "0.0.0.0", allowed
+            )
+        )
+        self.assertFalse(
+            browser_server.is_allowed_request_host(
+                "evil.example:7191", "0.0.0.0", allowed
+            )
+        )
+
+    def test_configured_proxy_hosts_are_exact_not_suffix_matches(self):
+        self.assertEqual(
+            browser_server.configured_allowed_request_hosts(
+                "alpha.example:7191, [fd00::1]:7191, ,alpha.example"
+            ),
+            frozenset({"alpha.example", "[fd00::1]"}),
+        )
+
     def test_allowed_request_host_permits_private_ip_in_lan_bind_mode(self):
         # Wildcard bind exposes the server to a trusted LAN, but it must still
         # admit a concrete private IP identity rather than every Host value.
@@ -1474,6 +1502,42 @@ if not ok:
         self.assertIn("style-src 'unsafe-inline'", policy)
         self.assertNotIn("style-src 'self'", policy)
 
+    def test_artifact_file_response_supports_explicit_inline_view(self):
+        self.artifacts_dir.mkdir(parents=True)
+        artifact = self.artifacts_dir / "inline.html"
+        artifact.write_text("<h1>Inline</h1>", encoding="utf-8")
+
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request(
+            "GET",
+            f"/api/file?path={quote(str(artifact), safe='')}&view=inline",
+        )
+        res = conn.getresponse()
+        body = res.read().decode("utf-8", errors="replace")
+        headers = dict(res.getheaders())
+        conn.close()
+
+        self.assertEqual(res.status, 200, body)
+        self.assertEqual(
+            headers.get("Content-Disposition"),
+            'inline; filename="vidux-artifact.html"',
+        )
+        self.assertEqual(
+            headers.get("Content-Security-Policy"),
+            browser_server.ARTIFACT_CONTENT_SECURITY_POLICY,
+        )
+        self.assertEqual(body, "<h1>Inline</h1>")
+
+        head_status, head_headers, head_body = self.head(
+            f"/api/file?path={quote(str(artifact), safe='')}&view=inline"
+        )
+        self.assertEqual(head_status, 200)
+        self.assertEqual(head_body, b"")
+        self.assertEqual(
+            head_headers.get("Content-Disposition"),
+            'inline; filename="vidux-artifact.html"',
+        )
+
     def test_plain_text_error_backstop_redacts_sensitive_filename(self):
         secret = synthetic_secret()
         missing = self.artifacts_dir / f"{secret}.html"
@@ -1717,6 +1781,7 @@ class BrowserViduxTruthTests(unittest.TestCase):
         self.assertEqual(payload["dev_root"], str(browser_server.DEV_ROOT))
         self.assertEqual(payload["server_path"], str(browser_server.SERVER_FILE))
         self.assertEqual(payload["server_mtime_ns"], browser_server.SERVER_MTIME_NS)
+        self.assertEqual(payload["allowed_hosts_id"], browser_server.allowed_request_hosts_id())
         self.assertEqual(payload["steering_store_id"], browser_server.steering_store_id())
         self.assertEqual(
             payload["steering_module_mtime_ns"],

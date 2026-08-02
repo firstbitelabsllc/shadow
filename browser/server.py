@@ -290,6 +290,20 @@ ARTIFACT_SECURITY_HEADERS = {
 }
 
 
+def artifact_response_headers(*, inline: bool = False) -> dict[str, str]:
+    """Return the isolated artifact headers without mutating the default policy.
+
+    Artifacts remain download-only unless a same-origin consumer explicitly
+    requests the private inline view. The inline variant is used by a bounded
+    presentation wrapper such as Snowcubes; it keeps the same network-isolated
+    CSP and only applies to an exact discovered artifact path.
+    """
+    headers = dict(ARTIFACT_SECURITY_HEADERS)
+    if inline:
+        headers["Content-Disposition"] = 'inline; filename="vidux-artifact.html"'
+    return headers
+
+
 def _unquoted_secret_value(value: str) -> str:
     text = value.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'`":
@@ -2800,6 +2814,15 @@ def safe_resolve_any(raw: str) -> Path | None:
     )
 
 
+def is_artifact_file(path: Path) -> bool:
+    """Return True only for a canonical file under the configured artifact root."""
+    try:
+        path.relative_to(ARTIFACTS_DIR.expanduser().resolve(strict=False))
+    except ValueError:
+        return False
+    return True
+
+
 def _relative_request_parts(raw: str, root: Path) -> tuple[str, ...] | None:
     """Lexically split one canonical absolute request without touching the filesystem."""
     root_text = str(root)
@@ -2946,8 +2969,35 @@ def is_private_lan_ip_literal(hostname: str) -> bool:
     return addr in ipaddress.ip_network("fc00::/7")
 
 
-def is_allowed_request_host(host: str, bind_host: str) -> bool:
-    """Reject requests whose Host header isn't a recognized loopback identity.
+def configured_allowed_request_hosts(raw: str | None = None) -> frozenset[str]:
+    """Parse exact host identities for an authenticated private proxy.
+
+    ``VIDUX_BROWSER_ALLOWED_HOSTS`` is intentionally an exact, comma-separated
+    allowlist. It exists for private reverse proxies such as Tailscale Serve,
+    whose backend request keeps the tailnet Host header while the TCP peer is
+    loopback. A suffix or wildcard is never accepted here.
+    """
+    value = os.environ.get("VIDUX_BROWSER_ALLOWED_HOSTS", "") if raw is None else raw
+    hosts = {
+        request_host_hostname(item.strip())
+        for item in value.split(",")
+        if request_host_hostname(item.strip())
+    }
+    return frozenset(hosts)
+
+
+def allowed_request_hosts_id() -> str:
+    """Return a path-safe identity for the exact configured Host allowlist."""
+    value = "\n".join(sorted(configured_allowed_request_hosts()))
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def is_allowed_request_host(
+    host: str,
+    bind_host: str,
+    allowed_hosts: frozenset[str] | set[str] | None = None,
+) -> bool:
+    """Reject requests whose Host header isn't a recognized local identity.
 
     Origin/Referer-must-match-Host (origin_matches_host) does not stop DNS
     rebinding: a rebound page's browser sends a Host header and an Origin
@@ -2959,14 +3009,23 @@ def is_allowed_request_host(host: str, bind_host: str) -> bool:
     Wildcard bind mode is still an allowlist: loopback identities and private
     IP literals are accepted, while domain names remain denied. Otherwise a
     DNS-rebound domain could read every plan/proof API from a LAN-bound server.
-    Writes stay loopback-gated separately via client_address, except for the
-    narrower private-LAN comment route.
+    An explicitly configured exact host is the only domain exception, for a
+    private authenticated proxy such as Tailscale Serve. Writes stay
+    loopback-gated separately via client_address, except for the narrower
+    private-LAN comment route.
     """
     hostname = request_host_hostname(host)
     if not hostname:
         return False
     allowed = {"127.0.0.1", "localhost", "[::1]", "::1"}
     if hostname in allowed:
+        return True
+    explicit_hosts = (
+        configured_allowed_request_hosts()
+        if allowed_hosts is None
+        else frozenset(allowed_hosts)
+    )
+    if hostname in explicit_hosts:
         return True
     if bind_host in ("0.0.0.0", "::"):
         return is_private_lan_ip_literal(hostname)
@@ -3279,6 +3338,7 @@ class Handler(BaseHTTPRequestHandler):
                         "repo_root": str(VIDUX_ROOT),
                         "server_path": str(SERVER_FILE),
                         "server_mtime_ns": SERVER_MTIME_NS,
+                        "allowed_hosts_id": allowed_request_hosts_id(),
                         "steering_store_id": steering_store_id(),
                         "steering_module_mtime_ns": steering_module_mtime_ns(),
                         "coordination_store_id": coordination_store_id(),
@@ -3393,11 +3453,16 @@ class Handler(BaseHTTPRequestHandler):
             if status != 200:
                 self._send(status, body if isinstance(body, str) else "file read failed")
                 return
+            inline_artifact = (
+                (qs.get("view") or [""])[0].strip().lower() == "inline"
+                and p.suffix.lower() == ".html"
+                and is_artifact_file(p)
+            )
             self._send_with_type(
                 body,
                 ctype,
                 extra_headers=(
-                    ARTIFACT_SECURITY_HEADERS
+                    artifact_response_headers(inline=inline_artifact)
                     if p.suffix.lower() == ".html"
                     else None
                 ),
