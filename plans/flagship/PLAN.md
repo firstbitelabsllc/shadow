@@ -270,17 +270,16 @@ redaction regression prove otherwise.
   bounded task through the other two hosts while recording honest capability
   differences. Gate: no adapter writes outside its assigned worktree; missing
   host, auth, or proof is an explicit blocked/non-delivery result; no lossy
-  lowest-common-denominator contract. Codex and Claude Code retain their
-  earlier accepted marker receipts. Shared Pilot PR #151 merged at
-  `d9ebdbe1`, adding the direct Cursor adapter and its fail-closed parser. A
-  fresh run without an explicit binary invoked `cursor-agent` in a clean
-  disposable Git worktree, exited `0`, changed exactly
-  `cursor-native-marker.txt`, returned proof `cursor-native-default`, and
-  passed the marker test. Earlier missing-receipt attempts remain historical
-  `not_delivered` evidence; they do not override this current adapter proof.
-  A model list, login status, or empty provider response is never parity
-  evidence. Lead acceptance and foldback remain the owning plan's job, not the
-  host adapter's.
+  lowest-common-denominator contract. The public Vidux slice proves the
+  provider-neutral lifecycle shape, fail-closed transitions, and privacy
+  boundary through `schemas/lifecycle-receipt.v1.json`,
+  `scripts/vidux-lifecycle-validate.py`, and
+  `tests/test_lifecycle_receipt.py`. Direct Codex, Claude Code, and Cursor
+  invocation, host-specific acceptance, and provider receipts belong to their
+  owning host authority; they are not claimed or copied into this public
+  repository. A model list, login status, or empty provider response is never
+  parity evidence. Lead acceptance and foldback remain the owning plan's job,
+  not the host adapter's.
 - [completed] **F3 — 90 semantic client.** Public F3a/F3b provide the pure
   revision-bound Drive projection and compare-and-set receipt without host,
   provider, storage, shell, network, or queue behavior. External consumer
@@ -409,9 +408,10 @@ receipt and release notes may carry the reviewed links separately.
   move is local human dogfood of the existing Outcome/Chief-of-Staff card;
   resume F4 only when a named on-the-go client needs a private connection and
   supplies the exact contract and rejection proof.
-- 2026-08-02: Shared Pilot PR #151 merged the smallest direct Cursor host seam.
-  It is one bounded `cursor-agent` invocation with a clean worktree, exact
-  allowed paths, and one validated `pilot.host-receipt.v1`; it adds no queue,
-  router, model selector, credential relay, or acceptance authority. The
-  flagship now records the direct runtime proof while keeping the next product
-  gate unchanged: dogfood the existing Outcome/Chief-of-Staff card.
+- 2026-08-02: Public host-adapter custody correction: Vidux keeps the
+  provider-neutral lifecycle contract and privacy boundary, while direct
+  Codex/Claude/Cursor invocation and host-specific receipts remain in their
+  owning host authority. No private provider receipt, repository locator,
+  branch, model run, or credential-bearing execution detail is stored in this
+  public plan. The next product gate remains dogfooding the existing
+  Outcome/Chief-of-Staff card.
