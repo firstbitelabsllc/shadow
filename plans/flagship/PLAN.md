@@ -238,19 +238,20 @@ redaction regression prove otherwise.
   Gate: `vidux.lifecycle.v1` schema, fixtures, deterministic validator, and
   negative privacy/transition tests describe the new lifecycle. The contract
   is additive; the existing `vidux.outcome.v1` document remains compatible.
-- [in_progress] **F0.5 — Pilot Puppy umbrella and Chief of Staff brief.** Keep
+- [completed] **F0.5 — Pilot Puppy umbrella and Chief of Staff brief.** Keep
   Pilot Puppy as the user-facing umbrella over Vidux's durable core. The Chief
   of Staff brief is the default report: what changed, why it matters, what is
   blocked or uncertain, what Leo must do, the recommendation, one proof
   reference, and at most three choices. The desk renderer and public on-the-go
   speech projection already consume the typed `vidux.chief-of-staff.v1`
-  contract; the private 90 Drive receipt proves only the separate
-  revision-bound `vidux.drive.v1` handoff. **Resume predicate:** add one pure
-  private 90 brief consumer and one sanitized same-source receipt showing that
-  the desk and 90 render the exact Chief-of-Staff payload from one validated
-  Outcome. Do not add transport, routing, a second queue, or a second
-  authority. F4 remains gated on this predicate and a durable Outcome source;
-  repository/package rename remains deferred.
+  contract; the private 90 Drive receipt proves the separate revision-bound
+  `vidux.drive.v1` handoff. The private Chief-of-Staff consumer and sanitized
+  same-source receipt are recorded in
+  [`evidence/2026-08-02-private-chief-of-staff-receipt.md`](evidence/2026-08-02-private-chief-of-staff-receipt.md).
+  The desk and 90 render the same bounded payload from one validated Outcome;
+  no transport, routing, second queue, or second authority was added. F4
+  remains gated only on a durable Outcome source; repository/package rename
+  remains deferred.
 - [completed] **F1 — Pilot Puppy driver (first real-host gate).** The bounded
   `pilot run` seam preserves `/pilot-puppy`, `/pilot`, and `/leo-flow`
   compatibility. Codex completed one small task on local branch
@@ -298,10 +299,11 @@ redaction regression prove otherwise.
 - [ ] **F4 — Local transport.** Serve the semantic API on loopback and a
   tailnet-only endpoint. Gate: local integration passes; a non-tailnet request
   is rejected; no Funnel/public listener or credential endpoint exists.
-  **Sequencing predicate:** do not implement this row until F0.5/F3 supply one
-  same-source desk/on-the-go receipt and a durable validated Outcome source to
-  serve. The current public core has typed projections but no runtime Outcome
-  store; adding transport before that proof would create a second state source.
+  **Sequencing predicate:** F0.5/F3 now supply the same-source desk/on-the-go
+  receipt. Do not implement this row until a durable validated Outcome source
+  exists to serve; the current public core has typed projections but no runtime
+  Outcome store, and adding transport before that proof would create a second
+  state source.
 - [completed] **F5 — Local telemetry contract (MVP).** Provide an opt-in,
   loopback-only OTLP projection from bounded semantic lifecycle facts. Gate:
   the allowlist/redaction suite rejects prompt, transcript, content, path,
@@ -398,3 +400,9 @@ receipt and release notes may carry the reviewed links separately.
   sanitized Drive receipt. F0.5 remains open for the exact Chief-of-Staff
   brief consumer; F4 stays gated because public Vidux has no durable Outcome
   store.
+- 2026-08-02: Closed F0.5 with the owner-supplied private Chief-of-Staff
+  consumer and same-source receipt. The private adapter preserves the Outcome
+  revision and identity, presents only A/B/C, strips proof locators and
+  implementation fields, and matches the public plain-speech projection. F4
+  remains gated only by the missing durable public Outcome source; no transport
+  or second authority was introduced.
