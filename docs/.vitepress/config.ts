@@ -2,7 +2,7 @@ const sidebar = [
   {
     text: 'Getting Started',
     items: [
-      { text: 'What is Vidux?', link: '/guide/' },
+      { text: 'What is Pilot Puppy?', link: '/guide/' },
       { text: 'Installation', link: '/guide/installation' },
       { text: 'Quick Start', link: '/guide/quickstart' },
     ],
@@ -57,13 +57,13 @@ const sidebar = [
 ]
 
 export default {
-  title: 'Vidux',
-  description: 'Plan first, code second. A plan-first control plane for AI coding work that spans multiple sessions, agents, or days.',
+  title: 'Pilot Puppy',
+  description: 'A calm local plan, proof, and resume layer for AI coding work that spans multiple sessions, agents, or days.',
   base: process.env.DOCS_BASE || '/',
   cleanUrls: true,
 
   themeConfig: {
-    siteTitle: 'Vidux',
+    siteTitle: 'Pilot Puppy',
 
     nav: [
       { text: 'Guide', link: '/guide/' },

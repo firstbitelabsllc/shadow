@@ -1,8 +1,8 @@
-# Vidux Drive mode
+# Pilot Puppy Drive mode (Vidux compatibility)
 
 Drive mode is the small semantic client contract used by native Codex Voice
-(90) when Vidux is the selected structured-plan surface. It is a view and one
-typed action, not another runtime.
+(90) when Pilot Puppy is the selected structured-plan surface. It is a view
+and one typed action, not another runtime.
 
 ## Read: `vidux.outcome.v1`
 

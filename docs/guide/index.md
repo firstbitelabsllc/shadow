@@ -1,6 +1,6 @@
-# What is Vidux?
+# What is Pilot Puppy?
 
-Vidux keeps AI coding work recoverable across sessions, agents, or days by making the plan, proof, decisions, and resume point explicit on disk.
+Pilot Puppy keeps AI coding work recoverable across sessions, agents, or days by making the plan, proof, decisions, and resume point explicit on disk. Vidux remains the compatibility core that stores that durable truth.
 
 ## The Core Problem
 
@@ -77,6 +77,6 @@ review, merge, release, or deployment.
 
 ## Next Steps
 
-- [Install Vidux](/guide/installation) — set up the CLI or tested Claude Code skill
+- [Install Pilot Puppy](/guide/installation) — set up the Vidux compatibility CLI or tested Claude Code skill
 - [Quick Start](/guide/quickstart) — run your first cycle
 - [Five Principles](/concepts/principles) — understand the doctrine

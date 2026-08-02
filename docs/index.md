@@ -2,9 +2,9 @@
 layout: home
 
 hero:
-  name: "Vidux"
+  name: "Pilot Puppy"
   text: "Plan. Prove. Resume."
-  tagline: A repository-owned contract for AI coding work that must survive sessions, workers, or interruptions.
+  tagline: A calm, repository-owned contract for AI coding work that must survive sessions, workers, or interruptions.
   actions:
     - theme: brand
       text: Get Started

@@ -183,3 +183,8 @@ models, schedules work, or transports provider traffic.
   focused proof, same-revision desk/90 semantic checks, and green hosted
   gates (PR #55, merge `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b0`). Ask is
   deferred pending real dogfood.
+- 2026-08-02: Aligned the public docs shell with the Pilot Puppy product
+  brand: the docs title, home hero, guide entry, and Drive-mode page now say
+  Pilot Puppy while CLI, schema, repository, and compatibility identifiers
+  remain Vidux. The docs description no longer calls the product a control
+  plane.
