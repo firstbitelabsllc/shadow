@@ -78,6 +78,9 @@ class ReleasePackageTests(unittest.TestCase):
             }.issubset(mod.REQUIRED_FILES)
         )
 
+    def test_plan_outcome_source_is_release_required(self) -> None:
+        self.assertIn("browser/outcome_source.py", mod.REQUIRED_FILES)
+
     def test_lifecycle_receipt_contract_is_release_required(self) -> None:
         self.assertTrue(
             {

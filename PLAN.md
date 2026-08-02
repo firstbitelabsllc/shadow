@@ -31,12 +31,17 @@ models, schedules work, or transports provider traffic.
 
 - Status: 1.2.0 Outcome-first GUI source; release identity requires an exact
   matching tag and GitHub Release. The historical 1.1.1 release is unchanged.
+- Outcome ID: vidux-public
+- Outcome Revision: 2
+- Outcome Updated At: 2026-08-02T04:57:24Z
+- Outcome State: working
 - Outcome: keep the minimal public surface — `init`, `status`, `browse`,
   `checkpoint`, `doctor` — with tests, release-package verification, and the
   public-ready gate wired into CI.
-- Next: hold at the smallest canonical plan-derived `vidux.outcome.v1`
-  projection; no Ask, live Steer, transport, router, queue, or iOS work moves
-  until desk and 90 consume that same revision.
+- Next: dogfood the existing canonical Outcome card and its proof/state wording
+  before adding any new interaction. Ask, live Steer, transport, router,
+  queue, and iOS work remain deferred until a real user fork proves they are
+  necessary.
 - Validation: `npm run verify` (tests + public-ready gate) and
   `npm run release:verify`.
 
@@ -58,10 +63,10 @@ models, schedules work, or transports provider traffic.
 - [completed] Ship the first Outcome-first browser slice: one calm Outcome,
   honest state, current move, local change-direction request, and collapsed
   proof/plan details.
-- [blocked] Dogfood the exceptional Ask and live Steer application. Resume
-  only after the owning plan produces one validated `vidux.outcome.v1`
-  revision that both the desk and 90 can read; the durable product plan is
-  [`plans/outcome-console/PLAN.md`](plans/outcome-console/PLAN.md).
+- [deferred] Add and dogfood one exceptional Ask against the canonical
+  `vidux.outcome.v1` source only after real Outcome-card dogfood shows a
+  genuine fork. Do not build an Ask parser, answer flow, second state store,
+  or approval queue to prove the concept.
 - [blocked] Define and prove flagship convergence only after that same
   canonical Outcome source exists. Do not widen the current 1.2.0 release
   surface while this predicate is false; see
@@ -106,6 +111,14 @@ models, schedules work, or transports provider traffic.
   add a second state store, queue, router, transport, synthetic payload, or
   parallel Ask/Steer/F4/iOS work. Downstream rows stay blocked until the
   projection has one revision shared by desk and 90.
+- [2026-08-02] The canonical plan-derived Outcome source is now implemented
+  and mechanically checked. The existing plan's explicit identity, revision,
+  timestamp, state, summary, and current move feed one closed document plus
+  the desk/Drive/90 projections; no path, session, provider, or raw text is
+  copied. The next move is dogfood, not an Ask runtime.
+- [2026-08-02] Thermo/Ponytail focus audit: keep this one source boundary;
+  defer Ask, live Steer, voice, provider routing, and rename work until a
+  human can use the current Outcome card and name the missing decision.
 
 ## Progress
 
@@ -136,3 +149,6 @@ models, schedules work, or transports provider traffic.
   deterministic validator, focused tests, and release-package requirements.
 - 2026-08-02: Re-ranked the flagship and Outcome Console rows behind the one
   canonical Outcome-source gate after a bounded privacy and parser audit.
+- 2026-08-02: Prepared the canonical Outcome-source slice locally with focused
+  proof and same-revision desk/90 semantic checks. It is not yet a public
+  commit or hosted-release receipt. Ask is deferred pending real dogfood.

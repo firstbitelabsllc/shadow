@@ -12,6 +12,14 @@ Canonical schema identifier: `vidux.outcome.v1`
 | JSON Schema | [`schemas/outcome-ask-steer.v1.json`](../../schemas/outcome-ask-steer.v1.json) |
 | Synthetic example | [`examples/outcome-ask-steer/example.json`](../../examples/outcome-ask-steer/example.json) |
 
+The browser's optional canonical source is `browser/outcome_source.py`. It accepts only
+the allowlisted structured rows from an owning plan's `Operator Brief` and
+projects one closed document. The owning plan must provide `Outcome ID`,
+`Outcome Revision`, `Outcome Updated At`, and `Outcome State` in addition to
+the existing `Outcome` and `Next` rows. Missing or malformed rows stay on the
+legacy dashboard path; no revision is inferred from mtime, paths, task counts,
+sessions, or provider receipts.
+
 ## Top-level document
 
 The top-level object is closed (`additionalProperties: false`) and requires:

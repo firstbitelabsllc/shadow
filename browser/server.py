@@ -53,6 +53,9 @@ from steering_mailbox import (
     SteeringMailbox,
     is_authority_plan_name,
 )
+from outcome_source import OutcomeSourceError, project_plan_outcome
+from drive_mode import DriveInputError, project_drive
+from chief_of_staff import project_chief_of_staff
 
 DEV_ROOT = Path(os.environ.get("VIDUX_DEV_ROOT", Path.home() / "Development")).expanduser().resolve()
 HOST = os.environ.get("VIDUX_BROWSER_HOST", "127.0.0.1")
@@ -808,6 +811,10 @@ OPERATOR_BRIEF_KEYS = frozenset({
     "priority",
     "outcome",
     "next",
+    "outcome_id",
+    "outcome_revision",
+    "outcome_updated_at",
+    "outcome_state",
     "why",
     "validation",
     "cost",
@@ -1435,6 +1442,10 @@ def build_mission_control(plans: list[dict]) -> dict:
             "scorecard_total": int(plan.get("outcome_scorecard_total") or 0),
             "scorecard_truncated": bool(plan.get("outcome_scorecard_truncated")),
         }
+        if plan.get("outcome_document") is not None:
+            item["outcome_document"] = copy.deepcopy(plan["outcome_document"])
+            item["drive_document"] = copy.deepcopy(plan.get("drive_document"))
+            item["chief_of_staff"] = copy.deepcopy(plan.get("chief_of_staff"))
         item["evidence_target"] = resolve_plan_proof(plan_path, item.get("evidence"))
         for metric in item["scorecard"]:
             metric["proof_target"] = resolve_plan_proof(plan_path, metric.get("proof"))
@@ -1903,6 +1914,28 @@ def plan_meta(path: Path) -> dict:
     stats = task_stats(text)
     decision_log = parse_decision_log(text)
     scorecard = parse_outcome_scorecard(text)
+    operator_brief = parse_operator_brief(text)
+    try:
+        outcome_document = project_plan_outcome(operator_brief)
+    except OutcomeSourceError:
+        outcome_document = None
+    drive_document = None
+    chief_of_staff = None
+    if outcome_document is not None:
+        try:
+            drive_document = project_drive(outcome_document)
+            chief_of_staff = project_chief_of_staff(
+                outcome_document,
+                plan_brief={
+                    "summary": outcome_document["outcome"]["summary"],
+                    "latest_change": outcome_document["outcome"]["current_move"],
+                    "recommendation": "Continue the current move.",
+                },
+            )
+        except DriveInputError:
+            outcome_document = None
+            drive_document = None
+            chief_of_staff = None
     investigations = discover_investigations(parent_dir, text)
     evidence = discover_evidence(parent_dir)
     parent_rel = extract_parent_rel(text)
@@ -1928,7 +1961,10 @@ def plan_meta(path: Path) -> dict:
         "investigations": investigations,
         "evidence": evidence,
         "parent_rel": parent_rel,
-        "operator_brief": parse_operator_brief(text),
+        "operator_brief": operator_brief,
+        "outcome_document": outcome_document,
+        "drive_document": drive_document,
+        "chief_of_staff": chief_of_staff,
         "outcome_scorecard": scorecard["items"],
         "outcome_scorecard_total": scorecard["total"],
         "outcome_scorecard_truncated": scorecard["truncated"],

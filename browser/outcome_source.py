@@ -1,0 +1,146 @@
+"""Pure projection from an owning PLAN.md Operator Brief to one Outcome.
+
+The browser may read plans, but it must not turn the whole plan, a path, a
+session, or provider metadata into durable Outcome state.  This module accepts
+only the already-parsed Operator Brief fields needed for the semantic contract
+and returns a fresh, closed ``vidux.outcome.v1`` document.  It never reads or
+writes files, invokes a host, selects a provider, or creates a queue.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from datetime import datetime, timezone
+import re
+from typing import Any
+import unicodedata
+
+
+OUTCOME_SCHEMA = "vidux.outcome.v1"
+MAX_REVISION = 2_147_483_647
+IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
+UTC_TIMESTAMP_RE = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z$"
+)
+OUTCOME_STATES = frozenset(
+    {"working", "needs_input", "blocked", "finished_with_proof", "not_delivered"}
+)
+CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+HOME_PATH_RE = re.compile(
+    r"(?:^|[\s\"'=])(?:~/|/Users/|/home/|file://|\$HOME(?:[/\\]|$))",
+    re.IGNORECASE,
+)
+ABSOLUTE_PATH_RE = re.compile(
+    r"(?:^|[\s\"'=])/(?!/)[A-Za-z0-9._-]+(?:/[^\s\"']*)?",
+    re.IGNORECASE,
+)
+SECRET_SHAPE_RE = re.compile(
+    r"(?:sk-(?:ant-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|Bearer\s+[A-Za-z0-9._\-/+=]{20,}|"
+    r"-----BEGIN[ A-Z]*PRIVATE KEY-----)",
+    re.IGNORECASE,
+)
+
+
+class OutcomeSourceError(ValueError):
+    """Raised when a plan does not declare a complete canonical Outcome."""
+
+
+def _text(value: Any, label: str, *, max_length: int = 280) -> str:
+    if not isinstance(value, str):
+        raise OutcomeSourceError(f"{label} must be a string")
+    value = " ".join(value.split())
+    if not value:
+        raise OutcomeSourceError(f"{label} must be nonblank")
+    if len(value) > max_length:
+        raise OutcomeSourceError(f"{label} exceeds {max_length} characters")
+    if CONTROL_CHAR_RE.search(value):
+        raise OutcomeSourceError(f"{label} contains a control character")
+    if any(
+        unicodedata.category(character) == "Cf"
+        or unicodedata.bidirectional(character)
+        in {"LRE", "RLE", "LRO", "RLO", "PDF", "LRI", "RLI", "FSI", "PDI", "BN"}
+        for character in value
+    ):
+        raise OutcomeSourceError(f"{label} contains a Unicode format control")
+    if unicodedata.normalize("NFC", value) != value:
+        raise OutcomeSourceError(f"{label} is not NFC-normalized")
+    if HOME_PATH_RE.search(value) or ABSOLUTE_PATH_RE.search(value):
+        raise OutcomeSourceError(f"{label} contains a private filesystem path")
+    if SECRET_SHAPE_RE.search(value):
+        raise OutcomeSourceError(f"{label} contains a secret-shaped value")
+    return value
+
+
+def _identifier(value: Any, label: str) -> str:
+    value = _text(value, label, max_length=64)
+    if IDENTIFIER_RE.fullmatch(value) is None:
+        raise OutcomeSourceError(f"{label} must be a public identifier")
+    return value
+
+
+def _revision(value: Any) -> int:
+    if isinstance(value, bool):
+        raise OutcomeSourceError("outcome_revision must be an integer")
+    try:
+        revision = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise OutcomeSourceError("outcome_revision must be an integer") from exc
+    if not 0 <= revision <= MAX_REVISION:
+        raise OutcomeSourceError("outcome_revision is outside the public range")
+    return revision
+
+
+def _updated_at(value: Any) -> str:
+    value = _text(value, "outcome_updated_at", max_length=40)
+    if UTC_TIMESTAMP_RE.fullmatch(value) is None:
+        raise OutcomeSourceError("outcome_updated_at must be an RFC3339 UTC timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise OutcomeSourceError("outcome_updated_at is not a valid timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise OutcomeSourceError("outcome_updated_at must be UTC")
+    return value
+
+
+def project_plan_outcome(brief: Mapping[str, Any]) -> dict[str, Any]:
+    """Project one complete canonical Operator Brief into a closed Outcome.
+
+    The four ``outcome_*`` fields are intentionally explicit.  Deriving a
+    revision from file mtime or a path would make desk and 90 disagree after a
+    checkout, and silently accepting a missing field would recreate the
+    parser's false-green behavior.  Legacy briefs therefore return an
+    ``OutcomeSourceError`` and remain on the existing non-canonical dashboard
+    path until their owner opts into this contract.
+    """
+
+    if not isinstance(brief, Mapping):
+        raise OutcomeSourceError("operator brief must be an object")
+
+    summary = _text(brief.get("outcome"), "outcome")
+    current_move = _text(brief.get("next"), "next")
+    outcome_id = _identifier(brief.get("outcome_id"), "outcome_id")
+    revision = _revision(brief.get("outcome_revision"))
+    updated_at = _updated_at(brief.get("outcome_updated_at"))
+    state = _text(brief.get("outcome_state"), "outcome_state", max_length=32)
+    if state not in OUTCOME_STATES:
+        raise OutcomeSourceError("outcome_state is not a supported public state")
+
+    return {
+        "schema": OUTCOME_SCHEMA,
+        "revision": revision,
+        "updated_at": updated_at,
+        "outcome": {
+            "id": outcome_id,
+            "summary": summary,
+            "state": state,
+            "current_move": current_move,
+        },
+        "ask": None,
+        "steers": [],
+        "proof": [],
+    }
+
+
+__all__ = ["OUTCOME_SCHEMA", "OutcomeSourceError", "project_plan_outcome"]

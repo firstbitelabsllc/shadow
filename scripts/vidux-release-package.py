@@ -32,6 +32,7 @@ REQUIRED_FILES = {
     "browser/coordination_claims.py",
     "browser/chief_of_staff.py",
     "browser/drive_mode.py",
+    "browser/outcome_source.py",
     "browser/safe_files.py",
     "browser/server.py",
     "browser/static/app.js",

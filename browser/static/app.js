@@ -648,6 +648,10 @@ function renderMissionControl() {
     : `${scorecardTotal}`;
   const summary = missionEvidenceSummary(scorecard);
   const workflowStatus = missionStatusClass(selected.status);
+  const canonicalOutcome = selected.outcome_document?.outcome || null;
+  const outcomeSummary = canonicalOutcome?.summary || selected.outcome;
+  const outcomeMove = canonicalOutcome?.current_move || selected.next;
+  const outcomeState = canonicalOutcome?.state || selected.status;
   const selectedPlan = state.plans.find(plan => (
     plan.path === selected.path
     || (plan.repo === selected.repo && plan.rel === selected.rel)
@@ -656,8 +660,8 @@ function renderMissionControl() {
     summary,
     workflowStatus,
     selectedPlan?.task_stats,
-    selectedPlan?.brief?.state,
-    selected.next,
+    outcomeState,
+    outcomeMove,
   );
   const freshness = selected.freshness || { status: "unknown" };
   const freshnessStatus = missionStatusClass(freshness.status);
@@ -674,7 +678,7 @@ function renderMissionControl() {
         <span class="outcome-project">${escapeText(selected.repo || "Current project")}</span>
       </div>
       <div class="mission-section-label">Outcome</div>
-      <h2>${escapeText(selected.outcome || "Outcome not declared")}</h2>
+      <h2>${escapeText(outcomeSummary || "Outcome not declared")}</h2>
       <p class="outcome-state-copy">${escapeText(humanState.detail)}</p>
     </div>
   </header>
@@ -682,7 +686,7 @@ function renderMissionControl() {
   <div class="mission-control-body">
     <section class="mission-next" aria-label="Next move">
       <div class="mission-section-label">Now</div>
-      <h3>${escapeText(humanState.next || selected.next || "No next move declared")}</h3>
+      <h3>${escapeText(humanState.next || outcomeMove || "No next move declared")}</h3>
     </section>
     <section class="outcome-steer" aria-label="Steer this outcome">
       ${steeringInbox.render(selected.path)}

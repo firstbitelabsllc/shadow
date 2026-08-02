@@ -2,8 +2,8 @@
 
 **Parent authority:** [`../../PLAN.md`](../../PLAN.md)
 **Status:** provider-neutral interchange plus a local Outcome/Steer/proof
-prototype implemented; the canonical local Outcome source is the next gate,
-then exceptional Ask dogfood and live Steer application
+prototype and canonical plan-derived Outcome source implemented locally; Ask
+is deferred until the current card is dogfooded
 
 ## Outcome
 
@@ -131,13 +131,16 @@ the durable plan and audit receipt remain the authority.
 
 ### Current gate (2026-08-02)
 
-The next implementation is the smallest canonical source for one validated
-`vidux.outcome.v1` projection from the owning plan. Do not add a second outcome
-file, database, queue, router, transport, or synthetic browser payload. Until
-the existing plan can produce one revision that the desk and 90 can both read,
-the Ask example and validator remain contract proof only, and live Steer
-application remains out of scope. This is the resume predicate for the rows
-below.
+The owning plan now provides the smallest canonical source for one validated
+`vidux.outcome.v1` projection. `browser/outcome_source.py` accepts only the
+explicit Outcome identity, revision, timestamp, state, summary, and current
+move; the browser attaches the same document to its Drive and Chief-of-Staff
+projections. Local proof preserved one revision and Outcome id through the
+validator, desk projections, and the private 90 client; that receipt is not yet
+a public commit or hosted-release receipt. Do not add a second outcome file,
+database, queue, router, transport, synthetic browser payload, or Ask parser.
+Dogfood the existing card first; live Steer application remains behind that
+evidence.
 
 ## Default Recipe Boundary
 
@@ -217,12 +220,17 @@ prompts, routine work produces approval theater, or proof is not trusted.
 - [completed] Build a single-screen, local-data prototype. The Outcome card,
   local Steer composer, and proof drawer are implemented and browser-proved;
   no agent, model, prompt-queue, file, or terminal controls were added.
-- [blocked] Add and dogfood one exceptional Ask state in the same card. It
-  appears only for a genuine fork and never becomes routine approval theater.
-  Resume only after the current gate produces one validated Outcome revision.
+- [completed] Add the canonical plan-derived Outcome source and feed the same
+  typed document to the desk, Drive, and private 90 Chief-of-Staff adapters.
+  [Evidence: `browser/outcome_source.py`, `tests/test_outcome_source.py`,
+  canonical validator exit `0`, same-revision semantic check; durable receipt
+  waits for the public commit and hosted checks]
+- [deferred] Add and dogfood one exceptional Ask state in the same card only
+  if real use reveals a genuine fork. Do not build an Ask parser, answer flow,
+  queue, or second state to manufacture that evidence.
 - [blocked] Run the three-person dogfood gate and record the exact places where
   status, steering, Ask frequency, or proof trust fails. Resume only after the
-  typed Outcome/Ask/Steer loop has one canonical source.
+  the exceptional Ask implementation has one canonical source.
 - [blocked] Implement one end-to-end Steer loop against the existing plan and
   proof stores: persist acknowledgment, supersede stale direction, surface the
   lifecycle, and show linked proof or honest non-delivery. Resume only after the
@@ -255,8 +263,8 @@ prompts, routine work produces approval theater, or proof is not trusted.
   proof-required `checkpoint`, the Outcome validator, and the real browser.
   It also caught and closed the false `Working now` state when all tasks were
   complete but outcome proof was still missing.
-- No canonical local Outcome source, live Steer application loop, microphone
-  path, exceptional Ask dogfood, or product-name change is claimed.
+- No live Steer application loop, microphone path, exceptional Ask dogfood, or
+  product-name change is claimed.
 
 ## Non-goals
 
@@ -268,9 +276,9 @@ prompts, routine work produces approval theater, or proof is not trusted.
 
 ## Resume Here
 
-Start by proving the single canonical local Outcome source from the owning plan;
-the existing plan remains authority and must feed both the desk and 90 at one
-revision. Then add one exceptional Ask state, run the dogfood gate, and only
-then implement live Steer application. Keep provider routing and execution in
+Start by finishing the local canonical-source slice (commit, hosted checks, and
+an updated same-revision receipt), then dogfood the existing Outcome card and
+proof/state wording. Add one explicit Ask only when that dogfood produces a
+real fork; otherwise keep it deferred. Keep provider routing and execution in
 the coding host. Do not begin microphone capture, rename Vidux, or expand into
 an IDE until the typed Steer loop is demonstrably useful.

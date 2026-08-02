@@ -20,6 +20,26 @@ The scaffold uses this order:
 | 8 | `## Decision Log` | ✔ | Intentional choices future readers must preserve |
 | 9 | `## Progress` | ✔ | Results, uncertainty, and cold-resume state |
 
+### Canonical Outcome fields
+
+An owning plan may opt into the provider-neutral `vidux.outcome.v1` source by
+adding these rows to its existing `Operator Brief`:
+
+```markdown
+- Outcome ID: checkout-notes
+- Outcome Revision: 7
+- Outcome Updated At: 2026-08-02T04:45:22Z
+- Outcome State: working
+```
+
+The existing `Outcome` and `Next` rows supply the summary and current move.
+The revision is explicit and must increase whenever this semantic Outcome
+changes; it must never be derived from file time, path, task counts, or a
+provider receipt. Vidux projects only these allowlisted fields into one
+`vidux.outcome.v1` document. It does not copy the plan body, paths, sessions,
+prompts, provider metadata, or raw text. A plan without all four canonical
+rows remains a legacy dashboard brief and is not treated as a typed Outcome.
+
 ## Task Status FSM
 
 ```
