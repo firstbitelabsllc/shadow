@@ -14,9 +14,9 @@ mkdir -p "$HOME/.claude/skills"
 ln -sfn "$HOME/Development/vidux" "$HOME/.claude/skills/vidux"
 ```
 
-This quick start covers the Claude Code skill mount. Pilot Puppy's shared direct
-Cursor adapter has a separate bounded host-receipt proof; it does not turn
-the compatibility core into a provider runtime. Use
+This quick start covers the Claude Code skill mount. A host may provide its own
+bounded execution receipt, but that adapter and receipt stay outside this
+public compatibility core; nothing here turns it into a provider runtime. Use
 [`SKILL.md`](https://github.com/firstbitelabsllc/vidux/blob/main/SKILL.md) as
 the Pilot Puppy contract. The `vidux` command remains the stable compatibility
 CLI. To add it to your PATH:
