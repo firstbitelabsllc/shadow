@@ -294,8 +294,9 @@ redaction regression prove otherwise.
   provider, storage, shell, network, or queue behavior. The owner-supplied
   private-consumer half is recorded once in
   [`evidence/2026-08-02-private-90-drive-receipt.md`](evidence/2026-08-02-private-90-drive-receipt.md).
-  F3 is complete; F0.5 owns the remaining Chief-of-Staff report-surface
-  predicate, and F4 stays gated on a durable Outcome source.
+  F3 is complete; F0.5 is now complete through the owner-supplied
+  Chief-of-Staff report-surface receipt, and F4 stays gated on a durable
+  Outcome source.
 - [ ] **F4 — Local transport.** Serve the semantic API on loopback and a
   tailnet-only endpoint. Gate: local integration passes; a non-tailnet request
   is rejected; no Funnel/public listener or credential endpoint exists.
