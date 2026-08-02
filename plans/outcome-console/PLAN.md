@@ -2,8 +2,8 @@
 
 **Parent authority:** [`../../PLAN.md`](../../PLAN.md)
 **Status:** provider-neutral interchange plus a local Outcome/Steer/proof
-prototype and canonical plan-derived Outcome source implemented locally; Ask
-is deferred until the current card is dogfooded
+prototype and canonical plan-derived Outcome source merged to public main;
+Ask is deferred until the current card is dogfooded
 
 ## Outcome
 
@@ -136,11 +136,12 @@ The owning plan now provides the smallest canonical source for one validated
 explicit Outcome identity, revision, timestamp, state, summary, and current
 move; the browser attaches the same document to its Drive and Chief-of-Staff
 projections. Local proof preserved one revision and Outcome id through the
-validator, desk projections, and the private 90 client; that receipt is not yet
-a public commit or hosted-release receipt. Do not add a second outcome file,
-database, queue, router, transport, synthetic browser payload, or Ask parser.
-Dogfood the existing card first; live Steer application remains behind that
-evidence.
+validator, desk projections, and the private 90 client; PR #55 merged that
+source to public main at `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b` after green
+hosted CI, CodeQL, gitleaks, public-ready, and Graphite gates. Do not add a
+second outcome file, database, queue, router, transport, synthetic browser
+payload, or Ask parser. Dogfood the existing card first; live Steer application
+remains behind that evidence.
 
 ## Default Recipe Boundary
 
@@ -223,8 +224,8 @@ prompts, routine work produces approval theater, or proof is not trusted.
 - [completed] Add the canonical plan-derived Outcome source and feed the same
   typed document to the desk, Drive, and private 90 Chief-of-Staff adapters.
   [Evidence: `browser/outcome_source.py`, `tests/test_outcome_source.py`,
-  canonical validator exit `0`, same-revision semantic check; durable receipt
-  waits for the public commit and hosted checks]
+  canonical validator exit `0`, same-revision semantic check; PR #55 merged at
+  `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b`; hosted gates green]
 - [deferred] Add and dogfood one exceptional Ask state in the same card only
   if real use reveals a genuine fork. Do not build an Ask parser, answer flow,
   queue, or second state to manufacture that evidence.
@@ -276,9 +277,8 @@ prompts, routine work produces approval theater, or proof is not trusted.
 
 ## Resume Here
 
-Start by finishing the local canonical-source slice (commit, hosted checks, and
-an updated same-revision receipt), then dogfood the existing Outcome card and
-proof/state wording. Add one explicit Ask only when that dogfood produces a
-real fork; otherwise keep it deferred. Keep provider routing and execution in
-the coding host. Do not begin microphone capture, rename Vidux, or expand into
-an IDE until the typed Steer loop is demonstrably useful.
+Start by dogfooding the existing Outcome card and proof/state wording. Add one
+explicit Ask only when that dogfood produces a real fork; otherwise keep it
+deferred. Keep provider routing and execution in the coding host. Do not begin
+microphone capture, rename Vidux, or expand into an IDE until the typed Steer
+loop is demonstrably useful.

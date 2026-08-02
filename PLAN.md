@@ -119,6 +119,10 @@ models, schedules work, or transports provider traffic.
 - [2026-08-02] Thermo/Ponytail focus audit: keep this one source boundary;
   defer Ask, live Steer, voice, provider routing, and rename work until a
   human can use the current Outcome card and name the missing decision.
+- [2026-08-02] Merged the canonical Outcome-source slice as PR #55 at
+  `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b0`. Hosted CI, CodeQL, gitleaks,
+  public-ready, and Graphite gates passed. The durable next move is card
+  dogfood; no new runtime, queue, router, or Ask surface is implied.
 
 ## Progress
 
@@ -149,6 +153,7 @@ models, schedules work, or transports provider traffic.
   deterministic validator, focused tests, and release-package requirements.
 - 2026-08-02: Re-ranked the flagship and Outcome Console rows behind the one
   canonical Outcome-source gate after a bounded privacy and parser audit.
-- 2026-08-02: Prepared the canonical Outcome-source slice locally with focused
-  proof and same-revision desk/90 semantic checks. It is not yet a public
-  commit or hosted-release receipt. Ask is deferred pending real dogfood.
+- 2026-08-02: Prepared and merged the canonical Outcome-source slice with
+  focused proof, same-revision desk/90 semantic checks, and green hosted
+  gates (PR #55, merge `f21fdce5c9bdb74a0bcab8ad6b0340d83cd6e7b0`). Ask is
+  deferred pending real dogfood.
