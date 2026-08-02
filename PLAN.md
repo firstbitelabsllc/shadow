@@ -200,3 +200,11 @@ models, schedules work, or transports provider traffic.
 - 2026-08-02: Aligned the first-run browser onboarding copy with the Pilot Puppy
   brand and added a regression for the visible strings. `ViduxOnboarding` and
   the `vidux init --here` compatibility command remain unchanged.
+- 2026-08-02: Re-ran the mechanical scorecard from public merge
+  `4cedbe52f36218c64a7a1de8e1edfae85656dbc8`: clean `npm test` passed with 31
+  JavaScript and 503 Python tests, `npm run docs:build` passed,
+  `npm run public-ready:grep` scanned 215 tracked files and 269 commits, and
+  `npm run release:verify:dev` produced a clean 148-file package with SHA-256
+  `4db53a17e18aaa5f72b220ad51ef90a051d4967d06a0f804cff4dd952524e8da`.
+  The human Outcome-card comprehension receipt remains the only unproven
+  product gate.
