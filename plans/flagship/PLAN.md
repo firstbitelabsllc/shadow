@@ -179,21 +179,23 @@ Pilot Puppy's first flagship gate is one real, boring lifecycle:
 `start → freeze packet/context → invoke one native host → resume or Steer →
 prove → lead acceptance → fold back to PLAN.md → close or hand off`
 
-The lifecycle is proven through Codex, Claude Code, and the direct Cursor host
-adapter. The generic provider worker bridge is not native host parity, and a
-Cursor run counts only when the adapter validates one `pilot.host-receipt.v1`.
-A projection, model list, or empty provider response is never a run receipt.
+The public Vidux tree defines the lifecycle boundary; native-host execution
+proof belongs to each owning adapter and is not stored here. The generic
+provider worker bridge is not native host parity, and a host run counts only
+when its adapter validates the bounded host receipt. A projection, model list,
+or empty provider response is never a run receipt.
 
 ### Host adapters
 
-Declare exactly three first-party host paths: Codex, Claude Code, and Cursor.
-All three have current native adapters. The direct Cursor path invokes the
-current `cursor-agent` CLI once for a frozen task and validates its bounded
-receipt; the generic Cursor worker bridge does not satisfy this gate. Each
-adapter is a thin translation layer for the host's current native hooks,
-subagents, or task APIs. It reports capabilities and proof; it does not move
-private credentials into Vidux or invent a shared provider API that the hosts
-do not actually implement.
+Declare exactly three first-party host paths for the flagship: Codex, Claude
+Code, and Cursor. Their native adapters are owned and proven at the host
+boundary; the public Vidux tree records only the provider-neutral contract.
+The direct Cursor path must invoke the current `cursor-agent` CLI once for a
+frozen task and validate its bounded receipt; the generic Cursor worker bridge
+does not satisfy this gate. Each adapter is a thin translation layer for the
+host's current native hooks, subagents, or task APIs. It reports capabilities
+and proof; it does not move private credentials into Vidux or invent a shared
+provider API that the hosts do not actually implement.
 
 ### 90 and mobile
 
