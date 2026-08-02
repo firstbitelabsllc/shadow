@@ -34,8 +34,9 @@ models, schedules work, or transports provider traffic.
 - Outcome: keep the minimal public surface — `init`, `status`, `browse`,
   `checkpoint`, `doctor` — with tests, release-package verification, and the
   public-ready gate wired into CI.
-- Next: keep the surface minimal; new capability requires a plan row here
-  first, with its gate named before code lands.
+- Next: hold at the smallest canonical plan-derived `vidux.outcome.v1`
+  projection; no Ask, live Steer, transport, router, queue, or iOS work moves
+  until desk and 90 consume that same revision.
 - Validation: `npm run verify` (tests + public-ready gate) and
   `npm run release:verify`.
 
@@ -57,13 +58,14 @@ models, schedules work, or transports provider traffic.
 - [completed] Ship the first Outcome-first browser slice: one calm Outcome,
   honest state, current move, local change-direction request, and collapsed
   proof/plan details.
-- [in_progress] Dogfood the exceptional Ask and live Steer application. The
-  durable product plan is
-  [`plans/outcome-console/PLAN.md`](plans/outcome-console/PLAN.md). This is a
-  bounded product hypothesis, not a rename or a claim that execution exists.
-- [in_progress] Define and prove the flagship convergence described in
-  [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md). This is a successor
-  product plan, not permission to widen the current 1.2.0 release surface.
+- [blocked] Dogfood the exceptional Ask and live Steer application. Resume
+  only after the owning plan produces one validated `vidux.outcome.v1`
+  revision that both the desk and 90 can read; the durable product plan is
+  [`plans/outcome-console/PLAN.md`](plans/outcome-console/PLAN.md).
+- [blocked] Define and prove flagship convergence only after that same
+  canonical Outcome source exists. Do not widen the current 1.2.0 release
+  surface while this predicate is false; see
+  [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md).
 - [pending] Triage issues and PRs after the repository is public.
 
 ## Decision Log
@@ -98,6 +100,12 @@ models, schedules work, or transports provider traffic.
   provider-neutral transition seam. Pilot owns dispatch and acceptance; the
   receipt records ordered state and bounded proof references without provider,
   model, prompt, transcript, credential, or machine-path data.
+- [2026-08-02] Thermo/Ponytail stop-work audit: the smallest useful next move
+  is one strict, deterministic PLAN.md-to-`vidux.outcome.v1` projection. Keep
+  the existing schema, validator, browser proof, and native adapters; do not
+  add a second state store, queue, router, transport, synthetic payload, or
+  parallel Ask/Steer/F4/iOS work. Downstream rows stay blocked until the
+  projection has one revision shared by desk and 90.
 
 ## Progress
 
@@ -126,3 +134,5 @@ models, schedules work, or transports provider traffic.
   Vidux as the provider-neutral durable authority.
 - 2026-08-01: Added the lifecycle receipt schema, examples, public reference,
   deterministic validator, focused tests, and release-package requirements.
+- 2026-08-02: Re-ranked the flagship and Outcome Console rows behind the one
+  canonical Outcome-source gate after a bounded privacy and parser audit.
