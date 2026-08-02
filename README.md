@@ -10,6 +10,9 @@
 
 One calm, local view of AI-assisted project work: the outcome, what is happening now,
 a place to change direction, and proof. One `PLAN.md` keeps it durable.
+
+**Pilot Puppy** is the friendly product umbrella; Vidux is its public plan/proof core. Native Codex, Claude Code, and Cursor execute locally; 90 is the planned on-the-go briefing and choice surface, not shipped in `1.2.0`. [Boundary](docs/reference/pilot-puppy.md).
+
 ## Install
 Needs Bash, Git, and Python 3. Node is only for contributor tests and docs.
 ```bash
@@ -53,9 +56,8 @@ plan edit uncommitted unless `--commit` is explicit.
 
 ## Outcome / Ask / Steer interchange
 
-Vidux `1.2.0` includes provider-neutral JSON for one Outcome, an exceptional Ask,
-Steers, and proof references. That interchange is separate from the local GUI: neither
-is a worker runtime, shared-memory layer, or live model-steering claim.
+Vidux `1.2.0` includes provider-neutral JSON for one Outcome, an optional exceptional Ask,
+Steers, and proof references. The GUI defers Ask until dogfood reveals a genuine fork. The interchange is separate from the GUI; it is not a worker runtime, shared-memory layer, or live model-steering claim.
 
 The companion `vidux.lifecycle.v1` receipt records the bounded transition history
 that a start-to-finish driver can hand back to Vidux. It remains provider-neutral
@@ -76,14 +78,12 @@ python3 scripts/vidux-outcome-validate.py \
 The read-only validator emits deterministic JSON: exit `0` valid, `1` invalid, or `2`
 invocation/I/O failure. See the [contract](docs/reference/outcome-ask-steer.md) and
 [schema](schemas/outcome-ask-steer.v1.json).
-
 ## Docs
 
 Root is install + agent entry; deeper material stays in docs:
 [Architecture](docs/doctrine/ARCHITECTURE.md) · [Doctrine](docs/doctrine/DOCTRINE.md) · [Loop](docs/doctrine/LOOP.md) · [Enforcement hooks](docs/doctrine/ENFORCEMENT.md) · [Core boundary](docs/CORE-CUT.md) · [Evidence format](guides/evidence-format.md) · [Site / guides](docs/)
 Community: [CONTRIBUTING](CONTRIBUTING.md) · [SECURITY](SECURITY.md) · [SUPPORT](SUPPORT.md) · [CODE_OF_CONDUCT](CODE_OF_CONDUCT.md)
-Repo `PLAN.md` (if present) is this repo's internal queue, not required to use Vidux in your project.
-
+Repo `PLAN.md` (if present) is this repository's working authority; it is not required to use Vidux in your project.
 ## Release truth
 
 `VERSION` marks `1.2.0`. A release is valid only when its tag and GitHub Release resolve
