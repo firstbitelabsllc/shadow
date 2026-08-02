@@ -258,10 +258,11 @@ three build/bug-fix/release scenarios only after this first gate passes.
   screenshots are in `assets/vidux-dashboard.png` and `assets/vidux-mobile.png`.
 - Browser proof covers the collapsed default, responsive order, local steering
   states, project drawer, technical escape hatch, and proof-plan navigation.
-- Candidate proof: 22 JavaScript tests, 458 Python tests, and 136 real-browser
-  flows pass across desktop, tablet, and phone; 2 Linux visual baselines are
-  intentionally skipped on macOS. Docs build, the tracked-source boundary scan,
-  and dirty-development package verification also pass.
+- The current proof floor is `npm run verify` plus `npm run release:verify`;
+  the browser suite covers the collapsed default, responsive order, local
+  steering states, project drawer, technical escape hatch, and proof-plan
+  navigation. Test counts are intentionally omitted here because they prove
+  effort, not human comprehension.
 - Disposable-project dogfood proved `init`, `status`, the Git boundary,
   proof-required `checkpoint`, the Outcome validator, and the real browser.
   It also caught and closed the false `Working now` state when all tasks were

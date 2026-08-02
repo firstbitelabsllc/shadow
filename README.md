@@ -11,7 +11,7 @@
 One calm, local view of AI-assisted project work: the outcome, what is happening now,
 a place to change direction, and proof. One `PLAN.md` keeps it durable.
 
-**Pilot Puppy** is the friendly product umbrella; Vidux is its public plan/proof core. Native Codex, Claude Code, and Cursor execute locally; 90 is the planned on-the-go briefing and choice surface, not shipped in `1.2.0`. [Boundary](docs/reference/pilot-puppy.md).
+**Pilot Puppy** is the friendly product umbrella; Vidux is its public plan/proof core. Native Codex and Claude Code execute locally. Cursor is a conditional host path: it counts as execution only when it returns `pilot.host-receipt.v1`. 90 is the planned on-the-go briefing and choice surface, not shipped in `1.2.0`. [Boundary](docs/reference/pilot-puppy.md).
 
 ## Install
 Needs Bash, Git, and Python 3. Node is only for contributor tests and docs.
