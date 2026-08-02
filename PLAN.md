@@ -31,11 +31,11 @@ models, schedules work, or transports provider traffic.
 
 - Status: working
 - Outcome ID: vidux-public
-- Outcome Revision: 3
-- Outcome Updated At: 2026-08-02T07:09:21Z
+- Outcome Revision: 4
+- Outcome Updated At: 2026-08-02T07:24:56Z
 - Outcome State: working
 - Outcome: Help a person understand what the work is trying to achieve, what is happening now, and where to verify proof without opening code or agent machinery.
-- Next: Correct this card's plan wording, then run one ordinary four-question comprehension dogfood before adding any new interaction.
+- Next: Run one ordinary four-question comprehension dogfood before adding any new interaction.
 - Validation: Run the public tests and release checks, then record one bounded human card-comprehension receipt.
 - Evidence: evidence/outcome-card-dogfood.md
 
@@ -62,10 +62,9 @@ models, schedules work, or transports provider traffic.
   `vidux.outcome.v1` source only after real Outcome-card dogfood shows a
   genuine fork. Do not build an Ask parser, answer flow, second state store,
   or approval queue to prove the concept.
-- [in_progress] Correct the canonical plan-derived Outcome data (plain-language
-  brief, valid scorecard, proof target, and umbrella wording), then dogfood the
-  existing Outcome card and proof/state wording. Keep the current 1.2.0 surface
-  narrow and use [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for
+- [in_progress] Run one ordinary comprehension dogfood against the corrected
+  canonical Outcome card and proof/state wording. Keep the current 1.2.0
+  surface narrow and use [`plans/flagship/PLAN.md`](plans/flagship/PLAN.md) for
   evidence-triggered follow-ups.
 - [deferred] Triage public issues and PRs only when an assigned issue changes
   the current Outcome gate; it is not a second work queue.
