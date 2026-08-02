@@ -197,3 +197,6 @@ models, schedules work, or transports provider traffic.
   product name, while the stable `vidux` CLI and `/vidux` skill path remain the
   compatibility entry points. No technical identifier, repository slug, schema,
   install path, or history was renamed.
+- 2026-08-02: Aligned the first-run browser onboarding copy with the Pilot Puppy
+  brand and added a regression for the visible strings. `ViduxOnboarding` and
+  the `vidux init --here` compatibility command remain unchanged.
