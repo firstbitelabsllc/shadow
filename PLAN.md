@@ -179,18 +179,6 @@ Code, or Cursor without taking custody of credentials or conversations.
   support for a project's own plan, not a universal validation gate. One
   bounded task keeps a handoff reviewable; it does not stop other projects
   from shipping safe, high-value reachable work.
-- 2026-08-03: Branch `codex/python-floor-resolution-main@8e8f7b1` now resolves
-  a Python 3.10+ interpreter when bare `python3` is pinned below the floor,
-  carries the resolved interpreter through the CLI, browse launcher, and npm
-  Python gates, and passes 83 Python tests, 3 JavaScript tests, public-ready,
-  docs, desktop/phone browser, and release-package checks. This is branch and
-  CI handoff proof only; it is not merged or released yet.
-- 2026-08-03: PR #98's first CI run exposed an overstrong test assertion: a
-  valid interpreter override can execute `doctor` while an otherwise clean CI
-  runner still lacks optional native-host or mount readiness. The test now
-  asserts the selected interpreter and rejects only the dispatcher failure
-  code; this preserves the runtime contract without claiming environment
-  readiness.
 - 2026-08-03: PR #98 merged as `a24120ff`. Post-merge `origin/main` readback
   passes 83 Python tests, 3 JavaScript tests, public-ready, docs, desktop and
   phone browser, and release-package verification. This proves merged source
