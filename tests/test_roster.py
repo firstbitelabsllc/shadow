@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 CLI = SCRIPTS / "pilot-puppy-roster.py"
 LIBRARY = SCRIPTS / "pilot_puppy_roster_lib.py"
+TOP_LEVEL_CLI = ROOT / "bin" / "pilot-puppy"
 SPEC = importlib.util.spec_from_file_location("pilot_puppy_roster_lib", LIBRARY)
 assert SPEC and SPEC.loader
 roster = importlib.util.module_from_spec(SPEC)
@@ -41,6 +42,19 @@ def run(
         check=False,
         env=env,
         timeout=timeout,
+    )
+
+
+def run_top_level(*args: str) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment["PILOT_PUPPY_ROOT"] = str(ROOT)
+    return subprocess.run(
+        ["bash", str(TOP_LEVEL_CLI), *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
     )
 
 
@@ -89,6 +103,18 @@ class RosterTests(unittest.TestCase):
         for slot in view["roster"]["slots"]:
             self.assertEqual(set(slot), {"id", "role", "host", "priority", "enabled"})
 
+    def test_prefer_is_exposed_in_top_level_roster_help_without_running_a_command(self) -> None:
+        result = subprocess.run(
+            ["bash", str(TOP_LEVEL_CLI), "help", "roster"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertIn("roster prefer --role ROLE --host", result.stdout)
+
     def test_local_view_never_emits_model_credentials_or_private_paths(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = safe_root(dirname)
@@ -125,6 +151,84 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(second.returncode, 1)
         self.assertIn("refusing to overwrite", second.stderr)
         self.assertEqual(preserved, original)
+
+    def test_prefer_reorders_one_declared_role_atomically_and_preserves_everything_else(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = safe_root(dirname)
+            config = root / "config" / "roster.json"
+            self.assertEqual(run("init", "--file", str(config)).returncode, 0)
+            before = json.loads(config.read_text(encoding="utf-8"))
+            result = run_top_level(
+                "roster", "prefer", "--role", "bulk", "--host", "codex", "--file", str(config), "--json"
+            )
+            after = json.loads(config.read_text(encoding="utf-8"))
+            file_mode = stat.S_IMODE(config.stat().st_mode)
+            parent_mode = stat.S_IMODE(config.parent.stat().st_mode)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)["roster"]
+        self.assertEqual(rendered, after)
+        self.assertEqual(after["revision"], before["revision"] + 1)
+        self.assertEqual([slot["id"] for slot in after["slots"]], [slot["id"] for slot in before["slots"]])
+        self.assertEqual(
+            [(slot["id"], slot["priority"]) for slot in after["slots"] if slot["role"] == "bulk"],
+            [("bulk-cursor", 2), ("bulk-codex", 1)],
+        )
+        self.assertEqual(
+            [slot for slot in after["slots"] if slot["role"] != "bulk"],
+            [slot for slot in before["slots"] if slot["role"] != "bulk"],
+        )
+        self.assertEqual(file_mode, 0o600)
+        self.assertEqual(parent_mode, 0o700)
+
+    def test_prefer_is_idempotent_and_never_creates_an_absent_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = safe_root(dirname)
+            config = root / "config" / "roster.json"
+            self.assertEqual(run("init", "--file", str(config)).returncode, 0)
+            first = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
+            preferred = config.read_bytes()
+            second = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
+            no_slot = run("prefer", "--role", "bulk", "--host", "manual", "--file", str(config))
+            preserved = config.read_bytes()
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout, "local roster preference is ready\n")
+        self.assert_safe_error(no_slot, root)
+        self.assertEqual(preferred, preserved)
+
+    def test_prefer_rejects_a_disabled_slot_without_changing_the_roster(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = safe_root(dirname)
+            config = root / "config" / "roster.json"
+            self.assertEqual(run("init", "--file", str(config)).returncode, 0)
+            payload = json.loads(config.read_text(encoding="utf-8"))
+            for slot in payload["slots"]:
+                if slot["id"] == "bulk-codex":
+                    slot["enabled"] = False
+            config.write_text(json.dumps(payload), encoding="utf-8")
+            before = config.read_bytes()
+            result = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
+            after = config.read_bytes()
+
+        self.assert_safe_error(result, root)
+        self.assertEqual(after, before)
+
+    def test_prefer_refuses_a_symlink_without_touching_its_target(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = safe_root(dirname)
+            config = root / "config" / "roster.json"
+            config.parent.mkdir()
+            target = root / "target.json"
+            target.write_text(json.dumps(default_payload()), encoding="utf-8")
+            target.chmod(0o600)
+            config.symlink_to(target)
+            result = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
+            preserved = target.read_text(encoding="utf-8")
+
+        self.assert_safe_error(result, root)
+        self.assertEqual(preserved, json.dumps(default_payload()))
 
     def test_twenty_concurrent_inits_have_one_winner_and_valid_json(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

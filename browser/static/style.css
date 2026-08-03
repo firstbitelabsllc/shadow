@@ -38,6 +38,13 @@ main:focus { outline: none; }
 .card > .eyebrow { margin-top: 42px; }
 .card h2 { max-width: 16ch; margin-top: 0; margin-bottom: 18px; font-size: clamp(2rem, 5vw, 4.2rem); line-height: 1.02; letter-spacing: -.055em; }
 .current { margin-top: 0; margin-bottom: 42px; color: var(--muted); font-size: clamp(1.05rem, 2vw, 1.3rem); line-height: 1.55; }
+.role-guide { margin-top: 0; margin-bottom: 42px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: color-mix(in srgb, var(--accent-soft) 34%, var(--surface)); }
+.role-guide .eyebrow { margin-bottom: 14px; }
+.role-guide-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.role-guide-item { min-width: 0; padding: 12px; border-radius: 12px; background: var(--surface); }
+.role-guide-item dt { color: var(--muted); font-size: .8rem; font-weight: 650; line-height: 1.35; }
+.role-guide-item dd { margin: 5px 0 0; color: var(--accent); font-weight: 800; }
+.role-guide-note { margin: 16px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
 .brief { margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--line); }
 .brief-row { display: grid; grid-template-columns: 150px 1fr; gap: 22px; padding: 22px 0; border-bottom: 1px solid var(--line); }
 .brief dt { color: var(--muted); font-size: .82rem; font-weight: 700; }
@@ -66,6 +73,7 @@ main:focus { outline: none; }
   .project { min-width: 180px; }
   .card { border-radius: 20px; }
   .brief-row { grid-template-columns: 1fr; gap: 7px; }
+  .role-guide-list { grid-template-columns: 1fr; }
   .card h2 { font-size: clamp(2rem, 11vw, 3.3rem); }
 }
 

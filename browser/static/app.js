@@ -81,6 +81,26 @@ function renderPlan(plan) {
   card.append(el('h2', { text: outcome.summary }));
   card.append(el('p', { className: 'current', text: outcome.current_move }));
 
+  const roleGuide = el('section', { className: 'role-guide' });
+  roleGuide.append(el('p', { className: 'eyebrow', text: 'Choose the work shape' }));
+  const roles = el('dl', { className: 'role-guide-list' });
+  [
+    ['Ambiguous decision', 'planner'],
+    ['Ordinary bounded change', 'bulk'],
+    ['Reproducible failure', 'debug'],
+    ['Difficult, proof-heavy build', 'hard-ic'],
+  ].forEach(([work, role]) => {
+    const item = el('div', { className: 'role-guide-item' });
+    item.append(el('dt', { text: work }), el('dd', { text: role }));
+    roles.append(item);
+  });
+  roleGuide.append(roles);
+  roleGuide.append(el('p', {
+    className: 'role-guide-note',
+    text: 'Run pilot-puppy route explicitly when the task is ready. It launches nothing.',
+  }));
+  card.append(roleGuide);
+
   const brief = el('dl', { className: 'brief' });
   brief.append(row('What changed', briefing.changed));
   brief.append(row('Why it matters', briefing.matters));

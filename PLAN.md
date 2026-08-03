@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 15
-- Outcome Updated At: 2026-08-03T18:01:09Z
+- Outcome Revision: 17
+- Outcome Updated At: 2026-08-03T18:24:01Z
 - Outcome State: working
 - Outcome: Keep one calm, local Pilot Puppy front door useful while restoring explicit, safe delegation that sends each task to the right role without wasting stronger native seats.
 - Next: Use the four-shape routing policy for the next real bounded product task. Revisit a local private seat overlay only if the generic role/host roster cannot express a needed setup. Cross-host Codex proof remains deferred and does not block local delegation.
@@ -150,6 +150,11 @@ Code, or Cursor without taking custody of credentials or conversations.
 - [completed] R7: Complete OSS hardening: threat boundary, license/provenance,
   fresh install, docs, loopback UI readback, package, privacy, and security
   gates.
+- [completed] R8: Make local role routing usable without source spelunking:
+  render the four work shapes in the loopback briefing and add one atomic local
+  `roster prefer` command that reprioritizes only declared, enabled generic
+  role/host slots. It must not read providers/models/quotas, launch work, or
+  create project evidence.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -170,6 +175,23 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-03: R8 passed the integrated public gate: 126 Python tests, 3
+  JavaScript tests, 6 desktop/phone browser tests, docs build, the 95-file
+  public-source scan, package verification, and a zero-vulnerability
+  dependency audit. It adds no host launch, provider/model/usage selection,
+  cloud execution, credential relay, queue, daemon, watcher, or transcript
+  store. This is source proof only; it does not claim a new public release or
+  a native-host execution.
+- 2026-08-03: Restored the live local delegation surface to public main
+  `bc2e06c0` without copying or adding a runtime. Skillbox read back one
+  current Pilot Puppy source in Codex, Claude Code, and Cursor; `pilot-puppy`
+  reported 2.1.0 and its doctor passed 11/11. A fresh private generic roster
+  exposes routine development as bulk/Cursor with bulk/Codex fallback,
+  debug/Codex, and hard implementation/Claude Code. A no-launch `dev` route
+  read back that exact Cursor-first selection. R8 adds a visible four-shape
+  guide and an atomic `roster prefer` command. Specific native model/profile
+  selection remains deferred until a
+  real same-host need and safe invocation contract exist.
 - 2026-08-03: User made local role-based smart routing and a usable roster P0.
   Pilot Puppy will not add cloud execution, voice/on-the-go controls, a
   credential relay, a transcript store, or autonomous dispatch. The direct

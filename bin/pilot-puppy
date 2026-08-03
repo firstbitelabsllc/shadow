@@ -25,7 +25,7 @@ commands:
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
   checkpoint [args] Update a PLAN.md and write one bounded local receipt
-  roster [args]     Create or show a local, generic work-role roster
+  roster [args]     Create, show, or locally prefer a generic work-role roster
   route [args]      Explain one local role and native-host choice without launching it
   host [args]       Probe or run one sealed task through a native coding host
   doctor            Install/readiness doctor for local CLI setup
@@ -104,10 +104,11 @@ EOF
       ;;
     roster)
       cat <<EOF
-pilot-puppy roster — create or show local, generic work roles.
+pilot-puppy roster — create, show, or prefer local, generic work roles.
 
 usage: pilot-puppy roster init [--file PATH] [--json]
        pilot-puppy roster show [--file PATH] [--json]
+       pilot-puppy roster prefer --role ROLE --host codex|claude-code|cursor|manual [--file PATH] [--json]
 
 Creates or reads a local roster with these roles: lead, planner, bulk, debug,
 critic, and hard-ic. It is a local setup and display tool only. It does not
@@ -116,8 +117,9 @@ work, or write project evidence.
 
 Use --file only for a deliberately chosen local roster location. The default
 roster stays outside a project, and it is never read by browse, status, or
-receipts. Use route to make one foreground, explainable selection from its
-generic role slots.
+receipts. prefer moves one already-declared role/host slot to first within
+that role; it never creates a slot, launches work, or adds provider data. Use
+route to make one foreground, explainable selection from its generic role slots.
 EOF
       ;;
     route)

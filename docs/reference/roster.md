@@ -16,13 +16,21 @@ Create or inspect the local roster:
 ```bash
 pilot-puppy roster init
 pilot-puppy roster show
+pilot-puppy roster prefer --role bulk --host codex
 ```
+
+`prefer` moves one already-declared role/host slot to priority 1 within that
+role. It preserves every other role and the relative order of the remaining
+slots; it rejects a missing or disabled slot rather than creating or enabling
+one, and it never launches work. Repeating an already-first preference is a
+local no-op.
 
 Choose another local file only when you mean to:
 
 ```bash
 pilot-puppy roster init --file /safe/local/path/roster.json
 pilot-puppy roster show --file /safe/local/path/roster.json --json
+pilot-puppy roster prefer --role bulk --host codex --file /safe/local/path/roster.json
 ```
 
 `init` never overwrites an existing roster. The default file stays outside the

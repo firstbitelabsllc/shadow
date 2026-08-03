@@ -15,10 +15,13 @@ import sys
 from typing import Any
 
 from pilot_puppy_roster_lib import (
+    HOSTS,
+    ROLES,
     RosterError,
     RosterExistsError,
     initialize_roster,
     load_roster,
+    prefer_roster,
     roster_view,
 )
 
@@ -40,6 +43,15 @@ def parser() -> argparse.ArgumentParser:
             help="trusted explicit local roster override; never included in plans, browser status, or receipts",
         )
         command.add_argument("--json", action="store_true", help="print the bounded local roster projection")
+    prefer = commands.add_parser("prefer", help="make one declared role/host slot first locally")
+    prefer.add_argument("--role", required=True, choices=ROLES, help="declared generic work role")
+    prefer.add_argument("--host", required=True, choices=HOSTS, help="declared native host surface")
+    prefer.add_argument(
+        "--file",
+        metavar="PATH",
+        help="trusted explicit local roster override; never included in plans, browser status, or receipts",
+    )
+    prefer.add_argument("--json", action="store_true", help="print the bounded local roster projection")
     return result
 
 
@@ -64,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(view, indent=2, sort_keys=True))
             else:
                 print("created local roster")
+            return 0
+        if args.command == "prefer":
+            roster = prefer_roster(args.role, args.host, args.file)
+            view = roster_view(roster)
+            if args.json:
+                print(json.dumps(view, indent=2, sort_keys=True))
+            else:
+                print("local roster preference is ready")
             return 0
         view = roster_view(load_roster(args.file))
         if args.json:

@@ -50,9 +50,9 @@ allowed-scope result, proof result, lead reproduction, and elapsed local time.
 Usage, tokens, cost, proprietary model, and provider-quality claims are **not
 collected**.
 
-The lead may use a real calibration to change local roster priorities. Pilot
-Puppy never changes them automatically, silently retries, or turns the result
-into a score database.
+The lead may use a real calibration to change local roster priorities with
+`pilot-puppy roster prefer --role ROLE --host HOST`. Pilot Puppy never changes
+them automatically, silently retries, or turns the result into a score database.
 
 ## Bind a route to a host run
 

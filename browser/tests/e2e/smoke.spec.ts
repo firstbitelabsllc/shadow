@@ -20,3 +20,17 @@ test('exposes proof without implementation machinery', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText('provider');
   await expect(page.locator('body')).not.toContainText('transcript');
 });
+
+test('makes the four work shapes visible without routing or launching work', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Choose the work shape')).toBeVisible();
+  await expect(page.getByText('Ambiguous decision')).toBeVisible();
+  await expect(page.getByText('planner', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ordinary bounded change')).toBeVisible();
+  await expect(page.getByText('bulk', { exact: true })).toBeVisible();
+  await expect(page.getByText('Reproducible failure')).toBeVisible();
+  await expect(page.getByText('debug', { exact: true })).toBeVisible();
+  await expect(page.getByText('Difficult, proof-heavy build')).toBeVisible();
+  await expect(page.getByText('hard-ic', { exact: true })).toBeVisible();
+  await expect(page.getByText('Run pilot-puppy route explicitly when the task is ready. It launches nothing.')).toBeVisible();
+});

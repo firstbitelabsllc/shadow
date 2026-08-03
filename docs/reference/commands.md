@@ -6,7 +6,7 @@
 | `pilot-puppy status --root PATH` | Read current plan rows. |
 | `pilot-puppy browse --root PATH` | Start the loopback briefing UI. |
 | `pilot-puppy checkpoint … --proof TEXT` | Update one exact row and atomically write one receipt. |
-| `pilot-puppy roster init\|show` | Create or show a local generic work-role roster. |
+| `pilot-puppy roster init\|show\|prefer` | Create, show, or locally prioritize a declared generic work-role slot. |
 | `pilot-puppy route …` | Explain one explicit generic role/native-host choice without launching it. |
 | `pilot-puppy host probe --host HOST` | Check a native host without using it. |
 | `pilot-puppy host run …` | Run one sealed task in one clean worktree. |

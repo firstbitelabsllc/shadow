@@ -378,3 +378,90 @@ def initialize_roster(value: str | Path | None = None) -> dict[str, Any]:
     finally:
         temporary_path.unlink(missing_ok=True)
     return validate_roster(DEFAULT_ROSTER)
+
+
+def _replace_private_roster(path: Path, roster: object) -> None:
+    """Atomically replace one already-safe, private local roster."""
+
+    safe = validate_roster(roster)
+    parent = _walk_safe_parent(path, create=False)
+    try:
+        os.chmod(parent, 0o700)
+        information = os.lstat(path)
+    except OSError:
+        raise RosterError("local roster configuration is unsafe") from None
+    if (
+        stat.S_ISLNK(information.st_mode)
+        or not stat.S_ISREG(information.st_mode)
+        or stat.S_IMODE(information.st_mode) & 0o077
+    ):
+        raise RosterError("local roster configuration is unsafe")
+
+    serialized = canonical_roster_bytes(safe) + b"\n"
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".roster-", dir=parent)
+    temporary_path = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            current = os.lstat(path)
+        except OSError:
+            raise RosterError("local roster configuration is unsafe") from None
+        if (
+            stat.S_ISLNK(current.st_mode)
+            or not stat.S_ISREG(current.st_mode)
+            or stat.S_IMODE(current.st_mode) & 0o077
+        ):
+            raise RosterError("local roster configuration is unsafe")
+        try:
+            os.replace(temporary_path, path)
+        except OSError:
+            raise RosterError("local roster configuration is unsafe") from None
+        _sync_directory(parent)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def prefer_roster(
+    role: str, host: str, value: str | Path | None = None
+) -> dict[str, Any]:
+    """Move one declared role/host slot to priority one locally.
+
+    This intentionally changes no role, host, enabled state, slot identifier,
+    or other role.  It only re-ranks the selected role, preserving the prior
+    order among every non-selected slot in that role.  Repeating an already
+    first preference is a no-op so an existing route binding is not made stale.
+    """
+
+    if role not in ROLES or host not in HOSTS:
+        raise RosterError("local roster preference is invalid")
+    path = _safe_config_path(value, create_parent=False)
+    current = load_roster(path)
+    matches = [slot for slot in current["slots"] if slot["role"] == role and slot["host"] == host]
+    if len(matches) != 1:
+        raise RosterError("local roster preference is not declared exactly once")
+    selected = matches[0]
+    if not selected["enabled"]:
+        raise RosterError("local roster preference is disabled")
+    if selected["priority"] == 1:
+        return current
+    if current["revision"] >= MAX_REVISION:
+        raise RosterError("local roster revision is exhausted")
+
+    ordered = sorted((slot for slot in current["slots"] if slot["role"] == role), key=lambda slot: slot["priority"])
+    reordered = [selected, *(slot for slot in ordered if slot["id"] != selected["id"])]
+    priorities = {slot["id"]: index for index, slot in enumerate(reordered, start=1)}
+    slots: list[dict[str, Any]] = []
+    for slot in current["slots"]:
+        updated = dict(slot)
+        if slot["role"] == role:
+            updated["priority"] = priorities[slot["id"]]
+        slots.append(updated)
+    updated_roster = validate_roster(
+        {"schema": ROSTER_SCHEMA, "revision": current["revision"] + 1, "slots": slots}
+    )
+    _replace_private_roster(path, updated_roster)
+    return updated_roster

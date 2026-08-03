@@ -51,7 +51,12 @@ Outcome, one plain-language briefing, proof status, and up to three choices.
 `planner`, `bulk`, `debug`, `critic`, and `hard-ic`. It is not a model picker
 or dispatch system. Associate those generic names with your own native-tool
 setup privately; the browser, project status, and receipts never contain that
-mapping.
+mapping. To change a role's local first choice, explicitly prefer one
+already-declared host:
+
+```bash
+pilot-puppy roster prefer --role bulk --host codex
+```
 
 For a bounded handoff, first ask Pilot Puppy to make one transparent local
 selection. It chooses only among declared slots for the requested task kind,
