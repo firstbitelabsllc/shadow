@@ -164,14 +164,41 @@ require_pilot_puppy_checkout() {
   fi
 }
 
+# Machines that pin bare `python3` below 3.10 for other tooling often carry a
+# newer versioned interpreter alongside it. Resolve the newest 3.10+ interpreter
+# on PATH instead of failing on the pin; a valid pre-set PILOT_PUPPY_PYTHON wins
+# and an invalid one fails closed.
+python3_satisfies_floor() {
+  "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+}
+
 require_python3() {
   local cmd="$1"
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "pilot-puppy ${cmd}: python3 not found on PATH." >&2
-    echo "  This subcommand requires Python 3.10+. Install it, then re-run." >&2
-    echo "  'pilot-puppy doctor' runs a full readiness check once python3 is installed." >&2
+  if [[ -n "${PILOT_PUPPY_PYTHON:-}" ]]; then
+    if python3_satisfies_floor "${PILOT_PUPPY_PYTHON}"; then
+      return 0
+    fi
+    echo "pilot-puppy ${cmd}: PILOT_PUPPY_PYTHON (${PILOT_PUPPY_PYTHON}) is not a Python 3.10+ interpreter." >&2
+    echo "  Unset it or point it at one, then re-run." >&2
     exit 127
   fi
+  local candidate
+  for candidate in $(compgen -c python3. | grep -E '^python3\.[0-9]+$' | sort -t. -k2,2nr -u) python3; do
+    if command -v "${candidate}" >/dev/null 2>&1 && python3_satisfies_floor "${candidate}"; then
+      PILOT_PUPPY_PYTHON="$(command -v "${candidate}")"
+      export PILOT_PUPPY_PYTHON
+      return 0
+    fi
+  done
+  if command -v python3 >/dev/null 2>&1; then
+    echo "pilot-puppy ${cmd}: python3 on PATH is $(python3 -c 'import sys; print(\"%d.%d.%d\" % sys.version_info[:3])' 2>/dev/null || echo 'unreadable'); this subcommand requires Python 3.10+." >&2
+    echo "  Install a newer interpreter (kept alongside the existing one is fine) and re-run." >&2
+  else
+    echo "pilot-puppy ${cmd}: python3 not found on PATH." >&2
+    echo "  This subcommand requires Python 3.10+. Install it, then re-run." >&2
+  fi
+  echo "  'pilot-puppy doctor' runs a full readiness check once python3 is installed." >&2
+  exit 127
 }
 
 main() {
@@ -199,31 +226,32 @@ main() {
       fi
       ;;
     browse)
+      require_python3 "browse"
       export PILOT_PUPPY_ROOT
       exec "${PILOT_PUPPY_ROOT}/bin/pilot-puppy-browse" "$@"
       ;;
     status)
       require_python3 "status"
-      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-status.py" "$@"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-status.py" "$@"
       ;;
     init)
       require_python3 "init"
-      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-init.py" "$@"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-init.py" "$@"
       ;;
     checkpoint)
       require_python3 "checkpoint"
       export PILOT_PUPPY_ROOT
-      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-checkpoint.py" "$@"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-checkpoint.py" "$@"
       ;;
     host)
       require_python3 "host"
-      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-host.py" "$@"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-host.py" "$@"
       ;;
     doctor)
       require_python3 "doctor"
       export PILOT_PUPPY_ROOT
       export PILOT_PUPPY_DOCTOR_EXPECTED_CLI="${PILOT_PUPPY_ROOT}/bin/pilot-puppy"
-      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-doctor.py" "$@"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-doctor.py" "$@"
       ;;
     *)
       echo "pilot-puppy: unknown command: ${cmd}" >&2

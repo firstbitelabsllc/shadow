@@ -10,4 +10,15 @@ done
 BIN_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
 ROOT="${PILOT_PUPPY_ROOT:-$(cd "${BIN_DIR}/.." && pwd)}"
 
-exec python3 "${ROOT}/browser/server.py" "$@"
+# The dispatcher resolves and exports PILOT_PUPPY_PYTHON before exec-ing this
+# launcher. Validate rather than re-resolving so both entrypoints share one
+# resolution authority and the same fail-closed contract; bare python3 covers
+# a direct standalone invocation.
+PILOT_PUPPY_PYTHON="${PILOT_PUPPY_PYTHON:-python3}"
+if ! "${PILOT_PUPPY_PYTHON}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  echo "pilot-puppy browse: ${PILOT_PUPPY_PYTHON} is not a Python 3.10+ interpreter." >&2
+  echo "  Run through 'pilot-puppy browse' for automatic resolution, or set PILOT_PUPPY_PYTHON to one." >&2
+  exit 127
+fi
+
+exec "${PILOT_PUPPY_PYTHON}" "${ROOT}/browser/server.py" "$@"
