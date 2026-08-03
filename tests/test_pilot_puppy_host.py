@@ -205,6 +205,11 @@ class PilotPuppyHostTests(unittest.TestCase):
         self.assertIn(digest, prompt)
         self.assertIn("result.txt", prompt)
         self.assertIn("pilot-puppy.host-receipt.v1", prompt)
+        self.assertIn('"task_id":"bounded-task"', prompt)
+        self.assertIn('"proof_ref":"bounded-proof"', prompt)
+        self.assertIn("Do not use spaces or prose for proof_ref.", prompt)
+        self.assertIn("with status `blocked`", prompt)
+        self.assertIn("`proof_ref`: null", prompt)
 
     def test_probe_is_projection_only_and_reports_available_host(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

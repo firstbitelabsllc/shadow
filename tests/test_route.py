@@ -135,6 +135,47 @@ class RouteTests(unittest.TestCase):
         })
         self.assertEqual(before, after)
 
+    def test_default_task_shapes_choose_the_intended_role_without_launching(self) -> None:
+        cases = (
+            ("plan", "planner", "manual", "manual", "lead_manual_handoff"),
+            ("dev", "bulk", "cursor", "ready", "explicit_host_run"),
+            ("debug", "debug", "codex", "ready", "explicit_host_run"),
+            ("hard-dev", "hard-ic", "claude-code", "ready", "explicit_host_run"),
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = safe_root(dirname)
+            repo = make_repo(root)
+            task = make_task(root)
+            roster_file = make_roster(root)
+            before = git_status(repo)
+            for task_kind, expected_role, expected_host, expected_status, next_action in cases:
+                with self.subTest(task_kind=task_kind):
+                    result = run(
+                        "--repo",
+                        str(repo),
+                        "--task-id",
+                        f"route-{task_kind}",
+                        "--task-file",
+                        str(task),
+                        "--task-kind",
+                        task_kind,
+                        "--roster-file",
+                        str(roster_file),
+                        "--availability",
+                        "assume",
+                        "--json",
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    document = json.loads(result.stdout)
+                    self.assertEqual(document["status"], expected_status)
+                    self.assertEqual(document["selection"]["role"], expected_role)
+                    self.assertEqual(document["selection"]["host"], expected_host)
+                    self.assertEqual(document["execution"]["performed"], False)
+                    self.assertEqual(document["execution"]["next_action"], next_action)
+            after = git_status(repo)
+
+        self.assertEqual(before, after)
+
     def test_explicit_manual_role_is_not_an_executable_host_run(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = safe_root(dirname)

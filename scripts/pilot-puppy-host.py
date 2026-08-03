@@ -251,7 +251,12 @@ Allowed paths:
 
 Do not change any other path. Run the relevant tests. Finish by emitting exactly
 one JSON object with this shape and no additional JSON objects:
-{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"{task_id}","status":"ok|blocked|failed","summary":"280 characters or fewer","proof_ref":"lowercase-id-or-null","changed_paths":["relative/path"],"tests":[{{"name":"test name","status":"pass|fail"}}]}}
+{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"{task_id}","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":["one-allowed-relative-path"],"tests":[{{"name":"relevant-test","status":"pass"}}]}}
+
+For a successful result, use the exact Task ID above and a lowercase proof_ref
+identifier such as `bounded-proof`. Do not use spaces or prose for proof_ref.
+If the task is blocked or fails, emit the same one object with status `blocked`
+or `failed`, `proof_ref`: null, and no passing-test claim.
 
 Frozen task:
 {task}

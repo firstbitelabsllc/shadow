@@ -34,6 +34,26 @@ instead of choosing a different one. `--availability assume` skips the version
 probe and marks a native slot `unprobed`; it is useful when an operator has
 already checked the host.
 
+## Calibration boundary
+
+The router is a local policy tool, not a model or billing optimizer. Its useful
+default is simple: send ordinary bounded implementation to the `bulk` role,
+reserve `hard-ic` for difficult implementation, and keep planning, review, and
+lead acceptance explicit. The local roster priority makes that policy
+deterministic without collecting an account, quota, token, or price signal.
+
+Do not compare different roles on one coding task. A planner, debugger, and
+builder have intentionally different outcomes. A valid optional calibration is
+one role, one frozen task hash, separate clean worktrees, and two declared
+native-host slots for that same role. Review only the mechanical facts: route,
+allowed-scope result, proof result, lead reproduction, and elapsed local time.
+Usage, tokens, cost, proprietary model, and provider-quality claims are **not
+collected**.
+
+The lead may use a real calibration to change local roster priorities. Pilot
+Puppy never changes them automatically, silently retries, or turns the result
+into a score database.
+
 ## Bind a route to a host run
 
 Write a route only in the project-local evidence directory, then pass it back

@@ -70,6 +70,13 @@ The result might say `bulk via cursor`, `bulk via codex`, or that no declared
 slot is available. That choice is a local hint based only on the roster and a
 bounded version probe—never an account, quota, model, or billing claim.
 
+This is where the practical efficiency comes from: routine, well-scoped work
+uses the local `bulk` policy first; difficult implementation uses `hard-ic`;
+debugging, planning, review, and acceptance stay separate. You set the local
+priority once, then each route makes that choice visible before any native host
+uses time or tokens. Pilot Puppy does not pretend to know provider prices,
+models, or account usage.
+
 Then explicitly run the selected native host and list the only paths it may
 change. Passing the route packet makes the host fail closed if the frozen task,
 roster revision, or selected host changed in between:
