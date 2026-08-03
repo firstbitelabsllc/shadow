@@ -12,11 +12,22 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 5
-- Outcome Updated At: 2026-08-03T15:23:10Z
-- Outcome State: working
-- Outcome: Prove one simple Pilot Puppy product is a trustworthy, portable front door for bounded work across native Codex, Claude Code, and Cursor—without adding another platform layer.
-- Next: Clone the merged public `main` on the other computer, run `doctor`, mount the skill, and prove one sealed Codex task in a clean repo. Require `status: ok`, only the allowed path, and lead-reproduced proof; otherwise record the blocker and resume after the quota reset.
+- Outcome Revision: 6
+- Outcome Updated At: 2026-08-03T15:35:25Z
+- Outcome State: needs_input
+- Outcome: Keep one calm, local Pilot Puppy front door usable while cross-host proof is unavailable.
+- Next: Continue reachable work from this computer; resume cross-host Codex proof only when the target Mac is reachable or local quota resets.
+- Decision ID: choose-local-path
+- Decision: What should Pilot Puppy do while the remote computer is unavailable?
+- Option A ID: local-dogfood
+- Option A: Run local dogfood
+- Option A Consequence: Use the browser and native local hosts to validate the current brief now.
+- Option B ID: local-product-row
+- Option B: Take the next local row
+- Option B Consequence: Ship the highest reachable product improvement without waiting on remote proof.
+- Option C ID: defer-cross-host
+- Option C: Defer cross-host proof
+- Option C Consequence: Resume when Jump Connect accepts the target or quota resets; no remote work is attempted now.
 - Proof ID: pilot-puppy-v2-public-readback
 - Proof: tests/
 - Proof Summary: v2.0.0 is public and fresh-clone/install/readback passes; real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
@@ -37,13 +48,14 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Platform alignment
 
-- The current platform effort is portability proof: the same bounded contract
-  must survive a second computer and native-host boundary.
+- The current platform effort is local-first product proof. Cross-host
+  portability is a deferred receipt, not a gate on reachable work.
 - Existing plan, host, and project-local evidence boundaries are sufficient;
   do not add a router, queue, watcher, relay, or compatibility product to work
   around one unavailable Codex account.
-- A usable Codex account on the other computer is the first unblock route. The
-  local quota reset is the fallback, not a reason to expand the product.
+- When the target is available, a usable Codex account there can complete the
+  deferred receipt. The local quota reset is the alternate resume predicate,
+  not a reason to expand the product.
 
 ## Worklane boundary
 
@@ -83,9 +95,11 @@ Code, or Cursor without taking custody of credentials or conversations.
   all changed repositories are clean, pushed, and remotely verified.
 - [completed] Publish the portable other-computer handoff with bootstrap,
   mounting, proof, privacy, and one exact resume predicate.
-- [in_progress] Close cross-host portability proof through the other-computer
-  route first, or the local quota-reset fallback; require the same sealed task,
-  exact allowed-path change, and lead-reproduced check.
+- [in_progress] Keep the local Outcome and A/B/C brief actionable when an
+  external host is unavailable; take reachable product work without waiting.
+- [deferred] Close cross-host portability proof through the other-computer
+  route or the local quota-reset fallback; require the same sealed task, exact
+  allowed-path change, and lead-reproduced check.
 
 ## Mechanical proof required
 
@@ -103,6 +117,9 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-03: Made the local-first boundary operational. The unavailable Jump
+  route is deferred, while the Outcome now offers three honest local choices:
+  dogfood here, take the next reachable product row, or defer cross-host proof.
 - 2026-08-02: Established one product authority. Outcome, briefing, decision,
   privacy, and native-host behavior stay; unrelated machinery is removed.
 - 2026-08-02: Public core gate passes 79 Python tests, 3 JavaScript tests,
@@ -158,17 +175,17 @@ Code, or Cursor without taking custody of credentials or conversations.
   bounded task keeps a handoff reviewable; it does not stop other projects
   from shipping safe, high-value reachable work.
 
-## Blocked proof
+## Deferred proof (not a global blocker)
 
-- The other-computer route is blocked by host availability. **Need:** the
-  target Mac online and running Jump Connect; then run the documented clone,
-  install, doctor, skill-mount, and Outcome/A/B/C readback path.
+- The other-computer route is deferred by host availability. Resume only when
+  the target Mac is online and Jump Connect accepts the connection; then run
+  the documented clone, install, doctor, skill-mount, and Outcome/A/B/C path.
 - The public clone/install/status path is proven locally; the three mount
   failures are intentionally not counted as second-computer proof because the
-  target host was offline. Do not call the route complete until its own doctor
+  target host was offline. Do not call that receipt complete until its doctor
   is 11/11 from the target checkout.
-- Native Codex execution is also time-bound. If the other computer has a usable
+- Native Codex execution is also time-bound. If the target has a usable
   account, run the same sealed task there; otherwise resume after 2026-08-07
   23:52 America/New_York. In either route, it must return `status: ok`, change
   only its allowed path, and pass the lead-reproduced check. A binary/version
-  probe does not satisfy this gate.
+  probe does not satisfy this deferred receipt.
