@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 7
-- Outcome Updated At: 2026-08-03T15:44:37Z
+- Outcome Revision: 8
+- Outcome Updated At: 2026-08-03T15:57:00Z
 - Outcome State: needs_input
 - Outcome: Keep one calm, local Pilot Puppy front door usable while cross-host proof is unavailable.
 - Next: Use the local CLI and browser now; Python selection no longer depends on a bare 3.9, while cross-host Codex proof remains deferred.
@@ -100,6 +100,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 - [completed] Resolve a Python 3.10+ interpreter from PATH or an explicit
   override so local commands and the browser do not fail on a pinned bare
   `python3`.
+- [completed] Honor the documented local development-root and browser host/
+  port environment defaults while preserving command-line precedence.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -197,6 +199,11 @@ Code, or Cursor without taking custody of credentials or conversations.
   including hermetic override and low-bare-python fallback coverage; the
   84-test Python suite, public scan, docs, package, and browser gates pass
   without claiming remote host readiness.
+- 2026-08-03: Configuration behavior now matches the public reference: `status`
+  honors `PILOT_PUPPY_DEV_ROOT`, the browser honors `PILOT_PUPPY_DEV_ROOT`,
+  `PILOT_PUPPY_BROWSER_HOST`, and `PILOT_PUPPY_BROWSER_PORT`, and explicit flags
+  win over environment defaults. Two hermetic tests cover the status path and
+  parser precedence; full gates remain the resume proof for this row.
 
 ## Deferred proof (not a global blocker)
 

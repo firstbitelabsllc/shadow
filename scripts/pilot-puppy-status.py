@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -59,7 +60,8 @@ def render(records: list[dict]) -> str:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="pilot-puppy status", description=__doc__)
-    result.add_argument("--root", type=Path, default=Path.cwd(), help="directory to scan")
+    default_root = os.environ.get("PILOT_PUPPY_DEV_ROOT") or str(Path.cwd())
+    result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
     result.add_argument("--all", action="store_true", help="include finished Outcomes")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
     return result

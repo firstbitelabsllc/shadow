@@ -418,9 +418,12 @@ class Server(ThreadingHTTPServer):
 
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(prog="pilot-puppy browse", description=__doc__)
-    value.add_argument("--host", default="127.0.0.1")
-    value.add_argument("--port", type=int, default=7191)
-    value.add_argument("--root", default=str(Path.home() / "Development"))
+    value.add_argument("--host", default=os.environ.get("PILOT_PUPPY_BROWSER_HOST") or "127.0.0.1")
+    value.add_argument("--port", type=int, default=os.environ.get("PILOT_PUPPY_BROWSER_PORT") or "7191")
+    value.add_argument(
+        "--root",
+        default=os.environ.get("PILOT_PUPPY_DEV_ROOT") or str(Path.home() / "Development"),
+    )
     value.add_argument("--no-open", action="store_true")
     return value
 
