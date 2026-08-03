@@ -20,6 +20,7 @@ ROUTE_SCRIPT = SKILL_DIR / "scripts" / "pilot-puppy-route.py"
 if str(SCRIPT.parent) not in sys.path:
     sys.path.insert(0, str(SCRIPT.parent))
 from pilot_puppy_roster_lib import initialize_roster
+from pilot_puppy_seat_lib import initialize_seat_overlay, set_seat_selector
 
 SPEC = importlib.util.spec_from_file_location("pilot_puppy_host", SCRIPT)
 assert SPEC and SPEC.loader
@@ -37,6 +38,8 @@ if "--version" in sys.argv:
     raise SystemExit(0)
 
 mode = pathlib.Path(__file__).with_suffix(".mode").read_text().strip() if pathlib.Path(__file__).with_suffix(".mode").exists() else "ok"
+capture = pathlib.Path(__file__).with_suffix(".argv.json")
+capture.write_text(json.dumps(sys.argv), encoding="utf-8")
 if mode == "ok":
     pathlib.Path.cwd().joinpath("result.txt").write_text("changed\n", encoding="utf-8")
     changed = ["result.txt"]
@@ -51,7 +54,7 @@ else:
 
 if mode != "missing":
     print("```json")
-    print(json.dumps({
+    receipt = {
         "schema": "pilot-puppy.host-receipt.v1",
         "task_id": "add-proof",
         "status": "ok",
@@ -59,7 +62,14 @@ if mode != "missing":
         "proof_ref": "tests-green",
         "changed_paths": changed,
         "tests": [{"name": "fake-test", "status": "pass"}],
-    }))
+    }
+    if mode == "private-summary":
+        receipt["summary"] = "private-model-marker was used"
+    elif mode == "private-test":
+        receipt["tests"] = [{"name": "private-model-marker", "status": "pass"}]
+    elif mode == "unsafe-test":
+        receipt["tests"] = [{"name": "fake-test", "status": "pass", "extra": "private-model-marker"}]
+    print(json.dumps(receipt))
     print("```")
 '''
 
@@ -95,6 +105,13 @@ def make_host(root: Path, mode: str = "ok") -> Path:
 def make_roster(root: Path) -> Path:
     path = root / "config" / "roster.json"
     initialize_roster(path)
+    return path
+
+
+def make_seats(root: Path, roster_file: Path, slot: str, kind: str, value: str) -> Path:
+    path = root / "config" / "seats.json"
+    initialize_seat_overlay(path)
+    set_seat_selector(slot, kind, value, overlay_path=path, roster_path=roster_file)
     return path
 
 
@@ -137,6 +154,8 @@ def run_host(
     host: str = "cursor",
     route_file: str | None = None,
     roster_file: Path | None = None,
+    use_seat: bool = False,
+    seat_file: Path | None = None,
     force: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = [
@@ -163,6 +182,10 @@ def run_host(
         command.extend(["--route-file", route_file])
     if roster_file is not None:
         command.extend(["--roster-file", str(roster_file)])
+    if use_seat:
+        command.append("--use-seat")
+    if seat_file is not None:
+        command.extend(["--seat-file", str(seat_file)])
     if force:
         command.append("--force")
     return subprocess.run(command, capture_output=True, text=True, check=False)
@@ -584,6 +607,154 @@ class PilotPuppyHostTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(payload["blocked"]["kind"], "scope_violation")
+
+    def test_private_seat_model_is_bound_to_the_selected_route_and_never_enters_attempt(self) -> None:
+        cases = (
+            ("cursor", "dev", "bulk-cursor"),
+            ("codex", "debug", "debug-codex"),
+            ("claude-code", "hard-dev", "hard-ic-claude"),
+        )
+        for host, task_kind, slot in cases:
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname).resolve()
+                repo = make_repo(root, ignore_evidence=False)
+                binary = make_host(root)
+                task = root / "task.txt"
+                task.write_text("Do the bounded task.\n", encoding="utf-8")
+                roster_file = make_roster(root)
+                seat_file = make_seats(root, roster_file, slot, "model", "private-model-marker")
+                make_route(repo, task, roster_file, task_kind=task_kind)
+                output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+                result = run_host(
+                    repo,
+                    binary,
+                    task,
+                    output,
+                    host=host,
+                    route_file=".pilot-puppy/evidence/route.json",
+                    roster_file=roster_file,
+                    use_seat=True,
+                    seat_file=seat_file,
+                )
+                payload = json.loads(output.read_text(encoding="utf-8"))
+                argv = json.loads(binary.with_suffix(".argv.json").read_text(encoding="utf-8"))
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--model=private-model-marker", argv)
+                if host == "cursor":
+                    self.assertLess(argv.index("--model=private-model-marker"), argv.index("agent"))
+                rendered = json.dumps(payload, sort_keys=True).lower()
+                self.assertNotIn("private-model-marker", rendered)
+                self.assertNotIn("--model", rendered)
+                self.assertNotIn("slot", rendered)
+                self.assertEqual(payload["command_shape"], pilot_puppy_host.public_command_shape(host))
+
+    def test_private_codex_profile_is_supported_but_not_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, ignore_evidence=False)
+            binary = make_host(root)
+            task = root / "task.txt"
+            task.write_text("Do the bounded task.\n", encoding="utf-8")
+            roster_file = make_roster(root)
+            seat_file = make_seats(root, roster_file, "debug-codex", "profile", "private-profile-marker")
+            make_route(repo, task, roster_file, task_kind="debug")
+            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            result = run_host(
+                repo,
+                binary,
+                task,
+                output,
+                host="codex",
+                route_file=".pilot-puppy/evidence/route.json",
+                roster_file=roster_file,
+                use_seat=True,
+                seat_file=seat_file,
+            )
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            argv = json.loads(binary.with_suffix(".argv.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--profile=private-profile-marker", argv)
+        self.assertNotIn("private-profile-marker", json.dumps(payload, sort_keys=True))
+        self.assertNotIn("--profile", json.dumps(payload, sort_keys=True))
+
+    def test_private_seat_requires_a_ready_route_and_configured_mapping_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, ignore_evidence=False)
+            binary = make_host(root)
+            task = root / "task.txt"
+            task.write_text("Do the bounded task.\n", encoding="utf-8")
+            roster_file = make_roster(root)
+            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            no_route = run_host(
+                repo,
+                binary,
+                task,
+                output,
+                host="cursor",
+                roster_file=roster_file,
+                use_seat=True,
+            )
+            no_route_payload = json.loads(no_route.stdout)
+            self.assertEqual(no_route.returncode, 1, no_route.stderr)
+            self.assertEqual(no_route_payload["blocked"]["kind"], "seat_requires_route")
+            self.assertFalse(binary.with_suffix(".argv.json").exists())
+
+            make_route(repo, task, roster_file)
+            missing = run_host(
+                repo,
+                binary,
+                task,
+                output,
+                host="cursor",
+                route_file=".pilot-puppy/evidence/route.json",
+                roster_file=roster_file,
+                use_seat=True,
+                seat_file=root / "config" / "missing-seats.json",
+            )
+            missing_payload = json.loads(missing.stdout)
+            self.assertEqual(missing.returncode, 1, missing.stderr)
+            self.assertEqual(missing_payload["blocked"]["kind"], "seat_unconfigured")
+            self.assertFalse(binary.with_suffix(".argv.json").exists())
+            self.assertFalse(output.exists())
+            self.assertEqual((repo / "result.txt").read_text(encoding="utf-8"), "base\n")
+
+    def test_private_or_unbounded_host_receipt_data_blocks_without_persisting_it(self) -> None:
+        cases = (
+            ("private-summary", "host_receipt_private"),
+            ("private-test", "host_receipt_private"),
+            ("unsafe-test", "host_receipt_invalid"),
+        )
+        for mode, expected in cases:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname).resolve()
+                repo = make_repo(root, ignore_evidence=False)
+                binary = make_host(root, mode=mode)
+                task = root / "task.txt"
+                task.write_text("Do the bounded task.\n", encoding="utf-8")
+                roster_file = make_roster(root)
+                seat_file = make_seats(root, roster_file, "bulk-cursor", "model", "private-model-marker")
+                make_route(repo, task, roster_file)
+                output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+                result = run_host(
+                    repo,
+                    binary,
+                    task,
+                    output,
+                    route_file=".pilot-puppy/evidence/route.json",
+                    roster_file=roster_file,
+                    use_seat=True,
+                    seat_file=seat_file,
+                )
+                payload = json.loads(output.read_text(encoding="utf-8"))
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(payload["status"], "blocked")
+                self.assertEqual(payload["blocked"]["kind"], expected)
+                self.assertNotIn("private-model-marker", json.dumps(payload, sort_keys=True))
+                self.assertEqual(payload["tests"], [])
 
 
 if __name__ == "__main__":

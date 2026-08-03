@@ -54,6 +54,15 @@ It has no cloud executor, voice mode, credential relay, transcript store,
 background queue, daemon, or watcher. The roster itself never becomes another
 authority alongside `PLAN.md`.
 
-Keep any named-seat mapping in your own private setup. The browser, `status`,
-and project receipts never read or publish the roster. Do not put credentials,
-prompts, transcripts, provider payloads, or private paths in it.
+For an optional named native selector, use the separate local `seat` overlay:
+
+```bash
+pilot-puppy seat init
+pilot-puppy seat set --slot bulk-cursor --model MODEL
+```
+
+It can bind only a slot already declared and enabled in this roster. It cannot
+change the generic role, host, priority, or enabled state. The browser, `status`,
+route, and project receipts never read or publish the overlay. Do not put
+credentials, prompts, transcripts, provider payloads, private paths, accounts,
+or quota data in either local configuration.

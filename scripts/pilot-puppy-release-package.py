@@ -54,9 +54,11 @@ REQUIRED_FILES = {
     "scripts/pilot-puppy-public-ready-grep-gate.py",
     "scripts/pilot-puppy-release-package.py",
     "scripts/pilot-puppy-roster.py",
+    "scripts/pilot-puppy-seat.py",
     "scripts/pilot-puppy-route.py",
     "scripts/pilot-puppy-status.py",
     "scripts/pilot_puppy_roster_lib.py",
+    "scripts/pilot_puppy_seat_lib.py",
     "scripts/pilot_puppy_route_lib.py",
     "scripts/pilot_puppy_task_lib.py",
 }

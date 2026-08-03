@@ -26,6 +26,7 @@ commands:
   status [args]     Print plan status across operational PLAN.md files
   checkpoint [args] Update a PLAN.md and write one bounded local receipt
   roster [args]     Create, show, or locally prefer a generic work-role roster
+  seat [args]       Configure one private selector for an already-declared native slot
   route [args]      Explain one local role and native-host choice without launching it
   host [args]       Probe or run one sealed task through a native coding host
   doctor            Install/readiness doctor for local CLI setup
@@ -122,6 +123,27 @@ that role; it never creates a slot, launches work, or adds provider data. Use
 route to make one foreground, explainable selection from its generic role slots.
 EOF
       ;;
+    seat)
+      cat <<EOF
+pilot-puppy seat — configure an owner-local native selector for one generic slot.
+
+usage: pilot-puppy seat init [--file PATH] [--json]
+       pilot-puppy seat show [--file PATH] [--roster-file PATH] [--json]
+       pilot-puppy seat set --slot SLOT (--model MODEL | --profile PROFILE) \\
+         [--file PATH] [--roster-file PATH] [--json]
+
+This is a private local overlay for a slot that already exists in the generic
+roster. It may attach a model selector to Codex, Claude Code, or Cursor, or a
+Codex profile selector. It cannot add slots, change roles/hosts/priorities, or
+configure a manual role. It never discovers models, accounts, quota, prices,
+credentials, or provider payloads.
+
+The overlay is intentionally absent from browse, status, PLAN.md, route packets,
+and project receipts. It affects a native invocation only when an operator passes
+--use-seat to pilot-puppy host run alongside a ready sealed --route-file. A
+missing or invalid mapping blocks before the native process starts.
+EOF
+      ;;
     route)
       cat <<EOF
 pilot-puppy route — choose one declared local role without starting a host.
@@ -147,6 +169,7 @@ usage: pilot-puppy host probe --host codex|claude-code|cursor [--json]
        pilot-puppy host run --host HOST --repo PATH --task-file PATH \\
          --task-id ID --allowed-path PATH [--allowed-path PATH ...] \\
          [--route-file .pilot-puppy/evidence/route.json] [--roster-file PATH] \\
+         [--use-seat [--seat-file PATH]] \\
          [--out PATH] [--timeout-seconds N] [--json]
 
 The task file is frozen, the Git worktree must be clean, allowed paths are
@@ -154,6 +177,9 @@ exact, and a successful host must emit one pilot-puppy.host-receipt.v1 object
 with passing tests. The result remains unreviewed until the lead reproduces it.
 When --route-file is supplied, the frozen task, local roster revision, and
 selected host must still match before any host process is launched.
+--use-seat is opt-in and requires --route-file. It adds one private local model
+or Codex profile selector only to the exact already-routed native slot. The
+selector is never emitted to browse, status, route packets, plans, or attempts.
 EOF
       ;;
     doctor)
@@ -288,6 +314,10 @@ main() {
     roster)
       require_python3 "roster"
       exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-roster.py" "$@"
+      ;;
+    seat)
+      require_python3 "seat"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-seat.py" "$@"
       ;;
     route)
       require_python3 "route"

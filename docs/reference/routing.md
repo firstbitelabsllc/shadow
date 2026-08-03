@@ -80,6 +80,40 @@ surfaces, hashes, state, alternatives, and escalation. It excludes task text,
 paths, roster slot IDs, models, accounts, quota, commands, credentials,
 provider payloads, and transcripts.
 
+## Optional private native selector
+
+If the native CLI on your own machine requires a specific selector, configure
+it locally after the generic roster exists:
+
+```bash
+pilot-puppy seat init
+pilot-puppy seat set --slot bulk-cursor --model MODEL
+```
+
+The route command never reads this overlay. It still makes the same generic
+role/host choice and writes the same public-safe packet. Only an explicit
+sealed handoff can consume it:
+
+```bash
+pilot-puppy host run \
+  --host cursor \
+  --repo "$PWD" \
+  --task-file /tmp/focused-fix.md \
+  --task-id focused-fix \
+  --allowed-path src/fix.ts \
+  --route-file .pilot-puppy/evidence/focused-fix.route.json \
+  --use-seat \
+  --out .pilot-puppy/evidence/focused-fix.attempt.json
+```
+
+`--use-seat` requires a ready route and one matching enabled native roster slot.
+It fails before the native process begins when the local overlay is missing,
+stale, malformed, or mismatched. It adds only a model selector for Codex,
+Claude Code, or Cursor, or a profile selector for Codex. It does not query
+available models, inspect auth/quota/billing, retry/fallback, or promise model
+quality. The selector value and local config path never enter the route packet,
+browser or status output, `PLAN.md`, or host attempt receipt.
+
 ## What stays separate
 
 The lead owns the `PLAN.md`, task split, proof review, merge, publishing, and

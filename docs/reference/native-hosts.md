@@ -16,3 +16,27 @@ launch.
 
 Pre-existing ignored files must be inside an allowed path or the bounded local
 evidence directory. This keeps ignored files inside the same scope audit.
+
+## Optional owner-local seat selector
+
+Pilot Puppy normally invokes the selected native host with its existing native
+defaults. If you explicitly maintain a local model/profile selector, bind it to
+one declared generic roster slot:
+
+```bash
+pilot-puppy seat init
+pilot-puppy seat set --slot debug-codex --profile PROFILE
+pilot-puppy seat set --slot bulk-cursor --model MODEL
+```
+
+Then add `--use-seat` to `pilot-puppy host run` together with `--route-file`.
+The ready route identifies one exact current roster slot; Pilot Puppy validates
+the private mapping against that same roster snapshot before it starts a host.
+`--use-seat` cannot be used without a route, and a missing/mismatched mapping
+fails before launch.
+
+The only supported selector forms are a model for Codex, Claude Code, or Cursor
+and a profile for Codex. The selector is passed as one native argv option; it is
+not retained in the public attempt shape, route packet, plan, browser or status
+projection, or package. Pilot Puppy does not discover selector names, inspect
+provider accounts or quotas, or add fallback/retry behavior.
