@@ -12,11 +12,11 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 19
-- Outcome Updated At: 2026-08-03T18:56:58Z
+- Outcome Revision: 20
+- Outcome Updated At: 2026-08-03T22:58:50Z
 - Outcome State: working
 - Outcome: Keep one calm, local Pilot Puppy front door useful while restoring explicit, safe delegation that sends each task to the right role without wasting stronger native seats.
-- Next: Use the generic local roster for the next bounded task. Configure an optional exact native selector with `pilot-puppy seat set` only after choosing that selector locally in the owning native tool; no provider discovery or cost/quality claim is made. Cross-host Codex proof remains deferred and does not block local delegation.
+- Next: Use the local roster for the next bounded task. Configure an exact native selector with `pilot-puppy seat set` only after choosing it locally; make no provider, cost, or quality claim. Cross-host Codex proof remains deferred.
 - Proof ID: pilot-puppy-v2-public-readback
 - Proof: tests/
 - Proof Summary: v2.1.0 is public at c7d63619 with a verified 61-file release asset and fresh tag-clone/install/readback. Real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
@@ -177,6 +177,9 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-03: Tightened the Operator Brief's `Next` field to the 280-character
+  contract so `pilot-puppy status` and the loopback browser render the current
+  Outcome again. No routing or execution behavior changed.
 - 2026-08-03: R5 is complete. `seat init`, `seat set`, and `seat show` maintain
   a strict owner-local selector overlay for an existing enabled roster slot;
   `host run --use-seat` requires a sealed route and fails before host launch if
@@ -337,6 +340,11 @@ Code, or Cursor without taking custody of credentials or conversations.
   raw route and attempt receipt stay local because they are task- and
   worktree-specific; this public record preserves only the safe mechanical
   facts above.
+- 2026-08-03T22:57Z: Rechecked the documented other-computer route. Jump
+  Desktop opened `Leos-Macbook-M4-Pro` but remained on `Connecting...` for
+  about 15 seconds; the attempt was closed without reaching the remote UI.
+  No clone, install, doctor, mount, or native-host receipt was produced. The
+  target-host availability predicate is still unmet; do not retry in a loop.
 
 ## Deferred proof (not a global blocker)
 
