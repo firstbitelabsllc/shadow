@@ -25,6 +25,8 @@ commands:
   browse [args]     Launch the plan browser at :7191
   status [args]     Print plan status across operational PLAN.md files
   checkpoint [args] Update a PLAN.md and write one bounded local receipt
+  roster [args]     Create or show a local, generic work-role roster
+  route [args]      Explain one local role and native-host choice without launching it
   host [args]       Probe or run one sealed task through a native coding host
   doctor            Install/readiness doctor for local CLI setup
   help [<cmd>]      Show this help, or help for a specific subcommand
@@ -100,6 +102,41 @@ Completion requires explicit proof text. Changes remain uncommitted unless
 --commit is supplied.
 EOF
       ;;
+    roster)
+      cat <<EOF
+pilot-puppy roster — create or show local, generic work roles.
+
+usage: pilot-puppy roster init [--file PATH] [--json]
+       pilot-puppy roster show [--file PATH] [--json]
+
+Creates or reads a local roster with these roles: lead, planner, bulk, debug,
+critic, and hard-ic. It is a local setup and display tool only. It does not
+choose a provider or model, inspect accounts or quota, start a host, dispatch
+work, or write project evidence.
+
+Use --file only for a deliberately chosen local roster location. The default
+roster stays outside a project, and it is never read by browse, status, or
+receipts. Use route to make one foreground, explainable selection from its
+generic role slots.
+EOF
+      ;;
+    route)
+      cat <<EOF
+pilot-puppy route — choose one declared local role without starting a host.
+
+usage: pilot-puppy route --repo PATH --task-id ID --task-file PATH \\
+  (--task-kind plan|hard-dev|dev|debug|review|lead | --role ROLE) \\
+  [--host codex|claude-code|cursor|manual] [--roster-file PATH] \\
+  [--availability probe|assume] [--out .pilot-puppy/evidence/route.json] [--json]
+
+The task kind maps to one generic role: plan→planner, hard-dev→hard-ic,
+dev→bulk, debug→debug, review→critic, and lead→lead. Pilot Puppy prints the
+selected native-host surface, same-role alternatives, and escalation point. It
+does not start a host, inspect account/authentication/quota data, retry, queue,
+or silently substitute a host. A written route packet can be passed explicitly
+to pilot-puppy host run with --route-file for fail-closed binding.
+EOF
+      ;;
     host)
       cat <<EOF
 pilot-puppy host — use one native Codex, Claude Code, or Cursor process.
@@ -107,11 +144,14 @@ pilot-puppy host — use one native Codex, Claude Code, or Cursor process.
 usage: pilot-puppy host probe --host codex|claude-code|cursor [--json]
        pilot-puppy host run --host HOST --repo PATH --task-file PATH \\
          --task-id ID --allowed-path PATH [--allowed-path PATH ...] \\
+         [--route-file .pilot-puppy/evidence/route.json] [--roster-file PATH] \\
          [--out PATH] [--timeout-seconds N] [--json]
 
 The task file is frozen, the Git worktree must be clean, allowed paths are
 exact, and a successful host must emit one pilot-puppy.host-receipt.v1 object
 with passing tests. The result remains unreviewed until the lead reproduces it.
+When --route-file is supplied, the frozen task, local roster revision, and
+selected host must still match before any host process is launched.
 EOF
       ;;
     doctor)
@@ -242,6 +282,14 @@ main() {
       require_python3 "checkpoint"
       export PILOT_PUPPY_ROOT
       exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-checkpoint.py" "$@"
+      ;;
+    roster)
+      require_python3 "roster"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-roster.py" "$@"
+      ;;
+    route)
+      require_python3 "route"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-route.py" "$@"
       ;;
     host)
       require_python3 "host"

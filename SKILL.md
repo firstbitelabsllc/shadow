@@ -1,6 +1,6 @@
 ---
 name: pilot-puppy
-description: "Chief-of-staff briefing, durable plan/proof/resume, and bounded native-host execution for AI coding work."
+description: "Chief-of-staff briefing, durable plan/proof/resume, local role routing, and bounded native-host execution for AI coding work."
 ---
 
 # Pilot Puppy
@@ -29,15 +29,27 @@ single-threaded or defer safe, obvious in-scope improvement.
 Never overwrite unexplained work or create a second queue. A commit, worker
 message, or receipt is not acceptance proof by itself.
 
-## Drive one task
+## Delegate one task
 
 Use the active host directly for normal work. For a bounded handoff, use:
 
 ```bash
+pilot-puppy route \
+  --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
+  --task-kind plan|hard-dev|dev|debug|review|lead \
+  --out <project>/.pilot-puppy/evidence/<id>.route.json
+
 pilot-puppy host run --host codex|claude-code|cursor \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
-  --allowed-path <exact-path> --out <project>/.pilot-puppy/evidence/<id>.json
+  --allowed-path <exact-path> \
+  --route-file <project>/.pilot-puppy/evidence/<id>.route.json \
+  --out <project>/.pilot-puppy/evidence/<id>.json
 ```
+
+`route` prints one generic local role/native-host choice, same-role
+alternatives, and one escalation condition; it never launches the host or
+silently substitutes one. A host run with `--route-file` verifies the frozen
+task, local roster revision, and selected host before launch.
 
 Review the diff and reproduce important tests before accepting the result.
 Do not put credentials, prompts, transcripts, private paths, or provider output
@@ -60,5 +72,7 @@ loopback projection of the same plan; Markdown remains authority.
 
 Pilot Puppy owns one product identity, one `PLAN.md` authority, and one bounded
 project-local evidence path. Native Codex, Claude Code, and Cursor own model
-authentication and execution. Do not add a router, daemon, scheduler, cloud
-executor, credential relay, transcript store, or parallel status database.
+authentication and execution. A foreground, explainable role router is allowed;
+do not add an autonomous router, daemon, scheduler, cloud executor, credential
+relay, transcript store, or parallel status database. Thermo and Ponytail remain
+separate review disciplines rather than runtime roles.

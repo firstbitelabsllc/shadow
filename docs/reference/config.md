@@ -13,5 +13,10 @@ same defaults without another configuration file:
 | `PILOT_PUPPY_CODEX_BIN` | Optional Codex executable override. |
 | `PILOT_PUPPY_CLAUDE_CODE_BIN` | Optional Claude Code executable override. |
 | `PILOT_PUPPY_CURSOR_BIN` | Optional Cursor executable override. |
+| `PILOT_PUPPY_ROSTER_FILE` | Optional path to a deliberately chosen local roster file. |
 
 Provider logins remain in their native tools.
+
+The roster file is local setup data, not project evidence. Keep any personal
+seat mapping outside repositories and never place provider/model/account/quota
+details in a plan, browser briefing, status output, or receipt.

@@ -10,6 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "pilot-puppy-release-package.py"
+VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
 SPEC = importlib.util.spec_from_file_location("release_package", SCRIPT)
 assert SPEC and SPEC.loader
 mod = importlib.util.module_from_spec(SPEC)
@@ -20,17 +21,17 @@ SPEC.loader.exec_module(mod)
 def baseline() -> tuple[dict, dict, dict, set[str]]:
     package = {
         "name": "pilot-puppy",
-        "version": "2.0.0",
+        "version": VERSION,
         "private": False,
         "bin": {"pilot-puppy": "bin/pilot-puppy"},
         "homepage": "https://github.com/firstbitelabsllc/pilot-puppy",
         "repository": {"url": "git+https://github.com/firstbitelabsllc/pilot-puppy.git"},
         "publishConfig": {"access": "public", "provenance": True},
     }
-    plugin = {"name": "pilot-puppy", "version": "2.0.0"}
+    plugin = {"name": "pilot-puppy", "version": VERSION}
     paths = set(mod.REQUIRED_FILES)
     pack = {
-        "version": "2.0.0",
+        "version": VERSION,
         "unpackedSize": 100_000,
         "files": [{"path": path} for path in sorted(paths)],
     }
@@ -43,7 +44,7 @@ class ReleasePackageTests(unittest.TestCase):
             package,
             plugin,
             pack,
-            version="2.0.0",
+            version=VERSION,
             tracked_paths=tracked,
             **kwargs,
         )

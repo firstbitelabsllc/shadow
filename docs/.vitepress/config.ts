@@ -15,6 +15,8 @@ const sidebar = [
       { text: 'Briefing', link: '/reference/chief-of-staff' },
       { text: 'A/B/C decisions', link: '/reference/decision-mode' },
       { text: 'Outcome contract', link: '/reference/outcome-choice' },
+      { text: 'Local roster', link: '/reference/roster' },
+      { text: 'Foreground routing', link: '/reference/routing' },
       { text: 'Native hosts', link: '/reference/native-hosts' },
       { text: 'Browser', link: '/reference/browser' },
       { text: 'Configuration', link: '/reference/config' },
@@ -25,7 +27,7 @@ const sidebar = [
 
 export default {
   title: 'Pilot Puppy',
-  description: 'Chief-of-staff briefing and bounded native-host execution for AI coding work.',
+  description: 'Chief-of-staff briefing, local role routing, and bounded native-host execution for AI coding work.',
   base: process.env.DOCS_BASE || '/',
   cleanUrls: true,
   themeConfig: {

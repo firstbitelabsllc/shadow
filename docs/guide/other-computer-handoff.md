@@ -40,10 +40,12 @@ inside the native host on that computer.
 5. Record the result, uncertainty, proof, and one next A/B/C decision in the
    owning `PLAN.md`.
 
-Do not create another queue, router, daemon, watcher, cloud executor,
-credential relay, transcript store, or parallel status database. Keep evidence
-inside the project-local `.pilot-puppy/evidence/` path and never put credentials,
-prompts, raw transcripts, provider payloads, or absolute private paths in it.
+Do not create another queue, autonomous router, daemon, watcher, cloud
+executor, credential relay, transcript store, or parallel status database. A
+foreground, explicit role choice may be used locally, but it never launches or
+substitutes a host. Keep evidence inside the project-local
+`.pilot-puppy/evidence/` path and never put credentials, prompts, raw
+transcripts, provider payloads, or absolute private paths in it.
 
 ## Main skill map
 
@@ -62,20 +64,21 @@ prompts, raw transcripts, provider payloads, or absolute private paths in it.
 Use native Codex, Claude Code, or Cursor for execution. Provider-specific
 helpers are adapters; none becomes the plan authority or stores credentials.
 
-## Current public state
+## Read the public state
 
 - Repository: `firstbitelabsllc/pilot-puppy`
-- Release: `v2.0.0`
-- Current `main`: protected public branch; read it back with `git ls-remote origin refs/heads/main` before work
-- Shipped release commit: `6375c84a`
-- Release package SHA-256: `9827381f6570dac1bf5e66611fae4056e18f3a14c6a914d85a099e5d5643b8cb`
-- Local gate: `pilot-puppy doctor` is 11/11 green; the public, package, docs,
-  browser, privacy, and hosted checks are green.
+- Do not trust a version or commit copied into this guide. Read the protected
+  `main` branch and release tags before starting work.
+- Use `git ls-remote origin refs/heads/main refs/tags/v*`, then read `VERSION`
+  from the exact checkout or release tag you chose.
+- Run `pilot-puppy doctor` on that checkout. The result describes that
+  computer's mounts and host tools; it is not a remote-host claim.
 
 The remaining resume item is the same sealed native Codex task after the
 account quota reset. Re-run that exact task, require `status: ok`, require only
 its allowed-path change, and reproduce the proof from the lead checkout. Do
-not weaken the gate or substitute a version probe for execution proof.
+not weaken the gate or substitute a version probe for execution proof. This
+deferred cross-host receipt does not block local roster routing.
 
 ## Fast local readback
 

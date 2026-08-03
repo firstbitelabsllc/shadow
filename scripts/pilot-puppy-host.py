@@ -25,6 +25,10 @@ import threading
 import time
 from typing import Any
 
+from pilot_puppy_roster_lib import RosterError, load_roster, route_roster_sha256
+from pilot_puppy_route_lib import ROUTE_SCHEMA, RoutePacketError, load_route_packet, route_sha256
+from pilot_puppy_task_lib import TaskError, frozen_task_sha256
+
 
 PROBE_SCHEMA = "pilot-puppy.host-probe.v1"
 ATTEMPT_SCHEMA = "pilot-puppy.host-attempt.v1"
@@ -32,7 +36,6 @@ HOST_RECEIPT_SCHEMA = "pilot-puppy.host-receipt.v1"
 HOSTS = {"codex", "claude-code", "cursor"}
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
-MAX_TASK_BYTES = 120_000
 MAX_CAPTURE_BYTES = 64 * 1024
 MAX_RECEIPT_BYTES = 64 * 1024
 MAX_SUMMARY_CHARS = 280
@@ -186,20 +189,6 @@ def normalize_allowed(repo: Path, values: list[str]) -> list[str]:
 
 def path_allowed(path: str, allowed: list[str]) -> bool:
     return any(path == item or path.startswith(item.rstrip("/") + "/") for item in allowed)
-
-
-def read_task(path: Path) -> str:
-    if path.is_symlink() or not path.is_file():
-        raise HostError("task_unreadable", "task file must be a regular non-symlink file")
-    if path.stat().st_size > MAX_TASK_BYTES:
-        raise HostError("task_too_large", "task file exceeds the bounded packet limit")
-    try:
-        task = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        raise HostError("task_unreadable", f"cannot read task file: {exc}") from exc
-    if not task.strip():
-        raise HostError("task_empty", "task file is empty")
-    return task
 
 
 def command_shape(host: str, binary: str, repo: Path, final_message: Path) -> list[str]:
@@ -483,18 +472,87 @@ def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> No
         temporary_path.unlink(missing_ok=True)
 
 
-def validate_output_path(repo: Path, value: str) -> None:
+def validate_output_path(repo: Path, value: str) -> Path | None:
     if value == "-":
-        return
+        return None
     state = repo / ".pilot-puppy"
     evidence = state / "evidence"
     if state.is_symlink() or evidence.is_symlink():
         raise HostError("output_unsafe", "project evidence path must not be a symlink")
-    destination = Path(value).expanduser().resolve(strict=False)
+    supplied = Path(value).expanduser()
+    destination = (supplied if supplied.is_absolute() else repo / supplied).resolve(strict=False)
     try:
         destination.relative_to(evidence.resolve(strict=False))
     except ValueError as exc:
         raise HostError("output_unsafe", "host output must stay in .pilot-puppy/evidence") from exc
+    return destination
+
+
+def route_file_path(repo: Path, value: str) -> Path:
+    """Constrain a route packet to one regular file inside project evidence."""
+
+    state = repo / ".pilot-puppy"
+    evidence = state / "evidence"
+    if state.is_symlink() or evidence.is_symlink():
+        raise HostError("route_invalid", "project evidence path must not be a symlink")
+    supplied = Path(value).expanduser()
+    candidate_input = supplied if supplied.is_absolute() else repo / supplied
+    if candidate_input.is_symlink():
+        raise HostError("route_invalid", "route packet must be a regular evidence file")
+    candidate = candidate_input.resolve(strict=False)
+    evidence_root = evidence.resolve(strict=False)
+    try:
+        candidate.relative_to(evidence_root)
+    except ValueError as exc:
+        raise HostError("route_invalid", "route packet must stay in project evidence") from exc
+    if candidate.parent != evidence_root or candidate.suffix != ".json":
+        raise HostError("route_invalid", "route packet must be one direct JSON evidence file")
+    return candidate
+
+
+def route_reference(
+    args: argparse.Namespace, repo: Path, task_id: str, task_sha256: str, route_path: Path | None
+) -> dict[str, Any] | None:
+    """Validate an optional explicit route before launching its selected host."""
+
+    if route_path is None:
+        return None
+    try:
+        packet = load_route_packet(route_path)
+        current_roster = load_roster(args.roster_file)
+    except (RoutePacketError, RosterError):
+        raise HostError("route_invalid", "route packet or local roster is invalid") from None
+    if packet["status"] == "manual":
+        raise HostError("route_manual", "manual routes cannot launch a native host")
+    if packet["status"] != "ready" or packet["selection"] is None:
+        raise HostError("route_blocked", "route packet is not ready for native execution")
+    binding = packet["binding"]
+    if binding["task_id"] != task_id or binding["task_sha256"] != task_sha256:
+        raise HostError("route_task_mismatch", "route packet does not match the frozen task")
+    if (
+        binding["roster_revision"] != current_roster["revision"]
+        or binding["route_roster_sha256"] != route_roster_sha256(current_roster)
+    ):
+        raise HostError("route_stale", "route packet does not match the current local roster")
+    selection = packet["selection"]
+    if selection["host"] != args.host:
+        raise HostError("route_host_mismatch", "route packet selected a different native host")
+    declared_selection = any(
+        slot["role"] == selection["role"]
+        and slot["host"] == selection["host"]
+        and slot["priority"] == selection["priority"]
+        and slot["enabled"]
+        for slot in current_roster["slots"]
+    )
+    if not declared_selection:
+        raise HostError("route_invalid", "route packet selection is not an enabled declared local slot")
+    return {
+        "schema": ROUTE_SCHEMA,
+        "sha256": route_sha256(packet),
+        "role": selection["role"],
+        "host": selection["host"],
+        "priority": selection["priority"],
+    }
 
 
 def probe(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
@@ -527,13 +585,21 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     repo = Path(args.repo).expanduser().resolve()
     exact_git_root(repo)
     allowed = normalize_allowed(repo, args.allowed_path)
-    validate_output_path(repo, args.out)
-    task_path = Path(args.task_file).expanduser().resolve()
-    task = read_task(task_path)
-    task_sha256 = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    destination = validate_output_path(repo, args.out)
+    try:
+        task, task_sha256 = frozen_task_sha256(Path(args.task_file).expanduser())
+    except TaskError as exc:
+        kind = "task_too_large" if "exceeds" in str(exc) else "task_unreadable"
+        raise HostError(kind, str(exc)) from None
+    route_path = route_file_path(repo, args.route_file) if args.route_file else None
+    if route_path is not None and destination is not None and route_path == destination:
+        raise HostError("route_output_collision", "host output cannot replace the active route packet")
+    route = route_reference(args, repo, task_id, task_sha256, route_path)
     prompt = host_prompt(task, task_id, allowed, task_sha256)
+    state_before = local_state_snapshot(repo)
     before = status_paths(repo)
-    if before:
+    source_changes = [path for path in before if path not in state_before]
+    if source_changes:
         raise HostError("worktree_dirty", "host packet requires a clean assigned worktree")
     before_all = status_paths(repo, include_ignored=True)
     before_ignored = set(before_all) - set(before)
@@ -546,7 +612,6 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     ]
     if unsafe_ignored:
         raise HostError("worktree_unsealed", "ignored files outside the packet are not allowed")
-    state_before = local_state_snapshot(repo)
     binary = resolve_binary(args.host, args.binary)
     with tempfile.TemporaryDirectory(prefix="pilot-puppy-host-") as temp_dir:
         final_message = Path(temp_dir) / "final-message.txt"
@@ -611,7 +676,9 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "accepted_by_lead": False,
             "projection_is_usage": False,
         }
-    write_json(args.out, payload, force=args.force)
+        if route is not None:
+            payload["route"] = route
+    write_json("-" if destination is None else str(destination), payload, force=args.force)
     return payload, 0 if status == "ok" else 1
 
 
@@ -630,6 +697,8 @@ def parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--task-file", required=True)
     run_parser.add_argument("--task-id", required=True)
     run_parser.add_argument("--allowed-path", action="append", default=[])
+    run_parser.add_argument("--route-file", help="optional bounded route packet inside .pilot-puppy/evidence")
+    run_parser.add_argument("--roster-file", help="trusted local roster used to verify --route-file")
     run_parser.add_argument("--out", default="-")
     run_parser.add_argument("--force", action="store_true")
     run_parser.add_argument("--timeout-seconds", type=int, default=900)
