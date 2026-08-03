@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 4
-- Outcome Updated At: 2026-08-03T14:57:04Z
+- Outcome Revision: 5
+- Outcome Updated At: 2026-08-03T15:23:10Z
 - Outcome State: working
 - Outcome: Prove one simple Pilot Puppy product is a trustworthy, portable front door for bounded work across native Codex, Claude Code, and Cursor—without adding another platform layer.
 - Next: Clone the merged public `main` on the other computer, run `doctor`, mount the skill, and prove one sealed Codex task in a clean repo. Require `status: ok`, only the allowed path, and lead-reproduced proof; otherwise record the blocker and resume after the quota reset.
@@ -44,6 +44,19 @@ Code, or Cursor without taking custody of credentials or conversations.
   around one unavailable Codex account.
 - A usable Codex account on the other computer is the first unblock route. The
   local quota reset is the fallback, not a reason to expand the product.
+
+## Worklane boundary
+
+- Pilot Puppy has its own product plan and proof gap. That gap never blocks an
+  unrelated product from shipping the highest-value reachable row in *its* own
+  canonical plan.
+- “One bounded task” means one reviewable handoff with an exact scope. It does
+  not mean only one project may move, nor that a safe, obvious in-scope
+  improvement must wait for an unrelated host, quota, or portability check.
+- Use Pilot Puppy where its briefing, bounded execution, or resume record helps.
+  Otherwise work directly in the product lane and prove the real user-visible
+  outcome there. Amp only sharpens that lane's brief; it does not dispatch,
+  validate, or become its authority.
 
 ## Privacy and safety
 
@@ -140,6 +153,10 @@ Code, or Cursor without taking custody of credentials or conversations.
   still resolved to the primary checkout; the documented mount commands are
   required on the target computer. This is an environment-boundary receipt,
   not a source defect.
+- 2026-08-03: Made the worklane boundary explicit: Pilot Puppy is optional
+  support for a project's own plan, not a universal validation gate. One
+  bounded task keeps a handoff reviewable; it does not stop other projects
+  from shipping safe, high-value reachable work.
 
 ## Blocked proof
 

@@ -9,6 +9,10 @@ which A/B/C choice needs you. When work is ready, it can hand one sealed task
 to native Codex, Claude Code, or Cursor and validate the result without taking
 custody of your login or conversation.
 
+It supports a project's own work lane; it is not a gate that pauses unrelated
+projects. One sealed task makes a handoff reviewable, while each project keeps
+shipping the highest-value reachable work in its own `PLAN.md`.
+
 ## Five-minute install
 
 Requires Git, Bash, Python 3.10+, and at least one supported coding host.

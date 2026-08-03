@@ -10,6 +10,14 @@ cold reader should know the Outcome, current move, proof, and next decision.
 
 Skip it for a factual answer or an obvious one-step edit with no handoff.
 
+## Worklane boundary
+
+Pilot Puppy supports the project currently being worked on; it is not a global
+gate for every project. Its own open proof must not stop another product from
+shipping the highest-value reachable row in that product's canonical plan.
+“One bounded task” keeps a handoff reviewable—it does not make the fleet
+single-threaded or defer safe, obvious in-scope improvement.
+
 ## Start every cycle
 
 1. Read repository instructions and the repository-owned `PLAN.md`.
