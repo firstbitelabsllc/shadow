@@ -4,19 +4,19 @@ This file is the sole plan, proof, and resume authority for Pilot Puppy.
 
 ## Outcome
 
-Give one person a calm chief-of-staff view of what their coding work is trying
-to achieve, what is happening now, what proof exists, and which A/B/C decision
-matters next—then drive bounded work through native Codex, Claude Code, or
-Cursor without taking custody of credentials or conversations.
+Give one person a calm, portable chief-of-staff view of what their coding work
+is trying to achieve, what is happening now, what proof exists, and which A/B/C
+decision matters next—then drive bounded work through native Codex, Claude
+Code, or Cursor without taking custody of credentials or conversations.
 
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 3
-- Outcome Updated At: 2026-08-03T06:17:53Z
+- Outcome Revision: 4
+- Outcome Updated At: 2026-08-03T14:57:04Z
 - Outcome State: working
-- Outcome: Ship one simple Pilot Puppy product that briefs a person and safely drives native coding hosts.
-- Next: Rerun the same sealed native Codex task after its account quota resets; close only after lead-reproduced proof passes.
+- Outcome: Prove one simple Pilot Puppy product is a trustworthy, portable front door for bounded work across native Codex, Claude Code, and Cursor—without adding another platform layer.
+- Next: Use the merged other-computer handoff at `origin/main@0c6d8ce1` to clone, install, doctor, mount, and rerun the same sealed native Codex task in a clean target repo. Close only when `status: ok`, the exact allowed-path change, and lead-reproduced proof all pass; otherwise preserve the receipt and resume after the recorded quota reset.
 - Proof ID: pilot-puppy-v2-public-readback
 - Proof: tests/
 - Proof Summary: v2.0.0 is public and fresh-clone/install/readback passes; real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
@@ -34,6 +34,16 @@ Cursor without taking custody of credentials or conversations.
   A/B/C choice. It does not run a cloud executor or store chat transcripts.
 - No aliases, hidden products, daemon, scheduler,
   watcher, credential relay, remote database, or background dispatch loop.
+
+## Platform alignment
+
+- The current platform effort is portability proof: the same bounded contract
+  must survive a second computer and native-host boundary.
+- Existing plan, host, and project-local evidence boundaries are sufficient;
+  do not add a router, queue, watcher, relay, or compatibility product to work
+  around one unavailable Codex account.
+- A usable Codex account on the other computer is the first unblock route. The
+  local quota reset is the fallback, not a reason to expand the product.
 
 ## Privacy and safety
 
@@ -58,8 +68,11 @@ Cursor without taking custody of credentials or conversations.
   fresh-install, and read back the remote, mounts, command, and real UI.
 - [completed] Run the final cold review and zero-surface audit; close only when
   all changed repositories are clean, pushed, and remotely verified.
-- [in_progress] Rerun the same sealed native Codex task after its account quota
-  resets; require the exact allowed-path change and lead-reproduced check.
+- [completed] Publish the portable other-computer handoff with bootstrap,
+  mounting, proof, privacy, and one exact resume predicate.
+- [in_progress] Close cross-host portability proof through the other-computer
+  route first, or the local quota-reset fallback; require the same sealed task,
+  exact allowed-path change, and lead-reproduced check.
 
 ## Mechanical proof required
 
@@ -113,10 +126,16 @@ Cursor without taking custody of credentials or conversations.
   A fresh public tag clone passed a zero-vulnerability install, 3 JavaScript
   tests, 79 Python tests, the 81-file public-ready scan, docs build, stranger
   package install, version readback, and a real new-repository A/B/C brief.
+- 2026-08-03: PR #90 merged as `0c6d8ce1`. Its docs-only handoff makes the
+  second-computer route the first unblock attempt for the remaining Codex
+  execution proof. No new runtime, queue, router, credential relay, or second
+  plan authority is needed.
 
 ## Blocked proof
 
-- Native Codex execution only. Resume after 2026-08-07 23:52 America/New_York:
-  the same sealed task must return `status: ok`, change only its allowed path,
-  and pass the lead-reproduced check. A binary/version probe does not satisfy
-  this gate.
+- Native Codex execution is the only missing acceptance proof. First try the
+  merged handoff on another computer with a usable native Codex account. If
+  that account is also quota-blocked, resume after 2026-08-07 23:52
+  America/New_York. In either route, the same sealed task must return
+  `status: ok`, change only its allowed path, and pass the lead-reproduced
+  check. A binary/version probe does not satisfy this gate.
