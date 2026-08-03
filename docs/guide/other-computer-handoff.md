@@ -66,7 +66,7 @@ helpers are adapters; none becomes the plan authority or stores credentials.
 
 - Repository: `firstbitelabsllc/pilot-puppy`
 - Release: `v2.0.0`
-- Current `main`: `0c6d8ce1` (documentation closeout is ahead of the shipped tag)
+- Current `main`: `1dfc41b6` (portable host-proof realignment is merged)
 - Shipped release commit: `6375c84a`
 - Release package SHA-256: `9827381f6570dac1bf5e66611fae4056e18f3a14c6a914d85a099e5d5643b8cb`
 - Local gate: `pilot-puppy doctor` is 11/11 green; the public, package, docs,

@@ -16,7 +16,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Outcome Updated At: 2026-08-03T14:57:04Z
 - Outcome State: working
 - Outcome: Prove one simple Pilot Puppy product is a trustworthy, portable front door for bounded work across native Codex, Claude Code, and Cursor—without adding another platform layer.
-- Next: Use the merged other-computer handoff at `origin/main@0c6d8ce1` to clone, install, doctor, mount, and rerun the same sealed native Codex task in a clean target repo. Close only when `status: ok`, the exact allowed-path change, and lead-reproduced proof all pass; otherwise preserve the receipt and resume after the recorded quota reset.
+- Next: On the other computer, clone `origin/main@1dfc41b6`, run `doctor`, mount the skill, and prove one sealed Codex task in a clean repo. Require `status: ok`, only the allowed path, and lead-reproduced proof; otherwise record the blocker and resume after the quota reset.
 - Proof ID: pilot-puppy-v2-public-readback
 - Proof: tests/
 - Proof Summary: v2.0.0 is public and fresh-clone/install/readback passes; real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
@@ -130,12 +130,18 @@ Code, or Cursor without taking custody of credentials or conversations.
   second-computer route the first unblock attempt for the remaining Codex
   execution proof. No new runtime, queue, router, credential relay, or second
   plan authority is needed.
+- 2026-08-03: The read-only Jump Desktop attempt to the other-computer route
+  returned `Computer is offline`; no remote UI, install, doctor, skill mount,
+  or native-host receipt was produced. This is host availability, not a Pilot
+  Puppy code failure.
 
 ## Blocked proof
 
-- Native Codex execution is the only missing acceptance proof. First try the
-  merged handoff on another computer with a usable native Codex account. If
-  that account is also quota-blocked, resume after 2026-08-07 23:52
-  America/New_York. In either route, the same sealed task must return
-  `status: ok`, change only its allowed path, and pass the lead-reproduced
-  check. A binary/version probe does not satisfy this gate.
+- The other-computer route is blocked by host availability. **Need:** the
+  target Mac online and running Jump Connect; then run the documented clone,
+  install, doctor, skill-mount, and Outcome/A/B/C readback path.
+- Native Codex execution is also time-bound. If the other computer has a usable
+  account, run the same sealed task there; otherwise resume after 2026-08-07
+  23:52 America/New_York. In either route, it must return `status: ok`, change
+  only its allowed path, and pass the lead-reproduced check. A binary/version
+  probe does not satisfy this gate.
