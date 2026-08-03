@@ -16,7 +16,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Outcome Updated At: 2026-08-03T14:57:04Z
 - Outcome State: working
 - Outcome: Prove one simple Pilot Puppy product is a trustworthy, portable front door for bounded work across native Codex, Claude Code, and Cursor—without adding another platform layer.
-- Next: On the other computer, clone `origin/main@1dfc41b6`, run `doctor`, mount the skill, and prove one sealed Codex task in a clean repo. Require `status: ok`, only the allowed path, and lead-reproduced proof; otherwise record the blocker and resume after the quota reset.
+- Next: Clone the merged public `main` on the other computer, run `doctor`, mount the skill, and prove one sealed Codex task in a clean repo. Require `status: ok`, only the allowed path, and lead-reproduced proof; otherwise record the blocker and resume after the quota reset.
 - Proof ID: pilot-puppy-v2-public-readback
 - Proof: tests/
 - Proof Summary: v2.0.0 is public and fresh-clone/install/readback passes; real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
