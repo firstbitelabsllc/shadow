@@ -134,12 +134,22 @@ Code, or Cursor without taking custody of credentials or conversations.
   returned `Computer is offline`; no remote UI, install, doctor, skill mount,
   or native-host receipt was produced. This is host availability, not a Pilot
   Puppy code failure.
+- 2026-08-03: A fresh public clone at `83a95d3b` passed `npm ci`, rendered a
+  working `pilot-puppy status`, and passed the 82-file public-ready scan.
+  Its doctor was 8/11 because this computer's existing native skill mounts
+  still resolved to the primary checkout; the documented mount commands are
+  required on the target computer. This is an environment-boundary receipt,
+  not a source defect.
 
 ## Blocked proof
 
 - The other-computer route is blocked by host availability. **Need:** the
   target Mac online and running Jump Connect; then run the documented clone,
   install, doctor, skill-mount, and Outcome/A/B/C readback path.
+- The public clone/install/status path is proven locally; the three mount
+  failures are intentionally not counted as second-computer proof because the
+  target host was offline. Do not call the route complete until its own doctor
+  is 11/11 from the target checkout.
 - Native Codex execution is also time-bound. If the other computer has a usable
   account, run the same sealed task there; otherwise resume after 2026-08-07
   23:52 America/New_York. In either route, it must return `status: ok`, change
