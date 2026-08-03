@@ -1,136 +1,76 @@
-"""
-Tests for scripts/vidux-status.py focus bucketing.
-
-Style matches test_plan_guard.py: stdlib unittest, no pip, subprocess against
-the real script. Each test builds a disposable repo in a tempdir.
-
-Run:
-    python3 -m unittest tests.test_status_focus -v
-"""
+from __future__ import annotations
 
 import json
-import os
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "vidux-status.py"
+STATUS = ROOT / "scripts" / "pilot-puppy-status.py"
 
-PLAN_BODY = """# My Project
+PLAN = """# Demo
 
-## Purpose
-Test plan.
+## Operator Brief
 
-## Tasks
-- [pending] Task 1: do the thing [Evidence: seeded]
-
-## Decision Log
-## Progress
+- Outcome ID: ship-demo
+- Outcome Revision: 1
+- Outcome Updated At: 2026-08-03T03:00:00Z
+- Outcome State: needs_input
+- Outcome: Ship the demo.
+- Next: Choose the review depth.
+- Decision ID: choose-review
+- Decision: How should we review it?
+- Option A ID: focused-check
+- Option A: Focused check
+- Option A Consequence: Run only the direct regression.
+- Option B ID: full-check
+- Option B: Full check
+- Option B Consequence: Run every local test.
+- Option C ID: stop-now
+- Option C: Stop now
+- Option C Consequence: Leave the result unshipped.
 """
 
 
-def run_status(cwd, *args):
-    """Run vidux-status.py from `cwd`. Returns (returncode, stdout, stderr)."""
-    env = {k: v for k, v in os.environ.items() if k != "VIDUX_DEV_ROOT"}
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
-        capture_output=True,
-        text=True,
-        cwd=str(cwd),
-        env=env,
-    )
-    return result.returncode, result.stdout, result.stderr
+class StatusTests(unittest.TestCase):
+    def run_status(self, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(STATUS), "--root", str(root), *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-
-class StatusFocusTests(unittest.TestCase):
-    def _make_repo(self, root, name):
-        repo = Path(root) / name
-        repo.mkdir()
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        (repo / "PLAN.md").write_text(PLAN_BODY, encoding="utf-8")
-        return repo
-
-    def test_relative_root_ties_cwd_repo_plan(self):
-        # Regression: `vidux status --root .` inside a repo whose PLAN.md sits
-        # at the repo root used to show that plan under "Other tracked plans"
-        # with the literal short name "PLAN.md" — an unresolved relative root
-        # has an empty `.name`, so the short-name fallback chain bottomed out
-        # and the tied-bucket match against the cwd repo name never fired.
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self._make_repo(tmp, "myproject")
-            rc, out, err = run_status(repo, "--root", ".", "--json")
-        self.assertEqual(rc, 0, err)
-        payload = json.loads(out)
-        tied_shorts = [p["short"] for p in payload["tied"]]
-        self.assertIn("myproject", tied_shorts, payload)
-        self.assertEqual(payload["other"], [], payload)
-
-    def test_absolute_root_ties_cwd_repo_plan(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self._make_repo(tmp, "myproject")
-            rc, out, err = run_status(repo, "--root", str(repo), "--json")
-        self.assertEqual(rc, 0, err)
-        payload = json.loads(out)
-        self.assertIn("myproject", [p["short"] for p in payload["tied"]], payload)
-
-    def test_latest_progress_prefers_checkpoint_cycle_over_future_date(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self._make_repo(tmp, "myproject")
-            (repo / "PLAN.md").write_text(
-                """# My Project
-
-## Tasks
-- [completed] Task 1
-
-## Progress
-- [2026-07-29] Cycle 2: packed proof completed. Proof: gate passed.
-- [2026-07-30] Plan initialized with an unproven starter outcome.
-""",
-                encoding="utf-8",
-            )
-
-            rc, out, err = run_status(repo, "--root", ".", "--all", "--json")
-
-        self.assertEqual(rc, 0, err)
-        payload = json.loads(out)
-        plan = payload["tied"][0]
-        self.assertEqual(plan["progress_ts"], "2026-07-29")
-        self.assertIn("Cycle 2: packed proof completed", plan["latest_progress"])
-
-
-    def test_missing_default_dev_root_falls_back_to_cwd(self):
-        """Stranger machine: ~/Development absent → warn + still show cwd PLAN."""
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp) / "home"
-            home.mkdir()
-            repo = self._make_repo(home, "solo")
-            env = {k: v for k, v in os.environ.items() if k != "VIDUX_DEV_ROOT"}
-            env["HOME"] = str(home)
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--json"],
-                capture_output=True,
-                text=True,
-                cwd=str(repo),
-                env=env,
-            )
+    def test_text_is_a_brief_with_abc(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(PLAN, encoding="utf-8")
+            result = self.run_status(root)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("warn: search root missing", result.stderr)
-        self.assertNotIn("warn: search root missing", result.stdout)
-        payload = json.loads(result.stdout)
-        shorts = [p["short"] for p in payload["tied"] + payload["other"]]
-        self.assertIn("solo", shorts, payload)
+        self.assertIn("Outcome: Ship the demo.", result.stdout)
+        self.assertIn("A. Focused check", result.stdout)
+        self.assertIn("C. Stop now", result.stdout)
+        self.assertNotIn(dirname, result.stdout)
 
-    def test_explicit_missing_root_still_errors(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self._make_repo(tmp, "solo")
-            missing = Path(tmp) / "no-such-root"
-            rc, out, err = run_status(repo, "--root", str(missing), "--json")
-        self.assertEqual(rc, 1)
-        self.assertIn("search root does not exist", err)
-        self.assertEqual(out.strip(), "")
+    def test_json_is_bounded_and_path_relative(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(PLAN, encoding="utf-8")
+            result = self.run_status(root, "--json")
+            payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema"], "pilot-puppy.status.v1")
+        self.assertEqual(payload["plans"][0]["path"], "PLAN.md")
+        self.assertNotIn(dirname, result.stdout)
+
+    def test_invalid_root_fails_cleanly(self) -> None:
+        result = self.run_status(Path("/definitely/missing/pilot-puppy-root"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not a directory", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

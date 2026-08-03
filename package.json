@@ -1,10 +1,10 @@
 {
-  "name": "vidux",
-  "version": "1.2.0",
-  "description": "Local-first outcome, plan, proof, and resume view for AI-assisted software work.",
+  "name": "pilot-puppy",
+  "version": "2.0.0",
+  "description": "Chief-of-staff briefing and bounded native-host execution for AI coding work.",
   "private": false,
   "bin": {
-    "vidux": "bin/vidux"
+    "pilot-puppy": "bin/pilot-puppy"
   },
   "files": [
     ".claude-plugin/",
@@ -12,23 +12,15 @@
     "assets/*.png",
     "assets/*.svg",
     "bin/*",
-    "browser/safe_files.py",
     "browser/outcome_source.py",
     "browser/chief_of_staff.py",
-    "browser/drive_mode.py",
+    "browser/decision_mode.py",
     "browser/server.py",
-    "browser/coordination_claims.py",
-    "browser/steering_mailbox.py",
     "browser/static/**/*",
     "docs/**/*.md",
     "docs/.vitepress/config.ts",
     "examples/**/*.json",
     "examples/**/*.md",
-    "examples/**/*.toml",
-    "guides/**/*.md",
-    "hooks/*.json",
-    "hooks/*.sh",
-    "references/*.md",
     "scripts/*.py",
     "scripts/*.sh",
     "scripts/lib/*.sh",
@@ -40,8 +32,7 @@
     "SECURITY.md",
     "SKILL.md",
     "SUPPORT.md",
-    "VERSION",
-    "vidux.config.example.json"
+    "VERSION"
   ],
   "engines": {
     "node": ">=20"
@@ -52,11 +43,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/firstbitelabsllc/vidux.git"
+    "url": "git+https://github.com/firstbitelabsllc/pilot-puppy.git"
   },
-  "homepage": "https://github.com/firstbitelabsllc/vidux",
+  "homepage": "https://github.com/firstbitelabsllc/pilot-puppy",
   "bugs": {
-    "url": "https://github.com/firstbitelabsllc/vidux/issues"
+    "url": "https://github.com/firstbitelabsllc/pilot-puppy/issues"
   },
   "author": "First Bite Labs",
   "license": "MIT",
@@ -68,17 +59,14 @@
     "test:js": "vitest run",
     "test:js:watch": "vitest",
     "test:py": "python3 -m unittest discover -s tests -p 'test_*.py'",
-    "public-ready:grep": "python3 scripts/vidux-public-ready-grep-gate.py --tracked-only --metadata",
+    "public-ready:grep": "python3 scripts/pilot-puppy-public-ready-grep-gate.py --tracked-only --metadata",
     "verify": "npm test && npm run public-ready:grep",
     "prepublishOnly": "npm run verify && npm run release:verify",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:visual:update": "playwright test browser/tests/e2e/visual.spec.ts --update-snapshots=all",
-    "test:pixel": "playwright test browser/tests/e2e/mode-pixel.spec.ts --project=desktop-chromium",
-    "release:verify": "python3 scripts/vidux-release-package.py",
-    "release:verify:dev": "python3 scripts/vidux-release-package.py --allow-dirty",
-    "playwright:install": "playwright install --with-deps chromium",
-    "test:thin": "bash scripts/vidux-thin-loop-verify.sh"
+    "release:verify": "python3 scripts/pilot-puppy-release-package.py",
+    "release:verify:dev": "python3 scripts/pilot-puppy-release-package.py --allow-dirty",
+    "playwright:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",

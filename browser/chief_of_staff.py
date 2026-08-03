@@ -1,9 +1,9 @@
 """Pure Chief-of-Staff projection for the Pilot Puppy semantic boundary.
 
 The Chief of Staff is a report, not another runtime.  This module accepts the
-same validated ``vidux.outcome.v1`` document used by Drive/90 and an optional,
+same validated ``pilot-puppy.outcome.v1`` document used by the decision view and an optional,
 already-redacted plan summary.  It returns one bounded, provider-neutral brief
-that a desk view and an on-the-go client can render identically.
+that a desk view and a compact client can render identically.
 
 It does not read plans, write receipts, invoke hosts, choose providers, or keep
 transcripts.  The caller owns validation and durable foldback.
@@ -16,12 +16,12 @@ import re
 from typing import Any
 
 try:  # The browser server runs with its sibling directory on sys.path.
-    from drive_mode import DriveInputError, project_drive
+    from decision_mode import DecisionInputError, project_decision
 except ModuleNotFoundError:  # Also support ``import browser.chief_of_staff``.
-    from browser.drive_mode import DriveInputError, project_drive
+    from browser.decision_mode import DecisionInputError, project_decision
 
 
-BRIEF_SCHEMA = "vidux.chief-of-staff.v1"
+BRIEF_SCHEMA = "pilot-puppy.chief-of-staff.v1"
 MAX_TEXT = 280
 PRIVATE_TEXT_RE = re.compile(
     r"(?:/Users/|/home/|/private/var/|[A-Za-z]:[\\/]|\\\\|~/|\$HOME|file://|"
@@ -40,14 +40,14 @@ _STATE_MAP = {
 
 def _public_text(value: Any, label: str) -> str:
     if not isinstance(value, str):
-        raise DriveInputError(f"{label} must be a string")
+        raise DecisionInputError(f"{label} must be a string")
     text = " ".join(value.split())
     if not text:
-        raise DriveInputError(f"{label} must be nonblank")
+        raise DecisionInputError(f"{label} must be nonblank")
     if len(text) > MAX_TEXT:
-        raise DriveInputError(f"{label} exceeds {MAX_TEXT} characters")
+        raise DecisionInputError(f"{label} exceeds {MAX_TEXT} characters")
     if PRIVATE_TEXT_RE.search(text):
-        raise DriveInputError(f"{label} contains private or implementation detail")
+        raise DecisionInputError(f"{label} contains private or implementation detail")
     return text
 
 
@@ -55,10 +55,10 @@ def _plan_brief(value: Any) -> dict[str, str]:
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise DriveInputError("plan_brief must be an object")
+        raise DecisionInputError("plan_brief must be an object")
     allowed = {"summary", "latest_change", "latest_decision", "recommendation"}
     if set(value) - allowed:
-        raise DriveInputError("plan_brief contains an unknown field")
+        raise DecisionInputError("plan_brief contains an unknown field")
     return {
         key: _public_text(raw, f"plan_brief.{key}")
         for key, raw in value.items()
@@ -69,8 +69,8 @@ def _plan_brief(value: Any) -> dict[str, str]:
 def _state(outcome_state: str) -> str:
     try:
         return _STATE_MAP[outcome_state]
-    except KeyError as exc:  # project_drive normally catches this via text validation.
-        raise DriveInputError("outcome.state is not a supported public state") from exc
+    except KeyError as exc:  # project_decision normally catches this via text validation.
+        raise DecisionInputError("outcome.state is not a supported public state") from exc
 
 
 def _recommendation(state: str, *, has_proof: bool, has_choice: bool) -> str:
@@ -80,7 +80,7 @@ def _recommendation(state: str, *, has_proof: bool, has_choice: bool) -> str:
         return "Address the blocker before continuing."
     if state == "not_delivered":
         return "Review the non-delivery proof before retrying."
-    if state == "finished_with_proof" or has_proof:
+    if state == "finished_with_proof":
         return "Review the proof and keep the outcome closed."
     return "Continue the current move."
 
@@ -94,11 +94,11 @@ def project_chief_of_staff(document: Any, *, plan_brief: Any = None) -> dict[str
     desk report and a voice client.
     """
 
-    drive = project_drive(document)
+    decision = project_decision(document)
     plan = _plan_brief(plan_brief)
-    outcome = drive["outcome"]
+    outcome = decision["outcome"]
     state = _state(outcome["state"])
-    ask = drive["ask"]
+    ask = decision["ask"]
     choices = []
     if ask is not None and ask["state"] == "open":
         choices = [
@@ -110,9 +110,9 @@ def project_chief_of_staff(document: Any, *, plan_brief: Any = None) -> dict[str
             for option in ask["options"][:3]
         ]
 
-    proof = next((item for item in drive["proof"] if item["delivery"] == "delivered"), None)
-    if proof is None and drive["proof"]:
-        proof = drive["proof"][0]
+    proof = next((item for item in decision["proof"] if item["delivery"] == "delivered"), None)
+    if proof is None and decision["proof"]:
+        proof = decision["proof"][0]
 
     changed = plan.get("latest_change") or outcome.get("current_move") or outcome["summary"]
     matters = plan.get("summary") or outcome["summary"]
@@ -120,10 +120,10 @@ def project_chief_of_staff(document: Any, *, plan_brief: Any = None) -> dict[str
     action = None
     if state == "needs_you" and ask is not None:
         blocker = ask["question"]
-        action = "Choose one option to steer the next move."
+        action = "Choose one option for the next move."
     elif state == "blocked":
         blocker = outcome.get("current_move") or "The outcome is blocked."
-        action = "Review the blocker and steer the next move."
+        action = "Review the blocker and choose the next move."
     elif state == "not_delivered":
         blocker = "The last move did not deliver a terminal result."
         action = "Review the non-delivery proof before retrying."
@@ -135,7 +135,7 @@ def project_chief_of_staff(document: Any, *, plan_brief: Any = None) -> dict[str
     )
     brief = {
         "schema": BRIEF_SCHEMA,
-        "revision": drive["revision"],
+        "revision": decision["revision"],
         "outcome_id": outcome["id"],
         "state": state,
         "changed": _public_text(changed, "changed"),

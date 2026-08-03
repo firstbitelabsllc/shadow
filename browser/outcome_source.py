@@ -3,7 +3,7 @@
 The browser may read plans, but it must not turn the whole plan, a path, a
 session, or provider metadata into durable Outcome state.  This module accepts
 only the already-parsed Operator Brief fields needed for the semantic contract
-and returns a fresh, closed ``vidux.outcome.v1`` document.  It never reads or
+and returns a fresh, closed ``pilot-puppy.outcome.v1`` document.  It never reads or
 writes files, invokes a host, selects a provider, or creates a queue.
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 import unicodedata
 
 
-OUTCOME_SCHEMA = "vidux.outcome.v1"
+OUTCOME_SCHEMA = "pilot-puppy.outcome.v1"
 MAX_REVISION = 2_147_483_647
 IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 UTC_TIMESTAMP_RE = re.compile(
@@ -108,11 +108,9 @@ def project_plan_outcome(brief: Mapping[str, Any]) -> dict[str, Any]:
     """Project one complete canonical Operator Brief into a closed Outcome.
 
     The four ``outcome_*`` fields are intentionally explicit.  Deriving a
-    revision from file mtime or a path would make desk and 90 disagree after a
-    checkout, and silently accepting a missing field would recreate the
-    parser's false-green behavior.  Legacy briefs therefore return an
-    ``OutcomeSourceError`` and remain on the existing non-canonical dashboard
-    path until their owner opts into this contract.
+    revision from file mtime or a path would make two clients disagree after a
+    checkout, and silently accepting a missing field would create a false
+    green. Incomplete briefs therefore return ``OutcomeSourceError``.
     """
 
     if not isinstance(brief, Mapping):
@@ -127,6 +125,43 @@ def project_plan_outcome(brief: Mapping[str, Any]) -> dict[str, Any]:
     if state not in OUTCOME_STATES:
         raise OutcomeSourceError("outcome_state is not a supported public state")
 
+    ask = None
+    if state == "needs_input":
+        ask_id = _identifier(brief.get("decision_id"), "decision_id")
+        question = _text(brief.get("decision"), "decision")
+        options = []
+        for letter in ("a", "b", "c"):
+            options.append(
+                {
+                    "id": _identifier(brief.get(f"option_{letter}_id"), f"option_{letter}_id"),
+                    "label": _text(brief.get(f"option_{letter}"), f"option_{letter}"),
+                    "consequence": _text(
+                        brief.get(f"option_{letter}_consequence"),
+                        f"option_{letter}_consequence",
+                    ),
+                }
+            )
+        ask = {
+            "id": ask_id,
+            "category": "product_choice",
+            "question": question,
+            "options": options,
+            "state": "open",
+            "answer_option_id": None,
+        }
+
+    proof = []
+    if brief.get("proof") is not None or brief.get("proof_summary") is not None:
+        proof.append(
+            {
+                "id": _identifier(brief.get("proof_id"), "proof_id"),
+                "type": "test",
+                "locator": _text(brief.get("proof"), "proof"),
+                "verification_summary": _text(brief.get("proof_summary"), "proof_summary"),
+                "delivery": _text(brief.get("proof_delivery"), "proof_delivery", max_length=32),
+            }
+        )
+
     return {
         "schema": OUTCOME_SCHEMA,
         "revision": revision,
@@ -137,9 +172,8 @@ def project_plan_outcome(brief: Mapping[str, Any]) -> dict[str, Any]:
             "state": state,
             "current_move": current_move,
         },
-        "ask": None,
-        "steers": [],
-        "proof": [],
+        "ask": ask,
+        "proof": proof,
     }
 
 

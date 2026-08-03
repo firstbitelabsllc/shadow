@@ -1,35 +1,55 @@
-import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 
-/** Prepare the one shared fixture root before Playwright starts its workers. */
-export default function globalSetup() {
-  const port = process.env.VIDUX_TEST_PORT ?? '7291';
-  const liveRoot = process.env.VIDUX_TEST_DEV_ROOT;
-  if (!liveRoot) {
-    throw new Error('VIDUX_TEST_DEV_ROOT must be set by playwright.config.ts');
+export default async function globalSetup() {
+  const root = process.env.PILOT_PUPPY_TEST_DEV_ROOT;
+  if (!root) throw new Error('PILOT_PUPPY_TEST_DEV_ROOT is required');
+  const boundedRoot = resolve(root);
+  const testResults = resolve('.pilot-puppy-test');
+  const relation = relative(testResults, boundedRoot);
+  if (!relation || relation.startsWith('..') || relation.includes('/../')) {
+    throw new Error('browser fixture root must stay under .pilot-puppy-test');
   }
+  rmSync(boundedRoot, { recursive: true, force: true });
+  mkdirSync(join(boundedRoot, 'demo'), { recursive: true });
+  writeFileSync(join(boundedRoot, 'demo', 'PLAN.md'), `# Release notes
 
-  const steeringPath = process.env.VIDUX_TEST_STEERING_PATH
-    ?? resolve('test-results', `steering-${port}-${process.pid}.jsonl`);
-  const claimsPath = process.env.VIDUX_TEST_CLAIMS_PATH
-    ?? resolve('test-results', `claims-${port}-${process.pid}.jsonl`);
-  for (const path of [
-    steeringPath,
-    `${steeringPath}.lock`,
-    claimsPath,
-    `${claimsPath}.lock`,
-  ]) {
-    rmSync(path, { force: true });
-  }
+## Operator Brief
 
-  const fixtureRoot = resolve('browser/tests/fixtures/fake-dev-root');
-  rmSync(liveRoot, { recursive: true, force: true });
-  cpSync(fixtureRoot, liveRoot, { recursive: true });
+- Outcome ID: ship-release-notes
+- Outcome Revision: 7
+- Outcome Updated At: 2026-08-03T02:00:00Z
+- Outcome State: needs_input
+- Outcome: Publish release notes people can trust.
+- Next: Choose the final review depth.
+- Decision ID: choose-review-depth
+- Decision: How should we finish the review?
+- Option A ID: ship-now
+- Option A: Ship now
+- Option A Consequence: Use the accepted proof and finish today.
+- Option B ID: cold-review
+- Option B: Run a cold review
+- Option B Consequence: Spend one bounded pass on independent judgment.
+- Option C ID: hold-release
+- Option C: Hold the release
+- Option C Consequence: Keep the Outcome open until new evidence exists.
+- Proof ID: focused-tests
+- Proof: tests/test_browser.py
+- Proof Summary: Browser contract tests pass.
+- Proof Delivery: delivered
 
-  const alphaPlan = resolve(liveRoot, 'proj-alpha/PLAN.md');
-  const recentUpdated = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10);
-  writeFileSync(
-    alphaPlan,
-    readFileSync(alphaPlan, 'utf8').replace(/^- Updated: .*$/m, `- Updated: ${recentUpdated}`),
-  );
+## Work
+
+- [in_progress] Choose the final review depth
+
+## Progress
+
+- 2026-08-03: The bounded implementation is ready for a decision.
+`, 'utf8');
+  execFileSync('git', ['init', '-q'], { cwd: boundedRoot });
+  execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: boundedRoot });
+  execFileSync('git', ['config', 'user.name', 'Pilot Puppy Test'], { cwd: boundedRoot });
+  execFileSync('git', ['add', 'demo/PLAN.md'], { cwd: boundedRoot });
+  execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: boundedRoot });
 }

@@ -8,7 +8,7 @@ body:
     id: context
     attributes:
       label: Context
-      description: What were you trying to do with Vidux?
+      description: What were you trying to do with Pilot Puppy?
     validations:
       required: true
   - type: textarea

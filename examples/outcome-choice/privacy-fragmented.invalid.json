@@ -1,0 +1,21 @@
+{
+  "schema": "pilot-puppy.outcome.v1",
+  "revision": 1,
+  "updated_at": "2026-07-29T18:00:00Z",
+  "outcome": {
+    "id": "privacy-negative-case",
+    "summary": "Prove adjacent JSON fields cannot conceal sensitive material.",
+    "state": "working",
+    "current_move": "Run the validator against this intentionally invalid fixture."
+  },
+  "ask": null,
+  "proof": [
+    {
+      "id": "fragmented-token",
+      "type": "test",
+      "locator": "sk-",
+      "verification_summary": "abcdefghijklmnopqrstuvwxyz012345",
+      "delivery": "not_delivered"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a problem in the public Vidux core.
+description: Report a problem in the public Pilot Puppy core.
 title: "[Bug] "
 labels:
   - bug
@@ -17,8 +17,8 @@ body:
       label: Reproduction steps
       description: Include the command, file shape, or loop state that triggered the issue.
       placeholder: |
-        1. Run `/vidux "..."` in Claude Code
-        2. vidux-loop.sh outputs ...
+        1. Run `/pilot-puppy "..."` in Claude Code
+        2. pilot-puppy-loop.sh outputs ...
         3. Expected X but got Y
     validations:
       required: true
@@ -40,10 +40,10 @@ body:
     validations:
       required: true
   - type: input
-    id: vidux-version
+    id: pilot-puppy-version
     attributes:
-      label: Vidux version
-      description: Run `cat VERSION` in your vidux directory.
+      label: Pilot Puppy version
+      description: Run `cat VERSION` in your pilot-puppy directory.
       placeholder: e.g. 2.3.0
     validations:
       required: false

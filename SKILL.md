@@ -1,121 +1,56 @@
 ---
-name: vidux
-description: "Thin plan, proof, and resume discipline for work that must survive sessions, agents, and tools."
+name: pilot-puppy
+description: "Chief-of-staff briefing, durable plan/proof/resume, and bounded native-host execution for AI coding work."
 ---
 
-# Pilot Puppy (Vidux compatibility skill)
+# Pilot Puppy
 
-Pilot Puppy is a repository-owned plan/proof/resume contract under the stable
-Vidux compatibility namespace. It is not a model
-router, scheduler, worker runtime, or provider transport.
+Use Pilot Puppy when work must survive sessions, hosts, or interruptions and a
+cold reader should know the Outcome, current move, proof, and next decision.
 
-Use it when work crosses sessions, workers, releases, or interruptions and a
-cold reader must be able to continue without reconstructing a chat. Skip it for
-a factual answer or an obvious small repair that needs no durable handoff.
+Skip it for a factual answer or an obvious one-step edit with no handoff.
 
-## Read
+## Start every cycle
 
-Before acting:
+1. Read repository instructions and the repository-owned `PLAN.md`.
+2. Inspect the exact Git revision, worktree state, and proof named by the plan.
+3. Resume an in-progress item; otherwise take the highest unblocked item.
+4. Make one bounded, reversible change and run the real repository gate.
+5. Record result, proof, uncertainty, and one exact resume move in `PLAN.md`.
 
-1. Read repository instructions and the canonical `PLAN.md`.
-2. Inspect the current revision and working tree.
-3. Read only the proof named by the active row.
-4. Resume `[in_progress]`; otherwise take the highest unblocked row.
+Never overwrite unexplained work or create a second queue. A commit, worker
+message, or receipt is not acceptance proof by itself.
 
-Never overwrite or absorb unexplained work merely to make the tree clean.
+## Drive one task
 
-## Cycle
+Use the active host directly for normal work. For a bounded handoff, use:
 
-```text
-READ       plan, revision, working tree, named proof
-ASSESS     active row first; otherwise highest unblocked row
-ACT        one bounded, reversible change
-VERIFY     the repository's real gate
-CHECKPOINT result, proof, uncertainty, and one cold-resume next move
+```bash
+pilot-puppy host run --host codex|claude-code|cursor \
+  --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
+  --allowed-path <exact-path> --out <project>/.pilot-puppy/evidence/<id>.json
 ```
 
-A row is complete only when its requested outcome exists and its named gate
-passes. A commit, pull request, chat message, or activity count alone is not
-proof.
+Review the diff and reproduce important tests before accepting the result.
+Do not put credentials, prompts, transcripts, private paths, or provider output
+in a task receipt.
 
-`vidux checkpoint <plan> <task> <summary> --proof <text>` is an optional helper
-for updating the plan and, when configured, appending a local ledger row.
-Completion requires explicit proof text. Changes remain uncommitted unless
-`--commit` is supplied. The plan remains authority; a ledger row never grants
-permission to push, merge, deploy, spend, or communicate externally.
+## Brief the person
 
-## Plan contract
+Lead with:
 
-`vidux init --here` creates a plan with:
+- Outcome
+- What changed
+- What is happening now
+- Proof or uncertainty
+- The one decision needed, expressed as at most A/B/C
 
-- Purpose
-- Evidence
-- Constraints
-- Operator Brief
-- Outcome Scorecard
-- Tasks
-- Decision Log
-- Progress
+Hide implementation detail unless it changes the decision. The browser is a
+loopback projection of the same plan; Markdown remains authority.
 
-Use `pending -> in_progress -> completed`. Use `blocked` only with a concrete
-reason and resume condition. Keep decision-relevant facts and cold-resume state
-in the plan; put large evidence in linked repository files.
+## Boundaries
 
-Do not make a second queue when an existing plan already owns the outcome.
-
-## Ownership and delegation
-
-One worker owns a writable surface at a time. Parallel work is safe only when
-write surfaces are disjoint.
-
-Give a worker:
-
-- one observable outcome;
-- bounded read and write paths;
-- a verification gate;
-- hard safety boundaries; and
-- the required proof and cold-resume handoff.
-
-Treat worker output as a draft until the owner reviews the diff and reproduces
-important claims. The coding host owns dispatch, authentication, provider
-selection, retries, and process lifecycle.
-
-## Recovery
-
-Before creating a branch or worktree, inspect existing branches, worktrees,
-pull requests, and uncommitted changes with Git's normal commands. Resume or
-preserve existing work before creating a duplicate lane.
-
-Vidux ships no worktree cleanup automation and never removes another worker's
-checkout.
-
-## Public-data boundary
-
-Public plans and examples must not store:
-
-- credentials or private account data;
-- billing, quota, or usage snapshots;
-- runtime/session identifiers or raw conversation logs;
-- private repository links or machine-specific paths; or
-- worker execution receipts presented as product documentation.
-
-Use synthetic examples. Keep provider routing and execution in the coding host.
-
-## Local cockpit
-
-`vidux browse` is a loopback, read-mostly projection of repository plans and
-proof. Markdown remains authority. The browser does not make Vidux a hosted
-control plane or worker runtime.
-
-The Outcome / Ask / Steer schema and read-only validator prove only the
-interchange contract. The local cockpit renders an Outcome / Now / Change
-direction view from repository and local steering state; it does not execute
-work or guarantee that a saved Steer will be applied.
-
-## References
-
-- [`docs/doctrine/DOCTRINE.md`](docs/doctrine/DOCTRINE.md)
-- [`docs/doctrine/ARCHITECTURE.md`](docs/doctrine/ARCHITECTURE.md)
-- [`docs/doctrine/LOOP.md`](docs/doctrine/LOOP.md)
-- [`docs/CORE-CUT.md`](docs/CORE-CUT.md)
-- [`docs/reference/outcome-ask-steer.md`](docs/reference/outcome-ask-steer.md)
+Pilot Puppy owns one product identity, one `PLAN.md` authority, and one bounded
+project-local evidence path. Native Codex, Claude Code, and Cursor own model
+authentication and execution. Do not add a router, daemon, scheduler, cloud
+executor, credential relay, transcript store, or parallel status database.

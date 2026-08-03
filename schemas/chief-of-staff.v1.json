@@ -1,6 +1,6 @@
 {
-  "$id": "vidux.chief-of-staff.v1",
-  "title": "Vidux Chief of Staff brief",
+  "$id": "pilot-puppy.chief-of-staff.v1",
+  "title": "Pilot Puppy Chief of Staff brief",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,7 +18,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "vidux.chief-of-staff.v1"
+      "const": "pilot-puppy.chief-of-staff.v1"
     },
     "revision": {
       "type": "integer",

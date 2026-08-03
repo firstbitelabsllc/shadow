@@ -1,0 +1,44 @@
+{
+  "schema": "pilot-puppy.outcome.v1",
+  "revision": 3,
+  "updated_at": "2026-08-03T03:00:00Z",
+  "outcome": {
+    "id": "ship-release-notes",
+    "summary": "Publish accurate release notes for the next tagged build.",
+    "state": "needs_input",
+    "current_move": "Choose the final review depth before drafting notes."
+  },
+  "ask": {
+    "id": "choose-review-depth",
+    "category": "product_choice",
+    "question": "How should we finish the release notes?",
+    "options": [
+      {
+        "id": "focused-review",
+        "label": "Focused review",
+        "consequence": "Check only the changed claims and finish today."
+      },
+      {
+        "id": "full-review",
+        "label": "Full review",
+        "consequence": "Re-read every claim before publishing."
+      },
+      {
+        "id": "hold-notes",
+        "label": "Hold",
+        "consequence": "Keep the Outcome open until more proof exists."
+      }
+    ],
+    "state": "open",
+    "answer_option_id": null
+  },
+  "proof": [
+    {
+      "id": "notes-outline",
+      "type": "document",
+      "locator": "docs/reference/outcome-choice.md",
+      "verification_summary": "The outline uses the bounded Outcome and A/B/C contract.",
+      "delivery": "delivered"
+    }
+  ]
+}

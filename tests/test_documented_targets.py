@@ -1,4 +1,4 @@
-"""Keep shipped Vidux instructions aligned with shipped executable targets."""
+"""Keep shipped Pilot Puppy instructions aligned with shipped executable targets."""
 
 from __future__ import annotations
 

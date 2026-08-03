@@ -1,9 +1,9 @@
 {
-  "name": "vidux",
-  "version": "1.2.0",
-  "description": "Local-first outcome, plan, proof, and resume view for AI-assisted software work.",
+  "name": "pilot-puppy",
+  "version": "2.0.0",
+  "description": "Chief-of-staff briefing and bounded native-host execution for AI coding work.",
   "author": {
     "name": "First Bite Labs"
   },
-  "homepage": "https://github.com/firstbitelabsllc/vidux"
+  "homepage": "https://github.com/firstbitelabsllc/pilot-puppy"
 }

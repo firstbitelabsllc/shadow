@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pilot-puppy.dev/schemas/outcome-choice.v1.json",
+  "title": "Pilot Puppy Outcome Choice v1",
+  "description": "One provider-neutral Outcome, optional A/B/C choice, and bounded proof references.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "revision", "updated_at", "outcome", "ask", "proof"],
+  "properties": {
+    "schema": { "const": "pilot-puppy.outcome.v1" },
+    "revision": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+    "updated_at": { "$ref": "#/$defs/timestamp" },
+    "outcome": { "$ref": "#/$defs/outcome" },
+    "ask": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ask" }
+      ]
+    },
+    "proof": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/proof" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+    "text80": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "text280": { "type": "string", "minLength": 1, "maxLength": 280 },
+    "text500": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "summary", "state", "current_move"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "summary": { "$ref": "#/$defs/text280" },
+        "state": {
+          "enum": ["working", "needs_input", "blocked", "finished_with_proof", "not_delivered"]
+        },
+        "current_move": { "$ref": "#/$defs/text280" }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "consequence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "$ref": "#/$defs/text80" },
+        "consequence": { "$ref": "#/$defs/text280" }
+      }
+    },
+    "ask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "question", "options", "state", "answer_option_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "category": {
+          "enum": ["product_choice", "security", "money", "external_communication", "irreversible_action"]
+        },
+        "question": { "$ref": "#/$defs/text280" },
+        "options": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/option" }
+        },
+        "state": { "const": "open" },
+        "answer_option_id": { "type": "null" }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "locator", "verification_summary", "delivery"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["test", "runtime", "ui", "release", "document", "other"] },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "verification_summary": { "$ref": "#/$defs/text500" },
+        "delivery": { "enum": ["delivered", "not_delivered"] }
+      }
+    }
+  }
+}

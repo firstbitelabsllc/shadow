@@ -1,108 +1,42 @@
 const sidebar = [
   {
-    text: 'Getting Started',
+    text: 'Guide',
     items: [
-      { text: 'What is Pilot Puppy?', link: '/guide/' },
+      { text: 'Overview', link: '/guide/' },
       { text: 'Installation', link: '/guide/installation' },
-      { text: 'Quick Start', link: '/guide/quickstart' },
-    ],
-  },
-  {
-    text: 'Core Concepts',
-    items: [
-      { text: 'Overview', link: '/concepts/' },
-      { text: 'Five Principles', link: '/concepts/principles' },
-      { text: 'The Cycle', link: '/concepts/cycle' },
-      { text: 'PLAN.md Structure', link: '/concepts/plan-structure' },
-      { text: 'The Store', link: '/concepts/store' },
-      { text: 'Extensions', link: '/concepts/extensions' },
-    ],
-  },
-  {
-    text: 'Fleet',
-    items: [
-      { text: 'Overview', link: '/fleet/' },
-      { text: 'Claude Lifecycle', link: '/fleet/claude-lifecycle' },
-      { text: 'Codex Lifecycle', link: '/fleet/codex-lifecycle' },
-      { text: 'Codex Setup', link: '/fleet/codex-setup' },
-      { text: 'Platform Comparison', link: '/fleet/platforms' },
-      { text: 'Harness Authoring', link: '/fleet/harness' },
-      { text: 'Fleet Operations', link: '/fleet/operations' },
-      { text: 'Recipe Catalog', link: '/fleet/recipes' },
+      { text: 'Quick start', link: '/guide/quickstart' },
     ],
   },
   {
     text: 'Reference',
     items: [
-      { text: 'Overview', link: '/reference/' },
-      { text: 'PLAN.md Fields', link: '/reference/plan-fields' },
-      { text: 'Prompt Template', link: '/reference/prompt-template' },
       { text: 'Commands', link: '/reference/commands' },
-      { text: 'Scripts', link: '/reference/scripts' },
-      { text: 'The Loop', link: '/reference/loop' },
-      { text: 'Browser UI', link: '/reference/browser' },
-      { text: 'Hooks', link: '/reference/hooks' },
-      { text: 'Enforcement Hooks', link: '/reference/enforcement' },
+      { text: 'PLAN.md', link: '/reference/plan-fields' },
+      { text: 'Briefing', link: '/reference/chief-of-staff' },
+      { text: 'A/B/C decisions', link: '/reference/decision-mode' },
+      { text: 'Outcome contract', link: '/reference/outcome-choice' },
+      { text: 'Native hosts', link: '/reference/native-hosts' },
+      { text: 'Browser', link: '/reference/browser' },
       { text: 'Configuration', link: '/reference/config' },
-      { text: 'Ingredients', link: '/reference/ingredients' },
-      { text: 'Pilot Puppy', link: '/reference/pilot-puppy' },
+      { text: 'Privacy', link: '/reference/privacy' },
     ],
   },
-  {
-    text: 'Examples',
-    items: [
-      { text: 'Overview', link: '/examples/' },
-    ],
-  },
-]
+];
 
 export default {
   title: 'Pilot Puppy',
-  description: 'A calm local plan, proof, and resume layer for AI coding work that spans multiple sessions, agents, or days.',
+  description: 'Chief-of-staff briefing and bounded native-host execution for AI coding work.',
   base: process.env.DOCS_BASE || '/',
   cleanUrls: true,
-
   themeConfig: {
     siteTitle: 'Pilot Puppy',
-
     nav: [
       { text: 'Guide', link: '/guide/' },
-      { text: 'Concepts', link: '/concepts/' },
-      { text: 'Fleet', link: '/fleet/' },
       { text: 'Reference', link: '/reference/' },
-      { text: 'Examples', link: '/examples/' },
     ],
-
-    sidebar: {
-      '/': sidebar,
-      '/guide/': sidebar,
-      '/concepts/': sidebar,
-      '/fleet/': sidebar,
-      '/reference/': sidebar,
-      '/examples/': sidebar,
-    },
-
-    outline: {
-      level: [2, 3],
-      label: 'On this page',
-    },
-
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/firstbitelabsllc/vidux' },
-    ],
-
-    footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2026-present First Bite Labs LLC',
-    },
-
-    editLink: {
-      pattern: 'https://github.com/firstbitelabsllc/vidux/edit/main/docs/:path',
-      text: 'Edit this page on GitHub',
-    },
-
-    search: {
-      provider: 'local',
-    },
+    sidebar: { '/': sidebar },
+    socialLinks: [{ icon: 'github', link: 'https://github.com/firstbitelabsllc/pilot-puppy' }],
+    search: { provider: 'local' },
+    footer: { message: 'MIT licensed.', copyright: 'Copyright © 2026 First Bite Labs LLC' },
   },
-}
+};

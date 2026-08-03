@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# pilot-puppy — top-level CLI dispatcher.
+#
+# Routes subcommands to existing helpers in scripts/ and bin/.
+#
+set -euo pipefail
+
+PILOT_PUPPY_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "${PILOT_PUPPY_SOURCE}" ]]; do
+  PILOT_PUPPY_SOURCE_DIR="$(cd -P "$(dirname "${PILOT_PUPPY_SOURCE}")" && pwd)"
+  PILOT_PUPPY_SOURCE="$(readlink "${PILOT_PUPPY_SOURCE}")"
+  [[ "${PILOT_PUPPY_SOURCE}" != /* ]] && PILOT_PUPPY_SOURCE="${PILOT_PUPPY_SOURCE_DIR}/${PILOT_PUPPY_SOURCE}"
+done
+PILOT_PUPPY_BIN_DIR="$(cd -P "$(dirname "${PILOT_PUPPY_SOURCE}")" && pwd)"
+PILOT_PUPPY_ROOT="${PILOT_PUPPY_ROOT:-$(cd "${PILOT_PUPPY_BIN_DIR}/.." && pwd)}"
+
+print_top_help() {
+  cat <<EOF
+pilot-puppy — local plan, proof, and resume tools for AI coding work
+
+usage: pilot-puppy <command> [args...]
+
+commands:
+  init --here        Create one repository-owned PLAN.md
+  browse [args]     Launch the plan browser at :7191
+  status [args]     Print plan status across operational PLAN.md files
+  checkpoint [args] Update a PLAN.md and write one bounded local receipt
+  host [args]       Probe or run one sealed task through a native coding host
+  doctor            Install/readiness doctor for local CLI setup
+  help [<cmd>]      Show this help, or help for a specific subcommand
+
+options:
+  --version, -v     Print pilot-puppy version
+  --help, -h        Show this help
+
+See README.md and docs/ for the current CLI roadmap and implemented helpers.
+EOF
+}
+
+print_subcommand_help() {
+  local cmd="${1:-}"
+  case "${cmd}" in
+    browse)
+      cat <<EOF
+pilot-puppy browse — launch the plan browser at :7191.
+
+usage: pilot-puppy browse [--no-open] [--port N] \\
+  [--host HOST] [--root PATH] [--help|-h]
+
+Runs one foreground loopback server. Stop it with Ctrl-C.
+
+flags:
+  --no-open             Do not open the browser automatically.
+  --port N             Bind a specific port (default: 7191).
+  --host HOST          Server bind host (default: 127.0.0.1).
+  --root PATH          Scan root for PLAN.md files (default: ~/Development).
+The server is loopback-only. A/B/C choices are saved atomically inside the
+selected Git project's .pilot-puppy/evidence directory.
+EOF
+      ;;
+    status)
+      cat <<EOF
+pilot-puppy status — print chief-of-staff briefs from PLAN.md files.
+
+usage: pilot-puppy status [--root <path>] [--all] [--json]
+
+The current directory is the default scan root. Default output hides finished
+Outcomes; --all includes them. Each active brief reports Outcome, Now,
+recommendation, and any A/B/C choice. No external or hidden state is read.
+EOF
+      ;;
+    init)
+      cat <<EOF
+pilot-puppy init — bootstrap a new plan.
+
+usage: pilot-puppy init --here
+
+Creates PLAN.md at the current Git project root. The plan includes one typed
+Outcome, one A/B/C choice, one work row, and one progress row. Existing plans
+are never overwritten; there is no global plan store.
+
+exit codes:
+  0   plan created
+  1   target PLAN.md already exists
+  2   invalid usage or not at a Git project root
+EOF
+      ;;
+    checkpoint)
+      cat <<EOF
+pilot-puppy checkpoint — update a plan and write one bounded local receipt.
+
+usage: pilot-puppy checkpoint <plan-path> <task> <summary> \\
+  --proof <text> \\
+  [--blocker <text>] [--status done|done_with_concerns|blocked] \\
+  [--outcome useful|busy|blocked_clarified] [--commit]
+
+The repository plan remains authority. The receipt is bounded evidence, never
+a queue or authorization to push, merge, deploy, spend, or contact anyone.
+Completion requires explicit proof text. Changes remain uncommitted unless
+--commit is supplied.
+EOF
+      ;;
+    host)
+      cat <<EOF
+pilot-puppy host — use one native Codex, Claude Code, or Cursor process.
+
+usage: pilot-puppy host probe --host codex|claude-code|cursor [--json]
+       pilot-puppy host run --host HOST --repo PATH --task-file PATH \\
+         --task-id ID --allowed-path PATH [--allowed-path PATH ...] \\
+         [--out PATH] [--timeout-seconds N] [--json]
+
+The task file is frozen, the Git worktree must be clean, allowed paths are
+exact, and a successful host must emit one pilot-puppy.host-receipt.v1 object
+with passing tests. The result remains unreviewed until the lead reproduces it.
+EOF
+      ;;
+    doctor)
+      cat <<EOF
+pilot-puppy doctor — read-only installation and native-host doctor.
+
+usage: pilot-puppy doctor [--json] [--help|-h]
+
+Checks product identity, Python, Git, PATH installation, native Codex/Claude
+Code/Cursor availability, and those three skill mounts. It is read-only and
+never fetches, repairs, authenticates, or runs the test suite. Missing optional
+hosts or mounts warn; contradictory product identity or mount custody fails.
+
+Each check prints [PASS], [WARN], or [FAIL]. --json emits the same bounded
+report. Exit 0 when no hard check fails and 1 otherwise.
+EOF
+      ;;
+    help|"")
+      print_top_help
+      ;;
+    *)
+      echo "pilot-puppy: unknown command for help: ${cmd}" >&2
+      print_top_help >&2
+      return 2
+      ;;
+  esac
+}
+
+print_version() {
+  # VERSION file may contain trailing notes; the first non-empty,
+  # non-comment line is the version string.
+  awk 'NF && $1 !~ /^#/ { print; exit }' "${PILOT_PUPPY_ROOT}/VERSION"
+}
+
+# Every subcommand
+# below exec's straight into python3/bash/awk against ${PILOT_PUPPY_ROOT}/scripts
+# with no preflight, so a missing python3 or a broken/misdirected PILOT_PUPPY_ROOT
+# (e.g. an env var pointing at an unrelated or incomplete checkout) leaked a
+# raw interpreter error ("bash: exec: python3: not found",
+# "python3: can't open file ...", "awk: can't open file ...") instead of a
+# pilot-puppy-authored message. require_pilot_puppy_checkout runs once before dispatch
+# (help/-h stay exempt -- pure static text, no filesystem access) so every
+# subcommand gets the same clear message for the same root cause.
+require_pilot_puppy_checkout() {
+  if [[ ! -f "${PILOT_PUPPY_ROOT}/VERSION" || ! -d "${PILOT_PUPPY_ROOT}/scripts" ]]; then
+    echo "pilot-puppy: PILOT_PUPPY_ROOT does not look like a pilot-puppy checkout: ${PILOT_PUPPY_ROOT}" >&2
+    echo "  Expected a VERSION file and a scripts/ directory under it." >&2
+    echo "  If PILOT_PUPPY_ROOT is set in your environment, unset it or point it at a real pilot-puppy checkout." >&2
+    exit 127
+  fi
+}
+
+require_python3() {
+  local cmd="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "pilot-puppy ${cmd}: python3 not found on PATH." >&2
+    echo "  This subcommand requires Python 3.10+. Install it, then re-run." >&2
+    echo "  'pilot-puppy doctor' runs a full readiness check once python3 is installed." >&2
+    exit 127
+  fi
+}
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    print_top_help
+    exit 0
+  fi
+
+  local cmd="$1"
+  shift || true
+
+  if [[ "${cmd}" != "--help" && "${cmd}" != "-h" && "${cmd}" != "help" ]]; then
+    require_pilot_puppy_checkout
+  fi
+
+  case "${cmd}" in
+    --version|-v)
+      print_version
+      ;;
+    --help|-h|help)
+      if [[ $# -gt 0 ]]; then
+        print_subcommand_help "$1"
+      else
+        print_top_help
+      fi
+      ;;
+    browse)
+      export PILOT_PUPPY_ROOT
+      exec "${PILOT_PUPPY_ROOT}/bin/pilot-puppy-browse" "$@"
+      ;;
+    status)
+      require_python3 "status"
+      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-status.py" "$@"
+      ;;
+    init)
+      require_python3 "init"
+      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-init.py" "$@"
+      ;;
+    checkpoint)
+      require_python3 "checkpoint"
+      export PILOT_PUPPY_ROOT
+      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-checkpoint.py" "$@"
+      ;;
+    host)
+      require_python3 "host"
+      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-host.py" "$@"
+      ;;
+    doctor)
+      require_python3 "doctor"
+      export PILOT_PUPPY_ROOT
+      export PILOT_PUPPY_DOCTOR_EXPECTED_CLI="${PILOT_PUPPY_ROOT}/bin/pilot-puppy"
+      exec python3 "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-doctor.py" "$@"
+      ;;
+    *)
+      echo "pilot-puppy: unknown command: ${cmd}" >&2
+      echo >&2
+      print_top_help >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
