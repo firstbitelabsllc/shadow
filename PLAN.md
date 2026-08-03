@@ -12,14 +12,14 @@ Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 2
-- Outcome Updated At: 2026-08-03T06:12:43Z
+- Outcome Revision: 3
+- Outcome Updated At: 2026-08-03T06:17:53Z
 - Outcome State: working
 - Outcome: Ship one simple Pilot Puppy product that briefs a person and safely drives native coding hosts.
-- Next: Publish v2.0.0 from the green release candidate, then rerun the sealed Codex task when native quota resets.
-- Proof ID: pilot-puppy-v2-release-candidate
+- Next: Rerun the same sealed native Codex task after its account quota resets; close only after lead-reproduced proof passes.
+- Proof ID: pilot-puppy-v2-public-readback
 - Proof: tests/
-- Proof Summary: Full tests, docs, package, install, privacy scan, restartable A/B/C UI, and real Claude Code and Cursor tasks pass; Codex execution is quota-blocked.
+- Proof Summary: v2.0.0 is public and fresh-clone/install/readback passes; real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
 - Proof Delivery: delivered
 
 ## Product boundary
@@ -54,10 +54,12 @@ Cursor without taking custody of credentials or conversations.
   packaging, installation, documentation, and full test behavior.
 - [completed] Replace shared, private, and installed callers, then remove every
   predecessor command, skill, mount, hook, job, configuration, and active file.
-- [in_progress] Rename the existing GitHub repository in place, merge, release,
+- [completed] Rename the existing GitHub repository in place, merge, release,
   fresh-install, and read back the remote, mounts, command, and real UI.
-- [in_progress] Run the final cold review and zero-surface audit; close only when
+- [completed] Run the final cold review and zero-surface audit; close only when
   all changed repositories are clean, pushed, and remotely verified.
+- [in_progress] Rerun the same sealed native Codex task after its account quota
+  resets; require the exact allowed-path change and lead-reproduced check.
 
 ## Mechanical proof required
 
@@ -102,7 +104,15 @@ Cursor without taking custody of credentials or conversations.
   as an unavailable sidecar, not approval. The lead Thermo audit found no
   duplicate authority, state store, runtime, compatibility surface, or release
   blocker. A stale unrelated health watcher was retargeted to neutral local
-  state, and the retired state root remained absent after reload.
+  state, stale Claude cleanup hooks were removed, and the retired state root
+  was absent after final configuration validation.
+- 2026-08-03: PR #88 merged as `6375c84a`; public release `v2.0.0` points to
+  that exact commit and is the only visible release. Its attached 51-file
+  package has SHA-256
+  `9827381f6570dac1bf5e66611fae4056e18f3a14c6a914d85a099e5d5643b8cb`.
+  A fresh public tag clone passed a zero-vulnerability install, 3 JavaScript
+  tests, 79 Python tests, the 81-file public-ready scan, docs build, stranger
+  package install, version readback, and a real new-repository A/B/C brief.
 
 ## Blocked proof
 
