@@ -12,14 +12,14 @@ Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 1
-- Outcome Updated At: 2026-08-03T03:15:00Z
+- Outcome Revision: 2
+- Outcome Updated At: 2026-08-03T06:12:43Z
 - Outcome State: working
 - Outcome: Ship one simple Pilot Puppy product that briefs a person and safely drives native coding hosts.
-- Next: Finish the public core, replace every caller, then prove the renamed installation end to end.
-- Proof ID: focused-core-tests
+- Next: Publish v2.0.0 from the green release candidate, then rerun the sealed Codex task when native quota resets.
+- Proof ID: pilot-puppy-v2-release-candidate
 - Proof: tests/
-- Proof Summary: Focused briefing, checkpoint, and native-host contract tests pass.
+- Proof Summary: Full tests, docs, package, install, privacy scan, restartable A/B/C UI, and real Claude Code and Cursor tasks pass; Codex execution is quota-blocked.
 - Proof Delivery: delivered
 
 ## Product boundary
@@ -50,13 +50,13 @@ Cursor without taking custody of credentials or conversations.
   schemas, browser identity, and local state contract.
 - [completed] Fold in the smallest proven native-host driver for Codex, Claude
   Code, and Cursor, with a sealed task and validated bounded receipt.
-- [in_progress] Prove restart/resume, chief-of-staff status, A/B/C choice, privacy,
+- [completed] Prove restart/resume, chief-of-staff status, A/B/C choice, privacy,
   packaging, installation, documentation, and full test behavior.
-- [pending] Replace shared, private, and installed callers, then remove every
+- [completed] Replace shared, private, and installed callers, then remove every
   predecessor command, skill, mount, hook, job, configuration, and active file.
-- [pending] Rename the existing GitHub repository in place, merge, release,
+- [in_progress] Rename the existing GitHub repository in place, merge, release,
   fresh-install, and read back the remote, mounts, command, and real UI.
-- [pending] Run the final cold review and zero-surface audit; close only when
+- [in_progress] Run the final cold review and zero-surface audit; close only when
   all changed repositories are clean, pushed, and remotely verified.
 
 ## Mechanical proof required
@@ -81,3 +81,32 @@ Cursor without taking custody of credentials or conversations.
   4 desktop/phone browser tests, docs build, privacy fixtures, and a reproducible
   51-file stranger install. Real host, restart, cross-repository, and remote
   release proof remain open.
+- 2026-08-03: Public main `6bd03c3f` passes 79 Python, 3 JavaScript, and
+  4 Chromium tests, the 81-file public-ready scan, docs build, zero-vulnerability
+  install, and a 51-file release package with SHA-256
+  `9827381f6570dac1bf5e66611fae4056e18f3a14c6a914d85a099e5d5643b8cb`.
+- 2026-08-03: `pilot-puppy doctor` passes 11/11 with one command and the same
+  Pilot Puppy skill mounted in native Claude Code, Codex, and Cursor roots.
+  Every predecessor command fails lookup; shared main is `c9efb7fe` and private
+  main is `958a6163` after caller and runtime removal.
+- 2026-08-03: Real sealed Claude Code and Cursor tasks changed only their exact
+  allowed file and passed lead-reproduced checks. The real Codex CLI changed
+  nothing and failed because its account usage limit resets after
+  2026-08-07 23:52 America/New_York.
+- 2026-08-03: A real mobile Chromium brief retained the identical
+  `a4bf32b072f933ea2d89535097c3dc157a4c02ef3f2bb4ceec9d821d531f0f3f`
+  API hash across a full server stop/restart and rendered the same Outcome and
+  A/B/C choices.
+- 2026-08-03: The final read-only Fable cold-review attempt returned no review
+  payload after 12 internal turns and ended `aborted_streaming`; it is recorded
+  as an unavailable sidecar, not approval. The lead Thermo audit found no
+  duplicate authority, state store, runtime, compatibility surface, or release
+  blocker. A stale unrelated health watcher was retargeted to neutral local
+  state, and the retired state root remained absent after reload.
+
+## Blocked proof
+
+- Native Codex execution only. Resume after 2026-08-07 23:52 America/New_York:
+  the same sealed task must return `status: ok`, change only its allowed path,
+  and pass the lead-reproduced check. A binary/version probe does not satisfy
+  this gate.
