@@ -12,11 +12,11 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 6
-- Outcome Updated At: 2026-08-03T15:35:25Z
+- Outcome Revision: 7
+- Outcome Updated At: 2026-08-03T15:44:37Z
 - Outcome State: needs_input
 - Outcome: Keep one calm, local Pilot Puppy front door usable while cross-host proof is unavailable.
-- Next: Continue reachable work from this computer; resume cross-host Codex proof only when the target Mac is reachable or local quota resets.
+- Next: Use the local CLI and browser now; Python selection no longer depends on a bare 3.9, while cross-host Codex proof remains deferred.
 - Decision ID: choose-local-path
 - Decision: What should Pilot Puppy do while the remote computer is unavailable?
 - Option A ID: local-dogfood
@@ -95,8 +95,11 @@ Code, or Cursor without taking custody of credentials or conversations.
   all changed repositories are clean, pushed, and remotely verified.
 - [completed] Publish the portable other-computer handoff with bootstrap,
   mounting, proof, privacy, and one exact resume predicate.
-- [in_progress] Keep the local Outcome and A/B/C brief actionable when an
+- [completed] Keep the local Outcome and A/B/C brief actionable when an
   external host is unavailable; take reachable product work without waiting.
+- [completed] Resolve a Python 3.10+ interpreter from PATH or an explicit
+  override so local commands and the browser do not fail on a pinned bare
+  `python3`.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -190,6 +193,10 @@ Code, or Cursor without taking custody of credentials or conversations.
   passes 83 Python tests, 3 JavaScript tests, public-ready, docs, desktop and
   phone browser, and release-package verification. This proves merged source
   and CI behavior only; no new release or deployment was performed.
+- 2026-08-03: The local Python-floor receipt now records five resolution tests,
+  including hermetic override and low-bare-python fallback coverage; the
+  84-test Python suite, public scan, docs, package, and browser gates pass
+  without claiming remote host readiness.
 
 ## Deferred proof (not a global blocker)
 
