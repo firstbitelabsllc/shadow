@@ -33,6 +33,8 @@ class DoctorTests(unittest.TestCase):
         names = {item["name"] for item in report["checks"]}
         self.assertIn("product identity", names)
         self.assertIn("native host floor", names)
+        self.assertIn("skill mount: .agents", names)
+        self.assertNotIn("skill mount: .codex", names)
         self.assertNotIn("token permissions", names)
         self.assertNotIn("background process", names)
 

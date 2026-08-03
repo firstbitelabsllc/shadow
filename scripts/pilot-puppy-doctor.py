@@ -17,7 +17,7 @@ ROOT = Path(os.environ.get("PILOT_PUPPY_ROOT", Path(__file__).resolve().parent.p
 HOSTS = ("codex", "claude-code", "cursor")
 MOUNTS = (
     Path.home() / ".claude" / "skills" / "pilot-puppy",
-    Path.home() / ".codex" / "skills" / "pilot-puppy",
+    Path.home() / ".agents" / "skills" / "pilot-puppy",
     Path.home() / ".cursor" / "skills" / "pilot-puppy",
 )
 

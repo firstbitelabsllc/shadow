@@ -24,7 +24,7 @@ To mount the same public skill in a host:
 
 ```bash
 ln -sfn "$(pwd)" "$HOME/.claude/skills/pilot-puppy"
-ln -sfn "$(pwd)" "$HOME/.codex/skills/pilot-puppy"
+ln -sfn "$(pwd)" "$HOME/.agents/skills/pilot-puppy"
 ln -sfn "$(pwd)" "$HOME/.cursor/skills/pilot-puppy"
 ```
 
