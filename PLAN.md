@@ -73,6 +73,14 @@ Code, or Cursor without taking custody of credentials or conversations.
 - When the target is available, a usable Codex account there can complete the
   deferred receipt. The local quota reset is the alternate resume predicate,
   not a reason to expand the product.
+- The deferred Codex receipt uses one frozen, public-safe packet: task ID
+  `host-prompt-heading-guard`, target revision
+  `b1f5d0a6fefed6d4b3bb278ae1584ff133feec1b`, SHA-256
+  `fc04e1b8730808dbf2bceb30090d049305af1a04db34bd1d3f50f3781be294cd`, exact
+  allowed path `tests/test_pilot_puppy_host.py`, and proof command
+  `python3 -m unittest tests.test_pilot_puppy_host -v`. The packet file stays
+  outside this public repository and contains no private prompts, credentials,
+  transcripts, or provider payloads.
 
 ## Worklane boundary
 
@@ -357,6 +365,11 @@ Code, or Cursor without taking custody of credentials or conversations.
   five seconds. No clone, install, doctor, mount, Outcome/A/B/C, or
   native-host receipt was produced. The target-host availability predicate
   remains unmet; do not open another Jump or retry in a loop.
+- 2026-08-03T23:38:52Z: Restored the public-safe frozen packet metadata from
+  the repository's prior packet receipt after auditing the current plan. This
+  preserves the exact task ID, target revision, hash, allowed path, and proof
+  command without copying the packet file or any private task content. It is
+  packet readiness only; no target-host or native-host receipt is claimed.
 
 ## Deferred proof (not a global blocker)
 
@@ -367,6 +380,12 @@ Code, or Cursor without taking custody of credentials or conversations.
   failures are intentionally not counted as second-computer proof because the
   target host was offline. Do not call that receipt complete until its doctor
   is 11/11 from the target checkout.
+- The frozen packet is ready and must not be replaced: use task ID
+  `host-prompt-heading-guard` at target revision
+  `b1f5d0a6fefed6d4b3bb278ae1584ff133feec1b`, exact allowed path
+  `tests/test_pilot_puppy_host.py`, and proof command
+  `python3 -m unittest tests.test_pilot_puppy_host -v`; verify its SHA-256
+  as `fc04e1b8730808dbf2bceb30090d049305af1a04db34bd1d3f50f3781be294cd`.
 - Native Codex execution is also time-bound. If the target has a usable
   account, run the same sealed task there; otherwise resume after 2026-08-07
   23:52 America/New_York. In either route, it must return `status: ok`, change
