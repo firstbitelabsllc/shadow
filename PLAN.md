@@ -186,6 +186,10 @@ Code, or Cursor without taking custody of credentials or conversations.
   asserts the selected interpreter and rejects only the dispatcher failure
   code; this preserves the runtime contract without claiming environment
   readiness.
+- 2026-08-03: PR #98 merged as `a24120ff`. Post-merge `origin/main` readback
+  passes 83 Python tests, 3 JavaScript tests, public-ready, docs, desktop and
+  phone browser, and release-package verification. This proves merged source
+  and CI behavior only; no new release or deployment was performed.
 
 ## Deferred proof (not a global blocker)
 
