@@ -12,14 +12,14 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: ship-pilot-puppy
-- Outcome Revision: 14
-- Outcome Updated At: 2026-08-03T17:36:20Z
+- Outcome Revision: 15
+- Outcome Updated At: 2026-08-03T17:49:09Z
 - Outcome State: working
 - Outcome: Keep one calm, local Pilot Puppy front door useful while restoring explicit, safe delegation that sends each task to the right role without wasting stronger native seats.
-- Next: Finish the current OSS hardening and fold the role route into the release proof. Cross-host Codex proof remains deferred and does not block local delegation.
+- Next: R6 is the next optional proof row: measure the generic role shapes with one sealed same-task comparison, or record an honest null result. Cross-host Codex proof remains deferred and does not block local delegation.
 - Proof ID: pilot-puppy-v2-public-readback
 - Proof: tests/
-- Proof Summary: v2.0.0 is the last public release and fresh-clone/install/readback passes; the v2.1.0 local-role-routing candidate passes its full local release gate. Real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
+- Proof Summary: v2.1.0 is public at c7d63619 with a verified 61-file release asset and fresh tag-clone/install/readback. Real Claude Code and Cursor tasks pass, while Codex execution is quota-blocked.
 - Proof Delivery: delivered
 
 ## Product boundary
@@ -144,7 +144,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 - [pending] R6: Measure the four role shapes with sealed same-task proof;
   publish measured quality/scope/proof/usage results or an honest null result,
   never a performance claim by assertion.
-- [in_progress] R7: Complete OSS hardening: threat boundary, license/provenance,
+- [completed] R7: Complete OSS hardening: threat boundary, license/provenance,
   fresh install, docs, loopback UI readback, package, privacy, and security
   gates.
 - [deferred] Close cross-host portability proof through the other-computer
@@ -274,6 +274,13 @@ Code, or Cursor without taking custody of credentials or conversations.
   slots, route/output collisions, private roster permissions, and host
   substitution before launch. Remote merge, tag, and release readback remain
   the only R7 actions.
+- 2026-08-03: R7 delivered. PR #107 merged as c7d63619; public release v2.1.0
+  targets that exact commit with a 61-file asset whose SHA-256 is
+  ecdc1509261b2eefc1d92074783cbc28f7be4ef1ac3bf0766326c9e22dd98634.
+  Hosted Python 3.10/3.12/3.14, browser/docs, gitleaks, public-readiness,
+  CodeQL, and mergeability checks passed. A fresh v2.1.0 tag clone installed
+  with zero vulnerabilities, read back version 2.1.0, passed 3 JavaScript and
+  120 Python tests, and passed the 95-file public-source scan.
 
 ## Deferred proof (not a global blocker)
 
