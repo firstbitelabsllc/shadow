@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 147
-- Outcome Updated At: 2026-08-04T08:42:59Z
+- Outcome Revision: 148
+- Outcome Updated At: 2026-08-04T08:50:25Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,24 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current portfolio readback
+
+- 2026-08-04T08:50:25Z: Fresh cross-lane public/runtime re-read kept the
+  umbrella's open predicates current. Star67's public Vercel front door is
+  HTTP 200 with the Star67 title, `Permissions-Policy`, `X-Frame-Options:
+  DENY`, and `Referrer-Policy`; GitHub still reports `admin: false`, null
+  homepage, and no authorized repository rename/metadata write. Snowcubes
+  `/agents.md` and `/llms.txt` still advertise `create_cart`,
+  `create_checkout`, `update_checkout`, and `complete_checkout` even though
+  the current read-only catalog contract remains catalog-only; the existing
+  four-error agent-discovery owner/deploy predicate remains authoritative and
+  no storefront workaround was made. StrongYes `/api/health` and
+  `/game-plan` both returned HTTP 200. The owner Moussey `:4321` runtime
+  returned HTTP 200 for `/chat`, `/consignment`, and `/cleaner`, but `/voice`
+  still returned HTTP 307 with `password` and `token` in `Location` (values
+  redacted); this remains the exact C11 rebuild/restart predicate. No dirty
+  owner checkout, process, Shopify/Admin, payment, customer, credential, or
+  production-runtime state was changed, and no official Codex Security scan
+  was claimed because its native Start action remains pending.
 
 - 2026-08-04T08:42:59Z: Pilot Puppy receipt PR #158 merged at public
   `main@29499f8` after all required checks passed. The receipt makes the
