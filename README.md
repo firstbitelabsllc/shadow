@@ -48,13 +48,17 @@ pilot-puppy browse
 Outcome, one plain-language briefing, proof status, and up to three choices.
 
 `roster init` creates a generic local list of six work roles: `lead`,
-`planner`, `bulk`, `debug`, `critic`, and `hard-ic`. It is not a model picker
+`planner`, `dev`, `debug`, `review`, and `hard-dev`. It is not a model picker
 or dispatch system. To change a role's local first choice, explicitly prefer one
 already-declared host:
 
 ```bash
-pilot-puppy roster prefer --role bulk --host codex
+pilot-puppy roster prefer --role dev --host codex
 ```
+
+Existing local rosters using the former `bulk`, `critic`, or `hard-ic` labels
+are read safely and normalized on the next write; new route packets use only
+the current role names.
 
 For a bounded handoff, first ask Pilot Puppy to make one transparent local
 selection. It chooses only among declared slots for the requested task kind,
@@ -69,12 +73,12 @@ pilot-puppy route \
   --out .pilot-puppy/evidence/fix-login-copy.route.json
 ```
 
-The result might say `bulk via cursor`, `bulk via codex`, or that no declared
+The result might say `dev via cursor`, `dev via codex`, or that no declared
 slot is available. That choice is a local hint based only on the roster and a
 bounded version probe—never an account, quota, model, or billing claim.
 
 This is where the practical efficiency comes from: routine, well-scoped work
-uses the local `bulk` policy first; difficult implementation uses `hard-ic`;
+uses the local `dev` policy first; difficult implementation uses `hard-dev`;
 debugging, planning, review, and acceptance stay separate. You set the local
 priority once, then each route makes that choice visible before any native host
 uses time or tokens. Pilot Puppy does not pretend to know provider prices,
@@ -86,7 +90,7 @@ generic role and host first, and this overlay never changes that decision.
 
 ```bash
 pilot-puppy seat init
-pilot-puppy seat set --slot bulk-cursor --model MODEL
+pilot-puppy seat set --slot dev-cursor --model MODEL
 pilot-puppy seat show
 ```
 

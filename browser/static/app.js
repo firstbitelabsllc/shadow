@@ -86,9 +86,9 @@ function renderPlan(plan) {
   const roles = el('dl', { className: 'role-guide-list' });
   [
     ['Ambiguous decision', 'planner'],
-    ['Ordinary bounded change', 'bulk'],
+    ['Ordinary bounded change', 'dev'],
     ['Reproducible failure', 'debug'],
-    ['Difficult, proof-heavy build', 'hard-ic'],
+    ['Difficult, proof-heavy build', 'hard-dev'],
   ].forEach(([work, role]) => {
     const item = el('div', { className: 'role-guide-item' });
     item.append(el('dt', { text: work }), el('dd', { text: role }));

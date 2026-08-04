@@ -16,7 +16,7 @@ from typing import Any
 
 from pilot_puppy_roster_lib import (
     HOSTS,
-    ROLES,
+    ROLE_INPUTS,
     RosterError,
     RosterExistsError,
     initialize_roster,
@@ -44,7 +44,7 @@ def parser() -> argparse.ArgumentParser:
         )
         command.add_argument("--json", action="store_true", help="print the bounded local roster projection")
     prefer = commands.add_parser("prefer", help="make one declared role/host slot first locally")
-    prefer.add_argument("--role", required=True, choices=ROLES, help="declared generic work role")
+    prefer.add_argument("--role", required=True, choices=ROLE_INPUTS, help="declared generic work role")
     prefer.add_argument("--host", required=True, choices=HOSTS, help="declared native host surface")
     prefer.add_argument(
         "--file",

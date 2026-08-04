@@ -98,7 +98,7 @@ class RosterTests(unittest.TestCase):
         self.assertRegex(view["fingerprint"]["sha256"], r"^[a-f0-9]{64}$")
         self.assertEqual(
             {slot["role"] for slot in view["roster"]["slots"]},
-            {"lead", "planner", "bulk", "debug", "critic", "hard-ic"},
+            {"lead", "planner", "dev", "debug", "review", "hard-dev"},
         )
         for slot in view["roster"]["slots"]:
             self.assertEqual(set(slot), {"id", "role", "host", "priority", "enabled"})
@@ -114,6 +114,32 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
         self.assertIn("roster prefer --role ROLE --host", result.stdout)
+
+    def test_legacy_local_role_labels_are_read_as_current_labels_and_migrated_on_write(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = safe_root(dirname)
+            config = root / "config" / "roster.json"
+            payload = copy.deepcopy(roster.DEFAULT_ROSTER)
+            payload["slots"][2]["role"] = "bulk"
+            payload["slots"][3]["role"] = "bulk"
+            payload["slots"][5]["role"] = "critic"
+            payload["slots"][6]["role"] = "hard-ic"
+            config.parent.mkdir(mode=0o700)
+            config.write_text(json.dumps(payload), encoding="utf-8")
+            config.chmod(0o600)
+            shown = run("show", "--file", str(config), "--json")
+            preferred = run_top_level(
+                "roster", "prefer", "--role", "dev", "--host", "codex", "--file", str(config), "--json"
+            )
+            migrated_roles = {slot["role"] for slot in json.loads(config.read_text(encoding="utf-8"))["slots"]}
+
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertEqual(
+            {slot["role"] for slot in json.loads(shown.stdout)["roster"]["slots"]},
+            {"lead", "planner", "dev", "debug", "review", "hard-dev"},
+        )
+        self.assertEqual(preferred.returncode, 0, preferred.stderr)
+        self.assertEqual(migrated_roles, {"lead", "planner", "dev", "debug", "review", "hard-dev"})
 
     def test_local_view_never_emits_model_credentials_or_private_paths(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -159,7 +185,7 @@ class RosterTests(unittest.TestCase):
             self.assertEqual(run("init", "--file", str(config)).returncode, 0)
             before = json.loads(config.read_text(encoding="utf-8"))
             result = run_top_level(
-                "roster", "prefer", "--role", "bulk", "--host", "codex", "--file", str(config), "--json"
+                "roster", "prefer", "--role", "dev", "--host", "codex", "--file", str(config), "--json"
             )
             after = json.loads(config.read_text(encoding="utf-8"))
             file_mode = stat.S_IMODE(config.stat().st_mode)
@@ -171,12 +197,12 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(after["revision"], before["revision"] + 1)
         self.assertEqual([slot["id"] for slot in after["slots"]], [slot["id"] for slot in before["slots"]])
         self.assertEqual(
-            [(slot["id"], slot["priority"]) for slot in after["slots"] if slot["role"] == "bulk"],
-            [("bulk-cursor", 2), ("bulk-codex", 1)],
+            [(slot["id"], slot["priority"]) for slot in after["slots"] if slot["role"] == "dev"],
+            [("dev-cursor", 2), ("dev-codex", 1)],
         )
         self.assertEqual(
-            [slot for slot in after["slots"] if slot["role"] != "bulk"],
-            [slot for slot in before["slots"] if slot["role"] != "bulk"],
+            [slot for slot in after["slots"] if slot["role"] != "dev"],
+            [slot for slot in before["slots"] if slot["role"] != "dev"],
         )
         self.assertEqual(file_mode, 0o600)
         self.assertEqual(parent_mode, 0o700)
@@ -186,10 +212,10 @@ class RosterTests(unittest.TestCase):
             root = safe_root(dirname)
             config = root / "config" / "roster.json"
             self.assertEqual(run("init", "--file", str(config)).returncode, 0)
-            first = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
+            first = run("prefer", "--role", "dev", "--host", "codex", "--file", str(config))
             preferred = config.read_bytes()
-            second = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
-            no_slot = run("prefer", "--role", "bulk", "--host", "manual", "--file", str(config))
+            second = run("prefer", "--role", "dev", "--host", "codex", "--file", str(config))
+            no_slot = run("prefer", "--role", "dev", "--host", "manual", "--file", str(config))
             preserved = config.read_bytes()
 
         self.assertEqual(first.returncode, 0, first.stderr)
@@ -205,11 +231,11 @@ class RosterTests(unittest.TestCase):
             self.assertEqual(run("init", "--file", str(config)).returncode, 0)
             payload = json.loads(config.read_text(encoding="utf-8"))
             for slot in payload["slots"]:
-                if slot["id"] == "bulk-codex":
+                if slot["id"] == "dev-codex":
                     slot["enabled"] = False
             config.write_text(json.dumps(payload), encoding="utf-8")
             before = config.read_bytes()
-            result = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
+            result = run("prefer", "--role", "dev", "--host", "codex", "--file", str(config))
             after = config.read_bytes()
 
         self.assert_safe_error(result, root)
@@ -224,7 +250,7 @@ class RosterTests(unittest.TestCase):
             target.write_text(json.dumps(default_payload()), encoding="utf-8")
             target.chmod(0o600)
             config.symlink_to(target)
-            result = run("prefer", "--role", "bulk", "--host", "codex", "--file", str(config))
+            result = run("prefer", "--role", "dev", "--host", "codex", "--file", str(config))
             preserved = target.read_text(encoding="utf-8")
 
         self.assert_safe_error(result, root)
@@ -358,7 +384,7 @@ class RosterTests(unittest.TestCase):
     def test_rejects_more_than_maximum_slots_and_duplicate_json_keys(self) -> None:
         payload = default_payload()
         payload["slots"] = [
-            {"id": f"bulk-{index:02d}", "role": "bulk", "host": "codex", "priority": index + 1, "enabled": True}
+            {"id": f"bulk-{index:02d}", "role": "dev", "host": "codex", "priority": index + 1, "enabled": True}
             for index in range(roster.MAX_SLOTS + 1)
         ]
         with tempfile.TemporaryDirectory() as dirname:

@@ -17,10 +17,10 @@ Task kinds map deterministically to generic work roles:
 | Task kind | Role | Use it for |
 |---|---|---|
 | `plan` | `planner` | Bound a consequential or ambiguous decision. |
-| `hard-dev` | `hard-ic` | Deliver a difficult implementation slice with proof. |
-| `dev` | `bulk` | Make an ordinary, well-scoped product change. |
+| `hard-dev` | `hard-dev` | Deliver a difficult implementation slice with proof. |
+| `dev` | `dev` | Make an ordinary, well-scoped product change. |
 | `debug` | `debug` | Investigate one reproducible failure or unknown. |
-| `review` | `critic` | Independently challenge a change or proof claim. |
+| `review` | `review` | Independently challenge a change or proof claim. |
 | `lead` | `lead` | Own split, acceptance, and next move. |
 
 The command reads the local roster, tries only a short local `--version` probe
@@ -28,6 +28,11 @@ when asked, and prints the selected generic role/host, same-role alternatives,
 and one escalation condition. It does not start a host, create a worktree,
 retry, queue, fetch, contact a service, inspect authentication, or silently
 switch providers.
+
+The current route vocabulary is `planner`, `dev`, `debug`, `review`,
+`hard-dev`, and `lead`. Existing local roster aliases (`bulk`, `critic`, and
+`hard-ic`) are accepted only for compatibility and are normalized before a
+route packet is emitted.
 
 `--host` is a hard constraint. If that host is unavailable, Pilot Puppy blocks
 instead of choosing a different one. `--availability assume` skips the version
@@ -37,8 +42,8 @@ already checked the host.
 ## Calibration boundary
 
 The router is a local policy tool, not a model or billing optimizer. Its useful
-default is simple: send ordinary bounded implementation to the `bulk` role,
-reserve `hard-ic` for difficult implementation, and keep planning, review, and
+default is simple: send ordinary bounded implementation to the `dev` role,
+reserve `hard-dev` for difficult implementation, and keep planning, review, and
 lead acceptance explicit. The local roster priority makes that policy
 deterministic without collecting an account, quota, token, or price signal.
 
@@ -87,7 +92,7 @@ it locally after the generic roster exists:
 
 ```bash
 pilot-puppy seat init
-pilot-puppy seat set --slot bulk-cursor --model MODEL
+pilot-puppy seat set --slot dev-cursor --model MODEL
 ```
 
 The route command never reads this overlay. It still makes the same generic

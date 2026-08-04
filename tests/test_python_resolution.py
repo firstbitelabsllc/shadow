@@ -86,7 +86,6 @@ class PythonResolutionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"schema": "pilot-puppy.status.v1"', result.stdout)
         self.assertTrue(used)
-
     def test_resolution_finds_an_interpreter_when_unset(self) -> None:
         env = dict(os.environ)
         env.pop("PILOT_PUPPY_PYTHON", None)
@@ -181,4 +180,3 @@ class PythonResolutionTests(unittest.TestCase):
             used = marker.is_file()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(used)
-

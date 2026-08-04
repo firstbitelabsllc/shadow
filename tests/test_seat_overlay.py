@@ -86,7 +86,7 @@ class SeatOverlayTests(unittest.TestCase):
                 "seat",
                 "set",
                 "--slot",
-                "bulk-cursor",
+                "dev-cursor",
                 "--model",
                 "example-model-1",
                 "--file",
@@ -108,7 +108,7 @@ class SeatOverlayTests(unittest.TestCase):
         self.assertEqual(view["overlay"]["revision"], 2)
         self.assertEqual(
             view["overlay"]["seats"],
-            [{"slot": "bulk-cursor", "host": "cursor", "selector": {"kind": "model", "value": "example-model-1"}}],
+            [{"slot": "dev-cursor", "host": "cursor", "selector": {"kind": "model", "value": "example-model-1"}}],
         )
         self.assertNotIn(str(root), shown.stdout)
         self.assertEqual(file_mode, 0o600)
@@ -126,7 +126,7 @@ class SeatOverlayTests(unittest.TestCase):
             )
             before = seat_file.read_bytes()
             cursor = run(
-                "set", "--slot", "bulk-cursor", "--profile", "local-profile", "--file", str(seat_file),
+                "set", "--slot", "dev-cursor", "--profile", "local-profile", "--file", str(seat_file),
                 "--roster-file", str(roster_file),
             )
             after = seat_file.read_bytes()
@@ -144,8 +144,8 @@ class SeatOverlayTests(unittest.TestCase):
             cases = (
                 ("missing-slot", "example-model-1"),
                 ("lead-local", "example-model-1"),
-                ("bulk-cursor", "api_key_example"),
-                ("bulk-cursor", "../escape"),
+                ("dev-cursor", "api_key_example"),
+                ("dev-cursor", "../escape"),
             )
             for slot, value in cases:
                 with self.subTest(slot=slot, value=value):
@@ -155,11 +155,11 @@ class SeatOverlayTests(unittest.TestCase):
                     )
                     self.assert_safe_error(result, root, value)
             roster = json.loads(roster_file.read_text(encoding="utf-8"))
-            next(slot for slot in roster["slots"] if slot["id"] == "bulk-cursor")["enabled"] = False
+            next(slot for slot in roster["slots"] if slot["id"] == "dev-cursor")["enabled"] = False
             roster_file.write_text(json.dumps(roster), encoding="utf-8")
             roster_file.chmod(0o600)
             disabled = run(
-                "set", "--slot", "bulk-cursor", "--model", "example-model-1", "--file", str(seat_file),
+                "set", "--slot", "dev-cursor", "--model", "example-model-1", "--file", str(seat_file),
                 "--roster-file", str(roster_file),
             )
 
@@ -190,7 +190,7 @@ class SeatOverlayTests(unittest.TestCase):
                         "revision": 1,
                         "seats": [
                             {
-                                "slot": "bulk-cursor",
+                                "slot": "dev-cursor",
                                 "host": "codex",
                                 "selector": {"kind": "model", "value": "example-model-1"},
                             }

@@ -13,8 +13,8 @@ Fill the generated Operator Brief. The browser renders the same Outcome,
 briefing, proof, and A/B/C options after every restart because `PLAN.md` is the
 source.
 
-`roster init` makes a generic local list of `lead`, `planner`, `bulk`, `debug`,
-`critic`, and `hard-ic`. It does not pick a model or start work. Match the
+`roster init` makes a generic local list of `lead`, `planner`, `dev`, `debug`,
+`review`, and `hard-dev`. It does not pick a model or start work. Match the
 generic labels to your own native tools privately; no roster mapping is copied
 into project status, the browser, or receipts.
 

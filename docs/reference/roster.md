@@ -6,17 +6,17 @@ The roster gives you six generic local work roles:
 |---|---|
 | `lead` | Own the outcome, plan, review, and acceptance. |
 | `planner` | Bound an ambiguous, high-risk, or high-leverage decision. |
-| `bulk` | Make an ordinary, well-scoped implementation change. |
+| `dev` | Make an ordinary, well-scoped implementation change. |
 | `debug` | Investigate a reproducible failure or unknown. |
-| `critic` | Independently challenge a proposed change or proof claim. |
-| `hard-ic` | Deliver a difficult implementation slice with explicit proof. |
+| `review` | Independently challenge a proposed change or proof claim. |
+| `hard-dev` | Deliver a difficult implementation slice with explicit proof. |
 
 Create or inspect the local roster:
 
 ```bash
 pilot-puppy roster init
 pilot-puppy roster show
-pilot-puppy roster prefer --role bulk --host codex
+pilot-puppy roster prefer --role dev --host codex
 ```
 
 `prefer` moves one already-declared role/host slot to priority 1 within that
@@ -30,13 +30,18 @@ Choose another local file only when you mean to:
 ```bash
 pilot-puppy roster init --file /safe/local/path/roster.json
 pilot-puppy roster show --file /safe/local/path/roster.json --json
-pilot-puppy roster prefer --role bulk --host codex --file /safe/local/path/roster.json
+pilot-puppy roster prefer --role dev --host codex --file /safe/local/path/roster.json
 ```
 
 `init` never overwrites an existing roster. The default file stays outside the
 project; `--file` is an explicit local choice. The roster is a local role map,
 not another plan or queue. It is created with owner-only permissions; show and
 route reject a group- or world-readable existing roster.
+
+Older local files that call `dev`, `review`, or `hard-dev` by their former
+labels `bulk`, `critic`, or `hard-ic` remain readable. Pilot Puppy normalizes
+those aliases in memory and writes the current names on the next preference
+change; route packets never emit the legacy labels.
 
 ## What it does not do
 
@@ -58,7 +63,7 @@ For an optional named native selector, use the separate local `seat` overlay:
 
 ```bash
 pilot-puppy seat init
-pilot-puppy seat set --slot bulk-cursor --model MODEL
+pilot-puppy seat set --slot dev-cursor --model MODEL
 ```
 
 It can bind only a slot already declared and enabled in this roster. It cannot

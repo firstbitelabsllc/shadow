@@ -121,7 +121,7 @@ class RouteTests(unittest.TestCase):
         document = json.loads(result.stdout)
         self.assertEqual(document["status"], "ready")
         self.assertEqual(document["selection"], {
-            "role": "bulk",
+            "role": "dev",
             "host": "cursor",
             "priority": 1,
             "state": "unprobed",
@@ -138,9 +138,9 @@ class RouteTests(unittest.TestCase):
     def test_default_task_shapes_choose_the_intended_role_without_launching(self) -> None:
         cases = (
             ("plan", "planner", "manual", "manual", "lead_manual_handoff"),
-            ("dev", "bulk", "cursor", "ready", "explicit_host_run"),
+            ("dev", "dev", "cursor", "ready", "explicit_host_run"),
             ("debug", "debug", "codex", "ready", "explicit_host_run"),
-            ("hard-dev", "hard-ic", "claude-code", "ready", "explicit_host_run"),
+            ("hard-dev", "hard-dev", "claude-code", "ready", "explicit_host_run"),
         )
         with tempfile.TemporaryDirectory() as dirname:
             root = safe_root(dirname)
@@ -204,7 +204,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(document["selection"]["host"], "manual")
         self.assertEqual(document["execution"]["next_action"], "lead_manual_handoff")
 
-    def test_review_task_kind_stays_a_separate_manual_critic_decision(self) -> None:
+    def test_review_task_kind_stays_a_separate_manual_review_decision(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = safe_root(dirname)
             repo = make_repo(root)
@@ -218,7 +218,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         document = json.loads(result.stdout)
         self.assertEqual(document["status"], "manual")
-        self.assertEqual(document["selection"]["role"], "critic")
+        self.assertEqual(document["selection"]["role"], "review")
         self.assertEqual(document["selection"]["host"], "manual")
 
     def test_host_constraint_never_silently_falls_back_to_another_host(self) -> None:
@@ -229,7 +229,7 @@ class RouteTests(unittest.TestCase):
                 task_hash="a" * 64,
                 roster=payload,
                 task_kind="dev",
-                role="bulk",
+                role="dev",
                 host="cursor",
                 availability="probe",
             )
@@ -239,7 +239,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(document["blocked"]["kind"], "no_available_slot")
         self.assertEqual(document["alternatives"], [
             {
-                "role": "bulk",
+                "role": "dev",
                 "host": "cursor",
                 "state": "unavailable",
                 "reason": "unavailable",
@@ -254,14 +254,14 @@ class RouteTests(unittest.TestCase):
                 task_hash="a" * 64,
                 roster=payload,
                 task_kind="dev",
-                role="bulk",
+                role="dev",
                 host=None,
                 availability="probe",
             )
 
         self.assertEqual(document["status"], "blocked")
         self.assertIsNone(document["selection"])
-        self.assertEqual({item["role"] for item in document["alternatives"]}, {"bulk"})
+        self.assertEqual({item["role"] for item in document["alternatives"]}, {"dev"})
         self.assertEqual({item["host"] for item in document["alternatives"]}, {"cursor", "codex"})
 
     def test_route_hash_binds_frozen_task_and_canonical_roster(self) -> None:
@@ -328,7 +328,7 @@ class RouteTests(unittest.TestCase):
             task_hash="a" * 64,
             roster=payload,
             task_kind="dev",
-            role="bulk",
+            role="dev",
             host=None,
             availability="assume",
         )
@@ -343,14 +343,35 @@ class RouteTests(unittest.TestCase):
             task_hash="a" * 64,
             roster=copy.deepcopy(roster.DEFAULT_ROSTER),
             task_kind="dev",
-            role="bulk",
+            role="dev",
             host=None,
             availability="assume",
         )
         rendered = route.render(document)
-        self.assertIn("Alternatives: bulk via codex", rendered)
-        self.assertIn("Escalate: hard-ic", rendered)
+        self.assertIn("Alternatives: dev via codex", rendered)
+        self.assertIn("Escalate: hard-dev", rendered)
         self.assertIn("no work was launched", rendered)
+
+    def test_legacy_role_aliases_are_accepted_but_never_emitted(self) -> None:
+        payload = copy.deepcopy(roster.DEFAULT_ROSTER)
+        payload["slots"][2]["role"] = "bulk"
+        payload["slots"][3]["role"] = "bulk"
+        payload["slots"][5]["role"] = "critic"
+        payload["slots"][6]["role"] = "hard-ic"
+        document = route.route_document(
+            task_id="legacy-role",
+            task_hash="a" * 64,
+            roster=payload,
+            task_kind="dev",
+            role="bulk",
+            host=None,
+            availability="assume",
+        )
+        rendered = json.dumps(document, sort_keys=True) + route.render(document)
+        self.assertEqual(document["selection"]["role"], "dev")
+        self.assertNotIn("bulk", rendered)
+        self.assertNotIn("critic", rendered)
+        self.assertNotIn("hard-ic", rendered)
 
     def test_evidence_output_is_direct_atomic_no_overwrite_and_stays_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

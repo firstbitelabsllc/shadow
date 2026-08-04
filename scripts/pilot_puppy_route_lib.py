@@ -17,15 +17,17 @@ ROUTE_REVISION: Final = 1
 MAX_ROUTE_BYTES: Final = 32 * 1024
 MAX_ALTERNATIVES: Final = 12
 MAX_PRIORITY: Final = 1_000
-ROLES: Final = frozenset({"lead", "planner", "bulk", "debug", "critic", "hard-ic"})
+ROLES: Final = frozenset({"lead", "planner", "dev", "debug", "review", "hard-dev"})
+LEGACY_ROLE_ALIASES: Final = {"bulk": "dev", "critic": "review", "hard-ic": "hard-dev"}
+ROLE_INPUTS: Final = frozenset((*ROLES, *LEGACY_ROLE_ALIASES))
 HOSTS: Final = frozenset({"codex", "claude-code", "cursor", "manual"})
 TASK_KINDS: Final = frozenset({"plan", "hard-dev", "dev", "debug", "review", "lead"})
 TASK_KIND_ROLES: Final = {
     "plan": "planner",
-    "hard-dev": "hard-ic",
-    "dev": "bulk",
+    "hard-dev": "hard-dev",
+    "dev": "dev",
     "debug": "debug",
-    "review": "critic",
+    "review": "review",
     "lead": "lead",
 }
 AVAILABILITY: Final = frozenset({"probe", "assume"})
@@ -82,9 +84,9 @@ def _sha256(value: object, noun: str) -> str:
 
 
 def _role(value: object, noun: str) -> str:
-    if not isinstance(value, str) or value not in ROLES:
+    if not isinstance(value, str) or value not in ROLE_INPUTS:
         raise RoutePacketError(f"route packet {noun} is invalid")
-    return value
+    return LEGACY_ROLE_ALIASES.get(value, value)
 
 
 def _host(value: object, noun: str, *, nullable: bool = False) -> str | None:

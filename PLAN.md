@@ -12,10 +12,10 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 203
-- Outcome Updated At: 2026-08-04T15:21:36Z
+- Outcome Revision: 204
+- Outcome Updated At: 2026-08-04T16:03:30Z
 - Outcome State: working
-- Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
+- Outcome: Make Pilot Puppy the single local work front door for the active product portfolio: brief the work, route one transparent role/native host, drive one bounded packet, and preserve proof without taking custody of credentials or conversations.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
 - Execution rule: "one bounded packet" describes only the size of a reviewable execution unit; it does not narrow the Outcome to one project, one fix, or one delivery. Keep every named lane in this same Outcome, fan out only across disjoint owned surfaces when useful, fold receipts back into this plan, and resume the next highest-value reachable lane after each packet. A finished packet advances the portfolio and never closes the Outcome by itself.
 - Next: Resume the highest-value reachable lane from each canonical plan without waiting on the other computer or native-Codex quota. Keep owner-admin, authenticated-runtime, cleaner host-resource, official-security, deployment, telemetry, device, and merge predicates open until their exact proof exists.
@@ -234,6 +234,17 @@ Code, or Cursor without taking custody of credentials or conversations.
   second queue, router, transcript store, or status authority.
 
 ## Current portfolio readback
+
+- 2026-08-04T16:03:30Z: Closed the P0 role-vocabulary gap in the local Pilot
+  Puppy front door. Fresh rosters and route packets now use `planner`, `dev`,
+  `debug`, `review`, `hard-dev`, and `lead`; existing local `bulk`,
+  `critic`, and `hard-ic` files are accepted and normalized on read/write.
+  The loopback guide, README, routing/roster references, and focused tests all
+  use the current names. Proof is 3 JavaScript tests, 138 Python tests,
+  6 loopback desktop/phone tests, docs build, public-ready scan (98 files),
+  release package (63 files), and canonical doctor 11/11. No provider, model,
+  credential, queue, daemon, or execution behavior changed. Next: keep these
+  six names as the only public role vocabulary for the next bounded route.
 
 - 2026-08-04T09:07:25Z: Moussey PR #122 merged to public `main@0725ce6`
   after lead review of the current-main security packet. The merged source
@@ -590,7 +601,7 @@ Code, or Cursor without taking custody of credentials or conversations.
   explicit delegation roles, one bounded native-host packet, and lead
   acceptance. It is not a second product per capability.
 - The public roster names only provider-neutral roles and native host surfaces:
-  `lead`, `planner`, `bulk`, `debug`, `critic`, and `hard-ic`. Concrete model,
+  `lead`, `planner`, `dev`, `debug`, `review`, and `hard-dev`. Concrete model,
   account, quota, command, and machine bindings stay in a local private
   overlay; prompts, transcripts, credentials, and provider payloads never
   enter the plan, browser, or evidence.
@@ -602,7 +613,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 - The lead alone owns plan claims, task split, review, proof, merge, publish,
   and acceptance. Workers return drafts plus bounded receipts. Fan-out stays
   depth one and at most three path-disjoint slices only when the lead can fold
-  them in the same cycle; one batched bulk worker is the default.
+  them in the same cycle; one batched dev worker is the default.
 - Re-evaluate a role only at an evidence boundary: scout result, failed proof,
   semantic uncertainty, compaction, or explicit escalation. No timer, retry,
   watcher, or autonomous reroute exists.
@@ -773,8 +784,8 @@ Code, or Cursor without taking custody of credentials or conversations.
   states distinct, and close reachable Star67, Moussey, Snowcubes, security,
   and handoff work without creating a second operating layer.
 - [completed] R1: Add a provider-neutral, local roster contract and safe
-  foreground display for explicit `lead`, `planner`, `bulk`, `debug`, `critic`,
-  and `hard-ic` roles. It must be local configuration only, no-overwrite,
+  foreground display for explicit `lead`, `planner`, `dev`, `debug`, `review`,
+  and `hard-dev` roles. It must be local configuration only, no-overwrite,
   bounded, and private-text safe. Local roster output may show safe role labels
   and availability; concrete model, account, quota, command, and machine data
   must stay out of browser/status/evidence output.
@@ -787,8 +798,8 @@ Code, or Cursor without taking custody of credentials or conversations.
   host handoff. Reject unsafe, stale, forged, task-mismatched, host-mismatched,
   or self-overwriting route packets before a host starts. Keep one explicit
   packet at a time; do not add a fan-out manager, queue, daemon, or retries.
-- [completed] R4: Keep rerouting and independent criticism at an evidence
-  boundary. A `review` route remains a manual critic decision; the lead starts
+- [completed] R4: Keep rerouting and independent review at an evidence
+  boundary. A `review` route remains a manual review decision; the lead starts
   any new route explicitly and retains final proof/acceptance.
 - [completed] R5: Add a local private seat overlay because a real native-tool
   setup needs more than the generic role/host roster. It may select only a
@@ -796,7 +807,7 @@ Code, or Cursor without taking custody of credentials or conversations.
   owner-local, with its configuration absent from browser/status, plans, route
   evidence, attempt receipts, packages, and stranger installs. It may never hold credentials,
   prompts, provider payloads, profile guesses, or arbitrary command arguments.
-- [completed] R6: Prove the default `planner`, `bulk`, `debug`, and `hard-ic`
+- [completed] R6: Prove the default `planner`, `dev`, `debug`, and `hard-dev`
   route shapes without launch, and publish their honest calibration boundary.
   A native-host calibration is valid only for the same role and frozen task in
   separate clean worktrees. Report route, scope, proof, lead reproduction, and
@@ -810,6 +821,11 @@ Code, or Cursor without taking custody of credentials or conversations.
   `roster prefer` command that reprioritizes only declared, enabled generic
   role/host slots. It must not read providers/models/quotas, launch work, or
   create project evidence.
+- [completed] R9: Align the public roster and route vocabulary with the six
+  user-facing work roles `planner`, `dev`, `debug`, `review`, `hard-dev`,
+  and `lead`. Existing local `bulk`, `critic`, and `hard-ic` labels remain
+  readable as compatibility aliases, but normalized roster views, route packets,
+  docs, and the loopback guide emit only the current names.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.

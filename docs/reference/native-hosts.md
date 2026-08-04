@@ -30,7 +30,7 @@ one declared generic roster slot:
 ```bash
 pilot-puppy seat init
 pilot-puppy seat set --slot debug-codex --profile PROFILE
-pilot-puppy seat set --slot bulk-cursor --model MODEL
+pilot-puppy seat set --slot dev-cursor --model MODEL
 ```
 
 Then add `--use-seat` to `pilot-puppy host run` together with `--route-file`.

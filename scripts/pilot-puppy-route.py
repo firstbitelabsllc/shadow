@@ -23,13 +23,15 @@ from typing import Any
 
 from pilot_puppy_roster_lib import (  # type: ignore[import-not-found]
     RosterError,
+    canonical_role,
     default_roster_path,
     load_roster,
     route_roster_sha256,
+    validate_roster,
 )
 from pilot_puppy_route_lib import (  # type: ignore[import-not-found]
     HOSTS,
-    ROLES,
+    ROLE_INPUTS as ROUTE_ROLE_INPUTS,
     ROUTE_SCHEMA,
     TASK_KIND_ROLES,
     RoutePacketError,
@@ -174,15 +176,17 @@ def route_document(
     host: str | None,
     availability: str,
 ) -> dict[str, Any]:
-    slots = sorted(roster["slots"], key=lambda slot: (slot["priority"], slot["id"]))
+    safe_roster = validate_roster(roster)
+    role = canonical_role(role)
+    slots = sorted(safe_roster["slots"], key=lambda slot: (slot["priority"], slot["id"]))
     slot, state, alternatives, blocked_kind = select_slot(
         slots, role=role, host=host, availability=availability
     )
     binding = {
         "task_id": task_id,
         "task_sha256": task_hash,
-        "roster_revision": roster["revision"],
-        "route_roster_sha256": route_roster_sha256(roster),
+        "roster_revision": safe_roster["revision"],
+        "route_roster_sha256": route_roster_sha256(safe_roster),
     }
     requested = {
         "task_kind": task_kind,
@@ -191,7 +195,7 @@ def route_document(
         "availability": availability,
     }
     escalation = {
-        "role": "hard-ic" if role != "hard-ic" else "lead",
+        "role": "hard-dev" if role != "hard-dev" else "lead",
         "when": "Create a new explicit route only when the declared packet is exceeded or bounded proof fails twice.",
     }
     if slot is None:
@@ -326,7 +330,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--task-file", required=True, type=Path, help="frozen task file")
     choice = result.add_mutually_exclusive_group(required=True)
     choice.add_argument("--task-kind", choices=sorted(TASK_KIND_ROLES), help="declared task shape")
-    choice.add_argument("--role", choices=sorted(ROLES), help="explicit role override")
+    choice.add_argument("--role", choices=sorted(ROUTE_ROLE_INPUTS), help="explicit role override")
     result.add_argument("--host", choices=sorted(HOSTS), help="hard same-role host constraint")
     result.add_argument(
         "--roster-file", type=Path, default=default_roster_path(), help="trusted local roster override"

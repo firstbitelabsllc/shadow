@@ -369,7 +369,7 @@ class PilotPuppyHostTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["route"]["schema"], "pilot-puppy.route.v1")
-        self.assertEqual(payload["route"]["role"], "bulk")
+        self.assertEqual(payload["route"]["role"], "dev")
         self.assertEqual(payload["route"]["host"], "cursor")
         self.assertEqual(payload["route"]["priority"], 1)
         rendered = json.dumps(payload, sort_keys=True).lower()
@@ -653,9 +653,9 @@ class PilotPuppyHostTests(unittest.TestCase):
 
     def test_private_seat_model_is_bound_to_the_selected_route_and_never_enters_attempt(self) -> None:
         cases = (
-            ("cursor", "dev", "bulk-cursor"),
+            ("cursor", "dev", "dev-cursor"),
             ("codex", "debug", "debug-codex"),
-            ("claude-code", "hard-dev", "hard-ic-claude"),
+            ("claude-code", "hard-dev", "hard-dev-claude"),
         )
         for host, task_kind, slot in cases:
             with self.subTest(host=host), tempfile.TemporaryDirectory() as dirname:
@@ -778,7 +778,7 @@ class PilotPuppyHostTests(unittest.TestCase):
                 task = root / "task.txt"
                 task.write_text("Do the bounded task.\n", encoding="utf-8")
                 roster_file = make_roster(root)
-                seat_file = make_seats(root, roster_file, "bulk-cursor", "model", "private-model-marker")
+                seat_file = make_seats(root, roster_file, "dev-cursor", "model", "private-model-marker")
                 make_route(repo, task, roster_file)
                 output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
                 result = run_host(

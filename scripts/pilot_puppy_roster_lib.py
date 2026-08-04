@@ -30,7 +30,12 @@ from typing import Any, Final
 ROSTER_SCHEMA: Final = "pilot-puppy.roster.v1"
 ROSTER_VIEW_SCHEMA: Final = "pilot-puppy.roster-view.v1"
 ROSTER_FINGERPRINT_SCHEMA: Final = "pilot-puppy.roster-fingerprint.v1"
-ROLES: Final = ("lead", "planner", "bulk", "debug", "critic", "hard-ic")
+ROLES: Final = ("lead", "planner", "dev", "debug", "review", "hard-dev")
+# These labels were used by the first public roster release. Accept them when
+# reading an existing owner-local file, but normalize every new view, route,
+# and write to the plain task-shaped vocabulary above.
+LEGACY_ROLE_ALIASES: Final = {"bulk": "dev", "critic": "review", "hard-ic": "hard-dev"}
+ROLE_INPUTS: Final = (*ROLES, *LEGACY_ROLE_ALIASES)
 HOSTS: Final = ("codex", "claude-code", "cursor", "manual")
 MAX_ROSTER_BYTES: Final = 32 * 1024
 MAX_SLOTS: Final = 12
@@ -46,11 +51,11 @@ DEFAULT_ROSTER: Final[dict[str, Any]] = {
     "slots": [
         {"id": "lead-local", "role": "lead", "host": "manual", "priority": 1, "enabled": True},
         {"id": "planner-local", "role": "planner", "host": "manual", "priority": 1, "enabled": True},
-        {"id": "bulk-cursor", "role": "bulk", "host": "cursor", "priority": 1, "enabled": True},
-        {"id": "bulk-codex", "role": "bulk", "host": "codex", "priority": 2, "enabled": True},
+        {"id": "dev-cursor", "role": "dev", "host": "cursor", "priority": 1, "enabled": True},
+        {"id": "dev-codex", "role": "dev", "host": "codex", "priority": 2, "enabled": True},
         {"id": "debug-codex", "role": "debug", "host": "codex", "priority": 1, "enabled": True},
-        {"id": "critic-local", "role": "critic", "host": "manual", "priority": 1, "enabled": True},
-        {"id": "hard-ic-claude", "role": "hard-ic", "host": "claude-code", "priority": 1, "enabled": True},
+        {"id": "review-local", "role": "review", "host": "manual", "priority": 1, "enabled": True},
+        {"id": "hard-dev-claude", "role": "hard-dev", "host": "claude-code", "priority": 1, "enabled": True},
     ],
 }
 
@@ -61,6 +66,14 @@ class RosterError(ValueError):
 
 class RosterExistsError(RosterError):
     """The caller asked to create a roster that already exists."""
+
+
+def canonical_role(value: object) -> str:
+    """Return the current public role name, accepting legacy local aliases."""
+
+    if not isinstance(value, str) or value not in ROLE_INPUTS:
+        raise RosterError("local roster role is invalid")
+    return LEGACY_ROLE_ALIASES.get(value, value)
 
 
 def default_roster_path() -> Path:
@@ -152,8 +165,7 @@ def validate_roster(value: object) -> dict[str, Any]:
         enabled = record["enabled"]
         if not _is_safe_identifier(identifier):
             raise RosterError("local roster slot identifier is invalid")
-        if not isinstance(role, str) or role not in ROLES:
-            raise RosterError("local roster slot role is invalid")
+        role = canonical_role(role)
         if not isinstance(host, str) or host not in HOSTS:
             raise RosterError("local roster slot host is invalid")
         if type(priority) is not int or not (1 <= priority <= MAX_PRIORITY):
@@ -436,7 +448,11 @@ def prefer_roster(
     first preference is a no-op so an existing route binding is not made stale.
     """
 
-    if role not in ROLES or host not in HOSTS:
+    try:
+        role = canonical_role(role)
+    except RosterError:
+        raise RosterError("local roster preference is invalid") from None
+    if host not in HOSTS:
         raise RosterError("local roster preference is invalid")
     path = _safe_config_path(value, create_parent=False)
     current = load_roster(path)
