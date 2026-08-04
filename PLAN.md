@@ -12,14 +12,14 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 130
-- Outcome Updated At: 2026-08-04T06:16:47Z
+- Outcome Revision: 132
+- Outcome Updated At: 2026-08-04T06:37:02Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67/Pivot SQL and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
 - Execution rule: "one bounded packet" describes only the size of a reviewable execution unit; it does not narrow the Outcome to one project, one fix, or one delivery. Keep every named lane in this same Outcome, fan out only across disjoint owned surfaces when useful, fold receipts back into this plan, and resume the next highest-value reachable lane after each packet. A finished packet advances the portfolio and never closes the Outcome by itself.
 - Next: Resume every lane from its canonical plan and current ref, without waiting on the other computer or native-Codex quota. Keep the Moussey C11 runtime, owner-admin, cleaner host-resource, and merge/deploy predicates open until each is proven.
-- Next Detail: Resume every named lane from its canonical plan and current ref without waiting on the other computer or native-Codex quota. Snowcubes' 2026-05-21 Marathon row remains FREE/UNKNOWN with no charge or payment row; C14 remains source-cited read-only Messages metadata with no ledger or Shopify write. Snowcubes current public main is `405ae96` after PR #1419 plus PR #1683 and merged security PR #1567 (`7fd0a06`); the source audit is `ok: true`, the package-lock production audit is 0 vulnerabilities, and the resolver suite is 22/22 with dropped-pack language routing to the FPA-owned consignment capability and its money stop. The storefront remains live, but POST `/api/ucp/mcp` currently returns HTTP 422 `invalid_profile_url`, while `agents.md`, `llms.txt`, and `/.well-known/ucp` advertise cart/checkout/payment/order capabilities not proven in the served contract. The existing agentic-discovery/Shopify/Worker owner must align one profile, endpoint, capability set, and tool list; this is an owner/deploy handoff, not a storefront workaround. Open PR #1537 remains based on older `f0685821c` and is not a merge candidate from this goal. Moussey PR #121 is merged at `d7553fb`; authenticated C11/runtime remains owner-controlled. The official Codex Security workspace `c3dd6b8f-8936-468d-8a8a-6e2d18d4b827` targets current Moussey `d7553fb` but still awaits setup/start; manual gitleaks found only intentional fixtures/docs and Star67's local-storage namespace, with no credential value printed or treated as AI-scan proof. Star67 security hardening is merged to `main@1dece78`; post-merge GitHub CI is green and Vercel deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` is READY at the public alias with the restrictive live headers, while owner-admin metadata remains unavailable. StrongYes `main@9f82c3cf` now includes merged PR #1467's bounded PostHog exception telemetry, PR #1469's safe lockfile repair, PR #1455's signal-specific OTLP header precedence, and PR #1458's independent error-log flush. The new server-exception path sends only an allow-listed source, error type, environment, build SHA, and synthetic exception; it excludes the original message, stack, arbitrary properties, request path, tokens, and user payload. Current-main reproof passes the five observability suites (66/66), typecheck, and diff check; the full local smoke gate passed all 24 Jest batches with only existing lint warnings; production audit remains 16 findings (3 high, 0 critical). A fresh `npm audit --omit=dev --audit-level=high` on current public main confirms 16 findings (3 low, 10 moderate, 3 high, 0 critical); non-forced `npm audit fix --omit=dev --package-lock-only` makes no change, while `npm audit fix --force` requires breaking upgrades to Next 16.3.0, AI SDK Anthropic, and OpenTelemetry. Live `https://strongyes.io/api/health` and `/game-plan` return HTTP 200 and the health response reports commit `9f82c3cf`; this proves source-to-live deployment, while deliberate Grafana correlation remains unproven. The tested Next 16.3.0/ESLint 9 migration still fails the existing typecheck, `next lint`, and build contracts, so the remaining major upgrades are an owner-controlled framework migration. Resplit remains dirty and owner-bound with unresolved release/device gates. Keep owner-admin, authenticated-runtime, cleaner host-resource, official security scan, exact consumer/device, agentic-discovery owner, StrongYes Grafana correlation, Resplit device/runtime, and portability predicates explicit while reachable proof continues independently.
+- Next Detail: Resume every named lane from its canonical plan and current ref without waiting on the other computer or native-Codex quota. Snowcubes' 2026-05-21 Marathon row remains FREE/UNKNOWN with no charge or payment row; C14 remains source-cited read-only Messages metadata with no ledger or Shopify write. Snowcubes current public main is `0372b0c`, a descendant of the consignment/security lineage; the latest tracked agent-discovery readback at `33f53d36a5a711349dca0d8671920492c52ca9c8` records a healthy public UCP endpoint (HTTP 200 with exactly `get_product`, `lookup_catalog`, and `search_catalog`) but stale `/agents.md`, `/llms.txt`, and `/.well-known/ucp` claims for checkout/capabilities and a mismatched Shopify endpoint. The existing agentic-discovery/Shopify/Worker owner must align one profile, endpoint, capability set, and tool list; this is an owner/deploy handoff, not a storefront workaround. Open PR #1537 remains based on older `f0685821c` and is not a merge candidate from this goal. Moussey PR #121 is merged at `d7553fb`; authenticated C11/runtime remains owner-controlled. The official Codex Security workspace `c3dd6b8f-8936-468d-8a8a-6e2d18d4b827` targets current Moussey `d7553fb` but still awaits setup/start; manual gitleaks found only intentional fixtures/docs and Star67's local-storage namespace, with no credential value printed or treated as AI-scan proof. Star67 security hardening is merged to `main@1dece78`; post-merge GitHub CI is green and Vercel deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` is READY at the public alias with the restrictive live headers, while owner-admin metadata remains unavailable. StrongYes `main@9f82c3cf` now includes merged PR #1467's bounded PostHog exception telemetry, PR #1469's safe lockfile repair, PR #1455's signal-specific OTLP header precedence, and PR #1458's independent error-log flush. The new server-exception path sends only an allow-listed source, error type, environment, build SHA, and synthetic exception; it excludes the original message, stack, arbitrary properties, request path, tokens, and user payload. Current-main reproof passes the five observability suites (66/66), typecheck, and diff check; the full local smoke gate passed all 24 Jest batches with only existing lint warnings; production audit remains 16 findings (3 high, 0 critical). A fresh `npm audit --omit=dev --audit-level=high` on current public main confirms 16 findings (3 low, 10 moderate, 3 high, 0 critical); non-forced `npm audit fix --omit=dev --package-lock-only` makes no change, while `npm audit fix --force` requires breaking upgrades to Next 16.3.0, AI SDK Anthropic, and OpenTelemetry. Live `https://strongyes.io/api/health` and `/game-plan` return HTTP 200 and the health response reports commit `9f82c3cf`; this proves source-to-live deployment, while deliberate Grafana correlation remains unproven. The tested Next 16.3.0/ESLint 9 migration still fails the existing typecheck, `next lint`, and build contracts, so the remaining major upgrades are an owner-controlled framework migration. Resplit remains dirty and owner-bound with unresolved release/device gates. Keep owner-admin, authenticated-runtime, cleaner host-resource, official security scan, exact consumer/device, agentic-discovery owner, StrongYes Grafana correlation, Resplit device/runtime, and portability predicates explicit while reachable proof continues independently.
 - Current publication state (2026-08-04T06:08:19Z): Star67 PR #3 is merged at `1dece78`; Moussey PR #121 is merged at `d7553fb`; Snowcubes PR #1419 is merged at `405ae96` on public main, alongside security PR #1567 at `7fd0a06`; StrongYes PR #1467 is merged at `9f82c3cf`, PR #1469 is merged at `eb48309`, PR #1455 is merged at `5a2cec3`, and PR #1458 is merged at `1f444be`; Pilot Puppy PR #127 is merged at `4e3d866`, PR #128 is merged at `139a519`, PR #130 is merged at `7f697d1`, PR #131 is merged at `5d55273`, PR #132 is merged at `acb8d45`, PR #133 is merged at `839512e`, PR #135 is merged at `1d3e0ae`, PR #136 is merged at `ad4cea9`, PR #137 is merged at `2f6b63d`, and PR #138 is merged at `a821514`. The StrongYes, Snowcubes, and latest portfolio receipts are now public in this plan revision. StrongYes source and live endpoint readback are proven at `9f82c3cf`; deployment, repository metadata, authenticated-runtime, official-security-scan, cleaner-resource, exact consumer/device, agentic-discovery owner alignment, StrongYes live Grafana correlation, Snowcubes PR #1537 product-owner decision, and Resplit device/runtime predicates remain separate and open.
 - Decision ID: choose-reachable-portfolio-work
 - Decision: What deserves action next across the portfolio?
@@ -34,14 +34,18 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Option C Consequence: Park the GitHub admin rename, other-computer access, and Codex quota without blocking reachable product work.
 - Proof ID: portfolio-product-closeout-20260803
 - Proof: Public source and live readbacks are recorded for Star67, Moussey, Snowcubes, StrongYes, Resplit, and Pilot Puppy; external owner/admin, runtime, security, deployment, device, and portability gates remain explicit.
-- Proof Detail: Star67's Vercel-first README and hosted/browser/CI proof remain green; the public `learn-sql-peach.vercel.app` URL returns HTTP 200 with Star67 branding, no stale product names, and the merged restrictive `Permissions-Policy`. The separate private `pivot-parkline.vercel.app` app is not used as public Star67 proof. Snowcubes current main contains the exact-consumer readiness fix, merged lockfile security repair, and PR #1419's dropped-pack consignment route; `audit-consignment-source-truth.py` passes with Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and the 5/21 FREE/UNKNOWN row with no charge/payment row. The resolver suite is 22/22, the exact dropped-pack query routes to the FPA owner, and the skill/routing audits are clean. The live storefront returns HTTP 200, while its UCP POST still fails discovery with `invalid_profile_url` and its public capability docs overstate the proven endpoint. Moussey's merged source fix is proven and the current source surface no longer exposes billing-model/data-source jargon, while authenticated runtime/C11 remains owner-controlled. StrongYes public `/game-plan` and `/api/health` both return HTTP 200; `/api/health` reports live commit `9f82c3cf`. Current public main includes the bounded PostHog exception telemetry from PR #1467, which excludes original error messages/stacks and arbitrary request properties, plus the signal-specific OTLP credential-boundary fix from PR #1455, independent error-log flushing from PR #1458, and the safe lockfile repair from PR #1469. The five current-main observability suites pass 66/66, `npm run smoke:local` passes all 24 Jest batches with existing lint warnings, typecheck passes, and `git diff --check` passes. A fresh current-main `npm audit --omit=dev --audit-level=high` reports 16 findings (3 low, 10 moderate, 3 high, 0 critical); non-forced `npm audit fix --omit=dev --package-lock-only` made no changes, and forced remediation requires breaking Next/AI SDK/OpenTelemetry upgrades. The merged source and live endpoint are proven; live Grafana deliberate-error correlation is not claimed. The remaining Next 16.3.0/ESLint 9 migration remains unmerged because typecheck, `next lint`, and build fail. This packet advances the Pilot Puppy plan to revision 130; current-main manual gitleaks triage found only intentional secret-shaped fixtures/docs and the Star67 local-storage namespace, while the official Codex Security scan is correctly scoped to current Moussey `d7553fb` but still awaits setup/start; Resplit release/device gates remain open.
+- Proof Detail: Star67's Vercel-first README and hosted/browser/CI proof remain green; the public `learn-sql-peach.vercel.app` URL returns HTTP 200 with Star67 branding, no stale product names, and the merged restrictive `Permissions-Policy`. The separate private `pivot-parkline.vercel.app` app is not used as public Star67 proof. Snowcubes current main contains the exact-consumer readiness fix, merged lockfile security repair, and PR #1419's dropped-pack consignment route; `audit-consignment-source-truth.py` passes with Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and the 5/21 FREE/UNKNOWN row with no charge/payment row. The resolver suite is 22/22, the exact dropped-pack query routes to the FPA owner, and the skill/routing audits are clean. The latest tracked agent-discovery readback at `33f53d36a5a711349dca0d8671920492c52ca9c8` reports the configured public UCP endpoint HTTP 200 with exactly `get_product`, `lookup_catalog`, and `search_catalog`; `/agents.md`, `/llms.txt`, and `/.well-known/ucp` still overclaim checkout/capabilities and advertise a mismatched Shopify endpoint. Moussey's merged source fix is proven and the current source surface no longer exposes billing-model/data-source jargon, while authenticated runtime/C11 remains owner-controlled. StrongYes public `/game-plan` and `/api/health` both return HTTP 200; `/api/health` reports live commit `9f82c3cf`. Current public main includes the bounded PostHog exception telemetry from PR #1467, which excludes original error messages/stacks and arbitrary request properties, plus the signal-specific OTLP credential-boundary fix from PR #1455, independent error-log flushing from PR #1458, and the safe lockfile repair from PR #1469. The five current-main observability suites pass 66/66, `npm run smoke:local` passes all 24 Jest batches with existing lint warnings, typecheck passes, and `git diff --check` passes. A fresh current-main `npm audit --omit=dev --audit-level=high` reports 16 findings (3 low, 10 moderate, 3 high, 0 critical); non-forced `npm audit fix --omit=dev --package-lock-only` made no changes, and forced remediation requires breaking Next/AI SDK/OpenTelemetry upgrades. The merged source and live endpoint are proven; live Grafana deliberate-error correlation is not claimed. The remaining Next 16.3.0/ESLint 9 migration remains unmerged because typecheck, `next lint`, and build fail. This packet advances the Pilot Puppy plan to revision 132; current-main manual gitleaks triage found only intentional secret-shaped fixtures/docs and the Star67 local-storage namespace, while the official Codex Security scan is correctly scoped to current Moussey `d7553fb` but still awaits setup/start; Resplit release/device gates remain open.
 - Proof Summary: Star67 and Moussey source/UI/security work is merged and proven; Snowcubes source/readiness proof is green; StrongYes is live; Resplit and external security/device/runtime gates remain open; the portfolio remains working.
 - Proof Summary Detail: Live and source proofs are kept separate. No owner-admin rename, authenticated-runtime, deployment, customer/admin, payment, ledger, Shopify, credential, or production-runtime mutation was claimed. The manual gitleaks scan did not print or validate any credential; its fixture matches are not a substitute for the official AI scan. Exact consumer/device proof, official security scan start, host-resource recovery, and Resplit release/device gates remain the explicit resume predicates.
-- Publication correction: Earlier proof-detail entries are retained as historical pre-merge receipts. Current publication is Star67 public `main@1dece78` with production deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` and `learn-sql-peach.vercel.app` live alias readback, Moussey `main@d7553fb`, Snowcubes `main@405ae96` (current main after merged security/readiness/agentic-discovery lineage and PR #1419), StrongYes `main@9f82c3cf` (PR #1467 bounded PostHog exception telemetry, PR #1469 safe lockfile repair plus PRs #1455/#1458, and live `/api/health`/`/game-plan` readback), and public Pilot Puppy plan revision 130 (PR #99 plus receipt PRs #115/#116/#117/#118/#119/#120/#123/#125/#126/#127/#128/#130/#131/#132/#133/#135/#136/#137/#138); the remaining open items are Star67 owner-admin rename/metadata, authenticated runtime, official security scan, exact consumer/device, host resources, StrongYes major framework migration and live Grafana correlation, agentic-discovery owner alignment, open Snowcubes marketing decisions, and Resplit authority/device gates.
+- Publication correction: Earlier proof-detail entries are retained as historical pre-merge receipts. After this receipt lands, the current publication is Star67 public `main@1dece78` with production deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` and `learn-sql-peach.vercel.app` live alias readback, Moussey `main@d7553fb`, Snowcubes `main@0372b0c` (current main after merged security/readiness/agentic-discovery lineage and PR #1419), StrongYes `main@9f82c3cf` (PR #1467 bounded PostHog exception telemetry, PR #1469 safe lockfile repair plus PRs #1455/#1458, and live `/api/health`/`/game-plan` readback), and public Pilot Puppy plan revision 132 (open receipt PR #141, following PR #99 plus receipt PRs #115/#116/#117/#118/#119/#120/#123/#125/#126/#127/#128/#130/#131/#132/#133/#135/#136/#137/#138/#140); the remaining open items are Star67 owner-admin rename/metadata, authenticated runtime, official security scan, exact consumer/device, host resources, StrongYes major framework migration and live Grafana correlation, agentic-discovery owner alignment, open Snowcubes marketing decisions, and Resplit authority/device gates.
 - Proof Delivery: source + live readback
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current portfolio readback
+
+- 2026-08-04T06:37:02Z: Reconciled Snowcubes against the current public ref `main@0372b0c`. The latest tracked agent-discovery receipt at `33f53d36a5a711349dca0d8671920492c52ca9c8` supersedes the older 422/`invalid_profile_url` observation: the configured UCP endpoint is HTTP 200 and catalog-only, while `/agents.md`, `/llms.txt`, and `/.well-known/ucp` still advertise unsupported checkout/capability claims and a mismatched Shopify endpoint. This remains an external agentic-discovery/Shopify/Worker owner handoff; no storefront, checkout, Shopify, payment, customer, credential, or runtime mutation occurred.
+
+- 2026-08-04T06:25:04Z: Applied the slop pass to the current Portfolio map. Superseded refs and rejected user-facing wording were removed from the live map: Star67 now points to public `nlau1193/pivot-sql@1dece78`; StrongYes reports the current 16-finding audit; Snowcubes points to `main@405ae96`; Moussey points to `main@d7553fb` and current-balance/recorded language; security points to the same current refs. Historical receipts remain below as dated evidence, but they no longer masquerade as current authority. Plan tests and public-ready proof remain required; no product, deployment, payment, ledger, credential, or runtime mutation occurred.
 
 - 2026-08-04T06:16:47Z: Reconciled the Star67 source and live identity after a fan-out audit exposed two different apps. The public Star67 authority is `nlau1193/pivot-sql` at `main@1dece78`, with description `Learn SQL by doing realistic FP&A work at Star67`; its GitHub API permissions are `push: true` but `admin: false`, so the requested rename to `star67-learn-sql`, homepage, and topic writes remain owner-admin blocked and are not claimed. `https://learn-sql-peach.vercel.app` returns HTTP 200 with the merged restrictive headers and is the public Star67 front door. The private `leojkwan/nicole-jobhunt` checkout and its `https://pivot-parkline.vercel.app` app are separate owner-bound surfaces; their HTTP 200 does not prove public Star67 identity or onboarding. Exact next move: an admin-capable owner renames the public repository and updates its public metadata, then the public repo, Vercel alias, README, and browser proof are read back together.
 
@@ -343,33 +347,24 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Portfolio map
 
-- **Star67/Pivot SQL:** current `main@1277dd8` includes README commit `0721078`,
-  which puts
-  `https://learn-sql-peach.vercel.app/` before local setup. The live Vercel app
-  is HTTP 200 with Star67 content and security headers. A production browser
-  readback reaches the local practice workspace, shows 2,930,845 warehouse
-  rows, makes Riff's task primary and Frosty's coaching visibly optional, and
-  runs the guided query to a `✓ delivered` result of 2,736,642 GL lines.
-  Current main also includes the accessible desk-tab pattern and clearer
-  guided-task/practice-set progress language. On a clean current-main worktree,
-  `npm run data` passed with 2,930,845 rows, the casebook contract passed
-  18/18, `npx tsc -b` and `npx vite build` passed, and preview-browser smoke
-  passed 183/183 with no uncaught errors or hosted-sync requests. The separate
-  accessibility branch was therefore not opened as a redundant PR.
-  Repository rename is waiting on owner-admin access.
+- **Star67/Pivot SQL:** public authority is `nlau1193/pivot-sql` at
+  `main@1dece78`, with the Vercel-first README linking directly to
+  `https://learn-sql-peach.vercel.app/`. The live front door is HTTP 200 with
+  Star67 content and restrictive security headers. The public repository is
+  pushable but not admin-accessible from this account, so the requested
+  `star67-learn-sql` rename and homepage/topic writes remain owner-admin work.
+  The separate private Nicole checkout and `pivot-parkline.vercel.app` app are
+  not used as public Star67 proof.
 - **StrongYes:** the live authority is the current Code Reps/Game Plan
   `vidux/launch-validation/PLAN.md`, not the dirty voice-debug checkout or its
-  archived queues. Game Plan PR #1450 is merged at `f6b65e7`; source and local
-  browser proof exist, and public `/game-plan` returns HTTP 200 with the Today
-  card, Start rehearsal, and Applications present; a clean
-  source reproof in this cycle passed the marquee/catalog, description-override,
-  language-switch, and run-on-example suites (56/56 focused tests). A clean
-  isolated clone also passes `npm ci` and `npm run typecheck`. The current
-  production audit still reports 5 high findings; the tested Next 16.3.0 /
-  ESLint 9 migration reduces that to 3 high but fails the existing async API
-  typecheck, `next lint`, and Turbopack build, so dependency remediation is an
-  owner-controlled migration predicate, not a merged security fix. Preserve
-  the existing owner lane for any remaining merge/deploy/runtime work.
+  archived queues. Public `main@9f82c3cf` has the bounded PostHog privacy fix,
+  signal-specific OTLP header precedence, independent error-log flushing, and
+  safe lockfile repair. The focused observability suites pass 66/66, the full
+  local smoke gate passes all 24 Jest batches with existing lint warnings,
+  typecheck and diff check pass, and `/api/health` plus `/game-plan` return HTTP
+  200. A fresh production audit reports 16 findings (3 high); non-forced
+  lockfile repair is a no-op, while the forced remediation and tested Next
+  16.3.0/ESLint 9 migration remain an owner-controlled breaking migration.
 - **Resplit 2.0:** the canonical authorities are
   `resplit-web/vidux/resplit-2.0-launch/PLAN.md` and `INBOX.md`, with the iOS
   plan's release evidence kept separate. The launch plan still carries
@@ -377,30 +372,21 @@ Code, or Cursor without taking custody of credentials or conversations.
   iOS and web checkouts are dirty and owner-bound. Do not revive historical
   worktree queues or start a build, upload, merge, or device mutation from this
   umbrella lane.
-- **Snowcubes/Moussey consignment:** clean Snowcubes `main@560ff497`
+- **Snowcubes/Moussey consignment:** current Snowcubes public `main@0372b0c` (latest source ref; the tracked agent-discovery readback is at `33f53d36a5a711349dca0d8671920492c52ca9c8`)
   audits `ok: true`; Zack is `$0.00`, Marathon is `$0.00`, Everyman is
   `$22.00`; old `$225.63`, `$342.04`, and `$57.75` amounts are fenced as
-  history and absent from current tracker outputs. The 5/21 Marathon row is
-  FREE/UNKNOWN, with no charge or payment row, and must not be reopened or
-  collected. The older Moussey consignment-hardening plan is reconciled to that
-  same decision is now present on current main; the older consignment-plan
-  branch is historical and is not a second merge target. Clean Moussey
-  `origin/main@3c44bbec` removes operator-page clutter and strips credentials
-  from user-facing URLs; it still carries the residual `any amount due` form
-  copy and `due` history label that the user rejected. The historical isolated
-  repair/UI branch `codex/moussey-dependency-audit-20260804@e6dd162` replaces
-  those with current-balance/recorded language and passes fresh focused tests,
-  surface proof, production-only audit, build, and diff checks; that bounded
-  result is now represented on current Moussey main through merged PR #121 at
-  `d7553fb`. Authenticated C11/runtime remains owner-controlled. The existing
-  `:4321` process still belongs to a dirty primary
-  checkout. The reachable Tailscale target serves `/consignment`
-  but its summary API reports that consignment data is not configured, so the
-  protected-401 then authenticated-summary-200 predicate (C11) remains open;
-  no restart or credential retrieval was attempted. Snowcubes C14 is now
-  satisfied by a read-only Messages receipt tying a 2026-07-25 drop to 10 packs
-  and a registered JPEG; the unavailable JPEG was not interpreted and no ledger
-  or Shopify write was made.
+  history and absent from current tracker outputs. The 2026-05-21 Marathon row
+  is FREE/UNKNOWN, with no charge or payment row, and must not be reopened or
+  collected. Current Moussey public `main@d7553fb` contains the repaired
+  current-balance/recorded language and credential-URL boundary; its
+  authenticated C11/runtime readback remains owner-controlled. The existing
+  `:4321` process belongs to a dirty primary checkout. The reachable Tailscale
+  target serves `/consignment` but its summary API reports that consignment data
+  is not configured, so the protected-401 then authenticated-summary-200
+  predicate (C11) remains open; no restart or credential retrieval was
+  attempted. Snowcubes C14 is satisfied by a read-only Messages receipt tying a
+  2026-07-25 drop to 10 packs and a registered JPEG; the unavailable JPEG was
+  not interpreted and no ledger or Shopify write was made.
 - **Snowcubes storefront:** `https://trysnowcubes.com/` returned HTTP 200; the
   public page did not expose the retired receivable figures or consignment-only
   billing/source language.
@@ -413,15 +399,17 @@ Code, or Cursor without taking custody of credentials or conversations.
   dry run found only 51 MiB of DerivedData and no meaningful safe reclaim. The
   cleaner build/browser/media ladder is therefore paused; no process, cache,
   source, or personal-media mutation was attempted.
-- **Security:** Snowcubes PR #1567 merged at `7fd0a06` and is included in
-  current public `main@560ff497`. The package-lock production audit reports 0
-  vulnerabilities, and the current source gitleaks/audit boundary remains
-  clean. The full agentic-discovery mismatch is separate: the live UCP POST
-  still returns `invalid_profile_url` while public capability docs advertise
-  cart/checkout/payment/order/fulfillment tools. This remains an existing
-  Shopify/Worker owner-deploy predicate, not a storefront workaround.
+- **Security:** Snowcubes PR #1567 merged at `7fd0a06` is included in the
+  current public lineage ending at `main@0372b0c`. The package-lock production
+  audit reports 0 vulnerabilities, and the current source gitleaks/audit
+  boundary remains clean. The latest tracked agent-discovery readback reports
+  the public UCP endpoint healthy and catalog-only, while public capability
+  docs and `/.well-known/ucp` still advertise unsupported
+  cart/checkout/payment/order/fulfillment capabilities and a mismatched
+  endpoint. This remains an existing Shopify/Worker owner-deploy predicate,
+  not a storefront workaround.
 - **Codex Security:** the official plugin workspace is open on clean Moussey
-  `origin/main@3c44bbec`; setup is valid but `setup.submitted=false`, so the
+  `main@d7553fb`; setup is valid but `setup.submitted=false`, so the
   app is still waiting for the user to press Start scan. The required wait was
   left without a scan ID or report; no plugin findings or remediation are
   claimed. The earlier official
