@@ -8,6 +8,11 @@ Pilot Puppy stores only bounded semantic receipts. It rejects or omits:
 - provider account, model, session, and billing data; and
 - arbitrary commands in public receipts.
 
+Native-host receipts also use a closed `tests` shape — each entry carries
+exactly `name` and a `status` of `pass` or `fail`, with a bound test-name
+length and the same secret/path checks before it is written under
+`.pilot-puppy/evidence/`.
+
 The browser is loopback-only. Evidence stays inside the Git project under
 `.pilot-puppy/evidence/`. There is no remote database, cloud executor,
 credential relay, watcher, daemon, or background dispatch process.

@@ -41,6 +41,21 @@ MAX_CAPTURE_BYTES = 64 * 1024
 MAX_RECEIPT_BYTES = 64 * 1024
 MAX_SUMMARY_CHARS = 280
 MAX_TEST_NAME_CHARS = 160
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# Known-private markers match anywhere: a mid-string `/Users/...` behind a
+# backtick or parenthesis is still a private path.
+PRIVATE_PATH_RE = re.compile(
+    r"(?:~/|/Users/|/home/|/private/var/|file:///|[A-Za-z]:[\\/]|\\\\)",
+    re.IGNORECASE,
+)
+ABSOLUTE_PATH_RE = re.compile(r"(?:^|[\s\"'=])/(?!/)[A-Za-z0-9._-]+(?:/[^\s\"']*)?")
+SECRET_SHAPE_RE = re.compile(
+    r"(?:sk-(?:ant-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
+    r"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._\-/+=]{20,}|"
+    r"-----BEGIN[ A-Z]*PRIVATE KEY-----)",
+    re.IGNORECASE,
+)
 
 
 class HostError(ValueError):
@@ -67,6 +82,16 @@ def identifier(value: Any, label: str) -> str:
     if not isinstance(value, str) or not ID_RE.fullmatch(value):
         raise HostError("identifier_invalid", f"{label} must match the public identifier pattern")
     return value
+
+
+def _scrub_detail(text: str) -> str:
+    """Redact private paths, secret shapes, and control characters from
+    adapter-written detail before it is persisted in a receipt."""
+
+    clean = CONTROL_RE.sub(" ", text)
+    clean = PRIVATE_PATH_RE.sub("<redacted-path>", clean)
+    clean = SECRET_SHAPE_RE.sub("<redacted-secret>", clean)
+    return clean
 
 
 def resolve_binary(host: str, explicit: str | None) -> str:
@@ -529,6 +554,10 @@ def _receipt_text(value: object, label: str, maximum: int, private_values: tuple
         raise HostError("host_receipt_invalid", f"host receipt {label} is invalid")
     if _private_selector_present(clean, private_values):
         raise HostError("host_receipt_private", "host receipt attempted to retain private selector data")
+    if PRIVATE_PATH_RE.search(clean) or ABSOLUTE_PATH_RE.search(clean):
+        raise HostError("host_receipt_invalid", f"host receipt {label} contains a private path")
+    if SECRET_SHAPE_RE.search(clean):
+        raise HostError("host_receipt_invalid", f"host receipt {label} contains a secret-shaped value")
     return clean
 
 
@@ -555,8 +584,17 @@ def validate_host_receipt(
             raise HostError("host_receipt_invalid", "host receipt changed path is invalid")
         if _private_selector_present(path, private_values):
             raise HostError("host_receipt_private", "host receipt attempted to retain private selector data")
+        if SECRET_SHAPE_RE.search(path):
+            raise HostError("host_receipt_invalid", "host receipt changed path contains a secret-shaped value")
         candidate = Path(path)
-        if candidate.is_absolute() or ".." in candidate.parts or not path_allowed(path, allowed):
+        if (
+            not path
+            or CONTROL_RE.search(path)
+            or re.match(r"^(?:[A-Za-z]:[\\/]|\\\\)", path)
+            or candidate.is_absolute()
+            or ".." in candidate.parts
+            or not path_allowed(path, allowed)
+        ):
             raise HostError("scope_violation", "host receipt reports a path outside the packet")
         safe_paths.append(path)
     tests = raw.get("tests")
@@ -829,7 +867,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             if status == "ok" and not host_receipt["proof_ref"]:
                 raise HostError("proof_missing", "host returned success without proof")
         except HostError as exc:
-            blocked_reason = {"kind": exc.kind, "detail": exc.detail}
+            blocked_reason = {"kind": exc.kind, "detail": _scrub_detail(exc.detail)}
             status = "blocked" if exc.kind not in {"host_failed", "host_launch_failed", "host_timeout"} else "failed"
         payload = {
             "schema": ATTEMPT_SCHEMA,
@@ -838,8 +876,9 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "task_id": task_id,
             "task_sha256": task_sha256,
             "status": status,
+            "summary": (host_receipt or {}).get("summary"),
             "proof_ref": (host_receipt or {}).get("proof_ref"),
-            "changed_paths": changed,
+            "changed_paths": [_scrub_detail(path) for path in changed],
             "tests": (host_receipt or {}).get("tests", []),
             "host_exit_code": result.get("returncode"),
             "timed_out": bool(result.get("timed_out")),

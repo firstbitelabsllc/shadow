@@ -14,6 +14,10 @@ the frozen task's SHA-256, not its prompt or provider output. If a route packet
 is provided, its task hash, roster revision/hash, and host must match before
 launch.
 
+Receipt summaries and test names are bounded public text. Unknown test fields,
+secret-shaped values, control characters, and absolute paths are rejected
+before the attempt is written.
+
 Pre-existing ignored files must be inside an allowed path or the bounded local
 evidence directory. This keeps ignored files inside the same scope audit.
 

@@ -234,6 +234,49 @@ class PilotPuppyHostTests(unittest.TestCase):
         self.assertIn("with status `blocked`", prompt)
         self.assertIn("`proof_ref`: null", prompt)
 
+    def test_receipt_rejects_private_paths_and_secret_shaped_text(self) -> None:
+        for field, value in (
+            ("summary", "completed " + chr(47) + "Users" + chr(47) + "exampleuser" + chr(47) + "private" + chr(47) + "project"),
+            ("test", "token=" + "gh" + "p_12345678901234567890"),
+        ):
+            with self.subTest(field=field):
+                raw = {
+                    "schema": pilot_puppy_host.HOST_RECEIPT_SCHEMA,
+                    "task_id": "audit-task",
+                    "status": "ok",
+                    "summary": "bounded task completed",
+                    "proof_ref": "audit-proof",
+                    "changed_paths": ["result.txt"],
+                    "tests": [{"name": "bounded test", "status": "pass"}],
+                }
+                if field == "summary":
+                    raw["summary"] = value
+                else:
+                    raw["tests"][0]["name"] = value
+                with self.assertRaises(pilot_puppy_host.HostError) as raised:
+                    pilot_puppy_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
+                self.assertEqual(raised.exception.kind, "host_receipt_invalid")
+
+    def test_receipt_rejects_unknown_test_fields_and_status(self) -> None:
+        base = {
+            "schema": pilot_puppy_host.HOST_RECEIPT_SCHEMA,
+            "task_id": "audit-task",
+            "status": "ok",
+            "summary": "bounded task completed",
+            "proof_ref": "audit-proof",
+            "changed_paths": ["result.txt"],
+            "tests": [{"name": "bounded test", "status": "pass"}],
+        }
+        for test in (
+            {"name": "bounded test", "status": "pass", "raw_output": "secret"},
+            {"name": "bounded test", "status": "unknown"},
+        ):
+            with self.subTest(test=test):
+                raw = {**base, "tests": [test]}
+                with self.assertRaises(pilot_puppy_host.HostError) as raised:
+                    pilot_puppy_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
+                self.assertEqual(raised.exception.kind, "host_receipt_invalid")
+
     def test_probe_is_projection_only_and_reports_available_host(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
