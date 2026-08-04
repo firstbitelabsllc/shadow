@@ -2252,3 +2252,24 @@ Code, or Cursor without taking custody of credentials or conversations.
   run lacked dependencies in the clean worktree; the rerun used the existing
   owner dependency installation without changing source. Authenticated browser
   and runtime deployment proof remain owner-controlled.
+- 2026-08-04T17:58:05Z: Reconciled the portfolio after the next reachable
+  product changes. StrongYes PR #1451 merged its private Coding Workbench
+  foundation as `main@3386dd3e`; the package gate was reproduced at 21/21 with
+  outside-app import and no public publish, and the canonical StrongYes plan
+  receipt was closed by PR #1473 at `main@323ab11a`. This is source/merge proof,
+  not a deploy or public-package release. Snowcubes advanced to
+  `main@b65992fe`; the fresh consignment/cafe gate remains 289/289, the
+  source-truth audit is `ok: true`, and Nicole's contract is 2/2. Zack is
+  `$0.00` open; the `$225.63`, `$342.04`, and fixture-only `$57.75` values remain
+  documented as non-receivables; Marathon's 2026-05-21 row remains explicit
+  FREE/UNKNOWN with no payment row; live discovery remains the previously
+  recorded external four-error owner/deploy predicate. Moussey advanced to
+  `main@c74c8c67` after PR #128; focused source/build/local-runtime proof is
+  green and the consignment share copy is plain-language, while protected
+  runtime/authenticated browser and official security-scan setup remain open.
+  Star67 public source is `main@a157caba` and its existing Vercel front door is
+  live/healthy; GitHub rename/homepage metadata and the staged README merge or
+  deployment remain admin/owner predicates. Resplit remains `main@77f1b483`
+  with its dirty owner checkout and native release/device predicates untouched.
+  These are product receipts and explicit resume predicates; Pilot Puppy
+  testing is not a portfolio completion gate.
