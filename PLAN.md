@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 162
-- Outcome Updated At: 2026-08-04T10:13:10Z
+- Outcome Revision: 163
+- Outcome Updated At: 2026-08-04T10:20:48Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current authority override
+
+- 2026-08-04T10:20:48Z: Fresh Moussey public `main@0725ce6346201f63be23f10e2b6a290351980210` readback passed `npm ci --ignore-scripts` with 0 vulnerabilities, the focused consignment/password-URL/proxy suite with 64 passed, 1 pre-existing skip, and 0 failures, `git diff --check`, and `npm run build`. A disposable built runtime on loopback returned HTTP 200 for `/chat`, `/voice`, `/consignment`, and `/cleaner` with no credential-bearing URL marker; this is source/build/local-runtime proof only and does not replace the protected owner C11 runtime readback. The fresh official Codex Security Standard scan for this exact current head is scan `5ac98fb9-e014-4ea9-b3fa-4ce9f61a96ef`; its preflight is intentionally preserved as running but incomplete because this session cannot establish usable delegated worker capacity. No finding count, report, production runtime, credential, customer, payment, or owner checkout claim is made. Resume the official scan only when the security preflight is ready, then complete its canonical report before treating it as proof.
 
 - 2026-08-04T10:13:10Z: Fresh Snowcubes public `main@1e44a70d` readback ran `python3 scripts/audit-consignment-source-truth.py --tracker outputs/consignment-tracker` with `ok: true`: 7 Bagels/Zack is `$0.00` open, Marathon is `$0.00` open, Everyman is `$22.00` open, and the 2026-05-21 Marathon row remains FREE with payment status UNKNOWN and no charge or payment row. The same clean head ran `node scripts/audit-agent-discovery-contract.mjs --json` against the live storefront: all probes returned HTTP 200 and catalog `tools/list` returned exactly `get_product`, `lookup_catalog`, and `search_catalog`, but the guard still reports four errors—unsupported cart/checkout claims in `/agents.md` and `/llms.txt`, unmatched cart/checkout/discount/fulfillment/order capabilities in `/.well-known/ucp`, and a Shopify-hosted endpoint mismatch. No source, Shopify, Worker, customer, payment, ledger, credential, or production-runtime mutation occurred; resume only after the external owner aligns the endpoint, profile, capabilities, and docs, then reruns the guard to zero findings.
 
