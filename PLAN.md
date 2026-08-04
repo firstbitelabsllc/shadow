@@ -19,8 +19,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67/Pivot SQL and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
 - Execution rule: "one bounded packet" describes only the size of a reviewable execution unit; it does not narrow the Outcome to one project, one fix, or one delivery. Keep every named lane in this same Outcome, fan out only across disjoint owned surfaces when useful, fold receipts back into this plan, and resume the next highest-value reachable lane after each packet. A finished packet advances the portfolio and never closes the Outcome by itself.
 - Next: Resume every lane from its canonical plan and current ref, without waiting on the other computer or native-Codex quota. Keep the Moussey C11 runtime, owner-admin, cleaner host-resource, and merge/deploy predicates open until each is proven.
-- Next Detail: Resume every named lane from its canonical plan and current ref without waiting on the other computer or native-Codex quota. Snowcubes' 2026-05-21 Marathon row remains FREE/UNKNOWN with no charge or payment row; C14 remains source-cited read-only Messages metadata with no ledger or Shopify write. Snowcubes current public main is `42bd188` after merged PR #1674; the storefront remains live, but POST `/api/ucp/mcp` currently returns HTTP 422 `invalid_profile_url`, while `agents.md`, `llms.txt`, and `/.well-known/ucp` advertise cart/checkout/payment/order capabilities not proven in the served contract. The existing agentic-discovery/Shopify/Worker owner must align one profile, endpoint, capability set, and tool list; this is an owner/deploy handoff, not a storefront workaround. Open PR #1537 remains based on older `f0685821c` and is not a merge candidate from this goal. Moussey PR #121 is merged at `d7553fb`; authenticated C11/runtime remains owner-controlled. The official Codex Security workspace `c3dd6b8f-8936-468d-8a8a-6e2d18d4b827` targets current Moussey `d7553fb` but still awaits setup/start; manual gitleaks found only intentional fixtures/docs and Star67's local-storage namespace, with no credential value printed or treated as AI-scan proof. Star67 security hardening is merged to `main@1dece78`; post-merge GitHub CI is green and Vercel deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` is READY at the public alias with the restrictive live headers, while owner-admin metadata remains unavailable. StrongYes `main@c02f052` is live with typecheck held by the reused host dependency tree; Resplit remains dirty and owner-bound with unresolved release/device gates. Keep owner-admin, authenticated-runtime, cleaner host-resource, official security scan, exact consumer/device, dependency-repair, agentic-discovery owner, Resplit device/runtime, and portability predicates explicit while reachable proof continues independently.
-- Current publication state (2026-08-04T04:15:12Z): Star67 PR #2 is merged at `b91e00b`; Moussey PR #121 is merged at `d7553fb`; Snowcubes public main is `42bd188` after PR #1674, with the earlier lockfile/readiness/privacy and agent-discovery receipts retained as historical lineage; StrongYes PR #1468 is merged at `c02f052`; Pilot Puppy PR #99, #123, and receipt PRs #115/#116/#117/#118/#119/#120 are merged. The public plan now carries revision 114; its own commit hash is intentionally not used as a persistent status field. Deployment, repository metadata, authenticated-runtime, official-security-scan, cleaner-resource, exact consumer/device, dependency-repair, agentic-discovery owner alignment, Snowcubes PR #1537 product-owner decision, and Resplit device/runtime predicates remain separate and open.
+- Next Detail: Resume every named lane from its canonical plan and current ref without waiting on the other computer or native-Codex quota. Snowcubes' 2026-05-21 Marathon row remains FREE/UNKNOWN with no charge or payment row; C14 remains source-cited read-only Messages metadata with no ledger or Shopify write. Snowcubes current public main is `560ff497` after subsequent docs merges and merged security PR #1567 (`7fd0a06`); the source audit is `ok: true` and the package-lock production audit is 0 vulnerabilities. The storefront remains live, but POST `/api/ucp/mcp` currently returns HTTP 422 `invalid_profile_url`, while `agents.md`, `llms.txt`, and `/.well-known/ucp` advertise cart/checkout/payment/order capabilities not proven in the served contract. The existing agentic-discovery/Shopify/Worker owner must align one profile, endpoint, capability set, and tool list; this is an owner/deploy handoff, not a storefront workaround. Open PR #1537 remains based on older `f0685821c` and is not a merge candidate from this goal. Moussey PR #121 is merged at `d7553fb`; authenticated C11/runtime remains owner-controlled. The official Codex Security workspace `c3dd6b8f-8936-468d-8a8a-6e2d18d4b827` targets current Moussey `d7553fb` but still awaits setup/start; manual gitleaks found only intentional fixtures/docs and Star67's local-storage namespace, with no credential value printed or treated as AI-scan proof. Star67 security hardening is merged to `main@1dece78`; post-merge GitHub CI is green and Vercel deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` is READY at the public alias with the restrictive live headers, while owner-admin metadata remains unavailable. StrongYes `main@c02f052` remains the source authority; a clean isolated clone proves `npm ci` and `npm run typecheck`, but current production audit is 20 findings (5 high, 0 critical). A tested Next 16.3.0/ESLint 9 migration reduces production findings to 18 (3 high, 0 critical) but fails the existing typecheck, `next lint`, and build contracts, so it is not a security-fix candidate without an owner-controlled framework migration. Resplit remains dirty and owner-bound with unresolved release/device gates. Keep owner-admin, authenticated-runtime, cleaner host-resource, official security scan, exact consumer/device, dependency-repair, agentic-discovery owner, Resplit device/runtime, and portability predicates explicit while reachable proof continues independently.
+- Current publication state (2026-08-04T05:09:39Z): Star67 PR #3 is merged at `1dece78`; Moussey PR #121 is merged at `d7553fb`; Snowcubes public main is `560ff497` with security PR #1567 merged at `7fd0a06`; StrongYes PR #1468 is merged at `c02f052`; Pilot Puppy PR #127 is merged at `4e3d866` and PR #128 carries the current portfolio receipt. Deployment, repository metadata, authenticated-runtime, official-security-scan, cleaner-resource, exact consumer/device, dependency-repair, agentic-discovery owner alignment, Snowcubes PR #1537 product-owner decision, and Resplit device/runtime predicates remain separate and open.
 - Decision ID: choose-reachable-portfolio-work
 - Decision: What deserves action next across the portfolio?
 - Option A ID: continue-reachable-lanes
@@ -33,8 +33,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Option C: Defer external gates
 - Option C Consequence: Park the GitHub admin rename, other-computer access, and Codex quota without blocking reachable product work.
 - Proof ID: portfolio-product-closeout-20260803
-- Proof: Star67 `main@1dece78` + full post-merge build/browser CI, production deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww`, and live security-header/branding readback; Snowcubes `main@42bd188` with the merged security/readiness lineage, 5/21 FREE/UNKNOWN source truth, current agent-discovery 422 readback, and live storefront proof; Moussey `main@d7553fb` + consignment/UI/security proof and live copy readback; StrongYes `main@c02f052` with PR #1468 focused Jest 5/5, lint exit 0, Prettier, diff-check proof, and live HTTP 200; Resplit canonical launch-plan gate readback; public Pilot Puppy plan revision 117 with PRs #99/#115/#116/#117/#118/#119/#120/#123/#125/#126; live readbacks.
-- Proof Detail: Star67's Vercel-first README and hosted/browser/CI proof remain green; the live URL returns HTTP 200 with Star67 branding, no stale product names, and the merged restrictive `Permissions-Policy`. Snowcubes main contains the exact-consumer readiness fix and redacted public receipts; source, user/global, and device evidence remain distinct, and the live storefront returns HTTP 200 without retired receivables or consignment jargon. Moussey's merged source fix is proven and the current source surface no longer exposes billing-model/data-source jargon, while authenticated runtime/C11 remains owner-controlled. StrongYes public `/game-plan` remains HTTP 200 with focused source proof, and browser-console recording is merged; typecheck remains an environment dependency gap because the reused host tree lacks the declared OpenTelemetry exporter. The public Pilot Puppy plan is revision 117; current-main manual gitleaks triage found only intentional secret-shaped fixtures/docs and the Star67 local-storage namespace, while the official Codex Security scan is correctly scoped to current Moussey `d7553fb` but still awaits setup/start; Resplit release/device gates remain open.
+- Proof: Star67 `main@1dece78` + full post-merge build/browser CI, production deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww`, and live security-header/branding readback; Snowcubes `main@560ff497` with source audit `ok: true`, production package-lock audit 0, merged security/readiness lineage, 5/21 FREE/UNKNOWN source truth, current agent-discovery 422 readback, and live storefront proof; Moussey `main@d7553fb` + consignment/UI/security proof and live copy readback; StrongYes `main@c02f052` with PR #1468 focused Jest 5/5, lint exit 0, Prettier, diff-check proof, and live HTTP 200; Resplit canonical launch-plan gate readback; public Pilot Puppy plan revision 117 with PRs #99/#115/#116/#117/#118/#119/#120/#123/#125/#126/#127/#128; live readbacks.
+- Proof Detail: Star67's Vercel-first README and hosted/browser/CI proof remain green; the live URL returns HTTP 200 with Star67 branding, no stale product names, and the merged restrictive `Permissions-Policy`. Snowcubes current main contains the exact-consumer readiness fix and merged lockfile security repair; `audit-consignment-source-truth.py` passes with Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and the 5/21 FREE/UNKNOWN row with no charge/payment row. The live storefront returns HTTP 200, while its UCP POST still fails discovery with `invalid_profile_url` and its public capability docs overstate the proven endpoint. Moussey's merged source fix is proven and the current source surface no longer exposes billing-model/data-source jargon, while authenticated runtime/C11 remains owner-controlled. StrongYes public `/game-plan` remains HTTP 200 with focused source proof, and browser-console recording is merged; clean-clone typecheck is now proven, while the current production dependency audit still has 5 high findings. The direct Next 16.3.0/ESLint 9 migration lowers that to 3 high but fails typecheck, `next lint`, and build, so no speculative framework/security change is merged. The public Pilot Puppy plan is revision 117; current-main manual gitleaks triage found only intentional secret-shaped fixtures/docs and the Star67 local-storage namespace, while the official Codex Security scan is correctly scoped to current Moussey `d7553fb` but still awaits setup/start; Resplit release/device gates remain open.
 - Proof Summary: Star67 and Moussey source/UI/security work are merged and proven at their stated boundaries; Snowcubes source/readiness/privacy work is merged and focused proof is green; Marathon 5/21 remains FREE/UNKNOWN; StrongYes is live; Resplit and external security/device/runtime gates remain open; the portfolio Outcome stays working.
 - Proof Summary Detail: Live and source proofs are kept separate. No owner-admin rename, authenticated-runtime, deployment, customer/admin, payment, ledger, Shopify, credential, or production-runtime mutation was claimed. The manual gitleaks scan did not print or validate any credential; its fixture matches are not a substitute for the official AI scan. Exact consumer/device proof, official security scan start, host-resource recovery, and Resplit release/device gates remain the explicit resume predicates.
 - Publication correction: Earlier proof-detail entries are retained as historical pre-merge receipts. Current publication is Star67 `main@1dece78` with production deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` and live alias readback, Moussey `main@d7553fb`, Snowcubes `main@42bd188` (current main after PR #1674, with the prior security/readiness/agent-discovery receipts retained), StrongYes `main@c02f052` (PR #1468 observability), and public Pilot Puppy plan revision 117 (PR #99 plus receipt PRs #115/#116/#117/#118/#119/#120/#123/#125/#126); the remaining open items are admin metadata, authenticated runtime, official security scan, exact consumer/device, host resources, StrongYes dependency repair, agentic-discovery owner alignment, open Snowcubes marketing decisions, and Resplit authority/device gates.
@@ -338,7 +338,12 @@ Code, or Cursor without taking custody of credentials or conversations.
   browser proof exist, and public `/game-plan` returns HTTP 200 with the Today
   card, Start rehearsal, and Applications present; a clean
   source reproof in this cycle passed the marquee/catalog, description-override,
-  language-switch, and run-on-example suites (56/56 focused tests). Preserve
+  language-switch, and run-on-example suites (56/56 focused tests). A clean
+  isolated clone also passes `npm ci` and `npm run typecheck`. The current
+  production audit still reports 5 high findings; the tested Next 16.3.0 /
+  ESLint 9 migration reduces that to 3 high but fails the existing async API
+  typecheck, `next lint`, and Turbopack build, so dependency remediation is an
+  owner-controlled migration predicate, not a merged security fix. Preserve
   the existing owner lane for any remaining merge/deploy/runtime work.
 - **Resplit 2.0:** the canonical authorities are
   `resplit-web/vidux/resplit-2.0-launch/PLAN.md` and `INBOX.md`, with the iOS
@@ -347,7 +352,7 @@ Code, or Cursor without taking custody of credentials or conversations.
   iOS and web checkouts are dirty and owner-bound. Do not revive historical
   worktree queues or start a build, upload, merge, or device mutation from this
   umbrella lane.
-- **Snowcubes/Moussey consignment:** clean Snowcubes `main@426938ab`
+- **Snowcubes/Moussey consignment:** clean Snowcubes `main@560ff497`
   audits `ok: true`; Zack is `$0.00`, Marathon is `$0.00`, Everyman is
   `$22.00`; old `$225.63`, `$342.04`, and `$57.75` amounts are fenced as
   history and absent from current tracker outputs. The 5/21 Marathon row is
@@ -381,12 +386,13 @@ Code, or Cursor without taking custody of credentials or conversations.
   dry run found only 51 MiB of DerivedData and no meaningful safe reclaim. The
   cleaner build/browser/media ladder is therefore paused; no process, cache,
   source, or personal-media mutation was attempted.
-- **Security:** Snowcubes PR #1567 is at `6f24d97` against current public
-  `main@426938ab`; it remains a lockfile-only repair. `git diff --check` passes
-  and the production-only lockfile audit reports 0 vulnerabilities. The full
-  audit shows only two low `esbuild` findings confined to the Shopify CLI
-  dev-chain; forcing the breaking Shopify CLI upgrade is not justified. PR
-  #1567 is OPEN/CLEAN/mergeable; no merge or deployment is claimed.
+- **Security:** Snowcubes PR #1567 merged at `7fd0a06` and is included in
+  current public `main@560ff497`. The package-lock production audit reports 0
+  vulnerabilities, and the current source gitleaks/audit boundary remains
+  clean. The full agentic-discovery mismatch is separate: the live UCP POST
+  still returns `invalid_profile_url` while public capability docs advertise
+  cart/checkout/payment/order/fulfillment tools. This remains an existing
+  Shopify/Worker owner-deploy predicate, not a storefront workaround.
 - **Codex Security:** the official plugin workspace is open on clean Moussey
   `origin/main@3c44bbec`; setup is valid but `setup.submitted=false`, so the
   app is still waiting for the user to press Start scan. The required wait was
@@ -1477,6 +1483,32 @@ Code, or Cursor without taking custody of credentials or conversations.
   command without copying the packet file or any private task content. It is
   packet readiness only; no target-host or native-host receipt is claimed.
 
+- 2026-08-04T05:09:39Z: Revalidated the next reachable Snowcubes lane after
+  the public repository advanced. Current public `main@560ff497` includes
+  merged security PR #1567 at `7fd0a06`; `npm audit --package-lock-only
+  --omit=dev` reports 0 vulnerabilities, and `audit-consignment-source-truth.py`
+  passes with Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and the
+  2026-05-21 Marathon row explicitly FREE/UNKNOWN with no charge or payment
+  row. The live POST `/api/ucp/mcp` still returns HTTP 422
+  `invalid_profile_url`, while `agents.md`, `llms.txt`, and `/.well-known/ucp`
+  advertise capabilities beyond that proven endpoint. This is now an explicit
+  Shopify/Worker/agentic-discovery owner-deploy predicate; no storefront,
+  Shopify, payment, ledger, or production-runtime mutation occurred.
+
+- 2026-08-04T05:05:18Z: Continued the umbrella outcome through the reachable
+  StrongYes security/dependency lane. In a fresh isolated clone of public
+  `main@c02f052`, `npm ci` and `npm run typecheck` passed; the current
+  production-only audit reports 20 findings (5 high, 0 critical). The safe
+  non-forced `npm audit fix --omit=dev` path was also tested in isolation but
+  leaves the direct Next finding. A complete Next 16.3.0 / ESLint 9 migration
+  install lowers production findings to 18 (3 high, 0 critical), but fails
+  the existing typecheck on async `headers()`/`cookies()` APIs, the existing
+  `next lint` script, and the Turbopack build on the dynamic `@strongyes/problems`
+  package path. No StrongYes source or lockfile was changed in the owner dirty
+  checkout; the migration is an explicit owner-controlled dependency predicate,
+  not a speculative security fix. The full portfolio outcome remains working
+  and moves to the next reachable lane.
+
 ## Deferred proof (not a global blocker)
 
 - The Star67 repository settings are owner-admin bound. GitHub reports
@@ -1494,12 +1526,13 @@ Code, or Cursor without taking custody of credentials or conversations.
   authenticated `/consignment` browser readback against `3c44bbec`; do not
   treat either the stale process or the isolated unauthenticated shell as
   current customer proof.
-- Snowcubes security repair PR #1567 is pushed at `6f24d97` against current
-  public main `426938ab`; the PR is OPEN/CLEAN/mergeable with Graphite
-  mergeability passing and policy scans skipped, and is not merged or
-  deployed. Resume with `npm ci`, high/production audit, and the focused gates
-  after the host resource gate recovers. Do not force the breaking Shopify CLI
-  upgrade just to claim zero total findings.
+- Snowcubes security repair PR #1567 merged at `7fd0a06` and is included in
+  current public main `560ff497`; the production package-lock audit is 0
+  vulnerabilities and the current source audit passes. The remaining resume
+  predicate is the live agentic-discovery owner alignment: POST
+  `/api/ucp/mcp` returns `invalid_profile_url` while the public capability
+  documents advertise cart/checkout/payment/order/fulfillment tools. Do not
+  patch the storefront to mask an existing Shopify/Worker owner-deploy issue.
 - Pilot Puppy portfolio PR #99 carries the latest docs-only portfolio receipt;
   read back its current CI, browser/docs, CodeQL, gitleaks, public-ready, and
   Graphite checks before the repository's external merge action. `[code]smith`
