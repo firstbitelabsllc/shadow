@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 144
-- Outcome Updated At: 2026-08-04T08:25:50Z
+- Outcome Revision: 145
+- Outcome Updated At: 2026-08-04T08:31:27Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67/Pivot SQL and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,20 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current portfolio readback
+
+- 2026-08-04T08:31:27Z: Closed the reachable Star67 public-name source slice.
+  PR #4 merged at public `main@6ebcb93` after both duplicate workflow runs
+  passed build plus Chromium, Firefox, and WebKit browser jobs. The merged
+  change replaces the remaining user-visible `Pivot` quality-audit label with
+  `Star67`; intentional internal `pivot.*` storage namespaces and historical
+  coaching terminology remain documented compatibility/history, not stale
+  product identity. The live front door `https://learn-sql-peach.vercel.app/`
+  still returns HTTP 200 with title `Star67 — practice SQL in a fictional data
+  company`, `X-Frame-Options: DENY`, restrictive `Permissions-Policy`, and
+  `Referrer-Policy: strict-origin-when-cross-origin`; this docs-only merge does
+  not claim a new Vercel deployment. GitHub repository rename, homepage, and
+  topic writes remain owner-admin gated (`admin=false`); no admin, customer,
+  credential, payment, or production-runtime mutation occurred.
 
 - 2026-08-04T08:25:50Z: Integrated a fresh read-only Resplit reconciliation from
   the canonical `RALPH.md` → `vidux/north-star/PLAN.md` authority. The attached
