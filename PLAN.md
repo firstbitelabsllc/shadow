@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 145
-- Outcome Updated At: 2026-08-04T08:31:27Z
+- Outcome Revision: 146
+- Outcome Updated At: 2026-08-04T08:37:34Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67/Pivot SQL and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,25 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current portfolio readback
+
+- 2026-08-04T08:37:34Z: Refreshed Snowcubes against current public
+  `main@f13e6db` (the prior `4eafc2c` reference is superseded). The clean
+  source audit `python3 scripts/audit-consignment-source-truth.py --tracker
+  outputs/consignment-tracker` returned `ok: true` with Zack `$0.00`, Marathon
+  `$0.00`, and Everyman `$22.00`; the canonical 2026-05-21 Marathon ledger row
+  remains `FREE`, payment status `UNKNOWN`, `No payment due`, with no charge or
+  payment row and `do not reopen or collect`. The current read-only
+  `npm run ai:discovery -- --json` at `2026-08-04T08:35:50Z` got HTTP 200 from
+  every configured probe and exactly the catalog tools `get_product`,
+  `lookup_catalog`, and `search_catalog`, but still fails exactly four errors:
+  live `/agents.md` and `/llms.txt` claim unsupported cart/checkout actions,
+  `/.well-known/ucp` advertises unmatched cart/checkout/discount/fulfillment/
+  order capabilities, and its Shopify-hosted MCP endpoint differs from the
+  configured `https://trysnowcubes.com/api/ucp/mcp`. The public docs/profile
+  are not tracked in this repository (only the internal `AGENTS.md` is), so
+  this remains an external Shopify/Worker/owner-deploy alignment predicate,
+  not a safe storefront workaround. No Shopify/Admin, payment, customer,
+  credential, or production-runtime mutation occurred.
 
 - 2026-08-04T08:31:27Z: Closed the reachable Star67 public-name source slice.
   PR #4 merged at public `main@6ebcb93` after both duplicate workflow runs
