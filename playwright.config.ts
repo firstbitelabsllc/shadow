@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 const PORT = process.env.PILOT_PUPPY_TEST_PORT ?? String(7400 + (process.pid % 1000));
 process.env.PILOT_PUPPY_TEST_PORT = PORT;
 const LIVE_ROOT = resolve('.pilot-puppy-test', `root-${PORT}-${process.pid}`);
+const PYTHON_LAUNCHER = resolve('scripts/pilot-puppy-python.sh');
+const BROWSER_SERVER = resolve('browser/server.py');
 process.env.PILOT_PUPPY_TEST_DEV_ROOT = LIVE_ROOT;
 mkdirSync(LIVE_ROOT, { recursive: true });
 
@@ -26,7 +28,7 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
   ],
   webServer: {
-    command: `python3 browser/server.py --no-open --root ${JSON.stringify(LIVE_ROOT)} --port ${PORT}`,
+    command: `PILOT_PUPPY_PYTHON_COMMAND=playwright ${JSON.stringify(PYTHON_LAUNCHER)} ${JSON.stringify(BROWSER_SERVER)} --no-open --root ${JSON.stringify(LIVE_ROOT)} --port ${PORT}`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 30_000,

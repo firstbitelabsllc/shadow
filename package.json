@@ -58,14 +58,14 @@
     "test:all": "npm run test:js && npm run test:py && npm run test:e2e",
     "test:js": "vitest run",
     "test:js:watch": "vitest",
-    "test:py": "\"${PILOT_PUPPY_PYTHON:-python3}\" -m unittest discover -s tests -p 'test_*.py'",
-    "public-ready:grep": "\"${PILOT_PUPPY_PYTHON:-python3}\" scripts/pilot-puppy-public-ready-grep-gate.py --tracked-only --metadata",
+    "test:py": "scripts/pilot-puppy-python.sh -m unittest discover -s tests -p 'test_*.py'",
+    "public-ready:grep": "scripts/pilot-puppy-python.sh scripts/pilot-puppy-public-ready-grep-gate.py --tracked-only --metadata",
     "verify": "npm test && npm run public-ready:grep",
     "prepublishOnly": "npm run verify && npm run release:verify",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "release:verify": "\"${PILOT_PUPPY_PYTHON:-python3}\" scripts/pilot-puppy-release-package.py",
-    "release:verify:dev": "\"${PILOT_PUPPY_PYTHON:-python3}\" scripts/pilot-puppy-release-package.py --allow-dirty",
+    "release:verify": "scripts/pilot-puppy-python.sh scripts/pilot-puppy-release-package.py",
+    "release:verify:dev": "scripts/pilot-puppy-python.sh scripts/pilot-puppy-release-package.py --allow-dirty",
     "playwright:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {

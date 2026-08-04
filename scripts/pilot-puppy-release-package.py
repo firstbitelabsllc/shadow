@@ -52,6 +52,7 @@ REQUIRED_FILES = {
     "scripts/pilot-puppy-init.py",
     "scripts/pilot-puppy-outcome-validate.py",
     "scripts/pilot-puppy-public-ready-grep-gate.py",
+    "scripts/pilot-puppy-python.sh",
     "scripts/pilot-puppy-release-package.py",
     "scripts/pilot-puppy-roster.py",
     "scripts/pilot-puppy-seat.py",

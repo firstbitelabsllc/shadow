@@ -13,6 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "pilot-puppy"
 BROWSE = ROOT / "bin" / "pilot-puppy-browse"
+PYTHON = ROOT / "scripts" / "pilot-puppy-python.sh"
 
 
 def run_cli(binary: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -37,6 +38,27 @@ class PythonResolutionTests(unittest.TestCase):
         result = run_cli(BROWSE, "--help", env={"PILOT_PUPPY_PYTHON": "/usr/bin/false"})
         self.assertEqual(result.returncode, 127)
         self.assertIn("is not a Python 3.10+ interpreter", result.stderr)
+
+    def test_shared_helper_honors_valid_override(self) -> None:
+        candidates = [
+            name
+            for name in ("python3.10", "python3.11", "python3.12", "python3.13", "python3.14")
+            if shutil.which(name)
+        ]
+        if sys.version_info < (3, 10) and not candidates:
+            self.skipTest("no Python 3.10+ interpreter is installed")
+        override = sys.executable if sys.version_info >= (3, 10) else shutil.which(max(candidates, key=lambda name: int(name.rsplit(".", 1)[1])))
+        assert override is not None
+        result = subprocess.run(
+            [str(PYTHON), "--print"],
+            cwd=ROOT,
+            env={**os.environ, "PILOT_PUPPY_PYTHON": override},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), override)
 
     def test_valid_override_is_honored(self) -> None:
         if sys.version_info < (3, 10):
@@ -117,3 +139,46 @@ class PythonResolutionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"schema": "pilot-puppy.status.v1"', result.stdout)
         self.assertTrue(used)
+
+    def test_npm_gate_uses_versioned_interpreter_when_bare_python3_is_low(self) -> None:
+        candidates = [
+            name
+            for name in ("python3.10", "python3.11", "python3.12", "python3.13", "python3.14")
+            if shutil.which(name)
+        ]
+        if not candidates:
+            self.skipTest("no versioned Python 3 interpreter is installed")
+        versioned = max(candidates, key=lambda name: int(name.rsplit(".", 1)[1]))
+        real_interpreter = Path(shutil.which(versioned) or versioned).resolve()
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            marker = root / "versioned-interpreter-used"
+            low = bin_dir / "python3"
+            low.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            low.chmod(0o755)
+            wrapper = bin_dir / versioned
+            wrapper.write_text(
+                "#!/bin/sh\n"
+                f"printf x >> {shlex.quote(str(marker))}\n"
+                f"exec {shlex.quote(str(real_interpreter))} \"$@\"\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+            env = {
+                "PATH": f"{bin_dir}{os.pathsep}{Path(real_interpreter).parent}{os.pathsep}{os.environ.get('PATH', '')}",
+                "PILOT_PUPPY_PYTHON": "",
+            }
+            result = subprocess.run(
+                ["npm", "run", "public-ready:grep"],
+                cwd=ROOT,
+                env={**os.environ, **env},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            used = marker.is_file()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(used)
+

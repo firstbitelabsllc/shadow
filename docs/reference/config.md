@@ -9,7 +9,8 @@ same defaults without another configuration file:
 | `PILOT_PUPPY_DEV_ROOT` | Default `status` and `browse` scan root. |
 | `PILOT_PUPPY_BROWSER_HOST` | Loopback bind host. |
 | `PILOT_PUPPY_BROWSER_PORT` | Browser port; default `7191`. |
-| `PILOT_PUPPY_PYTHON` | Optional Python 3.10+ interpreter override; resolved from PATH when unset. |
+| `PILOT_PUPPY_BROWSER_QUIET` | Set to `1` to suppress loopback request logs. |
+| `PILOT_PUPPY_PYTHON` | Optional Python 3.10+ interpreter override; the CLI, browser launcher, and npm gates resolve a compatible versioned interpreter from PATH when unset. |
 | `PILOT_PUPPY_CODEX_BIN` | Optional Codex executable override. |
 | `PILOT_PUPPY_CLAUDE_CODE_BIN` | Optional Claude Code executable override. |
 | `PILOT_PUPPY_CURSOR_BIN` | Optional Cursor executable override. |
