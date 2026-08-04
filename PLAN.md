@@ -2273,3 +2273,20 @@ Code, or Cursor without taking custody of credentials or conversations.
   with its dirty owner checkout and native release/device predicates untouched.
   These are product receipts and explicit resume predicates; Pilot Puppy
   testing is not a portfolio completion gate.
+- 2026-08-04T18:08:31Z: Star67 PR #6 merged to public `main@bc9808de`. The
+  README is now 12 lines, puts the hosted launch link first, keeps one truthful
+  non-developer description and one landing image, and removes all local
+  Node/clone/start instructions. `git diff --check` passed. The two GitHub
+  build jobs were still `IN_PROGRESS` when the README-only merge completed, so
+  CI is not claimed green; the existing Vercel front door independently returns
+  HTTP 200 with Star67 title and restrictive security headers. GitHub still
+  reports `admin=false`, so repository rename/homepage/topic metadata remains
+  owner-admin work. The merged README is source/merge proof, not proof that a
+  new Vercel deployment contains README text.
+- 2026-08-04T18:08:31Z: Rechecked current Moussey `main@c74c8c67` from a clean
+  detached worktree. The full route/privacy/consignment/auth slice passes
+  **52/52**: the proxy strips password/token-style query state across every
+  non-API app route, intentionally preserves only `/media` capability tokens,
+  and the merged consignment copy stays free of technical/billing/invoice-era
+  markers. This is source and unauthenticated local proof; protected runtime,
+  authenticated browser, and official Codex Security scan setup remain open.
