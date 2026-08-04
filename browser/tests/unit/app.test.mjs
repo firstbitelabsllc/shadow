@@ -20,6 +20,13 @@ describe('Pilot Puppy browser shell', () => {
     expect(app).not.toContain('WebSocket');
   });
 
+  it('names the chief-of-staff brief sections plainly', () => {
+    expect(app).toContain("text: 'Now'");
+    expect(app).toContain("row('Change', briefing.changed)");
+    expect(app).toContain("text: 'A/B/C decision'");
+    expect(app).toContain("briefing.proof ? 'Proof' : 'Proof not available yet'");
+  });
+
   it('keeps responsive and reduced-motion behavior', () => {
     expect(css).toContain('@media (max-width: 760px)');
     expect(css).toContain('@media (prefers-reduced-motion: no-preference)');

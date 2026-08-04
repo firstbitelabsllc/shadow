@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 206
-- Outcome Updated At: 2026-08-04T16:11:30Z
+- Outcome Revision: 207
+- Outcome Updated At: 2026-08-04T16:29:20Z
 - Outcome State: working
 - Outcome: Make Pilot Puppy the single local work front door for the active product portfolio: brief the work, route one transparent role/native host, drive one bounded packet, and preserve proof without taking custody of credentials or conversations.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -48,6 +48,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 <!-- Historical duplicate operator-detail receipts end here. -->
 
 ## Current authority override
+
+- 2026-08-04T16:29:20Z: Completion audit closed the last presentation mismatch. The loopback brief now labels Outcome, Now, Change, Proof, and A/B/C decision while keeping the existing provider-neutral data and local-choice contract. Proof: 4 JavaScript tests, 142 Python tests, docs build, public-ready scan (99 files/0 findings), and 6/6 desktop+phone loopback tests on system Chrome. No runtime, credential, transcript, or external mutation.
 
 - 2026-08-04T15:21:36Z: Canonical-plan audit confirms the umbrella remains active and separates the exact next moves: Star67 repository rename/homepage remains GitHub-admin work; Moussey MPCLEAN-246 remains owner-worktree/current-runtime work and PR #125 is not accepted without authenticated C11/LAN or equivalent provider-attributed CI proof; Snowcubes reconciliation B4 remains a Leo-gated exact theme deploy and its agentic-discovery guard remains a Shopify/Worker endpoint/profile/capability/docs alignment predicate; StrongYes has no active automation queue while Grafana/ACL/credential/dependency predicates remain external; Resplit's north-star launch/device/runtime/release rows remain owner/native-host work. At 790 MiB free with active native owners, no heavy lane is admitted. No owner or external mutation was claimed.
 - 2026-08-04T15:11:32Z: Fresh read-only portfolio readback confirms Star67 `main@6ebcb93` plus live Vercel HTTP 200/Star67 branding/restrictive headers with GitHub rename and homepage still owner-admin; Moussey `main@805c1a3` with open current-main PR #125 and no configured checks; Snowcubes `main@3b14a790` with PDP HTTP 200 and public UCP MCP HTTP 404 against the Shopify-hosted profile; StrongYes `main@7c990f69` with live health HTTP 200; Resplit Web `main@3c15e2e` with live health HTTP 200; and host capacity 885 MiB with active native owners. No protected checkout, customer, payment, Shopify, credential, deployment, or production mutation occurred.
@@ -863,6 +865,8 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-04T16:29:20Z: The chief-of-staff surface now names the required operator sequence directly: Outcome, Now, Change, Proof, and A/B/C decision. The existing local role/host, sealed packet, privacy, and lead-acceptance contracts are unchanged.
 
 - 2026-08-04T02:17:54Z: Revalidated the reachable Star67 public lane at branch
   `codex/star67-smoke-proof-20260804@5d6f005`. The Vercel front door returns
@@ -1891,6 +1895,8 @@ Code, or Cursor without taking custody of credentials or conversations.
   checkout; the migration is an explicit owner-controlled dependency predicate,
   not a speculative security fix. The full portfolio outcome remains working
   and moves to the next reachable lane.
+
+- 2026-08-04T16:29:20Z: The chief-of-staff surface now names the required operator sequence directly: Outcome, Now, Change, Proof, and A/B/C decision. The existing local role/host, sealed packet, privacy, and lead-acceptance contracts are unchanged.
 
 ## Deferred proof (not a global blocker)
 

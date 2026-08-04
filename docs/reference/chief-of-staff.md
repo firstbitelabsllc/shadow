@@ -1,12 +1,15 @@
 # Chief-of-staff briefing
 
-The briefing is a pure projection of one validated Outcome. It answers:
+The briefing is a pure projection of one validated Outcome. The loopback view
+puts the operator-facing sections in this order:
 
-- What changed?
-- Why does it matter?
-- What is blocked or needed?
-- What should happen next?
-- What proof exists?
+- **Outcome** — what the work is trying to achieve.
+- **Now** — the current move from the owning plan.
+- **Change** — the latest bounded progress.
+- **Proof** — one delivered proof reference, when one exists.
+- **A/B/C decision** — at most three explicit choices when the Outcome needs a
+  decision.
 
-It includes at most three choices and one proof reference. It contains no
-implementation transcript, provider identity, model choice, or machine path.
+The view may also include a short explanation of why the change matters and a
+recommendation. It contains no implementation transcript, provider identity,
+model choice, or machine path.

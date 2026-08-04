@@ -56,6 +56,7 @@ main:focus { outline: none; }
 .choice-letter { flex: 0 0 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
 .choice-copy strong, .choice-copy small { display: block; }
 .choice-copy small { margin-top: 3px; color: var(--muted); line-height: 1.4; }
+.choice-question { margin: -2px 0 14px; line-height: 1.5; }
 .choice-status { min-height: 1.4em; margin: 16px 0 0; color: var(--muted); font-size: .88rem; }
 .proof { margin-top: 0; margin-bottom: 0; padding: 24px clamp(24px, 5vw, 56px) 30px; border-top: 1px solid var(--line); }
 .proof summary { cursor: pointer; font-weight: 700; }

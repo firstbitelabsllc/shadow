@@ -79,6 +79,7 @@ function renderPlan(plan) {
   card.append(head);
   card.append(el('p', { className: 'eyebrow', text: 'Outcome' }));
   card.append(el('h2', { text: outcome.summary }));
+  card.append(el('p', { className: 'eyebrow', text: 'Now' }));
   card.append(el('p', { className: 'current', text: outcome.current_move }));
 
   const roleGuide = el('section', { className: 'role-guide' });
@@ -102,14 +103,15 @@ function renderPlan(plan) {
   card.append(roleGuide);
 
   const brief = el('dl', { className: 'brief' });
-  brief.append(row('What changed', briefing.changed));
+  brief.append(row('Change', briefing.changed));
   brief.append(row('Why it matters', briefing.matters));
   brief.append(row('Recommendation', briefing.recommendation));
   card.append(brief);
 
   if (briefing.choices.length) {
     const choices = el('section', { className: 'choices' });
-    choices.append(el('p', { className: 'eyebrow', text: briefing.blocker || 'Choose the next move' }));
+    choices.append(el('p', { className: 'eyebrow', text: 'A/B/C decision' }));
+    choices.append(el('p', { className: 'choice-question', text: briefing.blocker || 'Choose the next move' }));
     briefing.choices.forEach((option, index) => {
       const button = el('button', { className: 'choice', type: 'button' });
       button.append(el('span', { className: 'choice-letter', text: String.fromCharCode(65 + index) }));
@@ -126,7 +128,7 @@ function renderPlan(plan) {
   }
 
   const proof = el('details', { className: 'proof' });
-  proof.append(el('summary', { text: briefing.proof ? 'See proof' : 'No proof yet' }));
+  proof.append(el('summary', { text: briefing.proof ? 'Proof' : 'Proof not available yet' }));
   if (briefing.proof) {
     proof.append(el('p', { text: briefing.proof.verification_summary }));
     proof.append(el('code', { text: briefing.proof.locator }));
