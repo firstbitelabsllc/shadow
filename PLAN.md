@@ -12,13 +12,13 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 204
-- Outcome Updated At: 2026-08-04T16:03:30Z
+- Outcome Revision: 205
+- Outcome Updated At: 2026-08-04T16:08:44Z
 - Outcome State: working
 - Outcome: Make Pilot Puppy the single local work front door for the active product portfolio: brief the work, route one transparent role/native host, drive one bounded packet, and preserve proof without taking custody of credentials or conversations.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
 - Execution rule: "one bounded packet" describes only the size of a reviewable execution unit; it does not narrow the Outcome to one project, one fix, or one delivery. Keep every named lane in this same Outcome, fan out only across disjoint owned surfaces when useful, fold receipts back into this plan, and resume the next highest-value reachable lane after each packet. A finished packet advances the portfolio and never closes the Outcome by itself.
-- Next: Resume the highest-value reachable lane from each canonical plan without waiting on the other computer or native-Codex quota. Keep owner-admin, authenticated-runtime, cleaner host-resource, official-security, deployment, telemetry, device, and merge predicates open until their exact proof exists.
+- Next: Take the highest-value reachable local row from its canonical plan; preserve source/merge/deploy/live proof and leave owner, admin, runtime, and device predicates explicit.
 - Current Snapshot (fresh source/live/host readback at 2026-08-04T15:11:32Z): Star67 source `main@6ebcb93` and Vercel front door are HTTP 200 with Star67 branding and restrictive headers; GitHub still reports `pivot-sql`, `admin=false`, and no homepage, so rename/metadata is owner-admin work. Moussey source is `main@805c1a3`; PR #125 is current-main, open, clean/mergeable, and has no checks, so do not merge parse-only proof; authenticated C11/LAN runtime and official post-remediation security proof remain open. Snowcubes source is `main@3b14a790` after the latest search-label fix; the PDP is HTTP 200, but public `/api/ucp/mcp` is HTTP 404 while `/.well-known/ucp` points to Shopify-hosted MCP and expanded capabilities. The verified consignment truth remains Zack `$0.00` open with the `$123.75` order paid, Marathon 2026-05-21 `FREE/UNKNOWN` with no charge/payment row, and Everyman `$22.00` open. StrongYes source/live health is `7c990f69` / HTTP 200; Resplit Web source/live health is `3c15e2e` / HTTP 200. Host free space is 885 MiB with active native owners; no deletion or host-heavy build, emulator, archive/release, dependency installation, or whole-repository security scan is admitted yet.
 - Authority rule: use this snapshot and the newest `Current authority override` entry for resume decisions; older long-detail fields below are retained as historical receipts and are not current state.
 
@@ -234,6 +234,13 @@ Code, or Cursor without taking custody of credentials or conversations.
   second queue, router, transcript store, or status authority.
 
 ## Current portfolio readback
+
+- 2026-08-04T16:08:44Z: Re-read the merged public authority after PR #223.
+  The inherited `Next` field exceeded the 280-character chief-of-staff
+  contract, so it is now a concise local-row/proof predicate. The plan is
+  revision 205 and `pilot-puppy status` returns `contract_error: null`.
+  No product, provider, credential, execution, or external runtime behavior
+  changed.
 
 - 2026-08-04T16:03:30Z: Closed the P0 role-vocabulary gap in the local Pilot
   Puppy front door. Fresh rosters and route packets now use `planner`, `dev`,
