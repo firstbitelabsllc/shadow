@@ -12,14 +12,14 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 209
-- Outcome Updated At: 2026-08-04T19:52:48Z
+- Outcome Revision: 211
+- Outcome Updated At: 2026-08-04T20:04:12Z
 - Outcome State: working
 - Outcome: Finish reachable work across Snowcubes consignment, Moussey, Star67, StrongYes, Resplit, security, and handoffs; leave customer-facing surfaces clean, trustworthy, and usable. Use existing tools and owner-held surfaces. Pilot Puppy only records brief, proof, and resume state.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
 - Execution rule: "one bounded packet" describes only the size of a reviewable execution unit; it does not narrow the Outcome to one project, one fix, or one delivery. Keep every named lane in this same Outcome, fan out only across disjoint owned surfaces when useful, fold receipts back into this plan, and resume the next highest-value reachable lane after each packet. A finished packet advances the portfolio and never closes the Outcome by itself.
 - Next: Advance the highest-value product lane from its own plan. Pilot Puppy is only the shared brief/plan/proof layer, not the objective. Keep admin, runtime, host-resource, and merge/deploy gates explicit; do not wait on Pilot testing, quota, or the other computer.
-- Current Snapshot (fresh source/live/host readback at 2026-08-04T19:52:48Z): Star67 public `main@bc9808dc` and its Vercel front door are HTTP 200 with Star67 branding; GitHub still reports `nlau1193/pivot-sql`, `admin=false`, and no homepage, so rename/metadata remains owner-admin work. Moussey public `main@c74c8c67` is separate from cleaner `f355f2e7`, which carries merged PRs #129–#133; the protected host still serves the older dirty-checkout surface, so no deployment or restart is claimed. Snowcubes public `main@4fc1bd64` is a docs-only advance from the prior readback; the exact-head source audit is `ok: true`, with the 2026-05-21 Marathon row still FREE/UNKNOWN, `$0.00` open, and no charge/payment row. StrongYes public `main@e4b53680` contains PR #1475 and its production-only audit is 0 vulnerabilities. The official Codex Security workspace still awaits native Start with no scan report; Resplit and other owner/deploy/device/runtime gates remain open.
+- Current Snapshot (fresh source/live/host readback at 2026-08-04T20:04:12Z): Star67 public `main@bc9808dc` and its Vercel front door are HTTP 200 with Star67 branding and restrictive headers; GitHub still reports `nlau1193/pivot-sql`, `admin=false`, and no homepage, so rename/metadata remains owner-admin work. Moussey public `main@f65027a5` is a docs-only head on audited source `c74c8c67`; its production-only dependency audit is 0 vulnerabilities. The protected `com.leokwan.moussey-server` is still running the owner checkout's `.next/standalone`; `/consignment` returns HTTP 200 but the unauthenticated SSR metadata still says `invoice prep`, so this is not hydrated authenticated-runtime proof and no deployment or restart is claimed. Snowcubes public `main@238c21b` passes the exact-head consignment source audit: Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and the 2026-05-21 Marathon row remains FREE/UNKNOWN with no charge/payment row. Its live read-only discovery guard still fails on exactly four external contract mismatches: stale cart/checkout claims in `/agents.md` and `/llms.txt`, UCP capability drift, and the Shopify-hosted endpoint mismatch. StrongYes `/api/health` remains HTTP 200 on commit `e4b53680`; the official Codex Security workspace still awaits native Start with no report. Resplit and other owner/deploy/device/runtime gates remain open.
 - Authority rule: use this snapshot and the newest `Current authority override` entry for resume decisions; older long-detail fields below are retained as historical receipts and are not current state.
 
 <!-- Historical duplicate operator-detail receipts begin here. They remain in source for audit continuity but are hidden from the rendered brief; use the current snapshot and authority override above/below. -->
@@ -50,6 +50,37 @@ Code, or Cursor without taking custody of credentials or conversations.
 <!-- Historical duplicate operator-detail receipts end here. -->
 
 ## Current authority override
+
+- 2026-08-04T20:04:12Z: Protected Moussey runtime readback is still separate
+  from clean source proof. `launchctl` reports the running
+  `com.leokwan.moussey-server` using the owner checkout's `.next/standalone`
+  and the configured Snowcubes live tracker path. A read-only request to `/consignment`
+  returned HTTP 200, but its SSR metadata still contains the retired `invoice
+  prep` description and the body is only `Loading...`; no authenticated,
+  hydrated UI proof exists for the clean public head. The public source scan
+  contains no customer-facing `invoice prep` copy. Exact resume predicate:
+  owner-authorized rebuild/restart from public Moussey `main@f65027a5`, then
+  rerun authenticated consignment readback and the credential-query matrix.
+  No process, deployment, customer, payment, credential, or runtime state was
+  changed.
+
+- 2026-08-04T20:00:30Z: Fresh product-lane readback keeps the umbrella focused
+  on the actual products, not Pilot Puppy testing. Snowcubes public
+  `main@238c21b` was checked at the exact current public head: the consignment
+  source audit returned `ok: true`, with Zack `$0.00`, Marathon `$0.00`, and
+  Everyman `$22.00`; the 2026-05-21 Marathon row remains FREE/UNKNOWN with
+  no charge or payment row. The live discovery guard remains read-only/red on
+  exactly four Shopify/Worker contract mismatches: unsupported cart/checkout
+  claims in `/agents.md` and `/llms.txt`, UCP capability drift, and the
+  Shopify-hosted endpoint differing from `https://trysnowcubes.com/api/ucp/mcp`.
+  Moussey public `main@f65027a5` is a docs-only head on audited source
+  `c74c8c67`; its production-only dependency audit is 0 vulnerabilities, but
+  the protected runtime still needs the owner-controlled rebuild/restart. Star67
+  remains live at HTTP 200 with Star67 branding while the GitHub rename and
+  homepage remain `admin=false` owner work. StrongYes health remains HTTP 200
+  on `e4b53680`. No Pilot test, quota, customer, payment, Shopify, credential,
+  deployment, or production-runtime mutation was used or claimed. Resume with
+  reachable product work; keep those external predicates explicit.
 
 - 2026-08-04T19:52:48Z: Fresh readback of Snowcubes public `main@4fc1bd64`
   (docs-only handoff advance from `12b01ba`) reran
