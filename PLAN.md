@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 205
-- Outcome Updated At: 2026-08-04T16:08:44Z
+- Outcome Revision: 206
+- Outcome Updated At: 2026-08-04T16:11:30Z
 - Outcome State: working
 - Outcome: Make Pilot Puppy the single local work front door for the active product portfolio: brief the work, route one transparent role/native host, drive one bounded packet, and preserve proof without taking custody of credentials or conversations.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -235,6 +235,11 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Current portfolio readback
 
+- 2026-08-04T16:11:30Z: Reconciled the role-vocabulary receipt with current
+  public main after the inherited Python-resolution tests landed. The full
+  local suite is 3 JavaScript plus 142 Python tests; the prior 138 count was
+  stale bookkeeping only. No implementation or runtime behavior changed.
+
 - 2026-08-04T16:08:44Z: Re-read the merged public authority after PR #223.
   The inherited `Next` field exceeded the 280-character chief-of-staff
   contract, so it is now a concise local-row/proof predicate. The plan is
@@ -247,7 +252,7 @@ Code, or Cursor without taking custody of credentials or conversations.
   `debug`, `review`, `hard-dev`, and `lead`; existing local `bulk`,
   `critic`, and `hard-ic` files are accepted and normalized on read/write.
   The loopback guide, README, routing/roster references, and focused tests all
-  use the current names. Proof is 3 JavaScript tests, 138 Python tests,
+  use the current names. Proof is 3 JavaScript tests, 142 Python tests,
   6 loopback desktop/phone tests, docs build, public-ready scan (98 files),
   release package (63 files), and canonical doctor 11/11. No provider, model,
   credential, queue, daemon, or execution behavior changed. Next: keep these
