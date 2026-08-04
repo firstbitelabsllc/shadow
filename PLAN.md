@@ -12,14 +12,14 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 214
-- Outcome Updated At: 2026-08-04T20:28:03Z
+- Outcome Revision: 215
+- Outcome Updated At: 2026-08-04T20:39:20Z
 - Outcome State: working
 - Outcome: Finish reachable work across Snowcubes consignment, Moussey, Star67, StrongYes, Resplit, security, and handoffs; leave customer-facing surfaces clean, trustworthy, and usable. Use existing tools and owner-held surfaces. Pilot Puppy only records brief, proof, and resume state.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
 - Execution rule: "one bounded packet" describes only the size of a reviewable execution unit; it does not narrow the Outcome to one project, one fix, or one delivery. Keep every named lane in this same Outcome, fan out only across disjoint owned surfaces when useful, fold receipts back into this plan, and resume the next highest-value reachable lane after each packet. A finished packet advances the portfolio and never closes the Outcome by itself.
 - Next: Advance the highest-value product lane from its own plan. Pilot Puppy is only the shared brief/plan/proof layer, not the objective. Keep admin, runtime, host-resource, and merge/deploy gates explicit; do not wait on Pilot testing, quota, or the other computer.
-- Current Snapshot (fresh source/live/host readback at 2026-08-04T20:28:03Z): Star67 public `main@bc9808dc` and its Vercel front door are HTTP 200 with Star67 branding and restrictive headers; GitHub still reports `nlau1193/pivot-sql`, `admin=false`, and no homepage, so rename/metadata remains owner-admin work. Moussey public `main@4d8e7f07` includes merged PR #135: kill-switch `GET` is authenticated, absolute filesystem paths are absent from JSON responses, and browser-facing trigger SSE no longer exposes local machine or LAN peer metadata; focused proof is 36/36 and production build passes, with 0 production-only dependency vulnerabilities. The protected `com.leokwan.moussey-server` is still running the owner checkout's `.next/standalone`; `/consignment` returns HTTP 200 but the unauthenticated SSR metadata still says `invoice prep`, so this is not hydrated authenticated-runtime proof and no deployment or restart is claimed. Snowcubes public `main@c5672f6` now includes merged docs-only PR #1853 on source `ab1e23c2`; the exact-head consignment source audit passed with Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and the 2026-05-21 Marathon row FREE/UNKNOWN with no charge/payment row. Its read-only discovery guard was rerun at `2026-08-04T20:25:36Z`; every configured probe returned HTTP 200, the served catalog tools remain exactly `get_product`, `lookup_catalog`, and `search_catalog`, and the guard still fails on exactly four external contract mismatches: stale cart/checkout claims in `/agents.md` and `/llms.txt`, UCP capability drift, and the Shopify-hosted endpoint mismatch. StrongYes `/api/health` remains HTTP 200 on commit `e4b53680`; the official Codex Security workspace still awaits native Start with no report. Resplit and other owner/deploy/device/runtime gates remain open.
+- Current Snapshot (fresh source/live/host readback at 2026-08-04T20:39:20Z): Star67 public `main@bc9808dc` and its Vercel front door are HTTP 200 with Star67 branding and restrictive headers; GitHub still reports `nlau1193/pivot-sql`, `admin=false`, and no homepage, so rename/metadata remains owner-admin work. Moussey public `main@4d8e7f07` includes merged PR #135: kill-switch `GET` is authenticated, absolute filesystem paths are absent from JSON responses, and browser-facing trigger SSE no longer exposes local machine or LAN peer metadata; focused proof is 36/36 and production build passes, with 0 production-only dependency vulnerabilities. The protected `com.leokwan.moussey-server` is still running the owner checkout's `.next/standalone`; `/consignment` returns HTTP 200 but the unauthenticated SSR metadata still says `invoice prep`, so this is not hydrated authenticated-runtime proof and no deployment or restart is claimed. Snowcubes public `main@0397a455` includes merged PR #1856, which refreshes the existing Supabase ACL hardening against current main: publishable-role execution is closed on the security-definer email functions, trigger-only direct execution is revoked, and hosted-only legacy `abandoned_carts` access is removed conditionally. Source proof is migration contract 36/36, migration/apply contract tests 69/69, and email-security Jest 9/9; no local or hosted DB apply is claimed because the local attempt stopped before migration execution on a containerd PostgREST image-blob I/O error, and hosted apply remains the normal owner/release-path gate. The exact-head consignment source audit remains green with Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and the 2026-05-21 Marathon row FREE/UNKNOWN with no charge/payment row. Its read-only discovery guard was rerun at `2026-08-04T20:25:36Z`; every configured probe returned HTTP 200, the served catalog tools remain exactly `get_product`, `lookup_catalog`, and `search_catalog`, and the guard still fails on exactly four external contract mismatches: stale cart/checkout claims in `/agents.md` and `/llms.txt`, UCP capability drift, and the Shopify-hosted endpoint mismatch. StrongYes `/api/health` remains HTTP 200 on commit `e4b53680`; the official Codex Security workspace still awaits native Start with no report. Resplit and other owner/deploy/device/runtime gates remain open.
 - Authority rule: use this snapshot and the newest `Current authority override` entry for resume decisions; older long-detail fields below are retained as historical receipts and are not current state.
 
 <!-- Historical duplicate operator-detail receipts begin here. They remain in source for audit continuity but are hidden from the rendered brief; use the current snapshot and authority override above/below. -->
@@ -50,6 +50,22 @@ Code, or Cursor without taking custody of credentials or conversations.
 <!-- Historical duplicate operator-detail receipts end here. -->
 
 ## Current authority override
+
+- 2026-08-04T20:39:20Z: Snowcubes PR #1856 merged at public
+  `main@0397a45565d3c766f13fee7d7071c157f63b331f`. This refreshes the existing
+  security-definer ACL migration against current main: `anon` and
+  `authenticated` no longer execute the sensitive email functions, the
+  trigger-only function is not directly executable, and the hosted-only legacy
+  `abandoned_carts` hardening is conditional so clean local resets remain
+  valid. Source proof passed the migration contract `36/36`, migration/apply
+  contract tests `69/69`, focused email-security Jest `9/9`, and
+  `git diff --check`. The local apply attempt failed before migration execution
+  on a containerd PostgREST image-blob I/O error; no hosted Supabase apply,
+  secret mutation, deploy, customer/email action, Shopify mutation, or
+  production data mutation occurred. Resume only through the normal owner
+  Supabase release path, then rerun security-advisor/readback and
+  service-role-vs-publishable ACL proof. This is a Snowcubes source/merge
+  security receipt, not Pilot Puppy testing.
 
 - 2026-08-04T20:28:03Z: Fresh Snowcubes readback supersedes the older
   `main@238c21b` snapshot. Public `main@ab1e23c2` passes
