@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 151
-- Outcome Updated At: 2026-08-04T09:16:34Z
+- Outcome Revision: 152
+- Outcome Updated At: 2026-08-04T09:26:49Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -77,8 +77,23 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Resplit public source remains `main@b1609e3`. Build 5469 Developer Release,
   exact-build device/runtime/Sentry proof, web authority-waiting rows, and
   Android A8/A9/API37/16-KB proof remain owner-controlled. Host capacity was
-  only 1.9 GiB free at this readback, so no Gradle, emulator, Xcode, cleanup,
-  or release work was started.
+  only 16 GiB free at this readback, still below the Android 40-GiB admission
+  predicate, so no Gradle, emulator, Xcode, cleanup, or release work was
+  started.
+- 2026-08-04T09:26:49Z: Refreshed the live portfolio against current public
+  heads. Star67 remains `6ebcb93`, Moussey `0725ce6`, StrongYes `9f82c3cf`,
+  and Resplit `b1609e3`; Snowcubes advanced to `b7da637` through a marketing
+  docs-only commit, with no agent-discovery contract fix. The Snowcubes source
+  authority still records Zack `$0.00`, Marathon `$0.00` FREE/UNKNOWN with no
+  charge/payment row, and Everyman `$22.00`; live UCP `tools/list` still returns
+  `invalid_profile_url` with zero tools and a Shopify `continue_url`. The
+  StrongYes live health and game-plan remain HTTP 200 at `9f82c3cf`; a
+  read-only Postgres catalog attempt reached the recorded project host but
+  failed password authentication before executing a query, so production ACL
+  state and migration presence remain unproven. Host capacity improved to 16
+  GiB but remains below the Android gate. This readback changed no product,
+  owner checkout, process, customer, payment, Shopify/Admin, credential,
+  device, release, or production-runtime state.
 - Six read-only portfolio sidecars completed without edits. Their receipts
   were integrated here, then the agents were closed; this does not create a
   second queue, router, transcript store, or status authority.
