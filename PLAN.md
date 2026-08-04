@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 194
-- Outcome Updated At: 2026-08-04T14:25:02Z
+- Outcome Revision: 195
+- Outcome Updated At: 2026-08-04T14:28:37Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current authority override
+
+- 2026-08-04T14:28:37Z: Resplit Web public `/api/health` returned HTTP 200 with no-store behavior and reports production release `3c15e2e`, the deployed head for merged PR #1414. This closes source-to-merge-to-live for the bounded observability routing slice. No deliberate exception, dashboard mutation, or live Grafana/Sentry Error Tracking readback is claimed. Exact next predicate: use an existing real error or an owner-authorized controlled error path, then read back the corresponding Error Tracking event; do not invent a dashboard or mutate production merely to manufacture proof.
 
 - 2026-08-04T14:25:02Z: Resplit Web PR #1414 merged at public `main@3c15e2eeab6bc189a12351907bb70d1dbfb2cc26` after Graphite AI review, mergeability, [code]smith, and the focused Cursor Vitest scout passed. The source slice routes Grafana traces through Sentry's provider, scopes synthesized Grafana credentials to the configured Grafana origin, honors signal-specific OTLP headers, and bounds error-path flushes. The public root and `/api/health` both returned HTTP 200, but health still reported production release `d116c53` (the pre-merge deployment) at `2026-08-04T14:25:02Z`; no post-merge deploy, induced exception, dashboard mutation, or live Grafana/Sentry readback is claimed. Exact next predicate: normal Vercel deployment advances health to `3c15e2e`, then a deliberate or observed error produces a fresh Error Tracking readback.
 
