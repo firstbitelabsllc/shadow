@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 192
-- Outcome Updated At: 2026-08-04T14:12:01Z
+- Outcome Revision: 193
+- Outcome Updated At: 2026-08-04T14:20:17Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,12 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current authority override
+
+- 2026-08-04T14:20:17Z: Snowcubes PR #1537 merged at public `main@59b4d0ab92e64358f621ed2748202b0595ceaeb7`. The source/evidence lane records the confirmed Pineapple Coconut almond correction, scoped allergen claims, and a guarded PDP Contains/cross-contact component; the branch receipt reported 207 Jest suites / 1,670 tests and Theme Check 0 errors, but no lead reproduction or Shopify theme push is claimed. Fresh live readback returned HTTP 200 for the Pineapple Coconut PDP and Snowcubes Box, and both rendered the almond ingredient text; the new allergen block is source-only. The live UCP/agent-discovery four-error mismatch remains an external Shopify/Worker owner-deploy predicate. No new Shopify, customer, payment, credential, or production-runtime mutation was performed in the merge.
+
+- 2026-08-04T14:19:57Z: Resplit iOS PR #2157 merged at public `main@1cf24eeb83cd1685f21b7b13cad654f3322d5aa8` after the one-line A9 ledger timestamp correction passed Graphite AI review, mergeability, and [code]smith; PR #2097's one-line deleted-alias routing correction and PR #2159's docs-only folder-hitch investigation are also merged on the same current main. These are handoff/source receipts only: no iOS build, device, archive, upload, or release proof is claimed. The folder-hitch investigation keeps the exact measurement-gated cache predicate open.
+
+- 2026-08-04T14:15:00Z: Resplit Web PR #1414 remains open and mergeable but its focused Cursor Vitest scout is still pending after Graphite AI review, mergeability, and [code]smith passed. The change routes Grafana traces through Sentry's provider, scopes synthesized Grafana credentials to the configured Grafana origin, honors signal-specific OTLP headers, and bounds error-path flushes. No merge, deploy, induced exception, dashboard mutation, or live Grafana/Sentry readback is claimed until the pending focused check completes.
 
 - 2026-08-04T14:12:01Z: Pilot Puppy PR #208 merged at public `main@8fb9eb3e72499fd773e6581a4de2f2eb39bb5ce0` after browser/docs, Python 3.10/3.12/3.14, CodeQL, gitleaks, public-ready, and mergeability checks passed. The receipt records the already-merged Resplit Web PR #1417 observability slice and keeps its normal deploy, induced/observed exception, and fresh PostHog Error Tracking readback as the exact next proof; no deployment, dashboard mutation, customer data, credential, or production-runtime mutation occurred. The umbrella remains working across all named product lanes; this merge closes a receipt, not the outcome.
 
