@@ -770,7 +770,10 @@ Code, or Cursor without taking custody of credentials or conversations.
 - The browser reads the same Outcome and renders one status brief plus one
   A/B/C choice. It does not run a cloud executor or store chat transcripts.
 - No aliases, hidden products, daemon, scheduler,
-  watcher, credential relay, remote database, or background dispatch loop.
+  watcher, credential relay, remote authority, or background dispatch loop.
+  An explicitly configured, metadata-only observation export may run only
+  after local evidence is written; it is never read back or used to control
+  Pilot Puppy.
 - Pilot Puppy coordinates other repositories but does not absorb their plans,
   private data, source files, or proof ledgers into its own runtime.
 
@@ -994,6 +997,13 @@ Code, or Cursor without taking custody of credentials or conversations.
   and `lead`. Existing local `bulk`, `critic`, and `hard-ic` labels remain
   readable as compatibility aliases, but normalized roster views, route packets,
   docs, and the loopback guide emit only the current names.
+- [completed] R10: Build foreground Supervised Drive for one project: read
+  its current `PLAN.md`, prepare up to three path-disjoint sealed lanes, and
+  wait for one explicit local launch before reusing native host runs, local
+  proof, and one explicit lead-reproduced local merge. Add optional, off-by-default,
+  metadata-only Langfuse observation after local truth exists; it may never
+  receive task, plan, code, prompt, path, provider, or credential data, and it
+  may never route, launch, retry, accept, or alter a local result.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -1019,6 +1029,53 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-04T22:29:33Z: R10 now closes the local work loop without becoming an
+  autonomous delivery system. After a real disposable native-Codex Drive task
+  produced a green kept review commit, an explicit acceptance action created a
+  separate clean lead checkout, reran the named proof, and made one local
+  acceptance commit. The resulting diff contained only the declared file;
+  source and review checkouts stayed clean. Full Python (163), JavaScript (4),
+  desktop/phone browser (6), docs, public-readiness, and development-package
+  gates pass. No remote branch, pull request, deployment, publication, or
+  external message was created. The browser now calls this final step **Bring
+  checked work into this project** and keeps it an explicit foreground action.
+
+- 2026-08-04T22:16:03Z: Real local dogfood now proves the foreground path,
+  not just a fake adapter: a disposable, one-file Drive task selected native
+  Codex from the local roster, wrote a green kept review-branch commit, and
+  left its source checkout clean. A separate detached lead checkout reproduced
+  the named check and `git diff --check`; the only tracked change was the
+  declared one file. This is local execution and lead reproduction evidence
+  only—no remote branch, pull request, merge, deployment, publication, or
+  customer project was touched. R10's next smallest gap is an explicit,
+  lead-reviewed handoff from that kept branch into ordinary delivery, without
+  adding automatic GitHub or deployment behavior.
+
+- 2026-08-04T22:14:00Z: Pushed the reviewed R10 implementation as public
+  branch `codex/pilot-puppy-drive-langfuse-20260804` at `7ce87de5` from its
+  isolated worktree. No pull request, merge, release, or deploy was created.
+
+- 2026-08-04T22:10:23Z: R10 now has a foreground Drive Packet and both CLI
+  and loopback-browser flow: it previews only short work summaries, prepares
+  no more than three separate local handoffs, and starts them only after a
+  distinct **Start ready work** action. The browser never receives task text,
+  paths, commands, provider details, or credentials; optional Langfuse export
+  remains off by default and metadata-only after local evidence. Full Python,
+  JavaScript, desktop/phone browser, docs, public-ready, and development
+  package checks are green. The intentional current stop is a kept local
+  review branch after scope and named-check success—no push, PR, merge,
+  deployment, publish, retry, or remote control has been added. Next: dogfood
+  one harmless real native-host Drive task, reproduce its review branch, then
+  decide the smallest lead-reviewed merge handoff from evidence rather than
+  inventing an autonomous delivery system.
+
+- 2026-08-04T21:36:37Z: Started R10 from fresh public
+  `main@10b35604` in an isolated worktree. The first slice adds an optional
+  Langfuse lifecycle seam with a closed metadata allowlist and no control-path
+  readback; route and host observation occur only after their local evidence
+  file is durably written. Supervised Drive remains the next implementation
+  slice, not a new queue, daemon, or second plan.
 
 - 2026-08-04T16:29:20Z: The chief-of-staff surface now names the required operator sequence directly: Outcome, Now, Change, Proof, and A/B/C decision. The existing local role/host, sealed packet, privacy, and lead-acceptance contracts are unchanged.
 

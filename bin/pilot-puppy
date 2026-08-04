@@ -28,6 +28,7 @@ commands:
   roster [args]     Create, show, or locally prefer a generic work-role roster
   seat [args]       Configure one private selector for an already-declared native slot
   route [args]      Explain one local role and native-host choice without launching it
+  drive [args]      Prepare or explicitly start a small local work batch
   host [args]       Probe or run one sealed task through a native coding host
   doctor            Install/readiness doctor for local CLI setup
   help [<cmd>]      Show this help, or help for a specific subcommand
@@ -111,8 +112,8 @@ usage: pilot-puppy roster init [--file PATH] [--json]
        pilot-puppy roster show [--file PATH] [--json]
        pilot-puppy roster prefer --role ROLE --host codex|claude-code|cursor|manual [--file PATH] [--json]
 
-Creates or reads a local roster with these roles: lead, planner, bulk, debug,
-critic, and hard-ic. It is a local setup and display tool only. It does not
+Creates or reads a local roster with these roles: lead, planner, dev, debug,
+review, and hard-dev. It is a local setup and display tool only. It does not
 choose a provider or model, inspect accounts or quota, start a host, dispatch
 work, or write project evidence.
 
@@ -153,12 +154,36 @@ usage: pilot-puppy route --repo PATH --task-id ID --task-file PATH \\
   [--host codex|claude-code|cursor|manual] [--roster-file PATH] \\
   [--availability probe|assume] [--out .pilot-puppy/evidence/route.json] [--json]
 
-The task kind maps to one generic role: plan→planner, hard-dev→hard-ic,
-dev→bulk, debug→debug, review→critic, and lead→lead. Pilot Puppy prints the
+The task kind maps to one generic role: plan→planner, hard-dev→hard-dev,
+dev→dev, debug→debug, review→review, and lead→lead. Pilot Puppy prints the
 selected native-host surface, same-role alternatives, and escalation point. It
 does not start a host, inspect account/authentication/quota data, retry, queue,
 or silently substitute a host. A written route packet can be passed explicitly
 to pilot-puppy host run with --route-file for fail-closed binding.
+EOF
+      ;;
+    drive)
+      cat <<EOF
+pilot-puppy drive — prepare and explicitly start a small local work batch.
+
+usage: pilot-puppy drive prepare --repo PATH [--plan PLAN.md] [--roster-file PATH] [--availability probe|assume] [--json]
+       pilot-puppy drive launch --repo PATH --session SESSION [--plan PLAN.md] [--roster-file PATH] [--timeout-seconds N] [--json]
+       pilot-puppy drive accept --repo PATH --session SESSION [--plan PLAN.md] [--timeout-seconds N] [--json]
+
+Drive Packets live in the project's existing PLAN.md. prepare reads that plan,
+chooses up to three ready pieces of work only when their allowed paths and
+chosen native hosts do not overlap, and writes bounded local preparation files.
+It starts nothing.
+
+launch is the explicit foreground action. It rechecks the frozen plan and Git
+revision, creates one clean worktree per prepared lane, runs the chosen native
+host, rechecks scope, runs the plan's named local check, and commits a green
+change on its kept review branch.
+
+accept is a separate explicit local action for a fully checked session. It
+reproduces each named check in a separate clean lead checkout, then creates one
+local Git merge commit in this project. It does not push, open a PR, deploy,
+publish, spend money, delete a worktree, or silently retry/reroute.
 EOF
       ;;
     host)
@@ -295,6 +320,10 @@ main() {
     route)
       require_python3 "route"
       exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-route.py" "$@"
+      ;;
+    drive)
+      require_python3 "drive"
+      exec "${PILOT_PUPPY_PYTHON}" "${PILOT_PUPPY_ROOT}/scripts/pilot-puppy-drive.py" "$@"
       ;;
     host)
       require_python3 "host"

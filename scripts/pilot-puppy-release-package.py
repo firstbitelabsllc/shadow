@@ -48,6 +48,7 @@ REQUIRED_FILES = {
     "schemas/roster.v1.json",
     "scripts/pilot-puppy-checkpoint.py",
     "scripts/pilot-puppy-doctor.py",
+    "scripts/pilot-puppy-drive.py",
     "scripts/pilot-puppy-host.py",
     "scripts/pilot-puppy-init.py",
     "scripts/pilot-puppy-outcome-validate.py",
@@ -62,6 +63,8 @@ REQUIRED_FILES = {
     "scripts/pilot_puppy_seat_lib.py",
     "scripts/pilot_puppy_route_lib.py",
     "scripts/pilot_puppy_task_lib.py",
+    "scripts/pilot_puppy_drive_lib.py",
+    "scripts/pilot_puppy_telemetry.py",
 }
 FORBIDDEN_ROOTS = {
     ".git",

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0 — 2026-08-04
+
+- Supervised Drive prepares up to three separate local coding lanes from the
+  existing project plan and starts them only when the person explicitly asks.
+- A fully green Drive session can now be independently rechecked in a clean
+  copy and brought into the local project with one explicit Git merge.
+- Optional Langfuse lifecycle observation remains off by default, sends only
+  closed metadata after local evidence exists, and cannot alter local work.
+
 ## 2.1.0 — 2026-08-03
 
 - Local generic roster for `lead`, `planner`, `bulk`, `debug`, `critic`, and

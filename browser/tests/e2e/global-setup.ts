@@ -46,6 +46,25 @@ export default async function globalSetup() {
 ## Progress
 
 - 2026-08-03: The bounded implementation is ready for a decision.
+
+<!-- pilot-puppy-drive.v1
+{
+  "schema": "pilot-puppy.drive.v1",
+  "revision": 1,
+  "lanes": [
+    {
+      "id": "improve-copy",
+      "state": "ready",
+      "task_kind": "dev",
+      "summary": "Make the release note easier to understand.",
+      "task": "Clarify the release note and keep the focused check green.",
+      "allowed_paths": ["PLAN.md"],
+      "proof": ["python3", "-m", "unittest", "tests.test_browser"],
+      "merge": "manual"
+    }
+  ]
+}
+-->
 `, 'utf8');
   execFileSync('git', ['init', '-q'], { cwd: boundedRoot });
   execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: boundedRoot });

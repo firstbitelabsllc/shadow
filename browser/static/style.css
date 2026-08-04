@@ -45,6 +45,16 @@ main:focus { outline: none; }
 .role-guide-item dt { color: var(--muted); font-size: .8rem; font-weight: 650; line-height: 1.35; }
 .role-guide-item dd { margin: 5px 0 0; color: var(--accent); font-weight: 800; }
 .role-guide-note { margin: 16px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
+.ready-work { margin-top: 0; margin-bottom: 42px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: color-mix(in srgb, var(--warm-soft) 36%, var(--surface)); }
+.ready-work .eyebrow { margin-bottom: 8px; }
+.ready-work h3 { margin: 0; font-size: 1.25rem; letter-spacing: -.025em; }
+.ready-work > p:not(.eyebrow):not(.work-status):not(.work-note) { margin: 10px 0 0; color: var(--muted); line-height: 1.5; }
+.ready-list { margin: 16px 0; padding-left: 1.3rem; }
+.ready-list li { margin: 7px 0; line-height: 1.45; }
+.work-button { border: 0; border-radius: 999px; padding: 11px 17px; background: var(--accent); color: white; font-weight: 750; cursor: pointer; }
+.work-button:hover { filter: brightness(.94); }
+.work-button:disabled { opacity: .58; cursor: default; }
+.work-status, .work-note { min-height: 1.4em; margin: 14px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
 .brief { margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--line); }
 .brief-row { display: grid; grid-template-columns: 150px 1fr; gap: 22px; padding: 22px 0; border-bottom: 1px solid var(--line); }
 .brief dt { color: var(--muted); font-size: .82rem; font-weight: 700; }

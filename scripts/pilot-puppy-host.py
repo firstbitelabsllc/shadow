@@ -29,6 +29,7 @@ from pilot_puppy_roster_lib import RosterError, load_roster, route_roster_sha256
 from pilot_puppy_route_lib import ROUTE_SCHEMA, RoutePacketError, load_route_packet, route_sha256
 from pilot_puppy_seat_lib import SeatError, load_seat_overlay, selector_for_route
 from pilot_puppy_task_lib import TaskError, frozen_task_sha256
+import pilot_puppy_telemetry as telemetry
 
 
 PROBE_SCHEMA = "pilot-puppy.host-probe.v1"
@@ -410,6 +411,18 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
     process.wait()
 
 
+def _close_pipes(process: subprocess.Popen[bytes]) -> None:
+    """Close parent-owned pipes after the drain threads have finished."""
+
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
 def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int) -> dict[str, Any]:
     started = time.monotonic()
     try:
@@ -439,6 +452,7 @@ def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int)
         _stop(process)
         for thread in threads:
             thread.join(timeout=2)
+        _close_pipes(process)
         return {"returncode": process.returncode, "timed_out": False, "launch_error": "host stdin failed", "duration_s": round(time.monotonic() - started, 3), "stdout": bytes(stdout_state["tail"]), "stderr": bytes(stderr_state["tail"])}
     timed_out = False
     try:
@@ -448,6 +462,7 @@ def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int)
         _stop(process)
     for thread in threads:
         thread.join(timeout=2)
+    _close_pipes(process)
     return {
         "returncode": process.returncode,
         "timed_out": timed_out,
@@ -894,6 +909,8 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         if route is not None:
             payload["route"] = route.public
     write_json("-" if destination is None else str(destination), payload, force=args.force)
+    if destination is not None:
+        telemetry.record_host(payload, allowed_path_count=len(allowed))
     return payload, 0 if status == "ok" else 1
 
 

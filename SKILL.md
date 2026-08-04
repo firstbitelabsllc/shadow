@@ -55,6 +55,40 @@ Review the diff and reproduce important tests before accepting the result.
 Do not put credentials, prompts, transcripts, private paths, or provider output
 in a task receipt.
 
+## Drive a small batch
+
+When a single project has up to three clearly separate, ready pieces of work,
+put one typed Drive Packet in that same project's `PLAN.md`. Start with:
+
+```bash
+pilot-puppy drive prepare --repo <exact-clean-worktree>
+```
+
+Preparation picks only path-disjoint work with distinct already-declared native
+hosts and starts nothing. It writes a frozen local session. Start work only
+with the explicit foreground action:
+
+```bash
+pilot-puppy drive launch --repo <exact-clean-worktree> --session <session-id>
+```
+
+Launch rechecks the plan and Git revision, creates isolated worktrees, invokes
+the sealed native-host contract, reruns the plan's local proof command, and
+commits green results to kept review branches. It does not push, open a PR,
+deploy, publish, spend, delete worktrees, retry, or silently choose a different
+host. Treat failed lanes as a clear next move, not a reason to stop unrelated
+reachable work.
+
+If every lane is green, the lead may take one separate explicit local step:
+
+```bash
+pilot-puppy drive accept --repo <exact-clean-worktree> --session <session-id>
+```
+
+Acceptance reruns each named proof in a separate clean lead checkout, then
+creates one local Git merge commit in that project. It does not push, open a
+pull request, deploy, publish, spend, delete, or contact another computer.
+
 ## Brief the person
 
 Lead with:
@@ -72,7 +106,8 @@ loopback projection of the same plan; Markdown remains authority.
 
 Pilot Puppy owns one product identity, one `PLAN.md` authority, and one bounded
 project-local evidence path. Native Codex, Claude Code, and Cursor own model
-authentication and execution. A foreground, explainable role router is allowed;
-do not add an autonomous router, daemon, scheduler, cloud executor, credential
-relay, transcript store, or parallel status database. Thermo and Ponytail remain
-separate review disciplines rather than runtime roles.
+authentication and execution. A foreground, explainable router and explicitly
+started Drive session are allowed; do not add an autonomous router, daemon,
+scheduler, cloud executor, credential relay, transcript store, or parallel
+status database. Thermo and Ponytail remain separate review disciplines rather
+than runtime roles.

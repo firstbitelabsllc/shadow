@@ -38,6 +38,7 @@ from pilot_puppy_route_lib import (  # type: ignore[import-not-found]
     validate_route_packet,
 )
 from pilot_puppy_task_lib import TaskError, frozen_task_sha256  # type: ignore[import-not-found]
+import pilot_puppy_telemetry as telemetry  # type: ignore[import-not-found]
 
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
@@ -365,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
         destination = output_path(repo, args.out)
         if destination is not None:
             write_exclusive(destination, document)
+            telemetry.record_route(document)
         if args.json:
             print(json.dumps(document, indent=2, sort_keys=True))
         else:

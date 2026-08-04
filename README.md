@@ -120,6 +120,69 @@ The worktree must be clean. A successful host must return passing tests and a
 bounded receipt; Pilot Puppy still marks that claim unreviewed until the lead
 reproduces the proof.
 
+## Drive a few separate pieces of work
+
+When one project has a few clearly separate changes, keep their short task
+instructions in the same `PLAN.md` as one Drive Packet. This is still one plan
+and one foreground session—not a background queue.
+
+```markdown
+<!-- pilot-puppy-drive.v1
+{
+  "schema": "pilot-puppy.drive.v1",
+  "revision": 1,
+  "lanes": [
+    {
+      "id": "improve-welcome-copy",
+      "state": "ready",
+      "task_kind": "dev",
+      "summary": "Make one short explanation easier to understand.",
+      "task": "Improve one short explanation and keep the focused check green.",
+      "allowed_paths": ["README.md", "tests/test_route.py"],
+      "proof": ["npm", "test"],
+      "merge": "manual"
+    }
+  ]
+}
+-->
+```
+
+First, prepare the work. This only explains and freezes the safe handoffs; it
+does not start a coding tool.
+
+```bash
+pilot-puppy drive prepare --repo "$PWD"
+```
+
+Then explicitly start that exact prepared session:
+
+```bash
+pilot-puppy drive launch --repo "$PWD" --session SESSION_ID
+```
+
+Drive rechecks the unchanged plan and Git revision, gives each lane its own
+clean worktree and branch, uses the selected native host, checks the change and
+the plan's named test command, then commits a green result for review. It
+prepares at most three lanes, never overlaps allowed paths or a native host,
+and keeps every worktree/branch rather than deleting it. If every piece is
+green, you can take one separate local acceptance step:
+
+```bash
+pilot-puppy drive accept --repo "$PWD" --session SESSION_ID
+```
+
+Acceptance repeats each named check in a separate clean lead checkout, then
+creates one local Git merge commit in the source project. Drive never pushes,
+opens a PR, deploys, publishes, spends money, or silently retries a failed
+lane.
+
+The loopback browser shows this as **Ready work**. It can prepare the work,
+then offers a separate **Start ready work** button. When every piece passes, it
+offers **Bring checked work into this project**; that repeats the check in a
+separate clean copy before making the local merge. Neither page load nor
+preparation starts a coding tool, and the browser never shows the task text,
+file list, test command, provider, or credentials.
+
 ## Privacy boundary
 
 - Local by default; the browser binds to loopback.
@@ -135,6 +198,10 @@ reproduces the proof.
   browser or status output, plans, route packets, host attempts, or packages.
 - Pilot Puppy does not relay credentials, run a cloud worker, watch in the
   background, or maintain a second queue.
+- Optional Langfuse observation is off by default and can only send a closed,
+  metadata-only lifecycle record after local evidence exists. It cannot steer
+  work or receive plan/task text, prompts, code, paths, commands, or provider
+  data. See the [privacy contract](docs/reference/privacy.md).
 
 ## Honest limitations
 
@@ -145,6 +212,9 @@ reproduces the proof.
   selector.
 - Route never launches work, silently swaps a host, retries, or owns a queue.
   The lead still chooses whether to run the selected host and accepts proof.
+- Drive is a foreground local batch helper, not a GitHub or deployment robot:
+  it commits only to kept review branches and leaves remote delivery and final
+  acceptance with the lead.
 - Host availability and authentication remain owned by Codex, Claude Code, or
   Cursor.
 - A receipt is evidence to review, not automatic acceptance.

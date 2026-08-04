@@ -1,4 +1,4 @@
-const state = { plans: [], selected: null };
+const state = { plans: [], selected: null, drives: {} };
 const projects = document.getElementById('projects');
 const main = document.getElementById('main');
 const refresh = document.getElementById('refresh');
@@ -40,7 +40,7 @@ function row(label, value) {
 
 async function choose(plan, option) {
   const status = document.getElementById('choice-status');
-  status.textContent = 'Saving your choice locally…';
+  status.textContent = 'Saving your choice on this computer…';
   const response = await fetch('/api/decision', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -48,8 +48,109 @@ async function choose(plan, option) {
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Choice could not be saved.');
-  status.textContent = 'Choice received locally. Your coding host still needs to apply it.';
+  status.textContent = 'Choice saved. Nothing starts until you ask.';
   document.querySelectorAll('.choice').forEach((button) => { button.disabled = true; });
+}
+
+async function drive(plan, action, session) {
+  const endpoint = {
+    prepare: '/api/drive/prepare',
+    launch: '/api/drive/launch',
+    accept: '/api/drive/accept',
+  }[action];
+  const body = action === 'prepare' ? { plan: plan.path } : { plan: plan.path, session };
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.drive) throw new Error(data.error || 'Pilot Puppy could not update this work.');
+  return data.drive;
+}
+
+function workButton(label, listener) {
+  const button = el('button', { className: 'work-button', type: 'button', text: label });
+  button.addEventListener('click', listener);
+  return button;
+}
+
+function renderReadyWork(plan) {
+  const details = plan.drive;
+  if (!details) return null;
+  const work = el('section', { className: 'ready-work' });
+  if (details.state === 'needs_attention') {
+    work.append(el('p', { className: 'eyebrow', text: 'Ready work' }));
+    work.append(el('h3', { text: 'This work list needs a quick tidy-up first.' }));
+    work.append(el('p', { text: 'Pilot Puppy will not start anything until the plan is clear and safe.' }));
+    return work;
+  }
+  if (details.state === 'nothing_ready') {
+    work.append(el('p', { className: 'eyebrow', text: 'Ready work' }));
+    work.append(el('h3', { text: 'Nothing is ready to start yet.' }));
+    work.append(el('p', { text: 'When a plan has clear, separate pieces of work, they will appear here.' }));
+    return work;
+  }
+  const remembered = state.drives[plan.id];
+  if (remembered?.state === 'accepted') {
+    work.append(el('p', { className: 'eyebrow', text: 'Work update' }));
+    work.append(el('h3', { text: 'The checked work is in this project.' }));
+    work.append(el('p', { text: `Finished and checked: ${remembered.finished_count}.` }));
+    work.append(el('p', { className: 'work-note', text: 'Pilot Puppy checked it again in a separate clean copy, then added it here. Nothing was sent anywhere.' }));
+    return work;
+  }
+  if (remembered?.state === 'finished') {
+    work.append(el('p', { className: 'eyebrow', text: 'Work update' }));
+    const allFinished = remembered.finished_count === remembered.work_count;
+    work.append(el('h3', { text: allFinished ? 'Your checked work is ready.' : 'Some work needs your attention.' }));
+    work.append(el('p', { text: `Finished and checked: ${remembered.finished_count}. Needs your attention: ${remembered.needs_attention_count}.` }));
+    work.append(el('p', { className: 'work-note', text: allFinished ? 'Nothing has been added to this project yet. Nothing was sent anywhere.' : 'The finished changes are kept safely aside. Nothing was added to this project or sent anywhere.' }));
+    if (allFinished) {
+      const status = el('p', { className: 'work-status', text: 'Pilot Puppy will check this work again before adding it here.' });
+      const button = workButton('Bring checked work into this project', async () => {
+        button.disabled = true;
+        status.textContent = 'Checking the work one more time, then adding it here…';
+        try {
+          state.drives[plan.id] = await drive(plan, 'accept', remembered.session);
+          render();
+        } catch (error) {
+          status.textContent = error.message;
+          button.disabled = false;
+        }
+      });
+      work.append(button, status);
+    }
+    return work;
+  }
+  work.append(el('p', { className: 'eyebrow', text: remembered ? 'Ready to start' : 'Ready work' }));
+  work.append(el('h3', { text: remembered ? 'These pieces are ready to go.' : 'Here is work Pilot Puppy can prepare.' }));
+  work.append(el('p', {
+    text: remembered
+      ? 'Starting is a one-time, foreground action. Pilot Puppy uses the coding tools already on this computer.'
+      : 'Pilot Puppy can set up up to three separate pieces at a time. It will not start a coding tool until you say so.',
+  }));
+  const list = el('ul', { className: 'ready-list' });
+  details.lanes.filter((lane) => lane.state === 'ready').forEach((lane) => list.append(el('li', { text: lane.summary })));
+  work.append(list);
+  const status = el('p', {
+    className: 'work-status',
+    text: remembered ? 'Nothing has started until you press Start ready work.' : 'Nothing has started.',
+  });
+  const action = remembered ? 'launch' : 'prepare';
+  const label = remembered ? 'Start ready work' : 'Prepare ready work';
+  const button = workButton(label, async () => {
+    button.disabled = true;
+    status.textContent = action === 'prepare' ? 'Getting this work ready on this computer…' : 'Starting this work now…';
+    try {
+      state.drives[plan.id] = await drive(plan, action, remembered?.session);
+      render();
+    } catch (error) {
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+  work.append(button, status);
+  return work;
 }
 
 function renderPlan(plan) {
@@ -83,24 +184,27 @@ function renderPlan(plan) {
   card.append(el('p', { className: 'current', text: outcome.current_move }));
 
   const roleGuide = el('section', { className: 'role-guide' });
-  roleGuide.append(el('p', { className: 'eyebrow', text: 'Choose the work shape' }));
+  roleGuide.append(el('p', { className: 'eyebrow', text: 'How Pilot Puppy can help' }));
   const roles = el('dl', { className: 'role-guide-list' });
   [
-    ['Ambiguous decision', 'planner'],
-    ['Ordinary bounded change', 'dev'],
-    ['Reproducible failure', 'debug'],
-    ['Difficult, proof-heavy build', 'hard-dev'],
-  ].forEach(([work, role]) => {
+    ['Think it through', 'When the next move is still unclear.'],
+    ['Make a small change', 'For one clear improvement.'],
+    ['Fix something broken', 'When you can point to what went wrong.'],
+    ['Take on a hard build', 'When the work needs extra care and checking.'],
+  ].forEach(([work, explanation]) => {
     const item = el('div', { className: 'role-guide-item' });
-    item.append(el('dt', { text: work }), el('dd', { text: role }));
+    item.append(el('dt', { text: work }), el('dd', { text: explanation }));
     roles.append(item);
   });
   roleGuide.append(roles);
   roleGuide.append(el('p', {
     className: 'role-guide-note',
-    text: 'Run pilot-puppy route explicitly when the task is ready. It launches nothing.',
+    text: 'Pilot Puppy picks from the coding tools already on this computer. It never starts one without your say-so.',
   }));
   card.append(roleGuide);
+
+  const readyWork = renderReadyWork(plan);
+  if (readyWork) card.append(readyWork);
 
   const brief = el('dl', { className: 'brief' });
   brief.append(row('Change', briefing.changed));
@@ -110,7 +214,7 @@ function renderPlan(plan) {
 
   if (briefing.choices.length) {
     const choices = el('section', { className: 'choices' });
-    choices.append(el('p', { className: 'eyebrow', text: 'A/B/C decision' }));
+    choices.append(el('p', { className: 'eyebrow', text: 'Choose what happens next' }));
     choices.append(el('p', { className: 'choice-question', text: briefing.blocker || 'Choose the next move' }));
     briefing.choices.forEach((option, index) => {
       const button = el('button', { className: 'choice', type: 'button' });
@@ -123,7 +227,7 @@ function renderPlan(plan) {
       });
       choices.append(button);
     });
-    choices.append(el('p', { id: 'choice-status', className: 'choice-status', text: 'Nothing is sent until you choose.' }));
+    choices.append(el('p', { id: 'choice-status', className: 'choice-status', text: 'Nothing changes until you choose.' }));
     card.append(choices);
   }
 
