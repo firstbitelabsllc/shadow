@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 143
-- Outcome Updated At: 2026-08-04T07:43:34Z
+- Outcome Revision: 144
+- Outcome Updated At: 2026-08-04T08:25:50Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67/Pivot SQL and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,24 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current portfolio readback
+
+- 2026-08-04T08:25:50Z: Integrated a fresh read-only Resplit reconciliation from
+  the canonical `RALPH.md` → `vidux/north-star/PLAN.md` authority. The attached
+  owner checkout is `main@8d2f7879`, 732 commits behind public
+  `origin/main@b1609e3`, with 40 dirty/conflicted entries and therefore is not
+  candidate proof. Public source includes the explicit-zero harness at
+  `fa86c5bb`; the latest release readback is `GREEN-WITH-STALE` with 11 green,
+  0 red, 4 stale, submitted build `5469`, `F0=READY_FOR_DISTRIBUTION`, public
+  TestFlight HTTP 200, and 108 assets across 9 locales. Exact-build 5469
+  device/runtime, settlement, CloudKit, Contacts, Photos, and Sentry
+  correlation are still unproven; `simctl` is unavailable in the current
+  developer path. Android source/JVM proof exists at `af8a5cba`, but API37,
+  16-KB, signing, AAB, and Play proof remain open; the host currently has
+  `0.3 GiB` free and the safety doctor still reports repository-policy
+  version-catalog drift. Highest-value next move: the release owner performs
+  the separate Developer Release action for exact build 5469, then reads back
+  the resulting state. No release, device, disk, checkout, or production
+  mutation occurred in this reconciliation.
 
 - 2026-08-04T08:08:00Z: Reproved the consignment source and operator surface against the actual public refs. Snowcubes `origin/main@b150da5` `python3 scripts/audit-consignment-source-truth.py --tracker outputs/consignment-tracker` returned `ok: true` with Zack `$0.00`, Marathon `$0.00`, Everyman `$22.00`, and no source-audit failures. The canonical 2026-05-21 Marathon row is `Sold Pack Total=0.00`, `Paid=0.00`, `Still Open=0.00`, `Status=No payment due`, with an internal note explicitly recording `FREE`, payment status `UNKNOWN`, no charge/payment row, and `do not reopen or collect`. In an isolated Moussey `main@d7553fb` production runtime wired to a clean Snowcubes `b150da5` checkout, authenticated `/consignment` rendered all three cafe cards with Zack `$0.00`, Everyman `$22.00`, and Marathon `$0.00`; the authenticated API returned `authority.ok=true`, `gitSha=b150da5`, `gitDirty=false`, and the exact 5/21 free/unknown row. The surface had no billing-model, data-source, tracker, invoice-prep, or password copy, no failed requests, no console errors, and no horizontal overflow. This is source and isolated-runtime proof only; the owner-controlled Moussey C11 runtime remains a separate deployment predicate. No payment, customer, Shopify/Admin, or dirty owner-worktree mutation occurred.
 
