@@ -18,7 +18,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Outcome: Make Pilot Puppy the single local work front door for the active product portfolio: brief the work, route one transparent role/native host, drive one bounded packet, and preserve proof without taking custody of credentials or conversations.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
 - Execution rule: "one bounded packet" describes only the size of a reviewable execution unit; it does not narrow the Outcome to one project, one fix, or one delivery. Keep every named lane in this same Outcome, fan out only across disjoint owned surfaces when useful, fold receipts back into this plan, and resume the next highest-value reachable lane after each packet. A finished packet advances the portfolio and never closes the Outcome by itself.
-- Next: Take the highest-value reachable local row from its canonical plan; preserve source/merge/deploy/live proof and leave owner, admin, runtime, and device predicates explicit.
+- Next: Advance the highest-value product lane from its own plan. Pilot Puppy is only the shared brief/plan/proof layer, not the objective. Keep admin, runtime, host-resource, and merge/deploy gates explicit; do not wait on Pilot testing, quota, or the other computer.
 - Current Snapshot (fresh source/live/host readback at 2026-08-04T15:11:32Z): Star67 source `main@6ebcb93` and Vercel front door are HTTP 200 with Star67 branding and restrictive headers; GitHub still reports `pivot-sql`, `admin=false`, and no homepage, so rename/metadata is owner-admin work. Moussey source is `main@805c1a3`; PR #125 is current-main, open, clean/mergeable, and has no checks, so do not merge parse-only proof; authenticated C11/LAN runtime and official post-remediation security proof remain open. Snowcubes source is `main@3b14a790` after the latest search-label fix; the PDP is HTTP 200, but public `/api/ucp/mcp` is HTTP 404 while `/.well-known/ucp` points to Shopify-hosted MCP and expanded capabilities. The verified consignment truth remains Zack `$0.00` open with the `$123.75` order paid, Marathon 2026-05-21 `FREE/UNKNOWN` with no charge/payment row, and Everyman `$22.00` open. StrongYes source/live health is `7c990f69` / HTTP 200; Resplit Web source/live health is `3c15e2e` / HTTP 200. Host free space is 885 MiB with active native owners; no deletion or host-heavy build, emulator, archive/release, dependency installation, or whole-repository security scan is admitted yet.
 - Authority rule: use this snapshot and the newest `Current authority override` entry for resume decisions; older long-detail fields below are retained as historical receipts and are not current state.
 
@@ -51,6 +51,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 - 2026-08-04T16:29:20Z: Completion audit closed the last presentation mismatch. The loopback brief now labels Outcome, Now, Change, Proof, and A/B/C decision while keeping the existing provider-neutral data and local-choice contract. Proof: 4 JavaScript tests, 142 Python tests, docs build, public-ready scan (99 files/0 findings), and 6/6 desktop+phone loopback tests on system Chrome. No runtime, credential, transcript, or external mutation.
 
+- 2026-08-04T16:18:25Z: Fresh product-lane readback from the portfolio receipt lane. Star67 PR #5 is open at `0c0f013` and its branch owner has restored Node/clone/`./start` copy to the README; do not force-push over that newer work or open a duplicate PR. GitHub rename/homepage/topics remain owner-admin gated. Snowcubes public main read back as `e159bea` on this lane and Moussey as `40a487c`; reconcile both against the `3b14a790` / `805c1a3` entries below before treating either ref as current. The Snowcubes head is docs-only and its consignment source still proves the 2026-05-21 Marathon row as FREE/UNKNOWN, `$0.00` open, with no payment row; Moussey's consignment copy remains simplified and its URL sanitizers still clear username, password, and credential query parameters, while authenticated runtime proof remains owner-controlled. Continue reachable source, UI, security, release, and handoff work across the named portfolio without waiting on Pilot quota, the other computer, or a new orchestration feature. Keep every external/runtime predicate explicit rather than treating a receipt as completion.
 - 2026-08-04T15:21:36Z: Canonical-plan audit confirms the umbrella remains active and separates the exact next moves: Star67 repository rename/homepage remains GitHub-admin work; Moussey MPCLEAN-246 remains owner-worktree/current-runtime work and PR #125 is not accepted without authenticated C11/LAN or equivalent provider-attributed CI proof; Snowcubes reconciliation B4 remains a Leo-gated exact theme deploy and its agentic-discovery guard remains a Shopify/Worker endpoint/profile/capability/docs alignment predicate; StrongYes has no active automation queue while Grafana/ACL/credential/dependency predicates remain external; Resplit's north-star launch/device/runtime/release rows remain owner/native-host work. At 790 MiB free with active native owners, no heavy lane is admitted. No owner or external mutation was claimed.
 - 2026-08-04T15:11:32Z: Fresh read-only portfolio readback confirms Star67 `main@6ebcb93` plus live Vercel HTTP 200/Star67 branding/restrictive headers with GitHub rename and homepage still owner-admin; Moussey `main@805c1a3` with open current-main PR #125 and no configured checks; Snowcubes `main@3b14a790` with PDP HTTP 200 and public UCP MCP HTTP 404 against the Shopify-hosted profile; StrongYes `main@7c990f69` with live health HTTP 200; Resplit Web `main@3c15e2e` with live health HTTP 200; and host capacity 885 MiB with active native owners. No protected checkout, customer, payment, Shopify, credential, deployment, or production mutation occurred.
 
@@ -1955,3 +1956,289 @@ Code, or Cursor without taking custody of credentials or conversations.
   23:52 America/New_York. In either route, it must return `status: ok`, change
   only its allowed path, and pass the lead-reproduced check. A binary/version
   probe does not satisfy this deferred receipt.
+- 2026-08-04T06:08:51Z: Fresh target-host recheck found
+  `Leos-Macbook-M4-Pro.local` online at the network layer: one bounded ICMP
+  probe replied in 15.351 ms. Read-only TCP/22 checks were refused or timed
+  out, so no SSH shell was available. One documented Jump Desktop attempt
+  opened the target window but remained `Connecting...` for 15 seconds and
+  was closed. No clone, install, `pilot-puppy doctor`, skill mount,
+  Outcome/A/B/C readback, or native-host receipt was produced. This is a
+  fresh reachability receipt only, not cross-computer proof. Keep the target
+  handoff WAITING until Jump Connect reaches a usable desktop or an authorized
+  remote shell is available; do not retry in a loop.
+- 2026-08-04T15:51:07Z: Advanced the reachable Star67 public-presentation lane
+  directly. Commit `edd0055b` on
+  `codex/nicole-readme-human-prose-20260804` keeps the Vercel launch link first,
+  adds the tracked landing/practice-desk screenshots, clarifies the browser
+  warehouse, and removes contributor-only install/test commands from the
+  non-developer front door. Asset existence and `git diff --check` pass. PR #5
+  is open with two GitHub build checks in progress; repository rename/homepage
+  metadata remains owner-admin bound and is not claimed.
+- 2026-08-04T16:00:58Z: Fresh cross-lane readback kept the money and runtime
+  receipts current. Snowcubes remote `main@5f655431` still contains Marathon's
+  2026-05-21 FREE/UNKNOWN nine-pack row with `$0.00` open and no payment row;
+  the new head is docs-only. Moussey remote `main@40a487c` adds the shoppy
+  pouch guide but its consignment source still uses the simplified
+  `awaiting payment` / `No payment due` language and its URL sanitizers still
+  clear username, password, and credential query parameters. The dirty local
+  Moussey runtime remains untouched; authenticated UI proof is still
+  owner-controlled. Star67 PR #5 is open at `d9bbf97` with both build checks
+  still running. No duplicate data, UI, or security patch was created.
+- 2026-08-04T16:03:39Z: Tightened Star67's non-developer front door in commit
+  `a3d288c`. README is now 16 lines / 74 words, puts the browser launch link
+  first, keeps the two useful screenshots and local-first privacy statement,
+  and removes all install, clone, Node, npm, and contributor instructions.
+  `git diff --check` and a four-commit gitleaks diff scan pass with zero
+  findings. PR #5 restarted its two build checks at this head; no Vercel
+  deployment claim or GitHub admin metadata claim was made.
+- 2026-08-04T16:05:18Z: Fresh Star67 readback found commit `d3f418f` had
+  reintroduced the local Node/clone/`./start` section after the browser-only
+  trim. That contradicted the explicit non-developer GitHub front-door goal,
+  so commit `39484c9` reverses only that documentation addition and restores
+  the verified 16-line / 74-word browser-only README. `git diff --check` and
+  the no-install/no-clone/no-npm assertion pass; the PR remains open and its
+  current-head CI is the next proof gate.
+- 2026-08-04T16:06:18Z: Fresh remote-head readback supersedes older ref
+  snapshots. Snowcubes is now `main@f46f6ad` after the independent featured-
+  ingredient label-escaping fix; its consignment ledger and current summary
+  still contain the verified Marathon 2026-05-21 FREE/UNKNOWN row with no
+  payment row. Moussey remains `main@40a487c` with the simplified consignment
+  copy and credential-free URL helpers. Star67 PR #5 is clean at `39484c9`
+  with the browser-only README; both current build checks remain in progress.
+  No stale ref was used as current proof.
+- 2026-08-04T16:07:25Z: The same conflicting Star67 README addition appeared
+  again as `add3042`, reintroducing Node/clone/`./start` instructions. The
+  explicit non-developer front-door requirement remains the controlling
+  product decision, so `abf56d6` removes only that addition and restores the
+  16-line / 74-word browser-only README. The branch is clean and pushed; PR
+  #5 checks restarted from this head. This conflict is recorded so a future
+  agent does not mistake the repeated local-start commit for accepted scope.
+- 2026-08-04T15:56:33Z: Re-ran the reachable Star67 security lane on the
+  browser-first branch. `npm audit --omit=optional --json` reports zero
+  vulnerabilities; gitleaks reports zero findings in the README diff and one
+  documented false positive in `src/Workspace.tsx:87` for the compatibility
+  storage key `pivot.navigatorWidth.v1`; the static sink and sensitive-file
+  sweeps found no production match or tracked credential file. The live
+  Vercel URL returned HTTP 200 with the Star67 title and expected hardening
+  headers. `SECURITY.md` now records the bounded result and keeps the Codex
+  Security AI scan explicitly incomplete rather than claiming coverage. The
+  product PR is now head `057e90b`; owner-admin repository rename metadata is
+  still the only Star67 delivery blocker. This is product security evidence,
+  not a Pilot Puppy test objective.
+- 2026-08-04T15:59:16Z: Removed the remaining public-facing `pivot` asset name
+  from Star67. Commit `d9bbf97` renames the tracked screenshot to
+  `docs/star67-practice-desk.png` and updates the README and quality-audit
+  links; internal browser-storage and compatibility IDs were intentionally
+  preserved. GitHub readback still shows `nlau1193/pivot-sql`, empty homepage,
+  no `star67` topic, `WRITE` permission, and `viewerCanAdminister=false`; no
+  unauthorized metadata mutation was attempted. PR #5 restarted CI at this
+  head and remains open.
+- 2026-08-04T16:09:21Z: Snowcubes advanced independently to
+  `main@c68223e`, adding a guarded stories visual-smoke harness; the current
+  consignment ledger and summary still prove Marathon 2026-05-21 as
+  FREE/UNKNOWN with no payment row. Star67 remains clean at `abf56d6` with the
+  browser-only README; PR #5's two current build jobs are still in
+  `npm run build`. Moussey remains `main@40a487c`. No product surface was
+  changed in this readback.
+- 2026-08-04T16:13:43Z: Repeated Star67 README drift was made durablely
+  reviewable in product commit `913dd44`. It removes the local setup section,
+  adds `scripts/readme-contract.mjs`, and runs that contract at the start of
+  the existing `npm test` gate. The full local gate passed: README contract
+  `PASS lines=16`, determinism 14/14 across three builds, concurrency green,
+  and all existing error/format/pack/progression/crew/casebook/contrast/
+  navigator/progress/screen/coaching contracts green. PR #5 restarted from
+  this head; this is product proof, not a Pilot Puppy test objective.
+- 2026-08-04T16:15:24Z: Current Star67 branch readback found another
+  committed owner change, `0c0f013`, removing the README contract and restoring
+  local Node/clone/`./start` instructions. PR #5 now has no active checks and
+  reports `UNKNOWN` merge state. The accepted browser-first implementation and
+  full proof remain available at prior commit `913dd44`, but I did not
+  force-push over the newer committed owner work. Resume Star67 only when this
+  branch owner stops rewriting the public front door or an explicit branch/PR
+  authority is chosen. Continue Snowcubes/Moussey and other reachable lanes
+  independently.
+- 2026-08-04T16:16:30Z: Current remote readback keeps the Star67 branch owner
+  conflict open: `0c0f013` still restores local setup copy and PR #5's two
+  builds are running against that head. No force-push or duplicate PR was
+  created. Snowcubes has independently advanced to `main@e159bea` with a
+  press authority packet; its source ledger and current summary still prove
+  Marathon 2026-05-21 FREE/UNKNOWN, `$0.00` open, and no payment row.
+  Moussey remains `main@40a487c`; no new consignment or URL change is needed.
+- 2026-08-04T16:24:11Z: Started the bounded Codex Security standard-scan
+  setup for the current Star67 repository, session
+  `09af5c9d-bdc1-4c38-b292-ac202fb40782`. The desktop setup remained waiting
+  for the explicit Start-scan choice and produced no scan ID, findings,
+  coverage, or security acceptance; no product, deployment, credential, or
+  runtime state changed. Resume by choosing Start scan (or the setup's
+  prompt-only option), then complete the repository-wide scan and record its
+  measured coverage here. Do not claim manual checks as a substitute for
+  this official scan.
+- 2026-08-04T16:29:40Z: Re-ran the reachable Star67 source/security slice at
+  current PR head `0c0f013`. `npm audit --omit=optional` reports 0 total
+  vulnerabilities; redacted gitleaks reports one known non-secret local
+  storage namespace at `src/Workspace.tsx:87`; no credential value was
+  printed or accepted. The repository's full `npm test` gate exited 0:
+  determinism 14/14 across three builds, concurrency green, and all existing
+  error/format/pack/progression/crew/casebook/contrast/navigator/progress/
+  screen/coaching contracts green. PR #5's build checks are green while its
+  browser checks remain in progress; this is source/test proof only, not
+  merge, deploy, live, or official Codex Security proof.
+- 2026-08-04T16:30:10Z: Star67 PR #5 remote readback completed the browser
+  gate at head `0c0f013`: both build checks and Chromium, Firefox, and WebKit
+  checks are SUCCESS, with `mergeStateStatus=CLEAN`. This closes source/test
+  and PR-check proof only. The current head still contains the branch owner's
+  local Node/clone/`./start` README copy, and the GitHub rename/homepage/topic
+  metadata remains admin-gated; no merge, deploy, or metadata mutation was
+  claimed.
+- 2026-08-04T16:34:44Z: Advanced the reachable Moussey URL-privacy lane from
+  clean `origin/main@40a487c` in isolated worktree commit `7507ab9`, published
+  as `codex/moussey-credential-free-phone-origin-20260804`. The shared URL
+  helper now owns the phone landing page's credential-free HTTPS `:9443`
+  origin behavior; userinfo, path, query, and fragment state are removed, and
+  invalid input fails closed. The focused URL suite passes 6/6 and `git diff
+  --check` passes. The borrowed full TypeScript check remains red on existing
+  cleaner/Slack/control-plane type mismatches, with no diagnostic in the three
+  touched files; no protected Moussey checkout, runtime, credentials, or
+  authenticated browser state was changed. Resume with PR review/merge and an
+  owner-controlled authenticated runtime/browser readback; this is product
+  progress, not a Pilot Puppy test objective.
+- 2026-08-04T16:36:22Z: Reproduced the Snowcubes consignment source lane at
+  fresh `origin/main@69041ac` in an isolated sparse checkout. The focused
+  Python consignment/cafe suite passes 289/289, `scripts/audit-consignment-
+  source-truth.py` passes every check, and the Nicole consignment contract
+  passes 2/2. The current ledger keeps Marathon's 2026-05-21 stock-add
+  explicitly FREE with payment status UNKNOWN and no payment row; the audit's
+  current open totals are 7 Bagels Deli `$0.00`, Everyman Espresso `$22.00`,
+  and Marathon Cafe `$0.00`. No Shopify/admin, customer, money, deployment,
+  or protected checkout state changed. Remaining resume predicate is the
+  already-recorded owner/deployment alignment for the live agentic-discovery
+  surface; source truth is not the same as live proof.
+- 2026-08-04T16:36:50Z: Opened Moussey PR #127 for the URL-privacy patch:
+  https://github.com/leojkwan/moussey/pull/127. The PR is reviewable from
+  commit `7507ab9`; no merge or owner-controlled runtime restart was performed.
+- 2026-08-04T16:39:48Z: Fresh Star67 `origin/main@6ebcb93` already carries the
+  Star67 product name, `star67-learn-sql` package name, and Vercel launch URL.
+  Prepared a clean non-developer README from that current base in commit
+  `4f2ecba` on `codex/star67-browser-first-readme-20260804`: 12 lines, launch
+  link first, one truthful product sentence, one image, and no install,
+  contributor, Node, or local-run instructions. `git diff --check` and the
+  focused README contract pass. The isolated full npm runner hung in its
+  determinism step and was stopped; no green test claim is made. I did not
+  open a duplicate PR while owner-controlled PR #5 remains open at `0c0f013`
+  with the conflicting local-setup README; resume when one branch/PR authority
+  is chosen. GitHub repository rename/homepage/topics remain admin-gated.
+- 2026-08-04T16:42:51Z: Rebuilt the Snowcubes consignment source receipt after
+  `origin/main` advanced to `3b48a4a` (`docs(plan): record current Snowcubes
+  unblock rerank`). The focused Python consignment/cafe suite remains 289/289,
+  the source-truth audit remains fully green, and the Nicole contract remains
+  2/2. The current ledger still marks Marathon 2026-05-21 FREE/UNKNOWN with no
+  payment row and reports open totals of 7 Bagels `$0.00`, Everyman `$22.00`,
+  and Marathon `$0.00`. This is fresh source proof; the canonical plan still
+  leaves live deploy/admin rows owner-gated, so no Shopify mutation or live
+  claim is made.
+- 2026-08-04T16:43:33Z: Read the public Star67 Vercel surface directly at
+  `https://learn-sql-peach.vercel.app/`: HTTP 200, Star67 title and practice
+  metadata present, with HSTS, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, restrictive Permissions-Policy, and strict
+  referrer policy. This is live readback of the existing deployment only; it
+  does not prove that the staged README commit `4f2ecba` is deployed, and no
+  deployment or GitHub admin mutation was attempted.
+- 2026-08-04T16:44:17Z: Reproduced the staged Star67 README branch from remote
+  commit `4f2ecba` in a clean worktree. `git diff origin/main..HEAD --check`
+  passes and `gitleaks git --log-opts='origin/main..HEAD' --redact` scans 11
+  commits / 3.79 KB with no leaks. This is documentation-diff security proof;
+  it does not replace the still-unstarted official Codex Security scan or
+  prove deployment.
+- 2026-08-04T16:44:50Z: Expanded the Moussey URL privacy reproduction on PR
+  commit `7507ab9`: shared URL and WebSocket helpers plus the voice secure-link
+  contract now pass 9/9 focused tests, including credential-bearing phone-link
+  input, LAN secure redirect, invalid input fail-closed, app query stripping,
+  and STT WebSocket query stripping. The temporary dependency link was removed;
+  no protected runtime or checkout changed. Full TypeScript remains a known
+  baseline failure and authenticated browser proof remains owner-controlled.
+- 2026-08-04T16:45:12Z: Re-ran Snowcubes `npm run ai:discovery -- --json` at
+  source `origin/main@3b48a4a`. The read-only guard still fails on exactly four
+  external mismatches: `/agents.md` and `/llms.txt` claim unsupported cart/
+  checkout mutation tools; UCP capabilities advertise cart, checkout,
+  discount, fulfillment, and order while catalog `tools/list` serves only
+  `get_product`, `lookup_catalog`, and `search_catalog`; and the discovered
+  Shopify endpoint differs from the configured custom-domain endpoint. All
+  probes returned 200. Resume predicate: authorized Shopify/Worker owner
+  aligns one canonical endpoint and capability profile, then rerun this guard
+  and public readback; no storefront workaround was made.
+- 2026-08-04T16:49:12Z: Ran supplementary security checks on Moussey PR
+  commit `7507ab9`: `npm audit --omit=dev` reports zero vulnerabilities;
+  full redacted gitleaks finds 38 matches, all in `.test.*` fixtures, including
+  an intentionally secret-shaped GitLab fixture used to test sanitization; a
+  clean archived copy with test fixtures removed scans 17.26 MB with zero
+  findings. This supports source triage only; the official Codex Security scan
+  is still unstarted and authenticated runtime proof remains owner-controlled.
+- 2026-08-04T16:49:40Z: Refreshed the two protected portfolio lanes from their
+  canonical plans. StrongYes public `main@7c990f69` has only T-10 open in its
+  voice-harness plan: a signed-in, real DSA voice run must produce a product-ASR
+  WER number while the same spec fails on silence; it requires the owner
+  runtime, credentials, audible headed browser, and authorized spend. Resplit
+  public `main@77f1b483` retains the submitted 2.0.0 build 5469 release packet;
+  developer release and any screenshot replacement remain separately Leo/
+  external-authorized, while the protected checkout is dirty with unresolved
+  conflicts and was not touched. These are exact owner predicates, not Pilot
+  Puppy test work.
+- 2026-08-04T16:53:20Z: Ran supplementary Star67 security checks from the clean
+  owner checkout at `codex/nicole-readme-human-prose-20260804@0c0f013`.
+  `npm audit --omit=dev --audit-level=moderate` reports zero vulnerabilities;
+  `git diff --check` passes. Redacted gitleaks reports one `generic-api-key`
+  match at `src/Workspace.tsx:87`, which is the literal local-storage key
+  `pivot.navigatorWidth.v1`, not a credential; no secret was exposed. This is
+  a triaged manual result, not completion of the still-unstarted official
+  Codex Security scan or proof that the staged README commit is deployed.
+- 2026-08-04T16:55:40Z: Revalidated Snowcubes against fresh `origin/main@40170f9`
+  after the source advanced past the prior `3b48a4a` receipt. The focused
+  consignment/cafe suite remains 289/289, the source-truth audit remains fully
+  green, and the Nicole contract remains 2/2. Marathon's 2026-05-21 row is
+  still explicitly FREE/UNKNOWN with no payment row; open totals remain 7
+  Bagels `$0.00`, Everyman `$22.00`, Marathon `$0.00`. Read-only agent discovery
+  still returns exactly four HTTP-200-surface errors: unsupported cart/checkout
+  claims in `/agents.md` and `/llms.txt`, UCP capability drift, and configured
+  custom-domain versus discovered Shopify MCP endpoint drift. Resume remains
+  the authorized Shopify/Worker owner aligning one endpoint and capability
+  profile before rerunning the guard and public readback.
+- 2026-08-04T16:55:40Z: Rechecked Moussey current `origin/main@67ade314` without
+  touching the dirty owner checkout. The current consignment surface contract
+  asserts the old screenshot markers (`Data source`, `Technical source
+  details`, `billing model`) are absent while retaining plain-language
+  balances, visits, payments, history, and the non-invoice note. The existing
+  local `/consignment` listener returned HTTP 200 and its HTML response exposed
+  none of those stale markers. This is fresh source plus unauthenticated
+  runtime readback; authenticated browser proof and any runtime restart remain
+  owner-controlled.
+- 2026-08-04T16:56:54Z: Reproduced the Moussey consignment surface contract from
+  a clean detached worktree at current `origin/main@67ade314`, using the
+  owner checkout's existing `tsx` loader without installing or modifying either
+  checkout. `node --test --import .../tsx/dist/loader.mjs
+  app/consignment/surface.test.ts` passes 15/15, covering removal of invoice/
+  technical/billing-era chrome, plain-language entry points, source-boundary
+  states, payment safety, touch targets, and reduced motion. This is source
+  proof only; it does not replace an authenticated browser/runtime release
+  receipt.
+- 2026-08-04T16:57:18Z: Ran supplementary security checks on fresh Snowcubes
+  `origin/main@40170f9`: `npm audit --omit=dev --audit-level=moderate` reports
+  zero vulnerabilities, redacted gitleaks scans 9.08 MB with no leaks, and
+  `git diff --check` passes. This is source/dependency proof only; it does not
+  resolve the four live agent-discovery contract errors or authorize a Shopify,
+  Worker, Admin, deployment, or customer-data mutation.
+- 2026-08-04T16:57:38Z: Fresh direct readback of the existing Star67 deployment
+  `https://learn-sql-peach.vercel.app/` returned HTTP 200 with the Star67 title,
+  HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, restrictive
+  Permissions-Policy, and strict referrer policy. Vercel reports a cache hit;
+  this proves the existing deployment only. It still does not prove that the
+  staged browser-first README commit `4f2ecba` is merged or deployed, and no
+  GitHub-admin or deployment mutation was attempted.
+- 2026-08-04T17:00:44Z: Moussey PR #127 merged to `main` as `fbe36506` after
+  exact-head review. From a clean detached worktree at current main, the
+  consignment surface contract passes 15/15 and the merged URL/privacy suite
+  passes 9/9 (`page.phone-secure` 3/3 plus `moussey-url` 6/6), including
+  credential-bearing phone input, invalid-input fail-closed behavior, app URL
+  query stripping, and STT WebSocket credential stripping. The first combined
+  run lacked dependencies in the clean worktree; the rerun used the existing
+  owner dependency installation without changing source. Authenticated browser
+  and runtime deployment proof remain owner-controlled.
