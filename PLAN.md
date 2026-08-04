@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 153
-- Outcome Updated At: 2026-08-04T09:35:38Z
+- Outcome Revision: 154
+- Outcome Updated At: 2026-08-04T09:40:02Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -43,6 +43,26 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Current authority override
 
+- 2026-08-04T09:40:02Z: Fresh Snowcubes public `main@e6513a3` readback
+  re-ran `python3 scripts/audit-consignment-source-truth.py --tracker
+  outputs/consignment-tracker` with `ok: true`: 7 Bagels/Zack is `$0.00`
+  open, Marathon is `$0.00` open, and Everyman is `$22.00` open. The tracked
+  FPA source still records the 2026-05-21 Marathon row as FREE with payment
+  status UNKNOWN, no charge/payment row, and do not reopen or collect; future
+  Marathon drops remain bill-at-drop. This is source evidence, not a payment
+  or Shopify action.
+- 2026-08-04T09:40:02Z: The same clean Snowcubes head ran the read-only
+  `node scripts/audit-agent-discovery-contract.mjs --json` against the live
+  storefront. All configured probes returned HTTP 200 and catalog `tools/list`
+  returned exactly `get_product`, `lookup_catalog`, and `search_catalog`, but
+  the guard still fails on four errors: stale cart/checkout claims in
+  `/agents.md` and `/llms.txt`, unmatched cart/checkout/discount/fulfillment/
+  order capabilities in `/.well-known/ucp`, and the Shopify-hosted MCP
+  endpoint differing from `https://trysnowcubes.com/api/ucp/mcp`. The public
+  repo does not track those external discovery documents/profile surfaces, so
+  this remains an agentic-discovery/Shopify/Worker owner-deploy handoff, not a
+  storefront workaround. Resume when one owner aligns the endpoint, profile,
+  capability set, and public docs, then reruns the guard to zero findings.
 - 2026-08-04T09:35:38Z: Fresh public-main security readback for Moussey
   `0725ce6346201f63be23f10e2b6a290351980210` used gitleaks `8.30.1` with
   `detect --no-git --redact`. The complete current tree returned 38 redacted
