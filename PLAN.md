@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 150
-- Outcome Updated At: 2026-08-04T09:07:25Z
+- Outcome Revision: 151
+- Outcome Updated At: 2026-08-04T09:16:34Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -40,6 +40,48 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Publication correction: Earlier proof-detail entries are retained as historical pre-merge receipts. Current publication is Star67 public `main@6ebcb93` with the earlier READY Vercel deployment `dpl_3Nor5q7RFLrE4bfRNG5zjt49Xvww` and `learn-sql-peach.vercel.app` live alias readback, Moussey `main@d7553fb`, Snowcubes `main@f13e6db`, StrongYes `main@9f82c3cf`, Resplit public source `b1609e3`, and Pilot Puppy Outcome revision 147 on public `main` after receipt PR #158 (following receipt PRs #156 and #157). The remaining open items are Star67 owner-admin rename/metadata and deployment readback for the docs-only merge, Moussey authenticated runtime, official security scan, exact consumer/device, host resources, StrongYes major framework migration and live Grafana correlation, Snowcubes agentic-discovery owner alignment, open marketing decisions, and Resplit Android A8/A9, web authority-waiting, device/runtime, and release gates.
 - Proof Delivery: source + live readback
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
+
+## Current authority override
+
+- 2026-08-04T09:16:34Z: Fresh cross-lane reconciliation supersedes older
+  detail lines that name Snowcubes `f13e6db`, a catalog-only HTTP-200 discovery
+  result, or Moussey `d7553fb` as the newest source/runtime evidence. The
+  umbrella remains working; this is a receipt update only and did not mutate a
+  dirty owner checkout, process, customer, payment, Shopify/Admin, credential,
+  device, release, or production-runtime surface.
+- Snowcubes public `main@0e90ec2` was the remote ref at 2026-08-04T09:15:43Z.
+  Its current FPA authority table still records Zack at `$0.00` after paid
+  order `TSC01607` / draft `#D145`, Marathon at `$0.00` with the 2026-05-21
+  row explicitly FREE/UNKNOWN and no charge or payment row, and Everyman at
+  `$22.00`. The live `POST /api/ucp/mcp` `tools/list` readback then returned
+  `invalid_profile_url` with zero tools and a Shopify `continue_url`, while
+  `/agents.md` and `/llms.txt` still claim cart/checkout/fulfillment actions
+  and `/.well-known/ucp` points at the Shopify-hosted endpoint and advertises
+  checkout capabilities. This is an external Shopify/Worker/agent-discovery
+  owner-deploy mismatch, not a storefront workaround.
+- Star67 public source remains `main@6ebcb93`; the Vercel front door returned
+  HTTP 200 with the Star67 title and restrictive `Permissions-Policy`,
+  `Referrer-Policy`, and `X-Frame-Options: DENY`. The requested repository
+  rename and metadata write remain owner-admin gated (`admin=false`).
+- Moussey public source remains `main@0725ce6`; its signed HMAC safe-auto,
+  proxy coverage, and zero-production-vulnerability lockfile proof remain
+  source/merge/test/audit evidence. Owner C11 runtime proof and the native
+  Codex Security Start/scan receipt remain separate predicates; the existing
+  scan workspace's historical `d7553fb` target must be refreshed before any
+  official result is attributed to `0725ce6`.
+- StrongYes public source remains `main@9f82c3cf`; the security-definer RPC
+  lock migration is present in source and live `/api/health` plus `/game-plan`
+  returned HTTP 200 with the expected commit. Production catalog proof that
+  `anon`/`authenticated` cannot execute the affected destructive RPCs while
+  `service_role` can remains missing; do not invoke those RPC bodies.
+- Resplit public source remains `main@b1609e3`. Build 5469 Developer Release,
+  exact-build device/runtime/Sentry proof, web authority-waiting rows, and
+  Android A8/A9/API37/16-KB proof remain owner-controlled. Host capacity was
+  only 1.9 GiB free at this readback, so no Gradle, emulator, Xcode, cleanup,
+  or release work was started.
+- Six read-only portfolio sidecars completed without edits. Their receipts
+  were integrated here, then the agents were closed; this does not create a
+  second queue, router, transcript store, or status authority.
 
 ## Current portfolio readback
 
