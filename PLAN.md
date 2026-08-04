@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 152
-- Outcome Updated At: 2026-08-04T09:26:49Z
+- Outcome Revision: 153
+- Outcome Updated At: 2026-08-04T09:35:38Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -43,6 +43,22 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Current authority override
 
+- 2026-08-04T09:35:38Z: Fresh public-main security readback for Moussey
+  `0725ce6346201f63be23f10e2b6a290351980210` used gitleaks `8.30.1` with
+  `detect --no-git --redact`. The complete current tree returned 38 redacted
+  matches, all in tracked `.test.ts` sources; a second scan of the same head
+  with test sources excluded returned zero matches. These are currently
+  classified as test-fixture-shaped alerts, but the 38-alert scan remains
+  non-clean, no allowlist was added, and this is not an official Codex
+  Security result. Native scan setup/start and review of the fixture alerts
+  remain open predicates; no owner checkout, process, credential, or runtime
+  surface was touched.
+- 2026-08-04T09:35:38Z: Fresh public refs are Pilot Puppy `5bbf2d9`, Star67
+  `6ebcb93`, Moussey `0725ce6`, Snowcubes `b921c905`, StrongYes `9f82c3cf`,
+  and Resplit `b1609e3`. The Snowcubes ref advanced since the prior authority
+  readback and is recorded as a ref change only; its source and live
+  agent-discovery contract still require a separate readback before any
+  conclusion is made.
 - 2026-08-04T09:16:34Z: Fresh cross-lane reconciliation supersedes older
   detail lines that name Snowcubes `f13e6db`, a catalog-only HTTP-200 discovery
   result, or Moussey `d7553fb` as the newest source/runtime evidence. The
