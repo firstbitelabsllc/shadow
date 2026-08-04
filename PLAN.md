@@ -12,8 +12,8 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Operator Brief
 
 - Outcome ID: portfolio-product-closeout-20260803
-- Outcome Revision: 196
-- Outcome Updated At: 2026-08-04T14:32:20Z
+- Outcome Revision: 197
+- Outcome Updated At: 2026-08-04T14:46:00Z
 - Outcome State: working
 - Outcome: Coordinate the entire active product portfolio through Pilot Puppy toward clean, trustworthy, user-ready surfaces; Pilot Puppy is the orchestrator, not the product under test.
 - Outcome Detail: This is one umbrella outcome with many active workstreams and user-visible deliverables—not a request to ship one thing. Keep all currently active product work in scope: Star67 (formerly Pivot SQL) and its public Vercel front door; Moussey consignment UI, source truth, billing language, stale figures, password URLs, and the 5/21 Marathon record; related Snowcubes data and storefront surfaces; StrongYes's current Code Reps/Game Plan authority; Resplit 2.0 launch readiness; security/privacy cleanup; and remaining release or handoff work. Move the highest-value reachable lane, then continue through the next lane while preserving each repository's canonical plan, owner, and proof boundary. Nicole's shipped SQL trainer and archived/paused StrongYes queues are mapped for truth but are not new work.
@@ -42,6 +42,10 @@ Code, or Cursor without taking custody of credentials or conversations.
 - Proof Delivery Detail: product code and source receipts remain separated from merged, deployed, live, and proven state; Star67 now has all four source/merge/deploy/live receipts. The GitHub rename and metadata update are not claimed because the current account has write but not admin permission.
 
 ## Current authority override
+
+- 2026-08-04T14:46:00Z: Snowcubes consignment source-truth cleanup PR #1802 merged at public `main@a616de15d2289ee6f82d2182d79a7df310c9ff37` after the official manual Blacksmith deterministic full suite run `30920360711` completed successfully. The diff added one authoritative note that `$57.75` can occur only in synthetic rollup/image-manifest fixtures and is not a receivable, and replaced the hard-coded synthetic test literal with an arithmetic expression; existing `$225.63`/`$342.04` non-receivable documentation remains. Fresh `https://trysnowcubes.com/products/pineapple-coconut-snowcubes-2pk` returned HTTP 200 and still rendered almonds. Current source truth remains Zack `$0.00` open (the `$123.75` Shopify order is paid), Marathon 2026-05-21 FREE/UNKNOWN with no charge/payment row, and Everyman `$22.00` open. No Shopify, payment, customer, credential, or production mutation occurred.
+
+- 2026-08-04T14:46:00Z: Current owner-gated receipts remain unchanged: Moussey PR #108 is a clean non-draft special-base consignment dry-run proof with no checks and is not merged; Snowcubes PR #1417 remains a draft source branch with author-only receipts; Star67 GitHub rename/homepage still require admin; Resplit iOS device/archive/release, Resplit Web Error Tracking readback, StrongYes Grafana/ACL/credential predicates, Moussey authenticated/C11/cleaner host-resource and official security scan, and Snowcubes Shopify/Worker discovery/theme-deploy gates remain open. These are exact resume predicates, not silently deferred product work.
 
 - 2026-08-04T14:32:20Z: Fresh multi-lane public readback remains stable. Star67's `https://learn-sql-peach.vercel.app/` returned HTTP 200 with Star67 metadata and restrictive headers; GitHub still reports repository `nlau1193/pivot-sql`, `homepage: null`, `admin: false`, and `push: true`, so the rename and homepage write remain owner-admin work. StrongYes `/api/health` and `/game-plan` returned HTTP 200, with health reporting commit `7c990f69e21652ed54eb2e3a14460b7538e565f8`. Snowcubes' Pineapple Coconut PDP returned HTTP 200 and rendered the almond ingredient. These are fresh source/live readbacks; no GitHub-admin, Shopify, customer, payment, credential, or production mutation was performed.
 
