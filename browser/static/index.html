@@ -14,8 +14,15 @@
         <p class="eyebrow">Your coding chief of staff</p>
         <h1>Pilot Puppy</h1>
       </div>
-      <button id="refresh" type="button">Refresh</button>
+      <div class="topbar-actions">
+        <div class="views">
+          <button id="view-board" type="button" class="view-toggle">Board</button>
+          <button id="view-briefs" type="button" class="view-toggle active">Briefs</button>
+        </div>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
     </header>
+    <div id="board" class="board" hidden></div>
     <div class="shell">
       <nav aria-label="Projects">
         <h2>Projects</h2>

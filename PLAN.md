@@ -11,6 +11,9 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Operator Brief
 
+- Entity: pilot-puppy
+- Mode: Close
+- Milestone: The Method v1 live
 - Outcome ID: portfolio-product-closeout-20260803
 - Outcome Revision: 218
 - Outcome Updated At: 2026-08-04T21:08:05Z
@@ -824,6 +827,22 @@ Code, or Cursor without taking custody of credentials or conversations.
   outside this public repository and contains no private prompts, credentials,
   transcripts, or provider payloads.
 
+## Checkpoints
+
+### M1 — Method encoded
+- [completed] C1~m3k7 AGENT.md lands encoding identity, modes+transition law, gate, steering, and the steal deltas | proof: npm run docs:build && npm run public-ready:grep | size: M
+- [completed] C2~q8f2 Method file contract lands in docs/reference/method.md + SKILL.md addendum with contract tests | proof: python3 -m unittest tests.test_method_contract | size: M | needs: ~m3k7
+- [in_progress] C3~w5d9 Method rides the installed skill mounts on the operator machine | proof: pilot-puppy doctor | size: S | needs: ~q8f2
+
+### M2 — Board live
+- [completed] C4~t2b8 Scanner serves gated entity, mode, milestone, checkpoint counts | proof: python3 -m unittest tests.test_browser | size: M
+- [completed] C5~j6n4 Read-only board view, desktop and phone, zero write surfaces | proof: npm run test:e2e | size: M | needs: ~t2b8
+- [pending] C6~r9c3 (DoD) Full gate matrix green, PR merged, v2.3.0 released | proof: npm run verify | size: M | needs: ~j6n4, ~w5d9
+
+### M3 — Dogfood
+- [pending] C7~h4v1 Three real plans tagged (moussey; snowcubes first PLAN.md; resplit origin-fresh) render as entity lanes | proof: /api/plans readback + board screenshot | size: M | needs: ~r9c3
+- [pending] C8~z7e5 (DoD) One Method-style cycle in a tagged repo: mode declared, checkpoint flipped with paired proof line | proof: that repo's PLAN.md diff | size: M | needs: ~h4v1
+
 ## Worklane boundary
 
 - Pilot Puppy has its own product plan and proof gap. That gap never blocks an
@@ -1045,6 +1064,18 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-05T21:30:00Z ~m3k7 ~q8f2 ~t2b8 ~j6n4 DONE seat=chief — Method v1
+  build slice from fresh `main@1ed58392`: AGENT.md, docs/reference/method.md,
+  SKILL.md Method section, 4 contract tests, board scanner (3 TDD tests), and
+  the read-only board view (2 e2e specs, desktop+phone). Steal-spec research
+  grounded in source reads of beads (hash IDs, ready predicate), ralph
+  (one-item loops, AGENT.md content law), spec-kit (analyze lint passes),
+  liatrio (DoD coverage matrix), superpowers (skill enforcement), and OpenSpec
+  (lesson-delta archive). Proofs on this head: contract tests 4/4, browser
+  unittest 20/20, playwright 10/10, docs build, privacy scan ok. 'huncho'
+  verified as plastic-labs/honcho — a Postgres+deriver second store; adopt its
+  hook *pattern* only, not the store.
 
 - 2026-08-05T06:20:00Z: R11 is merged, released, installed, and re-proven.
   PR #245 squash-merged to `main@7fd88682` with hosted CI, CodeQL (three

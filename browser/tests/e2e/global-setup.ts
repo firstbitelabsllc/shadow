@@ -66,9 +66,39 @@ export default async function globalSetup() {
 }
 -->
 `, 'utf8');
+  mkdirSync(join(boundedRoot, 'gift'), { recursive: true });
+  writeFileSync(join(boundedRoot, 'gift', 'PLAN.md'), `# Gift flow live
+
+## Operator Brief
+
+- Entity: snowcubes
+- Mode: Close
+- Milestone: Gift flow live on storefront
+- Outcome ID: gift-flow-live
+- Outcome Revision: 3
+- Outcome Updated At: 2026-08-05T02:00:00Z
+- Outcome State: working
+- Outcome: Gifting works end to end on the storefront.
+- Next: Publish the live theme with pixel proof.
+- Proof ID: gift-tests
+- Proof: tests are green on the preview theme.
+- Proof Summary: Focused gift tests pass.
+- Proof Delivery: delivered
+
+## Checkpoints
+
+### M1 — Gift flow live
+- [completed] C1 Gift wrap option renders | proof: npm run test:pdp | size: S
+- [in_progress] C2 Checkout smoke green | proof: npm run smoke | size: M
+- [pending] C3 (DoD) Live publish with pixel proof | proof: npm run verify | size: S
+
+## Progress
+
+- 2026-08-05: checkout smoke under way.
+`, 'utf8');
   execFileSync('git', ['init', '-q'], { cwd: boundedRoot });
   execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: boundedRoot });
   execFileSync('git', ['config', 'user.name', 'Pilot Puppy Test'], { cwd: boundedRoot });
-  execFileSync('git', ['add', 'demo/PLAN.md'], { cwd: boundedRoot });
+  execFileSync('git', ['add', 'demo/PLAN.md', 'gift/PLAN.md'], { cwd: boundedRoot });
   execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: boundedRoot });
 }

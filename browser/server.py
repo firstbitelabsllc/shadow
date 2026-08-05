@@ -64,6 +64,12 @@ UNSAFE_TITLE_RE = re.compile(
     f"(?:{DRIVE_PRIVATE_PATH_RE.pattern}|{DRIVE_SECRET_SHAPE_RE.pattern})",
     re.IGNORECASE,
 )
+# Board fields are closed vocabularies or title-gated text, so a plan line can
+# never carry a path or secret onto the board projection.
+ENTITY_VALUE_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
+MODE_VALUE_RE = re.compile(r"^(?:spike|defer|challenge|close)$")
+CHECKPOINT_STATES = ("pending", "in_progress", "blocked", "completed")
+CHECKPOINT_ALIASES = {"x": "completed", "done": "completed", "working": "in_progress"}
 ALLOWED_STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -168,6 +174,43 @@ def read_plan(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def entity_of(brief: dict[str, str], relative: str) -> str:
+    raw = (brief.get("entity") or "").strip().lower()
+    if ENTITY_VALUE_RE.fullmatch(raw):
+        return raw
+    head = relative.split("/", 1)[0].lower()
+    slug = re.sub(r"[^a-z0-9-]+", "-", head).strip("-")[:32]
+    return slug if ENTITY_VALUE_RE.fullmatch(slug) else "unassigned"
+
+
+def mode_of(brief: dict[str, str]) -> str | None:
+    raw = (brief.get("mode") or "").strip().lower()
+    return raw if MODE_VALUE_RE.fullmatch(raw) else None
+
+
+def milestone_of(brief: dict[str, str]) -> str | None:
+    raw = " ".join((brief.get("milestone") or "").split())
+    if not raw or UNSAFE_TITLE_RE.search(raw):
+        return None
+    return raw[:120]
+
+
+def checkpoint_counts(text: str) -> dict[str, int] | None:
+    lines = section(text, "Checkpoints")
+    if not lines:
+        return None
+    counts = {state: 0 for state in CHECKPOINT_STATES}
+    for line in lines:
+        match = TASK_RE.match(line)
+        if not match:
+            continue
+        state = match.group(1).strip().lower()
+        state = CHECKPOINT_ALIASES.get(state, state)
+        if state in counts:
+            counts[state] += 1
+    return counts
+
+
 def plan_record(path: Path, root: Path) -> dict[str, Any]:
     text = read_plan(path)
     relative = path.relative_to(root).as_posix()
@@ -188,6 +231,10 @@ def plan_record(path: Path, root: Path) -> dict[str, Any]:
         "path": relative,
         "title": title(text, path.parent.name),
         "tasks": task_counts(text),
+        "entity": entity_of(brief, relative),
+        "mode": mode_of(brief),
+        "milestone": milestone_of(brief),
+        "checkpoints": checkpoint_counts(text),
         "outcome": outcome,
         "decision": decision,
         "briefing": chief,

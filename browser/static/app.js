@@ -1,7 +1,11 @@
-const state = { plans: [], selected: null, drives: {} };
+const state = { plans: [], selected: null, drives: {}, view: 'briefs' };
 const projects = document.getElementById('projects');
 const main = document.getElementById('main');
 const refresh = document.getElementById('refresh');
+const board = document.getElementById('board');
+const shell = document.querySelector('.shell');
+const viewBoard = document.getElementById('view-board');
+const viewBriefs = document.getElementById('view-briefs');
 
 function el(tag, options = {}) {
   const node = document.createElement(tag);
@@ -243,12 +247,88 @@ function renderPlan(plan) {
   main.append(card);
 }
 
+function laneName(plan) {
+  return plan.entity || 'unassigned';
+}
+
+function checkpointMeter(counts) {
+  const total = counts.pending + counts.in_progress + counts.blocked + counts.completed;
+  if (!total) return null;
+  const meter = el('p', { className: 'meter' });
+  meter.append(el('span', { className: 'meter-count', text: `Checkpoints ${counts.completed}/${total}` }));
+  if (counts.blocked) meter.append(el('span', { className: 'meter-blocked', text: `${counts.blocked} blocked` }));
+  return meter;
+}
+
+// The board is a read-only projection: its only interactive element is
+// card-select. Decisions and Drive stay in the per-plan Briefs view.
+function renderBoard() {
+  board.replaceChildren();
+  const lanes = new Map();
+  for (const plan of state.plans) {
+    const key = laneName(plan);
+    if (!lanes.has(key)) lanes.set(key, []);
+    lanes.get(key).push(plan);
+  }
+  if (!lanes.size) {
+    board.append(el('p', { className: 'loading', text: 'No plans yet. Run pilot-puppy init --here in a Git project, then refresh.' }));
+    return;
+  }
+  for (const [name, plans] of lanes) {
+    const lane = el('section', { className: 'lane' });
+    const head = el('div', { className: 'lane-head' });
+    head.append(el('h2', { className: 'lane-title', text: name }));
+    head.append(el('span', { className: 'lane-count', text: `${plans.length} plan${plans.length === 1 ? '' : 's'}` }));
+    lane.append(head);
+    const rowEl = el('div', { className: 'lane-cards' });
+    const ordered = [...plans].sort((a, b) => Number(a.mode === 'defer') - Number(b.mode === 'defer'));
+    for (const plan of ordered) {
+      const card = el('button', { className: plan.mode === 'defer' ? 'board-card deferred' : 'board-card', type: 'button' });
+      const top = el('div', { className: 'board-card-head' });
+      top.append(el('strong', { text: plan.title }));
+      if (plan.mode) top.append(el('span', { className: `mode-chip mode-${plan.mode}`, text: plan.mode }));
+      card.append(top);
+      const status = plan.briefing?.state ? plan.briefing.state.replaceAll('_', ' ') : 'needs a brief';
+      card.append(el('span', { className: 'board-state', text: status }));
+      if (plan.milestone) card.append(el('p', { className: 'board-milestone', text: plan.milestone }));
+      if (plan.checkpoints) {
+        const meter = checkpointMeter(plan.checkpoints);
+        if (meter) card.append(meter);
+      }
+      if (plan.briefing?.choices?.length) {
+        card.append(el('p', { className: 'board-decision', text: 'A decision is waiting for you' }));
+      }
+      card.addEventListener('click', () => {
+        state.selected = plan.id;
+        state.view = 'briefs';
+        render();
+        main.focus();
+      });
+      rowEl.append(card);
+    }
+    lane.append(rowEl);
+    board.append(lane);
+  }
+}
+
 function render() {
   const plan = selectedPlan();
   if (plan && !state.selected) state.selected = plan.id;
+  const boardActive = state.view === 'board';
+  board.hidden = !boardActive;
+  shell.hidden = boardActive;
+  viewBoard.classList.toggle('active', boardActive);
+  viewBriefs.classList.toggle('active', !boardActive);
+  if (boardActive) {
+    renderBoard();
+    return;
+  }
   renderProjects();
   renderPlan(plan);
 }
+
+viewBoard.addEventListener('click', () => { state.view = 'board'; render(); });
+viewBriefs.addEventListener('click', () => { state.view = 'briefs'; render(); });
 
 async function load() {
   refresh.disabled = true;

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.0 — 2026-08-05
+
+- The Method ships as standing behavior: `AGENT.md` (one chief-of-staff
+  identity, Spike/Defer/Challenge/Close with a transition law, the adversarial
+  gate, planning-is-writing, transfer-the-lesson) plus the machine-readable
+  file contract in `docs/reference/method.md` — entities as greppable plan
+  lines, milestones as headings, checkpoint rows with hash-stable IDs,
+  `proof:` commands and `needs:` readiness, append-only CLAIM/PROOF/DONE
+  multiplexing, PLAN-LINT, and the Close coverage matrix with a mandatory
+  lesson delta.
+- The browser gains a read-only Board view: entity lanes, project cards with
+  mode chip, current milestone, checkpoint counts, and a waiting-decision
+  marker. Counts only; the board's single interactive element is card select.
+
 ## 2.2.1 — 2026-08-05
 
 - Drive no longer blocks or strands green work on ignored build artifacts or

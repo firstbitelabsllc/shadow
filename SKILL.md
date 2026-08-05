@@ -10,6 +10,17 @@ cold reader should know the Outcome, current move, proof, and next decision.
 
 Skip it for a factual answer or an obvious one-step edit with no handoff.
 
+## The Method
+
+Standing behavior for every session rides in `AGENT.md` at this skill's root;
+the file contract (entity/milestone/checkpoint grammar, PLAN-LINT, the Close
+coverage matrix and lesson delta, steering) is `docs/reference/method.md`.
+Follow both: declare a mode (Spike, Defer, Challenge, or Close) as the first
+move of a cycle, run PLAN-LINT before honoring a mode transition, write plans
+as you execute, and close only through the DoD coverage matrix. Modes and the
+adversarial gate are the process law; the sections below are the delegation
+and proof mechanics underneath them.
+
 ## Worklane boundary
 
 Pilot Puppy supports the project currently being worked on; it is not a global

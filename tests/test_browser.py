@@ -432,5 +432,76 @@ class BrowserTests(unittest.TestCase):
                 thread.join(timeout=2)
 
 
+BOARD_PLAN = """# Gift flow live
+
+## Operator Brief
+
+- Entity: snowcubes
+- Mode: Close
+- Milestone: Gift flow live on storefront
+
+## Checkpoints
+
+### M1 — Gift flow live
+- [completed] C1 Gift wrap option renders on PDP | proof: npm run test:pdp | size: S
+- [in_progress] C2 Checkout smoke green on preview theme | proof: npm run smoke | size: M
+- [pending] C3 (DoD) Live-theme publish with pixel proof | proof: npm run publish:verify | size: S
+
+## Progress
+
+- 2026-08-05: board fixture ready.
+"""
+
+
+class BoardProjectionTests(unittest.TestCase):
+    def make_board_repo(self, root: Path, plan_text: str) -> tuple[Path, Path]:
+        repo = root / "repo"
+        plan = repo / "gift-flow" / "PLAN.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(plan_text, encoding="utf-8")
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "test@example.invalid")
+        git(repo, "config", "user.name", "Test")
+        git(repo, "add", "gift-flow/PLAN.md")
+        git(repo, "commit", "-qm", "fixture")
+        return repo, plan
+
+    def test_plan_record_carries_gated_board_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), BOARD_PLAN)
+            record = server.plan_record(plan, repo)
+        self.assertEqual(record["entity"], "snowcubes")
+        self.assertEqual(record["mode"], "close")
+        self.assertEqual(record["milestone"], "Gift flow live on storefront")
+        self.assertEqual(
+            record["checkpoints"],
+            {"pending": 1, "in_progress": 1, "blocked": 0, "completed": 1},
+        )
+
+    def test_board_fields_fall_back_safely(self) -> None:
+        bare = "# Plain plan\n\n## Operator Brief\n\n- Outcome: something\n"
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), bare)
+            record = server.plan_record(plan, repo)
+        self.assertEqual(record["entity"], "gift-flow")
+        self.assertIsNone(record["mode"])
+        self.assertIsNone(record["milestone"])
+        self.assertIsNone(record["checkpoints"])
+
+    def test_board_fields_reject_unsafe_or_invalid_values(self) -> None:
+        unsafe = (
+            "# Unsafe\n\n## Operator Brief\n\n"
+            "- Entity: Not A Slug!!\n"
+            "- Mode: turbo\n"
+            "- Milestone: Fix ~/Development/secret-client build\n"
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), unsafe)
+            record = server.plan_record(plan, repo)
+        self.assertEqual(record["entity"], "gift-flow")
+        self.assertIsNone(record["mode"])
+        self.assertIsNone(record["milestone"])
+
+
 if __name__ == "__main__":
     unittest.main()

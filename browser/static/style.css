@@ -96,3 +96,28 @@ main:focus { outline: none; }
   :root { --bg: #111713; --surface: #19211c; --ink: #edf3ef; --muted: #a8b5ad; --line: #344139; --accent: #72d4a6; --accent-soft: #1d3d2e; --warm: #ffc46f; --warm-soft: #3a2c18; }
   .card { box-shadow: none; }
 }
+
+.topbar-actions { display: flex; gap: 0.75rem; align-items: center; }
+.views { display: flex; gap: 0.25rem; border: 1px solid var(--line, #d5d2c8); border-radius: 999px; padding: 0.2rem; }
+.view-toggle { border: 0; background: transparent; padding: 0.35rem 0.9rem; border-radius: 999px; cursor: pointer; font: inherit; }
+.view-toggle.active { background: var(--ink, #262626); color: var(--paper, #faf8f2); }
+.board { padding: 1rem 1.5rem 2rem; display: grid; gap: 1.25rem; }
+.lane-head { display: flex; align-items: baseline; gap: 0.75rem; border-bottom: 1px solid var(--line, #d5d2c8); padding-bottom: 0.3rem; }
+.lane-title { margin: 0; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.lane-count { font-size: 0.8rem; opacity: 0.65; }
+.lane-cards { display: flex; gap: 0.75rem; overflow-x: auto; padding: 0.75rem 0 0.25rem; }
+.board-card { flex: 0 0 15rem; text-align: left; border: 1px solid var(--line, #d5d2c8); border-radius: 0.6rem; background: var(--card, #fffdf7); padding: 0.75rem 0.9rem; cursor: pointer; font: inherit; display: grid; gap: 0.4rem; align-content: start; }
+.board-card:hover { border-color: var(--ink, #262626); }
+.board-card.deferred { opacity: 0.55; }
+.board-card-head { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+.mode-chip { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; border: 1px solid currentColor; border-radius: 999px; padding: 0.1rem 0.5rem; }
+.board-state { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; }
+.board-milestone { margin: 0; font-size: 0.85rem; }
+.meter { margin: 0; font-size: 0.8rem; display: flex; gap: 0.6rem; }
+.meter-blocked { color: #a03d2e; }
+.board-decision { margin: 0; font-size: 0.8rem; font-weight: 600; }
+@media (max-width: 760px) {
+  .board { padding: 0.75rem; }
+  .board-card { flex-basis: 11rem; }
+}
+.board[hidden] { display: none; }
