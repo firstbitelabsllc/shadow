@@ -1013,13 +1013,13 @@ Code, or Cursor without taking custody of credentials or conversations.
   identity is refused before any host starts; browser and CLI time budgets
   nest; interrupted sessions relaunch without re-spending finished lanes; and
   concurrent launch/accept of one session is refused by a local lock.
-- [pending] Successor: after the drive-finish PR merges green, release
-  v2.2.1, reinstall the packaged CLI on the operator machine, reconfirm
-  `pilot-puppy doctor` 11/11, then run one real multi-lane Drive Packet on a
-  customer repository end to end. Exact resume move: check the drive-finish
-  PR's hosted checks; merge when green; `npm run release:verify`; publish the
-  GitHub release with the package; `npm install -g` the tarball; rerun doctor
-  and one full prepare/launch/accept.
+- [pending] Successor: run one real multi-lane Drive Packet on a customer
+  repository end to end on the installed v2.2.1 CLI — two or three
+  path-disjoint lanes on distinct declared hosts, driven prepare → launch →
+  accept with kept-branch review, receipts folded back here. Exact resume
+  move: pick the highest-value reachable repo from its own canonical plan,
+  write the `pilot-puppy-drive.v1` packet into that repo's PLAN.md, then
+  `pilot-puppy drive prepare --repo <clean worktree>`.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -1045,6 +1045,20 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-05T06:20:00Z: R11 is merged, released, installed, and re-proven.
+  PR #245 squash-merged to `main@7fd88682` with hosted CI, CodeQL (three
+  analyzers), gitleaks, the public-ready gate, and tests on Python
+  3.10/3.12/3.14 all green; Graphite was triggered and posted no findings.
+  Release v2.2.1 is public with package SHA-256 `e2496f31…d64587`; the
+  artifact was re-downloaded from the public release, checksum-verified,
+  and installed globally, and `pilot-puppy doctor` reads 11/11. The exact
+  dogfood shape that v2.2.0 failed — a Python repo with no `.pilot-puppy/`
+  gitignore entry, a proof that generates interpreter caches, and a real
+  native Cursor host — now completes prepare, launch (passed), accept (one
+  local acceptance merge), and a second prepare on the installed CLI. The
+  remaining Drive proof is the multi-lane customer-repo run in the
+  successor row.
 
 - 2026-08-05T05:45:00Z: R11 done from fresh `main@171351ac` in an isolated
   worktree. First, the operator machine finally runs what shipped: the
