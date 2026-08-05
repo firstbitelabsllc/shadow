@@ -89,6 +89,22 @@ Acceptance reruns each named proof in a separate clean lead checkout, then
 creates one local Git merge commit in that project. It does not push, open a
 pull request, deploy, publish, spend, delete, or contact another computer.
 
+## Goal chaining
+
+A goal is never allowed to simply end. When a goal condition is met, parks,
+or is superseded, the SAME closeout must:
+
+1. append the successor pointer to the owning PLAN.md — one row naming the
+   next Outcome and its exact resume move (or none-mission-complete with the
+   evidence line);
+2. when successor work exists, hand the person the next /goal text ready to
+   paste — the chain carries continuity, not the person memory;
+3. leave no in-flight background work (builds, sweeps, collectors) ownerless:
+   the successor names each one and its completion predicate.
+
+A goal that ends without its pointer is an incomplete cycle, exactly like a
+worktree left standing after LAND.
+
 ## Brief the person
 
 Lead with:
