@@ -22,6 +22,11 @@ same defaults without another configuration file:
 
 Provider logins remain in their native tools.
 
+Pilot Puppy keeps bounded local evidence in `.pilot-puppy/` inside each
+project. Drive treats that directory as product-owned state, so it never
+blocks preparation or acceptance; adding `.pilot-puppy/` to the project's
+`.gitignore` is still recommended to keep ordinary Git output quiet.
+
 Telemetry is an optional observation seam, not Pilot Puppy's control plane. It
 requires the separately installed `langfuse` Python package and all three
 `LANGFUSE_*` variables above. It exports only the closed metadata schema in the

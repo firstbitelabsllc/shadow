@@ -847,12 +847,17 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         output_texts.append(result.get("stderr", b"").decode("utf-8", errors="replace"))
         if final_message.is_file() and not final_message.is_symlink() and final_message.stat().st_size <= MAX_RECEIPT_BYTES:
             output_texts.append(final_message.read_text(encoding="utf-8", errors="replace"))
+        after = status_paths(repo)
         after_all = status_paths(repo, include_ignored=True)
         state_after = local_state_snapshot(repo)
         changed = sorted(
-            set(before_all).symmetric_difference(after_all)
+            set(before).symmetric_difference(after)
             | {path for path in set(state_before) | set(state_after) if state_before.get(path) != state_after.get(path)}
         )
+        # Ignored files created during the run (interpreter caches, dependency
+        # installs from the bounded proof) are recorded for review but cannot
+        # reach a commit, a merge, or the clean lead re-proof checkout.
+        ignored_artifacts = sorted((set(after_all) - set(after)) - before_ignored)
         status = "failed"
         blocked_reason: dict[str, str] | None = None
         host_receipt: dict[str, Any] | None = None
@@ -894,6 +899,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "summary": (host_receipt or {}).get("summary"),
             "proof_ref": (host_receipt or {}).get("proof_ref"),
             "changed_paths": [_scrub_detail(path) for path in changed],
+            "ignored_artifact_paths": [_scrub_detail(path) for path in ignored_artifacts],
             "tests": (host_receipt or {}).get("tests", []),
             "host_exit_code": result.get("returncode"),
             "timed_out": bool(result.get("timed_out")),

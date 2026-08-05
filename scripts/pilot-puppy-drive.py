@@ -87,7 +87,15 @@ def exact_git_root(value: Path) -> Path:
 
 
 def clean_head(repo: Path) -> str:
-    if git(repo, "status", "--porcelain=v1", "--untracked-files=normal"):
+    # Untracked Drive evidence under .pilot-puppy/ is product-owned local
+    # state, not project changes; everything else must be saved or committed.
+    dirty = [
+        line
+        for line in git(repo, "status", "--porcelain=v1", "--untracked-files=normal").splitlines()
+        if not (line.startswith("?? ") and line[3:].rstrip("/") == ".pilot-puppy")
+        and not (line.startswith("?? ") and line[3:].startswith(".pilot-puppy/"))
+    ]
+    if dirty:
         raise DriveError("save or commit the current project changes before preparing ready work")
     return git(repo, "rev-parse", "--verify", "HEAD")
 
@@ -215,6 +223,8 @@ def prepare(
                 "host": lane["selection"]["host"],
                 "route_sha256": route_sha256(route_document),
                 "status": "prepared",
+                "merge": lane["merge"],
+                "reason": None,
                 "scope_ok": None,
                 "proof_ok": None,
                 "merge_ok": None,
@@ -231,6 +241,49 @@ def prepare(
     }
     write_exclusive(evidence / f"drive-{session_id}.json", session)
     return session, selected, notices
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, OverflowError):
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def acquire_lock(path: Path, label: str) -> Path:
+    """Take one exclusive local lock file, replacing only a dead holder's."""
+
+    for _attempt in range(2):
+        try:
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            try:
+                holder = int(path.read_text(encoding="utf-8").strip() or "0")
+            except (OSError, ValueError, UnicodeError):
+                holder = 0
+            if holder > 0 and _pid_alive(holder):
+                raise DriveError(f"{label} is already being worked on by another local process")
+            path.unlink(missing_ok=True)
+            continue
+        except OSError as exc:
+            raise DriveError(f"{label} could not be locked for exclusive local work") from exc
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(str(os.getpid()))
+        return path
+    raise DriveError(f"{label} is already being worked on by another local process")
+
+
+def release_lock(path: Path) -> None:
+    path.unlink(missing_ok=True)
+
+
+def session_lock_path(repo: Path, session_id: str) -> Path:
+    if SESSION_ID_RE.fullmatch(session_id) is None:
+        raise DriveError("Drive session ID is invalid")
+    return evidence_directory(repo) / f"drive-{session_id}.lock"
 
 
 def session_file(repo: Path, session_id: str) -> Path:
@@ -272,6 +325,8 @@ def validate_session(value: object, session_id: str) -> dict[str, Any]:
         "host",
         "route_sha256",
         "status",
+        "merge",
+        "reason",
         "scope_ok",
         "proof_ok",
         "merge_ok",
@@ -294,6 +349,9 @@ def validate_session(value: object, session_id: str) -> dict[str, Any]:
             or not re.fullmatch(r"[0-9a-f]{64}", item["route_sha256"])
             or not isinstance(item["status"], str)
             or item["status"] not in {"prepared", "passed", "needs_attention"}
+            or not isinstance(item["merge"], str)
+            or item["merge"] not in {"ordinary", "manual"}
+            or not (item["reason"] is None or (isinstance(item["reason"], str) and len(item["reason"]) <= 300))
             or any(value is not None and type(value) is not bool for value in (item["scope_ok"], item["proof_ok"], item["merge_ok"]))
         ):
             raise DriveError("prepared Drive session is invalid")
@@ -472,6 +530,11 @@ def cached_diff_is_clean(repo: Path) -> bool:
     return result.returncode == 0
 
 
+def staged_paths(repo: Path) -> list[str]:
+    raw = git(repo, "diff", "--cached", "--name-only", "-z")
+    return sorted({path for path in raw.split("\0") if path})
+
+
 def create_lead_review_worktree(repo: Path, attempt: Path, lane_id: str, commit: str) -> Path:
     destination = attempt / lane_id
     if destination.is_symlink() or destination.exists():
@@ -523,14 +586,17 @@ def merge_review_branches(
         abort_our_merge(repo)
         raise DriveError("the checked work could not be brought together safely")
     try:
-        changed = HOST.status_paths(repo)
+        # The acceptance commit contains exactly the staged merge result, so
+        # the scope gate validates staged paths; untracked local state (Drive
+        # evidence, proof-run caches) can never enter the commit.
+        changed = staged_paths(repo)
         if not changed or not all(HOST.path_allowed(path, allowed_paths) for path in changed):
             raise DriveError("the checked work changed outside its declared files")
         if not cached_diff_is_clean(repo):
             raise DriveError("the checked work has a whitespace error")
         if not all(proof_passes(repo, proof, timeout_seconds) for proof in proofs):
             raise DriveError("the checked work did not pass its named check after review")
-        changed = HOST.status_paths(repo)
+        changed = staged_paths(repo)
         if not changed or not all(HOST.path_allowed(path, allowed_paths) for path in changed):
             raise DriveError("the checked work changed outside its declared files")
         committed = git_completed(repo, "commit", "-m", f"pilot-puppy accept: {session_id}", timeout=30)
@@ -588,7 +654,7 @@ def diff_is_clean(worktree: Path) -> bool:
 
 def all_changes_are_allowed(worktree: Path, allowed_paths: list[str]) -> bool:
     try:
-        changed = HOST.status_paths(worktree, include_ignored=True)
+        changed = HOST.status_paths(worktree)
     except HOST.HostError:
         return False
     return all(
@@ -597,7 +663,7 @@ def all_changes_are_allowed(worktree: Path, allowed_paths: list[str]) -> bool:
     )
 
 
-def commit_lane(worktree: Path, lane_id: str, allowed_paths: list[str]) -> bool:
+def commit_lane(worktree: Path, lane_id: str, allowed_paths: list[str]) -> tuple[bool, str | None]:
     try:
         staged = subprocess.run(
             ["git", "-C", str(worktree), "add", "--", *allowed_paths],
@@ -608,7 +674,7 @@ def commit_lane(worktree: Path, lane_id: str, allowed_paths: list[str]) -> bool:
             check=False,
         )
         if staged.returncode:
-            return False
+            return False, "the changed files could not be staged for a local save"
         has_diff = subprocess.run(
             ["git", "-C", str(worktree), "diff", "--cached", "--quiet"],
             stdin=subprocess.DEVNULL,
@@ -618,18 +684,22 @@ def commit_lane(worktree: Path, lane_id: str, allowed_paths: list[str]) -> bool:
             check=False,
         )
         if has_diff.returncode != 1:
-            return False
+            return False, "the checked work had nothing new to save"
         committed = subprocess.run(
             ["git", "-C", str(worktree), "commit", "-m", f"pilot-puppy drive: {lane_id}"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
             timeout=30,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False
-    return committed.returncode == 0
+        return False, "the local save could not run"
+    if committed.returncode == 0:
+        return True, None
+    detail = HOST._scrub_detail(committed.stderr or "").strip()
+    return False, ("the local save was refused: " + detail[-240:]) if detail else "the local save was refused"
 
 
 def lane_result(
@@ -675,24 +745,93 @@ def lane_result(
         finally:
             temporary_task.unlink(missing_ok=True)
         if code != 0 or attempt.get("status") != "ok":
-            result.update({"status": "needs_attention", "scope_ok": None, "proof_ok": None, "merge_ok": None})
+            blocked = attempt.get("blocked") if isinstance(attempt, dict) else None
+            reason = blocked.get("detail") if isinstance(blocked, dict) else None
+            result.update(
+                {
+                    "status": "needs_attention",
+                    "reason": (reason or "the coding tool did not finish this work")[:300],
+                    "scope_ok": None,
+                    "proof_ok": None,
+                    "merge_ok": None,
+                }
+            )
             return result
         if not all_changes_are_allowed(worktree, packet_lane["allowed_paths"]):
-            result.update({"status": "needs_attention", "scope_ok": False, "proof_ok": None, "merge_ok": None})
+            result.update(
+                {
+                    "status": "needs_attention",
+                    "reason": "the work changed files outside the declared list",
+                    "scope_ok": False,
+                    "proof_ok": None,
+                    "merge_ok": None,
+                }
+            )
             return result
         if not diff_is_clean(worktree) or not proof_passes(worktree, packet_lane["proof"], timeout_seconds):
-            result.update({"status": "needs_attention", "scope_ok": True, "proof_ok": False, "merge_ok": None})
+            result.update(
+                {
+                    "status": "needs_attention",
+                    "reason": "the named check did not pass after the work",
+                    "scope_ok": True,
+                    "proof_ok": False,
+                    "merge_ok": None,
+                }
+            )
             return result
-        if not commit_lane(worktree, packet_lane["id"], packet_lane["allowed_paths"]):
-            result.update({"status": "needs_attention", "scope_ok": True, "proof_ok": True, "merge_ok": None})
+        committed, commit_reason = commit_lane(worktree, packet_lane["id"], packet_lane["allowed_paths"])
+        if not committed:
+            result.update(
+                {
+                    "status": "needs_attention",
+                    "reason": (commit_reason or "the local save was refused")[:300],
+                    "scope_ok": True,
+                    "proof_ok": True,
+                    "merge_ok": None,
+                }
+            )
             return result
-        result.update({"status": "passed", "scope_ok": True, "proof_ok": True, "merge_ok": None})
+        result.update({"status": "passed", "reason": None, "scope_ok": True, "proof_ok": True, "merge_ok": None})
         return result
     except (DriveError, HOST.HostError, OSError, UnicodeError):
-        result.update({"status": "needs_attention", "scope_ok": None, "proof_ok": None, "merge_ok": None})
+        result.update(
+            {
+                "status": "needs_attention",
+                "reason": "this lane stopped on a local error",
+                "scope_ok": None,
+                "proof_ok": None,
+                "merge_ok": None,
+            }
+        )
         return result
     finally:
         result["duration_s"] = round(time.monotonic() - started, 3)
+
+
+def recover_interrupted_lane(repo: Path, session_id: str, session_lane: dict[str, Any], base_sha256: str) -> None:
+    """Reset one interrupted lane in place, never discarding committed work."""
+
+    branch = drive_branch_name(session_id, session_lane["id"])
+    probe = git_completed(repo, "rev-parse", "--verify", f"{branch}^{{commit}}")
+    if probe.returncode == 0 and probe.stdout.strip() != base_sha256:
+        session_lane.update(
+            {
+                "status": "needs_attention",
+                "reason": "this lane was interrupted; its branch is kept for review",
+                "scope_ok": None,
+                "proof_ok": None,
+                "merge_ok": None,
+            }
+        )
+        return
+    destination = worktree_path(repo, session_id, session_lane["id"])
+    if destination.exists():
+        git_completed(repo, "worktree", "remove", "--force", str(destination), timeout=30)
+    if probe.returncode == 0:
+        git_completed(repo, "branch", "-D", branch, timeout=15)
+    session_lane.update(
+        {"status": "prepared", "reason": None, "scope_ok": None, "proof_ok": None, "merge_ok": None}
+    )
 
 
 def launch(
@@ -706,8 +845,9 @@ def launch(
     """Run one explicit foreground session without pushing or merging anything."""
 
     session_path, session = read_session(repo, session_id)
-    if session["state"] != "prepared":
-        raise DriveError("this Drive session has already started or finished")
+    if session["state"] not in {"prepared", "running"}:
+        raise DriveError("this Drive session has already finished")
+    interrupted = session["state"] == "running"
     source = read_plan(plan)
     if plan_sha256(source) != session["plan_sha256"]:
         raise DriveError("the plan changed after preparation; prepare ready work again")
@@ -719,6 +859,16 @@ def launch(
     packet_lanes = {lane["id"]: lane for lane in document["lanes"]}
     if any(lane["id"] not in packet_lanes for lane in session["lanes"]):
         raise DriveError("the prepared work no longer exists in the plan")
+    if not commit_identity_is_ready(repo):
+        raise DriveError("this project needs a local Git commit identity before launching ready work")
+    if interrupted:
+        # An explicit relaunch of an interrupted session: finished lanes keep
+        # their result, lanes that already saved commits keep their branch for
+        # review, and only lanes that never recorded anything run again.
+        for session_lane in session["lanes"]:
+            if session_lane["status"] == "prepared":
+                recover_interrupted_lane(repo, session_id, session_lane, session["base_sha256"])
+        replace_session(session_path, session)
     session["state"] = "running"
     replace_session(session_path, session)
     telemetry.record_drive(
@@ -738,15 +888,31 @@ def launch(
     finished: list[dict[str, Any]] = []
     for session_lane in session["lanes"]:
         packet_lane = packet_lanes[session_lane["id"]]
+        if session_lane["status"] != "prepared":
+            finished.append(dict(session_lane))
+            session["lanes"] = finished + session["lanes"][len(finished) :]
+            continue
         session_lane["base_sha256"] = session["base_sha256"]
-        outcome = lane_result(
-            repo=repo,
-            session_id=session_id,
-            session_lane=session_lane,
-            packet_lane=packet_lane,
-            roster_path=roster_path,
-            timeout_seconds=timeout_seconds,
-        )
+        try:
+            outcome = lane_result(
+                repo=repo,
+                session_id=session_id,
+                session_lane=session_lane,
+                packet_lane=packet_lane,
+                roster_path=roster_path,
+                timeout_seconds=timeout_seconds,
+            )
+        except Exception:  # a lane bug must never strand the whole session
+            outcome = dict(session_lane)
+            outcome.update(
+                {
+                    "status": "needs_attention",
+                    "reason": "this lane stopped on a local error",
+                    "scope_ok": None,
+                    "proof_ok": None,
+                    "merge_ok": None,
+                }
+            )
         outcome.pop("base_sha256", None)
         duration = outcome.pop("duration_s", 0)
         finished.append(outcome)
@@ -818,6 +984,8 @@ def accept(
         raise DriveError("this project needs a local Git commit identity before accepting work")
 
     candidates: list[tuple[dict[str, Any], dict[str, Any], str, str]] = []
+    ordinary_branches: list[str] = []
+    ordinary_ids: set[str] = set()
     allowed_paths: list[str] = []
     proofs: list[list[str]] = []
     for session_lane in session["lanes"]:
@@ -835,8 +1003,11 @@ def accept(
         if not commit_diff_is_clean(repo, session["base_sha256"], commit):
             raise DriveError("the kept review branch has a whitespace error")
         candidates.append((session_lane, packet_lane, branch, commit))
-        allowed_paths.extend(packet_lane["allowed_paths"])
-        proofs.append(packet_lane["proof"])
+        if packet_lane["merge"] == "ordinary":
+            ordinary_branches.append(branch)
+            ordinary_ids.add(packet_lane["id"])
+            allowed_paths.extend(packet_lane["allowed_paths"])
+            proofs.append(packet_lane["proof"])
 
     attempt = new_review_attempt(repo, session_id)
     for _session_lane, packet_lane, _branch, commit in candidates:
@@ -844,17 +1015,21 @@ def accept(
         if not lead_review_passes(review, packet_lane["proof"], timeout_seconds):
             raise DriveError("the checked work did not reproduce in its lead review checkout")
 
-    merge_review_branches(
-        repo=repo,
-        branches=[branch for _session_lane, _packet_lane, branch, _commit in candidates],
-        allowed_paths=allowed_paths,
-        proofs=proofs,
-        timeout_seconds=timeout_seconds,
-        session_id=session_id,
-    )
+    # A lane declared merge:"manual" is checked and reproduced like every
+    # other lane, but its kept branch stays for the person to merge; only
+    # merge:"ordinary" lanes enter the one local acceptance commit.
+    if ordinary_branches:
+        merge_review_branches(
+            repo=repo,
+            branches=ordinary_branches,
+            allowed_paths=allowed_paths,
+            proofs=proofs,
+            timeout_seconds=timeout_seconds,
+            session_id=session_id,
+        )
     session["state"] = ACCEPTED_SESSION_STATE
     for lane in session["lanes"]:
-        lane["merge_ok"] = True
+        lane["merge_ok"] = True if lane["id"] in ordinary_ids else None
     replace_session(session_path, session)
     telemetry.record_drive(
         event="drive_accepted",
@@ -900,6 +1075,9 @@ def render_launch(session: dict[str, Any]) -> str:
         lines.append(f"Finished and checked: {len(passed)}")
     if attention:
         lines.append(f"Needs attention: {len(attention)}")
+        for lane in attention:
+            if lane.get("reason"):
+                lines.append(f"- {lane['id']}: {lane['reason']}")
     lines.extend(
         [
             "",
@@ -911,11 +1089,17 @@ def render_launch(session: dict[str, Any]) -> str:
 
 
 def render_accept(session: dict[str, Any]) -> str:
-    return (
-        "Work brought into this project\n\n"
-        f"Finished and checked: {len(session['lanes'])}\n"
-        "No remote branch, pull request, deployment, publication, or message was created.\n"
-    )
+    merged = [lane for lane in session["lanes"] if lane["merge_ok"] is True]
+    manual = [lane for lane in session["lanes"] if lane["merge_ok"] is not True]
+    lines = ["Work brought into this project", ""]
+    lines.append(f"Finished and checked: {len(session['lanes'])}")
+    if merged:
+        lines.append(f"Brought into the project: {len(merged)}")
+    for lane in manual:
+        branch = drive_branch_name(session["session_id"], lane["id"])
+        lines.append(f"- {lane['id']}: checked and kept on branch {branch} for your own merge")
+    lines.append("No remote branch, pull request, deployment, publication, or message was created.")
+    return "\n".join(lines) + "\n"
 
 
 def parser() -> argparse.ArgumentParser:
@@ -965,21 +1149,31 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.timeout_seconds < 1 or args.timeout_seconds > 3_600:
             raise DriveError("timeout must be between 1 and 3600 seconds")
-        if args.command == "launch":
-            session = launch(
-                repo=repo,
-                plan=plan,
-                roster_path=args.roster_file,
-                session_id=args.session,
-                timeout_seconds=args.timeout_seconds,
-            )
-        else:
-            session = accept(
-                repo=repo,
-                plan=plan,
-                session_id=args.session,
-                timeout_seconds=args.timeout_seconds,
-            )
+        session_lock = acquire_lock(session_lock_path(repo, args.session), "this Drive session")
+        try:
+            if args.command == "launch":
+                session = launch(
+                    repo=repo,
+                    plan=plan,
+                    roster_path=args.roster_file,
+                    session_id=args.session,
+                    timeout_seconds=args.timeout_seconds,
+                )
+            else:
+                accept_lock = acquire_lock(
+                    evidence_directory(repo) / "drive-accept.lock", "this project's acceptance step"
+                )
+                try:
+                    session = accept(
+                        repo=repo,
+                        plan=plan,
+                        session_id=args.session,
+                        timeout_seconds=args.timeout_seconds,
+                    )
+                finally:
+                    release_lock(accept_lock)
+        finally:
+            release_lock(session_lock)
     except (DriveError, DrivePacketError, OSError, UnicodeError) as exc:
         print(f"pilot-puppy drive: {exc}", file=sys.stderr)
         return 1

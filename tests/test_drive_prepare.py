@@ -210,7 +210,7 @@ print("```")
                     "task": "Write the requested result file and report the focused proof.",
                     "allowed_paths": ["result.txt"],
                     "proof": ["python3", "-c", "import pathlib; assert pathlib.Path('result.txt').read_text() == 'changed\\n'"],
-                    "merge": "manual",
+                    "merge": "ordinary",
                 }
             ]
             (repo / "PLAN.md").write_text(
@@ -352,7 +352,7 @@ print("```")
                     "task": "Write the requested result file and report the focused proof.",
                     "allowed_paths": ["result.txt"],
                     "proof": ["python3", "-c", "import pathlib; assert pathlib.Path('result.txt').read_text() == 'changed\\n'"],
-                    "merge": "manual",
+                    "merge": "ordinary",
                 }
             ]
             (repo / "PLAN.md").write_text(

@@ -20,6 +20,10 @@ before the attempt is written.
 
 Pre-existing ignored files must be inside an allowed path or the bounded local
 evidence directory. This keeps ignored files inside the same scope audit.
+Ignored files that appear during the run—interpreter caches or dependency
+installs created by the bounded proof—never block scope. They are listed in
+the attempt receipt as `ignored_artifact_paths` for review; they cannot reach
+a commit, a merge, or the clean lead re-proof checkout.
 
 ## Optional owner-local seat selector
 

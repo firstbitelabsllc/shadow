@@ -1004,6 +1004,22 @@ Code, or Cursor without taking custody of credentials or conversations.
   metadata-only Langfuse observation after local truth exists; it may never
   receive task, plan, code, prompt, path, provider, or credential data, and it
   may never route, launch, retry, accept, or alter a local result.
+- [completed] R11: Close the real-dogfood gaps in Supervised Drive found by
+  the first end-to-end run and an adversarially verified 21-agent review of
+  v2.2.0. Ignored build artifacts and product-owned `.pilot-puppy/` state no
+  longer block or strand green work; the loopback page can no longer receive
+  private paths or secret-shaped text; declared `merge:"manual"` lanes stay on
+  their kept branches; every needs_attention lane names its reason; commit
+  identity is refused before any host starts; browser and CLI time budgets
+  nest; interrupted sessions relaunch without re-spending finished lanes; and
+  concurrent launch/accept of one session is refused by a local lock.
+- [pending] Successor: after the drive-finish PR merges green, release
+  v2.2.1, reinstall the packaged CLI on the operator machine, reconfirm
+  `pilot-puppy doctor` 11/11, then run one real multi-lane Drive Packet on a
+  customer repository end to end. Exact resume move: check the drive-finish
+  PR's hosted checks; merge when green; `npm run release:verify`; publish the
+  GitHub release with the package; `npm install -g` the tarball; rerun doctor
+  and one full prepare/launch/accept.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -1029,6 +1045,27 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-05T05:45:00Z: R11 done from fresh `main@171351ac` in an isolated
+  worktree. First, the operator machine finally runs what shipped: the
+  released v2.2.0 package (SHA-256 `d5c92d…ab3723`) was installed globally
+  from its verified artifact, the three skill mounts were repointed to the
+  installed package, and `pilot-puppy doctor` reads 11/11 — all without
+  touching the dirty lane checkout that had blocked this handoff. The first
+  real end-to-end Drive dogfood on a disposable Python project then failed
+  honestly: the host fixed the file and the focused test passed, but the
+  scope gate blocked the lane on `__pycache__` files created by running the
+  declared proof. A 21-agent adversarial review of the v2.2.0 source
+  confirmed nine defect clusters in total, including a second P0 pair
+  (vanilla-repo accept stranding on the product's own evidence; the browser
+  reflecting raw OSError text with absolute paths). Every confirmed P0/P1 is
+  fixed in six bounded commits with regression tests, and the same dogfood
+  now passes prepare, launch, accept, and re-prepare. Proof on this head:
+  Python 172/172, JavaScript 4/4, desktop and phone browser 6/6, docs build,
+  public-ready privacy scan 0 findings across 106 files, and the development
+  package check. Nothing was pushed before this entry's commit; deferred P2
+  structure notes from the review (pseudo-module exec, duplicated sealing
+  helpers) are recorded here and intentionally not acted on.
 
 - 2026-08-04T22:29:33Z: R10 now closes the local work loop without becoming an
   autonomous delivery system. After a real disposable native-Codex Drive task

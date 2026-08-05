@@ -34,5 +34,7 @@ Drive Packet input belongs in the project's existing `PLAN.md`, inside one
 isolated worktrees, and stops each failed lane without retrying or switching
 tools. `accept` is a separate foreground action: it repeats each named check in
 a clean detached lead checkout, then merges only fully green kept branches into
-the local project. Drive never pushes, opens a PR, deploys, publishes, spends,
-or deletes.
+the local project. Each lane declares `merge`: `"ordinary"` work enters the one
+local acceptance commit, while `"manual"` work is checked and reproduced the
+same way but stays on its kept branch for the person to merge themselves.
+Drive never pushes, opens a PR, deploys, publishes, spends, or deletes.

@@ -143,7 +143,7 @@ class BrowserTests(unittest.TestCase):
             completed = subprocess.CompletedProcess([], 0, json.dumps(session), "")
             with (
                 mock.patch.object(server, "repository_root", return_value=repo),
-                mock.patch.object(server.subprocess, "run", return_value=completed) as run,
+                mock.patch.object(server, "run_drive_subprocess", return_value=completed) as run,
             ):
                 projection = server.run_drive_action(plan, action="prepare")
         self.assertEqual(projection, {
@@ -175,7 +175,7 @@ class BrowserTests(unittest.TestCase):
             completed = subprocess.CompletedProcess([], 1, json.dumps(session), "expected local work result")
             with (
                 mock.patch.object(server, "repository_root", return_value=repo),
-                mock.patch.object(server.subprocess, "run", return_value=completed),
+                mock.patch.object(server, "run_drive_subprocess", return_value=completed),
             ):
                 projection = server.run_drive_action(plan, action="launch", session_id="a" * 32)
         self.assertEqual(projection["state"], "finished")
@@ -197,7 +197,7 @@ class BrowserTests(unittest.TestCase):
             completed = subprocess.CompletedProcess([], 0, json.dumps(session), "")
             with (
                 mock.patch.object(server, "repository_root", return_value=repo),
-                mock.patch.object(server.subprocess, "run", return_value=completed) as run,
+                mock.patch.object(server, "run_drive_subprocess", return_value=completed) as run,
             ):
                 projection = server.run_drive_action(plan, action="accept", session_id="a" * 32)
         self.assertEqual(projection, {
@@ -337,6 +337,95 @@ class BrowserTests(unittest.TestCase):
                 connection.request("GET", "/api/plan?path=project/PLAN.md")
                 self.assertEqual(connection.getresponse().status, 404)
                 connection.close()
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
+
+    def test_drive_budgets_nest_and_the_cli_owns_the_deadline(self) -> None:
+        worst_case = 3 * 2 * server.DRIVE_STEP_TIMEOUT_SECONDS
+        self.assertGreaterEqual(server.DRIVE_LAUNCH_TIMEOUT_SECONDS, worst_case)
+        self.assertGreaterEqual(server.DRIVE_ACCEPT_TIMEOUT_SECONDS, worst_case)
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_repo(Path(dirname))
+            completed = subprocess.CompletedProcess([], 0, "{}", "")
+            with (
+                mock.patch.object(server, "repository_root", return_value=repo),
+                mock.patch.object(server, "run_drive_subprocess", return_value=completed) as run,
+            ):
+                with self.assertRaises(server.BrowserError):
+                    server.run_drive_action(plan, action="launch", session_id="f" * 32)
+            command = run.call_args.args[0]
+            self.assertIn("--timeout-seconds", command)
+            self.assertIn(str(server.DRIVE_STEP_TIMEOUT_SECONDS), command)
+            self.assertEqual(run.call_args.args[2], server.DRIVE_LAUNCH_TIMEOUT_SECONDS)
+
+    def test_titles_block_every_canonical_private_path_and_secret_shape(self) -> None:
+        # Secret-shaped fixtures are assembled at runtime so the tracked
+        # source itself stays clean for the public-ready grep gate.
+        slack_token = "xoxb-" + "1234567890-ABCDEFGHIJKLMNOP"
+        aws_key = "AKIA" + "IOSFODNN7EXAMPLE"
+        github_token = "github_pat_" + "11ABCDEFGHIJKLMNOPQRSTUV"
+        unsafe_titles = (
+            "# Fix ~/Development/secret-client build",
+            "# Clean /private/var/folders cache",
+            "# Debug C:\\Users\\leo\\repo crash",
+            f"# Rotate {slack_token} now",
+            f"# Revoke {aws_key} key",
+            f"# Move {github_token} creds",
+        )
+        for heading in unsafe_titles:
+            self.assertEqual(server.title(heading + "\n", "client-repo"), "Client Repo", heading)
+        self.assertEqual(server.title("# Ship the release notes\n", "client-repo"), "Ship the release notes")
+
+    def test_brief_and_outcome_filters_block_secret_shapes(self) -> None:
+        from browser import chief_of_staff, outcome_source
+
+        secret_shaped = (
+            "rotate " + "AKIA" + "IOSFODNN7EXAMPLE" + " today",
+            "revoke " + "xoxb-" + "1234567890-ABCDEFGHIJKLMNOP",
+            "replace " + "sk-ant-" + "api03-abcdefghijkl",
+        )
+        for value in secret_shaped:
+            with self.assertRaises(chief_of_staff.DecisionInputError, msg=value):
+                chief_of_staff._public_text(value, "changed")
+            self.assertIsNotNone(outcome_source.SECRET_SHAPE_RE.search(value), value)
+        self.assertEqual(
+            chief_of_staff._public_text("shipped the release notes", "changed"),
+            "shipped the release notes",
+        )
+
+    def test_post_errors_never_reflect_exception_text(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, _ = self.make_repo(Path(dirname))
+            service = server.Server(("127.0.0.1", 0), repo)
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                failure = PermissionError(
+                    f"[Errno 13] Permission denied: '{repo}/.pilot-puppy/evidence'"
+                )
+                body = json.dumps({"plan": "project/PLAN.md"})
+                with mock.patch.object(server, "run_drive_action", side_effect=failure):
+                    connection = http.client.HTTPConnection("127.0.0.1", port)
+                    connection.request(
+                        "POST",
+                        "/api/drive/prepare",
+                        body=body,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Origin": f"http://127.0.0.1:{port}",
+                        },
+                    )
+                    response = connection.getresponse()
+                    payload = json.loads(response.read())
+                    connection.close()
+                self.assertEqual(response.status, 400)
+                self.assertNotIn(str(repo), payload["error"])
+                self.assertNotIn("Errno", payload["error"])
+                self.assertNotIn("evidence", payload["error"])
             finally:
                 service.shutdown()
                 service.server_close()

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2.1 — 2026-08-05
+
+- Drive no longer blocks or strands green work on ignored build artifacts or
+  on its own `.pilot-puppy/` evidence: interpreter caches and dependency
+  installs are recorded for review instead of failing scope, and acceptance
+  validates the staged merge result — exactly what the commit contains.
+- The loopback page can no longer receive private paths or secret-shaped
+  text: reflected error text is fixed plain English, and the title, brief,
+  and outcome filters now match the canonical evidence gates.
+- A lane declared `merge: "manual"` is checked and reproduced like every
+  other lane but stays on its kept branch for the person to merge.
+- Every lane that needs attention names its reason in plain English, and a
+  missing Git commit identity is refused before any host starts.
+- Browser and CLI time budgets nest, so the CLI's own bounded step timeouts
+  are always the effective limit; a backstop stop is reported honestly.
+- An interrupted Drive session relaunches without re-spending finished
+  lanes, and concurrent launches or accepts of one session are refused by a
+  local lock.
+
 ## 2.2.0 — 2026-08-04
 
 - Supervised Drive prepares up to three separate local coding lanes from the

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,8 @@ except ModuleNotFoundError:
     from browser.decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
     from browser.outcome_source import OutcomeSourceError, project_plan_outcome
 from pilot_puppy_drive_lib import DrivePacketError, extract_document, public_preview
+from pilot_puppy_drive_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
+from pilot_puppy_drive_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
 
 
 PRODUCT = "Pilot Puppy"
@@ -43,15 +46,22 @@ MAX_PLAN_BYTES = 1_000_000
 MAX_PLANS = 250
 MAX_DRIVE_OUTPUT_BYTES = 64 * 1024
 DRIVE_PREPARE_TIMEOUT_SECONDS = 30
-DRIVE_LAUNCH_TIMEOUT_SECONDS = 3_000
-DRIVE_ACCEPT_TIMEOUT_SECONDS = 3_000
+# The CLI owns the real deadline: every bounded step (host run, proof) gets
+# DRIVE_STEP_TIMEOUT_SECONDS, and the browser ceiling sits above the CLI's
+# worst case (three lanes x two bounded steps) so the browser never kills a
+# legitimately running drive out from under its own supervision.
+DRIVE_STEP_TIMEOUT_SECONDS = 900
+DRIVE_LAUNCH_TIMEOUT_SECONDS = 3 * 2 * DRIVE_STEP_TIMEOUT_SECONDS + 600
+DRIVE_ACCEPT_TIMEOUT_SECONDS = 3 * 2 * DRIVE_STEP_TIMEOUT_SECONDS + 600
 DRIVE_SESSION_RE = re.compile(r"^[0-9a-f]{32}$")
 SKIP_DIRS = frozenset({".git", ".pilot-puppy", ".venv", "venv", "node_modules", "dist", "build"})
 FIELD_RE = re.compile(r"^\s*-\s*([^:]+):\s*(.*?)\s*$")
 TASK_RE = re.compile(r"^\s*-\s*\[([^]]+)]\s*(.*?)\s*$")
 RECEIPT_MARKER_RE = re.compile(r"\s*\[receipt:[a-f0-9]{16}]\s*")
+# Title safety reuses the canonical private-path and secret-shape gates so the
+# browser filter is never weaker than the evidence filters guarding this rail.
 UNSAFE_TITLE_RE = re.compile(
-    r"(?:/Users/|/home/|file:///|sk-(?:ant-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,})",
+    f"(?:{DRIVE_PRIVATE_PATH_RE.pattern}|{DRIVE_SECRET_SHAPE_RE.pattern})",
     re.IGNORECASE,
 )
 ALLOWED_STATIC = {
@@ -286,7 +296,10 @@ def public_drive_session(value: object, *, action: str) -> dict[str, Any]:
             status != "passed"
             or lane.get("scope_ok") is not True
             or lane.get("proof_ok") is not True
-            or lane.get("merge_ok") is not True
+            or not (
+                lane.get("merge_ok") is True
+                or (lane.get("merge") == "manual" and lane.get("merge_ok") is None)
+            )
         ):
             raise BrowserError("Pilot Puppy could not safely read the local work update")
         statuses.append(status)
@@ -297,6 +310,44 @@ def public_drive_session(value: object, *, action: str) -> dict[str, Any]:
         "finished_count": statuses.count("passed"),
         "needs_attention_count": statuses.count("needs_attention"),
     }
+
+
+def run_drive_subprocess(command: list[str], repo: Path, timeout: int) -> subprocess.CompletedProcess[str]:
+    """Run the drive CLI as its own process group; the browser kill is a backstop."""
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=repo,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        raise BrowserError("Pilot Puppy could not finish that local step. Nothing was sent anywhere.") from exc
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Backstop only: the CLI's own bounded step timeouts fire first in
+        # normal operation. Stop the whole supervisor process group and say
+        # honestly that the work was stopped, not that nothing happened.
+        for stop_signal in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(os.getpgid(process.pid), stop_signal)
+            except (OSError, ProcessLookupError):
+                break
+            try:
+                process.wait(timeout=10)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        raise BrowserError(
+            "That local step ran past its time budget and was stopped. "
+            "Review the plan and any kept branches before starting it again."
+        ) from None
+    return subprocess.CompletedProcess(command, process.returncode, stdout=stdout, stderr=stderr)
 
 
 def run_drive_action(plan: Path, *, action: str, session_id: str | None = None) -> dict[str, Any]:
@@ -321,19 +372,9 @@ def run_drive_action(plan: Path, *, action: str, session_id: str | None = None) 
         if not isinstance(session_id, str) or DRIVE_SESSION_RE.fullmatch(session_id) is None:
             raise BrowserError("Choose ready work before taking that step")
         command.extend(["--session", session_id])
+        command.extend(["--timeout-seconds", str(DRIVE_STEP_TIMEOUT_SECONDS)])
         timeout = DRIVE_LAUNCH_TIMEOUT_SECONDS if action == "launch" else DRIVE_ACCEPT_TIMEOUT_SECONDS
-    try:
-        result = subprocess.run(
-            command,
-            cwd=repo,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise BrowserError("Pilot Puppy could not finish that local step. Nothing was sent anywhere.") from exc
+    result = run_drive_subprocess(command, repo, timeout)
     expected_partial_result = action == "launch" and result.returncode == 1
     if (result.returncode and not expected_partial_result) or len(result.stdout.encode("utf-8")) > MAX_DRIVE_OUTPUT_BYTES:
         raise BrowserError("Pilot Puppy could not prepare or start this work safely. Nothing was sent anywhere.")
@@ -544,8 +585,15 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 self.server.drive_lock.release()  # type: ignore[attr-defined]
             self._json(200, {"ok": True, "drive": drive})
-        except (BrowserError, DecisionInputError, OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except (BrowserError, DecisionInputError) as exc:
             self._json(400, {"error": str(exc)})
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            # Never reflect raw exception text: an OSError carries the full
+            # absolute path, and the browser must never receive paths.
+            self._json(
+                400,
+                {"error": "Pilot Puppy could not read or update that plan on this computer."},
+            )
 
     def log_message(self, format: str, *args: Any) -> None:
         if os.environ.get("PILOT_PUPPY_BROWSER_QUIET") != "1":

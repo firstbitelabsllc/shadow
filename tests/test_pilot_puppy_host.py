@@ -614,7 +614,7 @@ class PilotPuppyHostTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "output_unsafe")
 
-    def test_ignored_scope_escape_is_blocked(self) -> None:
+    def test_new_ignored_files_are_recorded_but_never_block_scope(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             repo = make_repo(root)
@@ -647,9 +647,11 @@ class PilotPuppyHostTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(payload["blocked"]["kind"], "scope_violation")
+            self.assertEqual(payload["status"], "ok")
+            self.assertIn(".env", payload["ignored_artifact_paths"])
+            self.assertNotIn(".env", payload["changed_paths"])
 
     def test_private_seat_model_is_bound_to_the_selected_route_and_never_enters_attempt(self) -> None:
         cases = (
