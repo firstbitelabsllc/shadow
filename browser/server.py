@@ -247,7 +247,13 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for current, directories, files in os.walk(root, followlinks=False):
         directories[:] = sorted(
-            name for name in directories if name not in SKIP_DIRS and not name.startswith(".")
+            name
+            for name in directories
+            if name not in SKIP_DIRS
+            and not name.startswith(".")
+            # Worktree pools hold disposable lane copies of the same plans;
+            # scanning them floods the plan cap with duplicates.
+            and not name.endswith("-worktrees")
         )
         if "PLAN.md" not in files:
             continue

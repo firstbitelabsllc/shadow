@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1 — 2026-08-05
+
+- Plan discovery prunes worktree pools (`*-worktrees/`), which flooded the
+  plan cap with duplicate lane copies on real machines and starved the board
+  of the canonical plans.
+
 ## 2.3.0 — 2026-08-05
 
 - The Method ships as standing behavior: `AGENT.md` (one chief-of-staff

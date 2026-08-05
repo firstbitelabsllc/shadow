@@ -453,6 +453,22 @@ BOARD_PLAN = """# Gift flow live
 """
 
 
+class WorktreePoolPruneTests(unittest.TestCase):
+    def test_discover_skips_worktree_pool_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            keep = root / "repo" / "PLAN.md"
+            keep.parent.mkdir(parents=True)
+            keep.write_text("# Keep me\n", encoding="utf-8")
+            for pool in ("repo-worktrees", ".worktrees"):
+                lane = root / pool / "lane-a"
+                lane.mkdir(parents=True)
+                (lane / "PLAN.md").write_text("# Lane copy\n", encoding="utf-8")
+            records = server.discover_plans(root)
+        titles = [record["title"] for record in records]
+        self.assertEqual(titles, ["Keep me"])
+
+
 class BoardProjectionTests(unittest.TestCase):
     def make_board_repo(self, root: Path, plan_text: str) -> tuple[Path, Path]:
         repo = root / "repo"
