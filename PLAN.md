@@ -832,16 +832,16 @@ Code, or Cursor without taking custody of credentials or conversations.
 ### M1 — Method encoded
 - [completed] C1~m3k7 AGENT.md lands encoding identity, modes+transition law, gate, steering, and the steal deltas | proof: npm run docs:build && npm run public-ready:grep | size: M
 - [completed] C2~q8f2 Method file contract lands in docs/reference/method.md + SKILL.md addendum with contract tests | proof: python3 -m unittest tests.test_method_contract | size: M | needs: ~m3k7
-- [in_progress] C3~w5d9 Method rides the installed skill mounts on the operator machine | proof: pilot-puppy doctor | size: S | needs: ~q8f2
+- [completed] C3~w5d9 (DoD) Method rides the installed skill mounts on the operator machine | proof: pilot-puppy doctor | size: S | needs: ~q8f2
 
 ### M2 — Board live
 - [completed] C4~t2b8 Scanner serves gated entity, mode, milestone, checkpoint counts | proof: python3 -m unittest tests.test_browser | size: M
 - [completed] C5~j6n4 Read-only board view, desktop and phone, zero write surfaces | proof: npm run test:e2e | size: M | needs: ~t2b8
-- [pending] C6~r9c3 (DoD) Full gate matrix green, PR merged, v2.3.0 released | proof: npm run verify | size: M | needs: ~j6n4, ~w5d9
+- [completed] C6~r9c3 (DoD) Full gate matrix green, PRs merged, v2.3.0–v2.3.2 released | proof: npm run verify | size: M | needs: ~j6n4, ~w5d9
 
 ### M3 — Dogfood
-- [pending] C7~h4v1 Three real plans tagged (moussey; snowcubes first PLAN.md; resplit origin-fresh) render as entity lanes | proof: /api/plans readback + board screenshot | size: M | needs: ~r9c3
-- [pending] C8~z7e5 (DoD) One Method-style cycle in a tagged repo: mode declared, checkpoint flipped with paired proof line | proof: that repo's PLAN.md diff | size: M | needs: ~h4v1
+- [completed] C7~h4v1 Three real plans tagged (moussey; snowcubes first PLAN.md; resplit origin-fresh) render as entity lanes | proof: /api/plans readback + board screenshot | size: M | needs: ~r9c3
+- [completed] C8~z7e5 (DoD) One Method-style cycle in a tagged repo: mode declared, checkpoint flipped with paired proof line | proof: that repo's PLAN.md diff | size: M | needs: ~h4v1
 
 ## Worklane boundary
 
@@ -1064,6 +1064,42 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-05T23:05:00Z M1 REPORTION seat=chief — tagged C3~w5d9 as M1's (DoD)
+  row; M1 shipped without one, which its own PLAN-LINT (pass E, milestone
+  shape) flags. Trigger: first lint of this plan under the released grammar.
+- 2026-08-05T23:05:00Z ~w5d9 PROOF seat=chief out=`pilot-puppy doctor` -> 11/11
+  on installed v2.3.2 (mounts resolve to the release package).
+- 2026-08-05T23:05:00Z ~w5d9 DONE seat=chief
+- 2026-08-05T23:05:00Z ~r9c3 PROOF seat=chief out=PRs #247/#248/#249 squash-merged
+  with hosted checks 11 pass / 1 skip each; releases v2.3.0
+  (`6a25eb51…45e2bc`), v2.3.1 (`893e75fe…c0ffd2`), v2.3.2 (`fdc0876d…32be92`)
+  public; full local matrix Python 180/180, Playwright 10/10, vitest 4/4,
+  docs, privacy 0 findings.
+- 2026-08-05T23:05:00Z ~r9c3 DONE seat=chief
+- 2026-08-05T23:05:00Z ~h4v1 PROOF seat=chief out=/api/plans readback shows four
+  entity lanes (pilot-puppy, moussey, resplit, snowcubes) each with mode,
+  milestone, checkpoint counts; desktop+phone board screenshots reviewed by
+  eye (which caught and fixed the shell-hide defect in v2.3.2). Tagging PRs:
+  moussey #145, trysnowcubes-web #2057 (first root PLAN.md), resplit-ios
+  #2236 (additive; authority remains vidux/north-star).
+- 2026-08-05T23:05:00Z ~h4v1 DONE seat=chief
+- 2026-08-05T23:05:00Z ~z7e5 PROOF seat=chief out=this commit's own diff: mode
+  Close declared in the Operator Brief, checkpoint rows flipped only with
+  these paired PROOF lines, one re-portioning line with its trigger, and the
+  Close matrix below — the cycle ran by the released grammar it shipped.
+- 2026-08-05T23:05:00Z ~z7e5 DONE seat=chief
+
+### Close
+
+- DOD d1 The Method encoded and installable | C: ~m3k7,~q8f2,~w5d9 | proof: `python3 -m unittest tests.test_method_contract` -> 4/4 + doctor 11/11 on v2.3.2 | status: Verified
+- DOD d2 Board live, read-only, both viewports | C: ~t2b8,~j6n4 | proof: `npm run test:e2e` -> 10/10 incl. zero-write and shell-hidden assertions | status: Verified
+- DOD d3 Real plans render as entity lanes | C: ~h4v1 | proof: /api/plans readback + reviewed screenshots (scratchpad board-desktop/phone.png) | status: Verified
+- DOD d4 One Method-style cycle ran in a tagged repo | C: ~z7e5 | proof: this commit's PLAN.md diff | status: Verified
+- LESSON folded into docs/reference/method.md and CHANGELOG through v2.3.2:
+  worktree pools must be pruned from discovery, and hidden-attribute views
+  need explicit display guards — both found by real dogfood, both now pinned
+  by regression tests. No further standing-knowledge delta.
 
 - 2026-08-05T21:30:00Z ~m3k7 ~q8f2 ~t2b8 ~j6n4 DONE seat=chief — Method v1
   build slice from fresh `main@1ed58392`: AGENT.md, docs/reference/method.md,
