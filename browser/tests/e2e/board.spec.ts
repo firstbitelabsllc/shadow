@@ -12,6 +12,7 @@ test('board groups plans into entity lanes with counts only and stays read-only'
   await expect(gift.locator('.meter-count')).toHaveText('Checkpoints 1/3');
   const interactive = await board.locator('button:not(.board-card), a, input, select, textarea').count();
   expect(interactive).toBe(0);
+  await expect(page.locator('.shell')).toBeHidden();
   const raw = await board.textContent();
   expect(raw).not.toContain('npm run');
   expect(raw).not.toContain('/Users/');

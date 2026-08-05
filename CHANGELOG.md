@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.2 — 2026-08-05
+
+- The Briefs shell now actually hides while the Board view is active; it
+  previously rendered below the board because a layout rule overrode the
+  hidden attribute. Pinned by an e2e assertion.
+
 ## 2.3.1 — 2026-08-05
 
 - Plan discovery prunes worktree pools (`*-worktrees/`), which flooded the

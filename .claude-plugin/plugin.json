@@ -1,6 +1,6 @@
 {
   "name": "pilot-puppy",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Chief-of-staff briefing, local role routing, and bounded native-host execution for AI coding work.",
   "author": {
     "name": "First Bite Labs"

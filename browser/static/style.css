@@ -121,3 +121,4 @@ main:focus { outline: none; }
   .board-card { flex-basis: 11rem; }
 }
 .board[hidden] { display: none; }
+.shell[hidden] { display: none; }
