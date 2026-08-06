@@ -1066,6 +1066,16 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-06T06:25:00Z POSTURE note seat=chief — Method v2 simplification
+  debate ran three adversarial rounds (10 seats + 5 judges + chief + 1 of 4
+  cross-examiners); verdict: ~28 concepts -> 8 core. Spec + debate records
+  committed under docs/superpowers/specs/. ACCESS-ALERT: subagent session
+  limit hit 02:10 ET mid-Round-3; green work pushed per protocol. Resume:
+  re-run workflow wf_1cbfdc76-3f3 from cache after 04:10 ET, fold three
+  outstanding cross-exams (drive fold, langfuse deletion, posture collapse)
+  into the spec, then operator review gates any implementation. The spec
+  changes no shipped behavior.
+
 - 2026-08-06T04:05:00Z CONTRADICTION recorded: C3~w5d9 was flipped completed
   on a proof (doctor) that verified mounts but not content — AGENT.md was
   never in the npm files list, so v3.0.0 installs carried no standing-behavior
