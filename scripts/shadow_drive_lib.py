@@ -2,7 +2,7 @@
 """Small, local-only Drive Packet parsing and preparation primitives.
 
 Drive Packets live in a project's existing ``PLAN.md``.  They are deliberate
-input to a foreground Pilot Puppy session, not a queue or a second plan.  This
+input to a foreground Shadow session, not a queue or a second plan.  This
 module validates the packet block and selects at most three path-disjoint work
 items without choosing a different host on the user's behalf.
 """
@@ -15,8 +15,8 @@ import re
 from typing import Any, Final
 
 
-DRIVE_SCHEMA: Final = "pilot-puppy.drive.v1"
-DRIVE_MARKER: Final = "pilot-puppy-drive.v1"
+DRIVE_SCHEMA: Final = "shadow.drive.v1"
+DRIVE_MARKER: Final = "shadow-drive.v1"
 MAX_LANES: Final = 3
 MAX_PACKET_LANES: Final = 24
 MAX_TASK_CHARS: Final = 12_000
@@ -36,7 +36,9 @@ SECRET_SHAPE_RE: Final = re.compile(
     re.IGNORECASE,
 )
 DRIVE_BLOCK_RE: Final = re.compile(
-    r"<!--\s*pilot-puppy-drive\.v1\s*\n(?P<payload>.*?)\n\s*-->", re.DOTALL
+    # The pilot-puppy marker stays readable so packets written before the
+    # rename never silently disappear; new packets are written as shadow.
+    r"<!--\s*(?:shadow|pilot-puppy)-drive\.v1\s*\n(?P<payload>.*?)\n\s*-->", re.DOTALL
 )
 TASK_KINDS: Final = frozenset({"dev", "debug", "hard-dev"})
 STATES: Final = frozenset({"ready", "paused", "blocked", "done"})
@@ -140,7 +142,7 @@ def extract_document(plan_text: str) -> dict[str, Any] | None:
     except json.JSONDecodeError as exc:
         raise DrivePacketError("Drive Packet block is not valid JSON") from exc
     root = _exact_object(raw, {"schema", "revision", "lanes"}, "document")
-    if root["schema"] != DRIVE_SCHEMA:
+    if root["schema"] not in (DRIVE_SCHEMA, "pilot-puppy.drive.v1"):
         raise DrivePacketError("Drive Packet schema is invalid")
     if type(root["revision"]) is not int or not 1 <= root["revision"] <= 2_147_483_647:
         raise DrivePacketError("Drive Packet revision is invalid")
@@ -206,7 +208,7 @@ def public_preview(document: dict[str, Any] | None) -> dict[str, Any] | None:
     if document is None:
         return None
     return {
-        "schema": "pilot-puppy.drive-preview.v1",
+        "schema": "shadow.drive-preview.v1",
         "revision": document["revision"],
         "ready_count": sum(1 for lane in document["lanes"] if lane["state"] == "ready"),
         "lanes": [

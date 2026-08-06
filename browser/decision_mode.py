@@ -8,10 +8,10 @@ import re
 from typing import Any
 
 
-OUTCOME_SCHEMA = "pilot-puppy.outcome.v1"
-DECISION_SCHEMA = "pilot-puppy.decision.v1"
-CHOICE_SCHEMA = "pilot-puppy.decision-choice.v1"
-RECEIPT_SCHEMA = "pilot-puppy.decision-receipt.v1"
+OUTCOME_SCHEMA = "shadow.outcome.v1"
+DECISION_SCHEMA = "shadow.decision.v1"
+CHOICE_SCHEMA = "shadow.decision-choice.v1"
+RECEIPT_SCHEMA = "shadow.decision-receipt.v1"
 MAX_REVISION = 2_147_483_647
 IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 UTC_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z$")

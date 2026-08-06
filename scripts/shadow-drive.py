@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare foreground, PLAN-owned Pilot Puppy Drive sessions.
+"""Prepare foreground, PLAN-owned Shadow Drive sessions.
 
 Preparation reads one clean Git project's existing PLAN.md and writes bounded
 local evidence for up to three ready, path-disjoint native-host handoffs.  It
@@ -24,18 +24,18 @@ import tempfile
 import time
 from typing import Any
 
-from pilot_puppy_drive_lib import (
+from shadow_drive_lib import (
     DrivePacketError,
     extract_document,
     plan_sha256,
     select_disjoint_ready_lanes,
 )
-from pilot_puppy_roster_lib import RosterError, default_roster_path, load_roster
-from pilot_puppy_route_lib import RoutePacketError, load_route_packet, route_sha256
-import pilot_puppy_telemetry as telemetry
+from shadow_roster_lib import RosterError, default_roster_path, load_roster
+from shadow_route_lib import RoutePacketError, load_route_packet, route_sha256
+import shadow_telemetry as telemetry
 
 
-SESSION_SCHEMA = "pilot-puppy.drive-session.v1"
+SESSION_SCHEMA = "shadow.drive-session.v1"
 MAX_PLAN_BYTES = 1_000_000
 MAX_SESSION_BYTES = 64 * 1024
 SESSION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -56,8 +56,8 @@ def load_script_module(name: str, filename: str):
     return module
 
 
-ROUTE = load_script_module("pilot_puppy_drive_route", "pilot-puppy-route.py")
-HOST = load_script_module("pilot_puppy_drive_host", "pilot-puppy-host.py")
+ROUTE = load_script_module("shadow_drive_route", "shadow-route.py")
+HOST = load_script_module("shadow_drive_host", "shadow-host.py")
 
 
 def git(repo: Path, *args: str) -> str:
@@ -87,13 +87,13 @@ def exact_git_root(value: Path) -> Path:
 
 
 def clean_head(repo: Path) -> str:
-    # Untracked Drive evidence under .pilot-puppy/ is product-owned local
+    # Untracked Drive evidence under .shadow/ is product-owned local
     # state, not project changes; everything else must be saved or committed.
     dirty = [
         line
         for line in git(repo, "status", "--porcelain=v1", "--untracked-files=normal").splitlines()
-        if not (line.startswith("?? ") and line[3:].rstrip("/") == ".pilot-puppy")
-        and not (line.startswith("?? ") and line[3:].startswith(".pilot-puppy/"))
+        if not (line.startswith("?? ") and line[3:].rstrip("/") in {".shadow", ".pilot-puppy"})
+        and not (line.startswith("?? ") and line[3:].startswith((".shadow/", ".pilot-puppy/")))
     ]
     if dirty:
         raise DriveError("save or commit the current project changes before preparing ready work")
@@ -122,7 +122,7 @@ def read_plan(path: Path) -> str:
 
 
 def evidence_directory(repo: Path) -> Path:
-    state = repo / ".pilot-puppy"
+    state = repo / ".shadow"
     evidence = state / "evidence"
     if state.is_symlink() or evidence.is_symlink():
         raise DriveError("project evidence path must not contain a symlink")
@@ -170,7 +170,7 @@ def prepare(
     source = read_plan(plan)
     document = extract_document(source)
     if document is None:
-        raise DriveError("this plan has no Pilot Puppy Drive Packet yet")
+        raise DriveError("this plan has no Shadow Drive Packet yet")
     try:
         roster = load_roster(roster_path.expanduser())
     except RosterError as exc:
@@ -399,7 +399,7 @@ def launch_head(repo: Path) -> str:
         changed = HOST.status_paths(repo)
     except HOST.HostError as exc:
         raise DriveError("project is not sealed for a Drive launch") from exc
-    if any(path not in state for path in changed):
+    if any(path not in state and not HOST.is_legacy_state_path(path) for path in changed):
         raise DriveError("save or commit project changes before launching ready work")
     return git(repo, "rev-parse", "--verify", "HEAD")
 
@@ -418,7 +418,7 @@ def route_for_lane(repo: Path, session_id: str, lane: dict[str, Any]) -> dict[st
 
 
 def worktree_path(repo: Path, session_id: str, lane_id: str) -> Path:
-    parent = repo.parent / f"{repo.name}-pilot-puppy-drive"
+    parent = repo.parent / f"{repo.name}-shadow-drive"
     session_root = parent / session_id
     destination = session_root / lane_id
     for path in (parent, session_root, destination):
@@ -433,7 +433,7 @@ def worktree_path(repo: Path, session_id: str, lane_id: str) -> Path:
 
 def create_worktree(repo: Path, session_id: str, lane_id: str, base_sha256: str) -> Path:
     destination = worktree_path(repo, session_id, lane_id)
-    branch = f"pilot-puppy/drive-{session_id[:12]}-{lane_id}"
+    branch = f"shadow/drive-{session_id[:12]}-{lane_id}"
     try:
         result = subprocess.run(
             ["git", "-C", str(repo), "worktree", "add", "-b", branch, str(destination), base_sha256],
@@ -452,7 +452,7 @@ def create_worktree(repo: Path, session_id: str, lane_id: str, base_sha256: str)
 def new_review_attempt(repo: Path, session_id: str) -> Path:
     """Reserve a fresh kept review attempt without deleting a failed attempt."""
 
-    parent = repo.parent / f"{repo.name}-pilot-puppy-lead-review"
+    parent = repo.parent / f"{repo.name}-shadow-lead-review"
     session_root = parent / session_id
     for path in (parent, session_root):
         if path.is_symlink():
@@ -471,7 +471,7 @@ def new_review_attempt(repo: Path, session_id: str) -> Path:
 
 
 def drive_branch_name(session_id: str, lane_id: str) -> str:
-    return f"pilot-puppy/drive-{session_id[:12]}-{lane_id}"
+    return f"shadow/drive-{session_id[:12]}-{lane_id}"
 
 
 def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -599,7 +599,7 @@ def merge_review_branches(
         changed = staged_paths(repo)
         if not changed or not all(HOST.path_allowed(path, allowed_paths) for path in changed):
             raise DriveError("the checked work changed outside its declared files")
-        committed = git_completed(repo, "commit", "-m", f"pilot-puppy accept: {session_id}", timeout=30)
+        committed = git_completed(repo, "commit", "-m", f"shadow accept: {session_id}", timeout=30)
         if committed.returncode:
             raise DriveError("the local acceptance commit could not be created")
     except DriveError:
@@ -608,7 +608,7 @@ def merge_review_branches(
 
 
 def task_file(text: str) -> Path:
-    descriptor, name = tempfile.mkstemp(prefix="pilot-puppy-drive-", suffix=".md")
+    descriptor, name = tempfile.mkstemp(prefix="shadow-drive-", suffix=".md")
     path = Path(name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -657,8 +657,10 @@ def all_changes_are_allowed(worktree: Path, allowed_paths: list[str]) -> bool:
         changed = HOST.status_paths(worktree)
     except HOST.HostError:
         return False
+    # A lane runs in a fresh worktree, so pre-rename evidence there could only
+    # come from the host itself; it stays a scope violation.
     return all(
-        HOST.path_allowed(path, allowed_paths) or path.startswith(".pilot-puppy/evidence/")
+        HOST.path_allowed(path, allowed_paths) or path.startswith(".shadow/evidence/")
         for path in changed
     )
 
@@ -686,7 +688,7 @@ def commit_lane(worktree: Path, lane_id: str, allowed_paths: list[str]) -> tuple
         if has_diff.returncode != 1:
             return False, "the checked work had nothing new to save"
         committed = subprocess.run(
-            ["git", "-C", str(worktree), "commit", "-m", f"pilot-puppy drive: {lane_id}"],
+            ["git", "-C", str(worktree), "commit", "-m", f"shadow drive: {lane_id}"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -721,7 +723,7 @@ def lane_result(
         if route["binding"]["task_id"] != packet_lane["id"] or route["binding"]["task_sha256"] != expected_hash:
             raise DriveError("prepared work no longer matches the plan")
         worktree = create_worktree(repo, session_id, packet_lane["id"], session_lane["base_sha256"])
-        destination = worktree / ".pilot-puppy" / "evidence" / f"drive-{session_id}-{packet_lane['id']}.route.json"
+        destination = worktree / ".shadow" / "evidence" / f"drive-{session_id}-{packet_lane['id']}.route.json"
         ROUTE.write_exclusive(destination, route)
         temporary_task = task_file(packet_lane["task"])
         try:
@@ -732,11 +734,11 @@ def lane_result(
                 task_file=str(temporary_task),
                 task_id=packet_lane["id"],
                 allowed_path=packet_lane["allowed_paths"],
-                route_file=f".pilot-puppy/evidence/{destination.name}",
+                route_file=f".shadow/evidence/{destination.name}",
                 roster_file=str(roster_path.expanduser()),
                 use_seat=False,
                 seat_file=None,
-                out=str(worktree / ".pilot-puppy" / "evidence" / f"drive-{session_id}-{packet_lane['id']}.attempt.json"),
+                out=str(worktree / ".shadow" / "evidence" / f"drive-{session_id}-{packet_lane['id']}.attempt.json"),
                 force=False,
                 timeout_seconds=timeout_seconds,
                 json=False,
@@ -1103,7 +1105,7 @@ def render_accept(session: dict[str, Any]) -> str:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="pilot-puppy drive", description=__doc__)
+    root = argparse.ArgumentParser(prog="shadow drive", description=__doc__)
     sub = root.add_subparsers(dest="command", required=True)
     prepare_parser = sub.add_parser("prepare", help="prepare ready work without starting a coding host")
     prepare_parser.add_argument("--repo", required=True, type=Path, help="exact Git worktree root")
@@ -1175,7 +1177,7 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             release_lock(session_lock)
     except (DriveError, DrivePacketError, OSError, UnicodeError) as exc:
-        print(f"pilot-puppy drive: {exc}", file=sys.stderr)
+        print(f"shadow drive: {exc}", file=sys.stderr)
         return 1
     if args.json:
         print(json.dumps(session, indent=2, sort_keys=True))

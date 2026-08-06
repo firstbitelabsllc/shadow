@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run one bounded Pilot Puppy task through a native coding host.
+"""Run one bounded Shadow task through a native coding host.
 
 This is deliberately a thin transport seam. It does not choose a provider,
 create a queue, accept a result, or write a durable plan. The caller supplies
 one host, one clean worktree, one task file, and exact allowed paths. The host
-must return one ``pilot-puppy.host-receipt.v1`` JSON fence; otherwise the attempt is
+must return one ``shadow.host-receipt.v1`` JSON fence; otherwise the attempt is
 blocked or failed closed.
 """
 
@@ -25,17 +25,18 @@ import threading
 import time
 from typing import Any
 
-from pilot_puppy_roster_lib import RosterError, load_roster, route_roster_sha256
-from pilot_puppy_route_lib import ROUTE_SCHEMA, RoutePacketError, load_route_packet, route_sha256
-from pilot_puppy_seat_lib import SeatError, load_seat_overlay, selector_for_route
-from pilot_puppy_task_lib import TaskError, frozen_task_sha256
-import pilot_puppy_telemetry as telemetry
+from shadow_roster_lib import RosterError, load_roster, route_roster_sha256
+from shadow_route_lib import ROUTE_SCHEMA, RoutePacketError, load_route_packet, route_sha256
+from shadow_seat_lib import SeatError, load_seat_overlay, selector_for_route
+from shadow_task_lib import TaskError, frozen_task_sha256
+import shadow_telemetry as telemetry
 
 
-PROBE_SCHEMA = "pilot-puppy.host-probe.v1"
-ATTEMPT_SCHEMA = "pilot-puppy.host-attempt.v1"
-HOST_RECEIPT_SCHEMA = "pilot-puppy.host-receipt.v1"
+PROBE_SCHEMA = "shadow.host-probe.v1"
+ATTEMPT_SCHEMA = "shadow.host-attempt.v1"
+HOST_RECEIPT_SCHEMA = "shadow.host-receipt.v1"
 HOSTS = {"codex", "claude-code", "cursor"}
+LEGACY_STATE_DIR = ".pilot-puppy"
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 MAX_CAPTURE_BYTES = 64 * 1024
@@ -96,7 +97,7 @@ def _scrub_detail(text: str) -> str:
 
 
 def resolve_binary(host: str, explicit: str | None) -> str:
-    candidate = explicit or os.environ.get(f"PILOT_PUPPY_{host.upper().replace('-', '_')}_BIN")
+    candidate = explicit or os.environ.get(f"SHADOW_{host.upper().replace('-', '_')}_BIN")
     if candidate:
         path = Path(candidate).expanduser()
         if "/" in candidate:
@@ -182,8 +183,43 @@ def status_paths(repo: Path, *, include_ignored: bool = False) -> list[str]:
     return paths
 
 
+def is_legacy_state_path(path: str) -> bool:
+    """Evidence written before the rename lives in .pilot-puppy/.
+
+    That directory is inert local product state: the host never writes it and
+    never counts it as a project change, so a project that has not migrated its
+    evidence is still a clean assigned worktree.
+    """
+
+    trimmed = path.rstrip("/")
+    return trimmed == LEGACY_STATE_DIR or trimmed.startswith(f"{LEGACY_STATE_DIR}/")
+
+
+def assert_legacy_state_sealed(repo: Path) -> None:
+    """Pre-rename evidence earns its sealing exemption only when it is inert.
+
+    A symlinked or non-directory .pilot-puppy could redirect host writes outside
+    the assigned worktree while Git status still looked clean, so the exemption
+    never applies to one.
+    """
+
+    state = repo / LEGACY_STATE_DIR
+    if state.is_symlink():
+        raise HostError("worktree_unsealed", "pre-rename evidence path must not be a symlink")
+    if not state.exists():
+        return
+    if not state.is_dir():
+        raise HostError("worktree_unsealed", "pre-rename evidence state must be a directory")
+    for path in state.rglob("*"):
+        if path.is_symlink() or not (path.is_dir() or path.is_file()):
+            raise HostError("worktree_unsealed", "pre-rename evidence must contain regular files only")
+
+
 def local_state_snapshot(repo: Path) -> dict[str, str]:
-    state = repo / ".pilot-puppy"
+    # Every flow that snapshots product state also exempts pre-rename evidence
+    # from its sealing checks, so validate that directory's shape here.
+    assert_legacy_state_sealed(repo)
+    state = repo / ".shadow"
     evidence = state / "evidence"
     if state.is_symlink() or evidence.is_symlink():
         raise HostError("worktree_unsealed", "project evidence path must not be a symlink")
@@ -540,7 +576,7 @@ def extract_host_receipt(texts: list[str]) -> dict[str, Any]:
     # repeats are not ambiguous, but two different claims are fail-closed.
     unique = {json.dumps(item, sort_keys=True, separators=(",", ":")): item for item in candidates}
     if len(unique) != 1:
-        raise HostError("host_receipt_missing", "host must emit exactly one pilot-puppy.host-receipt.v1 object")
+        raise HostError("host_receipt_missing", "host must emit exactly one shadow.host-receipt.v1 object")
     return next(iter(unique.values()))
 
 
@@ -678,7 +714,7 @@ def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> No
 def validate_output_path(repo: Path, value: str) -> Path | None:
     if value == "-":
         return None
-    state = repo / ".pilot-puppy"
+    state = repo / ".shadow"
     evidence = state / "evidence"
     if state.is_symlink() or evidence.is_symlink():
         raise HostError("output_unsafe", "project evidence path must not be a symlink")
@@ -687,14 +723,14 @@ def validate_output_path(repo: Path, value: str) -> Path | None:
     try:
         destination.relative_to(evidence.resolve(strict=False))
     except ValueError as exc:
-        raise HostError("output_unsafe", "host output must stay in .pilot-puppy/evidence") from exc
+        raise HostError("output_unsafe", "host output must stay in .shadow/evidence") from exc
     return destination
 
 
 def route_file_path(repo: Path, value: str) -> Path:
     """Constrain a route packet to one regular file inside project evidence."""
 
-    state = repo / ".pilot-puppy"
+    state = repo / ".shadow"
     evidence = state / "evidence"
     if state.is_symlink() or evidence.is_symlink():
         raise HostError("route_invalid", "project evidence path must not be a symlink")
@@ -824,7 +860,9 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     prompt = host_prompt(task, task_id, allowed, task_sha256)
     state_before = local_state_snapshot(repo)
     before = status_paths(repo)
-    source_changes = [path for path in before if path not in state_before]
+    source_changes = [
+        path for path in before if path not in state_before and not is_legacy_state_path(path)
+    ]
     if source_changes:
         raise HostError("worktree_dirty", "host packet requires a clean assigned worktree")
     before_all = status_paths(repo, include_ignored=True)
@@ -833,13 +871,14 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         path
         for path in before_ignored
         if not path_allowed(path, allowed)
-        and path.rstrip("/") != ".pilot-puppy"
-        and not path.startswith(".pilot-puppy/evidence/")
+        and path.rstrip("/") != ".shadow"
+        and not path.startswith(".shadow/evidence/")
+        and not is_legacy_state_path(path)
     ]
     if unsafe_ignored:
         raise HostError("worktree_unsealed", "ignored files outside the packet are not allowed")
     binary = resolve_binary(args.host, args.binary)
-    with tempfile.TemporaryDirectory(prefix="pilot-puppy-host-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="shadow-host-") as temp_dir:
         final_message = Path(temp_dir) / "final-message.txt"
         command = launch_command(args.host, binary, repo, final_message, selector)
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
@@ -921,7 +960,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="pilot-puppy host", description=__doc__)
+    root = argparse.ArgumentParser(prog="shadow host", description=__doc__)
     sub = root.add_subparsers(dest="command", required=True)
     probe_parser = sub.add_parser("probe", help="probe one native host without invoking it")
     probe_parser.add_argument("--host", choices=sorted(HOSTS), required=True)
@@ -935,7 +974,7 @@ def parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--task-file", required=True)
     run_parser.add_argument("--task-id", required=True)
     run_parser.add_argument("--allowed-path", action="append", default=[])
-    run_parser.add_argument("--route-file", help="optional bounded route packet inside .pilot-puppy/evidence")
+    run_parser.add_argument("--route-file", help="optional bounded route packet inside .shadow/evidence")
     run_parser.add_argument("--roster-file", help="trusted local roster used to verify --route-file")
     run_parser.add_argument(
         "--use-seat",
@@ -967,9 +1006,9 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2, sort_keys=True))
     elif code:
-        print(f"pilot-puppy host: {payload.get('blocked') or payload.get('status')}", file=sys.stderr)
+        print(f"shadow host: {payload.get('blocked') or payload.get('status')}", file=sys.stderr)
     else:
-        print(f"pilot-puppy host: {payload.get('host')} {payload.get('status') or 'available'}")
+        print(f"shadow host: {payload.get('host')} {payload.get('status') or 'available'}")
     return code
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Pilot Puppy installation doctor."""
+"""Read-only Shadow installation doctor."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ import sys
 from typing import Any
 
 
-ROOT = Path(os.environ.get("PILOT_PUPPY_ROOT", Path(__file__).resolve().parent.parent)).resolve()
+ROOT = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 HOSTS = ("codex", "claude-code", "cursor")
 MOUNTS = (
-    Path.home() / ".claude" / "skills" / "pilot-puppy",
-    Path.home() / ".agents" / "skills" / "pilot-puppy",
-    Path.home() / ".cursor" / "skills" / "pilot-puppy",
+    Path.home() / ".claude" / "skills" / "shadow",
+    Path.home() / ".agents" / "skills" / "shadow",
+    Path.home() / ".cursor" / "skills" / "shadow",
 )
 
 
@@ -34,17 +34,17 @@ def identity_check() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError, IndexError) as exc:
         return check("product identity", "fail", f"metadata is unreadable: {exc}")
     valid = (
-        package.get("name") == "pilot-puppy"
+        package.get("name") == "@firstbitelabs/shadow"
         and package.get("version") == version
-        and plugin.get("name") == "pilot-puppy"
+        and plugin.get("name") == "shadow"
         and plugin.get("version") == version
         and (ROOT / "SKILL.md").is_file()
-        and (ROOT / "bin" / "pilot-puppy").is_file()
+        and (ROOT / "bin" / "shadow").is_file()
     )
     return check(
         "product identity",
         "pass" if valid else "fail",
-        f"pilot-puppy {version}" if valid else "package, plugin, skill, command, and version disagree",
+        f"shadow {version}" if valid else "package, plugin, skill, command, and version disagree",
         version=version,
     )
 
@@ -57,10 +57,10 @@ def tool_check(name: str, executable: str, *, required: bool) -> dict[str, Any]:
 
 
 def cli_check() -> dict[str, Any]:
-    path = shutil.which("pilot-puppy")
+    path = shutil.which("shadow")
     if not path:
-        return check("PATH command", "warn", "pilot-puppy is not installed on PATH")
-    expected = Path(os.environ.get("PILOT_PUPPY_DOCTOR_EXPECTED_CLI", ROOT / "bin" / "pilot-puppy")).resolve()
+        return check("PATH command", "warn", "shadow is not installed on PATH")
+    expected = Path(os.environ.get("SHADOW_DOCTOR_EXPECTED_CLI", ROOT / "bin" / "shadow")).resolve()
     actual = Path(path).resolve()
     if actual != expected:
         return check("PATH command", "fail", f"resolves to {actual}, expected {expected}")
@@ -68,7 +68,7 @@ def cli_check() -> dict[str, Any]:
 
 
 def host_checks() -> list[dict[str, Any]]:
-    script = ROOT / "scripts" / "pilot-puppy-host.py"
+    script = ROOT / "scripts" / "shadow-host.py"
     results = []
     available = 0
     for host in HOSTS:
@@ -131,8 +131,8 @@ def collect() -> dict[str, Any]:
     failed = sum(item["state"] == "fail" for item in checks)
     warned = sum(item["state"] == "warn" for item in checks)
     return {
-        "schema": "pilot-puppy.doctor.v1",
-        "product": "Pilot Puppy",
+        "schema": "shadow.doctor.v1",
+        "product": "Shadow",
         "root": str(ROOT),
         "ok": failed == 0,
         "failed": failed,
@@ -142,7 +142,7 @@ def collect() -> dict[str, Any]:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="pilot-puppy doctor", description=__doc__)
+    result = argparse.ArgumentParser(prog="shadow doctor", description=__doc__)
     result.add_argument("--json", action="store_true", help="print machine-readable output")
     return result
 

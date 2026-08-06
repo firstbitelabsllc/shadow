@@ -16,19 +16,19 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
-ROSTER_LIBRARY = SCRIPTS / "pilot_puppy_roster_lib.py"
-ROUTE_CLI = SCRIPTS / "pilot-puppy-route.py"
-TOP_LEVEL_CLI = ROOT / "bin" / "pilot-puppy"
+ROSTER_LIBRARY = SCRIPTS / "shadow_roster_lib.py"
+ROUTE_CLI = SCRIPTS / "shadow-route.py"
+TOP_LEVEL_CLI = ROOT / "bin" / "shadow"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-ROSTER_SPEC = importlib.util.spec_from_file_location("pilot_puppy_roster_lib", ROSTER_LIBRARY)
+ROSTER_SPEC = importlib.util.spec_from_file_location("shadow_roster_lib", ROSTER_LIBRARY)
 assert ROSTER_SPEC and ROSTER_SPEC.loader
 roster = importlib.util.module_from_spec(ROSTER_SPEC)
 sys.modules[ROSTER_SPEC.name] = roster
 ROSTER_SPEC.loader.exec_module(roster)
 
-ROUTE_SPEC = importlib.util.spec_from_file_location("pilot_puppy_route", ROUTE_CLI)
+ROUTE_SPEC = importlib.util.spec_from_file_location("shadow_route", ROUTE_CLI)
 assert ROUTE_SPEC and ROUTE_SPEC.loader
 route = importlib.util.module_from_spec(ROUTE_SPEC)
 ROUTE_SPEC.loader.exec_module(route)
@@ -48,8 +48,8 @@ def make_repo(root: Path) -> Path:
     repo = root / "repo"
     repo.mkdir()
     git(repo, "init", "-q")
-    git(repo, "config", "user.email", "pilot-puppy-test@example.invalid")
-    git(repo, "config", "user.name", "PilotPuppyTest")
+    git(repo, "config", "user.email", "shadow-test@example.invalid")
+    git(repo, "config", "user.name", "ShadowTest")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     git(repo, "add", "README.md")
     git(repo, "commit", "-qm", "base")
@@ -90,7 +90,7 @@ class RouteTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
-        self.assertIn("pilot-puppy route", result.stdout)
+        self.assertIn("shadow route", result.stdout)
         self.assertIn("--route-file", result.stdout)
 
     def test_task_kind_selects_lowest_same_role_priority_without_launching(self) -> None:
@@ -379,7 +379,7 @@ class RouteTests(unittest.TestCase):
             repo = make_repo(root)
             task = make_task(root)
             roster_file = make_roster(root)
-            output = ".pilot-puppy/evidence/route.json"
+            output = ".shadow/evidence/route.json"
             first = run(
                 "--repo", str(repo), "--task-id", "fix-file", "--task-file", str(task),
                 "--task-kind", "dev", "--roster-file", str(roster_file), "--availability", "assume", "--out", output,

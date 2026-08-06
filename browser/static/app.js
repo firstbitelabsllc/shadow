@@ -69,7 +69,7 @@ async function drive(plan, action, session) {
     body: JSON.stringify(body),
   });
   const data = await response.json();
-  if (!response.ok || !data.drive) throw new Error(data.error || 'Pilot Puppy could not update this work.');
+  if (!response.ok || !data.drive) throw new Error(data.error || 'Shadow could not update this work.');
   return data.drive;
 }
 
@@ -86,7 +86,7 @@ function renderReadyWork(plan) {
   if (details.state === 'needs_attention') {
     work.append(el('p', { className: 'eyebrow', text: 'Ready work' }));
     work.append(el('h3', { text: 'This work list needs a quick tidy-up first.' }));
-    work.append(el('p', { text: 'Pilot Puppy will not start anything until the plan is clear and safe.' }));
+    work.append(el('p', { text: 'Shadow will not start anything until the plan is clear and safe.' }));
     return work;
   }
   if (details.state === 'nothing_ready') {
@@ -100,7 +100,7 @@ function renderReadyWork(plan) {
     work.append(el('p', { className: 'eyebrow', text: 'Work update' }));
     work.append(el('h3', { text: 'The checked work is in this project.' }));
     work.append(el('p', { text: `Finished and checked: ${remembered.finished_count}.` }));
-    work.append(el('p', { className: 'work-note', text: 'Pilot Puppy checked it again in a separate clean copy, then added it here. Nothing was sent anywhere.' }));
+    work.append(el('p', { className: 'work-note', text: 'Shadow checked it again in a separate clean copy, then added it here. Nothing was sent anywhere.' }));
     return work;
   }
   if (remembered?.state === 'finished') {
@@ -110,7 +110,7 @@ function renderReadyWork(plan) {
     work.append(el('p', { text: `Finished and checked: ${remembered.finished_count}. Needs your attention: ${remembered.needs_attention_count}.` }));
     work.append(el('p', { className: 'work-note', text: allFinished ? 'Nothing has been added to this project yet. Nothing was sent anywhere.' : 'The finished changes are kept safely aside. Nothing was added to this project or sent anywhere.' }));
     if (allFinished) {
-      const status = el('p', { className: 'work-status', text: 'Pilot Puppy will check this work again before adding it here.' });
+      const status = el('p', { className: 'work-status', text: 'Shadow will check this work again before adding it here.' });
       const button = workButton('Bring checked work into this project', async () => {
         button.disabled = true;
         status.textContent = 'Checking the work one more time, then adding it here…';
@@ -127,11 +127,11 @@ function renderReadyWork(plan) {
     return work;
   }
   work.append(el('p', { className: 'eyebrow', text: remembered ? 'Ready to start' : 'Ready work' }));
-  work.append(el('h3', { text: remembered ? 'These pieces are ready to go.' : 'Here is work Pilot Puppy can prepare.' }));
+  work.append(el('h3', { text: remembered ? 'These pieces are ready to go.' : 'Here is work Shadow can prepare.' }));
   work.append(el('p', {
     text: remembered
-      ? 'Starting is a one-time, foreground action. Pilot Puppy uses the coding tools already on this computer.'
-      : 'Pilot Puppy can set up up to three separate pieces at a time. It will not start a coding tool until you say so.',
+      ? 'Starting is a one-time, foreground action. Shadow uses the coding tools already on this computer.'
+      : 'Shadow can set up up to three separate pieces at a time. It will not start a coding tool until you say so.',
   }));
   const list = el('ul', { className: 'ready-list' });
   details.lanes.filter((lane) => lane.state === 'ready').forEach((lane) => list.append(el('li', { text: lane.summary })));
@@ -163,7 +163,7 @@ function renderPlan(plan) {
     const card = el('section', { className: 'card empty' });
     card.append(el('p', { className: 'eyebrow', text: 'Get started' }));
     card.append(el('h2', { text: 'Add your first project' }));
-    card.append(el('p', { text: 'Run pilot-puppy init --here in a Git project, then refresh.' }));
+    card.append(el('p', { text: 'Run shadow init --here in a Git project, then refresh.' }));
     main.append(card);
     return;
   }
@@ -188,7 +188,7 @@ function renderPlan(plan) {
   card.append(el('p', { className: 'current', text: outcome.current_move }));
 
   const roleGuide = el('section', { className: 'role-guide' });
-  roleGuide.append(el('p', { className: 'eyebrow', text: 'How Pilot Puppy can help' }));
+  roleGuide.append(el('p', { className: 'eyebrow', text: 'How Shadow can help' }));
   const roles = el('dl', { className: 'role-guide-list' });
   [
     ['Think it through', 'When the next move is still unclear.'],
@@ -203,7 +203,7 @@ function renderPlan(plan) {
   roleGuide.append(roles);
   roleGuide.append(el('p', {
     className: 'role-guide-note',
-    text: 'Pilot Puppy picks from the coding tools already on this computer. It never starts one without your say-so.',
+    text: 'Shadow picks from the coding tools already on this computer. It never starts one without your say-so.',
   }));
   card.append(roleGuide);
 
@@ -271,7 +271,7 @@ function renderBoard() {
     lanes.get(key).push(plan);
   }
   if (!lanes.size) {
-    board.append(el('p', { className: 'loading', text: 'No plans yet. Run pilot-puppy init --here in a Git project, then refresh.' }));
+    board.append(el('p', { className: 'loading', text: 'No plans yet. Run shadow init --here in a Git project, then refresh.' }));
     return;
   }
   for (const [name, plans] of lanes) {
@@ -334,7 +334,7 @@ async function load() {
   refresh.disabled = true;
   try {
     const response = await fetch('/api/plans');
-    if (!response.ok) throw new Error('Pilot Puppy could not read plans.');
+    if (!response.ok) throw new Error('Shadow could not read plans.');
     const data = await response.json();
     state.plans = Array.isArray(data.plans) ? data.plans : [];
     if (!state.plans.some((plan) => plan.id === state.selected)) state.selected = state.plans[0]?.id || null;

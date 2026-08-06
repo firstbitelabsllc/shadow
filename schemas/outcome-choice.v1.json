@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pilot-puppy.dev/schemas/outcome-choice.v1.json",
-  "title": "Pilot Puppy Outcome Choice v1",
+  "$id": "shadow.outcome-choice.v1",
+  "title": "Shadow Outcome Choice v1",
   "description": "One provider-neutral Outcome, optional A/B/C choice, and bounded proof references.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "revision", "updated_at", "outcome", "ask", "proof"],
   "properties": {
-    "schema": { "const": "pilot-puppy.outcome.v1" },
+    "schema": { "const": "shadow.outcome.v1" },
     "revision": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
     "updated_at": { "$ref": "#/$defs/timestamp" },
     "outcome": { "$ref": "#/$defs/outcome" },

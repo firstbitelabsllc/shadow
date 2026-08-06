@@ -4,7 +4,7 @@
 
 ## Plan row
 
-<Cite the PLAN.md row this PR closes, e.g. `PLAN.md row T-N`. Use "N/A" only for true one-off ops PRs (security backports, etc.) — every feature/refactor/docs PR should point at a plan row per `/pilot-puppy` discipline.>
+<Cite the PLAN.md row this PR closes, e.g. `PLAN.md row T-N`. Use "N/A" only for true one-off ops PRs (security backports, etc.) — every feature/refactor/docs PR should point at a plan row per `/shadow` discipline.>
 
 ## Test plan
 

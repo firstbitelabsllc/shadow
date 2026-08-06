@@ -5,9 +5,9 @@ const html = readFileSync('browser/static/index.html', 'utf8');
 const app = readFileSync('browser/static/app.js', 'utf8');
 const css = readFileSync('browser/static/style.css', 'utf8');
 
-describe('Pilot Puppy browser shell', () => {
+describe('Shadow browser shell', () => {
   it('has one product identity and one application script', () => {
-    expect(html).toContain('<title>Pilot Puppy</title>');
+    expect(html).toContain('<title>Shadow</title>');
     expect(html).toContain('Your coding chief of staff');
     expect(html.match(/<script /g)).toHaveLength(1);
   });
@@ -27,7 +27,7 @@ describe('Pilot Puppy browser shell', () => {
     expect(app).toContain("text: 'Now'");
     expect(app).toContain("row('Change', briefing.changed)");
     expect(app).toContain("text: 'Choose what happens next'");
-    expect(app).toContain("text: 'How Pilot Puppy can help'");
+    expect(app).toContain("text: 'How Shadow can help'");
     expect(app).toContain("'Start ready work'");
     expect(app).toContain("'Bring checked work into this project'");
     expect(app).toContain("briefing.proof ? 'Proof' : 'Proof not available yet'");

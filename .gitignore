@@ -4,8 +4,8 @@ __pycache__/
 .pytest_cache/
 .venv/
 node_modules/
-.pilot-puppy/
-.pilot-puppy-test/
+.shadow/
+.shadow-test/
 docs/.vitepress/dist/
 test-results/
 playwright-report/

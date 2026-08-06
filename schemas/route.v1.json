@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pilot-puppy.dev/schemas/route.v1.json",
-  "title": "Pilot Puppy Route v1",
+  "$id": "shadow.route.v1",
+  "title": "Shadow Route v1",
   "description": "A local, non-executing role route bound to one frozen task and roster revision.",
   "type": "object",
   "additionalProperties": false,
@@ -18,7 +18,7 @@
     "blocked"
   ],
   "properties": {
-    "schema": {"const": "pilot-puppy.route.v1"},
+    "schema": {"const": "shadow.route.v1"},
     "revision": {"const": 1},
     "status": {"enum": ["ready", "manual", "blocked"]},
     "binding": {

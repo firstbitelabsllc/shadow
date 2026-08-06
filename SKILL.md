@@ -1,11 +1,11 @@
 ---
-name: pilot-puppy
+name: shadow
 description: "Chief-of-staff briefing, durable plan/proof/resume, local role routing, and bounded native-host execution for AI coding work."
 ---
 
-# Pilot Puppy
+# Shadow
 
-Use Pilot Puppy when work must survive sessions, hosts, or interruptions and a
+Use Shadow when work must survive sessions, hosts, or interruptions and a
 cold reader should know the Outcome, current move, proof, and next decision.
 
 Skip it for a factual answer or an obvious one-step edit with no handoff.
@@ -23,7 +23,7 @@ and proof mechanics underneath them.
 
 ## Worklane boundary
 
-Pilot Puppy supports the project currently being worked on; it is not a global
+Shadow supports the project currently being worked on; it is not a global
 gate for every project. Its own open proof must not stop another product from
 shipping the highest-value reachable row in that product's canonical plan.
 “One bounded task” keeps a handoff reviewable—it does not make the fleet
@@ -45,16 +45,16 @@ message, or receipt is not acceptance proof by itself.
 Use the active host directly for normal work. For a bounded handoff, use:
 
 ```bash
-pilot-puppy route \
+shadow route \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
   --task-kind plan|hard-dev|dev|debug|review|lead \
-  --out <project>/.pilot-puppy/evidence/<id>.route.json
+  --out <project>/.shadow/evidence/<id>.route.json
 
-pilot-puppy host run --host codex|claude-code|cursor \
+shadow host run --host codex|claude-code|cursor \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
   --allowed-path <exact-path> \
-  --route-file <project>/.pilot-puppy/evidence/<id>.route.json \
-  --out <project>/.pilot-puppy/evidence/<id>.json
+  --route-file <project>/.shadow/evidence/<id>.route.json \
+  --out <project>/.shadow/evidence/<id>.json
 ```
 
 `route` prints one generic local role/native-host choice, same-role
@@ -72,7 +72,7 @@ When a single project has up to three clearly separate, ready pieces of work,
 put one typed Drive Packet in that same project's `PLAN.md`. Start with:
 
 ```bash
-pilot-puppy drive prepare --repo <exact-clean-worktree>
+shadow drive prepare --repo <exact-clean-worktree>
 ```
 
 Preparation picks only path-disjoint work with distinct already-declared native
@@ -80,7 +80,7 @@ hosts and starts nothing. It writes a frozen local session. Start work only
 with the explicit foreground action:
 
 ```bash
-pilot-puppy drive launch --repo <exact-clean-worktree> --session <session-id>
+shadow drive launch --repo <exact-clean-worktree> --session <session-id>
 ```
 
 Launch rechecks the plan and Git revision, creates isolated worktrees, invokes
@@ -93,7 +93,7 @@ reachable work.
 If every lane is green, the lead may take one separate explicit local step:
 
 ```bash
-pilot-puppy drive accept --repo <exact-clean-worktree> --session <session-id>
+shadow drive accept --repo <exact-clean-worktree> --session <session-id>
 ```
 
 Acceptance reruns each named proof in a separate clean lead checkout, then
@@ -131,7 +131,7 @@ loopback projection of the same plan; Markdown remains authority.
 
 ## Boundaries
 
-Pilot Puppy owns one product identity, one `PLAN.md` authority, and one bounded
+Shadow owns one product identity, one `PLAN.md` authority, and one bounded
 project-local evidence path. Native Codex, Claude Code, and Cursor own model
 authentication and execution. A foreground, explainable router and explicitly
 started Drive session are allowed; do not add an autonomous router, daemon,

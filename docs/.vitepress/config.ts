@@ -26,18 +26,18 @@ const sidebar = [
 ];
 
 export default {
-  title: 'Pilot Puppy',
+  title: 'Shadow',
   description: 'Chief-of-staff briefing, local role routing, and bounded native-host execution for AI coding work.',
   base: process.env.DOCS_BASE || '/',
   cleanUrls: true,
   themeConfig: {
-    siteTitle: 'Pilot Puppy',
+    siteTitle: 'Shadow',
     nav: [
       { text: 'Guide', link: '/guide/' },
       { text: 'Reference', link: '/reference/' },
     ],
     sidebar: { '/': sidebar },
-    socialLinks: [{ icon: 'github', link: 'https://github.com/firstbitelabsllc/pilot-puppy' }],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/firstbitelabsllc/shadow' }],
     search: { provider: 'local' },
     footer: { message: 'MIT licensed.', copyright: 'Copyright © 2026 First Bite Labs LLC' },
   },

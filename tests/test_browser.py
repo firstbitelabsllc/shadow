@@ -50,9 +50,9 @@ PLAN = """# Release notes
 
 DRIVE_PACKET = """
 
-<!-- pilot-puppy-drive.v1
+<!-- shadow-drive.v1
 {
-  "schema": "pilot-puppy.drive.v1",
+  "schema": "shadow.drive.v1",
   "revision": 1,
   "lanes": [
     {
@@ -118,7 +118,7 @@ class BrowserTests(unittest.TestCase):
 
     def test_drive_command_projection_has_no_task_or_provider_details(self) -> None:
         session = {
-            "schema": "pilot-puppy.drive-session.v1",
+            "schema": "shadow.drive-session.v1",
             "revision": 1,
             "session_id": "a" * 32,
             "state": "prepared",
@@ -157,12 +157,12 @@ class BrowserTests(unittest.TestCase):
         self.assertNotIn("cursor", rendered)
         self.assertNotIn("dev", rendered)
         command = run.call_args.args[0]
-        self.assertEqual(command[:3], [sys.executable, str(server.SCRIPTS / "pilot-puppy-drive.py"), "prepare"])
+        self.assertEqual(command[:3], [sys.executable, str(server.SCRIPTS / "shadow-drive.py"), "prepare"])
         self.assertIn("--json", command)
 
     def test_drive_launch_returns_a_partial_local_work_update(self) -> None:
         session = {
-            "schema": "pilot-puppy.drive-session.v1",
+            "schema": "shadow.drive-session.v1",
             "revision": 1,
             "session_id": "a" * 32,
             "state": "finished",
@@ -184,7 +184,7 @@ class BrowserTests(unittest.TestCase):
 
     def test_drive_accept_projects_only_fully_rechecked_local_work(self) -> None:
         session = {
-            "schema": "pilot-puppy.drive-session.v1",
+            "schema": "shadow.drive-session.v1",
             "revision": 1,
             "session_id": "a" * 32,
             "state": "accepted",
@@ -208,7 +208,7 @@ class BrowserTests(unittest.TestCase):
             "needs_attention_count": 0,
         })
         command = run.call_args.args[0]
-        self.assertEqual(command[:3], [sys.executable, str(server.SCRIPTS / "pilot-puppy-drive.py"), "accept"])
+        self.assertEqual(command[:3], [sys.executable, str(server.SCRIPTS / "shadow-drive.py"), "accept"])
         self.assertIn("--session", command)
 
     def test_decision_receipt_is_project_local_bounded_and_idempotent(self) -> None:
@@ -217,7 +217,7 @@ class BrowserTests(unittest.TestCase):
             document = server.plan_record(plan, repo)["outcome"]
             first = server.write_decision_receipt(plan, document, "cold-review", 7)
             second = server.write_decision_receipt(plan, document, "cold-review", 7)
-            receipt = repo / ".pilot-puppy" / "evidence" / f"decision-{first['receipt_id']}.json"
+            receipt = repo / ".shadow" / "evidence" / f"decision-{first['receipt_id']}.json"
             self.assertEqual(first["receipt_id"], second["receipt_id"])
             self.assertTrue(receipt.is_file())
             self.assertEqual(first["state"], "received")
@@ -246,7 +246,7 @@ class BrowserTests(unittest.TestCase):
     def test_scan_skips_hidden_state_and_returns_no_absolute_root(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, _ = self.make_repo(Path(dirname))
-            hidden = repo / ".pilot-puppy" / "PLAN.md"
+            hidden = repo / ".shadow" / "PLAN.md"
             hidden.parent.mkdir(exist_ok=True)
             hidden.write_text(PLAN, encoding="utf-8")
             records = server.discover_plans(repo)
@@ -360,6 +360,9 @@ class BrowserTests(unittest.TestCase):
             self.assertIn(str(server.DRIVE_STEP_TIMEOUT_SECONDS), command)
             self.assertEqual(run.call_args.args[2], server.DRIVE_LAUNCH_TIMEOUT_SECONDS)
 
+    def test_http_server_header_carries_the_product_name(self) -> None:
+        self.assertTrue(server.Handler.server_version.startswith("Shadow/"))
+
     def test_titles_block_every_canonical_private_path_and_secret_shape(self) -> None:
         # Secret-shaped fixtures are assembled at runtime so the tracked
         # source itself stays clean for the public-ready grep gate.
@@ -405,7 +408,7 @@ class BrowserTests(unittest.TestCase):
             port = service.server_address[1]
             try:
                 failure = PermissionError(
-                    f"[Errno 13] Permission denied: '{repo}/.pilot-puppy/evidence'"
+                    f"[Errno 13] Permission denied: '{repo}/.shadow/evidence'"
                 )
                 body = json.dumps({"plan": "project/PLAN.md"})
                 with mock.patch.object(server, "run_drive_action", side_effect=failure):

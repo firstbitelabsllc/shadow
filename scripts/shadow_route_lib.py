@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strict, path-free validation for one non-executing Pilot Puppy route packet."""
+"""Strict, path-free validation for one non-executing Shadow route packet."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import stat
 from typing import Any, Final
 
 
-ROUTE_SCHEMA: Final = "pilot-puppy.route.v1"
+ROUTE_SCHEMA: Final = "shadow.route.v1"
 ROUTE_REVISION: Final = 1
 MAX_ROUTE_BYTES: Final = 32 * 1024
 MAX_ALTERNATIVES: Final = 12

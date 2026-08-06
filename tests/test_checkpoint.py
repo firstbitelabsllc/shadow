@@ -8,7 +8,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CLI = ROOT / "bin" / "pilot-puppy"
+CLI = ROOT / "bin" / "shadow"
 
 
 def git(repo: Path, *args: str) -> None:
@@ -76,7 +76,7 @@ class CheckpointTests(unittest.TestCase):
             self.assertEqual(json.loads(first.stdout)["receipt_id"], json.loads(second.stdout)["receipt_id"])
             plan = (repo / "PLAN.md").read_text(encoding="utf-8")
             self.assertEqual(plan.count("[receipt:"), 1)
-            self.assertEqual(len(list((repo / ".pilot-puppy" / "evidence").glob("*.json"))), 1)
+            self.assertEqual(len(list((repo / ".shadow" / "evidence").glob("*.json"))), 1)
 
     def test_blocked_checkpoint_records_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -98,7 +98,7 @@ class CheckpointTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 1)
-            self.assertFalse((repo / ".pilot-puppy").exists())
+            self.assertFalse((repo / ".shadow").exists())
 
     def test_requires_one_exact_plan_row(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -119,7 +119,7 @@ class CheckpointTests(unittest.TestCase):
             repo = self.make_repo(root)
             outside = root / "outside"
             outside.mkdir()
-            (repo / ".pilot-puppy").symlink_to(outside, target_is_directory=True)
+            (repo / ".shadow").symlink_to(outside, target_is_directory=True)
             result = self.run_checkpoint(repo)
             self.assertEqual(result.returncode, 1)
             self.assertIn("must not contain symlinks", result.stderr)

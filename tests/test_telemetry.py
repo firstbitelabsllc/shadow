@@ -1,4 +1,4 @@
-"""Privacy and ordering tests for optional Pilot Puppy Langfuse observation."""
+"""Privacy and ordering tests for optional Shadow Langfuse observation."""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
-ROUTE_SCRIPT = SCRIPTS / "pilot-puppy-route.py"
-HOST_SCRIPT = SCRIPTS / "pilot-puppy-host.py"
+ROUTE_SCRIPT = SCRIPTS / "shadow-route.py"
+HOST_SCRIPT = SCRIPTS / "shadow-host.py"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import pilot_puppy_telemetry as telemetry
-from pilot_puppy_roster_lib import initialize_roster
+import shadow_telemetry as telemetry
+from shadow_roster_lib import initialize_roster
 
 
 def load_module(name: str, source: Path):
@@ -34,8 +34,8 @@ def load_module(name: str, source: Path):
     return module
 
 
-route = load_module("pilot_puppy_route_for_telemetry", ROUTE_SCRIPT)
-host = load_module("pilot_puppy_host_for_telemetry", HOST_SCRIPT)
+route = load_module("shadow_route_for_telemetry", ROUTE_SCRIPT)
+host = load_module("shadow_host_for_telemetry", HOST_SCRIPT)
 
 
 FAKE_HOST = r'''#!/usr/bin/env python3
@@ -50,7 +50,7 @@ if "--version" in sys.argv:
 pathlib.Path.cwd().joinpath("result.txt").write_text("changed\n", encoding="utf-8")
 print("```json")
 print(json.dumps({
-    "schema": "pilot-puppy.host-receipt.v1",
+    "schema": "shadow.host-receipt.v1",
     "task_id": "add-proof",
     "status": "ok",
     "summary": "bounded fake host completed the task",
@@ -72,10 +72,10 @@ def make_repo(root: Path) -> Path:
     repo = root / "repo"
     repo.mkdir()
     git(repo, "init", "-q")
-    git(repo, "config", "user.email", "pilot-puppy-test@example.invalid")
-    git(repo, "config", "user.name", "Pilot Puppy Test")
+    git(repo, "config", "user.email", "shadow-test@example.invalid")
+    git(repo, "config", "user.name", "Shadow Test")
     (repo / "result.txt").write_text("base\n", encoding="utf-8")
-    (repo / ".gitignore").write_text(".pilot-puppy/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(".shadow/\n", encoding="utf-8")
     git(repo, "add", "result.txt", ".gitignore")
     git(repo, "commit", "-qm", "base")
     return repo
@@ -123,7 +123,7 @@ class TelemetryTests(unittest.TestCase):
 
     def enabled_environment(self) -> dict[str, str]:
         return {
-            "PILOT_PUPPY_TELEMETRY": "langfuse",
+            "SHADOW_TELEMETRY": "langfuse",
             "LANGFUSE_BASE_URL": "https://langfuse.example.invalid",
             "LANGFUSE_PUBLIC_KEY": "public-test-key",
             "LANGFUSE_SECRET_KEY": "secret-test-key",
@@ -154,13 +154,13 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(FakeLangfuse.flush_calls, 1)
         self.assertEqual(len(FakeLangfuse.observation_calls), 1)
         observation = FakeLangfuse.observation_calls[0]
-        self.assertEqual(observation["name"], "pilot-puppy.host_finished")
+        self.assertEqual(observation["name"], "shadow.host_finished")
         self.assertIsNone(observation["input"])
         self.assertIsNone(observation["output"])
         self.assertEqual(
             observation["metadata"],
             {
-                "schema": "pilot-puppy.telemetry.v1",
+                "schema": "shadow.telemetry.v1",
                 "event": "host_finished",
                 "session_id": None,
                 "lane_id": None,
@@ -210,7 +210,7 @@ class TelemetryTests(unittest.TestCase):
             roster_file = make_roster(root)
             task = root / "task.md"
             task.write_text("Change the bounded file.\n", encoding="utf-8")
-            output = repo / ".pilot-puppy" / "evidence" / "route.json"
+            output = repo / ".shadow" / "evidence" / "route.json"
 
             def observed(document: dict[str, object]) -> bool:
                 self.assertTrue(output.is_file())
@@ -234,7 +234,7 @@ class TelemetryTests(unittest.TestCase):
                             "--availability",
                             "assume",
                             "--out",
-                            ".pilot-puppy/evidence/route.json",
+                            ".shadow/evidence/route.json",
                         ]
                     )
 
@@ -250,7 +250,7 @@ class TelemetryTests(unittest.TestCase):
             binary = root / "fake-host"
             binary.write_text(FAKE_HOST, encoding="utf-8")
             binary.chmod(0o755)
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             args = type(
                 "Args",
                 (),

@@ -3,7 +3,7 @@
 The browser may read plans, but it must not turn the whole plan, a path, a
 session, or provider metadata into durable Outcome state.  This module accepts
 only the already-parsed Operator Brief fields needed for the semantic contract
-and returns a fresh, closed ``pilot-puppy.outcome.v1`` document.  It never reads or
+and returns a fresh, closed ``shadow.outcome.v1`` document.  It never reads or
 writes files, invokes a host, selects a provider, or creates a queue.
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 import unicodedata
 
 
-OUTCOME_SCHEMA = "pilot-puppy.outcome.v1"
+OUTCOME_SCHEMA = "shadow.outcome.v1"
 MAX_REVISION = 2_147_483_647
 IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 UTC_TIMESTAMP_RE = re.compile(

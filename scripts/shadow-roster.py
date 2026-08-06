@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Create or display a safe, local Pilot Puppy role roster.
+"""Create or display a safe, local Shadow role roster.
 
 The roster is a trusted local configuration, not an evidence record.  It holds
 only slot identifiers, work roles, and native host surfaces.  ``--file`` and
-``PILOT_PUPPY_ROSTER_FILE`` are explicit local overrides; neither their paths
+``SHADOW_ROSTER_FILE`` are explicit local overrides; neither their paths
 nor their contents are added to plans, browser status, or task receipts.
 """
 
@@ -14,7 +14,7 @@ import json
 import sys
 from typing import Any
 
-from pilot_puppy_roster_lib import (
+from shadow_roster_lib import (
     HOSTS,
     ROLE_INPUTS,
     RosterError,
@@ -28,7 +28,7 @@ from pilot_puppy_roster_lib import (
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="pilot-puppy roster",
+        prog="shadow roster",
         description="Create or display one provider-neutral, local role roster.",
     )
     commands = result.add_subparsers(dest="command", required=True)
@@ -58,7 +58,7 @@ def parser() -> argparse.ArgumentParser:
 def render(view: dict[str, Any]) -> str:
     roster = view["roster"]
     fingerprint = view["fingerprint"]
-    lines = ["Pilot Puppy local roster", f"Revision: {roster['revision']}"]
+    lines = ["Shadow local roster", f"Revision: {roster['revision']}"]
     for slot in roster["slots"]:
         state = "enabled" if slot["enabled"] else "disabled"
         lines.append(f"- {slot['id']}: {slot['role']} via {slot['host']} (priority {slot['priority']}, {state})")
@@ -92,12 +92,12 @@ def main(argv: list[str] | None = None) -> int:
             print(render(view), end="")
         return 0
     except RosterExistsError:
-        print("pilot-puppy roster: local roster already exists; refusing to overwrite", file=sys.stderr)
+        print("shadow roster: local roster already exists; refusing to overwrite", file=sys.stderr)
         return 1
     except Exception:
         # Configuration errors must stay local and must never print an absolute
         # config path, parser traceback, or arbitrary malformed JSON content.
-        print("pilot-puppy roster: unable to use local roster configuration", file=sys.stderr)
+        print("shadow roster: unable to use local roster configuration", file=sys.stderr)
         return 2
 
 

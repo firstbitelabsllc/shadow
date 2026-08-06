@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create one repository-owned Pilot Puppy PLAN.md."""
+"""Create one repository-owned Shadow PLAN.md."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def plan_text(repo: Path, now: str) -> str:
 - Outcome: Ship one useful, evidence-backed result for {name}.
 - Next: Choose the first bounded move.
 - Decision ID: choose-first-move
-- Decision: What should Pilot Puppy do first?
+- Decision: What should Shadow do first?
 - Option A ID: inspect-current-state
 - Option A: Inspect current state
 - Option A Consequence: Read the repository and report the smallest useful next move.
@@ -68,7 +68,7 @@ def plan_text(repo: Path, now: str) -> str:
 
 ## Progress
 
-- {now}: Pilot Puppy initialized one repository-owned plan.
+- {now}: Shadow initialized one repository-owned plan.
 """
 
 
@@ -92,7 +92,7 @@ def write_exclusive(path: Path, text: str) -> None:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="pilot-puppy init",
+        prog="shadow init",
         description="Create PLAN.md in the current Git project without overwriting.",
     )
     result.add_argument("--here", action="store_true", help="initialize the current Git project")
@@ -107,17 +107,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         repo = repository_root(current)
     except ValueError as exc:
-        print(f"pilot-puppy init: {exc}", file=sys.stderr)
+        print(f"shadow init: {exc}", file=sys.stderr)
         return 2
     if current != repo:
-        print("pilot-puppy init: run --here from the Git project root", file=sys.stderr)
+        print("shadow init: run --here from the Git project root", file=sys.stderr)
         return 2
     destination = repo / "PLAN.md"
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     try:
         write_exclusive(destination, plan_text(repo, now))
     except FileExistsError:
-        print("pilot-puppy init: PLAN.md already exists; refusing to overwrite", file=sys.stderr)
+        print("shadow init: PLAN.md already exists; refusing to overwrite", file=sys.stderr)
         return 1
     print("created PLAN.md")
     return 0

@@ -14,9 +14,9 @@ The roster gives you six generic local work roles:
 Create or inspect the local roster:
 
 ```bash
-pilot-puppy roster init
-pilot-puppy roster show
-pilot-puppy roster prefer --role dev --host codex
+shadow roster init
+shadow roster show
+shadow roster prefer --role dev --host codex
 ```
 
 `prefer` moves one already-declared role/host slot to priority 1 within that
@@ -28,9 +28,9 @@ local no-op.
 Choose another local file only when you mean to:
 
 ```bash
-pilot-puppy roster init --file /safe/local/path/roster.json
-pilot-puppy roster show --file /safe/local/path/roster.json --json
-pilot-puppy roster prefer --role dev --host codex --file /safe/local/path/roster.json
+shadow roster init --file /safe/local/path/roster.json
+shadow roster show --file /safe/local/path/roster.json --json
+shadow roster prefer --role dev --host codex --file /safe/local/path/roster.json
 ```
 
 `init` never overwrites an existing roster. The default file stays outside the
@@ -39,7 +39,7 @@ not another plan or queue. It is created with owner-only permissions; show and
 route reject a group- or world-readable existing roster.
 
 Older local files that call `dev`, `review`, or `hard-dev` by their former
-labels `bulk`, `critic`, or `hard-ic` remain readable. Pilot Puppy normalizes
+labels `bulk`, `critic`, or `hard-ic` remain readable. Shadow normalizes
 those aliases in memory and writes the current names on the next preference
 change; route packets never emit the legacy labels.
 
@@ -47,7 +47,7 @@ change; route packets never emit the legacy labels.
 
 The roster does not choose a provider or model, measure account quota, start a
 native host, launch a worker, retry work, or dispatch anything automatically.
-[`pilot-puppy route`](routing.md) may choose only a declared generic role and
+[`shadow route`](routing.md) may choose only a declared generic role and
 native-host surface; it prints the choice, alternatives, and escalation and
 then stops. You still explicitly decide whether to run native Codex, Claude
 Code, or Cursor, and a lead still reviews the proof.
@@ -62,8 +62,8 @@ authority alongside `PLAN.md`.
 For an optional named native selector, use the separate local `seat` overlay:
 
 ```bash
-pilot-puppy seat init
-pilot-puppy seat set --slot dev-cursor --model MODEL
+shadow seat init
+shadow seat set --slot dev-cursor --model MODEL
 ```
 
 It can bind only a slot already declared and enabled in this roster. It cannot

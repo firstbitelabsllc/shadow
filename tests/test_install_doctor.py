@@ -9,8 +9,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CLI = ROOT / "bin" / "pilot-puppy"
-DOCTOR = ROOT / "scripts" / "pilot-puppy-doctor.py"
+CLI = ROOT / "bin" / "shadow"
+DOCTOR = ROOT / "scripts" / "shadow-doctor.py"
 
 
 class DoctorTests(unittest.TestCase):
@@ -27,8 +27,8 @@ class DoctorTests(unittest.TestCase):
     def test_json_report_has_one_product_and_native_host_floor(self) -> None:
         result = self.run_doctor("--json")
         report = json.loads(result.stdout)
-        self.assertEqual(report["schema"], "pilot-puppy.doctor.v1")
-        self.assertEqual(report["product"], "Pilot Puppy")
+        self.assertEqual(report["schema"], "shadow.doctor.v1")
+        self.assertEqual(report["product"], "Shadow")
         self.assertEqual(result.returncode, 0 if report["ok"] else 1)
         names = {item["name"] for item in report["checks"]}
         self.assertIn("product identity", names)
@@ -43,7 +43,7 @@ class DoctorTests(unittest.TestCase):
             result = subprocess.run(
                 ["python3", str(DOCTOR), "--json"],
                 cwd=ROOT,
-                env={**os.environ, "PILOT_PUPPY_ROOT": dirname},
+                env={**os.environ, "SHADOW_ROOT": dirname},
                 capture_output=True,
                 text=True,
                 check=False,

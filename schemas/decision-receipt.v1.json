@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pilot-puppy.dev/schemas/decision-receipt.v1.json",
-  "title": "Pilot Puppy Decision Receipt v1",
+  "$id": "shadow.decision-receipt.v1",
+  "title": "Shadow Decision Receipt v1",
   "description": "A bounded local compare-and-set receipt for one typed Decision choice. It does not claim execution or route a provider.",
   "type": "object",
   "additionalProperties": false,
@@ -18,7 +18,7 @@
   "properties": {
     "schema": {
       "type": "string",
-      "const": "pilot-puppy.decision-receipt.v1"
+      "const": "shadow.decision-receipt.v1"
     },
     "state": {
       "type": "string",

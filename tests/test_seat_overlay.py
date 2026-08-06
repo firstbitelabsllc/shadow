@@ -1,4 +1,4 @@
-"""Focused safety and binding tests for private Pilot Puppy native seats."""
+"""Focused safety and binding tests for private Shadow native seats."""
 
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
-CLI = SCRIPTS / "pilot-puppy-seat.py"
-LIBRARY = SCRIPTS / "pilot_puppy_seat_lib.py"
-TOP_LEVEL_CLI = ROOT / "bin" / "pilot-puppy"
+CLI = SCRIPTS / "shadow-seat.py"
+LIBRARY = SCRIPTS / "shadow_seat_lib.py"
+TOP_LEVEL_CLI = ROOT / "bin" / "shadow"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
-from pilot_puppy_roster_lib import initialize_roster
+from shadow_roster_lib import initialize_roster
 
-SPEC = importlib.util.spec_from_file_location("pilot_puppy_seat_lib", LIBRARY)
+SPEC = importlib.util.spec_from_file_location("shadow_seat_lib", LIBRARY)
 assert SPEC and SPEC.loader
 seat = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = seat
@@ -46,7 +46,7 @@ def run(*args: str, environment: dict[str, str] | None = None) -> subprocess.Com
 
 def run_top_level(*args: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
-    environment["PILOT_PUPPY_ROOT"] = str(ROOT)
+    environment["SHADOW_ROOT"] = str(ROOT)
     return subprocess.run(
         ["bash", str(TOP_LEVEL_CLI), *args],
         cwd=ROOT,
@@ -104,7 +104,7 @@ class SeatOverlayTests(unittest.TestCase):
         self.assertEqual(shown.returncode, 0, shown.stderr)
         self.assertEqual(json.loads(configured.stdout), json.loads(shown.stdout))
         view = json.loads(shown.stdout)
-        self.assertEqual(view["schema"], "pilot-puppy.seat-overlay-view.v1")
+        self.assertEqual(view["schema"], "shadow.seat-overlay-view.v1")
         self.assertEqual(view["overlay"]["revision"], 2)
         self.assertEqual(
             view["overlay"]["seats"],
@@ -211,11 +211,11 @@ class SeatOverlayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = safe_root(dirname)
             override = root / "private" / "seats.json"
-            with mock.patch.dict(os.environ, {"PILOT_PUPPY_SEATS_FILE": str(override)}):
+            with mock.patch.dict(os.environ, {"SHADOW_SEATS_FILE": str(override)}):
                 self.assertEqual(seat.default_seat_path(), override)
-            first = run("init", environment={"PILOT_PUPPY_SEATS_FILE": str(override)})
+            first = run("init", environment={"SHADOW_SEATS_FILE": str(override)})
             original = override.read_bytes()
-            second = run("init", environment={"PILOT_PUPPY_SEATS_FILE": str(override)})
+            second = run("init", environment={"SHADOW_SEATS_FILE": str(override)})
             preserved = override.read_bytes()
 
         self.assertEqual(first.returncode, 0, first.stderr)
@@ -226,7 +226,7 @@ class SeatOverlayTests(unittest.TestCase):
     def test_top_level_help_exposes_private_seats_without_claiming_provider_discovery(self) -> None:
         result = run_top_level("help", "seat")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("pilot-puppy seat set --slot SLOT", result.stdout)
+        self.assertIn("shadow seat set --slot SLOT", result.stdout)
         self.assertIn("--use-seat", result.stdout)
         self.assertIn("never discovers models", result.stdout)
 

@@ -14,7 +14,7 @@ from browser.outcome_source import OutcomeSourceError, project_plan_outcome
 
 
 ROOT = Path(__file__).resolve().parent.parent
-VALIDATOR = ROOT / "scripts" / "pilot-puppy-outcome-validate.py"
+VALIDATOR = ROOT / "scripts" / "shadow-outcome-validate.py"
 
 
 def canonical_brief() -> dict[str, str]:
@@ -42,7 +42,7 @@ class OutcomeSourceTests(unittest.TestCase):
                 check=False,
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(document["schema"], "pilot-puppy.outcome.v1")
+        self.assertEqual(document["schema"], "shadow.outcome.v1")
         self.assertEqual(document["outcome"]["id"], "checkout-notes")
         self.assertNotIn("path", document)
 

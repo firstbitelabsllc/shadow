@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 
 test('briefs the person and records one honest choice', async ({ page }) => {
   await page.goto('/');
-  await expect(page).toHaveTitle('Pilot Puppy');
-  await expect(page.getByRole('heading', { name: 'Pilot Puppy', exact: true })).toBeVisible();
+  await expect(page).toHaveTitle('Shadow');
+  await expect(page.getByRole('heading', { name: 'Shadow', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Publish release notes people can trust.' })).toBeVisible();
   await expect(page.getByText('Now', { exact: true })).toBeVisible();
   await expect(page.getByText('Change', { exact: true })).toBeVisible();
@@ -26,7 +26,7 @@ test('exposes proof without implementation machinery', async ({ page }) => {
 
 test('explains its help in everyday language and makes ready work visible', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByText('How Pilot Puppy can help')).toBeVisible();
+  await expect(page.getByText('How Shadow can help')).toBeVisible();
   await expect(page.getByText('Think it through')).toBeVisible();
   await expect(page.getByText('Make a small change')).toBeVisible();
   await expect(page.getByText('Fix something broken')).toBeVisible();

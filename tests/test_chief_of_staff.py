@@ -1,4 +1,4 @@
-"""Focused proof for the shared Pilot Puppy Chief-of-Staff brief."""
+"""Focused proof for the shared Shadow Chief-of-Staff brief."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ BROWSER = ROOT / "browser"
 sys.path.insert(0, str(BROWSER))
 
 SPEC = importlib.util.spec_from_file_location(
-    "pilot_puppy_chief_of_staff",
+    "shadow_chief_of_staff",
     BROWSER / "chief_of_staff.py",
 )
 assert SPEC and SPEC.loader
@@ -23,8 +23,8 @@ sys.modules[SPEC.name] = chief
 SPEC.loader.exec_module(chief)
 
 VALIDATOR_SPEC = importlib.util.spec_from_file_location(
-    "pilot_puppy_outcome_validator",
-    ROOT / "scripts" / "pilot-puppy-outcome-validate.py",
+    "shadow_outcome_validator",
+    ROOT / "scripts" / "shadow-outcome-validate.py",
 )
 assert VALIDATOR_SPEC and VALIDATOR_SPEC.loader
 validator = importlib.util.module_from_spec(VALIDATOR_SPEC)
@@ -39,7 +39,7 @@ def document(state: str = "needs_input") -> dict:
         {"id": "run-more", "label": "Run more checks", "consequence": "Spend another bounded cycle."},
     ]
     return {
-        "schema": "pilot-puppy.outcome.v1",
+        "schema": "shadow.outcome.v1",
         "revision": 4,
         "updated_at": "2026-08-01T18:00:00Z",
         "outcome": {
@@ -79,7 +79,7 @@ class ChiefOfStaffTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(result["schema"], "pilot-puppy.chief-of-staff.v1")
+        self.assertEqual(result["schema"], "shadow.chief-of-staff.v1")
         self.assertEqual(result["state"], "needs_you")
         self.assertEqual(result["revision"], 4)
         self.assertEqual(result["outcome_id"], "publish-notes")

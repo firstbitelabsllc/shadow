@@ -1,15 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pilot-puppy.dev/schemas/decision-choice.v1.json",
-  "title": "Pilot Puppy Decision Choice v1",
-  "description": "Ephemeral typed answer from a native on-the-go client to the host that owns one pilot-puppy.outcome.v1 document. It does not execute work, route providers, or persist mission state.",
+  "$id": "shadow.decision-choice.v1",
+  "title": "Shadow Decision Choice v1",
+  "description": "Ephemeral typed answer from a native on-the-go client to the host that owns one shadow.outcome.v1 document. It does not execute work, route providers, or persist mission state.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "kind", "revision", "outcome_id", "ask_id", "option_id"],
   "properties": {
     "schema": {
       "type": "string",
-      "const": "pilot-puppy.decision-choice.v1"
+      "const": "shadow.decision-choice.v1"
     },
     "kind": {
       "type": "string",

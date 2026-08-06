@@ -8,7 +8,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "pilot-puppy-public-ready-grep-gate.py"
+SCRIPT = ROOT / "scripts" / "shadow-public-ready-grep-gate.py"
 SPEC = importlib.util.spec_from_file_location("public_ready", SCRIPT)
 assert SPEC and SPEC.loader
 mod = importlib.util.module_from_spec(SPEC)
@@ -21,7 +21,7 @@ class PublicReadyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             path = root / "README.md"
-            path.write_text("Pilot Puppy stores bounded local proof.\n", encoding="utf-8")
+            path.write_text("Shadow stores bounded local proof.\n", encoding="utf-8")
             report = mod.scan(root, [path], metadata=False)
         self.assertTrue(report["ok"], report)
 

@@ -1,7 +1,7 @@
 # Security Policy
 
 Report vulnerabilities through GitHub private vulnerability reporting for
-`firstbitelabsllc/pilot-puppy`. Do not include credentials or private project
+`firstbitelabsllc/shadow`. Do not include credentials or private project
 content in a public issue. We aim to acknowledge reports within five business
 days.
 
@@ -17,7 +17,7 @@ days.
 - Native-host work requires a clean exact Git worktree, a frozen task file, an
   explicit path allowlist, a timeout, and one closed receipt. Any scope escape
   or missing proof fails closed.
-- Pilot Puppy does not relay credentials, choose a cloud provider, expose a
+- Shadow does not relay credentials, choose a cloud provider, expose a
   non-loopback service, run a daemon, or keep a second queue.
 
 The repository's privacy scan, secret scan, focused security regressions, and

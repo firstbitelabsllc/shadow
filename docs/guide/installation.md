@@ -3,18 +3,28 @@
 Requirements: Git, Bash, Python 3.10+, and one supported native coding host.
 
 ```bash
-git clone https://github.com/firstbitelabsllc/pilot-puppy.git
-cd pilot-puppy
+git clone https://github.com/firstbitelabsllc/shadow.git
+cd shadow
 npm install -g .
-pilot-puppy doctor
+shadow doctor
 ```
 
 Optional skill mounts:
 
 ```bash
-ln -sfn "$(pwd)" "$HOME/.claude/skills/pilot-puppy"
-ln -sfn "$(pwd)" "$HOME/.agents/skills/pilot-puppy"
-ln -sfn "$(pwd)" "$HOME/.cursor/skills/pilot-puppy"
+ln -sfn "$(npm root -g)/@firstbitelabs/shadow" "$HOME/.claude/skills/shadow"
+ln -sfn "$(pwd)" "$HOME/.agents/skills/shadow"
+ln -sfn "$(pwd)" "$HOME/.cursor/skills/shadow"
 ```
 
 The mount points at the same repository; it does not copy state or credentials.
+
+## Upgrading from the old name
+
+Shadow was previously published as pilot-puppy. Old Drive Packets and the old
+roster/seat configuration stay readable. Project evidence written before the
+rename lives in `.pilot-puppy/`; new evidence goes to `.shadow/` (`mv
+.pilot-puppy .shadow` in a project if you want one directory). Remove the old
+global install and mounts: `npm uninstall -g pilot-puppy` and re-point
+`~/.claude/skills`, `~/.agents/skills`, and `~/.cursor/skills` at the new
+installed package.

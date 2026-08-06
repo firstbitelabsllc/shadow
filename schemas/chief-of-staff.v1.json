@@ -1,6 +1,6 @@
 {
-  "$id": "pilot-puppy.chief-of-staff.v1",
-  "title": "Pilot Puppy Chief of Staff brief",
+  "$id": "shadow.chief-of-staff.v1",
+  "title": "Shadow Chief of Staff brief",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,7 +18,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "pilot-puppy.chief-of-staff.v1"
+      "const": "shadow.chief-of-staff.v1"
     },
     "revision": {
       "type": "integer",

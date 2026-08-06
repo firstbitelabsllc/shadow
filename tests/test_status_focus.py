@@ -9,7 +9,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-STATUS = ROOT / "scripts" / "pilot-puppy-status.py"
+STATUS = ROOT / "scripts" / "shadow-status.py"
 
 PLAN = """# Demo
 
@@ -62,12 +62,12 @@ class StatusTests(unittest.TestCase):
             (root / "PLAN.md").write_text(PLAN, encoding="utf-8")
             result = self.run_status(root, "--json")
             payload = json.loads(result.stdout)
-        self.assertEqual(payload["schema"], "pilot-puppy.status.v1")
+        self.assertEqual(payload["schema"], "shadow.status.v1")
         self.assertEqual(payload["plans"][0]["path"], "PLAN.md")
         self.assertNotIn(dirname, result.stdout)
 
     def test_invalid_root_fails_cleanly(self) -> None:
-        result = self.run_status(Path("/definitely/missing/pilot-puppy-root"))
+        result = self.run_status(Path("/definitely/missing/shadow-root"))
         self.assertEqual(result.returncode, 2)
         self.assertIn("not a directory", result.stderr)
 

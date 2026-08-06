@@ -1,15 +1,15 @@
 # Foreground routing
 
-`pilot-puppy route` makes one local, explicit choice before a bounded native
+`shadow route` makes one local, explicit choice before a bounded native
 handoff. It is the delegation decision, not another execution system.
 
 ```bash
-pilot-puppy route \
+shadow route \
   --repo "$PWD" \
   --task-id focused-fix \
   --task-file /tmp/focused-fix.md \
   --task-kind dev \
-  --out .pilot-puppy/evidence/focused-fix.route.json
+  --out .shadow/evidence/focused-fix.route.json
 ```
 
 Task kinds map deterministically to generic work roles:
@@ -34,7 +34,7 @@ The current route vocabulary is `planner`, `dev`, `debug`, `review`,
 `hard-ic`) are accepted only for compatibility and are normalized before a
 route packet is emitted.
 
-`--host` is a hard constraint. If that host is unavailable, Pilot Puppy blocks
+`--host` is a hard constraint. If that host is unavailable, Shadow blocks
 instead of choosing a different one. `--availability assume` skips the version
 probe and marks a native slot `unprobed`; it is useful when an operator has
 already checked the host.
@@ -56,7 +56,7 @@ Usage, tokens, cost, proprietary model, and provider-quality claims are **not
 collected**.
 
 The lead may use a real calibration to change local roster priorities with
-`pilot-puppy roster prefer --role ROLE --host HOST`. Pilot Puppy never changes
+`shadow roster prefer --role ROLE --host HOST`. Shadow never changes
 them automatically, silently retries, or turns the result into a score database.
 
 ## Bind a route to a host run
@@ -65,17 +65,17 @@ Write a route only in the project-local evidence directory, then pass it back
 to the selected native host explicitly:
 
 ```bash
-pilot-puppy host run \
+shadow host run \
   --host cursor \
   --repo "$PWD" \
   --task-file /tmp/focused-fix.md \
   --task-id focused-fix \
   --allowed-path src/fix.ts \
-  --route-file .pilot-puppy/evidence/focused-fix.route.json \
-  --out .pilot-puppy/evidence/focused-fix.attempt.json
+  --route-file .shadow/evidence/focused-fix.route.json \
+  --out .shadow/evidence/focused-fix.attempt.json
 ```
 
-Before launching the host, Pilot Puppy verifies that the route packet is a
+Before launching the host, Shadow verifies that the route packet is a
 regular direct evidence file and that its frozen task hash, task ID, local
 roster revision/route-safe hash, and selected enabled role/host slot still
 match. Any mismatch blocks before a native coding process starts.
@@ -91,8 +91,8 @@ If the native CLI on your own machine requires a specific selector, configure
 it locally after the generic roster exists:
 
 ```bash
-pilot-puppy seat init
-pilot-puppy seat set --slot dev-cursor --model MODEL
+shadow seat init
+shadow seat set --slot dev-cursor --model MODEL
 ```
 
 The route command never reads this overlay. It still makes the same generic
@@ -100,15 +100,15 @@ role/host choice and writes the same public-safe packet. Only an explicit
 sealed handoff can consume it:
 
 ```bash
-pilot-puppy host run \
+shadow host run \
   --host cursor \
   --repo "$PWD" \
   --task-file /tmp/focused-fix.md \
   --task-id focused-fix \
   --allowed-path src/fix.ts \
-  --route-file .pilot-puppy/evidence/focused-fix.route.json \
+  --route-file .shadow/evidence/focused-fix.route.json \
   --use-seat \
-  --out .pilot-puppy/evidence/focused-fix.attempt.json
+  --out .shadow/evidence/focused-fix.attempt.json
 ```
 
 `--use-seat` requires a ready route and one matching enabled native roster slot.

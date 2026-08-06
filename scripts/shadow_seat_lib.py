@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safe owner-local selectors for one already-declared Pilot Puppy seat.
+"""Safe owner-local selectors for one already-declared Shadow seat.
 
 The public roster deliberately names only generic roles and native host
 surfaces.  This separate, owner-only overlay can bind an existing non-manual
@@ -8,7 +8,7 @@ a provider registry, account store, pricing database, command template, or
 credential store.  It is never read by browse, status, route, plans, or task
 evidence.
 
-``PILOT_PUPPY_SEATS_FILE`` and ``--file`` are explicit local overrides.  As
+``SHADOW_SEATS_FILE`` and ``--file`` are explicit local overrides.  As
 with the roster, symlinked parents, non-regular files, and group/world-readable
 configuration are refused instead of followed.
 """
@@ -23,7 +23,7 @@ import stat
 import tempfile
 from typing import Any, Final
 
-from pilot_puppy_roster_lib import (
+from shadow_roster_lib import (
     HOSTS,
     MAX_REVISION,
     RosterError,
@@ -36,8 +36,8 @@ from pilot_puppy_roster_lib import (
 )
 
 
-SEAT_SCHEMA: Final = "pilot-puppy.seat-overlay.v1"
-SEAT_VIEW_SCHEMA: Final = "pilot-puppy.seat-overlay-view.v1"
+SEAT_SCHEMA: Final = "shadow.seat-overlay.v1"
+SEAT_VIEW_SCHEMA: Final = "shadow.seat-overlay-view.v1"
 MAX_SEATS: Final = 12
 # root → seats → seat → selector → scalar is the intended deepest shape.
 MAX_JSON_DEPTH: Final = 5
@@ -64,10 +64,15 @@ class SeatExistsError(SeatError):
 def default_seat_path() -> Path:
     """Return the lexical default path without resolving or displaying it."""
 
-    override = os.environ.get("PILOT_PUPPY_SEATS_FILE")
+    override = os.environ.get("SHADOW_SEATS_FILE")
     if override:
         return lexical_absolute(Path(override))
-    return lexical_absolute(Path.home() / ".config" / "pilot-puppy" / "seats.json")
+    current = lexical_absolute(Path.home() / ".config" / "shadow" / "seats.json")
+    if not current.exists():
+        legacy = lexical_absolute(Path.home() / ".config" / "pilot-puppy" / "seats.json")
+        if legacy.exists():
+            return legacy
+    return current
 
 
 def configuration_path(value: str | Path | None = None) -> Path:
@@ -146,7 +151,7 @@ def validate_seat_overlay(value: object) -> dict[str, Any]:
 
     _check_json_depth(value)
     root = _exact_object(value, {"schema", "revision", "seats"}, "root object")
-    if root["schema"] != SEAT_SCHEMA:
+    if root["schema"] not in (SEAT_SCHEMA, "pilot-puppy.seats.v1"):
         raise SeatError("local seat schema is unsupported")
     revision = root["revision"]
     if type(revision) is not int or not (1 <= revision <= MAX_REVISION):

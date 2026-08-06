@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.0 — 2026-08-05 — Shadow
+
+- The product is renamed to **Shadow** ("you are my shadow"): repository,
+  package, command (`shadow`), skill, browser identity, docs, scripts, tests,
+  environment variables (`SHADOW_*`), schema identifiers (`shadow.*.v1`), and
+  the project state directory (`.shadow/`). No aliases or shims are kept;
+  prior `pilot-puppy` history remains in this changelog and the plan as
+  receipts. GitHub redirects the old repository URL.
+
 ## 2.3.2 — 2026-08-05
 
 - The Briefs shell now actually hides while the Board view is active; it

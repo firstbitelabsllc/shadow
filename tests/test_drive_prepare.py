@@ -14,13 +14,13 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
-SCRIPT = SCRIPTS / "pilot-puppy-drive.py"
+SCRIPT = SCRIPTS / "shadow-drive.py"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 
 def load_drive():
-    spec = importlib.util.spec_from_file_location("pilot_puppy_drive_prepare", SCRIPT)
+    spec = importlib.util.spec_from_file_location("shadow_drive_prepare", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -39,7 +39,7 @@ def git(repo: Path, *args: str) -> str:
 
 def packet() -> dict:
     return {
-        "schema": "pilot-puppy.drive.v1",
+        "schema": "shadow.drive.v1",
         "revision": 1,
         "lanes": [
             {
@@ -70,21 +70,21 @@ def make_repo(root: Path) -> tuple[Path, Path]:
     repo = root / "repo"
     repo.mkdir()
     git(repo, "init", "-q")
-    git(repo, "config", "user.email", "pilot-puppy-test@example.invalid")
-    git(repo, "config", "user.name", "Pilot Puppy Test")
+    git(repo, "config", "user.email", "shadow-test@example.invalid")
+    git(repo, "config", "user.name", "Shadow Test")
     plan = repo / "PLAN.md"
     plan.write_text(
-        "# Example\n\n## Pilot Puppy Drive\n\n<!-- pilot-puppy-drive.v1\n"
+        "# Example\n\n## Shadow Drive\n\n<!-- shadow-drive.v1\n"
         + json.dumps(packet(), indent=2)
         + "\n-->\n",
         encoding="utf-8",
     )
-    (repo / ".gitignore").write_text(".pilot-puppy/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(".shadow/\n", encoding="utf-8")
     git(repo, "add", "PLAN.md", ".gitignore")
     git(repo, "commit", "-qm", "base")
     roster = root / "config" / "roster.json"
     result = subprocess.run(
-        ["python3", str(ROOT / "scripts" / "pilot-puppy-roster.py"), "init", "--file", str(roster)],
+        ["python3", str(ROOT / "scripts" / "shadow-roster.py"), "init", "--file", str(roster)],
         capture_output=True,
         text=True,
         check=False,
@@ -116,7 +116,7 @@ class DrivePrepareTests(unittest.TestCase):
                 "--json",
             )
             session = json.loads(result.stdout)
-            evidence = repo / ".pilot-puppy" / "evidence"
+            evidence = repo / ".shadow" / "evidence"
             persisted = json.loads((evidence / f"drive-{session['session_id']}.json").read_text(encoding="utf-8"))
             routes = sorted(evidence.glob(f"drive-{session['session_id']}-*.route.json"))
             rendered = "\n".join(path.read_text(encoding="utf-8") for path in routes)
@@ -125,14 +125,14 @@ class DrivePrepareTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(persisted, session)
-        self.assertEqual(session["schema"], "pilot-puppy.drive-session.v1")
+        self.assertEqual(session["schema"], "shadow.drive-session.v1")
         self.assertEqual(session["state"], "prepared")
         self.assertEqual([lane["id"] for lane in session["lanes"]], ["improve-copy", "repair-parser"])
         self.assertEqual([lane["host"] for lane in session["lanes"]], ["cursor", "codex"])
         self.assertEqual(len(routes), 2)
         for forbidden in ("welcome message and keep", "src/welcome.ts", "tests.test_welcome", "/Users"):
             self.assertNotIn(forbidden, rendered)
-        self.assertIn("pilot-puppy-drive.v1", plan_contents)
+        self.assertIn("shadow-drive.v1", plan_contents)
         self.assertEqual(source_status, "")
 
     def test_prepare_refuses_a_dirty_project_before_creating_any_evidence(self) -> None:
@@ -149,7 +149,7 @@ class DrivePrepareTests(unittest.TestCase):
                 "--availability",
                 "assume",
             )
-            evidence_exists = (repo / ".pilot-puppy" / "evidence").exists()
+            evidence_exists = (repo / ".shadow" / "evidence").exists()
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("save or commit", result.stderr)
@@ -187,7 +187,7 @@ if "--version" in sys.argv:
 pathlib.Path.cwd().joinpath("result.txt").write_text("changed\n", encoding="utf-8")
 print("```json")
 print(json.dumps({
-  "schema": "pilot-puppy.host-receipt.v1",
+  "schema": "shadow.host-receipt.v1",
   "task_id": "write-result",
   "status": "ok",
   "summary": "bounded change completed",
@@ -214,7 +214,7 @@ print("```")
                 }
             ]
             (repo / "PLAN.md").write_text(
-                "# Example\n\n## Pilot Puppy Drive\n\n<!-- pilot-puppy-drive.v1\n"
+                "# Example\n\n## Shadow Drive\n\n<!-- shadow-drive.v1\n"
                 + json.dumps(payload, indent=2)
                 + "\n-->\n",
                 encoding="utf-8",
@@ -235,7 +235,7 @@ print("```")
             binary = root / "fake-cursor"
             binary.write_text(fake_host, encoding="utf-8")
             binary.chmod(0o755)
-            environment = {**os.environ, "PILOT_PUPPY_CURSOR_BIN": str(binary)}
+            environment = {**os.environ, "SHADOW_CURSOR_BIN": str(binary)}
             launched = run(
                 "launch",
                 "--repo",
@@ -250,7 +250,7 @@ print("```")
                 env=environment,
             )
             finished = json.loads(launched.stdout)
-            worktree = repo.parent / f"{repo.name}-pilot-puppy-drive" / prepared_session["session_id"] / "write-result"
+            worktree = repo.parent / f"{repo.name}-shadow-drive" / prepared_session["session_id"] / "write-result"
             result_text = (worktree / "result.txt").read_text(encoding="utf-8")
             branch = git(worktree, "branch", "--show-current")
             commit = git(worktree, "log", "-1", "--pretty=%s")
@@ -264,8 +264,8 @@ print("```")
         self.assertTrue(finished["lanes"][0]["proof_ok"])
         self.assertIsNone(finished["lanes"][0]["merge_ok"])
         self.assertEqual(result_text, "changed\n")
-        self.assertTrue(branch.startswith("pilot-puppy/drive-"))
-        self.assertEqual(commit, "pilot-puppy drive: write-result")
+        self.assertTrue(branch.startswith("shadow/drive-"))
+        self.assertEqual(commit, "shadow drive: write-result")
         self.assertEqual(source_status, "")
 
     def test_launch_refuses_a_changed_plan_or_malformed_session_before_creating_worktrees(self) -> None:
@@ -293,9 +293,9 @@ print("```")
                 "--session",
                 session["session_id"],
             )
-            worktree_root = repo.parent / f"{repo.name}-pilot-puppy-drive"
+            worktree_root = repo.parent / f"{repo.name}-shadow-drive"
             (repo / "PLAN.md").write_text((repo / "PLAN.md").read_text(encoding="utf-8").replace("\nChanged after prepare.\n", "\n"), encoding="utf-8")
-            session_file = repo / ".pilot-puppy" / "evidence" / f"drive-{session['session_id']}.json"
+            session_file = repo / ".shadow" / "evidence" / f"drive-{session['session_id']}.json"
             malformed = json.loads(session_file.read_text(encoding="utf-8"))
             malformed["lanes"][0]["role"] = []
             session_file.write_text(json.dumps(malformed), encoding="utf-8")
@@ -329,7 +329,7 @@ if "--version" in sys.argv:
 pathlib.Path.cwd().joinpath("result.txt").write_text("changed\n", encoding="utf-8")
 print("```json")
 print(json.dumps({
-  "schema": "pilot-puppy.host-receipt.v1",
+  "schema": "shadow.host-receipt.v1",
   "task_id": "write-result",
   "status": "ok",
   "summary": "bounded change completed",
@@ -356,7 +356,7 @@ print("```")
                 }
             ]
             (repo / "PLAN.md").write_text(
-                "# Example\n\n## Pilot Puppy Drive\n\n<!-- pilot-puppy-drive.v1\n"
+                "# Example\n\n## Shadow Drive\n\n<!-- shadow-drive.v1\n"
                 + json.dumps(payload, indent=2)
                 + "\n-->\n",
                 encoding="utf-8",
@@ -377,7 +377,7 @@ print("```")
             binary = root / "fake-cursor"
             binary.write_text(fake_host, encoding="utf-8")
             binary.chmod(0o755)
-            environment = {**os.environ, "PILOT_PUPPY_CURSOR_BIN": str(binary)}
+            environment = {**os.environ, "SHADOW_CURSOR_BIN": str(binary)}
             launched = run(
                 "launch",
                 "--repo",
@@ -402,7 +402,7 @@ print("```")
                 "20",
                 "--json",
             )
-            review_root = repo.parent / f"{repo.name}-pilot-puppy-lead-review"
+            review_root = repo.parent / f"{repo.name}-shadow-lead-review"
             review_exists_before_accept = review_root.exists()
             (repo / "unrelated.txt").unlink()
             accepted = run(
@@ -416,7 +416,7 @@ print("```")
                 "--json",
             )
             result = json.loads(accepted.stdout)
-            review = repo.parent / f"{repo.name}-pilot-puppy-lead-review" / session["session_id"] / "attempt-01" / "write-result"
+            review = repo.parent / f"{repo.name}-shadow-lead-review" / session["session_id"] / "attempt-01" / "write-result"
             review_exists = review.is_dir()
             source_text = (repo / "result.txt").read_text(encoding="utf-8")
             source_status = git(repo, "status", "--porcelain=v1")
@@ -436,7 +436,7 @@ print("```")
         self.assertTrue(review_exists)
         self.assertEqual(source_text, "changed\n")
         self.assertEqual(source_status, "")
-        self.assertEqual(accepted_commit, f"pilot-puppy accept: {session['session_id']}")
+        self.assertEqual(accepted_commit, f"shadow accept: {session['session_id']}")
         self.assertEqual(changed, "result.txt")
 
 

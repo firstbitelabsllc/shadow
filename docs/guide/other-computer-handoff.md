@@ -1,7 +1,6 @@
 # Other-computer handoff
 
-This is the portable starting point for Pilot Puppy on another Mac. Pilot
-Puppy is the one chief-of-staff surface for coding work: it reads the owning
+This is the portable starting point for Shadow on another Mac. Shadow is the one chief-of-staff surface for coding work: it reads the owning
 repository's `PLAN.md`, explains the Outcome and current proof, offers the next
 decision, and drives one bounded task through native Codex, Claude Code, or
 Cursor.
@@ -9,21 +8,21 @@ Cursor.
 ## Bootstrap
 
 ```bash
-git clone https://github.com/firstbitelabsllc/pilot-puppy.git
-cd pilot-puppy
+git clone https://github.com/firstbitelabsllc/shadow.git
+cd shadow
 npm install -g .
-pilot-puppy doctor
+shadow doctor
 ```
 
 Mount the same skill in each native host you use:
 
 ```bash
-ln -sfn "$(pwd)" "$HOME/.claude/skills/pilot-puppy"
-ln -sfn "$(pwd)" "$HOME/.agents/skills/pilot-puppy"
-ln -sfn "$(pwd)" "$HOME/.cursor/skills/pilot-puppy"
+ln -sfn "$(pwd)" "$HOME/.claude/skills/shadow"
+ln -sfn "$(pwd)" "$HOME/.agents/skills/shadow"
+ln -sfn "$(pwd)" "$HOME/.cursor/skills/shadow"
 ```
 
-Expected result: `pilot-puppy doctor` reports the product identity, command,
+Expected result: `shadow doctor` reports the product identity, command,
 three host probes, and each installed mount as passing. Authentication stays
 inside the native host on that computer.
 
@@ -44,14 +43,14 @@ Do not create another queue, autonomous router, daemon, watcher, cloud
 executor, credential relay, transcript store, or parallel status database. A
 foreground, explicit role choice may be used locally, but it never launches or
 substitutes a host. Keep evidence inside the project-local
-`.pilot-puppy/evidence/` path and never put credentials, prompts, raw
+`.shadow/evidence/` path and never put credentials, prompts, raw
 transcripts, provider payloads, or absolute private paths in it.
 
 ## Main skill map
 
 | Skill | Use it for |
 | --- | --- |
-| `/pilot-puppy` | Start/resume work, read the Outcome, drive one bounded host task, and leave proof plus a resume point. |
+| `/shadow` | Start/resume work, read the Outcome, drive one bounded host task, and leave proof plus a resume point. |
 | `/amp` | Turn a vague request into one short, repository-grounded prompt. It does not dispatch or own a queue. |
 | `/ponytail` | Decide what to delete, reuse, defer, or implement before adding scope. |
 | `/thermo` | Review the working implementation after correctness for ownership, duplication, and boundary failures. |
@@ -66,12 +65,12 @@ helpers are adapters; none becomes the plan authority or stores credentials.
 
 ## Read the public state
 
-- Repository: `firstbitelabsllc/pilot-puppy`
+- Repository: `firstbitelabsllc/shadow`
 - Do not trust a version or commit copied into this guide. Read the protected
   `main` branch and release tags before starting work.
 - Use `git ls-remote origin refs/heads/main refs/tags/v*`, then read `VERSION`
   from the exact checkout or release tag you chose.
-- Run `pilot-puppy doctor` on that checkout. The result describes that
+- Run `shadow doctor` on that checkout. The result describes that
   computer's mounts and host tools; it is not a remote-host claim.
 
 The remaining resume item is the same sealed native Codex task after the
@@ -86,7 +85,7 @@ deferred cross-host receipt does not block local roster routing.
 git fetch origin main --tags
 git merge --ff-only origin/main
 git status --short --branch
-pilot-puppy doctor
+shadow doctor
 ```
 
 When handing work to the next computer, pass the repository, exact revision,
