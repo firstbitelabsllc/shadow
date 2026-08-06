@@ -9,7 +9,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "pilot-puppy-release-package.py"
+SCRIPT = ROOT / "scripts" / "shadow-release-package.py"
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
 SPEC = importlib.util.spec_from_file_location("release_package", SCRIPT)
 assert SPEC and SPEC.loader
@@ -20,15 +20,15 @@ SPEC.loader.exec_module(mod)
 
 def baseline() -> tuple[dict, dict, dict, set[str]]:
     package = {
-        "name": "pilot-puppy",
+        "name": "@firstbitelabs/shadow",
         "version": VERSION,
         "private": False,
-        "bin": {"pilot-puppy": "bin/pilot-puppy"},
-        "homepage": "https://github.com/firstbitelabsllc/pilot-puppy",
-        "repository": {"url": "git+https://github.com/firstbitelabsllc/pilot-puppy.git"},
+        "bin": {"shadow": "bin/shadow"},
+        "homepage": "https://github.com/firstbitelabsllc/shadow",
+        "repository": {"url": "git+https://github.com/firstbitelabsllc/shadow.git"},
         "publishConfig": {"access": "public", "provenance": True},
     }
-    plugin = {"name": "pilot-puppy", "version": VERSION}
+    plugin = {"name": "shadow", "version": VERSION}
     paths = set(mod.REQUIRED_FILES)
     pack = {
         "version": VERSION,
@@ -55,7 +55,7 @@ class ReleasePackageTests(unittest.TestCase):
 
     def test_missing_required_file_fails(self) -> None:
         package, plugin, pack, tracked = baseline()
-        pack["files"] = [item for item in pack["files"] if item["path"] != "bin/pilot-puppy"]
+        pack["files"] = [item for item in pack["files"] if item["path"] != "bin/shadow"]
         self.assertTrue(any("missing" in error for error in self.errors(package, plugin, pack, tracked)))
 
     def test_second_skill_or_private_stream_fails(self) -> None:

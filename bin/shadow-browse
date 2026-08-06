@@ -8,6 +8,6 @@ while [[ -L "${SOURCE}" ]]; do
   [[ "${SOURCE}" != /* ]] && SOURCE="${SOURCE_DIR}/${SOURCE}"
 done
 BIN_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
-ROOT="${PILOT_PUPPY_ROOT:-$(cd "${BIN_DIR}/.." && pwd)}"
+ROOT="${SHADOW_ROOT:-$(cd "${BIN_DIR}/.." && pwd)}"
 
-exec env PILOT_PUPPY_PYTHON_COMMAND=browse "${ROOT}/scripts/pilot-puppy-python.sh" "${ROOT}/browser/server.py" "$@"
+exec env SHADOW_PYTHON_COMMAND=browse "${ROOT}/scripts/shadow-python.sh" "${ROOT}/browser/server.py" "$@"

@@ -3,7 +3,7 @@
 
 This command is deliberately local setup only.  It does not inspect providers,
 accounts, billing, quota, credentials, model availability, or projects.  Use
-``pilot-puppy host run --use-seat`` only with an already-written sealed route.
+``shadow host run --use-seat`` only with an already-written sealed route.
 """
 
 from __future__ import annotations
@@ -13,19 +13,19 @@ import json
 import sys
 from typing import Any
 
-from pilot_puppy_seat_lib import (
+from shadow_seat_lib import (
     SeatExistsError,
     initialize_seat_overlay,
     load_seat_overlay,
     seat_view,
     set_seat_selector,
 )
-from pilot_puppy_roster_lib import load_roster
+from shadow_roster_lib import load_roster
 
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="pilot-puppy seat",
+        prog="shadow seat",
         description="Configure an owner-local selector for one declared native roster slot.",
     )
     commands = root.add_subparsers(dest="command", required=True)
@@ -49,7 +49,7 @@ def parser() -> argparse.ArgumentParser:
 
 def render(view: dict[str, Any]) -> str:
     overlay = view["overlay"]
-    lines = ["Pilot Puppy private seats", f"Revision: {overlay['revision']}"]
+    lines = ["Shadow private seats", f"Revision: {overlay['revision']}"]
     if not overlay["seats"]:
         lines.append("- no native selectors configured")
     for seat in overlay["seats"]:
@@ -94,12 +94,12 @@ def main(argv: list[str] | None = None) -> int:
             print(render(result), end="")
         return 0
     except SeatExistsError:
-        print("pilot-puppy seat: private seat overlay already exists; refusing to overwrite", file=sys.stderr)
+        print("shadow seat: private seat overlay already exists; refusing to overwrite", file=sys.stderr)
         return 1
     except Exception:
         # Explicit local selector values and locations never belong in an error,
         # route packet, browser/status projection, or project receipt.
-        print("pilot-puppy seat: unable to use private seat configuration", file=sys.stderr)
+        print("shadow seat: unable to use private seat configuration", file=sys.stderr)
         return 2
 
 

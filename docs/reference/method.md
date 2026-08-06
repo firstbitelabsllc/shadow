@@ -27,7 +27,7 @@ plan's `## Operator Brief`:
 
 ## Project
 
-A project is one repo-local `PLAN.md` — today's Pilot Puppy contract plus one
+A project is one repo-local `PLAN.md` — today's Shadow contract plus one
 brief field and three sections:
 
 ```markdown
@@ -166,7 +166,7 @@ offers:
 STEER <date>
 A) resplit ~k7f2 — Age-rating PATCH accepted by ASC (M, Close)
 B) snowcubes ~c9d1 — Storefront shows both new flavors live (S, Close)
-C) pilot-puppy ~e2a7 — Method contract tests green on main (S, Close)
+C) shadow ~e2a7 — Method contract tests green on main (S, Close)
 D) You write it.
 Default if silent: A
 ```

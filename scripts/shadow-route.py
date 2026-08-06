@@ -21,7 +21,7 @@ import sys
 import tempfile
 from typing import Any
 
-from pilot_puppy_roster_lib import (  # type: ignore[import-not-found]
+from shadow_roster_lib import (  # type: ignore[import-not-found]
     RosterError,
     canonical_role,
     default_roster_path,
@@ -29,7 +29,7 @@ from pilot_puppy_roster_lib import (  # type: ignore[import-not-found]
     route_roster_sha256,
     validate_roster,
 )
-from pilot_puppy_route_lib import (  # type: ignore[import-not-found]
+from shadow_route_lib import (  # type: ignore[import-not-found]
     HOSTS,
     ROLE_INPUTS as ROUTE_ROLE_INPUTS,
     ROUTE_SCHEMA,
@@ -37,8 +37,8 @@ from pilot_puppy_route_lib import (  # type: ignore[import-not-found]
     RoutePacketError,
     validate_route_packet,
 )
-from pilot_puppy_task_lib import TaskError, frozen_task_sha256  # type: ignore[import-not-found]
-import pilot_puppy_telemetry as telemetry  # type: ignore[import-not-found]
+from shadow_task_lib import TaskError, frozen_task_sha256  # type: ignore[import-not-found]
+import shadow_telemetry as telemetry  # type: ignore[import-not-found]
 
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
@@ -93,7 +93,7 @@ def probe_host(host: str) -> bool:
         return False
     if host in _PROBE_CACHE:
         return _PROBE_CACHE[host]
-    configured = os.environ.get(f"PILOT_PUPPY_{host.upper().replace('-', '_')}_BIN")
+    configured = os.environ.get(f"SHADOW_{host.upper().replace('-', '_')}_BIN")
     if configured:
         supplied = Path(configured).expanduser()
         binary = str(supplied) if "/" in configured else shutil.which(configured)
@@ -253,8 +253,8 @@ def output_path(repo: Path, raw: str) -> Path | None:
     if raw == "-":
         return None
     target = (repo / raw).resolve(strict=False) if not Path(raw).is_absolute() else Path(raw).resolve(strict=False)
-    evidence = repo / ".pilot-puppy" / "evidence"
-    if evidence.is_symlink() or (repo / ".pilot-puppy").is_symlink():
+    evidence = repo / ".shadow" / "evidence"
+    if evidence.is_symlink() or (repo / ".shadow").is_symlink():
         raise RouteError("project evidence path must not be a symlink")
     try:
         target.relative_to(evidence)
@@ -303,13 +303,13 @@ def render(document: dict[str, Any]) -> str:
     escalation = document["escalation"]
     if selection is None:
         return (
-            "Pilot Puppy route blocked: no eligible declared local slot.\n"
+            "Shadow route blocked: no eligible declared local slot.\n"
             f"Alternatives: {alternatives_text}.\n"
             f"Escalate: {escalation['role']} when {escalation['when']}\n"
             f"Next: {document['execution']['next_action']}.\n"
         )
     line = (
-        f"Pilot Puppy route: {selection['role']} via {selection['host']} "
+        f"Shadow route: {selection['role']} via {selection['host']} "
         f"({selection['state']}; {selection['reason']})"
     )
     return (
@@ -323,7 +323,7 @@ def render(document: dict[str, Any]) -> str:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="pilot-puppy route",
+        prog="shadow route",
         description="Resolve one declared local role without starting a coding host.",
     )
     result.add_argument("--repo", required=True, type=Path, help="exact Git worktree root")
@@ -340,7 +340,7 @@ def parser() -> argparse.ArgumentParser:
         "--availability", choices=("probe", "assume"), default="probe", help="local host availability mode"
     )
     result.add_argument(
-        "--out", default="-", help="one new .pilot-puppy/evidence JSON path, or '-' for no file"
+        "--out", default="-", help="one new .shadow/evidence JSON path, or '-' for no file"
     )
     result.add_argument("--json", action="store_true", help="print the bounded route JSON")
     return result
@@ -373,10 +373,10 @@ def main(argv: list[str] | None = None) -> int:
             print(render(document), end="")
         return 0 if document["status"] != "blocked" else 1
     except FileExistsError:
-        print("pilot-puppy route: route output already exists; refusing to overwrite", file=sys.stderr)
+        print("shadow route: route output already exists; refusing to overwrite", file=sys.stderr)
         return 1
     except (OSError, RosterError, RouteError, RoutePacketError, TaskError):
-        print("pilot-puppy route: local route could not be resolved safely", file=sys.stderr)
+        print("shadow route: local route could not be resolved safely", file=sys.stderr)
         return 2
 
 

@@ -3,13 +3,13 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 export default async function globalSetup() {
-  const root = process.env.PILOT_PUPPY_TEST_DEV_ROOT;
-  if (!root) throw new Error('PILOT_PUPPY_TEST_DEV_ROOT is required');
+  const root = process.env.SHADOW_TEST_DEV_ROOT;
+  if (!root) throw new Error('SHADOW_TEST_DEV_ROOT is required');
   const boundedRoot = resolve(root);
-  const testResults = resolve('.pilot-puppy-test');
+  const testResults = resolve('.shadow-test');
   const relation = relative(testResults, boundedRoot);
   if (!relation || relation.startsWith('..') || relation.includes('/../')) {
-    throw new Error('browser fixture root must stay under .pilot-puppy-test');
+    throw new Error('browser fixture root must stay under .shadow-test');
   }
   rmSync(boundedRoot, { recursive: true, force: true });
   mkdirSync(join(boundedRoot, 'demo'), { recursive: true });
@@ -47,9 +47,9 @@ export default async function globalSetup() {
 
 - 2026-08-03: The bounded implementation is ready for a decision.
 
-<!-- pilot-puppy-drive.v1
+<!-- shadow-drive.v1
 {
-  "schema": "pilot-puppy.drive.v1",
+  "schema": "shadow.drive.v1",
   "revision": 1,
   "lanes": [
     {
@@ -98,7 +98,7 @@ export default async function globalSetup() {
 `, 'utf8');
   execFileSync('git', ['init', '-q'], { cwd: boundedRoot });
   execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: boundedRoot });
-  execFileSync('git', ['config', 'user.name', 'Pilot Puppy Test'], { cwd: boundedRoot });
+  execFileSync('git', ['config', 'user.name', 'Shadow Test'], { cwd: boundedRoot });
   execFileSync('git', ['add', 'demo/PLAN.md', 'gift/PLAN.md'], { cwd: boundedRoot });
   execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: boundedRoot });
 }

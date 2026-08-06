@@ -1,7 +1,7 @@
 # The Method
 
 Standing behavior for AI work across a portfolio. This file is loaded with the
-Pilot Puppy skill; the machine-readable grammar lives in
+Shadow skill; the machine-readable grammar lives in
 `docs/reference/method.md`. Skills stay plug-and-play underneath — process
 disciplines (TDD, debugging, review, worktrees, verification) belong to their
 own skills and are invoked per task, never restated here.

@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "pilot-puppy-drive.py"
+SCRIPT = ROOT / "scripts" / "shadow-drive.py"
 
 
 FAKE_CURSOR = r'''#!/usr/bin/env python3
@@ -37,7 +37,7 @@ print("```json")
 print(
     json.dumps(
         {
-            "schema": "pilot-puppy.host-receipt.v1",
+            "schema": "shadow.host-receipt.v1",
             "task_id": "fix-greeting",
             "status": "ok",
             "summary": "fixed the greeting spelling",
@@ -61,14 +61,14 @@ def git(repo: Path, *args: str) -> str:
 
 
 def make_project(
-    root: Path, *, ignore: str = ".pilot-puppy/\n__pycache__/\n"
+    root: Path, *, ignore: str = ".shadow/\n__pycache__/\n"
 ) -> tuple[Path, Path]:
     repo = root / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "tests").mkdir()
     git(repo, "init", "-q")
-    git(repo, "config", "user.email", "pilot-puppy-test@example.invalid")
-    git(repo, "config", "user.name", "Pilot Puppy Test")
+    git(repo, "config", "user.email", "shadow-test@example.invalid")
+    git(repo, "config", "user.name", "Shadow Test")
     (repo / "src" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "tests" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "src" / "greeting.py").write_text(
@@ -86,7 +86,7 @@ def make_project(
         encoding="utf-8",
     )
     packet = {
-        "schema": "pilot-puppy.drive.v1",
+        "schema": "shadow.drive.v1",
         "revision": 1,
         "lanes": [
             {
@@ -102,7 +102,7 @@ def make_project(
         ],
     }
     (repo / "PLAN.md").write_text(
-        "# Example\n\n## Pilot Puppy Drive\n\n<!-- pilot-puppy-drive.v1\n"
+        "# Example\n\n## Shadow Drive\n\n<!-- shadow-drive.v1\n"
         + json.dumps(packet, indent=2)
         + "\n-->\n",
         encoding="utf-8",
@@ -114,7 +114,7 @@ def make_project(
     result = subprocess.run(
         [
             sys.executable,
-            str(ROOT / "scripts" / "pilot-puppy-roster.py"),
+            str(ROOT / "scripts" / "shadow-roster.py"),
             "init",
             "--file",
             str(roster),
@@ -149,7 +149,7 @@ class DriveLaunchTests(unittest.TestCase):
             root = Path(dirname).resolve()
             repo, roster = make_project(root)
             env = dict(os.environ)
-            env["PILOT_PUPPY_CURSOR_BIN"] = str(root / "fake-cursor")
+            env["SHADOW_CURSOR_BIN"] = str(root / "fake-cursor")
             prepared = run_drive(
                 "prepare",
                 "--repo",
@@ -197,14 +197,14 @@ class DriveLaunchTests(unittest.TestCase):
             status = git(repo, "status", "--porcelain")
             self.assertEqual(status, "")
 
-    def test_accept_and_reprepare_work_without_a_pilot_puppy_gitignore_entry(self) -> None:
+    def test_accept_and_reprepare_work_without_a_shadow_gitignore_entry(self) -> None:
         import os
 
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             repo, roster = make_project(root, ignore="__pycache__/\n")
             env = dict(os.environ)
-            env["PILOT_PUPPY_CURSOR_BIN"] = str(root / "fake-cursor")
+            env["SHADOW_CURSOR_BIN"] = str(root / "fake-cursor")
             prepared = run_drive(
                 "prepare",
                 "--repo",
@@ -246,7 +246,7 @@ class DriveLaunchTests(unittest.TestCase):
             outside_state = [
                 line
                 for line in status.splitlines()
-                if not line[3:].startswith(".pilot-puppy/")
+                if not line[3:].startswith(".shadow/")
             ]
             self.assertEqual(outside_state, [], status)
             again = run_drive(
@@ -269,7 +269,7 @@ class DriveLaunchTests(unittest.TestCase):
             root = Path(dirname).resolve()
             repo, roster = make_project(root)
             env = dict(os.environ)
-            env["PILOT_PUPPY_CURSOR_BIN"] = str(root / "fake-cursor")
+            env["SHADOW_CURSOR_BIN"] = str(root / "fake-cursor")
             prepared = run_drive(
                 "prepare",
                 "--repo",
@@ -283,7 +283,7 @@ class DriveLaunchTests(unittest.TestCase):
             )
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             session_id = json.loads(prepared.stdout)["session_id"]
-            session_path = repo / ".pilot-puppy" / "evidence" / f"drive-{session_id}.json"
+            session_path = repo / ".shadow" / "evidence" / f"drive-{session_id}.json"
             record = json.loads(session_path.read_text(encoding="utf-8"))
             record["state"] = "running"
             session_path.write_text(json.dumps(record), encoding="utf-8")
@@ -320,7 +320,7 @@ class DriveLaunchTests(unittest.TestCase):
             root = Path(dirname).resolve()
             repo, roster = make_project(root)
             env = dict(os.environ)
-            env["PILOT_PUPPY_CURSOR_BIN"] = str(root / "fake-cursor")
+            env["SHADOW_CURSOR_BIN"] = str(root / "fake-cursor")
             prepared = run_drive(
                 "prepare",
                 "--repo",
@@ -334,7 +334,7 @@ class DriveLaunchTests(unittest.TestCase):
             )
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             session_id = json.loads(prepared.stdout)["session_id"]
-            lock = repo / ".pilot-puppy" / "evidence" / f"drive-{session_id}.lock"
+            lock = repo / ".shadow" / "evidence" / f"drive-{session_id}.lock"
             lock.write_text(str(os.getpid()), encoding="utf-8")
             refused = run_drive(
                 "launch",
@@ -379,7 +379,7 @@ class DriveLaunchTests(unittest.TestCase):
             git(repo, "commit", "-qm", "declare manual merge")
             base = git(repo, "rev-parse", "HEAD")
             env = dict(os.environ)
-            env["PILOT_PUPPY_CURSOR_BIN"] = str(root / "fake-cursor")
+            env["SHADOW_CURSOR_BIN"] = str(root / "fake-cursor")
             prepared = run_drive(
                 "prepare",
                 "--repo",
@@ -419,7 +419,7 @@ class DriveLaunchTests(unittest.TestCase):
             self.assertEqual(head, base)
             content = (repo / "src" / "greeting.py").read_text(encoding="utf-8")
             self.assertIn("helo wrld", content)
-            branch = f"pilot-puppy/drive-{session_id[:12]}-fix-greeting"
+            branch = f"shadow/drive-{session_id[:12]}-fix-greeting"
             kept = git(repo, "rev-parse", "--verify", f"{branch}^{{commit}}")
             self.assertTrue(kept)
 

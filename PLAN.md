@@ -1,6 +1,6 @@
-# Pilot Puppy — Plan
+# Shadow — Plan
 
-This file is the sole plan, proof, and resume authority for Pilot Puppy.
+This file is the sole plan, proof, and resume authority for Shadow (formerly Pilot Puppy; renamed 2026-08-05 — "you are my shadow").
 
 ## Outcome
 
@@ -11,7 +11,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Operator Brief
 
-- Entity: pilot-puppy
+- Entity: shadow
 - Mode: Close
 - Milestone: The Method v1 live
 - Outcome ID: portfolio-product-closeout-20260803
@@ -1037,8 +1037,9 @@ Code, or Cursor without taking custody of credentials or conversations.
   path-disjoint lanes on distinct declared hosts, driven prepare → launch →
   accept with kept-branch review, receipts folded back here. Exact resume
   move: pick the highest-value reachable repo from its own canonical plan,
-  write the `pilot-puppy-drive.v1` packet into that repo's PLAN.md, then
-  `pilot-puppy drive prepare --repo <clean worktree>`.
+  write the `shadow-drive.v1` packet into that repo's PLAN.md, then
+  `shadow drive prepare --repo <clean worktree>` (the renamed CLI also reads
+  legacy `pilot-puppy-drive.v1` packets).
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -1046,7 +1047,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 ## Mechanical proof required
 
 - Full tests, docs, package, privacy, security, fresh clone, and install pass.
-- `pilot-puppy doctor` passes; removed commands fail lookup.
+- `shadow doctor` passes; removed commands fail lookup.
 - Codex, Claude Code, and Cursor each complete one sealed task with
   lead-reproduced proof.
 - One real Outcome survives restart and renders an accurate brief and A/B/C

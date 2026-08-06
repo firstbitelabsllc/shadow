@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify one small, public, installable Pilot Puppy npm artifact."""
+"""Verify one small, public, installable Shadow npm artifact."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ REQUIRED_FILES = {
     "SECURITY.md",
     "SKILL.md",
     "VERSION",
-    "bin/pilot-puppy",
-    "bin/pilot-puppy-browse",
+    "bin/shadow",
+    "bin/shadow-browse",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
     "browser/outcome_source.py",
@@ -46,25 +46,25 @@ REQUIRED_FILES = {
     "schemas/outcome-choice.v1.json",
     "schemas/route.v1.json",
     "schemas/roster.v1.json",
-    "scripts/pilot-puppy-checkpoint.py",
-    "scripts/pilot-puppy-doctor.py",
-    "scripts/pilot-puppy-drive.py",
-    "scripts/pilot-puppy-host.py",
-    "scripts/pilot-puppy-init.py",
-    "scripts/pilot-puppy-outcome-validate.py",
-    "scripts/pilot-puppy-public-ready-grep-gate.py",
-    "scripts/pilot-puppy-python.sh",
-    "scripts/pilot-puppy-release-package.py",
-    "scripts/pilot-puppy-roster.py",
-    "scripts/pilot-puppy-seat.py",
-    "scripts/pilot-puppy-route.py",
-    "scripts/pilot-puppy-status.py",
-    "scripts/pilot_puppy_roster_lib.py",
-    "scripts/pilot_puppy_seat_lib.py",
-    "scripts/pilot_puppy_route_lib.py",
-    "scripts/pilot_puppy_task_lib.py",
-    "scripts/pilot_puppy_drive_lib.py",
-    "scripts/pilot_puppy_telemetry.py",
+    "scripts/shadow-checkpoint.py",
+    "scripts/shadow-doctor.py",
+    "scripts/shadow-drive.py",
+    "scripts/shadow-host.py",
+    "scripts/shadow-init.py",
+    "scripts/shadow-outcome-validate.py",
+    "scripts/shadow-public-ready-grep-gate.py",
+    "scripts/shadow-python.sh",
+    "scripts/shadow-release-package.py",
+    "scripts/shadow-roster.py",
+    "scripts/shadow-seat.py",
+    "scripts/shadow-route.py",
+    "scripts/shadow-status.py",
+    "scripts/shadow_roster_lib.py",
+    "scripts/shadow_seat_lib.py",
+    "scripts/shadow_route_lib.py",
+    "scripts/shadow_task_lib.py",
+    "scripts/shadow_drive_lib.py",
+    "scripts/shadow_telemetry.py",
 }
 FORBIDDEN_ROOTS = {
     ".git",
@@ -114,17 +114,17 @@ def validate_release_candidate(
     tracked = {normalize(path) for path in tracked_paths}
     dirty = sorted(files & {normalize(path) for path in dirty_paths})
     wanted_version = expected_version or version
-    expected_repo = "https://github.com/firstbitelabsllc/pilot-puppy"
+    expected_repo = "https://github.com/firstbitelabsllc/shadow"
     if expected_version and version != expected_version:
         errors.append("VERSION does not match --expect-version")
-    if package.get("name") != "pilot-puppy" or plugin.get("name") != "pilot-puppy":
-        errors.append("package and plugin names must be pilot-puppy")
+    if package.get("name") != "@firstbitelabs/shadow" or plugin.get("name") != "shadow":
+        errors.append("package must be @firstbitelabs/shadow, plugin shadow")
     if package.get("private") is not False:
         errors.append("package must be public")
     if package.get("version") != wanted_version or plugin.get("version") != wanted_version or pack.get("version") != wanted_version:
         errors.append("package, plugin, packed artifact, and VERSION must match")
-    if package.get("bin") != {"pilot-puppy": "bin/pilot-puppy"}:
-        errors.append("package must expose only the pilot-puppy command")
+    if package.get("bin") != {"shadow": "bin/shadow"}:
+        errors.append("package must expose only the shadow command")
     if expected_repo not in str(package.get("homepage", "")) or expected_repo not in str(package.get("repository", {}).get("url", "")):
         errors.append("package must point at the canonical public repository")
     publish = package.get("publishConfig", {})
@@ -206,7 +206,7 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
     consumer.mkdir()
     (consumer / "package.json").write_text('{"private":true}\n', encoding="utf-8")
     command(["npm", "install", "--ignore-scripts", "--no-fund", "--audit", str(tarball)], consumer)
-    cli = consumer / "node_modules" / ".bin" / "pilot-puppy"
+    cli = consumer / "node_modules" / ".bin" / "shadow"
     version = command([str(cli), "--version"], consumer).stdout.strip()
     if version != expected_version:
         raise RuntimeError("installed command version does not match source")
@@ -217,7 +217,7 @@ def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     version = source_version(root)
-    with tempfile.TemporaryDirectory(prefix="pilot-puppy-release-") as dirname:
+    with tempfile.TemporaryDirectory(prefix="shadow-release-") as dirname:
         temp = Path(dirname)
         first = temp / "first"
         second = temp / "second"
@@ -243,7 +243,7 @@ def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool
             install_ok = True
     dirty = sorted(dirty_files(root))
     return {
-        "schema": "pilot-puppy.release.v1",
+        "schema": "shadow.release.v1",
         "ok": not errors,
         "publishable": not errors and not dirty and not allow_dirty,
         "version": version,
@@ -267,13 +267,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = verify(args.root.resolve(), expected_version=args.expect_version, allow_dirty=args.allow_dirty)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
-        report = {"schema": "pilot-puppy.release.v1", "ok": False, "publishable": False, "errors": [str(exc)]}
+        report = {"schema": "shadow.release.v1", "ok": False, "publishable": False, "errors": [str(exc)]}
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif report["ok"]:
-        print(f"pilot-puppy release package: OK ({report['version']}, {report['file_count']} files, sha256={report['sha256']})")
+        print(f"shadow release package: OK ({report['version']}, {report['file_count']} files, sha256={report['sha256']})")
     else:
-        print("pilot-puppy release package: FAILED", file=sys.stderr)
+        print("shadow release package: FAILED", file=sys.stderr)
         for error in report["errors"]:
             print(f"- {error}", file=sys.stderr)
     return 0 if report["ok"] else 1

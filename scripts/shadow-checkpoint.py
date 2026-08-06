@@ -107,7 +107,7 @@ def slug(value: str) -> str:
 
 def receipt_core(args: argparse.Namespace, plan_relative: str) -> dict[str, Any]:
     return {
-        "schema": "pilot-puppy.checkpoint.v1",
+        "schema": "shadow.checkpoint.v1",
         "plan": plan_relative,
         "task": safe_field(args.task, "task"),
         "summary": safe_field(args.summary, "summary"),
@@ -150,7 +150,7 @@ def update_plan(text: str, task: str, status: str, progress: str, marker: str) -
 
 
 def parser() -> argparse.ArgumentParser:
-    value = argparse.ArgumentParser(prog="pilot-puppy checkpoint", description=__doc__)
+    value = argparse.ArgumentParser(prog="shadow checkpoint", description=__doc__)
     value.add_argument("plan_path")
     value.add_argument("task")
     value.add_argument("summary")
@@ -175,9 +175,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     core = receipt_core(args, plan_relative)
     identifier = receipt_id(core)
     marker = f"[receipt:{identifier}]"
-    evidence_relative = Path(".pilot-puppy") / "evidence" / f"{slug(core['task'])}-{identifier}.json"
+    evidence_relative = Path(".shadow") / "evidence" / f"{slug(core['task'])}-{identifier}.json"
     evidence = repo / evidence_relative
-    state = repo / ".pilot-puppy"
+    state = repo / ".shadow"
     evidence_dir = state / "evidence"
     if state.is_symlink() or evidence_dir.is_symlink() or evidence.is_symlink():
         raise CheckpointError("receipt path must not contain symlinks")
@@ -218,7 +218,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         git(repo, "add", "--", plan_relative, evidence_relative.as_posix())
         staged = git(repo, "diff", "--cached", "--quiet", check=False)
         if staged.returncode == 1:
-            git(repo, "commit", "-m", f"pilot-puppy: {core['summary']}")
+            git(repo, "commit", "-m", f"shadow: {core['summary']}")
         elif staged.returncode not in {0, 1}:
             raise CheckpointError("cannot inspect staged checkpoint")
     return payload
@@ -229,12 +229,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         payload = run(args)
     except (CheckpointError, OSError, UnicodeError, json.JSONDecodeError) as exc:
-        print(f"pilot-puppy checkpoint: {exc}", file=sys.stderr)
+        print(f"shadow checkpoint: {exc}", file=sys.stderr)
         return 1
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print(f"pilot-puppy checkpoint: {payload['status']} ({payload['evidence']})")
+        print(f"shadow checkpoint: {payload['status']} ({payload['evidence']})")
     return 0
 
 

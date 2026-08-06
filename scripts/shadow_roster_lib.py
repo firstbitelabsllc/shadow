@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safe local roster primitives for Pilot Puppy.
+"""Safe local roster primitives for Shadow.
 
 This module stores only a small, provider-neutral list of role/host slots.  It
 does not store model names, accounts, credentials, prompts, provider payloads,
@@ -7,7 +7,7 @@ or machine paths. A later foreground router can consume ``load_roster`` and a
 route-safe fingerprint without learning where the local configuration lives or
 publishing local slot identifiers.
 
-``PILOT_PUPPY_ROSTER_FILE`` and the CLI ``--file`` flag are deliberately
+``SHADOW_ROSTER_FILE`` and the CLI ``--file`` flag are deliberately
 trusted, explicit local overrides.  The default lives under the current user's
 configuration directory.  Every existing directory from the filesystem root
 through the immediate configuration parent is checked with ``lstat`` and a
@@ -27,9 +27,9 @@ import tempfile
 from typing import Any, Final
 
 
-ROSTER_SCHEMA: Final = "pilot-puppy.roster.v1"
-ROSTER_VIEW_SCHEMA: Final = "pilot-puppy.roster-view.v1"
-ROSTER_FINGERPRINT_SCHEMA: Final = "pilot-puppy.roster-fingerprint.v1"
+ROSTER_SCHEMA: Final = "shadow.roster.v1"
+ROSTER_VIEW_SCHEMA: Final = "shadow.roster-view.v1"
+ROSTER_FINGERPRINT_SCHEMA: Final = "shadow.roster-fingerprint.v1"
 ROLES: Final = ("lead", "planner", "dev", "debug", "review", "hard-dev")
 # These labels were used by the first public roster release. Accept them when
 # reading an existing owner-local file, but normalize every new view, route,
@@ -79,10 +79,15 @@ def canonical_role(value: object) -> str:
 def default_roster_path() -> Path:
     """Return the lexical default path without resolving or exposing it."""
 
-    override = os.environ.get("PILOT_PUPPY_ROSTER_FILE")
+    override = os.environ.get("SHADOW_ROSTER_FILE")
     if override:
         return lexical_absolute(Path(override))
-    return lexical_absolute(Path.home() / ".config" / "pilot-puppy" / "roster.json")
+    current = lexical_absolute(Path.home() / ".config" / "shadow" / "roster.json")
+    if not current.exists():
+        legacy = lexical_absolute(Path.home() / ".config" / "pilot-puppy" / "roster.json")
+        if legacy.exists():
+            return legacy
+    return current
 
 
 def configuration_path(value: str | Path | None = None) -> Path:
@@ -144,7 +149,7 @@ def validate_roster(value: object) -> dict[str, Any]:
 
     _check_json_depth(value)
     roster = _expect_exact_fields(value, {"schema", "revision", "slots"}, "root object")
-    if roster["schema"] != ROSTER_SCHEMA:
+    if roster["schema"] not in (ROSTER_SCHEMA, "pilot-puppy.roster.v1"):
         raise RosterError("local roster schema is unsupported")
     revision = roster["revision"]
     if type(revision) is not int or not (1 <= revision <= MAX_REVISION):

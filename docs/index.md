@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: Pilot Puppy
+  name: Shadow
   text: Your coding chief of staff
   tagline: Understand the work, choose what happens next, and safely use Codex, Claude Code, or Cursor.
   actions:
@@ -19,7 +19,7 @@ features:
   - title: Durable truth
     details: PLAN.md survives sessions and remains the only work authority.
   - title: Use your own tools
-    details: Pilot Puppy prepares a clear handoff to the coding tools you already use, without taking over.
+    details: Shadow prepares a clear handoff to the coding tools you already use, without taking over.
   - title: Ready work
     details: Prepare up to three separate pieces of work, then start them only when you are ready.
   - title: Native execution

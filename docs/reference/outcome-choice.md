@@ -1,10 +1,10 @@
 # Outcome contract
 
-`pilot-puppy.outcome.v1` contains one Outcome, optional A/B/C question, bounded
+`shadow.outcome.v1` contains one Outcome, optional A/B/C question, bounded
 decision receipts, and relative proof references. The deterministic validator is:
 
 ```bash
-python3 scripts/pilot-puppy-outcome-validate.py \
+python3 scripts/shadow-outcome-validate.py \
   --input examples/outcome-choice/example.json
 ```
 

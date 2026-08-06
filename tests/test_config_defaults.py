@@ -12,7 +12,7 @@ from browser import server
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CLI = ROOT / "bin" / "pilot-puppy"
+CLI = ROOT / "bin" / "shadow"
 PLAN = """# Demo
 
 ## Operator Brief
@@ -34,7 +34,7 @@ class ConfigDefaultsTests(unittest.TestCase):
             result = subprocess.run(
                 [str(CLI), "status", "--json"],
                 cwd=ROOT,
-                env={**os.environ, "PILOT_PUPPY_DEV_ROOT": str(root)},
+                env={**os.environ, "SHADOW_DEV_ROOT": str(root)},
                 capture_output=True,
                 text=True,
                 check=False,
@@ -45,7 +45,7 @@ class ConfigDefaultsTests(unittest.TestCase):
             result = subprocess.run(
                 [str(CLI), "status", "--json", "--root", override],
                 cwd=ROOT,
-                env={**os.environ, "PILOT_PUPPY_DEV_ROOT": str(root)},
+                env={**os.environ, "SHADOW_DEV_ROOT": str(root)},
                 capture_output=True,
                 text=True,
                 check=False,
@@ -57,9 +57,9 @@ class ConfigDefaultsTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "PILOT_PUPPY_DEV_ROOT": "/tmp/env-root",
-                "PILOT_PUPPY_BROWSER_HOST": "localhost",
-                "PILOT_PUPPY_BROWSER_PORT": "8123",
+                "SHADOW_DEV_ROOT": "/tmp/env-root",
+                "SHADOW_BROWSER_HOST": "localhost",
+                "SHADOW_BROWSER_PORT": "8123",
             },
             clear=False,
         ):

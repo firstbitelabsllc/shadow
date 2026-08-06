@@ -1,4 +1,4 @@
-"""Focused tests for one bounded Pilot Puppy A/B/C decision."""
+"""Focused tests for one bounded Shadow A/B/C decision."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class DecisionModeTests(unittest.TestCase):
         source = document()
         original = copy.deepcopy(source)
         result = decision.project_decision(source)
-        self.assertEqual(result["schema"], "pilot-puppy.decision.v1")
+        self.assertEqual(result["schema"], "shadow.decision.v1")
         self.assertEqual(len(result["ask"]["options"]), 3)
         self.assertEqual(source, original)
         self.assertEqual(
@@ -41,7 +41,7 @@ class DecisionModeTests(unittest.TestCase):
         self.assertEqual(
             result,
             {
-                "schema": "pilot-puppy.decision-choice.v1",
+                "schema": "shadow.decision-choice.v1",
                 "kind": "answer",
                 "revision": 3,
                 "outcome_id": "ship-release-notes",

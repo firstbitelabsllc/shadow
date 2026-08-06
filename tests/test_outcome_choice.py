@@ -9,7 +9,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "pilot-puppy-outcome-validate.py"
+SCRIPT = ROOT / "scripts" / "shadow-outcome-validate.py"
 SPEC = importlib.util.spec_from_file_location("outcome_validator", SCRIPT)
 assert SPEC and SPEC.loader
 validator = importlib.util.module_from_spec(SPEC)
@@ -70,7 +70,7 @@ class OutcomeValidatorTests(unittest.TestCase):
     def test_cli_rejects_duplicate_json_keys(self) -> None:
         result = subprocess.run(
             [sys.executable, str(SCRIPT)],
-            input='{"schema":"pilot-puppy.outcome.v1","schema":"duplicate"}',
+            input='{"schema":"shadow.outcome.v1","schema":"duplicate"}',
             capture_output=True,
             text=True,
             check=False,

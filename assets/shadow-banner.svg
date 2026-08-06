@@ -69,7 +69,7 @@
   </g>
 
   <!-- Title -->
-  <text x="480" y="90" text-anchor="middle" class="text-primary" font-family="system-ui, -apple-system, sans-serif" font-size="56" font-weight="700" letter-spacing="-2">pilot-puppy</text>
+  <text x="480" y="90" text-anchor="middle" class="text-primary" font-family="system-ui, -apple-system, sans-serif" font-size="56" font-weight="700" letter-spacing="-2">shadow</text>
 
   <!-- Tagline -->
   <text x="480" y="125" text-anchor="middle" class="text-secondary" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="400">Plan first, code second.</text>
@@ -124,7 +124,7 @@
     <line x1="741" y1="28" x2="768" y2="28" class="line-accent flow-line" stroke-width="1.5"/>
     <polygon points="767,23 777,28 767,33" class="accent" style="fill: var(--accent);"/>
 
-    <!-- Node 5: CHECKPOINT (the recovery packet — the reason pilot-puppy exists) -->
+    <!-- Node 5: CHECKPOINT (the recovery packet — the reason shadow exists) -->
     <g transform="translate(780, 0)">
       <rect x="0" y="0" width="140" height="56" rx="10" class="accent-dim"/>
       <rect x="0" y="0" width="140" height="56" rx="10" class="accent-stroke" stroke-width="1.5"/>

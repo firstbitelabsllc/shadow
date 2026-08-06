@@ -1,4 +1,4 @@
-"""Focused tests for PLAN-owned Pilot Puppy Drive Packets."""
+"""Focused tests for PLAN-owned Shadow Drive Packets."""
 
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import pilot_puppy_drive_lib as drive
+import shadow_drive_lib as drive
 
 
 def document() -> dict:
     return {
-        "schema": "pilot-puppy.drive.v1",
+        "schema": "shadow.drive.v1",
         "revision": 3,
         "lanes": [
             {
@@ -47,7 +47,7 @@ def document() -> dict:
 
 
 def plan(payload: dict) -> str:
-    return "# Example\n\n## Pilot Puppy Drive\n\n<!-- pilot-puppy-drive.v1\n" + json.dumps(payload, indent=2) + "\n-->\n"
+    return "# Example\n\n## Shadow Drive\n\n<!-- shadow-drive.v1\n" + json.dumps(payload, indent=2) + "\n-->\n"
 
 
 class DrivePacketTests(unittest.TestCase):
@@ -120,6 +120,14 @@ class DrivePacketTests(unittest.TestCase):
         )
         self.assertTrue(drive.paths_overlap(["src"], ["src/file.py"]))
         self.assertFalse(drive.paths_overlap(["src/file.py"], ["tests/file.py"]))
+
+    def test_legacy_pilot_puppy_packet_stays_readable(self) -> None:
+        payload = document()
+        payload["schema"] = "pilot-puppy.drive.v1"
+        legacy = plan(payload).replace("shadow-drive.v1", "pilot-puppy-drive.v1")
+        parsed = drive.extract_document(legacy)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["schema"], "shadow.drive.v1")
 
     def test_missing_packet_is_not_an_error(self) -> None:
         self.assertIsNone(drive.extract_document("# Ordinary plan\n"))

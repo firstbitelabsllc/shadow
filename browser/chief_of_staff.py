@@ -1,7 +1,7 @@
-"""Pure Chief-of-Staff projection for the Pilot Puppy semantic boundary.
+"""Pure Chief-of-Staff projection for the Shadow semantic boundary.
 
 The Chief of Staff is a report, not another runtime.  This module accepts the
-same validated ``pilot-puppy.outcome.v1`` document used by the decision view and an optional,
+same validated ``shadow.outcome.v1`` document used by the decision view and an optional,
 already-redacted plan summary.  It returns one bounded, provider-neutral brief
 that a desk view and a compact client can render identically.
 
@@ -21,7 +21,7 @@ except ModuleNotFoundError:  # Also support ``import browser.chief_of_staff``.
     from browser.decision_mode import DecisionInputError, project_decision
 
 
-BRIEF_SCHEMA = "pilot-puppy.chief-of-staff.v1"
+BRIEF_SCHEMA = "shadow.chief-of-staff.v1"
 MAX_TEXT = 280
 PRIVATE_TEXT_RE = re.compile(
     r"(?:/Users/|/home/|/private/var/|[A-Za-z]:[\\/]|\\\\|~/|\$HOME|file://|"

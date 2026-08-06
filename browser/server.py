@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small loopback briefing server for repository-owned Pilot Puppy plans."""
+"""Small loopback briefing server for repository-owned Shadow plans."""
 
 from __future__ import annotations
 
@@ -33,12 +33,12 @@ except ModuleNotFoundError:
     from browser.chief_of_staff import project_chief_of_staff
     from browser.decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
     from browser.outcome_source import OutcomeSourceError, project_plan_outcome
-from pilot_puppy_drive_lib import DrivePacketError, extract_document, public_preview
-from pilot_puppy_drive_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
-from pilot_puppy_drive_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
+from shadow_drive_lib import DrivePacketError, extract_document, public_preview
+from shadow_drive_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
+from shadow_drive_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
 
 
-PRODUCT = "Pilot Puppy"
+PRODUCT = "Shadow"
 STATIC = Path(__file__).resolve().parent / "static"
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
 MAX_REQUEST_BYTES = 16 * 1024
@@ -54,7 +54,7 @@ DRIVE_STEP_TIMEOUT_SECONDS = 900
 DRIVE_LAUNCH_TIMEOUT_SECONDS = 3 * 2 * DRIVE_STEP_TIMEOUT_SECONDS + 600
 DRIVE_ACCEPT_TIMEOUT_SECONDS = 3 * 2 * DRIVE_STEP_TIMEOUT_SECONDS + 600
 DRIVE_SESSION_RE = re.compile(r"^[0-9a-f]{32}$")
-SKIP_DIRS = frozenset({".git", ".pilot-puppy", ".venv", "venv", "node_modules", "dist", "build"})
+SKIP_DIRS = frozenset({".git", ".shadow", ".venv", "venv", "node_modules", "dist", "build"})
 FIELD_RE = re.compile(r"^\s*-\s*([^:]+):\s*(.*?)\s*$")
 TASK_RE = re.compile(r"^\s*-\s*\[([^]]+)]\s*(.*?)\s*$")
 RECEIPT_MARKER_RE = re.compile(r"\s*\[receipt:[a-f0-9]{16}]\s*")
@@ -321,13 +321,13 @@ def public_drive_session(value: object, *, action: str) -> dict[str, Any]:
 
     fields = {"schema", "revision", "session_id", "state", "plan_sha256", "base_sha256", "lanes"}
     if not isinstance(value, dict) or set(value) != fields:
-        raise BrowserError("Pilot Puppy could not safely read the local work update")
+        raise BrowserError("Shadow could not safely read the local work update")
     session_id = value["session_id"]
     state = value["state"]
     lanes = value["lanes"]
     expected_state = {"prepare": "prepared", "launch": "finished", "accept": "accepted"}.get(action)
     if (
-        value["schema"] != "pilot-puppy.drive-session.v1"
+        value["schema"] != "shadow.drive-session.v1"
         or value["revision"] != 1
         or not isinstance(session_id, str)
         or DRIVE_SESSION_RE.fullmatch(session_id) is None
@@ -335,16 +335,16 @@ def public_drive_session(value: object, *, action: str) -> dict[str, Any]:
         or not isinstance(lanes, list)
         or not 1 <= len(lanes) <= 3
     ):
-        raise BrowserError("Pilot Puppy could not safely read the local work update")
+        raise BrowserError("Shadow could not safely read the local work update")
     statuses: list[str] = []
     for lane in lanes:
         if not isinstance(lane, dict) or not isinstance(lane.get("status"), str):
-            raise BrowserError("Pilot Puppy could not safely read the local work update")
+            raise BrowserError("Shadow could not safely read the local work update")
         status = lane["status"]
         if action == "prepare" and status != "prepared":
-            raise BrowserError("Pilot Puppy could not safely read the local work update")
+            raise BrowserError("Shadow could not safely read the local work update")
         if action == "launch" and status not in {"passed", "needs_attention"}:
-            raise BrowserError("Pilot Puppy could not safely read the local work update")
+            raise BrowserError("Shadow could not safely read the local work update")
         if action == "accept" and (
             status != "passed"
             or lane.get("scope_ok") is not True
@@ -354,7 +354,7 @@ def public_drive_session(value: object, *, action: str) -> dict[str, Any]:
                 or (lane.get("merge") == "manual" and lane.get("merge_ok") is None)
             )
         ):
-            raise BrowserError("Pilot Puppy could not safely read the local work update")
+            raise BrowserError("Shadow could not safely read the local work update")
         statuses.append(status)
     return {
         "session": session_id,
@@ -379,7 +379,7 @@ def run_drive_subprocess(command: list[str], repo: Path, timeout: int) -> subpro
             start_new_session=True,
         )
     except OSError as exc:
-        raise BrowserError("Pilot Puppy could not finish that local step. Nothing was sent anywhere.") from exc
+        raise BrowserError("Shadow could not finish that local step. Nothing was sent anywhere.") from exc
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -407,12 +407,12 @@ def run_drive_action(plan: Path, *, action: str, session_id: str | None = None) 
     """Use the checked-in local Drive command with a fixed, browser-safe packet."""
 
     if action not in {"prepare", "launch", "accept"}:
-        raise BrowserError("Pilot Puppy cannot start that kind of work")
+        raise BrowserError("Shadow cannot start that kind of work")
     repo = repository_root(plan)
     relative_plan = plan.relative_to(repo).as_posix()
     command = [
         sys.executable,
-        str(SCRIPTS / "pilot-puppy-drive.py"),
+        str(SCRIPTS / "shadow-drive.py"),
         action,
         "--repo",
         str(repo),
@@ -430,14 +430,14 @@ def run_drive_action(plan: Path, *, action: str, session_id: str | None = None) 
     result = run_drive_subprocess(command, repo, timeout)
     expected_partial_result = action == "launch" and result.returncode == 1
     if (result.returncode and not expected_partial_result) or len(result.stdout.encode("utf-8")) > MAX_DRIVE_OUTPUT_BYTES:
-        raise BrowserError("Pilot Puppy could not prepare or start this work safely. Nothing was sent anywhere.")
+        raise BrowserError("Shadow could not prepare or start this work safely. Nothing was sent anywhere.")
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        raise BrowserError("Pilot Puppy could not safely read the local work update") from exc
+        raise BrowserError("Shadow could not safely read the local work update") from exc
     projection = public_drive_session(payload, action=action)
     if session_id is not None and projection["session"] != session_id:
-        raise BrowserError("Pilot Puppy could not safely read the local work update")
+        raise BrowserError("Shadow could not safely read the local work update")
     return projection
 
 
@@ -452,7 +452,7 @@ def write_decision_receipt(plan: Path, document: dict[str, Any], option_id: Any,
     repo = repository_root(plan)
     relative_plan = plan.relative_to(repo).as_posix()
     core = {
-        "schema": "pilot-puppy.local-decision.v1",
+        "schema": "shadow.local-decision.v1",
         "plan": relative_plan,
         "outcome_id": result["receipt"]["outcome_id"],
         "decision_id": result["receipt"]["ask_id"],
@@ -465,8 +465,8 @@ def write_decision_receipt(plan: Path, document: dict[str, Any], option_id: Any,
     encoded_core = json.dumps(core, sort_keys=True, separators=(",", ":"))
     identifier = hashlib.sha256(encoded_core.encode("utf-8")).hexdigest()[:16]
     payload = {**core, "receipt_id": identifier, "recorded_at": now}
-    directory = repo / ".pilot-puppy" / "evidence"
-    if (repo / ".pilot-puppy").is_symlink() or directory.is_symlink():
+    directory = repo / ".shadow" / "evidence"
+    if (repo / ".shadow").is_symlink() or directory.is_symlink():
         raise BrowserError("evidence path must not be a symlink")
     directory.mkdir(parents=True, exist_ok=True)
     destination = directory / f"decision-{identifier}.json"
@@ -498,7 +498,7 @@ def write_decision_receipt(plan: Path, document: dict[str, Any], option_id: Any,
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PilotPuppy/1"
+    server_version = "Shadow/1"
 
     @property
     def scan_root(self) -> Path:
@@ -627,7 +627,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise BrowserError("ready-work request has unknown or missing fields")
             plan = resolve_plan(self.scan_root, payload["plan"])
             if not self.server.drive_lock.acquire(blocking=False):  # type: ignore[attr-defined]
-                raise BrowserError("Pilot Puppy is already getting work ready, starting it, or bringing it into the project. Please wait for that update.")
+                raise BrowserError("Shadow is already getting work ready, starting it, or bringing it into the project. Please wait for that update.")
             try:
                 if endpoint == "/api/drive/prepare":
                     drive = run_drive_action(plan, action="prepare")
@@ -645,11 +645,11 @@ class Handler(BaseHTTPRequestHandler):
             # absolute path, and the browser must never receive paths.
             self._json(
                 400,
-                {"error": "Pilot Puppy could not read or update that plan on this computer."},
+                {"error": "Shadow could not read or update that plan on this computer."},
             )
 
     def log_message(self, format: str, *args: Any) -> None:
-        if os.environ.get("PILOT_PUPPY_BROWSER_QUIET") != "1":
+        if os.environ.get("SHADOW_BROWSER_QUIET") != "1":
             super().log_message(format, *args)
 
 
@@ -663,12 +663,12 @@ class Server(ThreadingHTTPServer):
 
 
 def parser() -> argparse.ArgumentParser:
-    value = argparse.ArgumentParser(prog="pilot-puppy browse", description=__doc__)
-    value.add_argument("--host", default=os.environ.get("PILOT_PUPPY_BROWSER_HOST") or "127.0.0.1")
-    value.add_argument("--port", type=int, default=os.environ.get("PILOT_PUPPY_BROWSER_PORT") or "7191")
+    value = argparse.ArgumentParser(prog="shadow browse", description=__doc__)
+    value.add_argument("--host", default=os.environ.get("SHADOW_BROWSER_HOST") or "127.0.0.1")
+    value.add_argument("--port", type=int, default=os.environ.get("SHADOW_BROWSER_PORT") or "7191")
     value.add_argument(
         "--root",
-        default=os.environ.get("PILOT_PUPPY_DEV_ROOT") or str(Path.home() / "Development"),
+        default=os.environ.get("SHADOW_DEV_ROOT") or str(Path.home() / "Development"),
     )
     value.add_argument("--no-open", action="store_true")
     return value
@@ -678,18 +678,18 @@ def main(argv: list[str] | None = None) -> int:
     global DEV_ROOT
     args = parser().parse_args(argv)
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
-        print("pilot-puppy browse: host must be loopback", file=sys.stderr)
+        print("shadow browse: host must be loopback", file=sys.stderr)
         return 2
     if not 0 <= args.port <= 65535:
-        print("pilot-puppy browse: port is outside the valid range", file=sys.stderr)
+        print("shadow browse: port is outside the valid range", file=sys.stderr)
         return 2
     DEV_ROOT = Path(args.root).expanduser().resolve()
     if not DEV_ROOT.is_dir():
-        print("pilot-puppy browse: scan root is not a directory", file=sys.stderr)
+        print("shadow browse: scan root is not a directory", file=sys.stderr)
         return 2
     server = Server((args.host, args.port), DEV_ROOT)
     actual = server.server_address[1]
-    print(f"Pilot Puppy -> http://{args.host}:{actual}", file=sys.stderr, flush=True)
+    print(f"Shadow -> http://{args.host}:{actual}", file=sys.stderr, flush=True)
     if not args.no_open:
         address = f"http://{args.host}:{actual}"
         threading.Timer(0.2, lambda: webbrowser.open(address)).start()

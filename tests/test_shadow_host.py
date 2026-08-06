@@ -1,4 +1,4 @@
-"""Tests for the three native Pilot Puppy host adapters."""
+"""Tests for the three native Shadow host adapters."""
 
 from __future__ import annotations
 
@@ -15,17 +15,17 @@ from unittest import mock
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
-SCRIPT = SKILL_DIR / "scripts" / "pilot-puppy-host.py"
-ROUTE_SCRIPT = SKILL_DIR / "scripts" / "pilot-puppy-route.py"
+SCRIPT = SKILL_DIR / "scripts" / "shadow-host.py"
+ROUTE_SCRIPT = SKILL_DIR / "scripts" / "shadow-route.py"
 if str(SCRIPT.parent) not in sys.path:
     sys.path.insert(0, str(SCRIPT.parent))
-from pilot_puppy_roster_lib import initialize_roster
-from pilot_puppy_seat_lib import initialize_seat_overlay, set_seat_selector
+from shadow_roster_lib import initialize_roster
+from shadow_seat_lib import initialize_seat_overlay, set_seat_selector
 
-SPEC = importlib.util.spec_from_file_location("pilot_puppy_host", SCRIPT)
+SPEC = importlib.util.spec_from_file_location("shadow_host", SCRIPT)
 assert SPEC and SPEC.loader
-pilot_puppy_host = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pilot_puppy_host)
+shadow_host = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(shadow_host)
 
 
 FAKE_HOST = r'''#!/usr/bin/env python3
@@ -55,7 +55,7 @@ else:
 if mode != "missing":
     print("```json")
     receipt = {
-        "schema": "pilot-puppy.host-receipt.v1",
+        "schema": "shadow.host-receipt.v1",
         "task_id": "add-proof",
         "status": "ok",
         "summary": "bounded fake host completed the task",
@@ -84,10 +84,10 @@ def make_repo(root: Path, *, ignore_evidence: bool = True) -> Path:
     repo = root / "repo"
     repo.mkdir()
     git(repo, "init", "-q")
-    git(repo, "config", "user.email", "pilot-puppy-test@example.invalid")
-    git(repo, "config", "user.name", "Pilot Puppy Test")
+    git(repo, "config", "user.email", "shadow-test@example.invalid")
+    git(repo, "config", "user.name", "Shadow Test")
     (repo / "result.txt").write_text("base\n", encoding="utf-8")
-    ignored = ".env\n" + (".pilot-puppy/\n" if ignore_evidence else "")
+    ignored = ".env\n" + (".shadow/\n" if ignore_evidence else "")
     (repo / ".gitignore").write_text(ignored, encoding="utf-8")
     git(repo, "add", "result.txt", ".gitignore")
     git(repo, "commit", "-qm", "base")
@@ -116,7 +116,7 @@ def make_seats(root: Path, roster_file: Path, slot: str, kind: str, value: str) 
 
 
 def make_route(repo: Path, task: Path, roster_file: Path, *, task_kind: str = "dev") -> Path:
-    output = ".pilot-puppy/evidence/route.json"
+    output = ".shadow/evidence/route.json"
     result = subprocess.run(
         [
             sys.executable,
@@ -191,7 +191,7 @@ def run_host(
     return subprocess.run(command, capture_output=True, text=True, check=False)
 
 
-class PilotPuppyHostTests(unittest.TestCase):
+class ShadowHostTests(unittest.TestCase):
     def test_cursor_json_envelope_parses_receipt_after_prose(self) -> None:
         envelope = json.dumps(
             {
@@ -199,7 +199,7 @@ class PilotPuppyHostTests(unittest.TestCase):
                 "subtype": "success",
                 "result": (
                     "Creating the marker file, then verifying it exists."
-                    "{\"schema\":\"pilot-puppy.host-receipt.v1\","
+                    "{\"schema\":\"shadow.host-receipt.v1\","
                     "\"task_id\":\"cursor-native-probe\","
                     "\"status\":\"ok\","
                     "\"summary\":\"marker created\","
@@ -209,25 +209,25 @@ class PilotPuppyHostTests(unittest.TestCase):
                 ),
             }
         )
-        receipts = pilot_puppy_host.json_objects(envelope)
+        receipts = shadow_host.json_objects(envelope)
         self.assertEqual(len(receipts), 1)
         self.assertEqual(receipts[0]["task_id"], "cursor-native-probe")
 
     def test_cursor_command_shape_uses_agent_stdin_without_receipt_leak(self) -> None:
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
-        command = pilot_puppy_host.command_shape("cursor", "cursor-agent", repo, final_message)
+        command = shadow_host.command_shape("cursor", "cursor-agent", repo, final_message)
         self.assertEqual(command[-1], "agent")
         self.assertNotIn("frozen task", command)
 
     def test_host_prompt_supplies_the_receipt_contract(self) -> None:
         task = "Change the bounded file."
         digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
-        prompt = pilot_puppy_host.host_prompt(task, "bounded-task", ["result.txt"], digest)
+        prompt = shadow_host.host_prompt(task, "bounded-task", ["result.txt"], digest)
         self.assertIn(task, prompt)
         self.assertIn(digest, prompt)
         self.assertIn("result.txt", prompt)
-        self.assertIn("pilot-puppy.host-receipt.v1", prompt)
+        self.assertIn("shadow.host-receipt.v1", prompt)
         self.assertIn('"task_id":"bounded-task"', prompt)
         self.assertIn('"proof_ref":"bounded-proof"', prompt)
         self.assertIn("Do not use spaces or prose for proof_ref.", prompt)
@@ -241,7 +241,7 @@ class PilotPuppyHostTests(unittest.TestCase):
         ):
             with self.subTest(field=field):
                 raw = {
-                    "schema": pilot_puppy_host.HOST_RECEIPT_SCHEMA,
+                    "schema": shadow_host.HOST_RECEIPT_SCHEMA,
                     "task_id": "audit-task",
                     "status": "ok",
                     "summary": "bounded task completed",
@@ -253,13 +253,13 @@ class PilotPuppyHostTests(unittest.TestCase):
                     raw["summary"] = value
                 else:
                     raw["tests"][0]["name"] = value
-                with self.assertRaises(pilot_puppy_host.HostError) as raised:
-                    pilot_puppy_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
+                with self.assertRaises(shadow_host.HostError) as raised:
+                    shadow_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
                 self.assertEqual(raised.exception.kind, "host_receipt_invalid")
 
     def test_receipt_rejects_unknown_test_fields_and_status(self) -> None:
         base = {
-            "schema": pilot_puppy_host.HOST_RECEIPT_SCHEMA,
+            "schema": shadow_host.HOST_RECEIPT_SCHEMA,
             "task_id": "audit-task",
             "status": "ok",
             "summary": "bounded task completed",
@@ -273,8 +273,8 @@ class PilotPuppyHostTests(unittest.TestCase):
         ):
             with self.subTest(test=test):
                 raw = {**base, "tests": [test]}
-                with self.assertRaises(pilot_puppy_host.HostError) as raised:
-                    pilot_puppy_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
+                with self.assertRaises(shadow_host.HostError) as raised:
+                    shadow_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
                 self.assertEqual(raised.exception.kind, "host_receipt_invalid")
 
     def test_probe_is_projection_only_and_reports_available_host(self) -> None:
@@ -282,10 +282,10 @@ class PilotPuppyHostTests(unittest.TestCase):
             root = Path(dirname)
             binary = make_host(root)
             args = type("Args", (), {"host": "codex", "binary": str(binary)})()
-            payload, code = pilot_puppy_host.probe(args)
+            payload, code = shadow_host.probe(args)
         self.assertEqual(code, 0)
         self.assertTrue(payload["available"])
-        self.assertEqual(payload["schema"], "pilot-puppy.host-probe.v1")
+        self.assertEqual(payload["schema"], "shadow.host-probe.v1")
         self.assertEqual(payload["execution"], {"performed": False, "projection_only": True})
 
     def test_cursor_without_explicit_binary_resolves_cursor_agent(self) -> None:
@@ -295,18 +295,18 @@ class PilotPuppyHostTests(unittest.TestCase):
             binary.write_text(FAKE_HOST, encoding="utf-8")
             binary.chmod(0o755)
             with mock.patch.dict(os.environ, {"PATH": str(root)}, clear=False):
-                resolved = pilot_puppy_host.resolve_binary("cursor", None)
+                resolved = shadow_host.resolve_binary("cursor", None)
         self.assertEqual(Path(resolved), binary.resolve())
 
     def test_same_packet_contract_runs_through_all_three_hosts(self) -> None:
-        for host in sorted(pilot_puppy_host.HOSTS):
+        for host in sorted(shadow_host.HOSTS):
             with self.subTest(host=host), tempfile.TemporaryDirectory() as dirname:
                 root = Path(dirname)
                 repo = make_repo(root)
                 binary = make_host(root)
                 task = root / "task.txt"
                 task.write_text("Add the proof marker and run the bounded test.\n", encoding="utf-8")
-                output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+                output = repo / ".shadow" / "evidence" / "attempt.json"
                 result = subprocess.run(
                     [
                         "python3",
@@ -334,7 +334,7 @@ class PilotPuppyHostTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 payload = json.loads(output.read_text(encoding="utf-8"))
-                self.assertEqual(payload["schema"], "pilot-puppy.host-attempt.v1")
+                self.assertEqual(payload["schema"], "shadow.host-attempt.v1")
                 self.assertEqual(payload["status"], "ok")
                 self.assertEqual(payload["host"], host)
                 self.assertEqual(
@@ -355,20 +355,20 @@ class PilotPuppyHostTests(unittest.TestCase):
             task.write_text("Add the proof marker and run the bounded test.\n", encoding="utf-8")
             roster_file = make_roster(root)
             route_file = make_route(repo, task, roster_file)
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             result = run_host(
                 repo,
                 binary,
                 task,
                 output,
-                route_file=".pilot-puppy/evidence/route.json",
+                route_file=".shadow/evidence/route.json",
                 roster_file=roster_file,
             )
             payload = json.loads(output.read_text(encoding="utf-8"))
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["route"]["schema"], "pilot-puppy.route.v1")
+        self.assertEqual(payload["route"]["schema"], "shadow.route.v1")
         self.assertEqual(payload["route"]["role"], "dev")
         self.assertEqual(payload["route"]["host"], "cursor")
         self.assertEqual(payload["route"]["priority"], 1)
@@ -390,14 +390,14 @@ class PilotPuppyHostTests(unittest.TestCase):
             packet = json.loads(route_file.read_text(encoding="utf-8"))
             packet["selection"]["host"] = "claude-code"
             route_file.write_text(json.dumps(packet), encoding="utf-8")
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             result = run_host(
                 repo,
                 binary,
                 task,
                 output,
                 host="claude-code",
-                route_file=".pilot-puppy/evidence/route.json",
+                route_file=".shadow/evidence/route.json",
                 roster_file=roster_file,
             )
             payload = json.loads(result.stdout)
@@ -424,7 +424,7 @@ class PilotPuppyHostTests(unittest.TestCase):
                 binary,
                 task,
                 route_file,
-                route_file=".pilot-puppy/evidence/route.json",
+                route_file=".shadow/evidence/route.json",
                 roster_file=roster_file,
                 force=True,
             )
@@ -452,14 +452,14 @@ class PilotPuppyHostTests(unittest.TestCase):
                     roster_payload = json.loads(roster_file.read_text(encoding="utf-8"))
                     roster_payload["revision"] = 2
                     roster_file.write_text(json.dumps(roster_payload), encoding="utf-8")
-                output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+                output = repo / ".shadow" / "evidence" / "attempt.json"
                 result = run_host(
                     repo,
                     binary,
                     task,
                     output,
                     host="codex" if case == "host" else "cursor",
-                    route_file=".pilot-puppy/evidence/route.json",
+                    route_file=".shadow/evidence/route.json",
                     roster_file=roster_file,
                 )
                 payload = json.loads(result.stdout)
@@ -483,7 +483,7 @@ class PilotPuppyHostTests(unittest.TestCase):
             binary = make_host(root)
             task = root / "task.txt"
             task.write_text("Do the bounded task.\n", encoding="utf-8")
-            evidence = repo / ".pilot-puppy" / "evidence"
+            evidence = repo / ".shadow" / "evidence"
             evidence.mkdir(parents=True)
             os.mkfifo(evidence / "route.json")
             output = evidence / "attempt.json"
@@ -492,7 +492,7 @@ class PilotPuppyHostTests(unittest.TestCase):
                 binary,
                 task,
                 output,
-                route_file=".pilot-puppy/evidence/route.json",
+                route_file=".shadow/evidence/route.json",
             )
             payload = json.loads(result.stdout)
             output_written = output.exists()
@@ -508,7 +508,7 @@ class PilotPuppyHostTests(unittest.TestCase):
             binary = make_host(root, mode="missing")
             task = root / "task.txt"
             task.write_text("Do the bounded task.\n", encoding="utf-8")
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             result = subprocess.run(
                 [
                     "python3",
@@ -546,7 +546,7 @@ class PilotPuppyHostTests(unittest.TestCase):
             binary = make_host(root, mode="scope")
             task = root / "task.txt"
             task.write_text("Do the bounded task.\n", encoding="utf-8")
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             result = subprocess.run(
                 [
                     "python3",
@@ -621,7 +621,7 @@ class PilotPuppyHostTests(unittest.TestCase):
             binary = make_host(root, mode="ignored")
             task = root / "task.txt"
             task.write_text("Do the bounded task.\n", encoding="utf-8")
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             result = subprocess.run(
                 [
                     "python3",
@@ -653,6 +653,47 @@ class PilotPuppyHostTests(unittest.TestCase):
             self.assertIn(".env", payload["ignored_artifact_paths"])
             self.assertNotIn(".env", payload["changed_paths"])
 
+    def test_pre_rename_evidence_directory_never_blocks_a_packet(self) -> None:
+        for ignore_legacy in (False, True):
+            with self.subTest(ignore_legacy=ignore_legacy), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                repo = make_repo(root)
+                if ignore_legacy:
+                    ignore_file = repo / ".gitignore"
+                    ignore_file.write_text(
+                        ignore_file.read_text(encoding="utf-8") + ".pilot-puppy/\n", encoding="utf-8"
+                    )
+                    git(repo, "add", ".gitignore")
+                    git(repo, "commit", "-qm", "ignore pre-rename evidence")
+                legacy = repo / ".pilot-puppy" / "evidence"
+                legacy.mkdir(parents=True)
+                (legacy / "old-attempt.json").write_text("{}\n", encoding="utf-8")
+                binary = make_host(root)
+                task = root / "task.txt"
+                task.write_text("Add the proof marker and run the bounded test.\n", encoding="utf-8")
+                output = repo / ".shadow" / "evidence" / "attempt.json"
+                result = run_host(repo, binary, task, output, host="codex")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(output.read_text(encoding="utf-8"))
+                self.assertEqual(payload["status"], "ok")
+                self.assertEqual(payload["changed_paths"], ["result.txt"])
+
+    def test_symlinked_pre_rename_evidence_is_never_exempt_from_sealing(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root)
+            outside = root / "outside"
+            outside.mkdir()
+            (repo / ".pilot-puppy").symlink_to(outside, target_is_directory=True)
+            binary = make_host(root)
+            task = root / "task.txt"
+            task.write_text("Do the bounded task.\n", encoding="utf-8")
+            output = repo / ".shadow" / "evidence" / "attempt.json"
+            result = run_host(repo, binary, task, output, host="codex")
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output.exists())
+            self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "worktree_unsealed")
+
     def test_private_seat_model_is_bound_to_the_selected_route_and_never_enters_attempt(self) -> None:
         cases = (
             ("cursor", "dev", "dev-cursor"),
@@ -669,14 +710,14 @@ class PilotPuppyHostTests(unittest.TestCase):
                 roster_file = make_roster(root)
                 seat_file = make_seats(root, roster_file, slot, "model", "private-model-marker")
                 make_route(repo, task, roster_file, task_kind=task_kind)
-                output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+                output = repo / ".shadow" / "evidence" / "attempt.json"
                 result = run_host(
                     repo,
                     binary,
                     task,
                     output,
                     host=host,
-                    route_file=".pilot-puppy/evidence/route.json",
+                    route_file=".shadow/evidence/route.json",
                     roster_file=roster_file,
                     use_seat=True,
                     seat_file=seat_file,
@@ -692,7 +733,7 @@ class PilotPuppyHostTests(unittest.TestCase):
                 self.assertNotIn("private-model-marker", rendered)
                 self.assertNotIn("--model", rendered)
                 self.assertNotIn("slot", rendered)
-                self.assertEqual(payload["command_shape"], pilot_puppy_host.public_command_shape(host))
+                self.assertEqual(payload["command_shape"], shadow_host.public_command_shape(host))
 
     def test_private_codex_profile_is_supported_but_not_emitted(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -704,14 +745,14 @@ class PilotPuppyHostTests(unittest.TestCase):
             roster_file = make_roster(root)
             seat_file = make_seats(root, roster_file, "debug-codex", "profile", "private-profile-marker")
             make_route(repo, task, roster_file, task_kind="debug")
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             result = run_host(
                 repo,
                 binary,
                 task,
                 output,
                 host="codex",
-                route_file=".pilot-puppy/evidence/route.json",
+                route_file=".shadow/evidence/route.json",
                 roster_file=roster_file,
                 use_seat=True,
                 seat_file=seat_file,
@@ -732,7 +773,7 @@ class PilotPuppyHostTests(unittest.TestCase):
             task = root / "task.txt"
             task.write_text("Do the bounded task.\n", encoding="utf-8")
             roster_file = make_roster(root)
-            output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+            output = repo / ".shadow" / "evidence" / "attempt.json"
             no_route = run_host(
                 repo,
                 binary,
@@ -754,7 +795,7 @@ class PilotPuppyHostTests(unittest.TestCase):
                 task,
                 output,
                 host="cursor",
-                route_file=".pilot-puppy/evidence/route.json",
+                route_file=".shadow/evidence/route.json",
                 roster_file=roster_file,
                 use_seat=True,
                 seat_file=root / "config" / "missing-seats.json",
@@ -782,13 +823,13 @@ class PilotPuppyHostTests(unittest.TestCase):
                 roster_file = make_roster(root)
                 seat_file = make_seats(root, roster_file, "dev-cursor", "model", "private-model-marker")
                 make_route(repo, task, roster_file)
-                output = repo / ".pilot-puppy" / "evidence" / "attempt.json"
+                output = repo / ".shadow" / "evidence" / "attempt.json"
                 result = run_host(
                     repo,
                     binary,
                     task,
                     output,
-                    route_file=".pilot-puppy/evidence/route.json",
+                    route_file=".shadow/evidence/route.json",
                     roster_file=roster_file,
                     use_seat=True,
                     seat_file=seat_file,

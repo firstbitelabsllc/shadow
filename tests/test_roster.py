@@ -1,4 +1,4 @@
-"""Focused safety and contract tests for the local Pilot Puppy roster."""
+"""Focused safety and contract tests for the local Shadow roster."""
 
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
-CLI = SCRIPTS / "pilot-puppy-roster.py"
-LIBRARY = SCRIPTS / "pilot_puppy_roster_lib.py"
-TOP_LEVEL_CLI = ROOT / "bin" / "pilot-puppy"
-SPEC = importlib.util.spec_from_file_location("pilot_puppy_roster_lib", LIBRARY)
+CLI = SCRIPTS / "shadow-roster.py"
+LIBRARY = SCRIPTS / "shadow_roster_lib.py"
+TOP_LEVEL_CLI = ROOT / "bin" / "shadow"
+SPEC = importlib.util.spec_from_file_location("shadow_roster_lib", LIBRARY)
 assert SPEC and SPEC.loader
 roster = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = roster
@@ -47,7 +47,7 @@ def run(
 
 def run_top_level(*args: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
-    environment["PILOT_PUPPY_ROOT"] = str(ROOT)
+    environment["SHADOW_ROOT"] = str(ROOT)
     return subprocess.run(
         ["bash", str(TOP_LEVEL_CLI), *args],
         cwd=ROOT,
@@ -91,7 +91,7 @@ class RosterTests(unittest.TestCase):
 
         view = json.loads(shown.stdout)
         self.assertEqual(set(view), {"schema", "roster", "fingerprint"})
-        self.assertEqual(view["schema"], "pilot-puppy.roster-view.v1")
+        self.assertEqual(view["schema"], "shadow.roster-view.v1")
         self.assertEqual(set(view["roster"]), {"schema", "revision", "slots"})
         self.assertEqual(set(view["fingerprint"]), {"schema", "revision", "sha256"})
         self.assertEqual(view["fingerprint"]["revision"], 1)
@@ -157,10 +157,10 @@ class RosterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = safe_root(dirname)
             override = root / "trusted" / "roster.json"
-            with mock.patch.dict(os.environ, {"PILOT_PUPPY_ROSTER_FILE": str(override)}):
+            with mock.patch.dict(os.environ, {"SHADOW_ROSTER_FILE": str(override)}):
                 self.assertEqual(roster.default_roster_path(), override)
-                initialized = run("init", environment={"PILOT_PUPPY_ROSTER_FILE": str(override)})
-                shown = run("show", "--json", environment={"PILOT_PUPPY_ROSTER_FILE": str(override)})
+                initialized = run("init", environment={"SHADOW_ROSTER_FILE": str(override)})
+                shown = run("show", "--json", environment={"SHADOW_ROSTER_FILE": str(override)})
             self.assertEqual(initialized.returncode, 0, initialized.stderr)
             self.assertEqual(shown.returncode, 0, shown.stderr)
             self.assertTrue(override.is_file())
@@ -394,7 +394,7 @@ class RosterTests(unittest.TestCase):
             config.write_text(json.dumps(payload), encoding="utf-8")
             self.assert_safe_error(run("show", "--file", str(config)), root)
             config.write_text(
-                '{"schema":"pilot-puppy.roster.v1","revision":1,"revision":2,"slots":[]}',
+                '{"schema":"shadow.roster.v1","revision":1,"revision":2,"slots":[]}',
                 encoding="utf-8",
             )
             self.assert_safe_error(run("show", "--file", str(config)), root)
@@ -406,7 +406,7 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(roster.roster_sha256(first), roster.roster_sha256(copy.deepcopy(first)))
         self.assertNotEqual(roster.roster_sha256(first), roster.roster_sha256(second))
         fingerprint = roster.roster_fingerprint(first)
-        self.assertEqual(fingerprint["schema"], "pilot-puppy.roster-fingerprint.v1")
+        self.assertEqual(fingerprint["schema"], "shadow.roster-fingerprint.v1")
         self.assertEqual(fingerprint["revision"], 1)
         self.assertEqual(fingerprint["sha256"], roster.roster_sha256(first))
 
@@ -437,6 +437,21 @@ class RosterTests(unittest.TestCase):
         changed_route["slots"][2]["host"] = "codex"
         self.assertEqual(roster.route_roster_sha256(first), roster.route_roster_sha256(renamed))
         self.assertNotEqual(roster.route_roster_sha256(first), roster.route_roster_sha256(changed_route))
+
+
+class LegacyConfigFallbackTests(unittest.TestCase):
+    def test_default_path_falls_back_to_pilot_puppy_config(self) -> None:
+        import tempfile
+        from unittest import mock
+        from pathlib import Path as P
+
+        with tempfile.TemporaryDirectory() as home:
+            legacy = P(home) / ".config" / "pilot-puppy" / "roster.json"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("{}", encoding="utf-8")
+            with mock.patch.object(P, "home", return_value=P(home)):
+                resolved = roster.default_roster_path()
+        self.assertTrue(str(resolved).endswith(".config/pilot-puppy/roster.json"))
 
 
 if __name__ == "__main__":

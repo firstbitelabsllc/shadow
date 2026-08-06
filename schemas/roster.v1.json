@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pilot-puppy.dev/schemas/roster.v1.json",
-  "title": "Pilot Puppy Local Roster v1",
+  "$id": "shadow.roster.v1",
+  "title": "Shadow Local Roster v1",
   "description": "A local, provider-neutral role roster. It contains only slot identifiers, roles, native host surfaces, ordering, and enabled state; it never carries credentials, accounts, model names, prompts, paths, or provider payloads.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "revision", "slots"],
   "properties": {
     "schema": {
-      "const": "pilot-puppy.roster.v1"
+      "const": "shadow.roster.v1"
     },
     "revision": {
       "type": "integer",

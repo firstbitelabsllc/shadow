@@ -11,9 +11,9 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CLI = ROOT / "bin" / "pilot-puppy"
-BROWSE = ROOT / "bin" / "pilot-puppy-browse"
-PYTHON = ROOT / "scripts" / "pilot-puppy-python.sh"
+CLI = ROOT / "bin" / "shadow"
+BROWSE = ROOT / "bin" / "shadow-browse"
+PYTHON = ROOT / "scripts" / "shadow-python.sh"
 
 
 def run_cli(binary: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -30,12 +30,12 @@ def run_cli(binary: Path, *args: str, env: dict[str, str] | None = None) -> subp
 
 class PythonResolutionTests(unittest.TestCase):
     def test_invalid_override_fails_closed_on_dispatcher(self) -> None:
-        result = run_cli(CLI, "status", env={"PILOT_PUPPY_PYTHON": "/usr/bin/false"})
+        result = run_cli(CLI, "status", env={"SHADOW_PYTHON": "/usr/bin/false"})
         self.assertEqual(result.returncode, 127)
         self.assertIn("is not a Python 3.10+ interpreter", result.stderr)
 
     def test_invalid_override_fails_closed_on_browse_launcher(self) -> None:
-        result = run_cli(BROWSE, "--help", env={"PILOT_PUPPY_PYTHON": "/usr/bin/false"})
+        result = run_cli(BROWSE, "--help", env={"SHADOW_PYTHON": "/usr/bin/false"})
         self.assertEqual(result.returncode, 127)
         self.assertIn("is not a Python 3.10+ interpreter", result.stderr)
 
@@ -52,7 +52,7 @@ class PythonResolutionTests(unittest.TestCase):
         result = subprocess.run(
             [str(PYTHON), "--print"],
             cwd=ROOT,
-            env={**os.environ, "PILOT_PUPPY_PYTHON": override},
+            env={**os.environ, "SHADOW_PYTHON": override},
             capture_output=True,
             text=True,
             check=False,
@@ -80,15 +80,15 @@ class PythonResolutionTests(unittest.TestCase):
                 "--json",
                 "--root",
                 str(root),
-                env={"PILOT_PUPPY_PYTHON": str(shim)},
+                env={"SHADOW_PYTHON": str(shim)},
             )
             used = marker.is_file()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('"schema": "pilot-puppy.status.v1"', result.stdout)
+        self.assertIn('"schema": "shadow.status.v1"', result.stdout)
         self.assertTrue(used)
     def test_resolution_finds_an_interpreter_when_unset(self) -> None:
         env = dict(os.environ)
-        env.pop("PILOT_PUPPY_PYTHON", None)
+        env.pop("SHADOW_PYTHON", None)
         result = subprocess.run(
             [str(CLI), "doctor", "--json"],
             cwd=ROOT,
@@ -131,12 +131,12 @@ class PythonResolutionTests(unittest.TestCase):
             wrapper.chmod(0o755)
             env = {
                 "PATH": f"{bin_dir}{os.pathsep}{Path(real_interpreter).parent}{os.pathsep}{os.environ.get('PATH', '')}",
-                "PILOT_PUPPY_PYTHON": "",
+                "SHADOW_PYTHON": "",
             }
             result = run_cli(CLI, "status", "--json", "--root", str(root), env=env)
             used = marker.is_file()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('"schema": "pilot-puppy.status.v1"', result.stdout)
+        self.assertIn('"schema": "shadow.status.v1"', result.stdout)
         self.assertTrue(used)
 
     def test_npm_gate_uses_versioned_interpreter_when_bare_python3_is_low(self) -> None:
@@ -167,7 +167,7 @@ class PythonResolutionTests(unittest.TestCase):
             wrapper.chmod(0o755)
             env = {
                 "PATH": f"{bin_dir}{os.pathsep}{Path(real_interpreter).parent}{os.pathsep}{os.environ.get('PATH', '')}",
-                "PILOT_PUPPY_PYTHON": "",
+                "SHADOW_PYTHON": "",
             }
             result = subprocess.run(
                 ["npm", "run", "public-ready:grep"],

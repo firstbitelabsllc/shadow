@@ -1,5 +1,5 @@
 name: Feature Request
-description: Suggest a new capability or improvement for Pilot Puppy.
+description: Suggest a new capability or improvement for Shadow.
 title: "[Feature] "
 labels:
   - enhancement
@@ -8,10 +8,10 @@ body:
     id: area
     attributes:
       label: Area
-      description: Which part of Pilot Puppy does this affect?
+      description: Which part of Shadow does this affect?
       options:
         - Core loop (SKILL.md / docs/reference/loop.md / DOCTRINE.md)
-        - Scripts (pilot-puppy-loop.sh, pilot-puppy-checkpoint.sh, etc.)
+        - Scripts (shadow-loop.sh, shadow-checkpoint.sh, etc.)
         - Commands (slash commands)
         - Fleet intelligence (observer, witness, doctor)
         - Documentation (guides, README, examples)
@@ -30,7 +30,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: How should Pilot Puppy solve this? Concrete examples help.
+      description: How should Shadow solve this? Concrete examples help.
     validations:
       required: true
   - type: textarea

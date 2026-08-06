@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate one closed Pilot Puppy Outcome document without side effects."""
+"""Validate one closed Shadow Outcome document without side effects."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-VALIDATION_SCHEMA = "pilot-puppy.outcome-validation.v1"
-DOCUMENT_SCHEMA = "pilot-puppy.outcome.v1"
+VALIDATION_SCHEMA = "shadow.outcome-validation.v1"
+DOCUMENT_SCHEMA = "shadow.outcome.v1"
 MAX_INPUT_BYTES = 1_000_000
 MAX_REVISION = 2_147_483_647
 MAX_DEPTH = 32

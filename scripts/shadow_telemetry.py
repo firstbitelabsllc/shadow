@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Optional, metadata-only lifecycle observation for Pilot Puppy.
+"""Optional, metadata-only lifecycle observation for Shadow.
 
 This module is deliberately a one-way side effect.  It is disabled unless a
-local operator explicitly sets ``PILOT_PUPPY_TELEMETRY=langfuse`` and supplies
+local operator explicitly sets ``SHADOW_TELEMETRY=langfuse`` and supplies
 all Langfuse connection variables.  It never changes a route, host result,
 receipt, exit code, or local acceptance decision.
 
@@ -20,10 +20,10 @@ import re
 from typing import Any, Final
 
 
-TELEMETRY_MODE_ENV: Final = "PILOT_PUPPY_TELEMETRY"
+TELEMETRY_MODE_ENV: Final = "SHADOW_TELEMETRY"
 TELEMETRY_MODE: Final = "langfuse"
 REQUIRED_ENV: Final = ("LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY")
-SCHEMA: Final = "pilot-puppy.telemetry.v1"
+SCHEMA: Final = "shadow.telemetry.v1"
 EVENTS: Final = frozenset({"route_prepared", "host_finished", "drive_started", "drive_finished", "drive_accepted"})
 ROLES: Final = frozenset({"lead", "planner", "dev", "debug", "review", "hard-dev"})
 HOSTS: Final = frozenset({"codex", "claude-code", "cursor", "manual"})
@@ -187,7 +187,7 @@ def emit(metadata: object) -> bool:
         )
         with client.start_as_current_observation(
             as_type="span",
-            name=f"pilot-puppy.{safe_metadata['event']}",
+            name=f"shadow.{safe_metadata['event']}",
             input=None,
             output=None,
             metadata=safe_metadata,

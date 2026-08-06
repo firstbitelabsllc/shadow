@@ -30,7 +30,7 @@ def visible(records: list[dict], include_all: bool) -> list[dict]:
 
 def render(records: list[dict]) -> str:
     if not records:
-        return "No active Pilot Puppy Outcome found.\n"
+        return "No active Shadow Outcome found.\n"
     blocks = []
     for record in records:
         briefing = record.get("briefing")
@@ -59,8 +59,8 @@ def render(records: list[dict]) -> str:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="pilot-puppy status", description=__doc__)
-    default_root = os.environ.get("PILOT_PUPPY_DEV_ROOT") or str(Path.cwd())
+    result = argparse.ArgumentParser(prog="shadow status", description=__doc__)
+    default_root = os.environ.get("SHADOW_DEV_ROOT") or str(Path.cwd())
     result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
     result.add_argument("--all", action="store_true", help="include finished Outcomes")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
@@ -71,11 +71,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     root = args.root.expanduser().resolve()
     if not root.is_dir():
-        print("pilot-puppy status: scan root is not a directory", file=sys.stderr)
+        print("shadow status: scan root is not a directory", file=sys.stderr)
         return 2
     records = visible(discover_plans(root), args.all)
     if args.json:
-        print(json.dumps({"schema": "pilot-puppy.status.v1", "plans": records}, indent=2, sort_keys=True))
+        print(json.dumps({"schema": "shadow.status.v1", "plans": records}, indent=2, sort_keys=True))
     else:
         print(render(records), end="")
     return 0

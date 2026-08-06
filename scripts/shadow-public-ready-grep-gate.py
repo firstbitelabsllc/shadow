@@ -18,6 +18,7 @@ FORBIDDEN_NAMES = {".env", ".env.local", ".npmrc"}
 PRIVATE_HOME = re.compile(r"(?:/Users/|/home/)([A-Za-z0-9._-]+)(?:/|\b)")
 WINDOWS_HOME = re.compile(r"[A-Za-z]:\\Users\\([A-Za-z0-9._-]+)(?:\\|\b)")
 FILE_PATH = re.compile(r"file:///([A-Za-z0-9._-]+)")
+OLD_BRAND = re.compile(r"(?i)pilot[-_ ]?puppy")
 PLACEHOLDER_USERS = {"example", "name", "person", "private", "user", "username"}
 SECRET = re.compile(
     r"(?:sk-(?:ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|"
@@ -78,17 +79,17 @@ def metadata_errors(root: Path) -> list[str]:
     except (OSError, json.JSONDecodeError, IndexError) as exc:
         return [f"metadata unreadable: {exc}"]
     errors = []
-    if package.get("name") != "pilot-puppy":
-        errors.append("package name must be pilot-puppy")
+    if package.get("name") != "@firstbitelabs/shadow":
+        errors.append("package name must be @firstbitelabs/shadow")
     if package.get("private") is not False:
         errors.append("package must be public")
     if package.get("version") != version or plugin.get("version") != version:
         errors.append("package, plugin, and VERSION must match")
-    expected = "https://github.com/firstbitelabsllc/pilot-puppy"
+    expected = "https://github.com/firstbitelabsllc/shadow"
     if expected not in str(package.get("homepage", "")):
         errors.append("homepage must use the canonical public repository")
-    if plugin.get("name") != "pilot-puppy":
-        errors.append("plugin name must be pilot-puppy")
+    if plugin.get("name") != "shadow":
+        errors.append("plugin name must be shadow")
     return errors
 
 
@@ -107,14 +108,19 @@ def scan(root: Path, paths: list[Path], *, metadata: bool) -> dict:
         content = text(path)
         if content is None:
             continue
+        # PLAN.md and CHANGELOG.md keep pre-rename history as receipts; the
+        # read-compat code and its tests name the legacy marker deliberately.
+        brand_exempt = relative in {"PLAN.md", "CHANGELOG.md", "docs/guide/installation.md"} or "pilot-puppy" in relative or relative.startswith(("scripts/", "tests/", "docs/reference/method.md"))
         for number, line in enumerate(content.splitlines(), 1):
             if contains_private_path(line):
                 findings.append({"file": relative, "line": number, "reason": "private filesystem path"})
             if SECRET.search(line):
                 findings.append({"file": relative, "line": number, "reason": "secret-shaped value"})
+            if not brand_exempt and OLD_BRAND.search(line):
+                findings.append({"file": relative, "line": number, "reason": "old product name"})
     errors = metadata_errors(root) if metadata else []
     return {
-        "schema": "pilot-puppy.public-ready.v1",
+        "schema": "shadow.public-ready.v1",
         "ok": not findings and not errors,
         "scanned_files": len(paths),
         "findings": findings,
@@ -136,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = scan(root, git_paths(root) if args.tracked_only else working_paths(root), metadata=args.metadata)
     except (OSError, RuntimeError) as exc:
-        report = {"schema": "pilot-puppy.public-ready.v1", "ok": False, "scanned_files": 0, "findings": [], "errors": [str(exc)]}
+        report = {"schema": "shadow.public-ready.v1", "ok": False, "scanned_files": 0, "findings": [], "errors": [str(exc)]}
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["ok"] else 1
 

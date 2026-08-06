@@ -11,7 +11,7 @@ from browser.server import plan_record
 
 
 ROOT = Path(__file__).resolve().parent.parent
-INIT = ROOT / "scripts" / "pilot-puppy-init.py"
+INIT = ROOT / "scripts" / "shadow-init.py"
 
 
 def run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
