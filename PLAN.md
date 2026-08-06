@@ -832,7 +832,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 ### M1 — Method encoded
 - [completed] C1~m3k7 AGENT.md lands encoding identity, modes+transition law, gate, steering, and the steal deltas | proof: npm run docs:build && npm run public-ready:grep | size: M
 - [completed] C2~q8f2 Method file contract lands in docs/reference/method.md + SKILL.md addendum with contract tests | proof: python3 -m unittest tests.test_method_contract | size: M | needs: ~m3k7
-- [completed] C3~w5d9 (DoD) Method rides the installed skill mounts on the operator machine | proof: pilot-puppy doctor | size: S | needs: ~q8f2
+- [in_progress] C3~w5d9 (DoD) Method rides the installed skill mounts on the operator machine | proof: shadow doctor (requires AGENT.md at the installed root as of v3.0.1) | size: S | needs: ~q8f2
 
 ### M2 — Board live
 - [completed] C4~t2b8 Scanner serves gated entity, mode, milestone, checkpoint counts | proof: python3 -m unittest tests.test_browser | size: M
@@ -1065,6 +1065,13 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-06T04:05:00Z CONTRADICTION recorded: C3~w5d9 was flipped completed
+  on a proof (doctor) that verified mounts but not content — AGENT.md was
+  never in the npm files list, so v3.0.0 installs carried no standing-behavior
+  file. Found by the Round 1 stress adversary. Row demoted to in_progress;
+  v3.0.1 ships the file, doctor now requires it, and a contract test pins the
+  files entry. Re-flip only after reinstall + doctor on the operator machine.
 
 - 2026-08-05T23:05:00Z M1 REPORTION seat=chief — tagged C3~w5d9 as M1's (DoD)
   row; M1 shipped without one, which its own PLAN-LINT (pass E, milestone

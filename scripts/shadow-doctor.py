@@ -39,6 +39,7 @@ def identity_check() -> dict[str, Any]:
         and plugin.get("name") == "shadow"
         and plugin.get("version") == version
         and (ROOT / "SKILL.md").is_file()
+        and (ROOT / "AGENT.md").is_file()
         and (ROOT / "bin" / "shadow").is_file()
     )
     return check(
