@@ -1,6 +1,6 @@
 {
   "name": "@firstbitelabs/shadow",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Chief-of-staff briefing, local role routing, and bounded native-host execution for AI coding work.",
   "private": false,
   "bin": {
@@ -31,6 +31,7 @@
     "LICENSE",
     "SECURITY.md",
     "SKILL.md",
+    "AGENT.md",
     "SUPPORT.md",
     "VERSION"
   ],

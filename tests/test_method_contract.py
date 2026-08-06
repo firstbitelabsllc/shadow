@@ -23,6 +23,13 @@ class MethodContractTests(unittest.TestCase):
         index = (ROOT / "docs" / "reference" / "index.md").read_text(encoding="utf-8")
         self.assertIn("(method.md)", index)
 
+    def test_agent_md_ships_in_the_npm_package(self) -> None:
+        import json
+
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        self.assertIn("AGENT.md", package.get("files", []),
+                      "the Method's standing-behavior file must ship in the package")
+
     def test_agent_md_carries_the_standing_behaviors(self) -> None:
         text = AGENT.read_text(encoding="utf-8")
         for anchor in (

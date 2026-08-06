@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.1 — 2026-08-06
+
+- AGENT.md — the Method's standing-behavior file — now actually ships in the
+  npm package, and `shadow doctor`'s product-identity check requires it at the
+  installed root. Found by the Round 1 stress adversary: the v3.0.0 plan row
+  claiming "the Method rides the installed mounts" was proven by a doctor run
+  that never checked for the file, which was absent from the package. The
+  claim-vs-world-state gap the Method exists to prevent, caught in its own
+  plan.
+
 ## 3.0.0 — 2026-08-05 — Shadow
 
 - The product is renamed to **Shadow** ("you are my shadow"): repository,
