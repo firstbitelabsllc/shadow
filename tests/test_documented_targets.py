@@ -19,6 +19,13 @@ TARGET = re.compile(
     r"((?:assets|bin|browser|docs|examples|guides|hooks|references|schemas|scripts|tests)"
     r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*/?)"
 )
+# Design specs and implementation plans are proposal records: they name the
+# targets a future implementation would create, so their paths are not shipped
+# instructions and need not exist in this checkout.
+PROPOSAL_PREFIXES = (
+    "docs/superpowers/specs/",
+    "docs/superpowers/plans/",
+)
 
 
 class DocumentedTargetTests(unittest.TestCase):
@@ -27,13 +34,16 @@ class DocumentedTargetTests(unittest.TestCase):
         documented: set[str] = set()
 
         for document in DOCUMENTS:
+            relative = document.relative_to(ROOT).as_posix()
+            proposal = relative.startswith(PROPOSAL_PREFIXES)
             text = document.read_text(encoding="utf-8")
             for match in TARGET.finditer(text):
                 target = match.group(1)
                 documented.add(target)
-                if not (ROOT / target).exists():
-                    line = text.count("\n", 0, match.start()) + 1
-                    missing.append(f"{document.relative_to(ROOT)}:{line}: {target}")
+                if proposal or (ROOT / target).exists():
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                missing.append(f"{relative}:{line}: {target}")
 
         self.assertTrue(documented, "expected at least one documented target")
         self.assertEqual([], missing, "documented targets must exist in this checkout")
