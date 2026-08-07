@@ -1,9 +1,6 @@
 # Other-computer handoff
 
-This is the portable starting point for Shadow on another Mac. Shadow is the one chief-of-staff surface for coding work: it reads the owning
-repository's `PLAN.md`, explains the Outcome and current proof, offers the next
-decision, and drives one bounded task through native Codex, Claude Code, or
-Cursor.
+This is the portable starting point for Shadow on another Mac.
 
 ## Bootstrap
 
@@ -57,7 +54,6 @@ transcripts, provider payloads, or absolute private paths in it.
 | `/browse` | Research current external facts or projects; keep sources and uncertainty explicit. |
 | `/local` | Inspect local files, commands, and runtime state without assuming chat context is current. |
 | `/skillbox` | Mount or validate skills on this computer and confirm the resolved source path. |
-| `/github` | Read or change remote PR, check, release, and branch state when the task requires it. |
 | `/slop` | Remove duplicated or generated instructions when the handoff or plan becomes noisy. |
 
 Use native Codex, Claude Code, or Cursor for execution. Provider-specific
@@ -72,12 +68,6 @@ helpers are adapters; none becomes the plan authority or stores credentials.
   from the exact checkout or release tag you chose.
 - Run `shadow doctor` on that checkout. The result describes that
   computer's mounts and host tools; it is not a remote-host claim.
-
-The remaining resume item is the same sealed native Codex task after the
-account quota reset. Re-run that exact task, require `status: ok`, require only
-its allowed-path change, and reproduce the proof from the lead checkout. Do
-not weaken the gate or substitute a version probe for execution proof. This
-deferred cross-host receipt does not block local work.
 
 ## Fast local readback
 

@@ -5,17 +5,37 @@
 Your chief of staff for AI coding work.
 
 Shadow tells you what work is trying to achieve, what is happening, what
-proof exists, and which A/B/C choice needs you. It helps you name the right
-local role for a task, drives an existing native coding tool only when you ask,
-and reports the proof without taking custody of your login or conversation.
+proof exists, and which A/B/C choice needs you. It drives an existing native
+coding tool only when you ask and reports the proof without taking custody of
+your login or conversation.
 
-It supports a project's own work lane; it is not a gate that pauses unrelated
-projects. One sealed task makes a handoff reviewable, while each project keeps
-shipping the highest-value reachable work in its own `PLAN.md`.
+Shadow scopes to one repository at a time; other projects keep working from
+their own `PLAN.md`.
+
+## See it
+
+![Shadow's board](https://raw.githubusercontent.com/firstbitelabsllc/shadow/main/docs/assets/board-desktop.png)
+
+*The board: one card per project, with its mode, status, lint result, and task
+counts. Running locally against a demo portfolio — Sunrise Bakery, Orbit, and
+Fieldnotes are fictional projects; unedited screenshot of v4.0.x.*
+
+Open a project and Shadow states the Outcome, what changed, the proof, and the
+one A/B/C decision waiting for you.
+
+![A brief and the decision waiting on you](https://raw.githubusercontent.com/firstbitelabsllc/shadow/main/docs/assets/brief-decision.png)
+
+*A brief and its waiting decision; nothing changes until you choose. Same demo
+portfolio, unedited screenshot of v4.0.x.*
+
+![The same board at phone width](https://raw.githubusercontent.com/firstbitelabsllc/shadow/main/docs/assets/board-phone.png)
+
+*The same board at phone width. Unedited screenshot of v4.0.x.*
 
 ## Five-minute install
 
-Requires Git, Bash, Python 3.10+, and at least one supported coding host.
+Requires Git, Bash, Python 3.10+, Node.js 20+, and at least one supported
+coding host.
 
 ```bash
 git clone https://github.com/firstbitelabsllc/shadow.git
@@ -32,7 +52,7 @@ ln -sfn "$(pwd)" "$HOME/.agents/skills/shadow"
 ln -sfn "$(pwd)" "$HOME/.cursor/skills/shadow"
 ```
 
-## One real workflow
+## Workflow
 
 Start in the repository whose work you want to understand:
 
@@ -43,10 +63,9 @@ shadow browse
 ```
 
 `PLAN.md` is the durable authority — one markdown plan per repo, one writer at
-a time. The loopback browser renders each entity's plans as a read-only board:
-mode, current milestone, checkpoint counts, and the one decision waiting for
-you. It never writes; the moment a surface could mutate a row it would be a
-banned second store.
+a time. The loopback browser renders each project's plans as a read-only board:
+mode, current milestone, task counts, and the one decision waiting for you. It
+never writes.
 
 A task is a state the world reaches plus a `proof:` that can refuse
 bad work (`cmd`, `read`, or `gate <owner>`). A row flips to completed only in
@@ -78,7 +97,7 @@ shadow host run --host codex --repo <clean worktree> \
 - There is no telemetry seam: local receipts and git history are the only
   observation surfaces. See the [privacy contract](docs/reference/privacy.md).
 
-## Honest limitations
+## Limitations
 
 - `shadow host run` runs one sealed task through one named host; it never
   launches work on its own, swaps a host, retries, or owns a queue. The lead
