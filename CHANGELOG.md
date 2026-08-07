@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.0.1 — 2026-08-07 — the board reaches your phone
+
+- `shadow browse --allow-host NAME` (repeatable): opt-in Host-header
+  allowlist for a proxy the operator runs on the same machine — e.g.
+  `tailscale serve` — so the board and its A/B/C decisions work from a
+  phone on the tailnet. The bind never leaves loopback: proxied requests
+  still arrive from 127.0.0.1, unlisted hostnames still get 403, and a
+  non-loopback `--host` is still refused outright.
+
 ## 4.0.0 — 2026-08-06 — the eight-concept core
 
 - **Standard vocabulary only.** Shadow is the one invented name; everything

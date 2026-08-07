@@ -391,10 +391,11 @@ class Handler(BaseHTTPRequestHandler):
             port = parsed.port
         except ValueError:
             return False
-        return (
-            (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}
-            and port == self.server.server_address[1]
-        )
+        hostname = (parsed.hostname or "").lower()
+        if hostname in {"127.0.0.1", "localhost", "::1"}:
+            return port == self.server.server_address[1]
+        # An allow-listed proxy hostname owns its own outer port.
+        return hostname in self.server.extra_hosts
 
     def _same_origin(self) -> bool:
         origin = self.headers.get("Origin")
@@ -402,11 +403,9 @@ class Handler(BaseHTTPRequestHandler):
             return False
         parsed = urlparse(origin)
         host = (parsed.hostname or "").lower()
-        return (
-            parsed.scheme == "http"
-            and host in {"127.0.0.1", "localhost", "::1"}
-            and parsed.port == self.server.server_address[1]
-        )
+        if parsed.scheme == "http" and host in {"127.0.0.1", "localhost", "::1"}:
+            return parsed.port == self.server.server_address[1]
+        return parsed.scheme == "https" and host in self.server.extra_hosts
 
     def do_HEAD(self) -> None:  # noqa: N802
         self.do_GET()
@@ -488,9 +487,15 @@ class Handler(BaseHTTPRequestHandler):
 class Server(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], root: Path) -> None:
+    def __init__(
+        self, address: tuple[str, int], root: Path, extra_hosts: frozenset[str] = frozenset()
+    ) -> None:
         super().__init__(address, Handler)
         self.scan_root = root
+        # Opt-in Host-header allowlist for a proxy the operator runs on this
+        # machine (e.g. `tailscale serve`). The bind itself never leaves
+        # loopback: proxied requests still arrive from 127.0.0.1.
+        self.extra_hosts = frozenset(name.strip().lower() for name in extra_hosts if name.strip())
 
 
 def parser() -> argparse.ArgumentParser:
@@ -502,6 +507,15 @@ def parser() -> argparse.ArgumentParser:
         default=os.environ.get("SHADOW_DEV_ROOT") or str(Path.home() / "Development"),
     )
     value.add_argument("--no-open", action="store_true")
+    value.add_argument(
+        "--allow-host",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help="also accept this Host header from a proxy you run on this "
+        "machine (e.g. your tailnet name via `tailscale serve`); the bind "
+        "stays loopback-only",
+    )
     return value
 
 
@@ -518,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     if not DEV_ROOT.is_dir():
         print("shadow browse: scan root is not a directory", file=sys.stderr)
         return 2
-    server = Server((args.host, args.port), DEV_ROOT)
+    server = Server((args.host, args.port), DEV_ROOT, frozenset(args.allow_host or ()))
     actual = server.server_address[1]
     print(f"Shadow -> http://{args.host}:{actual}", file=sys.stderr, flush=True)
     if not args.no_open:

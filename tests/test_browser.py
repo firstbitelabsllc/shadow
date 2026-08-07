@@ -159,6 +159,75 @@ class BrowserTests(unittest.TestCase):
                 thread.join(timeout=2)
 
 
+    def test_proxy_host_is_refused_without_the_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, _ = self.make_repo(Path(dirname))
+            service = server.Server(("127.0.0.1", 0), repo)
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.putrequest("GET", "/api/health", skip_host=True)
+                connection.putheader("Host", "studio.tailnet.example.ts.net")
+                connection.endheaders()
+                self.assertEqual(connection.getresponse().status, 403)
+                connection.close()
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
+
+    def test_allow_listed_proxy_host_reads_and_decides(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, _ = self.make_repo(Path(dirname).resolve())
+            service = server.Server(
+                ("127.0.0.1", 0), repo, frozenset({"studio.tailnet.example.ts.net"})
+            )
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.putrequest("GET", "/api/health", skip_host=True)
+                # The proxy owns its own outer port; no port in the Host header.
+                connection.putheader("Host", "Studio.Tailnet.Example.TS.NET")
+                connection.endheaders()
+                self.assertEqual(connection.getresponse().status, 200)
+                connection.close()
+
+                body = json.dumps({"plan": "project/PLAN.md", "option_id": "cold-review", "revision": 7})
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.putrequest("POST", "/api/decision", skip_host=True)
+                connection.putheader("Host", "studio.tailnet.example.ts.net")
+                connection.putheader("Origin", "https://studio.tailnet.example.ts.net")
+                connection.putheader("Content-Type", "application/json")
+                connection.putheader("Content-Length", str(len(body)))
+                connection.endheaders()
+                connection.send(body.encode("utf-8"))
+                self.assertEqual(connection.getresponse().status, 200)
+                connection.close()
+
+                # A hostname NOT on the allowlist still gets refused.
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.putrequest("GET", "/api/health", skip_host=True)
+                connection.putheader("Host", "evil.example.net")
+                connection.endheaders()
+                self.assertEqual(connection.getresponse().status, 403)
+                connection.close()
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
+
+    def test_non_loopback_bind_is_still_rejected_with_allow_host(self) -> None:
+        self.assertEqual(
+            server.main(["--host", "0.0.0.0", "--port", "7191", "--root", ".", "--allow-host", "x.ts.net"]),
+            2,
+        )
+
     def test_raw_plan_endpoint_does_not_exist(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, _ = self.make_repo(Path(dirname))
