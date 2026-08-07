@@ -18,9 +18,8 @@ same defaults without another configuration file:
 Provider logins remain in their native tools.
 
 Shadow keeps bounded local evidence in `.shadow/` inside each
-project. Drive treats that directory as product-owned state, so it never
-blocks preparation or acceptance; adding `.shadow/` to the project's
-`.gitignore` is still recommended to keep ordinary Git output quiet.
+project. Adding `.shadow/` to the project's `.gitignore` is recommended to
+keep ordinary Git output quiet.
 
 
 Never place provider/model/account/quota details in a plan, browser

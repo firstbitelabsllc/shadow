@@ -20,8 +20,10 @@ features:
     details: PLAN.md survives sessions and remains the only work authority.
   - title: Use your own tools
     details: Shadow prepares a clear handoff to the coding tools you already use, without taking over.
-  - title: Ready work
-    details: Prepare up to three separate pieces of work, then start them only when you are ready.
-  - title: Native execution
-    details: Sealed tasks run through the coding tools you already use.
 ---
+
+![Shadow's board](./assets/board-desktop.png)
+
+*The board: one card per project, with its mode, status, lint result, and task
+counts. Running locally against a demo portfolio — Sunrise Bakery, Orbit, and
+Fieldnotes are fictional projects; unedited screenshot of v4.0.x.*

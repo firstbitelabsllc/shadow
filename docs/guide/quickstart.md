@@ -39,5 +39,4 @@ shadow host run \
   --out .shadow/evidence/focused-fix.json
 ```
 
-Which provider or account the host uses is the host CLI's own business.
 Review the diff and reproduce the tests before accepting the worker claim.
