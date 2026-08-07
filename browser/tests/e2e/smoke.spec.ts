@@ -24,15 +24,13 @@ test('exposes proof without implementation machinery', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText('transcript');
 });
 
-test('explains its help in everyday language and makes ready work visible', async ({ page }) => {
+test('explains its help in everyday language', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByText('How Shadow can help')).toBeVisible();
   await expect(page.getByText('Think it through')).toBeVisible();
   await expect(page.getByText('Make a small change')).toBeVisible();
   await expect(page.getByText('Fix something broken')).toBeVisible();
   await expect(page.getByText('Take on a hard build')).toBeVisible();
-  await expect(page.getByText('Ready work', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Prepare ready work' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText('planner');
   await expect(page.locator('body')).not.toContainText('hard-dev');
 });

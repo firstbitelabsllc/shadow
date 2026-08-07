@@ -39,7 +39,7 @@ def render(records: list[dict]) -> str:
                 "\n".join(
                     [
                         record["title"],
-                        f"  State: needs a valid Operator Brief",
+                        f"  State: needs a valid Brief",
                         f"  Next: {record.get('contract_error') or 'Add a typed Outcome.'}",
                     ]
                 )

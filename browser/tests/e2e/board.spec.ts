@@ -1,15 +1,16 @@
 import { expect, test } from '@playwright/test';
 
-test('board groups plans into entity lanes with counts only and stays read-only', async ({ page }) => {
+test('board groups plans into project lanes with counts only and stays read-only', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Board', exact: true }).click();
   const board = page.locator('#board');
   await expect(board.locator('.lane-title', { hasText: 'snowcubes' })).toBeVisible();
   await expect(board.locator('.lane-title', { hasText: 'demo' })).toBeVisible();
   const gift = board.locator('.board-card', { hasText: 'Gift flow live' });
-  await expect(gift.locator('.mode-chip')).toHaveText('close');
+  await expect(gift.locator('.mode-chip')).toHaveText('ship');
   await expect(gift.locator('.board-milestone')).toHaveText('Gift flow live on storefront');
-  await expect(gift.locator('.meter-count')).toHaveText('Checkpoints 1/3');
+  await expect(gift.locator('.meter-count')).toHaveText('Tasks 1/3');
+  await expect(gift.locator('.lint-chip')).toBeVisible();
   const interactive = await board.locator('button:not(.board-card), a, input, select, textarea').count();
   expect(interactive).toBe(0);
   await expect(page.locator('.shell')).toBeHidden();

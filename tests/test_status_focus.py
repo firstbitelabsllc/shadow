@@ -13,7 +13,7 @@ STATUS = ROOT / "scripts" / "shadow-status.py"
 
 PLAN = """# Demo
 
-## Operator Brief
+## Brief
 
 - Outcome ID: ship-demo
 - Outcome Revision: 1
