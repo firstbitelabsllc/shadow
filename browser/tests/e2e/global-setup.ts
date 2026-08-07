@@ -15,7 +15,7 @@ export default async function globalSetup() {
   mkdirSync(join(boundedRoot, 'demo'), { recursive: true });
   writeFileSync(join(boundedRoot, 'demo', 'PLAN.md'), `# Release notes
 
-## Operator Brief
+## Brief
 
 - Outcome ID: ship-release-notes
 - Outcome Revision: 7
@@ -47,32 +47,14 @@ export default async function globalSetup() {
 
 - 2026-08-03: The bounded implementation is ready for a decision.
 
-<!-- shadow-drive.v1
-{
-  "schema": "shadow.drive.v1",
-  "revision": 1,
-  "lanes": [
-    {
-      "id": "improve-copy",
-      "state": "ready",
-      "task_kind": "dev",
-      "summary": "Make the release note easier to understand.",
-      "task": "Clarify the release note and keep the focused check green.",
-      "allowed_paths": ["PLAN.md"],
-      "proof": ["python3", "-m", "unittest", "tests.test_browser"],
-      "merge": "manual"
-    }
-  ]
-}
--->
 `, 'utf8');
   mkdirSync(join(boundedRoot, 'gift'), { recursive: true });
   writeFileSync(join(boundedRoot, 'gift', 'PLAN.md'), `# Gift flow live
 
-## Operator Brief
+## Brief
 
-- Entity: snowcubes
-- Mode: Close
+- Project: snowcubes
+- Mode: ship
 - Milestone: Gift flow live on storefront
 - Outcome ID: gift-flow-live
 - Outcome Revision: 3
@@ -85,7 +67,7 @@ export default async function globalSetup() {
 - Proof Summary: Focused gift tests pass.
 - Proof Delivery: delivered
 
-## Checkpoints
+## Tasks
 
 ### M1 — Gift flow live
 - [completed] C1 Gift wrap option renders | proof: npm run test:pdp | size: S

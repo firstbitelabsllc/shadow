@@ -15,7 +15,7 @@ from browser import server
 
 PLAN = """# Release notes
 
-## Operator Brief
+## Brief
 
 - Outcome ID: ship-release-notes
 - Outcome Revision: 7
@@ -46,28 +46,6 @@ PLAN = """# Release notes
 ## Progress
 
 - 2026-08-03: The bounded implementation is ready for a decision.
-"""
-
-DRIVE_PACKET = """
-
-<!-- shadow-drive.v1
-{
-  "schema": "shadow.drive.v1",
-  "revision": 1,
-  "lanes": [
-    {
-      "id": "improve-copy",
-      "state": "ready",
-      "task_kind": "dev",
-      "summary": "Make the release note easier to understand.",
-      "task": "Clarify the release note and keep the focused check green.",
-      "allowed_paths": ["README.md"],
-      "proof": ["python3", "-m", "unittest", "tests.test_browser"],
-      "merge": "manual"
-    }
-  ]
-}
--->
 """
 
 
@@ -104,112 +82,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(record["briefing"]["proof"]["locator"], "tests/test_browser.py")
         self.assertNotIn(dirname, json.dumps(record))
 
-    def test_ready_work_preview_hides_instructions_paths_and_checks(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            plan.write_text(PLAN + DRIVE_PACKET, encoding="utf-8")
-            record = server.plan_record(plan, repo)
-        rendered = json.dumps(record, sort_keys=True)
-        self.assertEqual(record["drive"]["state"], "ready")
-        self.assertEqual(record["drive"]["ready_count"], 1)
-        self.assertIn("Make the release note easier", rendered)
-        for hidden in ("Clarify the release note", "allowed_paths", "tests.test_browser", "task_kind"):
-            self.assertNotIn(hidden, rendered)
 
-    def test_drive_command_projection_has_no_task_or_provider_details(self) -> None:
-        session = {
-            "schema": "shadow.drive-session.v1",
-            "revision": 1,
-            "session_id": "a" * 32,
-            "state": "prepared",
-            "plan_sha256": "b" * 64,
-            "base_sha256": "c" * 40,
-            "lanes": [
-                {
-                    "id": "improve-copy",
-                    "observation_id": "d" * 32,
-                    "role": "dev",
-                    "host": "cursor",
-                    "route_sha256": "e" * 64,
-                    "status": "prepared",
-                    "scope_ok": None,
-                    "proof_ok": None,
-                    "merge_ok": None,
-                }
-            ],
-        }
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            completed = subprocess.CompletedProcess([], 0, json.dumps(session), "")
-            with (
-                mock.patch.object(server, "repository_root", return_value=repo),
-                mock.patch.object(server, "run_drive_subprocess", return_value=completed) as run,
-            ):
-                projection = server.run_drive_action(plan, action="prepare")
-        self.assertEqual(projection, {
-            "session": "a" * 32,
-            "state": "prepared",
-            "work_count": 1,
-            "finished_count": 0,
-            "needs_attention_count": 0,
-        })
-        rendered = json.dumps(projection, sort_keys=True)
-        self.assertNotIn("cursor", rendered)
-        self.assertNotIn("dev", rendered)
-        command = run.call_args.args[0]
-        self.assertEqual(command[:3], [sys.executable, str(server.SCRIPTS / "shadow-drive.py"), "prepare"])
-        self.assertIn("--json", command)
 
-    def test_drive_launch_returns_a_partial_local_work_update(self) -> None:
-        session = {
-            "schema": "shadow.drive-session.v1",
-            "revision": 1,
-            "session_id": "a" * 32,
-            "state": "finished",
-            "plan_sha256": "b" * 64,
-            "base_sha256": "c" * 40,
-            "lanes": [{"status": "needs_attention"}],
-        }
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            completed = subprocess.CompletedProcess([], 1, json.dumps(session), "expected local work result")
-            with (
-                mock.patch.object(server, "repository_root", return_value=repo),
-                mock.patch.object(server, "run_drive_subprocess", return_value=completed),
-            ):
-                projection = server.run_drive_action(plan, action="launch", session_id="a" * 32)
-        self.assertEqual(projection["state"], "finished")
-        self.assertEqual(projection["finished_count"], 0)
-        self.assertEqual(projection["needs_attention_count"], 1)
 
-    def test_drive_accept_projects_only_fully_rechecked_local_work(self) -> None:
-        session = {
-            "schema": "shadow.drive-session.v1",
-            "revision": 1,
-            "session_id": "a" * 32,
-            "state": "accepted",
-            "plan_sha256": "b" * 64,
-            "base_sha256": "c" * 40,
-            "lanes": [{"status": "passed", "scope_ok": True, "proof_ok": True, "merge_ok": True}],
-        }
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            completed = subprocess.CompletedProcess([], 0, json.dumps(session), "")
-            with (
-                mock.patch.object(server, "repository_root", return_value=repo),
-                mock.patch.object(server, "run_drive_subprocess", return_value=completed) as run,
-            ):
-                projection = server.run_drive_action(plan, action="accept", session_id="a" * 32)
-        self.assertEqual(projection, {
-            "session": "a" * 32,
-            "state": "accepted",
-            "work_count": 1,
-            "finished_count": 1,
-            "needs_attention_count": 0,
-        })
-        command = run.call_args.args[0]
-        self.assertEqual(command[:3], [sys.executable, str(server.SCRIPTS / "shadow-drive.py"), "accept"])
-        self.assertIn("--session", command)
 
     def test_decision_receipt_is_project_local_bounded_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -283,46 +158,6 @@ class BrowserTests(unittest.TestCase):
                 service.server_close()
                 thread.join(timeout=2)
 
-    def test_http_prepares_ready_work_only_from_the_loopback_page(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, _ = self.make_repo(Path(dirname))
-            service = server.Server(("127.0.0.1", 0), repo)
-            service.RequestHandlerClass.log_message = lambda *args: None
-            thread = threading.Thread(target=service.serve_forever, daemon=True)
-            thread.start()
-            port = service.server_address[1]
-            try:
-                response_value = {
-                    "session": "f" * 32,
-                    "state": "prepared",
-                    "work_count": 1,
-                    "finished_count": 0,
-                    "needs_attention_count": 0,
-                }
-                body = json.dumps({"plan": "project/PLAN.md"})
-                with mock.patch.object(server, "run_drive_action", return_value=response_value) as action:
-                    connection = http.client.HTTPConnection("127.0.0.1", port)
-                    connection.request(
-                        "POST",
-                        "/api/drive/prepare",
-                        body=body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Origin": f"http://127.0.0.1:{port}",
-                        },
-                    )
-                    response = connection.getresponse()
-                    payload = json.loads(response.read())
-                    connection.close()
-                self.assertEqual(response.status, 200)
-                self.assertEqual(payload, {"drive": response_value, "ok": True})
-                action.assert_called_once()
-                self.assertEqual(action.call_args.kwargs, {"action": "prepare"})
-                self.assertEqual(action.call_args.args[0], (repo / "project" / "PLAN.md").resolve())
-            finally:
-                service.shutdown()
-                service.server_close()
-                thread.join(timeout=2)
 
     def test_raw_plan_endpoint_does_not_exist(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -342,26 +177,44 @@ class BrowserTests(unittest.TestCase):
                 service.server_close()
                 thread.join(timeout=2)
 
-    def test_drive_budgets_nest_and_the_cli_owns_the_deadline(self) -> None:
-        worst_case = 3 * 2 * server.DRIVE_STEP_TIMEOUT_SECONDS
-        self.assertGreaterEqual(server.DRIVE_LAUNCH_TIMEOUT_SECONDS, worst_case)
-        self.assertGreaterEqual(server.DRIVE_ACCEPT_TIMEOUT_SECONDS, worst_case)
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            completed = subprocess.CompletedProcess([], 0, "{}", "")
-            with (
-                mock.patch.object(server, "repository_root", return_value=repo),
-                mock.patch.object(server, "run_drive_subprocess", return_value=completed) as run,
-            ):
-                with self.assertRaises(server.BrowserError):
-                    server.run_drive_action(plan, action="launch", session_id="f" * 32)
-            command = run.call_args.args[0]
-            self.assertIn("--timeout-seconds", command)
-            self.assertIn(str(server.DRIVE_STEP_TIMEOUT_SECONDS), command)
-            self.assertEqual(run.call_args.args[2], server.DRIVE_LAUNCH_TIMEOUT_SECONDS)
 
     def test_http_server_header_carries_the_product_name(self) -> None:
         self.assertTrue(server.Handler.server_version.startswith("Shadow/"))
+
+    def test_post_errors_never_reflect_exception_text(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, _ = self.make_repo(Path(dirname).resolve())
+            service = server.Server(("127.0.0.1", 0), repo)
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                failure = PermissionError(
+                    f"[Errno 13] Permission denied: '{repo}/.shadow/evidence'"
+                )
+                body = json.dumps({"plan": "project/PLAN.md", "option_id": "ship-now", "revision": 7})
+                with mock.patch.object(server, "write_decision_receipt", side_effect=failure):
+                    connection = http.client.HTTPConnection("127.0.0.1", port)
+                    connection.request(
+                        "POST",
+                        "/api/decision",
+                        body=body,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Origin": f"http://127.0.0.1:{port}",
+                        },
+                    )
+                    response = connection.getresponse()
+                    payload = json.loads(response.read())
+                    connection.close()
+                self.assertEqual(response.status, 400)
+                self.assertNotIn(str(repo), payload["error"])
+                self.assertNotIn("Errno", payload["error"])
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
 
     def test_titles_block_every_canonical_private_path_and_secret_shape(self) -> None:
         # Secret-shaped fixtures are assembled at runtime so the tracked
@@ -398,62 +251,6 @@ class BrowserTests(unittest.TestCase):
             "shipped the release notes",
         )
 
-    def test_post_errors_never_reflect_exception_text(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, _ = self.make_repo(Path(dirname))
-            service = server.Server(("127.0.0.1", 0), repo)
-            service.RequestHandlerClass.log_message = lambda *args: None
-            thread = threading.Thread(target=service.serve_forever, daemon=True)
-            thread.start()
-            port = service.server_address[1]
-            try:
-                failure = PermissionError(
-                    f"[Errno 13] Permission denied: '{repo}/.shadow/evidence'"
-                )
-                body = json.dumps({"plan": "project/PLAN.md"})
-                with mock.patch.object(server, "run_drive_action", side_effect=failure):
-                    connection = http.client.HTTPConnection("127.0.0.1", port)
-                    connection.request(
-                        "POST",
-                        "/api/drive/prepare",
-                        body=body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Origin": f"http://127.0.0.1:{port}",
-                        },
-                    )
-                    response = connection.getresponse()
-                    payload = json.loads(response.read())
-                    connection.close()
-                self.assertEqual(response.status, 400)
-                self.assertNotIn(str(repo), payload["error"])
-                self.assertNotIn("Errno", payload["error"])
-                self.assertNotIn("evidence", payload["error"])
-            finally:
-                service.shutdown()
-                service.server_close()
-                thread.join(timeout=2)
-
-
-BOARD_PLAN = """# Gift flow live
-
-## Operator Brief
-
-- Entity: snowcubes
-- Mode: Close
-- Milestone: Gift flow live on storefront
-
-## Checkpoints
-
-### M1 — Gift flow live
-- [completed] C1 Gift wrap option renders on PDP | proof: npm run test:pdp | size: S
-- [in_progress] C2 Checkout smoke green on preview theme | proof: npm run smoke | size: M
-- [pending] C3 (DoD) Live-theme publish with pixel proof | proof: npm run publish:verify | size: S
-
-## Progress
-
-- 2026-08-05: board fixture ready.
-"""
 
 
 class WorktreePoolPruneTests(unittest.TestCase):
@@ -470,6 +267,27 @@ class WorktreePoolPruneTests(unittest.TestCase):
             records = server.discover_plans(root)
         titles = [record["title"] for record in records]
         self.assertEqual(titles, ["Keep me"])
+
+
+BOARD_PLAN = """# Gift flow live
+
+## Brief
+
+- Project: snowcubes
+- Mode: ship
+- Milestone: Gift flow live on storefront
+
+## Tasks
+
+### M1 — Gift flow live
+- [completed] C1 Gift wrap option renders on PDP | proof: npm run test:pdp | size: S
+- [in_progress] C2 Checkout smoke green on preview theme | proof: npm run smoke | size: M
+- [pending] C3 (DoD) Live-theme publish with pixel proof | proof: npm run publish:verify | size: S
+
+## Progress
+
+- 2026-08-05: board fixture ready.
+"""
 
 
 class BoardProjectionTests(unittest.TestCase):
@@ -489,35 +307,94 @@ class BoardProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan = self.make_board_repo(Path(dirname), BOARD_PLAN)
             record = server.plan_record(plan, repo)
-        self.assertEqual(record["entity"], "snowcubes")
-        self.assertEqual(record["mode"], "close")
+        self.assertEqual(record["project"], "snowcubes")
+        self.assertEqual(record["mode"], "ship")
         self.assertEqual(record["milestone"], "Gift flow live on storefront")
         self.assertEqual(
-            record["checkpoints"],
+            record["tasks"],
             {"pending": 1, "in_progress": 1, "blocked": 0, "completed": 1},
         )
 
+    def test_task_counts_ignore_checkboxes_outside_the_tasks_section(self) -> None:
+        noisy = BOARD_PLAN.replace(
+            "## Progress",
+            "## Notes\n\n- [completed] a stray checkbox that is not a task\n\n## Progress",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), noisy)
+            record = server.plan_record(plan, repo)
+        self.assertEqual(
+            record["tasks"],
+            {"pending": 1, "in_progress": 1, "blocked": 0, "completed": 1},
+        )
+
+    def test_plan_record_carries_a_lint_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), BOARD_PLAN)
+            record = server.plan_record(plan, repo)
+        self.assertTrue(record["lint"]["parse_ok"])
+        self.assertIsInstance(record["lint"]["blocking"], int)
+        self.assertIsInstance(record["lint"]["warning"], int)
+
+    def test_broad_posture_earns_a_chip(self) -> None:
+        broad = BOARD_PLAN.replace("- Mode: ship", "- Mode: explore")
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), broad)
+            record = server.plan_record(plan, repo)
+        self.assertEqual(record["mode"], "explore")
+
+    def test_legacy_modes_earn_no_chip(self) -> None:
+        legacy = BOARD_PLAN.replace("- Mode: ship", "- Mode: Spike")
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), legacy)
+            record = server.plan_record(plan, repo)
+        self.assertIsNone(record["mode"])
+        self.assertGreaterEqual(record["lint"]["blocking"], 1)
+
+    def test_an_unreadable_plan_is_skipped_without_crashing_the_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), BOARD_PLAN)
+            bad = repo / "broken" / "PLAN.md"
+            bad.parent.mkdir()
+            bad.write_bytes(b"# \xff\xfe not utf-8")
+            records = server.discover_plans(repo)
+        paths = [record["path"] for record in records]
+        self.assertIn("gift-flow/PLAN.md", paths)
+        self.assertNotIn("broken/PLAN.md", paths)
+
+    def test_lint_summary_reports_parse_ok_false_when_the_linter_raises(self) -> None:
+        with mock.patch.object(server.shadow_lint, "lint_plan", side_effect=RuntimeError("boom")):
+            summary = server.lint_summary("# anything")
+        self.assertEqual(summary, {"parse_ok": False, "blocking": 0, "warning": 0})
+
+    def test_lint_flags_a_bad_plan(self) -> None:
+        bad = BOARD_PLAN.replace("- Mode: ship", "- Mode: turbo")
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_board_repo(Path(dirname), bad)
+            record = server.plan_record(plan, repo)
+        self.assertGreaterEqual(record["lint"]["blocking"], 1)
+
     def test_board_fields_fall_back_safely(self) -> None:
-        bare = "# Plain plan\n\n## Operator Brief\n\n- Outcome: something\n"
+        bare = "# Plain plan\n\n## Brief\n\n- Outcome: something\n"
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan = self.make_board_repo(Path(dirname), bare)
             record = server.plan_record(plan, repo)
-        self.assertEqual(record["entity"], "gift-flow")
+        self.assertEqual(record["project"], "gift-flow")
         self.assertIsNone(record["mode"])
         self.assertIsNone(record["milestone"])
-        self.assertIsNone(record["checkpoints"])
+        self.assertIsNone(record["tasks"])
 
     def test_board_fields_reject_unsafe_or_invalid_values(self) -> None:
         unsafe = (
-            "# Unsafe\n\n## Operator Brief\n\n"
-            "- Entity: Not A Slug!!\n"
+            "# Unsafe\n\n## Brief\n\n"
+            "- Project: Not A Slug!!\n"
             "- Mode: turbo\n"
             "- Milestone: Fix ~/Development/secret-client build\n"
         )
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan = self.make_board_repo(Path(dirname), unsafe)
             record = server.plan_record(plan, repo)
-        self.assertEqual(record["entity"], "gift-flow")
+        self.assertEqual(record["project"], "gift-flow")
         self.assertIsNone(record["mode"])
         self.assertIsNone(record["milestone"])
 

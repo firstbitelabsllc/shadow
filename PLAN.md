@@ -9,10 +9,10 @@ is trying to achieve, what is happening now, what proof exists, and which A/B/C
 decision matters next—then drive bounded work through native Codex, Claude
 Code, or Cursor without taking custody of credentials or conversations.
 
-## Operator Brief
+## Brief
 
-- Entity: shadow
-- Mode: Close
+- Project: shadow
+- Mode: ship
 - Milestone: The Method v1 live
 - Outcome ID: portfolio-product-closeout-20260803
 - Outcome Revision: 218
@@ -827,21 +827,22 @@ Code, or Cursor without taking custody of credentials or conversations.
   outside this public repository and contains no private prompts, credentials,
   transcripts, or provider payloads.
 
-## Checkpoints
+## Tasks
 
 ### M1 — Method encoded
-- [completed] C1~m3k7 AGENT.md lands encoding identity, modes+transition law, gate, steering, and the steal deltas | proof: npm run docs:build && npm run public-ready:grep | size: M
-- [completed] C2~q8f2 Method file contract lands in docs/reference/method.md + SKILL.md addendum with contract tests | proof: python3 -m unittest tests.test_method_contract | size: M | needs: ~m3k7
-- [in_progress] C3~w5d9 (DoD) Method rides the installed skill mounts on the operator machine | proof: shadow doctor (requires AGENT.md at the installed root as of v3.0.1) | size: S | needs: ~q8f2
+- [completed] AGENT.md encodes the core, gate, and steering ~m3k7 | proof: cmd npm run docs:build
+- [completed] method.md contract lands with contract tests ~q8f2 | proof: cmd npm run test:py | needs: ~m3k7
+- [completed] the Method rides the installed mounts ~w5d9 (DoD) | proof: read shadow doctor -> 11/11 with AGENT.md at root | needs: ~q8f2
 
 ### M2 — Board live
-- [completed] C4~t2b8 Scanner serves gated entity, mode, milestone, checkpoint counts | proof: python3 -m unittest tests.test_browser | size: M
-- [completed] C5~j6n4 Read-only board view, desktop and phone, zero write surfaces | proof: npm run test:e2e | size: M | needs: ~t2b8
-- [completed] C6~r9c3 (DoD) Full gate matrix green, PRs merged, v2.3.0–v2.3.2 released | proof: npm run verify | size: M | needs: ~j6n4, ~w5d9
+- [completed] scanner serves gated entity/mode/milestone/checkpoint counts ~t2b8 | proof: cmd npm run test:py
+- [completed] read-only board view on desktop and phone ~j6n4 | proof: cmd npm run test:e2e | needs: ~t2b8
+- [completed] full gate matrix green and v3.0.x released ~r9c3 (DoD) | proof: cmd npm run verify | needs: ~j6n4
 
-### M3 — Dogfood
-- [completed] C7~h4v1 Three real plans tagged (moussey; snowcubes first PLAN.md; resplit origin-fresh) render as entity lanes | proof: /api/plans readback + board screenshot | size: M | needs: ~r9c3
-- [completed] C8~z7e5 (DoD) One Method-style cycle in a tagged repo: mode declared, checkpoint flipped with paired proof line | proof: that repo's PLAN.md diff | size: M | needs: ~h4v1
+### M3 — v4 core
+- [completed] the Method reduced to eight concepts, lint the enforcer ~h4v1 | proof: cmd npm run test:py | needs: ~r9c3
+- [completed] four tagged plans on grammar v2: shadow, moussey #145, snowcubes #2113, resplit #2236 ~g4mv | proof: read shadow lint -> 0 blocking on all four | needs: ~h4v1
+- [pending] v4.0.0 released, installed, doctor green ~z7e5 (DoD) | proof: read shadow doctor -> 11/11 on installed v4.0.0 | needs: ~h4v1
 
 ## Worklane boundary
 
@@ -1037,9 +1038,8 @@ Code, or Cursor without taking custody of credentials or conversations.
   path-disjoint lanes on distinct declared hosts, driven prepare → launch →
   accept with kept-branch review, receipts folded back here. Exact resume
   move: pick the highest-value reachable repo from its own canonical plan,
-  write the `shadow-drive.v1` packet into that repo's PLAN.md, then
-  `shadow drive prepare --repo <clean worktree>` (the renamed CLI also reads
-  legacy `pilot-puppy-drive.v1` packets).
+  run one real delegated row through a fresh worktree + `shadow host run` +
+  `shadow accept --row` on a customer repository.
 - [deferred] Close cross-host portability proof through the other-computer
   route or the local quota-reset fallback; require the same sealed task, exact
   allowed-path change, and lead-reproduced check.
@@ -1065,6 +1065,30 @@ Code, or Cursor without taking custody of credentials or conversations.
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-07T04:05:00Z ~g4mv PROOF shadow-lint over the four migrated plans -> 0 blocking (moussey fdb2f223 on #145; snowcubes draft #2113 + graphite; resplit 897801527 on #2236; worktrees torn down) (read)
+- 2026-08-07T03:40:00Z NOTE seat=chief concept-drift audit vs the founding manifesto: core followed (method-over-harness, planning-is-writing, gate pair, checkpoints, A/B/C, auth-out); deliberate drifts confirmed (4 modes -> 2 postures with Spike/Defer/Challenge as moves; ledger deleted for git+board; adversarialism is process not machinery); named gap: the one-identity chat is behavior, not substrate -> Deferred row ~ob1c
+- 2026-08-06T17:05:00Z BOX ~v4ch is the v4 core survivable under a 7-lens adversarial challenge (correctness/simplify/deletion/coverage/interop) | ends: 2026-08-06
+- 2026-08-06T23:30:00Z VERDICT ~v4ch keep -> 12 confirmed defects (0 refuted of 12) fixed in 6 commits: enforcer false-green paths closed, checkpoint second-flip-path deleted, drive lib deleted, no-op scrub deleted, SKILL/docs stopped teaching dead commands, board crash fixed; 27 worthwhile triaged (cheap ones done, rest Deferred)
+- 2026-08-06T16:35:00Z PARK seat=chief — v4 (PR #254) is green locally
+  (Python 131, JS 4, Playwright 10, docs, privacy, 4.0.0 package) and pushed,
+  but merge is blocked by a GitHub Actions outage: every job fails at "Set up
+  job" with "Failed to resolve action download info: Service Unavailable" —
+  GitHub cannot fetch actions/checkout etc. Not our code; two re-triggers hit
+  the same infra failure. Not retry-looping. RESUME: when Actions recovers,
+  `gh run rerun` the failed workflows (or push an empty commit), and on green
+  merge #254, cut v4.0.0, reinstall on the operator machine (flips DOD d2
+  ~z7e5 Unknown->Verified), tear down the worktree.
+
+
+- 2026-08-06T15:30:00Z ~h4v1 PROOF npm run test:py -> 124 pass, lint 0 blocking (accept)
+- 2026-08-06T15:30:00Z POSTURE Broad->Close | harness: the v4.0.0 full gate matrix
+
+### Close
+
+- DOD d1 Method reduced to eight concepts, lint-enforced | C: ~h4v1 | proof: cmd npm run test:py -> pass, shadow lint 0 blocking | status: Verified
+- DOD d2 v4.0.0 released, installed, doctor green | C: ~z7e5 | proof: read shadow doctor -> pending reinstall on the operator machine | status: Unknown
+- LESSON folded into AGENT.md v2 + docs/reference/method.md: a method that needs a glossary fails its own readability test; every concept must pay rent (name a failure it prevents) or fold. Preemptive machinery (the beads-derived concurrency tokens) was deferred until a real collision occurs.
 
 - 2026-08-06T06:25:00Z POSTURE note seat=chief — Method v2 simplification
   debate ran three adversarial rounds (10 seats + 5 judges + chief + 1 of 4

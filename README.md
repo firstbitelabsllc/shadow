@@ -38,150 +38,32 @@ Start in the repository whose work you want to understand:
 
 ```bash
 shadow init --here
-shadow roster init
-shadow roster show
 shadow status
 shadow browse
 ```
 
-`PLAN.md` is durable authority. The loopback browser renders its current
-Outcome, one plain-language briefing, proof status, and up to three choices.
+`PLAN.md` is the durable authority — one markdown plan per repo, one writer at
+a time. The loopback browser renders each entity's plans as a read-only board:
+mode, current milestone, checkpoint counts, and the one decision waiting for
+you. It never writes; the moment a surface could mutate a row it would be a
+banned second store.
 
-`roster init` creates a generic local list of six work roles: `lead`,
-`planner`, `dev`, `debug`, `review`, and `hard-dev`. It is not a model picker
-or dispatch system. To change a role's local first choice, explicitly prefer one
-already-declared host:
+A task is a state the world reaches plus a `proof:` that can refuse
+bad work (`cmd`, `read`, or `gate <owner>`). A row flips to completed only in
+the same commit as its proof line, and `shadow accept --row ~hash` is the only
+code path that does it — it reruns the row's `cmd` proof in a clean detached
+checkout first. `shadow lint PLAN.md` is the mechanical enforcer and runs in
+the test gate. The whole method is `AGENT.md` (one page) and
+`docs/reference/grammar.md` (the grammar).
 
-```bash
-shadow roster prefer --role dev --host codex
-```
-
-Existing local rosters using the former `bulk`, `critic`, or `hard-ic` labels
-are read safely and normalized on the next write; new route packets use only
-the current role names.
-
-For a bounded handoff, first ask Shadow to make one transparent local
-selection. It chooses only among declared slots for the requested task kind,
-shows a same-role alternative and escalation point, and launches nothing:
+Delegation to a native host is one sealed command — no roster, no routing
+layer; provider and account choice live in your own config:
 
 ```bash
-shadow route \
-  --repo "$PWD" \
-  --task-id fix-login-copy \
-  --task-file /tmp/fix-login-copy.md \
-  --task-kind dev \
-  --out .shadow/evidence/fix-login-copy.route.json
+shadow host run --host codex --repo <clean worktree> \
+  --task-file <frozen task> --task-id <id> --allowed-path <exact path> \
+  --out <repo>/.shadow/evidence/<id>.json
 ```
-
-The result might say `dev via cursor`, `dev via codex`, or that no declared
-slot is available. That choice is a local hint based only on the roster and a
-bounded version probe—never an account, quota, model, or billing claim.
-
-This is where the practical efficiency comes from: routine, well-scoped work
-uses the local `dev` policy first; difficult implementation uses `hard-dev`;
-debugging, planning, review, and acceptance stay separate. You set the local
-priority once, then each route makes that choice visible before any native host
-uses time or tokens. Shadow does not pretend to know provider prices,
-models, or account usage.
-
-If your own native tools need an explicit local model/profile selector, add it
-to a separate owner-only overlay. This is optional: the route still selects the
-generic role and host first, and this overlay never changes that decision.
-
-```bash
-shadow seat init
-shadow seat set --slot dev-cursor --model MODEL
-shadow seat show
-```
-
-`seat` only binds a selector to a slot already declared in the local roster.
-It cannot add a seat, change a role/host/priority, query a provider, or hold a
-credential. Use the exact selector your native tool documents; Shadow does
-not look up models, accounts, quota, pricing, or availability.
-
-Then explicitly run the selected native host and list the only paths it may
-change. Passing the route packet makes the host fail closed if the frozen task,
-roster revision, or selected host changed in between:
-
-```bash
-shadow host run \
-  --host cursor \
-  --repo "$PWD" \
-  --task-file /tmp/fix-login-copy.md \
-  --task-id fix-login-copy \
-  --allowed-path src/login.tsx \
-  --allowed-path src/login.test.tsx \
-  --route-file .shadow/evidence/fix-login-copy.route.json \
-  --use-seat \
-  --out .shadow/evidence/fix-login-copy.json
-```
-
-The worktree must be clean. A successful host must return passing tests and a
-bounded receipt; Shadow still marks that claim unreviewed until the lead
-reproduces the proof.
-
-## Drive a few separate pieces of work
-
-When one project has a few clearly separate changes, keep their short task
-instructions in the same `PLAN.md` as one Drive Packet. This is still one plan
-and one foreground session—not a background queue.
-
-```markdown
-<!-- shadow-drive.v1
-{
-  "schema": "shadow.drive.v1",
-  "revision": 1,
-  "lanes": [
-    {
-      "id": "improve-welcome-copy",
-      "state": "ready",
-      "task_kind": "dev",
-      "summary": "Make one short explanation easier to understand.",
-      "task": "Improve one short explanation and keep the focused check green.",
-      "allowed_paths": ["README.md", "tests/test_route.py"],
-      "proof": ["npm", "test"],
-      "merge": "manual"
-    }
-  ]
-}
--->
-```
-
-First, prepare the work. This only explains and freezes the safe handoffs; it
-does not start a coding tool.
-
-```bash
-shadow drive prepare --repo "$PWD"
-```
-
-Then explicitly start that exact prepared session:
-
-```bash
-shadow drive launch --repo "$PWD" --session SESSION_ID
-```
-
-Drive rechecks the unchanged plan and Git revision, gives each lane its own
-clean worktree and branch, uses the selected native host, checks the change and
-the plan's named test command, then commits a green result for review. It
-prepares at most three lanes, never overlaps allowed paths or a native host,
-and keeps every worktree/branch rather than deleting it. If every piece is
-green, you can take one separate local acceptance step:
-
-```bash
-shadow drive accept --repo "$PWD" --session SESSION_ID
-```
-
-Acceptance repeats each named check in a separate clean lead checkout, then
-creates one local Git merge commit in the source project. Drive never pushes,
-opens a PR, deploys, publishes, spends money, or silently retries a failed
-lane.
-
-The loopback browser shows this as **Ready work**. It can prepare the work,
-then offers a separate **Start ready work** button. When every piece passes, it
-offers **Bring checked work into this project**; that repeats the check in a
-separate clean copy before making the local merge. Neither page load nor
-preparation starts a coding tool, and the browser never shows the task text,
-file list, test command, provider, or credentials.
 
 ## Privacy boundary
 
@@ -190,31 +72,19 @@ file list, test command, provider, or credentials.
 - Evidence is bounded to `.shadow/evidence/` inside the project.
 - Prompts, raw transcripts, credentials, provider payloads, and absolute
   private paths are not stored in receipts.
-- The local roster is not project evidence and never feeds browser, status, or
-  receipts. Shadow does not collect provider, model, account, or quota
-  details for it.
-- The optional private seat overlay is read only after a sealed route has
-  selected its exact native slot. Its selector value and path never appear in
-  browser or status output, plans, route packets, host attempts, or packages.
 - Shadow does not relay credentials, run a cloud worker, watch in the
-  background, or maintain a second queue.
-- Optional Langfuse observation is off by default and can only send a closed,
-  metadata-only lifecycle record after local evidence exists. It cannot steer
-  work or receive plan/task text, prompts, code, paths, commands, or provider
-  data. See the [privacy contract](docs/reference/privacy.md).
+  background, or maintain a second queue. Provider, model, and account choice
+  live in your own config, never in Shadow.
+- There is no telemetry seam: local receipts and git history are the only
+  observation surfaces. See the [privacy contract](docs/reference/privacy.md).
 
 ## Honest limitations
 
-- Route selects only a declared role and native-host surface; it cannot
-  guarantee a host's proprietary model, account state, quota, or billing tier.
-- `--use-seat` is an explicit local CLI flag, not provider discovery or smart
-  pricing. It fails before launch if the sealed route has no matching private
-  selector.
-- Route never launches work, silently swaps a host, retries, or owns a queue.
-  The lead still chooses whether to run the selected host and accepts proof.
-- Drive is a foreground local batch helper, not a GitHub or deployment robot:
-  it commits only to kept review branches and leaves remote delivery and final
-  acceptance with the lead.
+- `shadow host run` runs one sealed task through one named host; it never
+  launches work on its own, swaps a host, retries, or owns a queue. The lead
+  chooses whether to run it and accepts proof.
+- `shadow accept --row` reruns only `cmd`-classed proofs; `read` and `gate`
+  proofs are judgments a human or agent re-observes, not subprocesses.
 - Host availability and authentication remain owned by Codex, Claude Code, or
   Cursor.
 - A receipt is evidence to review, not automatic acceptance.

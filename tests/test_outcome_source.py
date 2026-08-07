@@ -87,7 +87,7 @@ class OutcomeSourceTests(unittest.TestCase):
             root = Path(dirname)
             plan = root / "PLAN.md"
             plan.write_text(
-                "# Notes\n\n## Operator Brief\n"
+                "# Notes\n\n## Brief\n"
                 "- Outcome ID: checkout-notes\n"
                 "- Outcome Revision: 7\n"
                 "- Outcome Updated At: 2026-08-02T04:45:22Z\n"

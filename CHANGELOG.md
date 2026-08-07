@@ -1,5 +1,44 @@
 # Changelog
 
+## 4.0.0 — 2026-08-06 — the eight-concept core
+
+- **Standard vocabulary only.** Shadow is the one invented name; everything
+  else is a standard word: project, milestone, task, lane, spike, brief.
+  `## Operator Brief` → `## Brief`, `## Checkpoints` → `## Tasks`,
+  `- Entity:` → `- Project:`, `Mode: Broad | Close` → `Mode: explore | ship`,
+  `BOX`/`VERDICT` spike heads → `SPIKE`/`DECISION`, "the Method" and "gate
+  pair" jargon retired (the law is just AGENT.md + `docs/reference/grammar.md`,
+  and the two questions: why now? what does this contradict?).
+
+The Method is reduced to its tribunal-ruled core, enforced by code instead of
+prose. Produced by a three-round adversarial debate (design spec + records in
+docs/superpowers/).
+
+- **Eight core concepts:** the plan file; the checkpoint row with a typed
+  `proof:` (`cmd`/`read`/`gate`); two postures (`Mode: Broad | Close`); Defer
+  as a write; the gate pair (why-vs-exploring, what-does-this-contradict);
+  Close (the harness defines done); the milestone (one DoD row); entity line +
+  read-only board.
+- **`scripts/shadow-lint.py`** is the mechanical enforcer — fourteen
+  deterministic checks including the BOX/VERDICT exploration lifecycle — and
+  runs at the tail of `test:py`. No prose-law deletion landed without it.
+- **`shadow accept --row`** reruns a row's `cmd` proof in a clean detached
+  checkout and is the only code path that flips a row to completed, carrying
+  the retired Drive engine's clean-checkout review verbatim.
+- **Deletions (~2,500 lines), each with a written reactivation trigger:**
+  Drive (packet/lane vocabulary; the engine survives in accept); roster /
+  route / seat (bare `shadow host run --host X` was always the complete sealed
+  path); CLAIM/DONE bookkeeping; the Langfuse telemetry seam (git history is
+  the trace store). Pre-rename compatibility from v3 is retained.
+- The board renders a lint chip per card and blocking findings as a red card. AGENT.md is one page; the grammar is `docs/reference/method.md`.
+- A 19-agent adversarial challenge of this release confirmed 12 defects by
+  execution (0 refuted); all fixed before tagging. The worst three were in
+  the enforcers: lint's field parser truncated at embedded pipes (hiding
+  secrets and shortening the command accept reran — a false-green through
+  the only flip path), typo'd state tokens were invisible to every check,
+  and accept read its proof from row prose instead of the parsed tail.
+  `shadow checkpoint` (a second, unverified flip path) is deleted.
+
 ## 3.0.1 — 2026-08-06
 
 - AGENT.md — the Method's standing-behavior file — now actually ships in the

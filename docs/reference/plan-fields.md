@@ -1,6 +1,6 @@
 # PLAN.md fields
 
-`PLAN.md` is the only work authority. The browser reads these Operator Brief
+`PLAN.md` is the only work authority. The browser reads these Brief
 fields:
 
 - Outcome ID, Revision, Updated At, State, Outcome, Next

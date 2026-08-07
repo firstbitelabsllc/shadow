@@ -1,8 +1,8 @@
-"""Pure projection from an owning PLAN.md Operator Brief to one Outcome.
+"""Pure projection from an owning PLAN.md Brief to one Outcome.
 
 The browser may read plans, but it must not turn the whole plan, a path, a
 session, or provider metadata into durable Outcome state.  This module accepts
-only the already-parsed Operator Brief fields needed for the semantic contract
+only the already-parsed Brief fields needed for the semantic contract
 and returns a fresh, closed ``shadow.outcome.v1`` document.  It never reads or
 writes files, invokes a host, selects a provider, or creates a queue.
 """
@@ -106,7 +106,7 @@ def _updated_at(value: Any) -> str:
 
 
 def project_plan_outcome(brief: Mapping[str, Any]) -> dict[str, Any]:
-    """Project one complete canonical Operator Brief into a closed Outcome.
+    """Project one complete canonical Brief into a closed Outcome.
 
     The four ``outcome_*`` fields are intentionally explicit.  Deriving a
     revision from file mtime or a path would make two clients disagree after a

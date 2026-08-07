@@ -77,7 +77,7 @@ The remaining resume item is the same sealed native Codex task after the
 account quota reset. Re-run that exact task, require `status: ok`, require only
 its allowed-path change, and reproduce the proof from the lead checkout. Do
 not weaken the gate or substitute a version probe for execution proof. This
-deferred cross-host receipt does not block local roster routing.
+deferred cross-host receipt does not block local work.
 
 ## Fast local readback
 

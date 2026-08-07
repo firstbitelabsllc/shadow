@@ -1,6 +1,6 @@
 {
   "name": "@firstbitelabs/shadow",
-  "version": "3.0.1",
+  "version": "4.0.0",
   "description": "Chief-of-staff briefing, local role routing, and bounded native-host execution for AI coding work.",
   "private": false,
   "bin": {
@@ -23,7 +23,6 @@
     "examples/**/*.md",
     "scripts/*.py",
     "scripts/*.sh",
-    "scripts/lib/*.sh",
     "schemas/**/*.json",
     "CHANGELOG.md",
     "CODE_OF_CONDUCT.md",
@@ -59,7 +58,8 @@
     "test:all": "npm run test:js && npm run test:py && npm run test:e2e",
     "test:js": "vitest run",
     "test:js:watch": "vitest",
-    "test:py": "scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'",
+    "lint:plan": "scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md",
+    "test:py": "scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py' && npm run lint:plan",
     "public-ready:grep": "scripts/shadow-python.sh scripts/shadow-public-ready-grep-gate.py --tracked-only --metadata",
     "verify": "npm test && npm run public-ready:grep",
     "prepublishOnly": "npm run verify && npm run release:verify",

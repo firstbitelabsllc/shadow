@@ -42,8 +42,10 @@ def plan_text(repo: Path, now: str) -> str:
     name = display_name(repo.name)
     return f"""# {name}
 
-## Operator Brief
+## Brief
 
+- Project: {project_id}
+- Mode: explore
 - Outcome ID: ship-{project_id}
 - Outcome Revision: 1
 - Outcome Updated At: {now}
@@ -62,9 +64,10 @@ def plan_text(repo: Path, now: str) -> str:
 - Option C: Brief only
 - Option C Consequence: Explain current truth without changing the repository.
 
-## Work
+## Tasks
 
-- [pending] Choose and complete the first bounded move
+### M1 — first useful result
+- [pending] the first bounded move is chosen and completed ~a1b2 (DoD) | proof: read the repository gate named by this plan
 
 ## Progress
 
