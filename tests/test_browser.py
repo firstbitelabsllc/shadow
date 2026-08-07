@@ -159,6 +159,11 @@ class BrowserTests(unittest.TestCase):
                 thread.join(timeout=2)
 
 
+    def test_stylesheet_uses_only_its_own_design_tokens(self) -> None:
+        css = (Path(server.__file__).parent / "static" / "style.css").read_text(encoding="utf-8")
+        for token in ("--card", "--paper"):
+            self.assertNotIn(f"var({token}", css)
+
     def test_proxy_host_is_refused_without_the_allowlist(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, _ = self.make_repo(Path(dirname))
@@ -319,6 +324,18 @@ class BrowserTests(unittest.TestCase):
             chief_of_staff._public_text("shipped the release notes", "changed"),
             "shipped the release notes",
         )
+
+    def test_browser_secret_shapes_carry_the_canonical_left_guard(self) -> None:
+        # shadow-lint accepts hyphenated English because the canonical
+        # SECRET_SHAPE_RE guards `sk-` on the left.  The browser transcriptions
+        # must agree, or a plan passes lint and then fails board projection.
+        from browser import chief_of_staff, outcome_source
+
+        prose = "task-mismatched risk-mitigation smoke green"
+        self.assertIsNone(outcome_source.SECRET_SHAPE_RE.search(prose), prose)
+        self.assertIsNone(chief_of_staff.PRIVATE_TEXT_RE.search(prose), prose)
+        self.assertEqual(chief_of_staff._public_text(prose, "changed"), prose)
+        self.assertEqual(outcome_source._text(prose, "changed"), prose)
 
 
 

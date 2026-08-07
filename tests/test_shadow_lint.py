@@ -123,13 +123,13 @@ class ShadowLintTests(unittest.TestCase):
     def test_secret_shaped_proof_is_blocking(self) -> None:
         token = "xoxb-" + "1234567890-ABCDEFGHIJKLMNOP"
         plan = CLEAN_PLAN.replace("cmd npm run smoke", f"cmd curl -H 'Authorization: {token}'")
-        self.assertIn("PROOF-SECRET", blocking(plan))
+        self.assertIn("PLAN-SECRET", blocking(plan))
 
     def test_a_secret_hidden_behind_an_embedded_pipe_is_still_blocking(self) -> None:
         token = "xoxb-" + "1234567890-ABCDEFGHIJKLMNOP"
         plan = CLEAN_PLAN.replace("cmd npm run smoke", f"cmd npm run smoke | curl -H 'X: {token}'")
         found = blocking(plan)
-        self.assertIn("PROOF-SECRET", found)
+        self.assertIn("PLAN-SECRET", found)
         self.assertIn("ROW-SHAPE", found)
 
     def test_tail_residue_outside_fields_is_blocking(self) -> None:
@@ -169,6 +169,23 @@ class ShadowLintTests(unittest.TestCase):
     def test_wake_substring_lookalikes_do_not_satisfy_defer(self) -> None:
         plan = CLEAN_PLAN.replace("| wake: M DoD completed", "| awake: M DoD completed")
         self.assertIn("DEFER-NO-WAKE", blocking(plan))
+
+    def test_a_secret_in_a_progress_proof_line_is_blocking(self) -> None:
+        token = "xoxb-" + "1234567890-ABCDEFGHIJKLMNOP"
+        plan = CLEAN_PLAN + f"- 2026-08-07T09:00:00Z ~ab12 PROOF curl -> got {token}\n"
+        self.assertIn("PLAN-SECRET", blocking(plan))
+
+    def test_a_typoed_tasks_heading_cannot_exempt_its_rows(self) -> None:
+        plan = CLEAN_PLAN.replace("## Tasks", "## Task")
+        self.assertIn("ROWS-WITHOUT-TASKS", blocking(plan))
+
+    def test_a_history_section_beside_a_real_tasks_section_stays_legal(self) -> None:
+        plan = CLEAN_PLAN + "\n## Task History (verbatim)\n\n- [completed 2026-05-01] old receipt row, no proof field\n"
+        self.assertNotIn("ROWS-WITHOUT-TASKS", blocking(plan))
+
+    def test_hyphenated_english_is_not_a_secret(self) -> None:
+        plan = CLEAN_PLAN.replace("smoke green", "task-mismatched risk-mitigation smoke green")
+        self.assertNotIn("PLAN-SECRET", blocking(plan))
 
     def test_cli_exits_nonzero_on_blocking_and_zero_on_clean(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

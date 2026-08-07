@@ -213,7 +213,11 @@ def local_state_snapshot(repo: Path) -> dict[str, str]:
     snapshot: dict[str, str] = {}
     for path in sorted(evidence.rglob("*")):
         relative = path.relative_to(repo).as_posix()
-        if path.is_symlink() or not path.is_file():
+        if path.is_symlink():
+            raise HostError("worktree_unsealed", "project evidence must not contain symlinks")
+        if path.is_dir():
+            continue
+        if not path.is_file():
             raise HostError("worktree_unsealed", "project evidence must contain regular files only")
         snapshot[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     return snapshot
@@ -434,15 +438,21 @@ def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int)
     ]
     for thread in threads:
         thread.start()
-    try:
-        process.stdin.write(task.encode("utf-8"))
-        process.stdin.close()
-    except OSError:
-        _stop(process)
-        for thread in threads:
-            thread.join(timeout=2)
-        _close_pipes(process)
-        return {"returncode": process.returncode, "timed_out": False, "launch_error": "host stdin failed", "duration_s": round(time.monotonic() - started, 3), "stdout": bytes(stdout_state["tail"]), "stderr": bytes(stderr_state["tail"])}
+    # The task can exceed the OS pipe buffer while a wedged host never reads
+    # stdin; a main-thread write would then block with no timeout at all. The
+    # writer runs as a daemon thread so process.wait() always governs, and a
+    # kill on timeout breaks the pipe and releases the writer.
+    stdin_state: dict[str, Any] = {"error": False}
+
+    def _feed_stdin() -> None:
+        try:
+            process.stdin.write(task.encode("utf-8"))
+            process.stdin.close()
+        except OSError:
+            stdin_state["error"] = True
+
+    writer = threading.Thread(target=_feed_stdin, daemon=True)
+    writer.start()
     timed_out = False
     try:
         process.wait(timeout=timeout_seconds)
@@ -451,7 +461,17 @@ def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int)
         _stop(process)
     for thread in threads:
         thread.join(timeout=2)
+    writer.join(timeout=2)
     _close_pipes(process)
+    if stdin_state["error"] and not timed_out:
+        return {
+            "returncode": process.returncode,
+            "timed_out": False,
+            "launch_error": "host stdin failed",
+            "duration_s": round(time.monotonic() - started, 3),
+            "stdout": bytes(stdout_state["tail"]),
+            "stderr": bytes(stderr_state["tail"]),
+        }
     return {
         "returncode": process.returncode,
         "timed_out": timed_out,
@@ -686,6 +706,10 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     exact_git_root(repo)
     allowed = normalize_allowed(repo, args.allowed_path)
     destination = validate_output_path(repo, args.out)
+    # Refuse a would-be-clobbered receipt BEFORE the host runs: discovering it
+    # only at write time throws away a completed, worktree-mutating attempt.
+    if destination is not None and destination.exists() and not args.force:
+        raise HostError("output_exists", "attempt output already exists; pass --force to replace it")
     try:
         task, task_sha256 = frozen_task_sha256(Path(args.task_file).expanduser())
     except TaskError as exc:
