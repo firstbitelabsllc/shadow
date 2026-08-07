@@ -12,6 +12,9 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
+
 MAX_TEXT_BYTES = 1_000_000
 FORBIDDEN_SUFFIXES = {".key", ".log", ".pem", ".p12", ".token", ".jsonl"}
 FORBIDDEN_NAMES = {".env", ".env.local", ".npmrc"}
@@ -20,12 +23,7 @@ WINDOWS_HOME = re.compile(r"[A-Za-z]:\\Users\\([A-Za-z0-9._-]+)(?:\\|\b)")
 FILE_PATH = re.compile(r"file:///([A-Za-z0-9._-]+)")
 OLD_BRAND = re.compile(r"(?i)pilot[-_ ]?puppy")
 PLACEHOLDER_USERS = {"example", "name", "person", "private", "user", "username"}
-SECRET = re.compile(
-    r"(?:sk-(?:ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|"
-    r"github_pat_[A-Za-z0-9_]{20,}|Bearer\s+[A-Za-z0-9._\-/+=]{20,}|"
-    r"-----BEGIN[ A-Z]*PRIVATE KEY-----)",
-    re.IGNORECASE,
-)
+SECRET = SECRET_SHAPE_RE
 
 
 def git_paths(root: Path) -> list[Path]:

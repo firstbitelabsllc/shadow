@@ -35,7 +35,7 @@ ABSOLUTE_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 SECRET_SHAPE_RE = re.compile(
-    r"(?:sk-(?:ant-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"(?:(?<![A-Za-z0-9])sk-(?:ant-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|"
     r"github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
     r"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._\-/+=]{20,}|"
     r"-----BEGIN[ A-Z]*PRIVATE KEY-----)",
@@ -162,6 +162,14 @@ def project_plan_outcome(brief: Mapping[str, Any]) -> dict[str, Any]:
                 "delivery": _text(brief.get("proof_delivery"), "proof_delivery", max_length=32),
             }
         )
+        if proof[0]["delivery"] not in {"delivered", "not_delivered"}:
+            raise OutcomeSourceError("proof_delivery must be delivered or not_delivered")
+    # The canonical validator couples finished_with_proof to a delivered proof;
+    # the projection must refuse the same shapes or the board renders a lie.
+    if state == "finished_with_proof" and not any(
+        item["delivery"] == "delivered" for item in proof
+    ):
+        raise OutcomeSourceError("finished_with_proof requires a delivered proof")
 
     return {
         "schema": OUTCOME_SCHEMA,

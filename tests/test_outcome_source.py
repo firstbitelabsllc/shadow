@@ -102,5 +102,32 @@ class OutcomeSourceTests(unittest.TestCase):
         self.assertEqual(record["briefing"]["outcome_id"], record["outcome"]["outcome"]["id"])
 
 
+class ProofDeliveryCouplingTests(unittest.TestCase):
+    BASE = {
+        "outcome_id": "ship-demo",
+        "outcome_revision": "3",
+        "outcome_updated_at": "2026-08-07T00:00:00Z",
+        "outcome_state": "finished_with_proof",
+        "outcome": "The demo ships.",
+        "next": "Nothing.",
+        "proof_id": "focused-tests",
+        "proof": "npm test",
+        "proof_summary": "Tests pass.",
+        "proof_delivery": "delivered",
+    }
+
+    def test_bad_delivery_value_is_refused(self) -> None:
+        brief = dict(self.BASE, proof_delivery="probably")
+        with self.assertRaises(OutcomeSourceError):
+            project_plan_outcome(brief)
+
+    def test_finished_with_proof_requires_a_delivered_proof(self) -> None:
+        brief = dict(self.BASE, proof_delivery="not_delivered")
+        with self.assertRaises(OutcomeSourceError):
+            project_plan_outcome(brief)
+        document = project_plan_outcome(dict(self.BASE))
+        self.assertEqual(document["outcome"]["state"], "finished_with_proof")
+
+
 if __name__ == "__main__":
     unittest.main()

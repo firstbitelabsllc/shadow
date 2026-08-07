@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.0.2 — 2026-08-07 — the trust audit lands
+
+A 17-agent full-coverage thermo/ponytail audit (every file assigned by
+name, every block adversarially verified by execution) confirmed nine
+defects; all are fixed here with regression tests:
+
+- lint: a typo'd `## Tasks` heading can no longer exempt its rows from
+  every check (ROWS-WITHOUT-TASKS blocks); the secret scan now covers the
+  whole plan (PLAN-SECRET) — including pasted command output in Progress
+  PROOF lines — with a left-guard on `sk-` so hyphenated English stops
+  false-positiving.
+- host: the execution timeout now governs even when a wedged host never
+  reads stdin (writer thread); a pre-existing `--out` refuses before the
+  host runs instead of after; nested evidence directories no longer
+  contradict the sealing check.
+- board: the outcome projection enforces the proof-delivery vocabulary
+  and the finished-with-proof coupling the canonical validator requires;
+  the stylesheet stops referencing design tokens that were never defined.
+- packaging: the public-ready gate reuses the canonical secret shape
+  instead of carrying a third, weaker transcription.
+
 ## 4.0.1 — 2026-08-07 — the board reaches your phone
 
 - `shadow browse --allow-host NAME` (repeatable): opt-in Host-header

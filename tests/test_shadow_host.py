@@ -531,5 +531,32 @@ class ShadowHostTests(unittest.TestCase):
                 self.assertEqual(payload["tests"], [])
 
 
+class AuditBlockRegressionTests(unittest.TestCase):
+    def test_existing_out_refuses_before_the_host_ever_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root)
+            binary = make_host(root)
+            task = root / "task.txt"
+            task.write_text("Do the bounded thing.\n", encoding="utf-8")
+            output = repo / ".shadow" / "evidence" / "attempt.json"
+            output.parent.mkdir(parents=True)
+            output.write_text("{}", encoding="utf-8")
+            result = run_host(repo, binary, task, output)
+            captured = binary.with_suffix(".argv.json")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("output_exists", result.stdout + result.stderr)
+        self.assertFalse(captured.exists(), "the host must not run when the receipt would be clobbered")
+
+    def test_nested_evidence_directories_do_not_unseal_the_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname))
+            nested = repo / ".shadow" / "evidence" / "archive"
+            nested.mkdir(parents=True)
+            (nested / "old.json").write_text("{}", encoding="utf-8")
+            snapshot = shadow_host.local_state_snapshot(repo)
+        self.assertIn(".shadow/evidence/archive/old.json", snapshot)
+
+
 if __name__ == "__main__":
     unittest.main()

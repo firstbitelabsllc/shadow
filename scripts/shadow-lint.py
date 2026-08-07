@@ -67,10 +67,24 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
     for canonical in ("Brief", "Tasks", "Progress"):
         if canonical not in sections:
             findings.append(_finding("SECTION-MISSING", 0, "warning", f"no `## {canonical}` heading"))
+    # A typo'd Tasks heading must not silently exempt its rows from every
+    # blocking check: row-shaped lines with no canonical section to own them
+    # block outright. History sections alongside a real Tasks section stay legal.
+    if "Tasks" not in sections:
+        for number, line in enumerate(lines, 1):
+            if ROW_LOOSE_RE.match(line):
+                findings.append(
+                    _finding("ROWS-WITHOUT-TASKS", number, "blocking", "task-shaped row with no `## Tasks` section")
+                )
+                break
 
     for number, line in enumerate(lines, 1):
         if len(line) > MAX_LINE_CHARS:
             findings.append(_finding("READ-FIT", number, "warning", f"line is {len(line)} chars"))
+        # The whole plan is committed and pushed; a secret anywhere in it —
+        # especially pasted command output in Progress PROOF lines — must block.
+        if SECRET_SHAPE_RE.search(line):
+            findings.append(_finding("PLAN-SECRET", number, "blocking", "line carries a secret-shaped value"))
 
     for number, line in ((n, l) for n, l in sections.get("Brief", []) if MODE_RE.match(l)):
         value = MODE_RE.match(line).group("value").strip()
@@ -120,8 +134,6 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
             findings.append(_finding("PROOF-MISSING", number, "blocking", "row has no proof field"))
         elif not PROOF_CLASS_RE.match(proof):
             findings.append(_finding("PROOF-CLASS", number, "blocking", "proof must be classed cmd | read | gate"))
-        if SECRET_SHAPE_RE.search(line):
-            findings.append(_finding("PROOF-SECRET", number, "blocking", "row carries a secret-shaped value"))
         needs_value = fields.get("needs", "").strip()
         if needs_value and NEEDS_VALUE_RE.fullmatch(needs_value) is None:
             findings.append(_finding("NEEDS-SHAPE", number, "blocking", "needs must be ~hash ids only"))
