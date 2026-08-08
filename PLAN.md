@@ -848,7 +848,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 - tools: scripts/shadow-python.sh for gates; docs/reference/amp.md is the contract; grammar § Milestone law for the `- tools:` line
 - [completed] `shadow amp` projects a bounded pointer-first goal block from PLAN.md ~a4mp | proof: cmd npm run test:py
 - [completed] milestone `- tools:` line documented in the grammar and projected by amp ~t0ol | proof: cmd npm run docs:build | needs: ~a4mp
-- [pending] `shadow status` v3 outcome-schema path cut or migrated to the v4 Brief ~c9ut | proof: cmd shadow status reports v4 Brief fields, zero "outcome must be a string" on a grammar-clean plan | needs: ~a4mp
+- [completed] `shadow status` v3 outcome-schema path cut or migrated to the v4 Brief ~c9ut | proof: cmd shadow status reports v4 Brief fields, zero "outcome must be a string" on a grammar-clean plan | needs: ~a4mp
 - [pending] amp ships in a tagged release, installed mount green ~s4ip (DoD) | proof: gate owner resume: installed `shadow amp` in a v4 repo emits that plan's own goal block | needs: ~t0ol, ~c9ut
 
 ## Worklane boundary
@@ -1073,6 +1073,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-08T20:30:00Z ~c9ut PROOF shadow status on this repo -> renders the v4 Brief (project shadow, Mode ship, milestone M4 2/4, resume ~c9ut itself — the output was its own proof), zero "outcome must be a string"; v4 plans route through the amp parser so status and amp can never disagree, legacy v3 plans keep the old view; 168 py tests OK incl 3 new status pins (schema-error regression, cwd-independence, JSON shape)
 - 2026-08-07T22:55:00Z ~t0ol PROOF npm run docs:build -> "build complete in 1.78s", amp.md + grammar § Milestone law tools line rendered (run fresh in this checkout before the flip)
 - 2026-08-07T22:55:00Z ~a4mp PROOF npm run test:py -> 12/12 test_amp + full py suite + lint:plan 0 blocking, all in the same commit as this flip; dogfood: `bin/shadow amp` on this plan exited 1 "no open task — mint the successor" BEFORE M4 existed (goal-chaining enforced by the tool itself) and emits M4's goal block after
 - 2026-08-07T22:55:00Z STRUCT M4 added | trigger: owner directive 2026-08-07 (verbatim: "a goal prompt MUST MUST MUST be a pointer to the durable plan data source") — amp is Shadow P0; M3 closed 04:55Z handing the chain to product goals with no Shadow successor row, so this is also that missing successor. Why now: the 4k goal ceiling is hit by every real multi-project goal tonight. Contradicts: nothing — the per-milestone tooling line is pattern-not-store, consistent with the honcho ruling; `shadow status`'s v3 outcome schema DOES contradict the v4 grammar (250/250 plans report "needs a valid Brief") and is named as cut row ~c9ut rather than diluting the grammar.

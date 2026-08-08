@@ -74,3 +74,66 @@ class StatusTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+V4_PLAN = """# Demo v4
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M1 — live milestone
+- [completed] parser lands ~aa11 | proof: cmd true
+- [pending] the ready row ~bb22 | proof: cmd npm run gate
+- [pending] closes ~cc33 (DoD) | proof: read site -> renders | needs: ~bb22
+
+## Progress
+
+- 2026-08-08T00:00:00Z ~aa11 PROOF true -> ok
+"""
+
+
+class StatusV4Tests(StatusTests):
+    def test_v4_plan_renders_brief_not_schema_error(self) -> None:
+        # The regression this pins: status used to validate ONLY the retired v3
+        # outcome schema, so a grammar-clean v4 plan reported "needs a valid
+        # Brief / outcome must be a string" (250/250 plans on the reference
+        # machine). A v4 plan must render its Brief and never the v3 error.
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            result = self.run_status(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("demo", result.stdout)
+            self.assertIn("Mode: ship", result.stdout)
+            self.assertIn("M1 — live milestone (1/3 done)", result.stdout)
+            self.assertIn("Resume: [pending] the ready row ~bb22", result.stdout)
+            self.assertNotIn("outcome must be a string", result.stdout)
+            self.assertNotIn("needs a valid Brief", result.stdout)
+
+    def test_v4_plan_renders_from_any_cwd(self) -> None:
+        # discover_plans emits root-relative paths; status must resolve them
+        # against the scan root, not the process cwd.
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root)],
+                cwd=dirname if dirname != str(ROOT) else "/",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertIn("Mode: ship", result.stdout)
+
+    def test_v4_json_carries_v4_plans(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            result = self.run_status(root, "--json")
+            payload = json.loads(result.stdout)
+            self.assertEqual(len(payload["v4_plans"]), 1)
+            self.assertEqual(payload["v4_plans"][0]["project"], "demo")
