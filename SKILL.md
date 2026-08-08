@@ -40,6 +40,30 @@ single-threaded or defer safe, obvious in-scope improvement.
 Never overwrite unexplained work or create a second queue. A commit, worker
 message, or receipt is not acceptance proof by itself.
 
+## Shape a goal
+
+A loose ask becomes one executable goal brief before it becomes plan rows.
+Gather only what makes it executable (the owning `PLAN.md` and its current
+task, git state, the named files/errors/surfaces). Synthesize, then cut
+filler, duplicate policy, invented phases, and "improve everything" scope.
+Deliver the goal ready to paste:
+
+```text
+Outcome: <plain result>.
+Authority: <repo + PLAN.md> at <ref — fetch first, state your ref>.
+Resume: <the current in-progress task or one exact next move>.
+Scope: <bounded files/surfaces>; do not touch <prohibited paths>.
+Proof: <focused command>, <real surface to re-observe>.
+Policy: PLAN.md is the only plan/proof/resume layer; park a blocked
+slice with one exact resume predicate; done only when the acceptance
+behavior is mechanically true.
+```
+
+Quality gate before delivery: a fresh session could start without asking
+what the task means; every line changes an implementation or safety
+decision; "done", "merged", "live", and "proven" stay distinct; the brief
+is shorter than the context it replaces.
+
 ## Delegate one task
 
 Use the active host directly for normal work. For a bounded handoff, use:

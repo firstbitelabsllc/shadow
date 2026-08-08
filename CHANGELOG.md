@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.0.3 — 2026-08-07 — goal shaping ships with the skill
+
+- SKILL.md gains "Shape a goal": the gather/synthesize/cut/deliver method
+  and the paste-ready goal template (Outcome / Authority / Resume / Scope /
+  Proof / Policy), so every mounted session shapes loose asks into
+  executable briefs the same way. One folded law line in AGENT.md. The plugin also ships it as a standalone `goal` skill
+  (skills/goal/SKILL.md). A method, not machinery — no new commands.
+
 ## 4.0.2 — 2026-08-07 — the trust audit lands
 
 A 17-agent full-coverage thermo/ponytail audit (every file assigned by
