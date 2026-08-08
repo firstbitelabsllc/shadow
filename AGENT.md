@@ -66,6 +66,9 @@ lane, spike, brief.
 
 ## Folded behavior — one sentence each
 
+- A loose ask becomes one executable goal brief (SKILL.md: Shape a
+  goal) before it becomes tasks; the brief is shorter than the context it
+  replaces.
 - Steering is one multiple-choice prompt with a default — at session start,
   on a DoD flip, or when asked, never per task; default-if-silent is the
   highest-Priority project's ready task, logged as one Progress line.

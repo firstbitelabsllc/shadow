@@ -24,6 +24,7 @@ REQUIRED_FILES = {
     "README.md",
     "SECURITY.md",
     "SKILL.md",
+    "skills/goal/SKILL.md",
     "VERSION",
     "bin/shadow",
     "bin/shadow-browse",
@@ -127,8 +128,8 @@ def validate_release_candidate(
     if blocked:
         errors.append("packed artifact contains forbidden files: " + ", ".join(blocked))
     skills = sorted(path for path in files if PurePosixPath(path).name == "SKILL.md")
-    if skills != ["SKILL.md"]:
-        errors.append("packed artifact must contain exactly the root SKILL.md")
+    if skills != ["SKILL.md", "skills/goal/SKILL.md"]:
+        errors.append("packed artifact must contain exactly the root SKILL.md and skills/goal/SKILL.md")
     untracked = sorted(files - tracked)
     if untracked and not allow_dirty:
         errors.append("packed artifact contains untracked files: " + ", ".join(untracked))
