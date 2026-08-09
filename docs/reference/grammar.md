@@ -76,8 +76,9 @@ ignores it.
 ## Dispatch law
 
 `THROWN ~hash` records that a task left the chat for another conversation —
-another host, a workflow, a seat on another machine. Only `shadow throw`
-writes it, in the same commit as the `pending -> in_progress` flip. The
+another host, a workflow, a seat on another machine, or a batch of agents the
+current chat launched itself. Only `shadow throw` writes it, in the same commit
+as the `pending -> in_progress` flip. The
 thrown row's `proof:` is its completion predicate: a row with no proof cannot
 be thrown, because nobody could tell whether the job finished. A row carrying
 a THROWN line is excluded from auto-resume selection; one without is a

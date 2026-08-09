@@ -52,7 +52,7 @@ minimum a seat needs to warm-start without re-deriving state.
 ```bash
 shadow amp                       # goal block for the cwd repo's PLAN.md
 shadow amp --repo ~/Development/resplit-ios
-shadow amp --task ~dd44          # target one row
+shadow amp --task '~dd44'        # target one row
 shadow amp --max-chars 2000      # tighter paste budget
 ```
 

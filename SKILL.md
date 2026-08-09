@@ -66,7 +66,19 @@ is shorter than the context it replaces.
 
 `shadow amp --repo <project>` projects this block deterministically from the
 repository's own plan — pointer, resume row, proof, milestone tooling —
-within one paste budget; the judgment above is what you add on top of it.
+within one paste budget; the judgment above is what you add on top of it. amp
+reads a file and cannot see the conversation, so what you add is exactly what
+only the chat holds: the person's verbatim words, what was already tried and
+refuted, and the constraint they added mid-session. Put that in the owning
+`PLAN.md` in the same move or it did not happen.
+
+When the request is a loose steer rather than a task ("use adversaries", "dial
+in jordan mode", "focus on details"), translate it with
+`skills/goal/references/amplify.md` — the steer-to-mechanism table, the filler
+test, and the rule that every mechanism gets a proof that can refuse it.
+
+`shadow goal` prints the static standing goal for a host's instruction file.
+That text never changes; only what the plans point at does.
 
 ## Delegate one task
 

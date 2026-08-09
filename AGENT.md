@@ -89,6 +89,21 @@ lane, spike, brief.
   `THROWN` line, commits `PLAN.md` alone, and pushes — launch and flush are one
   atom. One row per named job the plan must survive losing; a ten-agent
   workflow is one row.
+- **"Conversation" means any work you stop watching**, whichever mechanism
+  spawns it: a named agent, a script that fans out, a cron, another seat, a
+  cloud run. The rule is not about chat windows — it is about whether the plan
+  can name what left. Your own dispatches are included; a chief who throws
+  rows for other seats and launches its own sealed jobs has exempted itself
+  from the only law that makes the fleet recoverable.
+- **Prefer the supervisable mechanism.** Named, inspectable, message-able work
+  is the default. Reach for a sealed batch only when you need what it uniquely
+  gives — a barrier across all results, or several models judging the same
+  question — and throw its row first either way.
+- **A mid-flight reading is not a death certificate.** Zero results and no
+  matching process can equally mean "still working". Positive proof of death is
+  the artifact, the exit status, or a deadline you wrote down beforehand — put
+  the expected return and the recovery move in the row at dispatch, because
+  after the fact you cannot tell a corpse from a long silence.
 - **THROWN is the dispatched-vs-crashed discriminator.** An `in_progress` row
   WITH a THROWN line is in flight elsewhere and auto-resume skips it; one
   WITHOUT is a hand-claimed crash-resume target and stays selectable.

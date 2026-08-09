@@ -374,7 +374,16 @@ class StatusLintBlockingTests(unittest.TestCase):
             self.assertIn("Plan health", result.stdout)
 
     def test_clean_complete_plan_still_mints_the_successor(self) -> None:
-        done = V4_PLAN.replace("[pending]", "[completed]").replace("[in_progress]", "[completed]")
+        # Flipping the states is not enough to make a plan complete: since
+        # 0.1.0 lint blocks a [completed] row with no paired PROOF line, so a
+        # genuinely clean finished plan has to carry a receipt per row. That is
+        # the point of the rule — this fixture used to fake completion the same
+        # way a careless operator would.
+        done = (
+            V4_PLAN.replace("[pending]", "[completed]").replace("[in_progress]", "[completed]")
+            + "- 2026-08-08T01:00:00Z ~bb22 PROOF gate -> pass\n"
+            + "- 2026-08-08T02:00:00Z ~cc33 PROOF site re-observed -> renders\n"
+        )
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             (root / "PLAN.md").write_text(done, encoding="utf-8")

@@ -30,15 +30,18 @@ Useful for verifying a bug report or exploring the codebase even though PRs
 aren't merged right now:
 
 ```bash
-npm install
-npm run verify        # npm test (JS + Python units) + the public-ready grep gate
-npm run test:e2e       # Playwright, needs `npm run playwright:install` once
-npm run release:verify # reproducible, tracked-only installable package boundary
+scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'
+scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md
+scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty
 ```
+
+Those are the three commands CI runs. There is nothing to install first: Git,
+Bash, and Python 3.10+ are the whole toolchain. npm was removed on 2026-08-09,
+so any `npm run ...` you find in an older document is stale.
 
 ## Code style
 
 There's no linter/formatter config in this repo (no ESLint/Ruff/Prettier) —
-match the surrounding file's formatting. `docs/doctrine/WRITING-STYLE.md` is a different
-thing: it's prose-writing guidance for the agent-facing doctrine docs
-(SKILL.md, docs/doctrine essays, etc.), not a code style guide.
+match the surrounding file's formatting. Prose in the agent-facing files
+(`AGENT.md`, `SKILL.md`, `docs/reference/`) follows the house style: say the
+mechanism, name the file, and drop anything that does not change a decision.
