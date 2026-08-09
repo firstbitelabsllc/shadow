@@ -68,7 +68,20 @@ before the session ends.** A "packet" assembled in a chat on another machine
 does not exist for the fleet until it is a plan row with a proof or wake
 predicate; git — not the transcript — carries it home.
 
-## 5. Verify the wiring
+## 5. The machine boundary
+
+**The plan is tied to the machine.** `SHADOW_PORTFOLIO_ROOT` names *this*
+machine's plan set; a different machine has its own (possibly empty) board.
+Continuity between machines is **git** — each repository's origin — never a
+synced chat, a served dashboard, or another machine's board impersonated.
+
+A seat on a machine with no plans says exactly that — "no plans on this
+machine; the durable plans live in their git remotes" — and works through
+`git clone`/`fetch`. Pretending an empty machine has the fleet's board is
+the same defect as asking "which project?": inventing state instead of
+reading it.
+
+## 6. Verify the wiring
 
 ```bash
 cd "$(mktemp -d)" && shadow status   # must show the portfolio, not emptiness

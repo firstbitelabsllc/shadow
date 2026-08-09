@@ -858,7 +858,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 - [completed] the honcho question answered once, durably: pattern not store, function map, spike template to revisit ~hnch | proof: read docs/reference/honcho.md -> ruling + map + revisit path
 - [completed] out-of-box host integration: the STATIC standing goal (15 lines) pasteable into CLAUDE.md / AGENTS.md / Cursor rules, plus verify steps ~oobx | proof: read docs/reference/host-integration.md -> static goal block + `cd $(mktemp -d) && shadow status` check
 - [completed] README rewritten to the real product: proxy identity, continuity, amp, the refusals ~rdme | proof: cmd npm run verify
-- [pending] a real remote/voice seat cold-starts correctly on the installed release: blank workspace shows the portfolio, no which-project question, findings written to a plan before session end ~vcar (DoD) | proof: gate leo resume: repeat the 2026-08-08 car session against the next tagged release | needs: ~s4me, ~oobx
+- [pending] a real remote/voice seat cold-starts correctly on the installed release: it opens ITS machine's board or says "no plans on this machine — plans live in their git remotes"; never a which-project question, never another machine's board impersonated; findings written to a plan before session end ~vcar (DoD) | proof: gate leo resume: repeat the 2026-08-08 car session against the next tagged release | needs: ~s4me, ~oobx
 
 ## Worklane boundary
 
@@ -1082,6 +1082,7 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-09T01:05:00Z STRUCT ~vcar pass-condition tightened + machine boundary written into AGENT.md and host-integration.md | trigger: owner ruling 2026-08-09 verbatim "the plan should be tied to the machine" — the car seat ran on a REMOTE machine, so the correct behavior there was never to show THIS machine's board; it was to open its own (empty) board and say where the plans live. Continuity between machines is git, not a synced surface.
 - 2026-08-08T23:30:00Z ~rdme PROOF npm run verify -> 171 py + 4 js + docs build + public-ready gate all green with the rewritten README in place
 - 2026-08-08T23:30:00Z ~oobx PROOF read host-integration.md -> static goal block present; mktemp-d verify step documented; voice/remote rule: out-of-band findings are written to the owning PLAN.md before session end
 - 2026-08-08T23:30:00Z ~hnch PROOF read honcho.md -> ruling (pattern not store, v4), four-row function map, spike-to-revisit path; the recurring question now has a link-instead-of-rederive answer

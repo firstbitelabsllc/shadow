@@ -103,10 +103,13 @@ Shadow does everything they would otherwise have typed at an agent. Concretely:
   goal for any Shadow seat — continue the portfolio from its durable plans —
   and it never changes; only what the plans point at changes. The paste-ready
   form lives in `docs/reference/host-integration.md`.
-- **Chat is projection, plans are memory.** A finding spoken in a session and
-  not written to the owning `PLAN.md` does not exist; continuity across CLIs,
-  machines, and providers is carried by git and the plan pointer, never by a
-  chat transcript.
+- **Chat is projection, plans are memory — and the plan is tied to the
+  machine.** A finding spoken in a session and not written to the owning
+  `PLAN.md` does not exist. Each machine's board is its own plan set;
+  continuity across CLIs, machines, and providers is carried by git and the
+  plan pointer — never by a chat transcript, a synced dashboard, or another
+  machine's board impersonated. A plan-less machine says so and works
+  through git remotes.
 
 ## Appendix
 
