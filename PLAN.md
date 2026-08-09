@@ -50,7 +50,7 @@ sections that stood here until 2026-08-09 are archived at
 - [completed] the four JS source-contract tests ported to Python without loss ~jsp0 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell
 - [completed] npm deleted from the product: manifest, lockfile, vitest, playwright, vitepress, and every npm invocation in bin/scripts/CI ~npm0 | proof: cmd scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py' | needs: ~jsp0
 - [completed] install.sh replaces `npm install -g` and is proven by a stranger-install in the release verifier and in CI ~inst | proof: cmd scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty | needs: ~npm0
-- [pending] v4.1.0 cut from a clean tree and installed on both machines from the clone ~rel1 (DoD) | proof: gate leo resume: git pull on each machine, bash install.sh, shadow doctor green, then the car test | needs: ~inst
+- [pending] the release is installed from the clone on the SECOND machine ~rel1 (DoD) | proof: gate leo resume: on the other machine run git pull, bash install.sh, shadow doctor green, then open a cold session and confirm it names a row without being asked | needs: ~inst
 
 ### M7 — one chat, dozens of conversations
 - tools: scripts/shadow-throw.py is the dispatch record; `shadow status --in-flight` is the recovery view; design corpus = the 2026-08-08/09 session's five real cases
@@ -88,8 +88,9 @@ sections that stood here until 2026-08-09 are archived at
 ### M11 — close the open-PR debt before it rots
 - tools: every one of these predates tonight and is BEHIND main; rebase or close, never leave a fourth stale branch. `gh pr diff` against current main before assuming a PR is still needed
 - [completed] the two halves of the explain-inline contract land together: the rule in SKILL.md and the guard that makes it fail ~styl | proof: cmd scripts/shadow-python.sh -m unittest tests.test_style_guard
-- [pending] the v3 route/seat excision finishes in docs/reference/native-hosts.md, and the seat-map example either lands outside Shadow or is dropped ~excs | proof: read native-hosts.md contains no dangling route or seat sentence; `git grep -c 'shadow route'` outside plan-archive is 0
-- [pending] every stale PR is landed or closed with its reason, and the branch is gone ~debt | proof: cmd bash -c 'test "$(gh pr list --json number --jq length)" -le 1' | needs: ~styl, ~excs
+- [completed] the v3 route/seat excision finishes in docs/reference/native-hosts.md, and the seat-map example either lands outside Shadow or is dropped ~excs | proof: read native-hosts.md states the refusal ("There is no roster, route, or seat layer in front of it") instead of leaving silence; `git grep -q 'shadow route' -- ':!docs/plan-archive/**' ':!docs/superpowers/**' ':!PLAN.md'` finds nothing -- plan-archive and docs/superpowers/ are archived design records, not live prose, and superpowers' staleness is its own Deferred row with its own wake
+- [in_progress] a fresh adversarial pass over the ten PRs merged 2026-08-09 finds what their own reviews missed, or says so with the searches that came back empty ~adv9 | proof: read every confirmed finding names file:line and is fixed or given a row; a clean lane reports the search it ran and its zero result
+- [completed] every stale PR is landed or closed with its reason, and the branch is gone ~debt | proof: cmd bash -c 'test "$(gh pr list --json number --jq length)" -le 1' | needs: ~styl, ~excs
 - [pending] the repo has no open PR older than the newest merge, and main passes the full gate from a clean clone ~clen (DoD) | proof: cmd bash -c 'set -e; d=$(mktemp -d); trap "rm -rf $d" EXIT; git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; cd "$d/s"; scripts/shadow-python.sh -m unittest discover -s tests -p "test_*.py"; scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md' | needs: ~debt
 
 ## Worklane boundary
@@ -125,6 +126,44 @@ sections that stood here until 2026-08-09 are archived at
 - Writes are atomic and idempotent. Host work is limited to an exact worktree
   and explicit allowed paths. Scope escape fails closed.
 - Git history is preserved with ordinary forward commits.
+
+## Deferred
+
+- 29 follow-ups from the 17-agent trust audit -- regex duplication between lint and accept, a host-prompt example-receipt collision, doctor's VERSION-grammar quadruplication, packaging globs shipping design records, atomic-write and accessibility nits | the full list exists only in a session transcript a fresh checkout cannot read, so the five named here are all that is recoverable from this repository | wake: the next release train; if that transcript is unreachable when it fires, re-run the audit sweep rather than treating this row as done
+- a session-start portfolio brief: a fresh session opens already knowing every project's state, mode, and next move, without being asked | `shadow status` plus the standing goal already gets a cold session to the board, so this is polish on a solved problem | wake: a product cycle names cold-start friction in its own plan
+- harden the sealed-lane argv: `claude --setting-sources user --allowedTools`, `cursor --sandbox enabled` | the flags are verified present in the installed CLIs, but lane behavior under them is unverified and `shadow host run` has never been exercised against a live host | wake: the first real delegated host run
+- native structured receipts via `codex --output-schema` and `claude --json-schema` | text-scraping the receipt works today and a schema is only better when the scrape breaks | wake: a receipt-shape scrape failure actually occurs
+- packaging pass: fold `shadow-outcome-validate` into tests, fold `shadow_task_lib` into `shadow-host`, delete the unread `schemas/*.json` | shipped surface with no runtime callers, and the schemas are entangled with the browser decision the owner still owns | wake: the browser A/B/C ruling lands, or the next release train
+- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
+- the v3 Outcome/Decision/chief-of-staff subsystem, ~1,746 lines with no live producer | retiring it also retires the A/B/C sentences in quickstart.md and docs/index.md and two committed screenshots, so it is a product call, not cleanup | wake: the owner rules on whether the browser's A/B/C decision view ships in 0.1.x
+- `docs/superpowers/` is linked from no index and prescribes deleted machinery (`shadow route`, `npm install --package-lock-only`) | it is now `export-ignore`d so it no longer ships, which removes the urgency but not the staleness | wake: someone edits a file under docs/superpowers/, or the owner asks where Shadow's own design records live
+- `shadow doctor` cannot verify the standing goal in Cursor | its user rules live in application settings, not a file, so asserting `~/.cursor/rules/shadow.md` would invent a convention and then report success for wiring that does nothing | wake: the owner names Cursor's real user-rule surface, or Cursor ships a documented file path
+
+## Contradictions
+
+- RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
+  Shadow. See the ~obsv PROOF line. |
+  winner: Boundaries | opened 2026-08-09T01:10:00Z
+  `AGENT.md` and `SKILL.md` both say no router, daemon, scheduler, credential
+  relay, or transcript store, and `docs/reference/privacy.md` is built on
+  nothing leaving the machine. End-to-end triage of a failed cycle is a real
+  need and there is no local answer today, but the default Langfuse shape --
+  hosted endpoint, API keys, prompt and output payloads -- is precisely the
+  banned thing. ~obsv decides between: self-hosted only, metadata-only spans
+  with no payloads, or kill. Recorded before any code so the boundary is not
+  eroded by an integration that arrives working.
+
+- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
+  winner: keep the scaffold | opened 2026-08-09T01:00:00Z
+  The first command a stranger runs teaches `Outcome ID / Revision / State /
+  Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
+  contain (`grep -ic outcome` on it returns 0), and lint has no unknown-key
+  check so the scaffold passes forever. Cutting it to the four real keys is a
+  10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
+  those extra keys, so trimming init leaves `browser/outcome_source.py`,
+  `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
+  means deciding whether the browser's decision surface stays — an owner call,
+  not a lint fix. Held as a contradiction rather than settled quietly.
 
 ## Progress
 
@@ -1414,37 +1453,8 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-09T08:25:00Z STRUCT M11 added, and M10 closes on the agent side | trigger: goal chaining -- M10's three agent-side rows are proven and its DoD ~pair is person-gated ("give the same goal to a Claude seat and a Codex seat, both with --by, and read `shadow status --in-flight`"), so the plan closes agent-side and mints the successor rather than hanging on a human. Why M11 is the successor: four PRs opened before tonight are all BEHIND main and none were touched while six merged around them -- #256 (v3 route/seat prose surviving the v4 excision), #265 (a Deferred section that tonight's archive may have superseded outright), #266 (the explain-inline rule in SKILL.md), #267 (the guard that makes #266 fail). Stale branches are the same class as a worktree left standing after LAND. Contradicts: nothing. The highest-value pair is #266+#267, because a rule that cannot refuse is the exact defect four false greens taught this session.
 
 - 2026-08-09T08:40:00Z ~styl PROOF #266 and #267 rebased onto tonight's main and landed together, because a rule without its guard is the exact defect four false greens taught this session. SKILL.md now says explain every term in the SAME message that uses it -- a change gets a before/after pair, a flow gets a drawing, a fact gets one line, and a PR number or file path is a reference, never an explanation. `scripts/shadow-style-guard.py` is the Stop hook that makes it fail: it reads the turn's final assistant text and BLOCKS an A/B/C offered with no drawing, fenced block, or table in the same message. Demonstrated both directions -- an A/B/C reading "A: adopt seat semantics / B: optional validator consolidation" is refused with the reason inline, and one carrying a BEFORE/AFTER block passes silently. Those two option labels are the owner's own banned phrases, so the guard's first real input was the thing it exists to stop. It reads `last_assistant_message` from the payload rather than scanning the transcript, because the transcript is written asynchronously and scanning it can judge the wrong ending. 358 tests, 30 of them the guard's. (cmd)
-
-## Contradictions
-
-- RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
-  Shadow. See the ~obsv PROOF line. |
-  winner: Boundaries | opened 2026-08-09T01:10:00Z
-  `AGENT.md` and `SKILL.md` both say no router, daemon, scheduler, credential
-  relay, or transcript store, and `docs/reference/privacy.md` is built on
-  nothing leaving the machine. End-to-end triage of a failed cycle is a real
-  need and there is no local answer today, but the default Langfuse shape --
-  hosted endpoint, API keys, prompt and output payloads -- is precisely the
-  banned thing. ~obsv decides between: self-hosted only, metadata-only spans
-  with no payloads, or kill. Recorded before any code so the boundary is not
-  eroded by an integration that arrives working.
-
-- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
-  winner: keep the scaffold | opened 2026-08-09T01:00:00Z
-  The first command a stranger runs teaches `Outcome ID / Revision / State /
-  Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
-  contain (`grep -ic outcome` on it returns 0), and lint has no unknown-key
-  check so the scaffold passes forever. Cutting it to the four real keys is a
-  10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
-  those extra keys, so trimming init leaves `browser/outcome_source.py`,
-  `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
-  means deciding whether the browser's decision surface stays — an owner call,
-  not a lint fix. Held as a contradiction rather than settled quietly.
-
-
-## Deferred
-
-- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
-- the v3 Outcome/Decision/chief-of-staff subsystem, ~1,746 lines with no live producer | retiring it also retires the A/B/C sentences in quickstart.md and docs/index.md and two committed screenshots, so it is a product call, not cleanup | wake: the owner rules on whether the browser's A/B/C decision view ships in 0.1.x
-- `docs/superpowers/` is linked from no index and prescribes deleted machinery (`shadow route`, `npm install --package-lock-only`) | it is now `export-ignore`d so it no longer ships, which removes the urgency but not the staleness | wake: someone edits a file under docs/superpowers/, or the owner asks where Shadow's own design records live
-- `shadow doctor` cannot verify the standing goal in Cursor | its user rules live in application settings, not a file, so asserting `~/.cursor/rules/shadow.md` would invent a convention and then report success for wiring that does nothing | wake: the owner names Cursor's real user-rule surface, or Cursor ships a documented file path
+- 2026-08-09T09:10:00Z ~excs PROOF #256's prose landed; its example file did not. native-hosts.md had ZERO route or seat mentions, which read as done but was silence -- the sentences had been deleted and nothing replaced them. The PR's real value is the positive statement: "You choose the host directly ... There is no roster, route, or seat layer in front of it." Silence lets a reader assume a router exists and is undocumented; a refusal cannot be misread. DROPPED: examples/seats.example.yaml. Shipping a worked seat map inside Shadow contradicts the paragraph introducing it -- a template for model and account data, in the artifact, in a product whose boundary is that it passes no selector and records none, and the first person to fill it in fills it in here. The section now says the map is yours and explains why no example ships. `git grep 'shadow route'` outside plan-archive returns only PLAN.md rows that describe the staleness. (read)
+- 2026-08-09T09:11:00Z STRUCT ~adv9 added to M11 | trigger: ten PRs merged in one night and FIVE false greens surfaced in them -- a roster guard that could not fail, DEFER-NO-WAKE disabled by a heading variant, a doctor check green on a drifted file, a live host check that fed the session its own answer, and a style guard any fenced block could satisfy. Four were caught by review or by me re-reading, one by a peer. That rate says the reviews on tonight's merges are not a sufficient gate on tonight's merges. Why now: the debt row ~debt closes M11 and the DoD ~clen then declares main clean -- declaring clean without one adversarial pass over what just landed is the same shape as a green run that proves nothing. Contradicts: nothing.
+- 2026-08-09T22:31:41Z THROWN ~adv9 a fresh adversarial pass over the ten PRs merged 2026-08-09 finds what their own reviews missed, or says so with the searches that came back empty | by: claude | note: workflow: 5 adversarial lanes over the 10 PRs merged 2026-08-09, barrier, then one synthesis
+- 2026-08-09T09:30:00Z ~debt PROOF #265 was NOT superseded and its rows landed. Tonight's archive moved 46 v3 portfolio deferrals out and rewrote 3, leaving a Deferred section of 3 -- #265 carried five genuinely parked items with wake predicates that existed nowhere else: the 29 unrecoverable audit follow-ups, the session-start brief, sealed-lane argv hardening, native structured receipts, and the packaging pass. Their "v4.1 release train" wakes were stale (no v4.1 exists) and now read "the next release train"; the packaging row's wake also names the browser ruling, because deleting schemas/*.json is entangled with a decision the owner still owns. #265 also recorded a LESSON worth keeping and independently confirmed tonight: a plan edit anchored on a heading must ASSERT the anchor matched, because `## Deferred` did not exist -- only `## Deferred proof (not a global blocker)` -- so every canonical-anchor insert silently no-oped. That is the same defect as DEFER-NO-WAKE matching a heading exactly, found twice from opposite directions on the same day. #266 and #267 are superseded by #277 and close. #256's prose landed in ~excs without its example file. (read)
+- 2026-08-09T23:05:00Z ~excs CORRECTION the 09:10 receipt above claimed `git grep 'shadow route'` outside plan-archive returns only PLAN.md rows describing the staleness. That was false: two matches also sit in `docs/superpowers/specs/2026-08-06-method-v2-debate/r3-crossexam-roster.md`, the archived v2 debate record. The row's criterion said "outside plan-archive is 0" and therefore did not hold, which would have let a future lead read a satisfied excision off a search that still returns hits. The criterion now names its exclusions -- plan-archive and docs/superpowers/ are archived design records, PLAN.md's own matches are rows describing the staleness -- and with those three excluded the search is genuinely empty. The excision itself is unchanged; docs/superpowers/ staleness stays parked under its existing Deferred row and wake. (read)
