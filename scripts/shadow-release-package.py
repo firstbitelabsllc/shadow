@@ -64,6 +64,7 @@ REQUIRED_FILES = {
     "scripts/shadow-outcome-validate.py",
     "scripts/shadow-public-ready-grep-gate.py",
     "install.sh",
+    "skills/goal/references/amplify.md",
     "scripts/shadow-python.sh",
     "scripts/shadow-release-package.py",
     "scripts/shadow-status.py",

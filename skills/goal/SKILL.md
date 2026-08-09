@@ -34,6 +34,14 @@ slice with one exact resume predicate; done only when the acceptance
 behavior is mechanically true.
 ```
 
+## When the request is a steer, not a task
+
+A person mid-work says "use adversaries, or dial in jordan mode / focus on
+details, yadi yadia" — signal, emphasis, and filler in one breath. Amplifying
+is translating intent into mechanism and deleting the rest, not writing nicer
+prose. The steer-to-mechanism table, the LLM-facing formatting law, the cut
+order, and a worked example are in [amplify](./references/amplify.md).
+
 ## Quality gate
 
 Before delivery: a fresh session could start without asking what the
