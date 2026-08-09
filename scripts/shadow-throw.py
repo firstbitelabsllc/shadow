@@ -146,6 +146,23 @@ def main(argv: list[str] | None = None) -> int:
         body = body.replace("## Progress\n", "## Progress\n" + thrown, 1)
     else:
         body = body.rstrip("\n") + "\n\n## Progress\n\n" + thrown
+    # The exact index entry, not a "was it staged" flag: a staged snapshot that
+    # differs from the working tree must come back byte-for-byte if the claim
+    # cannot be made durable.
+    index_entry = git(repo, "ls-files", "--stage", "--", "PLAN.md", check=False).stdout.strip()
+    head_before = git(repo, "rev-parse", "--verify", "HEAD", check=False).stdout.strip()
+
+    def restore_plan() -> None:
+        """Put the plan and its index entry back exactly as they were: a row
+        flipped to in_progress with no commit behind it reads as somebody's
+        claim and refuses every retry."""
+        plan_path.write_text(text, encoding="utf-8")
+        if index_entry:
+            fields_ = index_entry.split()
+            git(repo, "update-index", "--cacheinfo", f"{fields_[0]},{fields_[1]},PLAN.md", check=False)
+        else:
+            git(repo, "rm", "--cached", "--quiet", "--", "PLAN.md", check=False)
+
     plan_path.write_text(body, encoding="utf-8")
 
     try:
@@ -153,24 +170,42 @@ def main(argv: list[str] | None = None) -> int:
             "-m", f"plan: THROWN {args.task} — dispatched, claimed before launch",
             "--", "PLAN.md")
     except RuntimeError as exc:
-        print(f"shadow throw: commit failed: {exc}", file=sys.stderr)
+        restore_plan()
+        print(f"shadow throw: commit failed; the plan was restored and nothing was dispatched: {exc}",
+              file=sys.stderr)
         return 1
 
+    # Build the block before pushing. While the claim has not left this machine
+    # it can still be undone, so a block that cannot be built dispatches
+    # nothing — which is what a nonzero exit is read to mean.
+    try:
+        block, _ = _amp.build_block(_amp._parse(body), repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
+    except (LookupError, ValueError) as exc:
+        rolled_back = bool(head_before) and git(
+            repo, "reset", "--quiet", "--soft", head_before, check=False
+        ).returncode == 0
+        if rolled_back:
+            restore_plan()
+            print(f"shadow throw: the goal block could not be built; the claim was rolled back "
+                  f"and nothing was dispatched: {exc}", file=sys.stderr)
+        else:
+            print(f"shadow throw: {args.task} is claimed and committed, but the goal block could "
+                  f"not be built and the claim could not be rolled back: {exc}\n"
+                  f"  the dispatch stands — recover the block with `shadow amp --task {args.task}`, "
+                  "or hand the row back with a [pending] flip", file=sys.stderr)
+        return 1
+
+    push_failed = False
     pushed = False
     if not args.no_push:
         branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
         push = git(repo, "push", "origin", f"HEAD:{branch}", check=False)
         pushed = push.returncode == 0
-        if not pushed:
+        push_failed = not pushed
+        if push_failed:
             print("shadow throw: WARNING — committed but NOT pushed; this dispatch is invisible "
                   f"to other seats and to any other machine. Fix and push:\n  {push.stderr.strip()[:300]}",
                   file=sys.stderr)
-
-    try:
-        block, _ = _amp.build_block(_amp._parse(body), repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
-    except (LookupError, ValueError) as exc:
-        print(f"shadow throw: claimed, but the goal block could not be built: {exc}", file=sys.stderr)
-        return 1
 
     sys.stdout.write(block)
     status = "claimed + pushed" if pushed else "claimed (NOT pushed)"
@@ -180,7 +215,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[throw] {in_flight_before + 1} in flight — at this depth a chief is splitting "
               "attention thin. Land or park something before throwing more; "
               "`shadow status --in-flight` shows every claimed row.", file=sys.stderr)
-    return 0
+    # A failed push leaves the claim local-only: exit nonzero so a caller never
+    # reads zero as "durably dispatched".
+    return 1 if push_failed else 0
 
 
 if __name__ == "__main__":

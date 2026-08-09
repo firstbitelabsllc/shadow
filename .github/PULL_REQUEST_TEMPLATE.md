@@ -8,7 +8,7 @@
 
 ## Test plan
 
-- [ ] `npm test` green
+- [ ] `scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'` green
 - [ ] <any additional verification commands you ran>
 - [ ] <surface-specific checks: `bash -n`, `yamllint`, `actionlint`, browser smoke, etc.>
 

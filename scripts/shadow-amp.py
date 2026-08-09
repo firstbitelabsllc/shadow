@@ -219,21 +219,29 @@ def stall_reason(plan: dict) -> str:
         if unclean:
             return f"{unclean} before chaining a successor over unread work"
         return "every task complete; mint the successor (goal chaining)"
-    counts = {"person-gated": 0, "blocked": 0, "waiting on needs": 0, "other": 0}
+    thrown = plan.get("thrown") or set()
+    # A thrown row is the reason auto-resume passed over work that otherwise
+    # looks takeable, so it is named rather than tallied as "other" — "in
+    # flight elsewhere" and "nobody has picked this up" call for different moves.
+    counts = {"person-gated": 0, "blocked": 0, "in flight elsewhere (thrown)": 0,
+              "waiting on needs": 0, "other": 0}
     for row in open_rows:
         if _gated(row):
             counts["person-gated"] += 1
         elif row["state"] == "blocked":
             counts["blocked"] += 1
+        elif row["id"] in thrown:
+            counts["in flight elsewhere (thrown)"] += 1
         elif not _ready(row, done):
             counts["waiting on needs"] += 1
         else:
             counts["other"] += 1
     detail = ", ".join(f"{count} {name}" for name, count in counts.items() if count)
-    reason = (
-        f"nothing agent-takeable — {len(open_rows)} open row(s): {detail}; "
-        "hand off, unblock, or mint the successor"
-    )
+    advice = "hand off, unblock, or mint the successor"
+    if counts["in flight elsewhere (thrown)"]:
+        advice = ("probe the thrown row(s) with `shadow status --in-flight`, "
+                  "hand off, unblock, or mint the successor")
+    reason = f"nothing agent-takeable — {len(open_rows)} open row(s): {detail}; {advice}"
     return f"{reason} ({unclean})" if unclean else reason
 
 

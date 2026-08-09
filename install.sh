@@ -25,6 +25,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# A relative --bin-dir names a directory in the install tree, not in whatever
+# cwd the installer happened to be invoked from.
+case "${BIN_DIR}" in
+  /*) ;;
+  *) BIN_DIR="${ROOT}/${BIN_DIR}" ;;
+esac
+
 fail() { echo "install.sh: $*" >&2; exit 1; }
 
 command -v git >/dev/null 2>&1 || fail "git is required"

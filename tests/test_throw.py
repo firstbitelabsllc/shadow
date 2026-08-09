@@ -127,6 +127,47 @@ class ThrowWrites(unittest.TestCase):
             self.assertEqual(dirty, "")
 
 
+class ThrowStaysAtomic(unittest.TestCase):
+    """A claim nobody can see is worse than no claim: the plan on disk must
+    never show a dispatched row that no commit or exit code backs."""
+
+    def test_commit_failure_restores_the_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            r = repo_with_plan(Path(d))
+            before = (r / "PLAN.md").read_text(encoding="utf-8")
+            head_before = subprocess.run(["git", "-C", str(r), "rev-parse", "HEAD"],
+                                         capture_output=True, text=True, check=True).stdout
+            hook = r / ".git" / "hooks" / "pre-commit"
+            hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            hook.chmod(0o755)
+            out = throw(r, "--task", "~bb22")
+            self.assertEqual(out.returncode, 1)
+            self.assertIn("nothing was dispatched", out.stderr)
+            self.assertEqual((r / "PLAN.md").read_text(encoding="utf-8"), before)
+            head_after = subprocess.run(["git", "-C", str(r), "rev-parse", "HEAD"],
+                                        capture_output=True, text=True, check=True).stdout
+            self.assertEqual(head_after, head_before)
+            dirty = subprocess.run(["git", "-C", str(r), "status", "--porcelain"],
+                                   capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(dirty, "")
+
+    def test_push_failure_exits_nonzero_but_still_prints_the_block(self) -> None:
+        # Zero must mean "durably dispatched"; a local-only claim is not that.
+        with tempfile.TemporaryDirectory() as d:
+            r = repo_with_plan(Path(d))
+            subprocess.run(["git", "-C", str(r), "remote", "add", "origin",
+                            str(Path(d) / "nowhere.git")], check=True)
+            out = subprocess.run(
+                [sys.executable, str(THROW), "--repo", str(r), "--task", "~bb22"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(out.returncode, 1)
+            self.assertIn("NOT pushed", out.stderr)
+            self.assertIn("RESUME: [in_progress] the ready row ~bb22", out.stdout)
+            self.assertIn("- [in_progress] the ready row ~bb22",
+                          (r / "PLAN.md").read_text(encoding="utf-8"))
+
+
 class ThrownExcludedFromAutoResume(unittest.TestCase):
     def test_amp_skips_a_thrown_row_but_honors_explicit_task(self) -> None:
         # Without this, a fresh seat auto-resumes a row another conversation is
