@@ -13,6 +13,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "shadow-accept.py"
 
+import importlib.util
+_SPEC = importlib.util.spec_from_file_location("shadow_accept", SCRIPT)
+accept = importlib.util.module_from_spec(_SPEC)
+sys.modules["shadow_accept"] = accept
+_SPEC.loader.exec_module(accept)
+
 
 PLAN = """# Demo
 
@@ -331,3 +337,70 @@ class ShadowAcceptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NeedsIsAReadinessGate(unittest.TestCase):
+    """grammar.md: "a task is ready when it is pending and every needs-target
+    is completed". throw enforced that; accept did not, so a row could be
+    flipped over a dependency still at pending and lint called it clean."""
+
+    def test_unmet_needs_are_found_in_a_multi_id_value(self) -> None:
+        plan = (
+            "- [completed] one ~aa11 | proof: cmd true\n"
+            "- [pending] two ~bb22 | proof: cmd true\n"
+        )
+        self.assertEqual(accept.unmet_needs(plan, "~aa11, ~bb22"), ["~bb22"])
+        self.assertEqual(accept.unmet_needs(plan, "~aa11"), [])
+        self.assertEqual(accept.unmet_needs(plan, ""), [])
+
+    def test_the_scan_pattern_is_unanchored(self) -> None:
+        # The first version of this check reused ROW_ID_RE, whose ^...$ anchors
+        # make findall return nothing on a multi-id value -- the check existed
+        # and enforced nothing. Keep the two patterns distinct.
+        self.assertEqual(accept.NEEDS_REF_RE.findall("~aa11, ~bb22"), ["~aa11", "~bb22"])
+        self.assertEqual(accept.ROW_ID_RE.findall("~aa11, ~bb22"), [])
+
+    def test_a_need_reopened_during_the_proof_run_stops_the_flip(self) -> None:
+        # Readiness was decided only from the pre-run snapshot: the re-read
+        # after the proof compared state and proof and threw the fresh `needs`
+        # away, so a dependency reopened while the proof ran still flipped.
+        proof = (
+            "cmd python3 -c \"import pathlib; p=pathlib.Path('../../repo/PLAN.md'); "
+            # The needle is split so the command cannot match its own text and
+            # rewrite the proof field instead of the dependency row.
+            "p.write_text(p.read_text().replace('[comp'+'leted] dep', '[pending] dep'))\""
+        )
+        plan = PLAN.replace(
+            "- [in_progress] x.txt says hello ~ab12 | proof: cmd python3 -c "
+            "\"import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
+            "- [completed] dep ~ee55 | proof: cmd true\n"
+            f"- [in_progress] x.txt says hello ~ab12 | needs: ~ee55 | proof: {proof}",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve())
+            (repo / "PLAN.md").write_text(plan, encoding="utf-8")
+            git(repo, "commit", "-qam", "need reopened mid-run")
+            result = run_accept(repo, "~ab12")
+            after_plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            commits = git(repo, "rev-list", "--count", "HEAD")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("still needs ~ee55", result.stderr)
+        self.assertIn("- [in_progress] x.txt says hello ~ab12", after_plan)
+        self.assertNotIn("~ab12 PROOF", after_plan)
+        self.assertEqual(commits, "2")
+
+    def test_accept_refuses_a_row_whose_need_is_not_completed(self) -> None:
+        # ~cd34 is [pending], so ~ab12 is not ready even though its proof passes.
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve())
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "~ab12 | proof: cmd", "~ab12 | needs: ~cd34 | proof: cmd", 1
+                ),
+                encoding="utf-8",
+            )
+            result = run_accept(repo, "~ab12")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("still needs ~cd34", result.stdout + result.stderr)
+            self.assertIn("[in_progress] x.txt", plan.read_text(encoding="utf-8"))

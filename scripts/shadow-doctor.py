@@ -115,6 +115,62 @@ def mount_checks() -> list[dict[str, Any]]:
     return results
 
 
+def standing_goal() -> str:
+    """The static block, read from the doc that ships it — the same extraction
+    `shadow goal` performs, so the command and this check cannot disagree."""
+    try:
+        lines = (ROOT / "docs" / "reference" / "host-integration.md").read_text(
+            encoding="utf-8"
+        ).splitlines()
+    except OSError:
+        return ""
+    out: list[str] = []
+    for line in lines:
+        if line.startswith("## Shadow "):
+            out.append(line)
+        elif out:
+            if line == "```":
+                break
+            out.append(line)
+    return "\n".join(out).strip()
+
+
+def host_goal_checks() -> list[dict[str, Any]]:
+    """Whether each host's instruction file carries the current standing goal.
+
+    Without this, drift is undetectable: three semantic mutations of the block
+    (a renamed flag, a renamed verb, the stance inverted to "ask the person
+    which project") each passed the whole suite and shipped, because no
+    executable read a host file. Read-only — it repairs nothing.
+
+    Cursor is absent on purpose: its user rules live in application settings,
+    not a file, so asserting a path here would invent a convention.
+    """
+    block = standing_goal()
+    if not block:
+        return [check("standing goal: source", "fail", "no block found in docs/reference/host-integration.md")]
+    anchor = block.splitlines()[0]
+    results = []
+    for label, path in (("claude", Path.home() / ".claude" / "CLAUDE.md"),
+                        ("codex", Path.home() / ".codex" / "AGENTS.md")):
+        name = f"standing goal: {label}"
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            # A missing host file is that host not being configured, not a
+            # broken install — warn, never fail. Still say the fix: a warning
+            # a person cannot act on is noise.
+            results.append(check(name, "warn", "no host instruction file — create it with: shadow goal >> <host file>"))
+            continue
+        if block in text:
+            results.append(check(name, "pass", "current"))
+        elif anchor in text:
+            results.append(check(name, "fail", "stale copy — refresh with: shadow goal"))
+        else:
+            results.append(check(name, "warn", "not pasted — add it with: shadow goal >> <host file>"))
+    return results
+
+
 def collect() -> dict[str, Any]:
     checks = [
         check(
@@ -127,6 +183,7 @@ def collect() -> dict[str, Any]:
         cli_check(),
         *host_checks(),
         *mount_checks(),
+        *host_goal_checks(),
     ]
     failed = sum(item["state"] == "fail" for item in checks)
     warned = sum(item["state"] == "warn" for item in checks)
