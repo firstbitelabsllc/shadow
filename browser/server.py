@@ -326,7 +326,7 @@ def is_plan_root(path: Path) -> bool:
     return (path / "PLAN.md").is_file()
 
 
-def _is_portfolio_child(child: Path, root: Path) -> bool:
+def is_portfolio_child(child: Path, root: Path) -> bool:
     """True when `child` really lives directly inside the resolved portfolio.
 
     A symlinked entry passes `is_dir()` and owns a `PLAN.md` while pointing
@@ -366,7 +366,7 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
         found = [
             child for child in children
             if child.is_dir() and not child.name.startswith(".")
-            and _is_portfolio_child(child, here) and is_plan_root(child)
+            and is_portfolio_child(child, here) and is_plan_root(child)
         ]
         # Order decides which checkout of a shared origin wins deduplication,
         # so it cannot be plain alphabetical. A rename-era clone of a repository

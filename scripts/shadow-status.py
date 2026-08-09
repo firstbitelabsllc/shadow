@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from browser.server import SKIP_DIRS, discover_plans, is_plan_root, repo_plans  # noqa: E402
+from browser.server import (  # noqa: E402
+    SKIP_DIRS, discover_plans, is_plan_root, is_portfolio_child, repo_plans,
+)
 
 # The v4 grammar parser lives in shadow-amp; status reuses it so the two
 # projections can never disagree about what the current milestone or resume
@@ -280,8 +282,14 @@ def _any_plan_file(root: Path) -> Path | None:
         children = sorted(root.iterdir())
     except OSError:
         return None
+    # Resolved containment, exactly as discover_plans applies it: a symlinked
+    # child is a directory owning a PLAN.md by every cheap test while living
+    # outside the scan root, and fallback must not be decided by a file this
+    # root does not own.
+    here = root.resolve()
     for child in children:
-        if child.is_dir() and not child.name.startswith(".") and is_plan_root(child):
+        if (child.is_dir() and not child.name.startswith(".")
+                and is_portfolio_child(child, here) and is_plan_root(child)):
             found = repo_plans(child)
             if found:
                 return found[0]
