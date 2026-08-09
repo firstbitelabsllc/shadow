@@ -24,8 +24,9 @@ def _load():
 class WiringTests(unittest.TestCase):
     """The documented install is a skills-directory mount, not a project checkout.
 
-    `ln -sfn "$(pwd)" ~/.claude/skills/shadow` puts a directory holding
-    `.claude-plugin/plugin.json` under a skills directory, so Claude Code loads
+    `install.sh` symlinks the clone into `~/.claude/skills/shadow`, putting a
+    directory holding `.claude-plugin/plugin.json` under a skills directory, so
+    Claude Code loads
     it as the plugin `shadow@skills-dir`. That load reads `hooks/hooks.json` and
     defines `${CLAUDE_PLUGIN_ROOT}`; it never reads this repo's
     `.claude/settings.json`, which applies only to whatever project is active.
@@ -58,9 +59,17 @@ class WiringTests(unittest.TestCase):
                          "project settings are not a plugin; that variable is undefined there")
 
     def test_the_artifact_carries_the_hook_and_the_guard(self) -> None:
-        shipped = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["files"]
-        self.assertIn("hooks/hooks.json", shipped, "an unshipped hook enforces nothing")
-        self.assertIn("scripts/*.py", shipped, "the guard ships with the other scripts")
+        """No package.json since 2026-08-09: the release artifact is a git
+        archive, so what ships is what the release gate requires of it."""
+        spec = importlib.util.spec_from_file_location(
+            "shadow_release_package", ROOT / "scripts" / "shadow-release-package.py"
+        )
+        release = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(release)
+        self.assertIn("hooks/hooks.json", release.REQUIRED_FILES,
+                      "an unshipped hook enforces nothing")
+        self.assertIn("scripts/shadow-style-guard.py", release.REQUIRED_FILES,
+                      "an unshipped guard enforces nothing")
 
 
 class StyleGuardTests(unittest.TestCase):
