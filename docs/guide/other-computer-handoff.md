@@ -7,17 +7,13 @@ This is the portable starting point for Shadow on another Mac.
 ```bash
 git clone https://github.com/firstbitelabsllc/shadow.git
 cd shadow
-npm install -g .
+bash install.sh
 shadow doctor
 ```
 
-Mount the same skill in each native host you use:
-
-```bash
-ln -sfn "$(pwd)" "$HOME/.claude/skills/shadow"
-ln -sfn "$(pwd)" "$HOME/.agents/skills/shadow"
-ln -sfn "$(pwd)" "$HOME/.cursor/skills/shadow"
-```
+`install.sh` links the command and mounts the same skill in each native host
+root that exists (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`).
+Pass `--no-skills` to link the command alone.
 
 Expected result: `shadow doctor` reports the product identity, command,
 three host probes, and each installed mount as passing. Authentication stays

@@ -1,5 +1,57 @@
 # Changelog
 
+## 4.1.0 — 2026-08-09 — the goal is a pointer; the board follows you
+
+Built from a real failure: a voice seat opened in a blank workspace and
+asked "which project should I attach it to?" — the one question Shadow
+exists to make unnecessary.
+
+- `shadow amp` — new verb. Projects one paste-ready goal block from a
+  repository's `PLAN.md`: authority ref + section ("the plan wins"), the one
+  cycle-law resume row with its proof, the milestone's optional `- tools:`
+  line, person-gated rows, open-contradiction count — inside one paste
+  budget (default 4,000 chars; optional parts drop from the bottom, the
+  pointer and resume never drop). Deterministic: no LLM, no network. Exits 1
+  with "mint the successor" on a fully-completed plan — goal chaining
+  enforced by the tool. `SKILL.md` § Shape a goal names it as that method's
+  executable.
+- `shadow status` understands grammar-v2 plans: renders Project / Mode /
+  milestone progress / resume / proof through the same parser amp uses (one
+  parser, two projections — they cannot disagree; the Milestone line derives
+  from the very row amp resumes). Legacy plans keep the previous view.
+- Portfolio fallback: `shadow status` in a directory with no plan falls back
+  to `SHADOW_PORTFOLIO_ROOT` (default `~/Development`) with a stderr banner,
+  so every entry point opens the same durable board. Explicit `--root` and
+  `--no-portfolio-fallback` never fall back, and a local plan that fails to
+  load blocks the fallback loudly instead of being masked.
+- The proxy stance is law (`AGENT.md`): never open empty, never ask "which
+  project?", the chief-of-staff moves are Shadow's own unprompted moves,
+  chat is projection / plans are memory — and the plan is tied to the
+  machine: continuity between machines is git, never a synced chat or an
+  impersonated board.
+- Out-of-box host integration (`docs/reference/host-integration.md`): the
+  static fifteen-line standing goal pasteable into `~/.claude/CLAUDE.md`,
+  `~/.codex/AGENTS.md`, and Cursor rules, plus verification steps.
+- `docs/reference/honcho.md`: the memory-store question answered once —
+  pattern, not store — with a spike path if the ruling should ever change.
+- README rewritten around the real product.
+- **npm removed.** Shadow installs and runs on Git, Bash, and Python.
+  `install.sh` replaces `npm install -g` (the clone is the install; `git pull`
+  is the update), `.gitattributes` `export-ignore` replaces npm's `files`
+  allowlist, and the release verifier now checks a reproducible `git archive`
+  and performs a real stranger-install. A test fails if a package manifest or
+  an `npm`/`npx` invocation ever returns.
+- **`shadow throw`** — one chat can dispatch dozens of conversations without
+  losing them. It refuses unless a ready `[pending]` row with a proof exists,
+  claims it, appends a `THROWN` line, commits `PLAN.md` alone, pushes, and
+  prints the goal block: launch and flush are one atom. `THROWN` is also the
+  dispatched-vs-crashed discriminator — auto-resume skips thrown rows, while a
+  hand-claimed `in_progress` row stays a crash-resume target.
+- **`shadow status --in-flight`** — every claimed row across the portfolio with
+  its proof and throw time: the recovery view after a chat dies mid-fan-out.
+- Status never claims a plan is complete while blocking lint findings stand.
+
+
 ## 4.0.3 — 2026-08-07 — goal shaping ships with the skill
 
 - SKILL.md gains "Shape a goal": the gather/synthesize/cut/deliver method

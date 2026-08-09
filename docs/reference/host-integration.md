@@ -8,12 +8,13 @@ This page is the complete wiring for Claude Code, Codex, and Cursor.
 
 ```bash
 git clone https://github.com/firstbitelabsllc/shadow.git && cd shadow
-npm install -g .
-ln -sfn "$(pwd)" "$HOME/.claude/skills/shadow"
-ln -sfn "$(pwd)" "$HOME/.agents/skills/shadow"
-ln -sfn "$(pwd)" "$HOME/.cursor/skills/shadow"
+bash install.sh
 shadow doctor
 ```
+
+Git, Bash, Python 3.10+ — no Node, no npm. The clone is the install; update
+with `git pull`. If a host mount already points somewhere else (an old global
+package path, say), `install.sh` repoints it.
 
 Optional: `export SHADOW_PORTFOLIO_ROOT="$HOME/Development"` (that value is
 the default) — the root `shadow status` falls back to when the current
