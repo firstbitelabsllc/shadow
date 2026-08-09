@@ -860,6 +860,13 @@ Code, or Cursor without taking custody of credentials or conversations.
 - [completed] README rewritten to the real product: proxy identity, continuity, amp, the refusals ~rdme | proof: cmd npm run verify
 - [pending] a real remote/voice seat cold-starts correctly on the installed release: it opens ITS machine's board or says "no plans on this machine — plans live in their git remotes"; never a which-project question, never another machine's board impersonated; findings written to a plan before session end ~vcar (DoD) | proof: gate leo resume: repeat the 2026-08-08 car session against the next tagged release | needs: ~s4me, ~oobx
 
+### M6 — npm removed: Git, Bash, Python
+- tools: install.sh is the only install path; scripts/shadow-release-package.py verifies a `git archive` artifact; .gitattributes export-ignore is the allowlist
+- [completed] the four JS source-contract tests ported to Python without loss ~jsp0 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell
+- [completed] npm deleted from the product: manifest, lockfile, vitest, playwright, vitepress, and every npm invocation in bin/scripts/CI ~npm0 | proof: cmd scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py' | needs: ~jsp0
+- [completed] install.sh replaces `npm install -g` and is proven by a stranger-install in the release verifier and in CI ~inst | proof: cmd scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty | needs: ~npm0
+- [pending] v4.1.0 cut from a clean tree and installed on both machines from the clone ~rel1 (DoD) | proof: gate leo resume: git pull on each machine, bash install.sh, shadow doctor green, then the car test | needs: ~inst
+
 ## Worklane boundary
 
 - Pilot Puppy has its own product plan and proof gap. That gap never blocks an
@@ -1082,6 +1089,10 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-09T02:40:00Z ~inst PROOF release verifier on the git artifact -> OK (4.0.3, 80 files, sha256 7fe6ff81...); its stranger-install now extracts the archive and runs install.sh for real, a STRONGER check than the npm-pack/npm-install path it replaced
+- 2026-08-09T02:40:00Z ~npm0 PROOF full python suite -> 201 tests OK with zero node present; migrated five npm-coupled surfaces (doctor identity, public-ready metadata gate, release verifier, release tests, python-resolution test) to plugin.json+VERSION+git-origin; CI rewritten to two node-free jobs
+- 2026-08-09T02:40:00Z ~jsp0 PROOF tests/test_browser_shell.py -> the four browser/tests/unit assertions ported verbatim (they only ever read three static files and asserted substrings; vitest+happy-dom+vue+vitepress existed to run four greps), PLUS a NoNodeDependency test that fails if a package manifest returns or npm/npx appears in bin|scripts|.github — the ruling enforces itself
+- 2026-08-09T02:40:00Z STRUCT M6 added | trigger: owner ruling 2026-08-09 verbatim "delete npm simplify it we dont need npm that is final answer... no more no npm ever again" and "after this i dont want to hear npm blocking us ever again". Why now: npm auth (E401) was the ONLY thing blocking the v4.1.0 release; deleting the dependency deletes the blocker instead of waiting on a login. Contradicts: nothing in the law — Boundaries never required a package manager; the deleted playwright e2e is the one real coverage loss, accepted because browser/server.py already carries 28 python tests and the board was ruled non-essential 2026-08-07 ("no standing board").
 - 2026-08-09T01:05:00Z STRUCT ~vcar pass-condition tightened + machine boundary written into AGENT.md and host-integration.md | trigger: owner ruling 2026-08-09 verbatim "the plan should be tied to the machine" — the car seat ran on a REMOTE machine, so the correct behavior there was never to show THIS machine's board; it was to open its own (empty) board and say where the plans live. Continuity between machines is git, not a synced surface.
 - 2026-08-08T23:30:00Z ~rdme PROOF npm run verify -> 171 py + 4 js + docs build + public-ready gate all green with the rewritten README in place
 - 2026-08-08T23:30:00Z ~oobx PROOF read host-integration.md -> static goal block present; mktemp-d verify step documented; voice/remote rule: out-of-band findings are written to the owning PLAN.md before session end

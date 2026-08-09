@@ -70,24 +70,28 @@ def contains_private_path(value: str) -> bool:
 
 
 def metadata_errors(root: Path) -> list[str]:
+    """Public-readiness identity. No package.json since 2026-08-09 (npm removed):
+    the plugin manifest, VERSION, and the git origin are the identity sources."""
     try:
-        package = json.loads((root / "package.json").read_text(encoding="utf-8"))
         plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         version = (root / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
     except (OSError, json.JSONDecodeError, IndexError) as exc:
         return [f"metadata unreadable: {exc}"]
     errors = []
-    if package.get("name") != "@firstbitelabs/shadow":
-        errors.append("package name must be @firstbitelabs/shadow")
-    if package.get("private") is not False:
-        errors.append("package must be public")
-    if package.get("version") != version or plugin.get("version") != version:
-        errors.append("package, plugin, and VERSION must match")
-    expected = "https://github.com/firstbitelabsllc/shadow"
-    if expected not in str(package.get("homepage", "")):
-        errors.append("homepage must use the canonical public repository")
     if plugin.get("name") != "shadow":
         errors.append("plugin name must be shadow")
+    if plugin.get("version") != version:
+        errors.append("plugin and VERSION must match")
+    if not (root / "install.sh").is_file():
+        errors.append("install.sh must ship — it is the only install path")
+    if not (root / "bin" / "shadow").is_file():
+        errors.append("bin/shadow must ship")
+    origin = subprocess.run(
+        ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True, check=False,
+    ).stdout.strip()
+    if origin and "firstbitelabsllc/shadow" not in origin:
+        errors.append("release must be cut from the canonical public repository")
     return errors
 
 
