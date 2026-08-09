@@ -17,7 +17,8 @@ The contract, in order of how much it matters:
 3. **Idempotent.** Writing twice changes nothing the second time.
 4. **Adopt an unmarked copy.** Anyone who pasted the block by hand before
    markers existed has an unmarked copy; that exact region is wrapped rather
-   than duplicated.
+   than duplicated. An older revision, whose last line no longer matches, has
+   no discernible end — that is refused out loud, not guessed at.
 5. **Removable.** `--remove` takes the block and its markers out and leaves the
    surrounding text as it was.
 
@@ -32,7 +33,6 @@ import argparse
 import importlib.util
 import os
 from pathlib import Path
-import re
 import sys
 import tempfile
 from typing import Final
@@ -45,9 +45,6 @@ END: Final = "<!-- shadow:goal:end -->"
 # The heading the block always starts with. Used to find an unmarked copy left
 # by someone who pasted it before markers existed.
 ANCHOR: Final = "## Shadow "
-# Every line under that heading opens a `Label: ` paragraph. That shape is how
-# an older revision's extent is recognised when its wording no longer matches.
-LABEL: Final = re.compile(r"^[A-Z][A-Za-z]*:\s")
 
 HOSTS: Final = {
     "claude": Path.home() / ".claude" / "CLAUDE.md",
@@ -101,38 +98,18 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
     tail_line = block.splitlines()[-1]
     end = text.find(tail_line, start)
     if end == -1:
-        # The heading is present but the block's own last line is not, so this
-        # is an older revision whose wording moved on. Walk its shape instead.
-        return start, _legacy_end(text, start)
+        # The heading is present but the block's own last line is not: an older
+        # revision, and nothing in the file says how far it ran. Shape is not
+        # evidence — a note glued under the last paragraph, or one of their own
+        # paragraphs opening `Word: `, reads exactly like block text, so any
+        # rule that guesses eats it. Same answer as a begin with no end: say so
+        # and let the person draw the line.
+        raise ValueError(
+            "found an unmarked copy of the standing goal whose last line has changed, "
+            "so where it ends is a guess; delete that block by hand, or wrap it in the "
+            f"markers ({BEGIN.split(' —')[0]} … {END}), then rerun"
+        )
     return start, end + len(tail_line)
-
-
-def _legacy_end(text: str, start: int) -> int:
-    """Where an unmarked older revision of the block stops.
-
-    Every revision has the same shape: the heading, then `Label:` paragraphs.
-    So the region ends at the first paragraph that is not one of those — the
-    person's own text, which stays theirs. Stopping at the first blank line
-    would wrap the heading alone and leave the rest of the stale copy sitting
-    in the file, duplicating directives that a refresh would then never reach.
-    """
-    end = offset = start
-    paragraph_start = True
-    for line in text[start:].splitlines(keepends=True):
-        content = line.rstrip("\n")
-        if offset == start:  # the heading itself
-            end = offset + len(content)
-        elif not content.strip():
-            paragraph_start = True
-        elif content.startswith("#"):
-            break  # the next section: their heading, not this block's text
-        elif paragraph_start and not LABEL.match(content):
-            break
-        else:
-            paragraph_start = False
-            end = offset + len(content)
-        offset += len(line)
-    return end
 
 
 def apply(path: Path, block: str, *, remove: bool = False) -> str:

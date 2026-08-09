@@ -89,37 +89,6 @@ class WritesTheBlock(unittest.TestCase):
             self.assertIn(BEFORE, text)
             self.assertIn("Still mine.", text)
 
-    def test_a_stale_unmarked_copy_is_adopted_whole(self) -> None:
-        # The common migration case: an unmarked paste of an earlier revision,
-        # so neither the last line nor the wording matches. Wrapping only the
-        # heading would leave the rest of the stale copy in the file — two
-        # sets of directives, the older one now unreachable by any refresh.
-        with tempfile.TemporaryDirectory() as tmp:
-            stale = BLOCK.replace("Proof:", "Evidence:").replace("shadow accept", "shadow flip")
-            path = self._file(Path(tmp), BEFORE + stale + AFTER)
-            self.assertEqual(hd.apply(path, BLOCK), "adopted")
-            text = path.read_text(encoding="utf-8")
-            self.assertNotIn("shadow flip", text)
-            self.assertNotIn("Evidence:", text)
-            self.assertEqual(text.count("## Shadow "), 1)
-            self.assertEqual(text.count(hd.BEGIN), 1)
-            self.assertIn(BLOCK, text)
-            self.assertTrue(text.startswith(BEFORE), repr(text[:80]))
-            self.assertTrue(text.endswith(AFTER), repr(text[-80:]))
-
-    def test_adoption_stops_at_the_persons_own_prose(self) -> None:
-        # Their paragraph directly under the block is not part of it. Eating it
-        # is the failure this module exists to prevent.
-        with tempfile.TemporaryDirectory() as tmp:
-            stale = BLOCK.replace("Proof:", "Evidence:")
-            mine = "\nAnd my own note about the block above.\n"
-            path = self._file(Path(tmp), BEFORE + stale + mine + AFTER)
-            self.assertEqual(hd.apply(path, BLOCK), "adopted")
-            text = path.read_text(encoding="utf-8")
-            self.assertIn("And my own note about the block above.", text)
-            self.assertNotIn("Evidence:", text)
-            self.assertIn(BLOCK, text)
-
     def test_a_stale_marked_block_is_replaced_in_place(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             stale = BLOCK.replace("shadow accept", "shadow flip")
@@ -172,6 +141,45 @@ class RefusesRatherThanGuesses(unittest.TestCase):
                 hd.apply(path, BLOCK)
             self.assertIn("end marker", str(caught.exception))
             self.assertEqual(path.read_text(encoding="utf-8"), before)  # untouched
+
+    def test_an_unmarked_older_revision_is_refused_not_guessed_at(self) -> None:
+        # Its last line has changed, so nothing in the file marks where it
+        # ends. Shape is not evidence: a note glued under the final paragraph,
+        # or one of their own paragraphs opening "Word: ", reads exactly like
+        # block text. Stopping early leaves half a stale copy behind; reaching
+        # further eats their writing. Say so and let the person draw the line.
+        stale = BLOCK.replace("re-observe read/gate proofs yourself.", "re-check them yourself.")
+        self.assertNotEqual(stale.splitlines()[-1], BLOCK.splitlines()[-1])
+        for name, contents in {
+            "plain": BEFORE + stale + AFTER,
+            "their note glued under it": BEFORE + stale + "\nAnd my own note.\n" + AFTER,
+            "their own labelled paragraph": BEFORE + stale + "\n\nNote: mine, not shadow's.\n" + AFTER,
+        }.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "CLAUDE.md"
+                path.write_text(contents, encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    hd.apply(path, BLOCK)
+                self.assertIn("delete that block by hand", str(caught.exception))
+                self.assertEqual(path.read_text(encoding="utf-8"), contents)  # untouched
+
+    def test_the_refusal_names_the_host_and_keeps_going(self) -> None:
+        # One unadoptable host must not stop the other, and the person needs to
+        # know which file to open.
+        with tempfile.TemporaryDirectory() as tmp:
+            claude = Path(tmp) / ".claude" / "CLAUDE.md"
+            claude.parent.mkdir(parents=True)
+            stale = BLOCK.replace("re-observe read/gate proofs yourself.", "re-check them yourself.")
+            claude.write_text(BEFORE + stale, encoding="utf-8")
+            (Path(tmp) / ".codex").mkdir()
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT)],
+                capture_output=True, text=True, check=False,
+                env={**hd.os.environ, "HOME": tmp},
+            )
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("failed:    claude:", result.stderr)
+            self.assertIn("created:   codex", result.stdout)
 
     def test_a_failed_write_leaves_the_original_intact(self) -> None:
         # The write is temp-file-plus-rename precisely so a crash mid-write
