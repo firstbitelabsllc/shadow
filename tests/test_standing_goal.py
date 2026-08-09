@@ -48,13 +48,21 @@ class GoalVerb(unittest.TestCase):
             'Never ask "which project?"',     # the proxy stance
             "shadow accept",                  # the only flip path
             "mint the",                       # goal chaining
+            "shadow throw",                   # dispatch law: nothing leaves unclaimed
+            "not a death certificate",        # and the reading that broke it twice
         ):
             self.assertIn(clause, text, f"standing goal lost: {clause}")
 
     def test_it_stops_at_the_fence_and_leaks_no_prose(self) -> None:
+        # This asserted `"Fifteen lines" not in text` until the block grew and
+        # the doc said "Nineteen" — the assertion stayed green while checking a
+        # string that no longer existed anywhere. Pin prose that survives an
+        # edit to the count, and prove the doc still contains it.
         text = emit().stdout
+        after_the_fence = "A host that loads only this block"
+        self.assertIn(after_the_fence, DOC.read_text(encoding="utf-8"))
         self.assertNotIn("```", text)
-        self.assertNotIn("Fifteen lines", text)          # the sentence after the fence
+        self.assertNotIn(after_the_fence, text)
         self.assertNotIn("## 3.", text)                  # the next heading
 
     def test_the_doc_is_the_only_copy(self) -> None:
@@ -136,12 +144,30 @@ class DoctorReportsDrift(unittest.TestCase):
         state, _ = self._run("# my rules\n\n" + mutated + "\n")
         self.assertEqual(state, "fail")
 
+    def test_two_copies_fail_even_though_one_is_current(self) -> None:
+        # The false green a stranger hit by following doctor's OWN remedy. The
+        # old advice was `shadow goal >> <file>`; appending left a stale block
+        # above a fresh one, `block in text` matched the fresh copy, doctor said
+        # "current" — and the host reads the stale one first.
+        stale = doctor.standing_goal().replace("shadow accept", "shadow flip")
+        state, detail = self._run(f"# my rules\n\n{stale}\n\n{doctor.standing_goal()}\n")
+        self.assertEqual(state, "fail", "a stale copy above a fresh one passed as current")
+        self.assertIn("2 copies", detail)
+        self.assertIn("reads the first one", detail)
+
+    def test_no_remedy_tells_you_to_append(self) -> None:
+        # Every remedy must be replace-shaped. `>>` is what created the bug.
+        for contents in (None, "# rules only\n", doctor.standing_goal().replace("Outcome", "Changed")):
+            _, detail = self._run(contents)
+            self.assertNotIn(">>", detail)
+            self.assertIn("shadow goal --install", detail)
+
     def test_no_host_path_reaches_the_detail_text(self) -> None:
         # doctor output gets pasted into issues; a check about a file in $HOME
         # must not print that file's path.
         for contents in (None, doctor.standing_goal(), "## Shadow — edited\n"):
             _, detail = self._run(contents)
-            self.assertNotIn("/", detail.replace("read/gate", "").replace(">> <host file>", ""))
+            self.assertNotIn("/", detail.replace("read/gate", ""))
 
 
 if __name__ == "__main__":

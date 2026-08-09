@@ -42,8 +42,14 @@ class BrowserShellContract(unittest.TestCase):
         self.assertIn("text: 'Choose what happens next'", APP)
         self.assertIn("text: 'How Shadow can help'", APP)
         self.assertIn("briefing.proof ? 'Proof' : 'Proof not available yet'", APP)
-        self.assertNotIn("text: 'planner'", APP)
-        self.assertNotIn("text: 'hard-dev'", APP)
+        # PROVEN FALSE GREEN (2026-08-09): this guard was written as
+        # `assertNotIn("text: 'planner'", APP)`, but app.js never writes a role
+        # as a literal `text:` value — the labels come from an array via
+        # `el('dt', { text: work })`. Putting the deleted roster back into the
+        # shipped UI passed 224 tests. The guard was shaped to a code style
+        # that no longer existed. Match the array literal instead.
+        for role in ("'planner'", "'dev'", "'debug'", "'review'", "'hard-dev'", "'lead'"):
+            self.assertNotIn(role, APP, f"the deleted roster is back in the shipped UI: {role}")
 
     def test_keeps_responsive_and_reduced_motion_behavior(self) -> None:
         self.assertIn("@media (max-width: 760px)", CSS)

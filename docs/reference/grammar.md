@@ -41,6 +41,43 @@ in the test gate and before any mode flip is honored.
 no paths. Multi-repo projects repeat the same line in each member plan; the
 project view is the grep across them.
 
+## Plan location
+
+**`PLAN.md` at a project root is the only authority** — the directory you would
+open to work on the thing. Nothing above it is a plan.
+
+Git is not required. The point of enumerating roots is boundedness, not a
+version-control test; a plan in a plain directory is still a plan. Git identity
+is used only for deduplication, and the path stands in when there is none.
+
+A repository may declare additional plan locations in its root plan, as **one**
+Brief line carrying at most **three** comma-separated globs:
+
+```text
+- Plans: plans/*/PLAN.md, vidux/**/PLAN.md, skills/*/PLAN.md
+```
+
+Repo-relative only — no absolute path, no `..`, no leading `/`. Nothing else in
+the repository is scanned, so a worktree pool, a vendored copy, or an archive
+directory cannot enter the board by accident.
+
+Enumeration walks **project roots, not directories**: the portfolio root's
+immediate children that own a `PLAN.md`, each asked for its own plan plus its
+declared globs. There is no recursive search, so there is no cap, no
+silent truncation, and no way for a directory outside the portfolio to be read.
+
+One logical plan per `(origin remote, repo-relative path)`. A worktree or a
+clone resolves to the same key as its main checkout and never renders twice.
+
+Why the rule is shaped this way, measured on the reference machine 2026-08-09:
+7,250 `PLAN.md` files exist under the portfolio root; a recursive scan reaches
+777 of them, 665 of which are byte-identical copies of 196 originals. Repo-root
+alone would be simpler, but it would orphan 36 live nested plans that real work
+depends on, so the declared-glob line exists to keep exactly those visible. A
+central index of plan locations is banned — it is a second store, it cannot be
+`git fetch`ed per repository, and it goes stale independently of everything it
+points at.
+
 ## Task law
 
 - State ∈ `pending | in_progress | blocked | completed`.
@@ -84,6 +121,17 @@ be thrown, because nobody could tell whether the job finished. A row carrying
 a THROWN line is excluded from auto-resume selection; one without is a
 hand-claimed resume target. Liveness is never asserted — probe the proof,
 never a process.
+
+`| by: <lead>` on that line records WHO claimed it, and `shadow status
+--in-flight` renders it. It lives in the tail, after the id: the thrown-row
+scan anchors on `^- <ts> THROWN ~hash`, so anything inserted ahead of the id
+makes every claim invisible to auto-resume-skip. A lead is free text — a file
+of legal names would be the roster v4 deleted, and would make an unlisted
+seat's honest claim illegal. An unsigned claim still reads as claimed.
+
+`- <ts> NOTE @<lead> <text>` is how one lead addresses another. Progress is
+append-only and serialized by fast-forward, so simultaneous notes are a push
+race, never a lost message — but delivery is at fetch, not at keystroke.
 
 ## Mode law
 

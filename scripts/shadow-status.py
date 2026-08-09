@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from browser.server import SKIP_DIRS, discover_plans  # noqa: E402
+from browser.server import (  # noqa: E402
+    SKIP_DIRS, discover_plans, is_plan_root, is_portfolio_child, repo_plans,
+)
 
 # The v4 grammar parser lives in shadow-amp; status reuses it so the two
 # projections can never disagree about what the current milestone or resume
@@ -207,8 +209,20 @@ def in_flight(root: Path) -> list[dict]:
         plan = _amp._parse(text)
         project = plan["brief"].get("Project") or plan_path.parent.name
         stamps: dict[str, str] = {}
-        for m in re.finditer(r"^- (?P<ts>\S+) THROWN (?P<id>~[0-9a-z]{4})\b", text, flags=re.M):
-            stamps.setdefault(m.group("id"), m.group("ts"))
+        leads: dict[str, str] = {}
+        for m in re.finditer(
+            r"^- (?P<ts>\S+) THROWN (?P<id>~[0-9a-z]{4})\b(?P<tail>.*)$", text, flags=re.M
+        ):
+            # Last write wins. Progress is append-only, so a row that was
+            # handed back and re-thrown has several THROWN lines; the live
+            # dispatch is the newest one, and an unsigned re-throw must not
+            # keep advertising the previous lead as the owner.
+            stamps[m.group("id")] = m.group("ts")
+            named = re.search(r"\| by: ([^|]+)", m.group("tail"))
+            if named:
+                leads[m.group("id")] = named.group(1).strip()
+            else:
+                leads.pop(m.group("id"), None)
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
                 if row["state"] != "in_progress":
@@ -221,6 +235,7 @@ def in_flight(root: Path) -> list[dict]:
                     "text": row["text"],
                     "proof": row["fields"].get("proof", "MISSING"),
                     "thrown_at": stamps.get(row["id"]),
+                    "by": leads.get(row["id"]),
                     "dispatched": row["id"] in stamps,
                 })
     return rows
@@ -235,6 +250,10 @@ def render_in_flight(rows: list[dict]) -> str:
         out.append(project)
         for row in [r for r in rows if r["project"] == project]:
             kind = f"thrown {row['thrown_at']}" if row["dispatched"] else "hand-claimed (no THROWN line)"
+            # Who to talk to. With several leads on one plan this is the
+            # difference between "someone has this" and a name you can address.
+            if row.get("by"):
+                kind += f" by {row['by']}"
             out.append(f"  {row['id']} {row['text']}")
             out.append(f"       {kind} | {row['milestone']}")
             out.append(f"       proof: {row['proof']}")
@@ -244,19 +263,36 @@ def render_in_flight(rows: list[dict]) -> str:
 
 
 def _any_plan_file(root: Path) -> Path | None:
-    """First PLAN.md file under root using discover_plans' own walk pruning,
-    or None. Existence only — no parsing — so it distinguishes 'no plan at
-    all' (safe to fall back) from 'a plan exists but failed ingestion'."""
-    for current, directories, files in os.walk(root, followlinks=False):
-        directories[:] = sorted(
-            name
-            for name in directories
-            if name not in SKIP_DIRS
-            and not name.startswith(".")
-            and not name.endswith("-worktrees")
-        )
-        if "PLAN.md" in files:
-            return Path(current) / "PLAN.md"
+    """A plan this root legally owns, or None.
+
+    Existence only — no parsing — so it distinguishes "no plan at all" (safe to
+    fall back) from "a plan exists but failed ingestion" (never fall back, or a
+    broken plan silently becomes a healthy-looking portfolio board).
+
+    It asks the SAME question discover_plans does. It used to run its own
+    recursive walk, which from $HOME reached a scratch directory several levels
+    down and refused to fall back over a file that root does not own.
+    """
+    if is_plan_root(root):
+        found = repo_plans(root)
+        return found[0] if found else None
+    if not root.is_dir():
+        return None
+    try:
+        children = sorted(root.iterdir())
+    except OSError:
+        return None
+    # Resolved containment, exactly as discover_plans applies it: a symlinked
+    # child is a directory owning a PLAN.md by every cheap test while living
+    # outside the scan root, and fallback must not be decided by a file this
+    # root does not own.
+    here = root.resolve()
+    for child in children:
+        if (child.is_dir() and not child.name.startswith(".")
+                and is_portfolio_child(child, here) and is_plan_root(child)):
+            found = repo_plans(child)
+            if found:
+                return found[0]
     return None
 
 
@@ -298,8 +334,15 @@ def main(argv: list[str] | None = None) -> int:
         # a healthy-looking portfolio board.
         broken = _any_plan_file(root)
         if broken is not None:
+            # Name it relative to the root, never absolutely: this line lands
+            # in terminals and pasted issues, and Shadow's own privacy gate
+            # flags an absolute home path anywhere in its output.
+            try:
+                where = broken.relative_to(root).as_posix()
+            except ValueError:
+                where = broken.name
             print(
-                f"shadow status: {broken} exists but failed to load — fix it "
+                f"shadow status: {where} exists but failed to load — fix it "
                 "(shadow lint) or pass --root explicitly; not falling back.",
                 file=sys.stderr,
             )
@@ -307,7 +350,8 @@ def main(argv: list[str] | None = None) -> int:
             fallback = portfolio_root()
             if fallback is not None and fallback.resolve() != root:
                 print(
-                    f"shadow status: no plan under {root} — showing the portfolio from {fallback}",
+                    "shadow status: no plan in this directory — showing the portfolio "
+                    "(set SHADOW_PORTFOLIO_ROOT to change where that is)",
                     file=sys.stderr,
                 )
                 root = fallback.resolve()

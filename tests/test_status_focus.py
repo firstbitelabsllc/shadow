@@ -210,7 +210,11 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertIn("showing the portfolio from", result.stderr)
+            # The message no longer names the portfolio path: this line lands
+            # in terminals and pasted issues, and Shadow's own privacy gate
+            # flags an absolute home path anywhere in its output.
+            self.assertIn("showing the portfolio", result.stderr)
+            self.assertNotIn(str(Path.home()), result.stderr)
             self.assertIn("Mode: ship", result.stdout)
             self.assertIn("Resume: [pending] the ready row ~bb22", result.stdout)
 
@@ -232,6 +236,34 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             )
             self.assertNotIn("showing the portfolio", result.stderr)
             self.assertNotIn("Mode: ship", result.stdout)
+
+    def test_a_symlinked_child_does_not_decide_the_fallback(self) -> None:
+        # discover_plans refuses a symlinked child because it resolves outside
+        # the scan root. Fallback detection asks the same question, so it must
+        # refuse it too — otherwise an external PLAN.md reachable through a
+        # symlink reports "exists but failed to load" and blocks the fallback
+        # over a file this root does not own.
+        import os as _os
+
+        with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
+            outside = Path(blank) / "outside" / "external"
+            outside.mkdir(parents=True)
+            (outside / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            work = Path(blank) / "work"
+            work.mkdir()
+            (work / "external").symlink_to(outside, target_is_directory=True)
+            proj = Path(portfolio) / "demo-repo"
+            proj.mkdir()
+            (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            env = dict(_os.environ)
+            env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+            env.pop("SHADOW_DEV_ROOT", None)
+            result = subprocess.run(
+                [sys.executable, str(STATUS)],
+                cwd=str(work), env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertNotIn("failed to load", result.stderr)
+            self.assertIn("showing the portfolio", result.stderr)
 
     def test_opt_out_flag_keeps_empty_empty(self) -> None:
         import os as _os

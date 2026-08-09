@@ -41,6 +41,19 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
 [[ -f "${ROOT}/bin/shadow" ]] || fail "run this from a Shadow checkout (bin/shadow not found)"
 
 mkdir -p "${BIN_DIR}"
+# The same two traps the skill mount guards against, which this line did not.
+# `ln -sfn` into an existing real DIRECTORY silently creates
+# ${BIN_DIR}/shadow/shadow, prints "installed", exits 0 — and running `shadow`
+# then gives "permission denied".
+if [[ -d "${BIN_DIR}/shadow" && ! -L "${BIN_DIR}/shadow" ]]; then
+  fail "${BIN_DIR}/shadow is a directory, not a command — move or delete it, then re-run"
+fi
+# And a real file here belongs to something else. Replacing another tool's
+# binary without a word is not an install, it is a theft.
+if [[ -e "${BIN_DIR}/shadow" && ! -L "${BIN_DIR}/shadow" ]]; then
+  fail "${BIN_DIR}/shadow already exists and is not a symlink — another tool may own it.
+           Move it aside, or choose a different --bin-dir."
+fi
 ln -sfn "${ROOT}/bin/shadow" "${BIN_DIR}/shadow"
 echo "installed: ${BIN_DIR}/shadow -> ${ROOT}/bin/shadow"
 
@@ -62,10 +75,21 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   done
 fi
 
+if [[ "${LINK_SKILLS}" -eq 1 ]]; then
+  # The standing goal is what makes a cold host open the board instead of
+  # asking "which project?". Pasting it by hand was the step everyone skipped:
+  # adoption on the reference machine was 0 of 3 hosts and nothing noticed.
+  # This owns only its own marker-delimited block — the rest of the file is
+  # untouched, an unmarked copy is adopted rather than duplicated, and
+  # `shadow goal --remove` takes it back out.
+  python3 "${ROOT}/scripts/shadow-host-directives.py" \
+    || echo "note:      standing goal not written; run: shadow goal --install" >&2
+fi
+
 case ":${PATH}:" in
   *":${BIN_DIR}:"*) ;;
   *) echo "note:      ${BIN_DIR} is not on PATH — add it to your shell profile" ;;
 esac
 
 echo
-echo "next: shadow doctor    (then paste the standing goal from docs/reference/host-integration.md)"
+echo "next: shadow doctor"

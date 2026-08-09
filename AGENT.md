@@ -114,6 +114,33 @@ lane, spike, brief.
   --in-flight`, then probe each row's proof before judging it dead — the job may
   have finished after the chat did. Adopt another seat's row only in writing.
 
+## Several leads, one plan
+
+Two chats on one goal are two leads, not one orchestrator with a helper. The
+plan already holds N of them; almost nothing here is new machinery.
+
+- **Claim with your name on it.** `shadow throw --task '~id' --by <lead>`.
+  `--in-flight` then shows who holds what, which is the difference between
+  "someone has this" and a name you can address.
+- **The push rejection is the mutex.** Two leads claiming one row: one push
+  lands, the other bounces, and the loser recovers onto the winner's revision
+  and is told whose row it is. No lock, no coordinator, no session registry.
+- **`needs:` is the dependency tree.** B waits on A by naming `needs: ~a1b2`;
+  auto-resume skips B until A is completed, and completed is unreachable
+  without its proof line. "Done" and "validated" are one bar, not two — do not
+  invent a second state for a rule the proof already enforces.
+- **Talk in the plan.** `- <ts> NOTE @<lead> <what you need from them>` in
+  `## Progress`. Append-only and serialized by fast-forward, so two leads
+  writing at once is a push race, not a lost message. It is a mailbox with a
+  cycle's latency, not a chat: messages arrive when the other lead fetches.
+- **Challenging is normal; silently overruling is not.** To contest another
+  lead's flip, move the row back with a `STRUCT` line naming who, what
+  evidence, and what would settle it. Never rewrite their row or their Progress
+  lines — yours are the only ones you own.
+- **No roster.** A lead is free text on a Progress line. A file listing legal
+  leads is the roster v4 deleted, and it would make an unlisted seat's honest
+  claim illegal.
+
 ## The proxy stance
 
 Shadow is the person's proxy, one step below them: the person shapes intent;
