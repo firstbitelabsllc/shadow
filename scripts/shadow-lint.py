@@ -163,7 +163,15 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
         if dod_row["state"] == "completed" and siblings_open:
             findings.append(_finding("DOD-EARLY", dod_number, "blocking", "DoD flipped before its siblings"))
 
-    for number, line in sections.get("Deferred", []):
+    # Match by PREFIX, not by exact heading. "## Deferred proof (not a global
+    # blocker)" is a legal heading and it silently disabled this entire check:
+    # the reference plan carried 47 wake-predicate-less rows, invisible to its
+    # own enforcer, because the section name had four extra words.
+    deferred: list[tuple[int, str]] = []
+    for name, entries in sections.items():
+        if name == "Deferred" or name.startswith("Deferred "):
+            deferred.extend(entries)
+    for number, line in deferred:
         if line.startswith("- ") and not re.search(r"(?:^|\| )wake: \S", line):
             findings.append(_finding("DEFER-NO-WAKE", number, "blocking", "deferral without a wake predicate"))
 
