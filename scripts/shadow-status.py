@@ -211,10 +211,16 @@ def in_flight(root: Path) -> list[dict]:
         for m in re.finditer(
             r"^- (?P<ts>\S+) THROWN (?P<id>~[0-9a-z]{4})\b(?P<tail>.*)$", text, flags=re.M
         ):
-            stamps.setdefault(m.group("id"), m.group("ts"))
+            # Last write wins. Progress is append-only, so a row that was
+            # handed back and re-thrown has several THROWN lines; the live
+            # dispatch is the newest one, and an unsigned re-throw must not
+            # keep advertising the previous lead as the owner.
+            stamps[m.group("id")] = m.group("ts")
             named = re.search(r"\| by: ([^|]+)", m.group("tail"))
             if named:
-                leads.setdefault(m.group("id"), named.group(1).strip())
+                leads[m.group("id")] = named.group(1).strip()
+            else:
+                leads.pop(m.group("id"), None)
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
                 if row["state"] != "in_progress":

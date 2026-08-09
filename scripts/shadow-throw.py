@@ -78,11 +78,16 @@ def claimed_by(text: str, task_id: str) -> str | None:
     "another seat" when it was thrown anonymously — the row is still claimed,
     and answering "nobody" because the claimant did not sign it would invite a
     second lead onto work already in flight.
+
+    Progress is append-only, so a row handed back to [pending] and re-thrown
+    carries several THROWN lines. The LAST one is the live claim; naming the
+    historical claimant would send a losing lead to argue with someone who
+    already let the row go.
     """
-    line = re.search(rf"^- \S+ THROWN {re.escape(task_id)}\b(?P<tail>.*)$", text, flags=re.M)
-    if line is None:
+    lines = re.findall(rf"^- \S+ THROWN {re.escape(task_id)}\b(.*)$", text, flags=re.M)
+    if not lines:
         return None
-    named = re.search(r"\| by: ([^|]+)", line.group("tail"))
+    named = re.search(r"\| by: ([^|]+)", lines[-1])
     return named.group(1).strip() if named else "another seat"
 
 
@@ -312,7 +317,15 @@ def main(argv: list[str] | None = None) -> int:
                 and remote_tip.returncode == 0
                 and remote_tip.stdout.strip() not in ("", head_before)
             )
-            recoverable = advanced and git(
+            # Ancestry proves there are no unpushed COMMITS. It says nothing
+            # about the index or the working tree, and the cleanliness check up
+            # front only covered PLAN.md — so edits to any other tracked file
+            # are still unsaved work that `reset --hard` would delete. Untracked
+            # files survive a reset, so they do not block recovery.
+            dirty = git(
+                repo, "status", "--porcelain", "--untracked-files=no", check=False
+            ).stdout.strip()
+            recoverable = advanced and not dirty and git(
                 repo, "merge-base", "--is-ancestor", head_before, f"{remote}/{remote_branch}",
                 check=False,
             ).returncode == 0
@@ -329,6 +342,14 @@ def main(argv: list[str] | None = None) -> int:
                           f"row. This checkout is now on {remote}/{remote_branch} and {args.task} "
                           "is still open — re-run to claim it.", file=sys.stderr)
                 return 1
+            if advanced and dirty:
+                # A real race, but recovery was declined. Say why, or the
+                # push-rejected text below reads as advice to rebase into a row
+                # somebody else already owns.
+                print("shadow throw: another seat pushed first, but this checkout has "
+                      "uncommitted changes to tracked files, so nothing was reset — recovering "
+                      "the claim would have destroyed them. Commit or stash them, then fetch "
+                      "and re-run throw.", file=sys.stderr)
         if push_failed:
             detail = CREDENTIAL_RE.sub("***@", push.stderr.strip())[:300]
             # Withhold the goal block. Exiting nonzero is not enough on its own:

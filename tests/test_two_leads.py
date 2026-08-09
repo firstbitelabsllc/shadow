@@ -112,6 +112,18 @@ class IdentityOnTheClaim(unittest.TestCase):
         anon = "- 2026-08-09T00:00:00Z THROWN ~bb22 the row\n"
         self.assertEqual(throw.claimed_by(anon, "~bb22"), "another seat")
 
+    def test_the_newest_throw_names_the_owner(self) -> None:
+        # Progress is append-only: a row handed back to [pending] and re-thrown
+        # keeps its old THROWN line. Reading the first match would name a lead
+        # who already let the row go.
+        text = ("- 2026-08-09T00:00:00Z THROWN ~bb22 the row | by: codex\n"
+                "- 2026-08-09T01:00:00Z THROWN ~bb22 the row | by: claude\n")
+        self.assertEqual(throw.claimed_by(text, "~bb22"), "claude")
+        # An unsigned re-throw is still a NEW claim — it must not keep
+        # advertising the previous lead as the owner.
+        anon = text + "- 2026-08-09T02:00:00Z THROWN ~bb22 the row\n"
+        self.assertEqual(throw.claimed_by(anon, "~bb22"), "another seat")
+
     def test_a_lead_name_cannot_forge_a_second_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             a, _ = fleet(Path(tmp))
@@ -179,6 +191,25 @@ class ThePushRejectionIsTheMutex(unittest.TestCase):
             self.assertTrue((b / "mine.txt").exists(), "recovery destroyed local work")
             self.assertIn("- [in_progress] a second open row ~cc33",
                           (b / "PLAN.md").read_text(encoding="utf-8"))
+
+    def test_recovery_never_discards_uncommitted_tracked_edits(self) -> None:
+        # Ancestry proves there are no unpushed commits, not that the tree is
+        # clean. The up-front cleanliness check only covers PLAN.md, so a
+        # hard reset here would silently delete edits to every other file.
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = fleet(Path(tmp))
+            (b / "mine.txt").write_text("committed\n", encoding="utf-8")
+            git(b, "add", "mine.txt")
+            git(b, "commit", "--quiet", "-m", "tracked file")
+            git(b, "push", "--quiet", "origin", "HEAD:main")
+            git(a, "pull", "--quiet", "--ff-only")
+            self.assertEqual(run_throw(a, "~bb22", "lead-a").returncode, 0)
+            (b / "mine.txt").write_text("unsaved work\n", encoding="utf-8")
+
+            losing = run_throw(b, "~bb22", "lead-b")
+            self.assertEqual(losing.returncode, 1)
+            self.assertIn("uncommitted changes", losing.stderr)
+            self.assertEqual((b / "mine.txt").read_text(encoding="utf-8"), "unsaved work\n")
 
     def test_a_rejection_with_an_unmoved_tip_is_not_a_race(self) -> None:
         # A hook or branch policy bounces the push with nobody else landing
