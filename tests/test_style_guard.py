@@ -80,6 +80,33 @@ class StyleGuardTests(unittest.TestCase):
         text = "| x | y |\n|---|---|\n- **A** — submit\n- **B** — merge\n"
         self.assertFalse(self.guard.violations(text), "a table satisfies the contract")
 
+    def test_an_inline_pipe_is_not_a_table(self) -> None:
+        text = "- **A** — submit\n- **B** — merge\n\nUse `cat x | sort` if needed.\n"
+        self.assertTrue(self.guard.violations(text), "a shell pipe shows the reader nothing")
+
+    def test_a_borderless_table_still_passes(self) -> None:
+        text = "x | y\n--- | ---\n1 | 2\n\n- **A** — submit\n- **B** — merge\n"
+        self.assertFalse(self.guard.violations(text), "outer pipes are optional in Markdown")
+
+    def test_options_weighed_mid_report_are_not_a_menu(self) -> None:
+        text = (
+            "Two ways to land this:\n\n"
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n\n"
+            "I took A. The rebase is pushed, the branch is green, and the merge\n"
+            "commit B would have added is gone. Nothing is waiting on you.\n"
+        )
+        self.assertFalse(self.guard.violations(text),
+                         "a report that already chose is not handing over a menu")
+
+    def test_a_menu_with_one_closing_question_is_still_a_menu(self) -> None:
+        text = "- **A** — rebase\n- **B** — merge\n\nWhich one?\n"
+        self.assertTrue(self.guard.violations(text), "the message still ends on the menu")
+
+    def test_a_wrapped_option_stays_in_the_menu(self) -> None:
+        text = "- **A** — rebase onto main,\n  which rewrites the branch\n- **B** — merge\n"
+        self.assertTrue(self.guard.violations(text), "a wrapped line must not split the menu")
+
     def test_a_single_option_is_not_a_menu(self) -> None:
         self.assertFalse(self.guard.violations("- **A** — the only move\n"))
 

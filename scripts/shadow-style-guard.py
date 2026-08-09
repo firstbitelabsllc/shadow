@@ -17,7 +17,20 @@ import sys
 
 # An option list obliges the same message to show its work. A drawing, a fenced
 # block, or a table all count; prose alone is what the reader cannot parse.
-OPTION = re.compile(r"^\s*[-*]?\s*\*{0,2}([ABC])\*{0,2}\s*[—\-–:.]", re.M)
+OPTION = re.compile(r"^\s*[-*]?\s*\*{0,2}([ABC])\*{0,2}\s*[—\-–:.]")
+
+# A Markdown table is a header row over a delimiter row. A lone pipe is not one:
+# `cat x | sort` shows the reader nothing, so it must not buy an exemption.
+TABLE = re.compile(
+    r"^[^\n]*\|[^\n]*\n[ \t]*\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$",
+    re.M,
+)
+
+# A menu may wrap across lines and may be followed by a one-line question. More
+# prose than that after the options means the message moved on and ended on
+# something else, which is a report, not a menu handed to the reader.
+WRAPPED_LINES = 2
+TRAILING_LINES = 1
 
 
 def final_assistant_text(path):
@@ -40,10 +53,34 @@ def final_assistant_text(path):
     return text
 
 
-def violations(text):
-    if len(set(OPTION.findall(text))) < 2:
+def closing_menu(text):
+    """The options the message ends on, not every letter it happened to mention.
+
+    A finished report may weigh A against B in the middle and then say which one
+    shipped. That reader is not being handed a menu, so only the last run of
+    option lines counts, and only when the message stops on it.
+    """
+    lines = text.splitlines()
+    marks = [i for i, line in enumerate(lines) if OPTION.match(line)]
+    if not marks:
         return []
-    if "```" in text or "|" in text:
+    if _prose(lines[marks[-1] + 1:]) > TRAILING_LINES:
+        return []  # the options were discussed and then left behind
+    start = marks[0]
+    for earlier, later in zip(marks, marks[1:]):
+        if _prose(lines[earlier + 1:later]) > WRAPPED_LINES:
+            start = later  # too much between them to be one menu
+    return [OPTION.match(lines[i]).group(1) for i in marks if i >= start]
+
+
+def _prose(lines):
+    return sum(1 for line in lines if line.strip())
+
+
+def violations(text):
+    if len(set(closing_menu(text))) < 2:
+        return []
+    if "```" in text or TABLE.search(text):
         return []
     return [
         "an A/B/C with no drawing, fenced block, or table in the same message — "
