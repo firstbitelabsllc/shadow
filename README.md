@@ -30,18 +30,18 @@ Three properties make that trustworthy:
 
 ## Install — out of the box
 
-Requires Git, Bash, Python 3.10+, Node.js 20+, and at least one native
-coding host (Claude Code, Codex, or Cursor).
+Requires Git, Bash, Python 3.10+, and at least one native coding host
+(Claude Code, Codex, or Cursor).
 
 
 ```bash
 git clone https://github.com/firstbitelabsllc/shadow.git && cd shadow
-npm install -g .
-ln -sfn "$(pwd)" "$HOME/.claude/skills/shadow"
-ln -sfn "$(pwd)" "$HOME/.agents/skills/shadow"
-ln -sfn "$(pwd)" "$HOME/.cursor/skills/shadow"
+bash install.sh          # links `shadow` into ~/.local/bin + mounts the skill in each host
 shadow doctor
 ```
+
+Git, Bash, Python 3.10+. **No Node, no npm, no package manager** — the clone
+*is* the install, and `git pull` is the update.
 
 Then paste the fifteen-line standing goal from
 [host integration](docs/reference/host-integration.md) into each host's
@@ -99,9 +99,9 @@ surfaces. See the [privacy contract](docs/reference/privacy.md).
 ## Development
 
 ```bash
-npm ci
-npm run verify
-npm run docs:build
+scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'
+scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md
+scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty
 ```
 
 [Quick start](docs/guide/quickstart.md) ·

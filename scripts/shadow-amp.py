@@ -49,6 +49,11 @@ def _sections(lines: list[str]) -> dict[str, list[str]]:
     return sections
 
 
+def _thrown_ids(text: str) -> set:
+    """Ids carrying a THROWN Progress line — dispatched, already in flight."""
+    return set(re.findall(r"^- \S+ THROWN (~[0-9a-z]{4})\b", text, flags=re.M))
+
+
 def _parse(text: str) -> dict:
     lines = text.splitlines()
     sections = _sections(lines)
@@ -97,6 +102,7 @@ def _parse(text: str) -> dict:
         "contradictions": contradictions,
         "unparsed": unparsed,
         "text": text,
+        "thrown": _thrown_ids(text),
     }
 
 
@@ -133,9 +139,16 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
                 if row["id"] == task_id:
                     return milestone, row
         return None
+    # A row already THROWN is in flight elsewhere: auto-resume must skip it, or
+    # a fresh seat re-runs work another conversation is doing right now. An
+    # in_progress row WITHOUT a THROWN line is a hand-claimed resume target and
+    # stays selectable — that split is what keeps crash-resume working.
+    thrown = plan.get("thrown") or set()
     for state_pass in ("in_progress", "pending"):
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
+                if row["id"] in thrown:
+                    continue
                 if row["state"] == state_pass and not _gated(row) and (
                     state_pass == "in_progress" or _ready(row, done)
                 ):
@@ -206,21 +219,29 @@ def stall_reason(plan: dict) -> str:
         if unclean:
             return f"{unclean} before chaining a successor over unread work"
         return "every task complete; mint the successor (goal chaining)"
-    counts = {"person-gated": 0, "blocked": 0, "waiting on needs": 0, "other": 0}
+    thrown = plan.get("thrown") or set()
+    # A thrown row is the reason auto-resume passed over work that otherwise
+    # looks takeable, so it is named rather than tallied as "other" — "in
+    # flight elsewhere" and "nobody has picked this up" call for different moves.
+    counts = {"person-gated": 0, "blocked": 0, "in flight elsewhere (thrown)": 0,
+              "waiting on needs": 0, "other": 0}
     for row in open_rows:
         if _gated(row):
             counts["person-gated"] += 1
         elif row["state"] == "blocked":
             counts["blocked"] += 1
+        elif row["id"] in thrown:
+            counts["in flight elsewhere (thrown)"] += 1
         elif not _ready(row, done):
             counts["waiting on needs"] += 1
         else:
             counts["other"] += 1
     detail = ", ".join(f"{count} {name}" for name, count in counts.items() if count)
-    reason = (
-        f"nothing agent-takeable — {len(open_rows)} open row(s): {detail}; "
-        "hand off, unblock, or mint the successor"
-    )
+    advice = "hand off, unblock, or mint the successor"
+    if counts["in flight elsewhere (thrown)"]:
+        advice = ("probe the thrown row(s) with `shadow status --in-flight`, "
+                  "hand off, unblock, or mint the successor")
+    reason = f"nothing agent-takeable — {len(open_rows)} open row(s): {detail}; {advice}"
     return f"{reason} ({unclean})" if unclean else reason
 
 
