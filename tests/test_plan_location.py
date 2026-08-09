@@ -16,6 +16,7 @@ So: enumerate project roots, never walk directories.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -157,6 +158,24 @@ class OneLogicalPlan(unittest.TestCase):
             paths = [r["path"] for r in discover_plans(root)]
             self.assertEqual(paths, ["thing/PLAN.md"])
 
+    def test_an_scp_origin_without_a_path_still_names_its_repo(self) -> None:
+        # `git@host:thing.git` carries no slash before the repository name, so
+        # splitting on `/` alone returns the whole URL, no directory ever
+        # matches, and the stale clone wins on mtime instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("aaa-old-name", "thing"):
+                repo = make(root, name)
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin",
+                     "git@example.invalid:thing.git"], check=True)
+            # The stale clone touched most recently: only the name match can
+            # save the canonical checkout here.
+            os.utime(root / "aaa-old-name" / "PLAN.md", (2_000_000_000, 2_000_000_000))
+            paths = [r["path"] for r in discover_plans(root)]
+            self.assertEqual(paths, ["thing/PLAN.md"])
+
     def test_unrelated_roots_without_git_are_not_merged(self) -> None:
         # No origin means the path stands in as identity. Two plain
         # directories are two plans, not one.
@@ -168,6 +187,19 @@ class OneLogicalPlan(unittest.TestCase):
 
 
 class Boundedness(unittest.TestCase):
+    def test_a_symlinked_child_cannot_smuggle_a_plan_in(self) -> None:
+        # A symlink is a directory that owns a PLAN.md by every test the
+        # enumeration makes, while living anywhere on the filesystem. Following
+        # one reads outside the portfolio, which is the whole boundary.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "portfolio"
+            root.mkdir()
+            elsewhere = make(Path(tmp) / "elsewhere", "external")
+            (root / "external").symlink_to(elsewhere, target_is_directory=True)
+            make(root, "inside")
+            self.assertEqual([r["path"] for r in discover_plans(root)], ["inside/PLAN.md"])
+
+
     def test_a_deep_tree_costs_nothing_and_returns_nothing(self) -> None:
         # The old walk ran past a 300-second window on a large tree and only
         # terminated because the cap stopped it.

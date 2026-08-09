@@ -235,6 +235,19 @@ def _origin_of(repo: Path) -> str:
     return result.stdout.strip() or str(repo)
 
 
+def _origin_repo_name(origin: str) -> str:
+    """The repository name an origin URL ends in.
+
+    Splitting on `/` alone is not enough: an SCP-style remote can name the
+    repository straight after the colon (`git@host:repo.git`), so the slash
+    split returns the whole URL and the canonical-checkout comparison can
+    never match — leaving the tie-break to mtime and alphabetical order, which
+    is exactly how a stale rename-era clone wins.
+    """
+    tail = origin.rstrip("/").removesuffix(".git")
+    return tail.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+
+
 def _plan_mtime(repo: Path) -> float:
     try:
         return (repo / "PLAN.md").stat().st_mtime
@@ -309,6 +322,19 @@ def is_plan_root(path: Path) -> bool:
     return (path / "PLAN.md").is_file()
 
 
+def _is_portfolio_child(child: Path, root: Path) -> bool:
+    """True when `child` really lives directly inside the resolved portfolio.
+
+    A symlinked entry passes `is_dir()` and owns a `PLAN.md` while pointing
+    anywhere on the filesystem; resolving it is what keeps the board from
+    reading plans the portfolio does not contain.
+    """
+    try:
+        return child.resolve().parent == root
+    except OSError:
+        return False
+
+
 def discover_plans(root: Path) -> list[dict[str, Any]]:
     """Every plan the portfolio can legally see.
 
@@ -328,9 +354,15 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
             children = list(root.iterdir())
         except OSError:
             children = []
+        # BOTH sides resolved, for the same reason the declared globs are:
+        # a symlinked child resolves somewhere else entirely, and following it
+        # would read a plan from outside the portfolio — the one boundary this
+        # enumeration exists to keep.
+        here = root.resolve()
         found = [
             child for child in children
-            if child.is_dir() and not child.name.startswith(".") and is_plan_root(child)
+            if child.is_dir() and not child.name.startswith(".")
+            and _is_portfolio_child(child, here) and is_plan_root(child)
         ]
         # Order decides which checkout of a shared origin wins deduplication,
         # so it cannot be plain alphabetical. A rename-era clone of a repository
@@ -342,7 +374,7 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
         candidates = sorted(
             found,
             key=lambda repo: (
-                repo.name != _origin_of(repo).rstrip("/").removesuffix(".git").rsplit("/", 1)[-1],
+                repo.name != _origin_repo_name(_origin_of(repo)),
                 -_plan_mtime(repo),
                 repo.name,
             ),
