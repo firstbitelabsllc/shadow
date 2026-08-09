@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.0 — 2026-08-09 — renumbered from 4.1.0
+
+Same code, honest number. Shadow's 4.x line counted releases to a registry
+that no longer publishes it: npm was removed on 2026-08-09, so `git clone` is
+the only install and there is no downstream `^4` to break. A 4.x version on a
+tool this young claimed a maturity and a compatibility history it does not
+have. Owner's call, verbatim: *"reset 1.0 ... or .1.0 ... its early"*.
+
+- `VERSION` and `.claude-plugin/plugin.json` are `0.1.0`. Nothing else changed
+  — no verb, flag, file format, or default moved with this entry.
+- **The method is a separate namespace.** "v4 grammar", "grammar-v2", and "the
+  v4 law" name the *plan file format*, not the release. Those words stay
+  correct: `## Brief` + `## Tasks` + typed `proof:` tails is still v4 of the
+  method while the tool is at 0.1.0.
+- The 4.x entries below are retained. They are the build history of this same
+  code and the only record of why each verb exists.
+- `PLAN.md` shed its v3 `Outcome` block, portfolio readback, and platform
+  sections (435 lines) to `docs/plan-archive/2026-08-04-v3-outcome-receipts.md`
+  — the last live prose that called the product "Pilot Puppy". Moved, not
+  deleted, per archive law.
+
 ## 4.1.0 — 2026-08-09 — the goal is a pointer; the board follows you
 
 Built from a real failure: a voice seat opened in a blank workspace and

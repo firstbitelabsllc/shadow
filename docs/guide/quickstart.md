@@ -22,7 +22,7 @@ the test gate. When a row's `cmd` proof passes, flip it with the only flip
 path:
 
 ```bash
-shadow accept --repo "$PWD" --row ~ab12
+shadow accept --repo "$PWD" --row '~ab12'
 ```
 
 For a bounded delegation, freeze one complete task in a file and explicitly

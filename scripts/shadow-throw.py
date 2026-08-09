@@ -233,8 +233,20 @@ def main(argv: list[str] | None = None) -> int:
     push_failed = False
     pushed = False
     if not args.no_push:
-        branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-        push = git(repo, "push", "origin", f"HEAD:{branch}", check=False)
+        # Push to the branch's CONFIGURED upstream, not to a remote branch that
+        # merely shares its local name. A local `master` tracking `origin/main`
+        # used to create a brand-new `origin/master` and still report "pushed":
+        # the claim row was invisible on the branch every other seat reads,
+        # which is the one failure "launch and flush are one atom" must not have.
+        upstream = git(
+            repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}", check=False
+        )
+        if upstream.returncode == 0 and "/" in upstream.stdout.strip():
+            remote, _, remote_branch = upstream.stdout.strip().partition("/")
+        else:
+            remote = "origin"
+            remote_branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        push = git(repo, "push", remote, f"HEAD:{remote_branch}", check=False)
         pushed = push.returncode == 0
         push_failed = not pushed
         if push_failed:
