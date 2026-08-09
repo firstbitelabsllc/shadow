@@ -210,7 +210,11 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertIn("showing the portfolio from", result.stderr)
+            # The message no longer names the portfolio path: this line lands
+            # in terminals and pasted issues, and Shadow's own privacy gate
+            # flags an absolute home path anywhere in its output.
+            self.assertIn("showing the portfolio", result.stderr)
+            self.assertNotIn(str(Path.home()), result.stderr)
             self.assertIn("Mode: ship", result.stdout)
             self.assertIn("Resume: [pending] the ready row ~bb22", result.stdout)
 
