@@ -213,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             plan_text = plan_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             raise AcceptError(f"plan cannot be re-read after the proof: {exc}") from exc
-        index, _, fresh_state, fresh_proof, _ = find_row(plan_text, row_id)
+        index, _, fresh_state, fresh_proof, fresh_needs = find_row(plan_text, row_id)
         # Any state move during the run is somebody else's judgment about this
         # row — completed, or blocked because the work is not done. Overwriting
         # it with completed would erase that record, so only an unchanged row
@@ -224,6 +224,16 @@ def main(argv: list[str] | None = None) -> int:
             )
         if fresh_proof != proof:
             raise AcceptError("the row's proof changed while it ran; rerun accept against the new proof")
+        # Readiness is re-decided against the plan as it stands now, not the
+        # pre-run snapshot: a dependency added to this row, or a needs-target
+        # reopened, while the proof ran means the row is no longer ready and
+        # the flip would record a completion the grammar forbids.
+        blocked_now = unmet_needs(plan_text, fresh_needs)
+        if blocked_now:
+            raise AcceptError(
+                f"{row_id} still needs {', '.join(blocked_now)} — its readiness changed while "
+                "the proof ran; nothing was changed"
+            )
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         plan_lines = plan_text.splitlines(keepends=True)
         plan_lines[index] = re.sub(r"^- \[[a-z_]+\]", "- [completed]", plan_lines[index], count=1)

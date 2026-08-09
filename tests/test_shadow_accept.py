@@ -360,6 +360,35 @@ class NeedsIsAReadinessGate(unittest.TestCase):
         self.assertEqual(accept.NEEDS_REF_RE.findall("~aa11, ~bb22"), ["~aa11", "~bb22"])
         self.assertEqual(accept.ROW_ID_RE.findall("~aa11, ~bb22"), [])
 
+    def test_a_need_reopened_during_the_proof_run_stops_the_flip(self) -> None:
+        # Readiness was decided only from the pre-run snapshot: the re-read
+        # after the proof compared state and proof and threw the fresh `needs`
+        # away, so a dependency reopened while the proof ran still flipped.
+        proof = (
+            "cmd python3 -c \"import pathlib; p=pathlib.Path('../../repo/PLAN.md'); "
+            # The needle is split so the command cannot match its own text and
+            # rewrite the proof field instead of the dependency row.
+            "p.write_text(p.read_text().replace('[comp'+'leted] dep', '[pending] dep'))\""
+        )
+        plan = PLAN.replace(
+            "- [in_progress] x.txt says hello ~ab12 | proof: cmd python3 -c "
+            "\"import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
+            "- [completed] dep ~ee55 | proof: cmd true\n"
+            f"- [in_progress] x.txt says hello ~ab12 | needs: ~ee55 | proof: {proof}",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve())
+            (repo / "PLAN.md").write_text(plan, encoding="utf-8")
+            git(repo, "commit", "-qam", "need reopened mid-run")
+            result = run_accept(repo, "~ab12")
+            after_plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            commits = git(repo, "rev-list", "--count", "HEAD")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("still needs ~ee55", result.stderr)
+        self.assertIn("- [in_progress] x.txt says hello ~ab12", after_plan)
+        self.assertNotIn("~ab12 PROOF", after_plan)
+        self.assertEqual(commits, "2")
+
     def test_accept_refuses_a_row_whose_need_is_not_completed(self) -> None:
         # ~cd34 is [pending], so ~ab12 is not ready even though its proof passes.
         with tempfile.TemporaryDirectory() as dirname:
