@@ -26,10 +26,9 @@ TABLE = re.compile(
     re.M,
 )
 
-# A menu may wrap across lines and may be followed by a one-line question. More
-# prose than that after the options means the message moved on and ended on
-# something else, which is a report, not a menu handed to the reader.
-WRAPPED_LINES = 2
+# A menu may be followed by a one-line question. More prose than that after the
+# last option means the message moved on and ended on something else, which is a
+# report, not a menu handed to the reader.
 TRAILING_LINES = 1
 
 
@@ -57,20 +56,33 @@ def closing_menu(text):
     """The options the message ends on, not every letter it happened to mention.
 
     A finished report may weigh A against B in the middle and then say which one
-    shipped. That reader is not being handed a menu, so only the last run of
-    option lines counts, and only when the message stops on it.
+    shipped. That reader is not being handed a menu, so what decides is where the
+    message stops: only options it ends on count.
+
+    Once it does end on one, every option line counts, however much explanation
+    sits between them. Prose between the options is a reason to want a drawing,
+    never a reason to stop asking for one.
     """
     lines = text.splitlines()
     marks = [i for i, line in enumerate(lines) if OPTION.match(line)]
     if not marks:
         return []
-    if _prose(lines[marks[-1] + 1:]) > TRAILING_LINES:
+    if _prose(_ending(lines, marks[-1])) > TRAILING_LINES:
         return []  # the options were discussed and then left behind
-    start = marks[0]
-    for earlier, later in zip(marks, marks[1:]):
-        if _prose(lines[earlier + 1:later]) > WRAPPED_LINES:
-            start = later  # too much between them to be one menu
-    return [OPTION.match(lines[i]).group(1) for i in marks if i >= start]
+    return [OPTION.match(lines[i]).group(1) for i in marks]
+
+
+def _ending(lines, mark):
+    """What the message says after its last option, minus that option's own body.
+
+    Lines running straight on from the option line are still that option being
+    explained. The ending is what comes after the blank line that closes it.
+    """
+    rest = lines[mark + 1:]
+    body = 0
+    while body < len(rest) and rest[body].strip():
+        body += 1
+    return rest[body:]
 
 
 def _prose(lines):

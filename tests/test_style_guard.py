@@ -107,6 +107,19 @@ class StyleGuardTests(unittest.TestCase):
         text = "- **A** — rebase onto main,\n  which rewrites the branch\n- **B** — merge\n"
         self.assertTrue(self.guard.violations(text), "a wrapped line must not split the menu")
 
+    def test_explained_options_stay_one_menu(self) -> None:
+        text = (
+            "- **A** — rebase onto main\n"
+            "  It rewrites the branch, so every reviewer loses their place.\n"
+            "  CI reruns from scratch, and anyone who pulled needs to reset.\n"
+            "  Roughly twenty minutes.\n\n"
+            "- **B** — merge main in\n"
+            "  Keeps every hash, costs a merge commit.\n\n"
+            "Which one?\n"
+        )
+        self.assertTrue(self.guard.violations(text),
+                        "prose between options argues for a drawing, not against one")
+
     def test_a_single_option_is_not_a_menu(self) -> None:
         self.assertFalse(self.guard.violations("- **A** — the only move\n"))
 
