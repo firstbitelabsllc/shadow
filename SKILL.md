@@ -64,6 +64,10 @@ what the task means; every line changes an implementation or safety
 decision; "done", "merged", "live", and "proven" stay distinct; the brief
 is shorter than the context it replaces.
 
+`shadow amp --repo <project>` projects this block deterministically from the
+repository's own plan — pointer, resume row, proof, milestone tooling —
+within one paste budget; the judgment above is what you add on top of it.
+
 ## Delegate one task
 
 Use the active host directly for normal work. For a bounded handoff, use:
