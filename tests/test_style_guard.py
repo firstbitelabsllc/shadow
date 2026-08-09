@@ -97,6 +97,48 @@ class StyleGuardTests(unittest.TestCase):
         text = "x | y\n--- | ---\n1 | 2\n\n- **A** — submit\n- **B** — merge\n"
         self.assertFalse(self.guard.violations(text), "outer pipes are optional in Markdown")
 
+    def test_a_fence_from_elsewhere_in_the_report_does_not_pay_for_the_menu(self) -> None:
+        """The drawing has to show what the options are, not what the tests said.
+
+        A `pytest` fence explains the test run it sits under. Reading it as an
+        exemption for an A/B five paragraphs later frees the exact ending this
+        guard was written for: two unexplained terms and nothing showing them.
+        """
+        text = (
+            "Ran the suite:\n\n"
+            "```\n"
+            "32 passed in 0.14s\n"
+            "```\n\n"
+            "Everything is green, so the choice is open again.\n\n"
+            "- **A** — adopt seat semantics\n"
+            "- **B** — consolidate the validators\n"
+        )
+        self.assertTrue(self.guard.violations(text),
+                        "an unrelated fence explains nothing about A or B")
+
+    def test_a_lead_in_over_the_drawing_keeps_it_with_the_menu(self) -> None:
+        text = (
+            "Here is what each one does to the branch:\n\n"
+            "```\n"
+            "A: rebase -> new hashes    B: merge -> extra commit\n"
+            "```\n\n"
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+        )
+        self.assertFalse(self.guard.violations(text),
+                         "a sentence introducing the drawing must not orphan it")
+
+    def test_a_drawing_after_the_options_still_counts(self) -> None:
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n\n"
+            "```\n"
+            "A: rebase -> new hashes    B: merge -> extra commit\n"
+            "```\n"
+        )
+        self.assertFalse(self.guard.violations(text),
+                         "showing the options after listing them is still showing them")
+
     def test_options_weighed_mid_report_are_not_a_menu(self) -> None:
         text = (
             "Two ways to land this:\n\n"

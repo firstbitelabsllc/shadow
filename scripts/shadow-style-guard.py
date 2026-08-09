@@ -90,12 +90,17 @@ def closing_menu(text):
     third letter in a message that already printed two.
     """
     lines = text.splitlines()
+    return [OPTION.match(lines[i]).group(1) for i in _closing_marks(lines)]
+
+
+def _closing_marks(lines):
+    """Where the closing menu's options sit, or nothing if it is not a menu."""
     marks = [i for i, line in enumerate(lines) if OPTION.match(line)]
     if not marks:
         return []
     if not _still_offering(_ending(lines, marks[-1])):
         return []  # the options were discussed and then left behind
-    return [OPTION.match(lines[i]).group(1) for i in marks]
+    return marks
 
 
 def _still_offering(ending):
@@ -144,13 +149,40 @@ def _indent(line):
     return len(line) - len(line.lstrip())
 
 
+def _passage(lines, first):
+    """The menu and what is presented with it, not everything above it.
+
+    A drawing earns the pass by showing what the options ARE, so it has to be
+    where the reader meets them. A `pytest` fence from the middle of a report
+    explains the tests, and letting it exempt an A/B eight paragraphs later is
+    the false green this guard exists to refuse.
+
+    What travels with a menu is its own lines plus the block introducing them,
+    whether that block is the drawing itself or a lead-in sentence over it, so
+    the passage reaches back across one blank line and no further. Anything the
+    message says after the first option is inside the menu either way.
+    """
+    start = first
+    crossed = False
+    while start > 0:
+        if not lines[start - 1].strip():
+            if crossed:
+                break
+            crossed = True
+        start -= 1
+    return "\n".join(lines[start:])
+
+
 def violations(text):
-    if len(set(closing_menu(text))) < 2:
+    lines = text.splitlines()
+    marks = _closing_marks(lines)
+    if len({OPTION.match(lines[i]).group(1) for i in marks}) < 2:
         return []
-    if "```" in text or TABLE.search(text):
+    passage = _passage(lines, marks[0])
+    if "```" in passage or TABLE.search(passage):
         return []
     return [
-        "an A/B/C with no drawing, fenced block, or table in the same message — "
+        "an A/B/C with no drawing, fenced block, or table beside it — "
         "show what each option IS before offering it"
     ]
 
