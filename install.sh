@@ -62,10 +62,21 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   done
 fi
 
+if [[ "${LINK_SKILLS}" -eq 1 ]]; then
+  # The standing goal is what makes a cold host open the board instead of
+  # asking "which project?". Pasting it by hand was the step everyone skipped:
+  # adoption on the reference machine was 0 of 3 hosts and nothing noticed.
+  # This owns only its own marker-delimited block — the rest of the file is
+  # untouched, an unmarked copy is adopted rather than duplicated, and
+  # `shadow goal --remove` takes it back out.
+  python3 "${ROOT}/scripts/shadow-host-directives.py" \
+    || echo "note:      standing goal not written; run: shadow goal --install" >&2
+fi
+
 case ":${PATH}:" in
   *":${BIN_DIR}:"*) ;;
   *) echo "note:      ${BIN_DIR} is not on PATH — add it to your shell profile" ;;
 esac
 
 echo
-echo "next: shadow doctor    (then paste the standing goal from docs/reference/host-integration.md)"
+echo "next: shadow doctor"
