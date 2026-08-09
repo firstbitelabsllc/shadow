@@ -15,6 +15,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow browse --root PATH` | Start the loopback briefing UI. |
 | `shadow host probe --host HOST` | Check a native host without using it. |
 | `shadow host run …` | Run one sealed task in one clean worktree. |
+| `shadow buckets` | Report which extension buckets are filled. Absent is a WARN and exits 0; a wrong binding FAILs, and so does an *installed* honcho — that bucket's ruling says it is a pattern, never a service. |
 | `shadow doctor` | Check installation, skill mounts, native hosts, and whether each host carries the current standing goal. |
 
 ## Two things that bite on the first try

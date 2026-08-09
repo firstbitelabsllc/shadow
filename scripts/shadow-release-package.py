@@ -46,6 +46,7 @@ REQUIRED_FILES = {
     "scripts/shadow-amp.py",
     "scripts/shadow-throw.py",
     "scripts/shadow-host-directives.py",
+    "scripts/shadow-buckets.py",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
     "browser/outcome_source.py",

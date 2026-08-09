@@ -12,6 +12,7 @@
 - [Outcome contract](outcome-choice.md)
 - [Configuration](config.md)
 - [Privacy](privacy.md)
+- [Extension buckets](buckets.md) — the named slots the Method plugs into
 - [honcho](honcho.md) — why it is a pattern here, not a store
 
 Ordered roughly by how soon you need it. Everything below Browser is either a
