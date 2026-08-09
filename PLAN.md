@@ -64,7 +64,7 @@ sections that stood here until 2026-08-09 are archived at
 - tools: `scripts/shadow-release-package.py --expect-version` is the artifact gate; the audit runs as three NAMED agents (inspectable, messageable), never a sealed workflow
 - [pending] the v3 Outcome blob leaves PLAN.md; no live prose calls the product Pilot Puppy ~dslp | proof: read docs/plan-archive/2026-08-04-v3-outcome-receipts.md holds the 435 archived lines; PLAN.md Brief and Tasks contain zero "Pilot Puppy" (Progress receipts keep it, correctly)
 - [pending] VERSION and plugin.json read 0.1.0 and the release artifact verifies at that version ~vrst | proof: cmd scripts/shadow-python.sh scripts/shadow-release-package.py --expect-version 0.1.0 --allow-dirty
-- [pending] repo audited for 0.1.0 readiness by three named agents on disjoint surfaces; every must-fix either fixed or written as a row ~audt | proof: read three agent reports folded into this plan, each finding fixed or given a Deferred row with its reason
+- [in_progress] repo audited for 0.1.0 readiness by three named agents on disjoint surfaces; every must-fix either fixed or written as a row ~audt | proof: read three agent reports folded into this plan, each finding fixed or given a Deferred row with its reason
 - [pending] the fan-out law is stated where dispatch is decided: an unattended fan-out leaves a thrown row first, whichever mechanism spawns it ~fout | proof: cmd scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md | needs: ~audt
 - [pending] 0.1.0 merged to main, installed from the clone, doctor green at that version ~land (DoD) | proof: cmd bash install.sh --bin-dir /tmp/shadow-010-bin --no-skills && /tmp/shadow-010-bin/shadow --version | needs: ~vrst
 
@@ -1520,6 +1520,7 @@ sections that stood here until 2026-08-09 are archived at
   and moves to the next reachable lane.
 
 - 2026-08-04T16:29:20Z: The chief-of-staff surface now names the required operator sequence directly: Outcome, Now, Change, Proof, and A/B/C decision. The existing local role/host, sealed packet, privacy, and lead-acceptance contracts are unchanged.
+- 2026-08-09T04:34:39Z THROWN ~audt repo audited for 0.1.0 readiness by three named agents on disjoint surfaces; every must-fix either fixed or written as a row | note: three named agents, disjoint surfaces: stranger-install at 0.1.0 / version-pin sweep / vestigial-prose sweep
 
 ## Deferred proof (not a global blocker)
 
