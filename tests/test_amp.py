@@ -70,8 +70,43 @@ class AmpSelection(unittest.TestCase):
 
     def test_complete_plan_raises_for_successor_minting(self) -> None:
         done = PLAN.replace("[pending]", "[completed]").replace("[in_progress]", "[completed]")
-        with self.assertRaises(LookupError):
+        with self.assertRaises(LookupError) as caught:
             amp.build_block(amp._parse(done), Path("."), Path("PLAN.md"), None, 4000)
+        self.assertIn("mint the successor", str(caught.exception))
+
+    def test_person_gated_row_is_never_auto_selected(self) -> None:
+        # A `gate <owner>` proof is an agent-side stop; auto-resume handing it
+        # to a seat would have the seat claim the person's row.
+        text = PLAN.replace(
+            "- [pending] the ready row ~dd44 | proof: cmd npm run gate",
+            "- [in_progress] the ready row ~dd44 | proof: gate owner resume: shipped",
+        )
+        _, row = amp._select(amp._parse(text), None)
+        self.assertNotEqual(row["id"], "~dd44")  # gated, even though in_progress
+        self.assertEqual(row["id"], "~ff66")  # resume falls through to real work
+
+    def test_task_flag_still_targets_a_gated_row(self) -> None:
+        _, row = amp._select(amp._parse(PLAN), "~ee55")
+        self.assertEqual(row["id"], "~ee55")
+
+    def test_stall_reason_never_claims_complete_while_rows_are_open(self) -> None:
+        # Open work remains, but none of it is agent-takeable: saying "every
+        # task complete; mint the successor" here would chain past real work.
+        text = PLAN.replace(
+            "- [pending] the ready row ~dd44 | proof: cmd npm run gate",
+            "- [blocked] the ready row ~dd44 | proof: cmd npm run gate",
+        ).replace(
+            "- [pending] milestone closes ~ff66 (DoD)",
+            "- [blocked] milestone closes ~ff66 (DoD)",
+        )
+        plan = amp._parse(text)
+        self.assertIsNone(amp._select(plan, None))
+        reason = amp.stall_reason(plan)
+        self.assertNotIn("every task complete", reason)
+        self.assertIn("4 open row(s)", reason)
+        self.assertIn("1 person-gated", reason)
+        self.assertIn("2 blocked", reason)
+        self.assertIn("1 waiting on needs", reason)
 
 
 class AmpBlock(unittest.TestCase):

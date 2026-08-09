@@ -98,9 +98,18 @@ def _ready(row: dict, done: set[str]) -> bool:
     return all(ref in done for ref in HASH_RE.findall(needs))
 
 
+def _gated(row: dict) -> bool:
+    """A `gate <owner> resume: ...` proof is a person-gated agent-side stop:
+    the plan closes there and hands off, so auto-resume must never hand one
+    to a seat as its own work. `--task ~hash` stays explicit and may target
+    one — that is a person choosing, not the tool choosing for them."""
+    return row["fields"].get("proof", "").startswith("gate ")
+
+
 def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
     """Return (milestone, row): the in_progress row first, else the first
-    ready pending row, milestone order — the same order a cycle resumes in."""
+    ready pending row, milestone order — the same order a cycle resumes in.
+    Person-gated rows are never auto-selected."""
     done = _completed_ids(plan["milestones"])
     if task_id:
         for milestone in plan["milestones"]:
@@ -111,11 +120,42 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
     for state_pass in ("in_progress", "pending"):
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
-                if row["state"] == state_pass and (
+                if row["state"] == state_pass and not _gated(row) and (
                     state_pass == "in_progress" or _ready(row, done)
                 ):
                     return milestone, row
     return None
+
+
+def stall_reason(plan: dict) -> str:
+    """Why auto-resume selected nothing — never 'all complete' while open rows
+    remain. A plan can stall with work left: every open row person-gated,
+    blocked, or waiting on unmet `needs:`. Saying 'mint the successor' there
+    would tell a seat to chain past work nobody has done."""
+    done = _completed_ids(plan["milestones"])
+    open_rows = [
+        row
+        for milestone in plan["milestones"]
+        for row in milestone["rows"]
+        if row["state"] != "completed"
+    ]
+    if not open_rows:
+        return "every task complete; mint the successor (goal chaining)"
+    counts = {"person-gated": 0, "blocked": 0, "waiting on needs": 0, "other": 0}
+    for row in open_rows:
+        if _gated(row):
+            counts["person-gated"] += 1
+        elif row["state"] == "blocked":
+            counts["blocked"] += 1
+        elif not _ready(row, done):
+            counts["waiting on needs"] += 1
+        else:
+            counts["unreachable"] += 1
+    detail = ", ".join(f"{count} {name}" for name, count in counts.items() if count)
+    return (
+        f"nothing agent-takeable — {len(open_rows)} open row(s): {detail}; "
+        "hand off, unblock, or mint the successor"
+    )
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -144,7 +184,7 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     selected = _select(plan, task_id)
     if selected is None:
         raise LookupError(
-            "no open task reachable"
+            stall_reason(plan)
             if task_id is None
             else f"task {task_id} not found in the plan"
         )
@@ -254,8 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         block, dropped = build_block(plan, repo, plan_path, args.task, args.max_chars)
     except LookupError as err:
-        print(f"shadow amp: {err} — if the milestone is done, mint the successor "
-              "goal in the plan first (goal chaining).", file=sys.stderr)
+        print(f"shadow amp: no goal to project — {err}.", file=sys.stderr)
         return 1
     except ValueError as err:
         print(f"shadow amp: {err}", file=sys.stderr)

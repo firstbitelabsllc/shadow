@@ -129,6 +129,23 @@ class StatusV4Tests(StatusTests):
             )
             self.assertIn("Mode: ship", result.stdout)
 
+    def test_stalled_plan_does_not_claim_every_task_complete(self) -> None:
+        # Nothing selectable is not the same as nothing left: a plan whose only
+        # open rows are person-gated or needs-blocked must say so, not tell the
+        # reader to mint a successor over unfinished work.
+        stalled = V4_PLAN.replace(
+            "- [pending] the ready row ~bb22 | proof: cmd npm run gate",
+            "- [pending] owner clicks release ~bb22 | proof: gate owner resume: live",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(stalled, encoding="utf-8")
+            result = self.run_status(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("every task complete", result.stdout)
+        self.assertIn("1 person-gated", result.stdout)
+        self.assertIn("1 waiting on needs", result.stdout)
+
     def test_v4_json_carries_v4_plans(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

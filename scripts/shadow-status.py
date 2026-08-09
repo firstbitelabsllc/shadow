@@ -70,7 +70,11 @@ def v4_brief(plan_path: Path) -> dict | None:
         record["resume"] = f"[{row['state']}] {row['text']} {row['id']}"
         record["proof"] = row["fields"].get("proof", "MISSING")
     else:
-        record["resume"] = "none — every task complete; mint the successor (goal chaining)"
+        # Nothing selectable has two very different meanings: the plan is
+        # finished (chain to the successor) or it is stalled with open rows
+        # that are person-gated, blocked, or waiting on unmet needs. amp owns
+        # that distinction so status and the goal block can never disagree.
+        record["resume"] = f"none — {_amp.stall_reason(plan)}"
     return record
 
 

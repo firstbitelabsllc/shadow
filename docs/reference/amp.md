@@ -16,7 +16,10 @@ minimum a seat needs to warm-start without re-deriving state.
    your ref.
 2. **One resume row.** Selection is the cycle law: the `in_progress` row
    first, else the first `pending` row whose `needs:` are all completed,
-   milestone order. `--task ~hash` targets one row explicitly.
+   milestone order. Person-gated rows (`proof: gate <owner> …`) are never
+   auto-selected — they are agent-side stops, not work a seat may claim.
+   `--task ~hash` targets one row explicitly, gated or not: that is a person
+   choosing.
 3. **Proof rides along.** The resume row's `proof:` field is in the block —
    a seat should know the bar before writing a line.
 4. **Tooling from the milestone, not a store.** The optional milestone
@@ -41,9 +44,11 @@ shadow amp --task ~dd44          # target one row
 shadow amp --max-chars 2000      # tighter paste budget
 ```
 
-Exit codes: `0` block printed; `1` no open task (mint the successor — goal
-chaining) or the resume row itself exceeds the budget; `2` no plan or
-invalid usage.
+Exit codes: `0` block printed; `1` nothing to project — either every task is
+complete (mint the successor — goal chaining) or the plan is stalled with
+open rows that are only person-gated, blocked, or waiting on unmet `needs:`
+(stderr names which and how many) — or the resume row itself exceeds the
+budget; `2` no plan or invalid usage.
 
 ## What amp deliberately does not do
 
