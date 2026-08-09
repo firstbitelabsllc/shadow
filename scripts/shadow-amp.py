@@ -298,8 +298,8 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     # same bound as Mode, Priority, and Loop: unbounded, a 3,400-char Project
     # value evicted RAILS from a 4k block while amp still reported success.
     # The default loop derives from the cleaned value so both stay bounded.
-    project = _clean(brief.get("Project", repo.name))
-    loop = brief.get("Loop", f"/{project}-loop")
+    project = _clean(brief.get("Project", repo.name), 64)
+    loop = _clean(brief.get("Loop", f"/{project}-loop"), 64)
 
     dod = next((r for r in milestone["rows"] if r["dod"]), None)
     gates = [

@@ -271,7 +271,12 @@ class BriefValuesAreDataNotInstructions(unittest.TestCase):
         self.assertNotIn("RAILS", dropped, "an oversized Project value evicted the rails")
         self.assertIn("no proof, no completed", block)
         self.assertLessEqual(len(block), 4000)
-        self.assertNotIn("p" * 3_400, block)          # the bound, not luck
+        # Assert against the BOUND, not the raw length: "not the whole 3,400"
+        # stays true under a bound loose enough to still evict the rails, so
+        # it would not have caught a weaker cap. A Project is a slug and it
+        # rides the header, so the cap is 64.
+        self.assertNotIn("p" * 100, block)
+        self.assertIn("p" * 64, block)
 
     def test_the_bound_is_real_and_this_test_can_fail(self) -> None:
         # Mutation guard: prove _clean is what stops it. With the bound removed
