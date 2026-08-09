@@ -66,6 +66,23 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertTrue(any("uncommitted" in error for error in errors))
         self.assertEqual(self.errors(plugin, pack, tracked, dirty_paths={"README.md"}, allow_dirty=True), [])
 
+    def test_only_the_canonical_github_remote_is_provenance(self) -> None:
+        # A suffix test would trust any host that serves the canonical path.
+        plugin, pack, tracked = baseline()
+        for good in ("https://github.com/firstbitelabsllc/shadow.git",
+                     "ssh://git@github.com/firstbitelabsllc/shadow",
+                     "git@github.com:firstbitelabsllc/shadow.git"):
+            pack["origin"] = good
+            self.assertEqual(self.errors(plugin, pack, tracked), [], good)
+        for bad in ("https://evil.example.com/firstbitelabsllc/shadow.git",
+                    "https://github.com.evil.example.com/firstbitelabsllc/shadow",
+                    "git@evil.example.com:firstbitelabsllc/shadow.git",
+                    ""):
+            pack["origin"] = bad
+            self.assertTrue(
+                any("canonical" in error for error in self.errors(plugin, pack, tracked)), bad
+            )
+
     def test_current_checkout_packs_and_installs(self) -> None:
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--root", str(ROOT), "--allow-dirty", "--json"],

@@ -48,6 +48,14 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   for host in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills"; do
     if [[ -d "$(dirname "${host}")" ]]; then
       mkdir -p "${host}"
+      # `ln -sfn` into an existing REAL directory silently creates
+      # ${host}/shadow/shadow and leaves the stale mount loaded, so an old
+      # copied-in skill would keep serving while the installer claimed success.
+      if [[ -d "${host}/shadow" && ! -L "${host}/shadow" ]]; then
+        echo "skipped:   ${host}/shadow is a real directory, not a mount — move or delete it," >&2
+        echo "           then re-run: rm -rf '${host}/shadow' && bash install.sh" >&2
+        continue
+      fi
       ln -sfn "${ROOT}" "${host}/shadow"
       echo "mounted:   ${host}/shadow -> ${ROOT}"
     fi

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,14 @@ from typing import Any, Iterable
 
 
 ROOT = Path(__file__).resolve().parent.parent
+# Provenance is the host plus the path, not a suffix: an attacker-controlled
+# host serving `.../firstbitelabsllc/shadow.git` ends with the canonical path
+# and must not pass as the canonical repository.
+CANONICAL_ORIGIN = re.compile(
+    r"(?:git\+)?(?:https?://|ssh://|git://)?(?:[^@/]+@)?github\.com[:/]"
+    r"firstbitelabsllc/shadow(?:\.git)?/?",
+    re.IGNORECASE,
+)
 MAX_FILE_COUNT = 100
 MAX_UNPACKED_BYTES = 2_000_000
 REQUIRED_FILES = {
@@ -114,7 +123,7 @@ def validate_release_candidate(
         errors.append("plugin must be named shadow")
     if plugin.get("version") != wanted_version or pack.get("version") != wanted_version:
         errors.append("plugin, archived artifact, and VERSION must match")
-    if not str(pack.get("origin", "")).endswith(("firstbitelabsllc/shadow.git", "firstbitelabsllc/shadow")):
+    if not CANONICAL_ORIGIN.fullmatch(str(pack.get("origin", "")).strip()):
         errors.append("release must be cut from the canonical public repository")
     missing = sorted(REQUIRED_FILES - files)
     if missing:

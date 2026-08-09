@@ -22,6 +22,13 @@ PRIVATE_HOME = re.compile(r"(?:/Users/|/home/)([A-Za-z0-9._-]+)(?:/|\b)")
 WINDOWS_HOME = re.compile(r"[A-Za-z]:\\Users\\([A-Za-z0-9._-]+)(?:\\|\b)")
 FILE_PATH = re.compile(r"file:///([A-Za-z0-9._-]+)")
 OLD_BRAND = re.compile(r"(?i)pilot[-_ ]?puppy")
+# The whole remote, not a substring of it: `https://evil.example.com/mirror/
+# firstbitelabsllc/shadow.git` contains the canonical path and must still fail.
+CANONICAL_ORIGIN = re.compile(
+    r"(?:git\+)?(?:https?://|ssh://|git://)?(?:[^@/]+@)?github\.com[:/]"
+    r"firstbitelabsllc/shadow(?:\.git)?/?",
+    re.IGNORECASE,
+)
 PLACEHOLDER_USERS = {"example", "name", "person", "private", "user", "username"}
 SECRET = SECRET_SHAPE_RE
 
@@ -90,7 +97,7 @@ def metadata_errors(root: Path) -> list[str]:
         ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
         capture_output=True, text=True, check=False,
     ).stdout.strip()
-    if origin and "firstbitelabsllc/shadow" not in origin:
+    if origin and not CANONICAL_ORIGIN.fullmatch(origin):
         errors.append("release must be cut from the canonical public repository")
     return errors
 

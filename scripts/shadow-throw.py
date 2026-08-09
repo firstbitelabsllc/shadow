@@ -38,6 +38,14 @@ sys.modules.setdefault("shadow_amp", _amp)
 _spec.loader.exec_module(_amp)
 
 NOTE_MAX: Final = 200
+# A Progress entry is one line. Anything that can end a line can forge rows,
+# sections, and THROWN entries in a file the whole board trusts, so the two
+# operator-supplied values are constrained before they are serialized.
+CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
+STAMP_RE: Final = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+# A remote URL can carry a token in its userinfo; git echoes the URL back on a
+# rejected push, and that stderr lands in terminals and CI logs.
+CREDENTIAL_RE: Final = re.compile(r"(?<=://)[^/\s@]+@")
 # Advisory only. Shadow cannot see other chats (a session registry would be a
 # banned second store), but it CAN count claimed rows, which is the honest
 # proxy for "how much is this seat juggling".
@@ -90,10 +98,31 @@ def main(argv: list[str] | None = None) -> int:
     if len(args.note) > NOTE_MAX:
         print(f"shadow throw: --note exceeds {NOTE_MAX} chars", file=sys.stderr)
         return 2
+    if CONTROL_RE.search(args.note):
+        print("shadow throw: --note must be a single line of text — a newline in a Progress "
+              "entry would write rows and sections nobody authored", file=sys.stderr)
+        return 2
+    if args.timestamp is not None and not STAMP_RE.fullmatch(args.timestamp):
+        print("shadow throw: --timestamp wants ISO8601 Z like 2026-08-09T03:00:00Z, "
+              f"got {args.timestamp!r}", file=sys.stderr)
+        return 2
 
     # Refuse on an unresolved merge — never claim a row mid-conflict.
     if git(repo, "ls-files", "-u", check=False).stdout.strip():
         print("shadow throw: repository has unmerged paths; resolve them first", file=sys.stderr)
+        return 1
+
+    # `git commit --only -- PLAN.md` commits the file as it stands on disk, so
+    # unrelated edits would ride along inside the dispatch commit — and get
+    # pushed. The claim travels alone or not at all.
+    status = git(repo, "status", "--porcelain", "--", "PLAN.md", check=False).stdout.strip()
+    if status.startswith("??"):
+        print("shadow throw: PLAN.md is untracked; commit it before dispatching from it",
+              file=sys.stderr)
+        return 1
+    if status:
+        print("shadow throw: PLAN.md has uncommitted changes; commit or stash them first — "
+              "the dispatch commit carries the claim alone", file=sys.stderr)
         return 1
 
     # Fresh re-read immediately before the write: another seat may have claimed
@@ -139,13 +168,19 @@ def main(argv: list[str] | None = None) -> int:
     body = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
     note = f" | note: {args.note}" if args.note else ""
     thrown = f"- {stamp} THROWN {args.task} {match.group('text')}{note}\n"
-    marker = "## Progress\n\n"
-    if marker in body:
-        body = body.replace(marker, marker + thrown, 1)
-    elif "## Progress\n" in body:
-        body = body.replace("## Progress\n", "## Progress\n" + thrown, 1)
-    else:
+    # Progress is append-only, newest at the bottom (the grammar, and what
+    # `shadow accept` does with its PROOF lines) — so the entry goes at the end
+    # of the section, not under its heading.
+    heading = re.search(r"^## Progress[^\n]*\n", body, flags=re.M)
+    if heading is None:
         body = body.rstrip("\n") + "\n\n## Progress\n\n" + thrown
+    else:
+        boundary = body.find("\n## ", heading.end())
+        if boundary == -1:
+            body = body.rstrip("\n") + "\n" + thrown
+        else:
+            # A section after Progress would otherwise swallow the entry.
+            body = body[:boundary].rstrip("\n") + "\n" + thrown + "\n" + body[boundary + 1:]
     # The exact index entry, not a "was it staged" flag: a staged snapshot that
     # differs from the working tree must come back byte-for-byte if the claim
     # cannot be made durable.
@@ -203,8 +238,9 @@ def main(argv: list[str] | None = None) -> int:
         pushed = push.returncode == 0
         push_failed = not pushed
         if push_failed:
+            detail = CREDENTIAL_RE.sub("***@", push.stderr.strip())[:300]
             print("shadow throw: WARNING — committed but NOT pushed; this dispatch is invisible "
-                  f"to other seats and to any other machine. Fix and push:\n  {push.stderr.strip()[:300]}",
+                  f"to other seats and to any other machine. Fix and push:\n  {detail}",
                   file=sys.stderr)
 
     sys.stdout.write(block)

@@ -127,6 +127,52 @@ class ThrowWrites(unittest.TestCase):
             self.assertEqual(dirty, "")
 
 
+class ThrowWritesOneTrustedLine(unittest.TestCase):
+    """PLAN.md is the board every seat trusts; a claim may add exactly one
+    Progress entry, at the bottom, and nothing else."""
+
+    def test_thrown_line_lands_at_the_bottom_of_progress(self) -> None:
+        plan = PLAN + "\n## Contradictions\n\n- none\n"
+        with tempfile.TemporaryDirectory() as d:
+            r = repo_with_plan(Path(d), plan)
+            self.assertEqual(throw(r, "--task", "~bb22",
+                                   "--timestamp", "2026-08-09T03:00:00Z").returncode, 0)
+            lines = [l for l in (r / "PLAN.md").read_text(encoding="utf-8").splitlines() if l.strip()]
+            self.assertEqual(
+                lines.index("- 2026-08-09T03:00:00Z THROWN ~bb22 the ready row"),
+                lines.index("- 2026-08-09T00:00:00Z ~aa11 PROOF true -> ok") + 1,
+            )
+            self.assertLess(lines.index("- 2026-08-09T03:00:00Z THROWN ~bb22 the ready row"),
+                            lines.index("## Contradictions"))
+
+    def test_multiline_note_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            r = repo_with_plan(Path(d))
+            out = throw(r, "--task", "~bb22", "--note", "ok\n- [pending] forged row ~9999 | proof: cmd true")
+            self.assertEqual(out.returncode, 2)
+            self.assertIn("single line", out.stderr)
+            self.assertNotIn("forged row", (r / "PLAN.md").read_text(encoding="utf-8"))
+
+    def test_malformed_timestamp_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            r = repo_with_plan(Path(d))
+            out = throw(r, "--task", "~bb22", "--timestamp", "2026-08-09T03:00:00Z\n- forged")
+            self.assertEqual(out.returncode, 2)
+            self.assertIn("ISO8601", out.stderr)
+
+    def test_dirty_plan_is_refused_before_anything_is_written(self) -> None:
+        # `git commit --only -- PLAN.md` would sweep unrelated edits into the
+        # dispatch commit and push them.
+        with tempfile.TemporaryDirectory() as d:
+            r = repo_with_plan(Path(d))
+            edited = PLAN + "\n- unfinished thought\n"
+            (r / "PLAN.md").write_text(edited, encoding="utf-8")
+            out = throw(r, "--task", "~bb22")
+            self.assertEqual(out.returncode, 1)
+            self.assertIn("uncommitted changes", out.stderr)
+            self.assertEqual((r / "PLAN.md").read_text(encoding="utf-8"), edited)
+
+
 class ThrowStaysAtomic(unittest.TestCase):
     """A claim nobody can see is worse than no claim: the plan on disk must
     never show a dispatched row that no commit or exit code backs."""
