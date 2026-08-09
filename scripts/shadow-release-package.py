@@ -59,6 +59,7 @@ REQUIRED_FILES = {
     "docs/reference/native-hosts.md",
     "docs/reference/outcome-choice.md",
     "examples/outcome-choice/example.json",
+    "hooks/hooks.json",
     "schemas/chief-of-staff.v1.json",
     "schemas/decision-choice.v1.json",
     "schemas/decision-receipt.v1.json",
@@ -75,6 +76,7 @@ REQUIRED_FILES = {
     "scripts/shadow-python.sh",
     "scripts/shadow-release-package.py",
     "scripts/shadow-status.py",
+    "scripts/shadow-style-guard.py",
     "scripts/shadow_task_lib.py",
     "scripts/shadow_scrub_lib.py",
 }
