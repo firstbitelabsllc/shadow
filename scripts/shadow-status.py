@@ -122,21 +122,59 @@ def render(records: list[dict]) -> str:
     return "\n\n".join(blocks) + "\n"
 
 
+def portfolio_root() -> Path | None:
+    """The durable fallback scan root — same board from ANY working directory.
+
+    Shadow opened in a blank workspace (a fresh chat, a voice session, a
+    scratch dir) must show the same durable plan list as Shadow opened inside
+    a project. "This workspace has no plan — which project should I attach
+    to?" is the failure mode this exists to delete: the wrapping agent had
+    nothing to read, so it asked the person to do Shadow's job.
+
+    Resolution: $SHADOW_PORTFOLIO_ROOT, else ~/Development if it exists.
+    Returns None when neither resolves; callers fall back to cwd behavior.
+    """
+    configured = os.environ.get("SHADOW_PORTFOLIO_ROOT")
+    if configured:
+        candidate = Path(configured).expanduser()
+        return candidate if candidate.is_dir() else None
+    default = Path.home() / "Development"
+    return default if default.is_dir() else None
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="shadow status", description=__doc__)
     default_root = os.environ.get("SHADOW_DEV_ROOT") or str(Path.cwd())
     result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
     result.add_argument("--all", action="store_true", help="include finished Outcomes")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
+    result.add_argument(
+        "--no-portfolio-fallback",
+        action="store_true",
+        help="report an empty scan as empty instead of falling back to the portfolio root",
+    )
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    explicit_root = any(a == "--root" or a.startswith("--root=") for a in (argv or sys.argv[1:]))
     root = args.root.expanduser().resolve()
     if not root.is_dir():
         print("shadow status: scan root is not a directory", file=sys.stderr)
         return 2
+    if (
+        not explicit_root
+        and not args.no_portfolio_fallback
+        and not discover_plans(root)
+    ):
+        fallback = portfolio_root()
+        if fallback is not None and fallback.resolve() != root:
+            print(
+                f"shadow status: no plan under {root} — showing the portfolio from {fallback}",
+                file=sys.stderr,
+            )
+            root = fallback.resolve()
     # v4 plans first: a grammar-clean plan must never fall through to the
     # legacy validator and misreport as "needs a valid Brief".
     legacy_records: list[dict] = []

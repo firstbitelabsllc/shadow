@@ -851,6 +851,15 @@ Code, or Cursor without taking custody of credentials or conversations.
 - [completed] `shadow status` v3 outcome-schema path cut or migrated to the v4 Brief ~c9ut | proof: cmd shadow status reports v4 Brief fields, zero "outcome must be a string" on a grammar-clean plan | needs: ~a4mp
 - [pending] amp ships in a tagged release, installed mount green ~s4ip (DoD) | proof: gate owner resume: installed `shadow amp` in a v4 repo emits that plan's own goal block | needs: ~t0ol, ~c9ut
 
+### M5 — Shadow is me: continuity + proxy stance
+- tools: docs/reference/host-integration.md is the wiring; docs/reference/honcho.md is the memory ruling; scripts/shadow-python.sh for gates
+- [completed] status opens the same durable board from ANY directory — portfolio fallback, explicit --root and opt-out flag never fall back ~s4me | proof: cmd npm run test:py
+- [completed] the proxy stance is law in AGENT.md: never open empty, never ask which-project, chief-of-staff moves unprompted, static goal, chat-is-projection ~prxy | proof: cmd npm run docs:build | needs: ~s4me
+- [completed] the honcho question answered once, durably: pattern not store, function map, spike template to revisit ~hnch | proof: read docs/reference/honcho.md -> ruling + map + revisit path
+- [completed] out-of-box host integration: the STATIC standing goal (15 lines) pasteable into CLAUDE.md / AGENTS.md / Cursor rules, plus verify steps ~oobx | proof: read docs/reference/host-integration.md -> static goal block + `cd $(mktemp -d) && shadow status` check
+- [completed] README rewritten to the real product: proxy identity, continuity, amp, the refusals ~rdme | proof: cmd npm run verify
+- [pending] a real remote/voice seat cold-starts correctly on the installed release: blank workspace shows the portfolio, no which-project question, findings written to a plan before session end ~vcar (DoD) | proof: gate leo resume: repeat the 2026-08-08 car session against the next tagged release | needs: ~s4me, ~oobx
+
 ## Worklane boundary
 
 - Pilot Puppy has its own product plan and proof gap. That gap never blocks an
@@ -1073,6 +1082,12 @@ Code, or Cursor without taking custody of credentials or conversations.
 
 ## Progress
 
+- 2026-08-08T23:30:00Z ~rdme PROOF npm run verify -> 171 py + 4 js + docs build + public-ready gate all green with the rewritten README in place
+- 2026-08-08T23:30:00Z ~oobx PROOF read host-integration.md -> static goal block present; mktemp-d verify step documented; voice/remote rule: out-of-band findings are written to the owning PLAN.md before session end
+- 2026-08-08T23:30:00Z ~hnch PROOF read honcho.md -> ruling (pattern not store, v4), four-row function map, spike-to-revisit path; the recurring question now has a link-instead-of-rederive answer
+- 2026-08-08T23:30:00Z ~prxy PROOF npm run docs:build -> clean with the proxy-stance section in AGENT.md
+- 2026-08-08T23:30:00Z ~s4me PROOF npm run test:py -> 171 OK incl 3 new portfolio-fallback pins (blank-cwd falls back + banner on stderr; explicit --root never falls back; --no-portfolio-fallback keeps empty empty)
+- 2026-08-08T23:25:00Z STRUCT M5 added | trigger: owner car-session 2026-08-08 (Codex voice, remote machine) — four verbatim gaps: (1) "why does every shadow not open the same durable plan list?" — reproduced live: blank voice workspace answered "which project should I attach it to?" because status scanned cwd only; (2) "why haven't we installed hauncho" — the v4 ruling existed but had no durable, linkable answer, so it kept re-costing; (3) "the readme is just a rip of what vidux used to be" — README described a passive per-repo tool: no continuity story, no amp, no proxy stance; (4) "shadow is supposed to be me... the /goal should always be the same, a static pointer" — nothing shipped that static goal or the out-of-box host wiring. Also: this is Deferred ~ob1c's wake firing for real (cold-start cost named as friction by the person, in production). Evidence caveat: the "Fable-ready packet" the voice seat claimed to assemble lives on the remote machine and is unverifiable here — the pasted transcript is the durable capture, which is itself gap-(4)'s lesson: chat is projection, plans are memory. Contradicts: nothing — extends M4's pointer doctrine from the goal block to the whole product surface.
 - 2026-08-08T20:30:00Z ~c9ut PROOF shadow status on this repo -> renders the v4 Brief (project shadow, Mode ship, milestone M4 2/4, resume ~c9ut itself — the output was its own proof), zero "outcome must be a string"; v4 plans route through the amp parser so status and amp can never disagree, legacy v3 plans keep the old view; 168 py tests OK incl 3 new status pins (schema-error regression, cwd-independence, JSON shape)
 - 2026-08-07T22:55:00Z ~t0ol PROOF npm run docs:build -> "build complete in 1.78s", amp.md + grammar § Milestone law tools line rendered (run fresh in this checkout before the flip)
 - 2026-08-07T22:55:00Z ~a4mp PROOF npm run test:py -> 12/12 test_amp + full py suite + lint:plan 0 blocking, all in the same commit as this flip; dogfood: `bin/shadow amp` on this plan exited 1 "no open task — mint the successor" BEFORE M4 existed (goal-chaining enforced by the tool itself) and emits M4's goal block after

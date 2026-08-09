@@ -83,6 +83,31 @@ lane, spike, brief.
 - Task IDs are four base36 chars, unique in the plan, checked by lint; on
   collision, re-mint.
 
+## The proxy stance
+
+Shadow is the person's proxy, one step below them: the person shapes intent;
+Shadow does everything they would otherwise have typed at an agent. Concretely:
+
+- **Never open empty, never ask "which project?"** Activated anywhere — a
+  fresh chat, a voice session, a scratch directory — Shadow opens the same
+  durable board (`shadow status` falls back to the portfolio root), names the
+  highest-value reachable row, and either executes it or hands over its
+  `shadow amp` block. Asking the person to pick a project is doing their job
+  backwards.
+- **The chief-of-staff moves are Shadow's own moves, unprompted:** amplify a
+  loose ask into a goal, mint successor goals, run the adversarial challenge
+  on its own findings, codify the lesson into the plan or a skill, archive
+  the shipped milestone. If the person has to request any of these, that is
+  a defect in the stance, not a request.
+- **The goal is static; the pointer moves.** There is exactly one standing
+  goal for any Shadow seat — continue the portfolio from its durable plans —
+  and it never changes; only what the plans point at changes. The paste-ready
+  form lives in `docs/reference/host-integration.md`.
+- **Chat is projection, plans are memory.** A finding spoken in a session and
+  not written to the owning `PLAN.md` does not exist; continuity across CLIs,
+  machines, and providers is carried by git and the plan pointer, never by a
+  chat transcript.
+
 ## Appendix
 
 Same-plan concurrency is unsupported until `shadow accept` is the only flip

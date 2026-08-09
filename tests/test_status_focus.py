@@ -137,3 +137,66 @@ class StatusV4Tests(StatusTests):
             payload = json.loads(result.stdout)
             self.assertEqual(len(payload["v4_plans"]), 1)
             self.assertEqual(payload["v4_plans"][0]["project"], "demo")
+
+
+class StatusPortfolioFallbackTests(unittest.TestCase):
+    def test_empty_workspace_falls_back_to_portfolio_root(self) -> None:
+        # The car-session failure: shadow opened in a blank voice workspace
+        # reported nothing and the wrapping agent asked "which project should I
+        # attach to?". An empty cwd scan must fall back to the portfolio root
+        # so every entry point shows the SAME durable plan list.
+        import os as _os
+
+        with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
+            proj = Path(portfolio) / "demo-repo"
+            proj.mkdir()
+            (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            env = dict(_os.environ)
+            env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+            env.pop("SHADOW_DEV_ROOT", None)
+            result = subprocess.run(
+                [sys.executable, str(STATUS)],
+                cwd=blank,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertIn("showing the portfolio from", result.stderr)
+            self.assertIn("Mode: ship", result.stdout)
+            self.assertIn("Resume: [pending] the ready row ~bb22", result.stdout)
+
+    def test_explicit_root_never_falls_back(self) -> None:
+        import os as _os
+
+        with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
+            proj = Path(portfolio) / "demo-repo"
+            proj.mkdir()
+            (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            env = dict(_os.environ)
+            env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+            result = subprocess.run(
+                [sys.executable, str(STATUS), "--root", blank],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotIn("showing the portfolio", result.stderr)
+            self.assertNotIn("Mode: ship", result.stdout)
+
+    def test_opt_out_flag_keeps_empty_empty(self) -> None:
+        import os as _os
+
+        with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
+            env = dict(_os.environ)
+            env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+            result = subprocess.run(
+                [sys.executable, str(STATUS), "--no-portfolio-fallback"],
+                cwd=blank,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotIn("showing the portfolio", result.stderr)
