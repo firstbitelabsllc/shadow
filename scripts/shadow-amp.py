@@ -234,7 +234,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     repo = Path(args.repo).resolve()
-    plan_path = Path(args.plan).resolve() if args.plan else repo / "PLAN.md"
+    if args.plan:
+        # A relative --plan is relative to the REPO, not the process cwd —
+        # `shadow amp --repo /x --plan PLAN.md` must never read a same-named
+        # plan that happens to sit in the caller's working directory.
+        given = Path(args.plan)
+        plan_path = (given if given.is_absolute() else repo / given).resolve()
+    else:
+        plan_path = repo / "PLAN.md"
     if not plan_path.is_file():
         print(f"shadow amp: no plan at {plan_path}", file=sys.stderr)
         return 2

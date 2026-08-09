@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from browser.server import discover_plans  # noqa: E402
+from browser.server import SKIP_DIRS, discover_plans  # noqa: E402
 
 # The v4 grammar parser lives in shadow-amp; status reuses it so the two
 # projections can never disagree about what the current milestone or resume
@@ -40,11 +40,20 @@ def v4_brief(plan_path: Path) -> dict | None:
     if "Project" not in brief or "Mode" not in brief:
         return None
     milestones = plan["milestones"]
-    current = next(
-        (m for m in milestones if any(r["state"] != "completed" for r in m["rows"])),
-        None,
-    )
     selected = _amp._select(plan, None)
+    # The milestone line derives from the SELECTED row's milestone — the same
+    # one amp's goal block names — never independently. (An in_progress row in
+    # a later milestone outranks an earlier milestone's needs-blocked pending
+    # rows; deriving "current" as first-with-open-work here while amp resumed
+    # elsewhere broke the shared-parser guarantee.) Only when nothing is
+    # selectable does the first milestone with open work label the plan.
+    if selected:
+        current = selected[0]
+    else:
+        current = next(
+            (m for m in milestones if any(r["state"] != "completed" for r in m["rows"])),
+            None,
+        )
     record: dict = {
         "schema": "shadow.status.v4-brief",
         "path": str(plan_path),
@@ -142,6 +151,23 @@ def portfolio_root() -> Path | None:
     return default if default.is_dir() else None
 
 
+def _any_plan_file(root: Path) -> Path | None:
+    """First PLAN.md file under root using discover_plans' own walk pruning,
+    or None. Existence only — no parsing — so it distinguishes 'no plan at
+    all' (safe to fall back) from 'a plan exists but failed ingestion'."""
+    for current, directories, files in os.walk(root, followlinks=False):
+        directories[:] = sorted(
+            name
+            for name in directories
+            if name not in SKIP_DIRS
+            and not name.startswith(".")
+            and not name.endswith("-worktrees")
+        )
+        if "PLAN.md" in files:
+            return Path(current) / "PLAN.md"
+    return None
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="shadow status", description=__doc__)
     default_root = os.environ.get("SHADOW_DEV_ROOT") or str(Path.cwd())
@@ -168,13 +194,26 @@ def main(argv: list[str] | None = None) -> int:
         and not args.no_portfolio_fallback
         and not discover_plans(root)
     ):
-        fallback = portfolio_root()
-        if fallback is not None and fallback.resolve() != root:
+        # discover_plans silently skips a PLAN.md that fails to load (OSError,
+        # UnicodeError, contract crash). An empty result therefore has two
+        # meanings, and only "no plan file exists at all" may fall back —
+        # falling back over a BROKEN local plan would mask the breakage behind
+        # a healthy-looking portfolio board.
+        broken = _any_plan_file(root)
+        if broken is not None:
             print(
-                f"shadow status: no plan under {root} — showing the portfolio from {fallback}",
+                f"shadow status: {broken} exists but failed to load — fix it "
+                "(shadow lint) or pass --root explicitly; not falling back.",
                 file=sys.stderr,
             )
-            root = fallback.resolve()
+        else:
+            fallback = portfolio_root()
+            if fallback is not None and fallback.resolve() != root:
+                print(
+                    f"shadow status: no plan under {root} — showing the portfolio from {fallback}",
+                    file=sys.stderr,
+                )
+                root = fallback.resolve()
     # v4 plans first: a grammar-clean plan must never fall through to the
     # legacy validator and misreport as "needs a valid Brief".
     legacy_records: list[dict] = []

@@ -200,3 +200,88 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
                 check=False,
             )
             self.assertNotIn("showing the portfolio", result.stderr)
+
+
+V4_TWO_MILESTONES = """# Demo v4 two
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M1 — everything here is needs-blocked
+- [pending] blocked row ~aa11 | proof: cmd true | needs: ~cc33
+- [pending] blocked closer ~bb22 (DoD) | proof: read x -> y | needs: ~aa11
+
+### M2 — where the live work actually is
+- [in_progress] the live row ~cc33 | proof: cmd npm run gate
+- [pending] closer ~dd44 (DoD) | proof: read site -> renders | needs: ~cc33
+
+## Progress
+
+- 2026-08-08T00:00:00Z STRUCT fixture | trigger: test
+"""
+
+
+class StatusMatchesAmpTests(unittest.TestCase):
+    def test_milestone_line_names_the_resumed_rows_milestone(self) -> None:
+        # Bugbot (PR #263, High): status labeled the plan with the FIRST open
+        # milestone while amp resumed an in_progress row in a LATER one —
+        # breaking the shared-parser guarantee. The Milestone line must name
+        # the milestone the Resume row lives in.
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(V4_TWO_MILESTONES, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertIn("Resume: [in_progress] the live row ~cc33", result.stdout)
+            self.assertIn("Milestone: M2 — where the live work actually is", result.stdout)
+            self.assertNotIn("Milestone: M1", result.stdout)
+
+
+class StatusBrokenPlanTests(unittest.TestCase):
+    def test_broken_local_plan_blocks_fallback_and_says_why(self) -> None:
+        # Bugbot (PR #263, Medium): discover_plans silently skips a PLAN.md
+        # that raises during ingestion, so the fallback could mask a BROKEN
+        # local plan behind a healthy portfolio board.
+        import os as _os
+        import stat as _stat
+
+        with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
+            plan = Path(blank) / "PLAN.md"
+            plan.write_text("# unreadable", encoding="utf-8")
+            plan.chmod(0)
+            try:
+                env = dict(_os.environ)
+                env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+                result = subprocess.run(
+                    [sys.executable, str(STATUS)],
+                    cwd=blank, env=env, capture_output=True, text=True, check=False,
+                )
+                self.assertIn("failed to load", result.stderr)
+                self.assertNotIn("showing the portfolio", result.stderr)
+            finally:
+                plan.chmod(_stat.S_IRUSR | _stat.S_IWUSR)
+
+
+class AmpRelativePlanTests(unittest.TestCase):
+    def test_relative_plan_resolves_against_repo_not_cwd(self) -> None:
+        # Bugbot (PR #263, High): a relative --plan resolved against the cwd,
+        # so `shadow amp --repo /x --plan PLAN.md` run from a directory with
+        # its OWN PLAN.md read the wrong file.
+        AMP = ROOT / "scripts" / "shadow-amp.py"
+        with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as cwd:
+            (Path(repo) / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            decoy = V4_PLAN.replace("- Project: demo", "- Project: decoy")
+            (Path(cwd) / "PLAN.md").write_text(decoy, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(AMP), "--repo", repo, "--plan", "PLAN.md"],
+                cwd=cwd, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal demo", result.stdout)
+            self.assertNotIn("decoy", result.stdout)
