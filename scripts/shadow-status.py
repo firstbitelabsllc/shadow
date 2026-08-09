@@ -29,9 +29,14 @@ sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
 
-def v4_brief(plan_path: Path) -> dict | None:
+def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
     """Render a v4-grammar plan into a bounded status record, or None if the
-    plan does not carry a v4 Brief (legacy plans fall through to the old view)."""
+    plan does not carry a v4 Brief (legacy plans fall through to the old view).
+
+    `display_path` is what the record shows: discovery hands us a root-relative
+    path and the record must keep it, so a portfolio board never prints the
+    operator's home directory (legacy records are relative for the same
+    reason) and both plan versions render one path format."""
     try:
         plan = _amp._parse(plan_path.read_text(encoding="utf-8"))
     except OSError:
@@ -56,7 +61,7 @@ def v4_brief(plan_path: Path) -> dict | None:
         )
     record: dict = {
         "schema": "shadow.status.v4-brief",
-        "path": str(plan_path),
+        "path": display_path or str(plan_path),
         "project": brief["Project"],
         "mode": brief["Mode"],
         "priority": brief.get("Priority"),
@@ -75,6 +80,12 @@ def v4_brief(plan_path: Path) -> dict | None:
         # that are person-gated, blocked, or waiting on unmet needs. amp owns
         # that distinction so status and the goal block can never disagree.
         record["resume"] = f"none — {_amp.stall_reason(plan)}"
+    # A v4 Brief is not a promise that the plan reads clean: parsing is
+    # tolerant, so illegal modes and malformed rows would otherwise be
+    # invisible on the board. Surface them beside the resume line.
+    unclean = _amp.unclean_note(plan)
+    if unclean:
+        record["unclean"] = unclean
     return record
 
 
@@ -89,6 +100,8 @@ def render_v4(record: dict) -> str:
     lines.append(f"  Resume: {record['resume']}")
     if record.get("proof"):
         lines.append(f"  Proof: {record['proof']}")
+    if record.get("unclean"):
+        lines.append(f"  Plan health: {record['unclean']}")
     if record.get("contradictions_open"):
         lines.append(f"  Contradictions open: {record['contradictions_open']}")
     return "\n".join(lines)
@@ -226,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         path = record.get("path")
         # discover_plans emits root-relative paths (browser/server.py keeps
         # them short for the board); resolve before reading.
-        v4 = v4_brief(root / path) if path else None
+        v4 = v4_brief(root / path, str(path)) if path else None
         if v4 is not None:
             v4_records.append(v4)
         else:

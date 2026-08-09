@@ -34,6 +34,18 @@ minimum a seat needs to warm-start without re-deriving state.
    prints to stderr on every run.
 7. **Deterministic.** No LLM, no network. Same plan, same block. Model
    judgment stays in the native hosts, per the platform boundary.
+8. **The pointer never lies about the ref.** amp reads the working tree, so
+   when the plan has uncommitted edits the pointer is marked
+   `+UNCOMMITTED` and the block says the named ref serves different content:
+   commit and push before handing the goal to a seat. Repository metadata
+   (the origin URL, the branch) is control-character-stripped and bounded —
+   repo-owned data can never append its own instruction line to a block a
+   person pastes into an agent.
+9. **An unreadable plan is never called finished.** Row-shaped lines the
+   grammar rejects are counted, and blocking `shadow lint` findings are read;
+   a plan carrying either reports *the plan does not read clean* instead of
+   *every task complete* (also on `shadow status`, as `Plan health:`), so no
+   one chains a successor over work that merely failed to parse.
 
 ## Usage
 

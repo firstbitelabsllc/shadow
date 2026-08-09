@@ -155,6 +155,37 @@ class StatusV4Tests(StatusTests):
             self.assertEqual(len(payload["v4_plans"]), 1)
             self.assertEqual(payload["v4_plans"][0]["project"], "demo")
 
+    def test_v4_paths_stay_relative_to_the_scan_root(self) -> None:
+        # Codex (PR #263, P2): v4 records printed an absolute path while
+        # legacy records stayed root-relative, leaking the operator's home
+        # directory onto a portfolio board.
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            text = self.run_status(root)
+            payload = json.loads(self.run_status(root, "--json").stdout)
+        self.assertEqual(payload["v4_plans"][0]["path"], "PLAN.md")
+        self.assertNotIn(dirname, text.stdout)
+
+    def test_unreadable_rows_are_surfaced_not_swallowed(self) -> None:
+        # Codex (PR #263, P1): a v4 Brief alone made the plan "v4"; malformed
+        # rows were dropped silently, so a plan with open work could render as
+        # complete. The board must say the plan does not read clean.
+        broken = V4_PLAN.replace(
+            "- [pending] the ready row ~bb22 | proof: cmd npm run gate",
+            "- [doing] the ready row ~bb22 proof cmd npm run gate",
+        ).replace(
+            "- [pending] closes ~cc33 (DoD) | proof: read site -> renders | needs: ~bb22",
+            "- [completed] closes ~cc33 (DoD) | proof: read site -> renders",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(broken, encoding="utf-8")
+            result = self.run_status(root)
+        self.assertNotIn("every task complete", result.stdout)
+        self.assertIn("Plan health:", result.stdout)
+        self.assertIn("shadow lint", result.stdout)
+
 
 class StatusPortfolioFallbackTests(unittest.TestCase):
     def test_empty_workspace_falls_back_to_portfolio_root(self) -> None:
