@@ -135,7 +135,27 @@ if [[ "${LIVE}" -eq 0 ]]; then
 elif ! command -v "${BIN}" >/dev/null 2>&1; then
   bad "${BIN} is not installed, so the session check cannot run"
 else
-  PROMPT='Run the shell command `shadow status` and reply with ONLY the text after "Resume:" on its first occurrence. No preamble.'
+  # The expected row comes from ${ROOT}/bin/shadow, so the session has to run
+  # that same checkout. Bare `shadow` is the realistic command and stays the
+  # prompt when PATH already resolves here; when it resolves to another clone,
+  # asking for `shadow` would compare two different boards, so name the path.
+  resolve_cmd() {
+    local p="$1" t
+    while [[ -L "${p}" ]]; do
+      t="$(readlink "${p}")"
+      [[ "${t}" != /* ]] && t="$(dirname "${p}")/${t}"
+      p="${t}"
+    done
+    printf '%s/%s\n' "$(cd -P "$(dirname "${p}")" && pwd)" "$(basename "${p}")"
+  }
+  ON_PATH="$(command -v shadow 2>/dev/null || true)"
+  if [[ -n "${ON_PATH}" ]] && [[ "$(resolve_cmd "${ON_PATH}")" == "$(resolve_cmd "${ROOT}/bin/shadow")" ]]; then
+    STATUS_CMD='shadow status'
+  else
+    STATUS_CMD="${ROOT}/bin/shadow status"
+    skip "\`shadow\` on PATH is not this checkout — the session check names the full path instead"
+  fi
+  PROMPT="Run the shell command \`${STATUS_CMD}\` and reply with ONLY the text after \"Resume:\" on its first occurrence. No preamble."
   case "${HOST}" in
     claude-code) OUT="$("${BIN}" -p "${PROMPT}" 2>&1)" ;;
     codex)       OUT="$("${BIN}" exec "${PROMPT}" 2>&1)" ;;
