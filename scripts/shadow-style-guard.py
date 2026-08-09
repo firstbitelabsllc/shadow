@@ -71,8 +71,12 @@ def closing_menu(text):
     message stops: only options it ends on count.
 
     Once it does end on one, every option line counts, however much explanation
-    sits between them. Prose between the options is a reason to want a drawing,
-    never a reason to stop asking for one.
+    sits between them, and however many of them the message has already settled.
+    Prose between the options is a reason to want a drawing, never a reason to
+    stop asking for one, and scoping to some trailing run of options would free
+    the plainest miss there is: a bare A/B whose halves are simply written far
+    apart. The single-option pass is for a message with one option, not for the
+    third letter in a message that already printed two.
     """
     lines = text.splitlines()
     marks = [i for i, line in enumerate(lines) if OPTION.match(line)]

@@ -203,6 +203,33 @@ class StyleGuardTests(unittest.TestCase):
     def test_a_single_option_is_not_a_menu(self) -> None:
         self.assertFalse(self.guard.violations("- **A** — the only move\n"))
 
+    def test_a_third_letter_does_not_inherit_the_single_option_pass(self) -> None:
+        """The pass is for a message with one option, not for the third letter.
+
+        A message that printed A and B and then offers C has shown the reader
+        three letters and no drawing. The only scoping that would free it, count
+        just the trailing run of options, also frees a bare A/B whose halves are
+        simply written far apart, which is the plainest miss there is.
+        """
+        settled_then_one_more = (
+            "- **A** — rebase\n"
+            "- **B** — merge\n"
+            "I took A. Pushed and green.\n"
+            "Reviewers keep their place.\n\n"
+            "One thing left:\n\n"
+            "- **C** — deploy now\n"
+        )
+        halves_written_far_apart = (
+            "- **A** — rebase\n"
+            "Rewrites the branch, so reviewers lose their place.\n"
+            "- **B** — merge\n"
+            "Keeps every hash.\n"
+        )
+        self.assertTrue(self.guard.violations(settled_then_one_more),
+                        "three letters and no drawing is the shape this guard is for")
+        self.assertTrue(self.guard.violations(halves_written_far_apart),
+                        "the miss any trailing-run scope would let through")
+
     def test_ordinary_prose_is_untouched(self) -> None:
         self.assertFalse(self.guard.violations("Merged the branch and ran the tests."))
 
