@@ -219,27 +219,185 @@ def plan_record(path: Path, root: Path) -> dict[str, Any]:
     }
 
 
-def discover_plans(root: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for current, directories, files in os.walk(root, followlinks=False):
-        directories[:] = sorted(
-            name
-            for name in directories
-            if name not in SKIP_DIRS
-            and not name.startswith(".")
-            # Worktree pools hold disposable lane copies of the same plans;
-            # scanning them floods the plan cap with duplicates.
-            and not name.endswith("-worktrees")
+def _origin_of(repo: Path) -> str:
+    """The repo's origin URL, or its path when it has none.
+
+    This is the deduplication key's first half: two checkouts of one repository
+    share an origin, so a worktree and its main checkout collapse to one card.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
+            capture_output=True, text=True, timeout=5, check=False,
         )
-        if "PLAN.md" not in files:
+    except (OSError, subprocess.SubprocessError):
+        return str(repo)
+    return result.stdout.strip() or str(repo)
+
+
+def _origin_repo_name(origin: str) -> str:
+    """The repository name an origin URL ends in.
+
+    Splitting on `/` alone is not enough: an SCP-style remote can name the
+    repository straight after the colon (`git@host:repo.git`), so the slash
+    split returns the whole URL and the canonical-checkout comparison can
+    never match — leaving the tie-break to mtime and alphabetical order, which
+    is exactly how a stale rename-era clone wins.
+    """
+    tail = origin.rstrip("/").removesuffix(".git")
+    return tail.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+
+
+def _plan_mtime(repo: Path) -> float:
+    try:
+        return (repo / "PLAN.md").stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+MAX_DECLARED_GLOBS = 3
+
+
+def declared_plan_globs(plan_text: str) -> list[str]:
+    """The repo-relative globs a root plan declares, bounded and sanitized.
+
+    Read from the Brief and nowhere else, like every other operator field. The
+    grammar calls this "one Brief line"; scanning the whole document would let
+    a `- Plans:` line quoted in Progress, a note, or a fenced example become an
+    authoritative declaration that widens what the board reads.
+
+    Repo-relative only. An absolute path or a `..` segment would let one
+    repository's plan pull files from outside itself into the board — the same
+    class of reach a central index would have, arriving one line at a time.
+    """
+    declaration = operator_brief(plan_text).get("plans")
+    if not declaration:
+        return []
+    globs: list[str] = []
+    for raw in declaration.split(","):
+        candidate = raw.strip()
+        if not candidate or candidate.startswith("/") or ".." in Path(candidate).parts:
             continue
-        path = Path(current) / "PLAN.md"
-        try:
-            records.append(plan_record(path, root))
-        except (BrowserError, OSError, UnicodeError, ValueError):
-            continue
-        if len(records) >= MAX_PLANS:
+        globs.append(candidate)
+        if len(globs) == MAX_DECLARED_GLOBS:
             break
+    return globs
+
+
+def repo_plans(repo: Path) -> list[Path]:
+    """This root's own plan, plus anything that plan declares."""
+    root_plan = repo / "PLAN.md"
+    if not root_plan.is_file():
+        return []
+    found = [root_plan]
+    try:
+        text = root_plan.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return found
+    # BOTH sides resolved. Comparing an unresolved repo against resolved
+    # parents never matches on macOS, where /var is a symlink to /private/var —
+    # which silently excluded every declared plan while looking like a working
+    # containment check.
+    here = repo.resolve()
+    for pattern in declared_plan_globs(text):
+        for path in sorted(repo.glob(pattern)):
+            # A glob that escapes through a symlink is the one way a
+            # repo-relative pattern still reaches outside its own repo.
+            if path.is_file() and path not in found and here in path.resolve().parents:
+                found.append(path)
+    return found
+
+
+def is_repo(path: Path) -> bool:
+    # A worktree's .git is a FILE pointing at the real one; both are repos.
+    return (path / ".git").exists()
+
+
+def is_plan_root(path: Path) -> bool:
+    """A directory that owns a plan.
+
+    Deliberately NOT "is a git repository". The point of enumerating roots
+    instead of walking directories is boundedness — no recursion, no cap, no
+    reading outside the portfolio. Requiring git on top of that would make a
+    plan in a plain directory invisible, which is a restriction nobody asked
+    for. Git identity is used for deduplication when it is there, and the path
+    stands in when it is not.
+    """
+    return (path / "PLAN.md").is_file()
+
+
+def is_portfolio_child(child: Path, root: Path) -> bool:
+    """True when `child` really lives directly inside the resolved portfolio.
+
+    A symlinked entry passes `is_dir()` and owns a `PLAN.md` while pointing
+    anywhere on the filesystem; resolving it is what keeps the board from
+    reading plans the portfolio does not contain.
+    """
+    try:
+        return child.resolve().parent == root
+    except OSError:
+        return False
+
+
+def discover_plans(root: Path) -> list[dict[str, Any]]:
+    """Every plan the portfolio can legally see.
+
+    Repositories are enumerated, never directories. A recursive walk reached
+    777 files on the reference machine, 665 of them byte-identical copies, and
+    filled its 250-slot cap alphabetically — silently dropping Shadow's own
+    plan and every repository sorting after `resplit-`. It also had no
+    boundary: only the fact that `Development` sorts before `Documents` kept it
+    from rendering session directories whose names are prompt text.
+    """
+    records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    if is_plan_root(root):
+        candidates = [root]
+    elif root.is_dir():
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            children = []
+        # BOTH sides resolved, for the same reason the declared globs are:
+        # a symlinked child resolves somewhere else entirely, and following it
+        # would read a plan from outside the portfolio — the one boundary this
+        # enumeration exists to keep.
+        here = root.resolve()
+        found = [
+            child for child in children
+            if child.is_dir() and not child.name.startswith(".")
+            and is_portfolio_child(child, here) and is_plan_root(child)
+        ]
+        # Order decides which checkout of a shared origin wins deduplication,
+        # so it cannot be plain alphabetical. A rename-era clone of a repository
+        # keeps its old directory name, which may sort first and silently
+        # replace the canonical checkout's plan with a stale copy — observed on
+        # the reference machine against this very repository. Prefer the
+        # checkout whose directory name matches the origin's repository name,
+        # then the one whose plan was touched most recently.
+        candidates = sorted(
+            found,
+            key=lambda repo: (
+                repo.name != _origin_repo_name(_origin_of(repo)),
+                -_plan_mtime(repo),
+                repo.name,
+            ),
+        )
+    else:
+        candidates = []
+    for repo in candidates:
+        for path in repo_plans(repo):
+            try:
+                record = plan_record(path, root)
+            except (BrowserError, OSError, UnicodeError, ValueError):
+                continue
+            # One logical plan per (origin, repo-relative path): a worktree or
+            # clone is the same plan as its main checkout, not a second card.
+            key = (_origin_of(repo), str(path.relative_to(repo)))
+            if key in seen:
+                continue
+            seen.add(key)
+            records.append(record)
     rank = {"needs_you": 0, "blocked": 1, "working": 2, "not_delivered": 3, "finished_with_proof": 4}
     records.sort(
         key=lambda item: (
