@@ -85,6 +85,17 @@ a THROWN line is excluded from auto-resume selection; one without is a
 hand-claimed resume target. Liveness is never asserted — probe the proof,
 never a process.
 
+`| by: <lead>` on that line records WHO claimed it, and `shadow status
+--in-flight` renders it. It lives in the tail, after the id: the thrown-row
+scan anchors on `^- <ts> THROWN ~hash`, so anything inserted ahead of the id
+makes every claim invisible to auto-resume-skip. A lead is free text — a file
+of legal names would be the roster v4 deleted, and would make an unlisted
+seat's honest claim illegal. An unsigned claim still reads as claimed.
+
+`- <ts> NOTE @<lead> <text>` is how one lead addresses another. Progress is
+append-only and serialized by fast-forward, so simultaneous notes are a push
+race, never a lost message — but delivery is at fetch, not at keystroke.
+
 ## Mode law
 
 `Mode: explore` is exploration and interrogation: spikes are opened with
