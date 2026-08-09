@@ -32,6 +32,7 @@ import argparse
 import importlib.util
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 from typing import Final
@@ -44,6 +45,9 @@ END: Final = "<!-- shadow:goal:end -->"
 # The heading the block always starts with. Used to find an unmarked copy left
 # by someone who pasted it before markers existed.
 ANCHOR: Final = "## Shadow "
+# Every line under that heading opens a `Label: ` paragraph. That shape is how
+# an older revision's extent is recognised when its wording no longer matches.
+LABEL: Final = re.compile(r"^[A-Z][A-Za-z]*:\s")
 
 HOSTS: Final = {
     "claude": Path.home() / ".claude" / "CLAUDE.md",
@@ -98,10 +102,37 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
     end = text.find(tail_line, start)
     if end == -1:
         # The heading is present but the block's own last line is not, so this
-        # is an older revision. Take through the end of that paragraph only.
-        stop = text.find("\n\n", start)
-        return (start, len(text) if stop == -1 else stop)
+        # is an older revision whose wording moved on. Walk its shape instead.
+        return start, _legacy_end(text, start)
     return start, end + len(tail_line)
+
+
+def _legacy_end(text: str, start: int) -> int:
+    """Where an unmarked older revision of the block stops.
+
+    Every revision has the same shape: the heading, then `Label:` paragraphs.
+    So the region ends at the first paragraph that is not one of those — the
+    person's own text, which stays theirs. Stopping at the first blank line
+    would wrap the heading alone and leave the rest of the stale copy sitting
+    in the file, duplicating directives that a refresh would then never reach.
+    """
+    end = offset = start
+    paragraph_start = True
+    for line in text[start:].splitlines(keepends=True):
+        content = line.rstrip("\n")
+        if offset == start:  # the heading itself
+            end = offset + len(content)
+        elif not content.strip():
+            paragraph_start = True
+        elif content.startswith("#"):
+            break  # the next section: their heading, not this block's text
+        elif paragraph_start and not LABEL.match(content):
+            break
+        else:
+            paragraph_start = False
+            end = offset + len(content)
+        offset += len(line)
+    return end
 
 
 def apply(path: Path, block: str, *, remove: bool = False) -> str:

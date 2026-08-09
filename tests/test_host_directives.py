@@ -89,6 +89,37 @@ class WritesTheBlock(unittest.TestCase):
             self.assertIn(BEFORE, text)
             self.assertIn("Still mine.", text)
 
+    def test_a_stale_unmarked_copy_is_adopted_whole(self) -> None:
+        # The common migration case: an unmarked paste of an earlier revision,
+        # so neither the last line nor the wording matches. Wrapping only the
+        # heading would leave the rest of the stale copy in the file — two
+        # sets of directives, the older one now unreachable by any refresh.
+        with tempfile.TemporaryDirectory() as tmp:
+            stale = BLOCK.replace("Proof:", "Evidence:").replace("shadow accept", "shadow flip")
+            path = self._file(Path(tmp), BEFORE + stale + AFTER)
+            self.assertEqual(hd.apply(path, BLOCK), "adopted")
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("shadow flip", text)
+            self.assertNotIn("Evidence:", text)
+            self.assertEqual(text.count("## Shadow "), 1)
+            self.assertEqual(text.count(hd.BEGIN), 1)
+            self.assertIn(BLOCK, text)
+            self.assertTrue(text.startswith(BEFORE), repr(text[:80]))
+            self.assertTrue(text.endswith(AFTER), repr(text[-80:]))
+
+    def test_adoption_stops_at_the_persons_own_prose(self) -> None:
+        # Their paragraph directly under the block is not part of it. Eating it
+        # is the failure this module exists to prevent.
+        with tempfile.TemporaryDirectory() as tmp:
+            stale = BLOCK.replace("Proof:", "Evidence:")
+            mine = "\nAnd my own note about the block above.\n"
+            path = self._file(Path(tmp), BEFORE + stale + mine + AFTER)
+            self.assertEqual(hd.apply(path, BLOCK), "adopted")
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("And my own note about the block above.", text)
+            self.assertNotIn("Evidence:", text)
+            self.assertIn(BLOCK, text)
+
     def test_a_stale_marked_block_is_replaced_in_place(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             stale = BLOCK.replace("shadow accept", "shadow flip")
