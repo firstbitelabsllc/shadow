@@ -27,7 +27,10 @@ TABLE = re.compile(
 )
 
 # How much the message may say after its last option and still be offering it.
-# One line is a closing question either way. Past that, length decides nothing:
+# A message that stops within a line of its options is the base case, whatever
+# that line says: nothing in it resolved the menu, so the menu is what the reader
+# is left holding. What earns a pass is the message saying it already chose, and
+# that takes more than one line to say. Past that, length decides nothing:
 # "B keeps every hash. / Which one?" is the same shape as "I took A. / Anything
 # else?" and only the question tells them apart. The menu is still open when the
 # question sends the reader back to it, and only then. Offering some single next

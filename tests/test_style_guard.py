@@ -165,6 +165,20 @@ class StyleGuardTests(unittest.TestCase):
         self.assertTrue(self.guard.violations(text),
                         "an open menu stays open however long the tail is")
 
+    def test_a_bare_menu_is_a_menu_whatever_its_one_closing_line_says(self) -> None:
+        """The one-line tail is the base case, not an exemption to be argued with.
+
+        `Want me to open the follow-up PR?` passes on a resolved report because
+        the report said it chose, not because of the question. Here nothing said
+        that, so requiring the closing line to name a choice would let the exact
+        shape this guard exists to catch walk straight through.
+        """
+        for closer in ("Want me to open the follow-up PR?", "Thoughts?", "Let me know."):
+            with self.subTest(closer=closer):
+                text = f"- **A** — rebase\n- **B** — merge\n{closer}\n"
+                self.assertTrue(self.guard.violations(text),
+                                "nothing here told the reader which one happened")
+
     def test_a_menu_with_one_closing_question_is_still_a_menu(self) -> None:
         text = "- **A** — rebase\n- **B** — merge\n\nWhich one?\n"
         self.assertTrue(self.guard.violations(text), "the message still ends on the menu")
