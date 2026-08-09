@@ -3,5 +3,17 @@
   "attribution": {
     "commit": "",
     "pr": ""
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/shadow-style-guard.py\""
+          }
+        ]
+      }
+    ]
   }
 }
