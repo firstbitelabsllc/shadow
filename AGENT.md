@@ -9,8 +9,9 @@ lane, spike, brief.
 ## The core
 
 1. **The plan file.** `PLAN.md` at the repo root is the only authority —
-   markdown, greppable, no second store. One seat writes a plan at a time;
-   a second writer is a Contradictions row, not a merge.
+   markdown, greppable, no second store. Concurrent appenders serialized by
+   origin fast-forward are legal; concurrent flippers are not. A second writer
+   editing the *same row* is a Contradictions row, not a merge.
 
 2. **The task.** A task is a state the world reaches, with a `proof:`
    that can refuse bad work — `cmd <runnable>`, `read <artifact/url +
@@ -82,6 +83,21 @@ lane, spike, brief.
   when the real loop differs.
 - Task IDs are four base36 chars, unique in the plan, checked by lint; on
   collision, re-mint.
+- **Row-first dispatch.** No conversation leaves the chat before its row is
+  claimed and pushed: `shadow throw --task ~id` refuses unless a ready
+  `[pending]` row with a proof exists, flips it to `[in_progress]`, appends a
+  `THROWN` line, commits `PLAN.md` alone, and pushes — launch and flush are one
+  atom. One row per named job the plan must survive losing; a ten-agent
+  workflow is one row.
+- **THROWN is the dispatched-vs-crashed discriminator.** An `in_progress` row
+  WITH a THROWN line is in flight elsewhere and auto-resume skips it; one
+  WITHOUT is a hand-claimed crash-resume target and stays selectable.
+- **Write at discovery, not at session end.** A finding routed through the two
+  questions goes into its owning plan the moment it surfaces; "I'll write it up
+  later" is how a session's work evaporates.
+- **After a chat dies:** fetch across the portfolio, `shadow status
+  --in-flight`, then probe each row's proof before judging it dead — the job may
+  have finished after the chat did. Adopt another seat's row only in writing.
 
 ## The proxy stance
 

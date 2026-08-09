@@ -49,6 +49,11 @@ def _sections(lines: list[str]) -> dict[str, list[str]]:
     return sections
 
 
+def _thrown_ids(text: str) -> set:
+    """Ids carrying a THROWN Progress line — dispatched, already in flight."""
+    return set(re.findall(r"^- \S+ THROWN (~[0-9a-z]{4})\b", text, flags=re.M))
+
+
 def _parse(text: str) -> dict:
     lines = text.splitlines()
     sections = _sections(lines)
@@ -97,6 +102,7 @@ def _parse(text: str) -> dict:
         "contradictions": contradictions,
         "unparsed": unparsed,
         "text": text,
+        "thrown": _thrown_ids(text),
     }
 
 
@@ -133,9 +139,16 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
                 if row["id"] == task_id:
                     return milestone, row
         return None
+    # A row already THROWN is in flight elsewhere: auto-resume must skip it, or
+    # a fresh seat re-runs work another conversation is doing right now. An
+    # in_progress row WITHOUT a THROWN line is a hand-claimed resume target and
+    # stays selectable — that split is what keeps crash-resume working.
+    thrown = plan.get("thrown") or set()
     for state_pass in ("in_progress", "pending"):
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
+                if row["id"] in thrown:
+                    continue
                 if row["state"] == state_pass and not _gated(row) and (
                     state_pass == "in_progress" or _ready(row, done)
                 ):

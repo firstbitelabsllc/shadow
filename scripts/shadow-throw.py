@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""shadow throw — record that a conversation is being dispatched, before it starts.
+
+One chat throws dozens of conversations. The failure mode is not running them;
+it is that the chat is the only place they exist. When the chat dies, its
+in-flight work is unrecoverable — nothing on disk says a job was launched, what
+it was meant to reach, or how anyone would know it finished.
+
+So: no conversation leaves the chat until its row is claimed and pushed.
+`throw` refuses unless a ready `[pending]` row exists, flips it to
+`[in_progress]`, appends a THROWN Progress line, commits PLAN.md alone, pushes,
+and prints the amp goal block. Launch and flush are one atom.
+
+THROWN is also the discriminator a cold successor needs: an `in_progress` row
+WITH a THROWN line was dispatched (probe its proof — the job may have finished
+after the chat died); an `in_progress` row WITHOUT one is a hand-claimed
+resume target. `shadow amp` skips thrown rows when auto-resuming so a fresh
+seat never re-runs work already in flight.
+
+No daemon, no queue, no session registry: liveness stays unprovable by design.
+The row and its proof are the entire in-flight record.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Final
+
+ROOT: Final = Path(__file__).resolve().parent.parent
+_spec = importlib.util.spec_from_file_location("shadow_amp", ROOT / "scripts" / "shadow-amp.py")
+_amp = importlib.util.module_from_spec(_spec)
+sys.modules.setdefault("shadow_amp", _amp)
+_spec.loader.exec_module(_amp)
+
+NOTE_MAX: Final = 200
+# Advisory only. Shadow cannot see other chats (a session registry would be a
+# banned second store), but it CAN count claimed rows, which is the honest
+# proxy for "how much is this seat juggling".
+BUSY_THRESHOLD: Final = 8
+
+
+def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
+    )
+    if check and result.returncode:
+        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result
+
+
+def thrown_ids(text: str) -> set[str]:
+    """Task ids already carrying a THROWN Progress line."""
+    return set(re.findall(r"^- \S+ THROWN (~[0-9a-z]{4})\b", text, flags=re.M))
+
+
+def _row_line(text: str, task_id: str) -> tuple[int, str] | None:
+    for index, line in enumerate(text.splitlines()):
+        match = _amp.ROW_RE.match(line)
+        if match and match.group("id") == task_id:
+            return index, line
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="shadow throw",
+        description="Claim a task row and print its goal block, before the work leaves the chat.",
+    )
+    parser.add_argument("--repo", default=".", help="repository root (default: cwd)")
+    parser.add_argument("--task", required=True, help="the row to claim, e.g. ~ab12")
+    parser.add_argument("--note", default="", help=f"why it is being thrown (<={NOTE_MAX} chars)")
+    parser.add_argument("--timestamp", default=None, help="ISO8601 Z (default: now)")
+    parser.add_argument("--no-push", action="store_true",
+                        help="commit without pushing (an unpushed dispatch is invisible to other seats)")
+    args = parser.parse_args(argv)
+
+    repo = Path(args.repo).resolve()
+    plan_path = repo / "PLAN.md"
+    if not plan_path.is_file():
+        print(f"shadow throw: no plan at {plan_path}", file=sys.stderr)
+        return 2
+    if not re.fullmatch(r"~[0-9a-z]{4}", args.task):
+        print(f"shadow throw: --task wants a four-char id like ~ab12, got {args.task}", file=sys.stderr)
+        return 2
+    if len(args.note) > NOTE_MAX:
+        print(f"shadow throw: --note exceeds {NOTE_MAX} chars", file=sys.stderr)
+        return 2
+
+    # Refuse on an unresolved merge — never claim a row mid-conflict.
+    if git(repo, "ls-files", "-u", check=False).stdout.strip():
+        print("shadow throw: repository has unmerged paths; resolve them first", file=sys.stderr)
+        return 1
+
+    # Fresh re-read immediately before the write: another seat may have claimed
+    # this row since the chat last looked.
+    text = plan_path.read_text(encoding="utf-8")
+    plan = _amp._parse(text)
+    located = _row_line(text, args.task)
+    if located is None:
+        print(f"shadow throw: no task carries {args.task} in {plan_path}", file=sys.stderr)
+        return 1
+    index, line = located
+    match = _amp.ROW_RE.match(line)
+    state = match.group("state")
+    if state != "pending":
+        already = " (already thrown)" if args.task in thrown_ids(text) else ""
+        print(f"shadow throw: {args.task} is [{state}], not [pending]{already} — "
+              "refusing to re-claim another seat's work", file=sys.stderr)
+        return 1
+
+    done = _amp._completed_ids(plan["milestones"])
+    fields = {m.group("key"): m.group("value").strip()
+              for m in _amp.FIELD_RE.finditer(match.group("tail") or "")}
+    unmet = [ref for ref in _amp.HASH_RE.findall(fields.get("needs", "")) if ref not in done]
+    if unmet:
+        print(f"shadow throw: {args.task} still needs {', '.join(unmet)}", file=sys.stderr)
+        return 1
+    if not fields.get("proof"):
+        print(f"shadow throw: {args.task} has no proof — a thrown row's proof is its "
+              "completion predicate, and without one nobody can tell if the job finished",
+              file=sys.stderr)
+        return 1
+
+    in_flight_before = sum(
+        1 for m in plan["milestones"] for r in m["rows"] if r["state"] == "in_progress"
+    )
+
+    stamp = args.timestamp or subprocess.run(
+        ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    lines = text.splitlines()
+    lines[index] = line.replace("- [pending] ", "- [in_progress] ", 1)
+    body = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    note = f" | note: {args.note}" if args.note else ""
+    thrown = f"- {stamp} THROWN {args.task} {match.group('text')}{note}\n"
+    marker = "## Progress\n\n"
+    if marker in body:
+        body = body.replace(marker, marker + thrown, 1)
+    elif "## Progress\n" in body:
+        body = body.replace("## Progress\n", "## Progress\n" + thrown, 1)
+    else:
+        body = body.rstrip("\n") + "\n\n## Progress\n\n" + thrown
+    plan_path.write_text(body, encoding="utf-8")
+
+    try:
+        git(repo, "commit", "--only", "--quiet",
+            "-m", f"plan: THROWN {args.task} — dispatched, claimed before launch",
+            "--", "PLAN.md")
+    except RuntimeError as exc:
+        print(f"shadow throw: commit failed: {exc}", file=sys.stderr)
+        return 1
+
+    pushed = False
+    if not args.no_push:
+        branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        push = git(repo, "push", "origin", f"HEAD:{branch}", check=False)
+        pushed = push.returncode == 0
+        if not pushed:
+            print("shadow throw: WARNING — committed but NOT pushed; this dispatch is invisible "
+                  f"to other seats and to any other machine. Fix and push:\n  {push.stderr.strip()[:300]}",
+                  file=sys.stderr)
+
+    try:
+        block, _ = _amp.build_block(_amp._parse(body), repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
+    except (LookupError, ValueError) as exc:
+        print(f"shadow throw: claimed, but the goal block could not be built: {exc}", file=sys.stderr)
+        return 1
+
+    sys.stdout.write(block)
+    status = "claimed + pushed" if pushed else "claimed (NOT pushed)"
+    print(f"[throw] {args.task} {status}; {in_flight_before + 1} row(s) now in flight in this plan",
+          file=sys.stderr)
+    if in_flight_before + 1 >= BUSY_THRESHOLD:
+        print(f"[throw] {in_flight_before + 1} in flight — at this depth a chief is splitting "
+              "attention thin. Land or park something before throwing more; "
+              "`shadow status --in-flight` shows every claimed row.", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

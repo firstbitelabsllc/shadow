@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -168,6 +169,60 @@ def portfolio_root() -> Path | None:
     return default if default.is_dir() else None
 
 
+def in_flight(root: Path) -> list[dict]:
+    """Every in_progress row in every plan under root — one master list with as
+    many heads as there are plans. This is the recovery view a cold successor
+    reads after a chat dies holding a dozen conversations: what was claimed,
+    what proof would tell you it finished, and when it was thrown."""
+    rows: list[dict] = []
+    for record in discover_plans(root):
+        path = record.get("path")
+        if not path:
+            continue
+        plan_path = root / path
+        try:
+            text = plan_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        plan = _amp._parse(text)
+        project = plan["brief"].get("Project") or plan_path.parent.name
+        stamps: dict[str, str] = {}
+        for m in re.finditer(r"^- (?P<ts>\S+) THROWN (?P<id>~[0-9a-z]{4})\b", text, flags=re.M):
+            stamps.setdefault(m.group("id"), m.group("ts"))
+        for milestone in plan["milestones"]:
+            for row in milestone["rows"]:
+                if row["state"] != "in_progress":
+                    continue
+                rows.append({
+                    "project": project,
+                    "plan": str(plan_path),
+                    "milestone": milestone["title"],
+                    "id": row["id"],
+                    "text": row["text"],
+                    "proof": row["fields"].get("proof", "MISSING"),
+                    "thrown_at": stamps.get(row["id"]),
+                    "dispatched": row["id"] in stamps,
+                })
+    return rows
+
+
+def render_in_flight(rows: list[dict]) -> str:
+    if not rows:
+        return "Nothing in flight on this machine.\n"
+    projects = sorted({r["project"] for r in rows})
+    out = [f"{len(rows)} row(s) in flight across {len(projects)} project(s):", ""]
+    for project in projects:
+        out.append(project)
+        for row in [r for r in rows if r["project"] == project]:
+            kind = f"thrown {row['thrown_at']}" if row["dispatched"] else "hand-claimed (no THROWN line)"
+            out.append(f"  {row['id']} {row['text']}")
+            out.append(f"       {kind} | {row['milestone']}")
+            out.append(f"       proof: {row['proof']}")
+        out.append("")
+    out.append("Probe each proof before assuming a job died — it may have finished after the chat did.")
+    return "\n".join(out) + "\n"
+
+
 def _any_plan_file(root: Path) -> Path | None:
     """First PLAN.md file under root using discover_plans' own walk pruning,
     or None. Existence only — no parsing — so it distinguishes 'no plan at
@@ -191,6 +246,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
     result.add_argument("--all", action="store_true", help="include finished Outcomes")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
+    result.add_argument(
+        "--in-flight",
+        action="store_true",
+        help="every claimed (in_progress) row across the portfolio — the recovery view",
+    )
     result.add_argument(
         "--no-portfolio-fallback",
         action="store_true",
@@ -231,6 +291,15 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 root = fallback.resolve()
+    if args.in_flight:
+        rows = in_flight(root)
+        if args.json:
+            print(json.dumps({"schema": "shadow.in-flight.v1", "rows": rows},
+                             indent=2, sort_keys=True))
+        else:
+            print(render_in_flight(rows), end="")
+        return 0
+
     # v4 plans first: a grammar-clean plan must never fall through to the
     # legacy validator and misreport as "needs a valid Brief".
     legacy_records: list[dict] = []
