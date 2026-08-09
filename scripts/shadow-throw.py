@@ -239,9 +239,15 @@ def main(argv: list[str] | None = None) -> int:
         push_failed = not pushed
         if push_failed:
             detail = CREDENTIAL_RE.sub("***@", push.stderr.strip())[:300]
-            print("shadow throw: WARNING — committed but NOT pushed; this dispatch is invisible "
-                  f"to other seats and to any other machine. Fix and push:\n  {detail}",
-                  file=sys.stderr)
+            # Withhold the goal block. Exiting nonzero is not enough on its own:
+            # printing a pasteable dispatch while saying "do not use it" is the
+            # mixed signal that gets ignored, and the claim is not on the remote,
+            # so every other seat still sees the row as [pending].
+            print("shadow throw: PUSH REJECTED — the claim is committed locally but NOT on the "
+                  "remote, so this dispatch is invisible to every other seat and machine. "
+                  "DO NOT LAUNCH THE WORK. Fetch, rebase, re-push, then re-run throw "
+                  f"(or pass --no-push deliberately):\n  {detail}", file=sys.stderr)
+            return 1
 
     sys.stdout.write(block)
     status = "claimed + pushed" if pushed else "claimed (NOT pushed)"

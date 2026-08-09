@@ -197,8 +197,18 @@ class ThrowStaysAtomic(unittest.TestCase):
                                    capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(dirty, "")
 
-    def test_push_failure_exits_nonzero_but_still_prints_the_block(self) -> None:
+    def test_push_failure_exits_nonzero_and_keeps_the_local_claim(self) -> None:
         # Zero must mean "durably dispatched"; a local-only claim is not that.
+        #
+        # ADJUDICATED 2026-08-09 (two seats pinned opposite behaviors on this
+        # branch): an earlier version of this test asserted the block is STILL
+        # printed on a rejected push. It is now withheld. The block's authority
+        # line instructs a receiving seat to fetch that ref and read the
+        # section — but the claim never reached the remote, so that seat sees
+        # the row as [pending]. Handing over a pointer that advertises content
+        # the ref does not serve is the same defect the amp dirty-plan pointer
+        # was fixed for. Nothing is lost: `shadow amp --task ~id` still emits a
+        # block on demand; `throw`'s contract is claimed AND pushed.
         with tempfile.TemporaryDirectory() as d:
             r = repo_with_plan(Path(d))
             subprocess.run(["git", "-C", str(r), "remote", "add", "origin",
@@ -208,8 +218,9 @@ class ThrowStaysAtomic(unittest.TestCase):
                 capture_output=True, text=True, check=False,
             )
             self.assertEqual(out.returncode, 1)
-            self.assertIn("NOT pushed", out.stderr)
-            self.assertIn("RESUME: [in_progress] the ready row ~bb22", out.stdout)
+            self.assertIn("NOT on the remote", out.stderr)
+            self.assertNotIn("RESUME:", out.stdout)
+            # the local claim survives — it is a valid commit, just not shared
             self.assertIn("- [in_progress] the ready row ~bb22",
                           (r / "PLAN.md").read_text(encoding="utf-8"))
 
@@ -296,7 +307,7 @@ class ThrowRefusesInvisibleDispatch(unittest.TestCase):
 
             self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
             self.assertIn("PUSH REJECTED", out.stderr)
-            self.assertIn("Do not launch the work", out.stderr)
+            self.assertIn("DO NOT LAUNCH THE WORK", out.stderr)
             # the block must NOT be emitted: emitting it is what let a caller proceed
             self.assertNotIn("/goal", out.stdout)
 
@@ -310,6 +321,6 @@ class ThrowRefusesInvisibleDispatch(unittest.TestCase):
                 encoding="utf-8")
             out = throw(r, "--task", "~bb22")
             self.assertEqual(out.returncode, 1)
-            self.assertIn("uncommitted edits", out.stderr)
+            self.assertIn("commit or stash them first", out.stderr)
             # and it did not claim the row on the way out
             self.assertIn("- [pending] the ready row ~bb22", (r / "PLAN.md").read_text(encoding="utf-8"))
