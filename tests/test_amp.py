@@ -259,6 +259,20 @@ class BriefValuesAreDataNotInstructions(unittest.TestCase):
         self.assertIn("no proof, no completed", block)
         self.assertLessEqual(len(block), 4000)
 
+    def test_a_long_project_cannot_evict_the_rails(self) -> None:
+        # Project lands in the header, which is required and never drops, so
+        # an unbounded value evicted the optional tail the same way Priority
+        # did — RAILS gone from a 4k block, and amp still reported success.
+        text = PLAN.replace("- Project: demo", "- Project: " + "p" * 3_400)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            plan_path = _write(repo, text)
+            block, dropped = amp.build_block(amp._parse(text), repo, plan_path, None, 4000)
+        self.assertNotIn("RAILS", dropped, "an oversized Project value evicted the rails")
+        self.assertIn("no proof, no completed", block)
+        self.assertLessEqual(len(block), 4000)
+        self.assertNotIn("p" * 3_400, block)          # the bound, not luck
+
     def test_the_bound_is_real_and_this_test_can_fail(self) -> None:
         # Mutation guard: prove _clean is what stops it. With the bound removed
         # the value would land whole, so assert on the observable truncation.

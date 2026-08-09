@@ -294,7 +294,11 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
         )
     milestone, row = selected
     brief = plan["brief"]
-    project = brief.get("Project", repo.name)
+    # Project rides the required header, which never drops, so it needs the
+    # same bound as Mode, Priority, and Loop: unbounded, a 3,400-char Project
+    # value evicted RAILS from a 4k block while amp still reported success.
+    # The default loop derives from the cleaned value so both stay bounded.
+    project = _clean(brief.get("Project", repo.name))
     loop = brief.get("Loop", f"/{project}-loop")
 
     dod = next((r for r in milestone["rows"] if r["dod"]), None)
