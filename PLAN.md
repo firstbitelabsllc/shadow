@@ -62,7 +62,7 @@ sections that stood here until 2026-08-09 are archived at
 
 ### M8 — 0.1.0: one honest number, and the fan-out law dogfooded
 - tools: `scripts/shadow-release-package.py --expect-version` is the artifact gate; the audit runs as three NAMED agents (inspectable, messageable), never a sealed workflow
-- [pending] the v3 Outcome blob leaves PLAN.md; no live prose calls the product Pilot Puppy ~dslp | proof: read docs/plan-archive/2026-08-04-v3-outcome-receipts.md holds the 435 archived lines; PLAN.md Brief and Tasks contain zero "Pilot Puppy" (Progress receipts keep it, correctly)
+- [completed] the v3 Outcome blob leaves PLAN.md; no live prose calls the product Pilot Puppy ~dslp | proof: read docs/plan-archive/2026-08-04-v3-outcome-receipts.md holds 839 lines incl. 54 mentions; every mention left in PLAN.md is a dated receipt or the rename note -- zero live law prose
 - [completed] VERSION and plugin.json read 0.1.0 and the release artifact verifies at that version ~vrst | proof: cmd scripts/shadow-python.sh scripts/shadow-release-package.py --expect-version 0.1.0 --allow-dirty
 - [in_progress] repo audited for 0.1.0 readiness by three named agents on disjoint surfaces; every must-fix either fixed or written as a row ~audt | proof: read three agent reports folded into this plan, each finding fixed or given a Deferred row with its reason
 - [pending] the fan-out law is stated where dispatch is decided: an unattended fan-out leaves a thrown row first, whichever mechanism spawns it ~fout | proof: cmd scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md | needs: ~audt
@@ -70,7 +70,7 @@ sections that stood here until 2026-08-09 are archived at
 
 ## Worklane boundary
 
-- Pilot Puppy has its own product plan and proof gap. That gap never blocks an
+- Shadow has its own product plan and proof gap. That gap never blocks an
   unrelated product from shipping the highest-value reachable row in *its* own
   canonical plan.
 - “One bounded task” means one reviewable handoff with an exact scope. It does
@@ -79,7 +79,7 @@ sections that stood here until 2026-08-09 are archived at
   is proven, resume the next highest-value reachable lane in this same plan.
   A safe, obvious in-scope improvement must not wait for an unrelated host,
   quota, or portability check.
-- Use Pilot Puppy where its briefing, bounded execution, or resume record helps.
+- Use Shadow where its briefing, bounded execution, or resume record helps.
   Otherwise work directly in the product lane and prove the real user-visible
   outcome there. Amp only sharpens that lane's brief; it does not dispatch,
   validate, or become its authority.
@@ -1523,6 +1523,12 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-09T04:34:39Z THROWN ~audt repo audited for 0.1.0 readiness by three named agents on disjoint surfaces; every must-fix either fixed or written as a row | note: three named agents, disjoint surfaces: stranger-install at 0.1.0 / version-pin sweep / vestigial-prose sweep
 
 - 2026-08-09T04:43:11Z ~vrst PROOF scripts/shadow-python.sh scripts/shadow-release-package.py --expect-version 0.1.0 --allow-dirty -> pass (accept)
+- 2026-08-09T00:00:00Z ~dslp PROOF 435 lines of v3 Outcome block, portfolio readback, and the three platform sections moved to docs/plan-archive/2026-08-04-v3-outcome-receipts.md (839 lines, 54 "Pilot Puppy" mentions preserved). Two live law lines in ## Worklane boundary corrected to Shadow. The 59 mentions remaining in PLAN.md are: the rename note (line 3), this milestone's own row text, and dated receipts in ## Progress and one completed R11 row whose `.pilot-puppy/` is the literal directory name of that era. Two gates learned the archive is receipts: the brand check exempts docs/plan-archive/ (secret and private-path checks still apply to it), and test_documented_targets stops requiring that deliberately-removed paths exist. (read)
+- 2026-08-09T00:05:00Z LESSON a fan-out that leaves no plan row is unrecoverable, whichever mechanism spawns it. The 0.1.0 repo audit ran as a sealed workflow with no row, and when a mid-flight snapshot showed 0 results I called it dead in this plan -- wrongly; it was still running and finished 22 minutes later with 4 of 4 agents and 7 file:line findings. A row would have carried the dispatch, the expected return, and the recovery move, so no snapshot could have been mistaken for a death certificate. Workflows are not banned: they stay opt-in for barrier and multi-model work. What is banned is dispatching without the row. | trigger: my own wrong "died with no live process" entry, written and then deleted from ## Deferred in the same session
+- 2026-08-09T00:10:00Z ~vrst PROOF release verifier on the git artifact -> OK (0.1.0, 81 files, sha256=52fbf61b...); flipped by `shadow accept`, which reran the proof in a detached clean checkout (cmd)
+- 2026-08-09T00:15:00Z PROOF `shadow goal` ships the static standing goal and it is now pasted into ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md; `shadow doctor` -> 13/13 checks, 0 warnings, "standing goal: claude: current" and "standing goal: codex: current". Before this the adoption was 0 of 3 hosts and no executable could tell. (read)
+- 2026-08-09T00:20:00Z PROOF amp no longer lets a plan rewrite the rails of the block it feeds: Priority/Loop/Mode go through _clean, so a newline cannot append an instruction line and a 3,000-char value cannot evict RAILS from a 4k block. 4 tests, both halves mutation-tested (removing the bound and letting the fixed authority pointer win the size comparison each turn the class red). Full suite 240 tests OK, up from 224. (cmd)
+
 ## Deferred proof (not a global blocker)
 
 - Cursor user rules live in application settings, not a file, so `shadow
