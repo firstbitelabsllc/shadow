@@ -27,16 +27,15 @@ def check(name: str, state: str, detail: str, **data: Any) -> dict[str, Any]:
 
 
 def identity_check() -> dict[str, Any]:
+    # No package.json since 2026-08-09: VERSION and the plugin manifest are
+    # the only identity sources, and they must agree.
     try:
-        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
         version = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
         plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, IndexError) as exc:
         return check("product identity", "fail", f"metadata is unreadable: {exc}")
     valid = (
-        package.get("name") == "@firstbitelabs/shadow"
-        and package.get("version") == version
-        and plugin.get("name") == "shadow"
+        plugin.get("name") == "shadow"
         and plugin.get("version") == version
         and (ROOT / "SKILL.md").is_file()
         and (ROOT / "AGENT.md").is_file()
@@ -45,7 +44,7 @@ def identity_check() -> dict[str, Any]:
     return check(
         "product identity",
         "pass" if valid else "fail",
-        f"shadow {version}" if valid else "package, plugin, skill, command, and version disagree",
+        f"shadow {version}" if valid else "plugin, skill, command, and version disagree",
         version=version,
     )
 

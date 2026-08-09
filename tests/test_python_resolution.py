@@ -139,7 +139,7 @@ class PythonResolutionTests(unittest.TestCase):
         self.assertIn('"schema": "shadow.status.v1"', result.stdout)
         self.assertTrue(used)
 
-    def test_npm_gate_uses_versioned_interpreter_when_bare_python3_is_low(self) -> None:
+    def test_gate_uses_versioned_interpreter_when_bare_python3_is_low(self) -> None:
         candidates = [
             name
             for name in ("python3.10", "python3.11", "python3.12", "python3.13", "python3.14")
@@ -169,8 +169,11 @@ class PythonResolutionTests(unittest.TestCase):
                 "PATH": f"{bin_dir}{os.pathsep}{Path(real_interpreter).parent}{os.pathsep}{os.environ.get('PATH', '')}",
                 "SHADOW_PYTHON": "",
             }
+            # npm removed 2026-08-09 — invoke the gate through its real
+            # launcher, which is what the CI job runs now.
             result = subprocess.run(
-                ["npm", "run", "public-ready:grep"],
+                ["scripts/shadow-python.sh", "scripts/shadow-public-ready-grep-gate.py",
+                 "--tracked-only", "--metadata"],
                 cwd=ROOT,
                 env={**os.environ, **env},
                 capture_output=True,

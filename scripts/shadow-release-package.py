@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Verify one small, public, installable Shadow npm artifact."""
+"""Verify one small, public, installable Shadow release — a git checkout.
+
+No npm since 2026-08-09: the clone IS the install (see install.sh), so this
+verifies the tracked tree, not a packed tarball.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,6 +20,14 @@ from typing import Any, Iterable
 
 
 ROOT = Path(__file__).resolve().parent.parent
+# Provenance is the host plus the path, not a suffix: an attacker-controlled
+# host serving `.../firstbitelabsllc/shadow.git` ends with the canonical path
+# and must not pass as the canonical repository.
+CANONICAL_ORIGIN = re.compile(
+    r"(?:git\+)?(?:https?://|ssh://|git://)?(?:[^@/]+@)?github\.com[:/]"
+    r"firstbitelabsllc/shadow(?:\.git)?/?",
+    re.IGNORECASE,
+)
 MAX_FILE_COUNT = 100
 MAX_UNPACKED_BYTES = 2_000_000
 REQUIRED_FILES = {
@@ -39,7 +52,6 @@ REQUIRED_FILES = {
     "docs/reference/native-hosts.md",
     "docs/reference/outcome-choice.md",
     "examples/outcome-choice/example.json",
-    "package.json",
     "schemas/chief-of-staff.v1.json",
     "schemas/decision-choice.v1.json",
     "schemas/decision-receipt.v1.json",
@@ -51,6 +63,7 @@ REQUIRED_FILES = {
     "scripts/shadow-init.py",
     "scripts/shadow-outcome-validate.py",
     "scripts/shadow-public-ready-grep-gate.py",
+    "install.sh",
     "scripts/shadow-python.sh",
     "scripts/shadow-release-package.py",
     "scripts/shadow-status.py",
@@ -90,7 +103,6 @@ def forbidden(path: str) -> bool:
 
 
 def validate_release_candidate(
-    package: dict[str, Any],
     plugin: dict[str, Any],
     pack: dict[str, Any],
     *,
@@ -105,40 +117,32 @@ def validate_release_candidate(
     tracked = {normalize(path) for path in tracked_paths}
     dirty = sorted(files & {normalize(path) for path in dirty_paths})
     wanted_version = expected_version or version
-    expected_repo = "https://github.com/firstbitelabsllc/shadow"
     if expected_version and version != expected_version:
         errors.append("VERSION does not match --expect-version")
-    if package.get("name") != "@firstbitelabs/shadow" or plugin.get("name") != "shadow":
-        errors.append("package must be @firstbitelabs/shadow, plugin shadow")
-    if package.get("private") is not False:
-        errors.append("package must be public")
-    if package.get("version") != wanted_version or plugin.get("version") != wanted_version or pack.get("version") != wanted_version:
-        errors.append("package, plugin, packed artifact, and VERSION must match")
-    if package.get("bin") != {"shadow": "bin/shadow"}:
-        errors.append("package must expose only the shadow command")
-    if expected_repo not in str(package.get("homepage", "")) or expected_repo not in str(package.get("repository", {}).get("url", "")):
-        errors.append("package must point at the canonical public repository")
-    publish = package.get("publishConfig", {})
-    if publish.get("access") != "public" or publish.get("provenance") is not True:
-        errors.append("publishing must be public with provenance")
+    if plugin.get("name") != "shadow":
+        errors.append("plugin must be named shadow")
+    if plugin.get("version") != wanted_version or pack.get("version") != wanted_version:
+        errors.append("plugin, archived artifact, and VERSION must match")
+    if not CANONICAL_ORIGIN.fullmatch(str(pack.get("origin", "")).strip()):
+        errors.append("release must be cut from the canonical public repository")
     missing = sorted(REQUIRED_FILES - files)
     if missing:
-        errors.append("packed artifact is missing: " + ", ".join(missing))
+        errors.append("archived artifact is missing: " + ", ".join(missing))
     blocked = sorted(path for path in files if forbidden(path))
     if blocked:
-        errors.append("packed artifact contains forbidden files: " + ", ".join(blocked))
+        errors.append("archived artifact contains forbidden files: " + ", ".join(blocked))
     skills = sorted(path for path in files if PurePosixPath(path).name == "SKILL.md")
     if skills != ["SKILL.md", "skills/goal/SKILL.md"]:
-        errors.append("packed artifact must contain exactly the root SKILL.md and skills/goal/SKILL.md")
+        errors.append("archived artifact must contain exactly the root SKILL.md and skills/goal/SKILL.md")
     untracked = sorted(files - tracked)
     if untracked and not allow_dirty:
-        errors.append("packed artifact contains untracked files: " + ", ".join(untracked))
+        errors.append("archived artifact contains untracked files: " + ", ".join(untracked))
     if dirty and not allow_dirty:
-        errors.append("packed artifact contains uncommitted bytes: " + ", ".join(dirty))
+        errors.append("archived artifact contains uncommitted bytes: " + ", ".join(dirty))
     if len(files) > MAX_FILE_COUNT:
-        errors.append(f"packed artifact exceeds {MAX_FILE_COUNT} files")
+        errors.append(f"archived artifact exceeds {MAX_FILE_COUNT} files")
     if int(pack.get("unpackedSize", 0) or 0) > MAX_UNPACKED_BYTES:
-        errors.append(f"packed artifact exceeds {MAX_UNPACKED_BYTES} unpacked bytes")
+        errors.append(f"archived artifact exceeds {MAX_UNPACKED_BYTES} unpacked bytes")
     return errors
 
 
@@ -179,25 +183,36 @@ def dirty_files(root: Path) -> set[str]:
 
 
 def pack(root: Path, destination: Path) -> tuple[dict[str, Any], Path, str]:
-    rows = json.loads(
-        command(
-            ["npm", "pack", "--json", "--ignore-scripts", "--pack-destination", str(destination)],
-            root,
-        ).stdout
+    """Reproducible archive of the TRACKED tree via git — no packer, no manifest
+    format, no package manager. The clone is the install, so the release
+    artifact is simply what git would hand a stranger."""
+    version = source_version(root)
+    tarball = destination / f"shadow-{version}.tar"
+    command(
+        ["git", "-C", str(root), "archive", "--format=tar",
+         f"--output={tarball}", "HEAD"],
+        root,
     )
-    if not isinstance(rows, list) or len(rows) != 1:
-        raise RuntimeError("npm pack returned an unexpected manifest")
-    tarball = destination / rows[0]["filename"]
+    listing = command(["tar", "-tf", str(tarball)], root).stdout.split("\n")
+    files = [{"path": name} for name in listing if name and not name.endswith("/")]
+    origin = command(["git", "-C", str(root), "config", "--get", "remote.origin.url"], root).stdout.strip()
+    manifest = {"files": files, "version": version, "origin": origin,
+                "unpackedSize": sum((root / f["path"]).stat().st_size
+                                    for f in files if (root / f["path"]).is_file())}
     digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
-    return rows[0], tarball, digest
+    return manifest, tarball, digest
 
 
 def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
+    """Prove a stranger can install from the archive with Git, Bash, Python —
+    exactly the path install.sh documents."""
     consumer = root / "consumer"
     consumer.mkdir()
-    (consumer / "package.json").write_text('{"private":true}\n', encoding="utf-8")
-    command(["npm", "install", "--ignore-scripts", "--no-fund", "--audit", str(tarball)], consumer)
-    cli = consumer / "node_modules" / ".bin" / "shadow"
+    command(["tar", "-xf", str(tarball), "-C", str(consumer)], root)
+    bin_dir = root / "bin"
+    bin_dir.mkdir()
+    command(["bash", str(consumer / "install.sh"), "--bin-dir", str(bin_dir), "--no-skills"], consumer)
+    cli = bin_dir / "shadow"
     version = command([str(cli), "--version"], consumer).stdout.strip()
     if version != expected_version:
         raise RuntimeError("installed command version does not match source")
@@ -205,7 +220,6 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
 
 
 def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool = False) -> dict[str, Any]:
-    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     version = source_version(root)
     with tempfile.TemporaryDirectory(prefix="shadow-release-") as dirname:
@@ -217,7 +231,6 @@ def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool
         manifest, tarball, first_sha = pack(root, first)
         second_manifest, _, second_sha = pack(root, second)
         errors = validate_release_candidate(
-            package,
             plugin,
             manifest,
             version=version,
@@ -227,7 +240,7 @@ def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool
             expected_version=expected_version,
         )
         if first_sha != second_sha or manifest.get("files") != second_manifest.get("files"):
-            errors.append("repeated npm pack runs are not reproducible")
+            errors.append("repeated git archive runs are not reproducible")
         install_ok = False
         if not errors:
             stranger_install(tarball, temp, version)

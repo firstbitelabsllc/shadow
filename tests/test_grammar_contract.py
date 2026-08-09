@@ -23,12 +23,22 @@ class GrammarContractTests(unittest.TestCase):
         index = (ROOT / "docs" / "reference" / "index.md").read_text(encoding="utf-8")
         self.assertIn("(grammar.md)", index)
 
-    def test_agent_md_ships_in_the_npm_package(self) -> None:
-        import json
+    def test_agent_md_ships_in_the_release_artifact(self) -> None:
+        # npm removed 2026-08-09: the artifact is `git archive`, and the
+        # allowlist is .gitattributes export-ignore. AGENT.md must not be
+        # export-ignored, and must be in the release script's required set.
+        import importlib.util
 
-        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
-        self.assertIn("AGENT.md", package.get("files", []),
-                      "the standing-behavior file must ship in the package")
+        attrs = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        for line in attrs.splitlines():
+            if line.strip().startswith("AGENT.md"):
+                self.fail("AGENT.md must not be export-ignored from the release artifact")
+        spec = importlib.util.spec_from_file_location(
+            "relpkg", ROOT / "scripts" / "shadow-release-package.py")
+        rel = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rel)
+        self.assertIn("AGENT.md", rel.REQUIRED_FILES,
+                      "the standing-behavior file must ship in the release artifact")
 
     def test_agent_md_carries_the_standing_behaviors(self) -> None:
         text = AGENT.read_text(encoding="utf-8")

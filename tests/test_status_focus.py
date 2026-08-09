@@ -333,3 +333,52 @@ class AmpRelativePlanTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("/goal demo", result.stdout)
             self.assertNotIn("decoy", result.stdout)
+
+
+class StatusLintBlockingTests(unittest.TestCase):
+    """Codex review, PR #263: a v4-SHAPED plan is not a v4-VALID plan. `_parse`
+    skips rows it cannot match, so a plan whose only open work sits in a
+    malformed row must never render as "nothing left to do"."""
+
+    # Every PARSED row is completed; the open work is in a row the grammar
+    # cannot read. Before the guard this briefed as a finished plan.
+    HIDDEN_WORK = """# Broken
+
+## Brief
+
+- Project: broken
+- Mode: ship
+
+## Tasks
+
+### M1 — the readable rows are all done
+- [completed] groundwork ~aa11 | proof: cmd true
+- [completed] closer ~cc33 (DoD) | proof: read x -> y
+- [pending] THE REAL WORK, unreadable to the grammar
+
+## Progress
+
+- 2026-08-09T00:00:00Z ~aa11 PROOF true -> ok
+"""
+
+    def test_completion_is_never_claimed_while_lint_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(self.HIDDEN_WORK, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root)],
+                capture_output=True, text=True, check=False)
+            self.assertNotIn("mint the successor", result.stdout)
+            self.assertIn("cannot be trusted", result.stdout)
+            # and the operator is still told the plan is unhealthy
+            self.assertIn("Plan health", result.stdout)
+
+    def test_clean_complete_plan_still_mints_the_successor(self) -> None:
+        done = V4_PLAN.replace("[pending]", "[completed]").replace("[in_progress]", "[completed]")
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(done, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root)],
+                capture_output=True, text=True, check=False)
+            self.assertNotIn("cannot be trusted", result.stdout)

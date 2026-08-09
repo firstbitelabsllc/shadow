@@ -30,6 +30,7 @@ in the test gate and before any mode flip is honored.
 - <ts> MODE explore->ship | harness: <name>
 - <ts> SPIKE ~ab12 <exploration question> | ends: <YYYY-MM-DD>
 - <ts> DECISION ~ab12 keep|kill|promote -> <one line>
+- <ts> THROWN ~ab12 <task text> | note: <why, <=200 chars>
 - <ts> STRUCT <edit> | trigger: <why>
 - <ts> STEER auto <option> | <reason>
 ```
@@ -71,6 +72,17 @@ which skills/plugins/tooling this milestone's work actually needs — written
 by whoever works the milestone, living in the plan, never in a side store
 (pattern, not store). `shadow amp` projects it into the goal block; lint
 ignores it.
+
+## Dispatch law
+
+`THROWN ~hash` records that a task left the chat for another conversation —
+another host, a workflow, a seat on another machine. Only `shadow throw`
+writes it, in the same commit as the `pending -> in_progress` flip. The
+thrown row's `proof:` is its completion predicate: a row with no proof cannot
+be thrown, because nobody could tell whether the job finished. A row carrying
+a THROWN line is excluded from auto-resume selection; one without is a
+hand-claimed resume target. Liveness is never asserted — probe the proof,
+never a process.
 
 ## Mode law
 
