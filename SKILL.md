@@ -119,6 +119,20 @@ Lead with:
 - Proof or uncertainty
 - The one decision needed, expressed as at most A/B/C
 
+Explain every term in the same message that uses it. A change gets a
+before/after pair; a flow gets a small diagram; a fact gets one line:
+
+```
+BEFORE                       AFTER
+credential says "Alice"      credential says "Alice"
+claim("Bob") -> ALLOWED      claim("Bob") -> REFUSED 403
+```
+
+A PR number, plan slug, file path, or symbol name is a reference, never an
+explanation. Never send an A/B/C whose subject was not explained in that same
+message, and never re-send an option the person has ignored — repetition means
+the framing failed, so rewrite it.
+
 Hide implementation detail unless it changes the decision. The browser is a
 loopback projection of the same plan; Markdown remains authority.
 
