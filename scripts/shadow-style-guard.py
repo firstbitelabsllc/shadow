@@ -42,6 +42,17 @@ CHOOSING = re.compile(
     re.I,
 )
 
+# What a tail has to say to have closed the menu: that a choice was already made.
+# Length was never the thing; saying so is. "Both are ready to run. / Nothing is
+# blocking either one." is two lines of neutral recap that resolves nothing, and
+# reading its silence as a decision hands the reader the same two letters the
+# menu did. "I took A." is the report this pass exists for.
+SETTLED = re.compile(
+    r"\b(took|taken|chose|picked|went with|going with|opted|settled on|"
+    r"landed|shipped|i did|we did)\b",
+    re.I,
+)
+
 
 def final_assistant_text(path):
     text = ""
@@ -94,6 +105,11 @@ def _still_offering(ending):
     tail whose closing question is a courtesy after the message already chose
     does not, at any length; that is a report signing off.
 
+    Only a tail that says a choice was made can sign off at all. A silent tail
+    is not a decision: two lines of even-handed recap with no question in them
+    leave the reader holding exactly what the menu handed them, so the menu is
+    still open. Asking nothing is not the same as having answered.
+
     What closes a tail is its last question, not its last line. "Which one? /
     Let me know." is one ask with an addendum, and reading only the final line
     would score the addendum and free the bare menu underneath it. Nothing after
@@ -102,6 +118,8 @@ def _still_offering(ending):
     prose = [line.strip() for line in ending if line.strip()]
     if len(prose) <= TRAILING_LINES:
         return True
+    if not SETTLED.search(" ".join(prose)):
+        return True  # nothing here told the reader which option happened
     asks = [line for line in prose if "?" in line]
     return bool(asks) and bool(CHOOSING.search(asks[-1]))
 

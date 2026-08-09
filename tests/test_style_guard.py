@@ -195,6 +195,49 @@ class StyleGuardTests(unittest.TestCase):
         self.assertTrue(self.guard.violations(text),
                         "an open menu stays open however long the tail is")
 
+    def test_a_silent_tail_is_not_a_decision(self) -> None:
+        """Saying nothing after the menu is not the same as having chosen.
+
+        Both tails below stop asking, so the last-question test finds nothing to
+        weigh. Neither says which option happened, so the reader is left holding
+        the same two letters, and a pass here would free every bare A/B that
+        simply trails off instead of signing off.
+        """
+        neutral_recap = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "Both are ready to run and neither is started.\n"
+            "Nothing else is blocking either one.\n"
+        )
+        courtesy_only = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "Neither is started yet.\n"
+            "Let me know.\n"
+            "Thanks!\n"
+        )
+        self.assertTrue(self.guard.violations(neutral_recap),
+                        "an even-handed recap resolves nothing it just restated")
+        self.assertTrue(self.guard.violations(courtesy_only),
+                        "a sign-off over an unanswered menu is still the menu")
+
+    def test_a_courtesy_question_over_an_unresolved_menu_is_still_a_menu(self) -> None:
+        """The sign-off pass belongs to the report that chose, not to politeness.
+
+        "Anything else?" closes `test_a_report_that_signs_off_with_a_question`
+        because "I took A." came first. Strip that sentence and the same closing
+        question is a bare menu wearing a courtesy.
+        """
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "A costs a force-push; B costs a merge commit.\n"
+            "Neither is started.\n"
+            "Anything else you want covered?\n"
+        )
+        self.assertTrue(self.guard.violations(text),
+                        "politeness is not the message saying which one happened")
+
     def test_a_bare_menu_is_a_menu_whatever_its_one_closing_line_says(self) -> None:
         """The one-line tail is the base case, not an exemption to be argued with.
 
