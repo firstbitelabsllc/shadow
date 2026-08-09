@@ -75,14 +75,21 @@ def closing_menu(text):
 def _ending(lines, mark):
     """What the message says after its last option, minus that option's own body.
 
-    Lines running straight on from the option line are still that option being
-    explained. The ending is what comes after the blank line that closes it.
+    Indentation is what binds a continuation to its option, so lines indented
+    past the option marker are still that option being explained. A line back at
+    the option's own margin is the message speaking again, whether or not a blank
+    line announced it, and that is where the ending starts.
     """
     rest = lines[mark + 1:]
+    depth = _indent(lines[mark])
     body = 0
-    while body < len(rest) and rest[body].strip():
+    while body < len(rest) and rest[body].strip() and _indent(rest[body]) > depth:
         body += 1
     return rest[body:]
+
+
+def _indent(line):
+    return len(line) - len(line.lstrip())
 
 
 def _prose(lines):
