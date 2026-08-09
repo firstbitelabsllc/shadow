@@ -50,7 +50,7 @@ sections that stood here until 2026-08-09 are archived at
 - [completed] the four JS source-contract tests ported to Python without loss ~jsp0 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell
 - [completed] npm deleted from the product: manifest, lockfile, vitest, playwright, vitepress, and every npm invocation in bin/scripts/CI ~npm0 | proof: cmd scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py' | needs: ~jsp0
 - [completed] install.sh replaces `npm install -g` and is proven by a stranger-install in the release verifier and in CI ~inst | proof: cmd scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty | needs: ~npm0
-- [pending] v4.1.0 cut from a clean tree and installed on both machines from the clone ~rel1 (DoD) | proof: gate leo resume: git pull on each machine, bash install.sh, shadow doctor green, then the car test | needs: ~inst
+- [pending] the release is installed from the clone on the SECOND machine ~rel1 (DoD) | proof: gate leo resume: on the other machine run git pull, bash install.sh, shadow doctor green, then open a cold session and confirm it names a row without being asked | needs: ~inst
 
 ### M7 — one chat, dozens of conversations
 - tools: scripts/shadow-throw.py is the dispatch record; `shadow status --in-flight` is the recovery view; design corpus = the 2026-08-08/09 session's five real cases
@@ -126,6 +126,44 @@ sections that stood here until 2026-08-09 are archived at
 - Writes are atomic and idempotent. Host work is limited to an exact worktree
   and explicit allowed paths. Scope escape fails closed.
 - Git history is preserved with ordinary forward commits.
+
+## Deferred
+
+- 29 follow-ups from the 17-agent trust audit -- regex duplication between lint and accept, a host-prompt example-receipt collision, doctor's VERSION-grammar quadruplication, packaging globs shipping design records, atomic-write and accessibility nits | the full list exists only in a session transcript a fresh checkout cannot read, so the five named here are all that is recoverable from this repository | wake: the next release train; if that transcript is unreachable when it fires, re-run the audit sweep rather than treating this row as done
+- a session-start portfolio brief: a fresh session opens already knowing every project's state, mode, and next move, without being asked | `shadow status` plus the standing goal already gets a cold session to the board, so this is polish on a solved problem | wake: a product cycle names cold-start friction in its own plan
+- harden the sealed-lane argv: `claude --setting-sources user --allowedTools`, `cursor --sandbox enabled` | the flags are verified present in the installed CLIs, but lane behavior under them is unverified and `shadow host run` has never been exercised against a live host | wake: the first real delegated host run
+- native structured receipts via `codex --output-schema` and `claude --json-schema` | text-scraping the receipt works today and a schema is only better when the scrape breaks | wake: a receipt-shape scrape failure actually occurs
+- packaging pass: fold `shadow-outcome-validate` into tests, fold `shadow_task_lib` into `shadow-host`, delete the unread `schemas/*.json` | shipped surface with no runtime callers, and the schemas are entangled with the browser decision the owner still owns | wake: the browser A/B/C ruling lands, or the next release train
+- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
+- the v3 Outcome/Decision/chief-of-staff subsystem, ~1,746 lines with no live producer | retiring it also retires the A/B/C sentences in quickstart.md and docs/index.md and two committed screenshots, so it is a product call, not cleanup | wake: the owner rules on whether the browser's A/B/C decision view ships in 0.1.x
+- `docs/superpowers/` is linked from no index and prescribes deleted machinery (`shadow route`, `npm install --package-lock-only`) | it is now `export-ignore`d so it no longer ships, which removes the urgency but not the staleness | wake: someone edits a file under docs/superpowers/, or the owner asks where Shadow's own design records live
+- `shadow doctor` cannot verify the standing goal in Cursor | its user rules live in application settings, not a file, so asserting `~/.cursor/rules/shadow.md` would invent a convention and then report success for wiring that does nothing | wake: the owner names Cursor's real user-rule surface, or Cursor ships a documented file path
+
+## Contradictions
+
+- RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
+  Shadow. See the ~obsv PROOF line. |
+  winner: Boundaries | opened 2026-08-09T01:10:00Z
+  `AGENT.md` and `SKILL.md` both say no router, daemon, scheduler, credential
+  relay, or transcript store, and `docs/reference/privacy.md` is built on
+  nothing leaving the machine. End-to-end triage of a failed cycle is a real
+  need and there is no local answer today, but the default Langfuse shape --
+  hosted endpoint, API keys, prompt and output payloads -- is precisely the
+  banned thing. ~obsv decides between: self-hosted only, metadata-only spans
+  with no payloads, or kill. Recorded before any code so the boundary is not
+  eroded by an integration that arrives working.
+
+- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
+  winner: keep the scaffold | opened 2026-08-09T01:00:00Z
+  The first command a stranger runs teaches `Outcome ID / Revision / State /
+  Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
+  contain (`grep -ic outcome` on it returns 0), and lint has no unknown-key
+  check so the scaffold passes forever. Cutting it to the four real keys is a
+  10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
+  those extra keys, so trimming init leaves `browser/outcome_source.py`,
+  `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
+  means deciding whether the browser's decision surface stays — an owner call,
+  not a lint fix. Held as a contradiction rather than settled quietly.
 
 ## Progress
 
@@ -1419,42 +1457,3 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-09T09:11:00Z STRUCT ~adv9 added to M11 | trigger: ten PRs merged in one night and FIVE false greens surfaced in them -- a roster guard that could not fail, DEFER-NO-WAKE disabled by a heading variant, a doctor check green on a drifted file, a live host check that fed the session its own answer, and a style guard any fenced block could satisfy. Four were caught by review or by me re-reading, one by a peer. That rate says the reviews on tonight's merges are not a sufficient gate on tonight's merges. Why now: the debt row ~debt closes M11 and the DoD ~clen then declares main clean -- declaring clean without one adversarial pass over what just landed is the same shape as a green run that proves nothing. Contradicts: nothing.
 - 2026-08-09T22:31:41Z THROWN ~adv9 a fresh adversarial pass over the ten PRs merged 2026-08-09 finds what their own reviews missed, or says so with the searches that came back empty | by: claude | note: workflow: 5 adversarial lanes over the 10 PRs merged 2026-08-09, barrier, then one synthesis
 - 2026-08-09T09:30:00Z ~debt PROOF #265 was NOT superseded and its rows landed. Tonight's archive moved 46 v3 portfolio deferrals out and rewrote 3, leaving a Deferred section of 3 -- #265 carried five genuinely parked items with wake predicates that existed nowhere else: the 29 unrecoverable audit follow-ups, the session-start brief, sealed-lane argv hardening, native structured receipts, and the packaging pass. Their "v4.1 release train" wakes were stale (no v4.1 exists) and now read "the next release train"; the packaging row's wake also names the browser ruling, because deleting schemas/*.json is entangled with a decision the owner still owns. #265 also recorded a LESSON worth keeping and independently confirmed tonight: a plan edit anchored on a heading must ASSERT the anchor matched, because `## Deferred` did not exist -- only `## Deferred proof (not a global blocker)` -- so every canonical-anchor insert silently no-oped. That is the same defect as DEFER-NO-WAKE matching a heading exactly, found twice from opposite directions on the same day. #266 and #267 are superseded by #277 and close. #256's prose landed in ~excs without its example file. (read)
-
-## Contradictions
-
-- RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
-  Shadow. See the ~obsv PROOF line. |
-  winner: Boundaries | opened 2026-08-09T01:10:00Z
-  `AGENT.md` and `SKILL.md` both say no router, daemon, scheduler, credential
-  relay, or transcript store, and `docs/reference/privacy.md` is built on
-  nothing leaving the machine. End-to-end triage of a failed cycle is a real
-  need and there is no local answer today, but the default Langfuse shape --
-  hosted endpoint, API keys, prompt and output payloads -- is precisely the
-  banned thing. ~obsv decides between: self-hosted only, metadata-only spans
-  with no payloads, or kill. Recorded before any code so the boundary is not
-  eroded by an integration that arrives working.
-
-- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
-  winner: keep the scaffold | opened 2026-08-09T01:00:00Z
-  The first command a stranger runs teaches `Outcome ID / Revision / State /
-  Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
-  contain (`grep -ic outcome` on it returns 0), and lint has no unknown-key
-  check so the scaffold passes forever. Cutting it to the four real keys is a
-  10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
-  those extra keys, so trimming init leaves `browser/outcome_source.py`,
-  `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
-  means deciding whether the browser's decision surface stays — an owner call,
-  not a lint fix. Held as a contradiction rather than settled quietly.
-
-
-## Deferred
-
-- 29 follow-ups from the 17-agent trust audit -- regex duplication between lint and accept, a host-prompt example-receipt collision, doctor's VERSION-grammar quadruplication, packaging globs shipping design records, atomic-write and accessibility nits | the full list exists only in a session transcript a fresh checkout cannot read, so the five named here are all that is recoverable from this repository | wake: the next release train; if that transcript is unreachable when it fires, re-run the audit sweep rather than treating this row as done
-- a session-start portfolio brief: a fresh session opens already knowing every project's state, mode, and next move, without being asked | `shadow status` plus the standing goal already gets a cold session to the board, so this is polish on a solved problem | wake: a product cycle names cold-start friction in its own plan
-- harden the sealed-lane argv: `claude --setting-sources user --allowedTools`, `cursor --sandbox enabled` | the flags are verified present in the installed CLIs, but lane behavior under them is unverified and `shadow host run` has never been exercised against a live host | wake: the first real delegated host run
-- native structured receipts via `codex --output-schema` and `claude --json-schema` | text-scraping the receipt works today and a schema is only better when the scrape breaks | wake: a receipt-shape scrape failure actually occurs
-- packaging pass: fold `shadow-outcome-validate` into tests, fold `shadow_task_lib` into `shadow-host`, delete the unread `schemas/*.json` | shipped surface with no runtime callers, and the schemas are entangled with the browser decision the owner still owns | wake: the browser A/B/C ruling lands, or the next release train
-- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
-- the v3 Outcome/Decision/chief-of-staff subsystem, ~1,746 lines with no live producer | retiring it also retires the A/B/C sentences in quickstart.md and docs/index.md and two committed screenshots, so it is a product call, not cleanup | wake: the owner rules on whether the browser's A/B/C decision view ships in 0.1.x
-- `docs/superpowers/` is linked from no index and prescribes deleted machinery (`shadow route`, `npm install --package-lock-only`) | it is now `export-ignore`d so it no longer ships, which removes the urgency but not the staleness | wake: someone edits a file under docs/superpowers/, or the owner asks where Shadow's own design records live
-- `shadow doctor` cannot verify the standing goal in Cursor | its user rules live in application settings, not a file, so asserting `~/.cursor/rules/shadow.md` would invent a convention and then report success for wiring that does nothing | wake: the owner names Cursor's real user-rule surface, or Cursor ships a documented file path
