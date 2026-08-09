@@ -5,8 +5,10 @@ Shadow's Brief contract says to end with at most one A/B/C. It did not say the
 person must be able to understand it without asking, so the prose was obeyed and
 the intent was not. This is the enforcing half.
 
-Reads Claude Code's Stop payload on stdin, pulls the final assistant text out of
-the transcript, and blocks when the ending breaks the contract. Blocks by
+Reads Claude Code's Stop payload on stdin and takes the final assistant text
+from `last_assistant_message`, which the payload supplies for exactly this turn.
+The transcript is only a fallback: it is written asynchronously, so scanning it
+alone can read a stale or missing line and judge the wrong ending. Blocks by
 printing {"decision":"block","reason":...}; silence means allow.
 """
 import json
@@ -56,13 +58,15 @@ def main():
         return 0
     if payload.get("stop_hook_active"):
         return 0  # already blocked once this turn; never loop
-    path = payload.get("transcript_path")
-    if not path:
-        return 0
-    try:
-        text = final_assistant_text(path)
-    except OSError:
-        return 0
+    text = payload.get("last_assistant_message")
+    if not isinstance(text, str) or not text.strip():
+        path = payload.get("transcript_path")
+        if not path:
+            return 0
+        try:
+            text = final_assistant_text(path)
+        except OSError:
+            return 0
     found = violations(text)
     if found:
         print(json.dumps({

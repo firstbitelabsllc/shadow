@@ -59,6 +59,51 @@ class StyleGuardTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["decision"], "block")
 
+    def test_payload_message_wins_over_a_stale_transcript(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "t.jsonl"
+            transcript.write_text(json.dumps({
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "an older, clean ending"}]},
+            }) + "\n")
+            done = subprocess.run(
+                [sys.executable, str(GUARD)],
+                input=json.dumps({
+                    "transcript_path": str(transcript),
+                    "last_assistant_message": "- **A** — one\n- **B** — two\n",
+                }),
+                capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(json.loads(done.stdout)["decision"], "block",
+                         "the turn's own message must be judged, not a lagging transcript")
+
+    def test_blank_payload_message_falls_back_to_the_transcript(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "t.jsonl"
+            transcript.write_text(json.dumps({
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "- **A** — one\n- **B** — two\n"}]},
+            }) + "\n")
+            done = subprocess.run(
+                [sys.executable, str(GUARD)],
+                input=json.dumps({
+                    "transcript_path": str(transcript),
+                    "last_assistant_message": "   ",
+                }),
+                capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(json.loads(done.stdout)["decision"], "block",
+                         "an empty message field must not disable the guard")
+
+    def test_payload_message_alone_is_enough(self) -> None:
+        done = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=json.dumps({"last_assistant_message": "- **A** — one\n- **B** — two\n"}),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(json.loads(done.stdout)["decision"], "block",
+                         "no transcript is needed when the payload carries the message")
+
     def test_stop_hook_active_never_loops(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             transcript = Path(tmp) / "t.jsonl"
