@@ -267,3 +267,55 @@ class ConflictMarkersBlock(unittest.TestCase):
         text = self.BASE + "- 2026-08-09T00:01:00Z NOTE see the ======= divider above\n"
         codes = [f["check"] for f in lint.lint_plan(text)]
         self.assertNotIn("CONFLICT-MARKER", codes)
+
+
+class SectionOrderIsChecked(unittest.TestCase):
+    """Order drifted unnoticed because sections are read into a dict.
+
+    Nothing compared their positions, so this repo's own plan ended up with
+    Progress in the middle — and Progress is append-only, which makes it the
+    worst one to leave there: every cycle buried the open deferrals a little
+    deeper, and a cold reader scrolled past a thousand lines of receipts to
+    reach them.
+    """
+
+    ROWS = ("### M1\n- [pending] r ~aa11 | proof: cmd true\n")
+
+    def _plan(self, *sections: str) -> str:
+        return "# x\n\n## Brief\n\n- Project: x\n- Mode: ship\n\n" + "\n".join(sections)
+
+    def test_progress_before_deferred_warns(self) -> None:
+        text = self._plan(
+            "## Tasks\n\n" + self.ROWS,
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE x\n",
+            "## Deferred\n\n- a | b | wake: c\n",
+        )
+        found = [f for f in lint.lint_plan(text) if f["check"] == "SECTION-ORDER"]
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["severity"], "warning")
+        self.assertIn("append-only", found[0]["detail"])
+
+    def test_the_canonical_order_is_silent(self) -> None:
+        text = self._plan(
+            "## Tasks\n\n" + self.ROWS,
+            "## Deferred\n\n- a | b | wake: c\n",
+            "## Contradictions\n\n- x vs y | winner x | opened 2026-08-09T00:00:00Z\n",
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE x\n",
+        )
+        self.assertEqual([f for f in lint.lint_plan(text) if f["check"] == "SECTION-ORDER"], [])
+
+    def test_a_missing_section_does_not_trip_it(self) -> None:
+        # Deferred and Contradictions are optional. Their absence is not disorder.
+        text = self._plan("## Tasks\n\n" + self.ROWS, "## Progress\n\n- 2026-08-09T00:00:00Z NOTE x\n")
+        self.assertEqual([f for f in lint.lint_plan(text) if f["check"] == "SECTION-ORDER"], [])
+
+    def test_a_suffixed_heading_still_counts_as_its_section(self) -> None:
+        # "## Deferred proof (not a global blocker)" is a legal heading, and
+        # matching it exactly is what silently disabled DEFER-NO-WAKE for the
+        # life of this file.
+        text = self._plan(
+            "## Tasks\n\n" + self.ROWS,
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE x\n",
+            "## Deferred proof (not a global blocker)\n\n- a | b | wake: c\n",
+        )
+        self.assertTrue([f for f in lint.lint_plan(text) if f["check"] == "SECTION-ORDER"])

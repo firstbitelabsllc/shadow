@@ -167,6 +167,24 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
     # blocker)" is a legal heading and it silently disabled this entire check:
     # the reference plan carried 47 wake-predicate-less rows, invisible to its
     # own enforcer, because the section name had four extra words.
+    # Section order drifted unnoticed because sections are read into a dict,
+    # so nothing compared their positions. Progress is append-only, which makes
+    # it the worst one to leave in the middle: every cycle buries whatever sits
+    # below it a little deeper, and a cold reader scrolls past a thousand lines
+    # of receipts to reach the open deferrals.
+    order = [line[3:].strip() for _, line in
+             ((n, l) for n, l in enumerate(lines, 1) if l.startswith("## "))]
+    canonical = [name for name in ("Brief", "Tasks", "Deferred", "Contradictions", "Progress")
+                 if any(s == name or s.startswith(name + " ") for s in order)]
+    seen = [name for s in order for name in canonical
+            if s == name or s.startswith(name + " ")]
+    if seen != canonical:
+        findings.append(_finding(
+            "SECTION-ORDER", 0, "warning",
+            f"sections read {' -> '.join(seen)}; the grammar prints "
+            f"{' -> '.join(canonical)} — Progress is append-only and belongs last",
+        ))
+
     # A plan carrying conflict markers linted CLEAN, which is how a half-merged
     # PLAN.md reaches a commit. It matters more now that several leads write one
     # plan: `shadow throw` refuses on unmerged paths, but nothing caught a
