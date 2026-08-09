@@ -25,4 +25,4 @@ fresh packed install must pass before release.
 
 ## Supported versions
 
-Only the latest `2.x` release and current `main` receive security fixes.
+Only the latest `0.1.x` release and current `main` receive security fixes.

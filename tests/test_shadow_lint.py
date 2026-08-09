@@ -219,3 +219,51 @@ class ShadowLintTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConflictMarkersBlock(unittest.TestCase):
+    """A half-merged plan must not read as a clean plan.
+
+    Discovered the honest way: a real rebase conflict in this repo's own
+    PLAN.md linted rc=0 with `<<<<<<< HEAD` sitting in ## Progress. With
+    several leads writing one plan, a committed marker is a live hazard —
+    `shadow throw` refuses on unmerged PATHS, but says nothing about a marker
+    that already made it into a commit.
+    """
+
+    BASE = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M1 — live
+- [pending] a row ~aa11 | proof: cmd true
+
+## Progress
+
+- 2026-08-09T00:00:00Z NOTE seeded
+"""
+
+    def test_a_clean_plan_has_no_conflict_finding(self) -> None:
+        codes = [f["check"] for f in lint.lint_plan(self.BASE)]
+        self.assertNotIn("CONFLICT-MARKER", codes)
+
+    def test_each_marker_shape_blocks(self) -> None:
+        for marker in ("<<<<<<< HEAD", "=======", ">>>>>>> abc123 (their commit)"):
+            found = [
+                f for f in lint.lint_plan(self.BASE + marker + "\n")
+                if f["check"] == "CONFLICT-MARKER"
+            ]
+            self.assertEqual(len(found), 1, f"missed {marker!r}")
+            self.assertEqual(found[0]["severity"], "blocking")
+
+    def test_a_divider_inside_prose_is_not_a_marker(self) -> None:
+        # "=======" only counts on its own line; a row that merely contains it
+        # is somebody's text, not a conflict.
+        text = self.BASE + "- 2026-08-09T00:01:00Z NOTE see the ======= divider above\n"
+        codes = [f["check"] for f in lint.lint_plan(text)]
+        self.assertNotIn("CONFLICT-MARKER", codes)

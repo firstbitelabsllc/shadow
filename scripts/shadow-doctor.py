@@ -160,14 +160,26 @@ def host_goal_checks() -> list[dict[str, Any]]:
             # A missing host file is that host not being configured, not a
             # broken install — warn, never fail. Still say the fix: a warning
             # a person cannot act on is noise.
-            results.append(check(name, "warn", "no host instruction file — create it with: shadow goal >> <host file>"))
+            results.append(check(name, "warn", "no host instruction file — create it with: shadow goal --install"))
             continue
-        if block in text:
+        # Count first. `block in text` is a bare substring test, so a file
+        # holding a stale copy AND a fresh one appended below it passed as
+        # "current" — while the host reads the stale one first. That is exactly
+        # what happened to anyone who followed the old remedy, which said
+        # `shadow goal >> <file>`: append, two blocks, green, wrong.
+        copies = text.count(anchor)
+        if copies > 1:
+            results.append(check(
+                name, "fail",
+                f"{copies} copies of the standing goal — the host reads the first one; "
+                "delete the extras, then: shadow goal --install",
+            ))
+        elif block in text:
             results.append(check(name, "pass", "current"))
-        elif anchor in text:
-            results.append(check(name, "fail", "stale copy — refresh with: shadow goal"))
+        elif copies == 1:
+            results.append(check(name, "fail", "stale copy — replace it with: shadow goal --install"))
         else:
-            results.append(check(name, "warn", "not pasted — add it with: shadow goal >> <host file>"))
+            results.append(check(name, "warn", "not pasted — add it with: shadow goal --install"))
     return results
 
 
