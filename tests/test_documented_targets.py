@@ -21,10 +21,13 @@ TARGET = re.compile(
 )
 # Design specs and implementation plans are proposal records: they name the
 # targets a future implementation would create, so their paths are not shipped
-# instructions and need not exist in this checkout.
+# instructions and need not exist in this checkout. The plan archive is the
+# mirror case — it names paths that USED to exist and were deliberately
+# removed; requiring them back would forbid ever deleting a file.
 PROPOSAL_PREFIXES = (
     "docs/superpowers/specs/",
     "docs/superpowers/plans/",
+    "docs/plan-archive/",
 )
 
 

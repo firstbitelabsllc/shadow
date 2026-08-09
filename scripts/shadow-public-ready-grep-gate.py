@@ -119,7 +119,13 @@ def scan(root: Path, paths: list[Path], *, metadata: bool) -> dict:
             continue
         # PLAN.md and CHANGELOG.md keep pre-rename history as receipts; the
         # read-compat code and its tests name the legacy marker deliberately.
-        brand_exempt = relative in {"PLAN.md", "CHANGELOG.md", "docs/guide/installation.md"} or "pilot-puppy" in relative or relative.startswith(("scripts/", "tests/"))
+        # docs/plan-archive/ is receipts by construction — its README bans
+        # authoring there, so text only arrives by being moved out of a plan.
+        brand_exempt = (
+            relative in {"PLAN.md", "CHANGELOG.md", "docs/guide/installation.md"}
+            or relative.startswith(("scripts/", "tests/", "docs/plan-archive/"))
+            or "pilot-puppy" in relative
+        )
         for number, line in enumerate(content.splitlines(), 1):
             if contains_private_path(line):
                 findings.append({"file": relative, "line": number, "reason": "private filesystem path"})

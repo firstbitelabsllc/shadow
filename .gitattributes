@@ -7,3 +7,4 @@ tests/              export-ignore
 .gitattributes      export-ignore
 .gitleaks.toml      export-ignore
 PLAN.md             export-ignore
+docs/plan-archive/ export-ignore
