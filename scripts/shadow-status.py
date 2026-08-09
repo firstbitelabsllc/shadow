@@ -29,6 +29,11 @@ _amp = _ilu.module_from_spec(_amp_spec)
 sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
+_lint_spec = _ilu.spec_from_file_location("shadow_lint", ROOT / "scripts" / "shadow-lint.py")
+_lint = _ilu.module_from_spec(_lint_spec)
+sys.modules.setdefault("shadow_lint", _lint)
+_lint_spec.loader.exec_module(_lint)
+
 
 def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
     """Render a v4-grammar plan into a bounded status record, or None if the
@@ -39,9 +44,10 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
     operator's home directory (legacy records are relative for the same
     reason) and both plan versions render one path format."""
     try:
-        plan = _amp._parse(plan_path.read_text(encoding="utf-8"))
+        text = plan_path.read_text(encoding="utf-8")
     except OSError:
         return None
+    plan = _amp._parse(text)
     brief = plan["brief"]
     if "Project" not in brief or "Mode" not in brief:
         return None
@@ -60,8 +66,17 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
             (m for m in milestones if any(r["state"] != "completed" for r in m["rows"])),
             None,
         )
+    # A v4-SHAPED plan is not a v4-VALID plan. `_parse` skips rows it cannot
+    # match, so a plan with an illegal mode or a malformed open task could
+    # render as "every task complete; mint the successor" — hiding real work.
+    # Lint is additive here: the brief still renders (an operator needs it),
+    # but a blocking finding is stated and completion is never claimed.
+    blocking = [f for f in _lint.lint_plan(text) if f.get("severity") == "blocking"]
     record: dict = {
         "schema": "shadow.status.v4-brief",
+        "lint_blocking": len(blocking),
+        "lint_first": (f"line {blocking[0].get('line')}: {blocking[0].get('check')} — "
+                       f"{blocking[0].get('detail')}") if blocking else None,
         "path": display_path or str(plan_path),
         "project": brief["Project"],
         "mode": brief["Mode"],
@@ -80,7 +95,12 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
         # finished (chain to the successor) or it is stalled with open rows
         # that are person-gated, blocked, or waiting on unmet needs. amp owns
         # that distinction so status and the goal block can never disagree.
-        record["resume"] = f"none — {_amp.stall_reason(plan)}"
+        # Never let a lint-blocking plan claim "nothing left to do": _parse
+        # skips malformed rows, so the real work may simply be unreadable.
+        record["resume"] = (
+            "UNKNOWN — blocking lint findings mean 'complete' cannot be trusted; fix them first"
+            if blocking else f"none — {_amp.stall_reason(plan)}"
+        )
     # A v4 Brief is not a promise that the plan reads clean: parsing is
     # tolerant, so illegal modes and malformed rows would otherwise be
     # invisible on the board. Surface them beside the resume line.
@@ -195,7 +215,7 @@ def in_flight(root: Path) -> list[dict]:
                     continue
                 rows.append({
                     "project": project,
-                    "plan": str(plan_path),
+                    "plan": path,  # root-relative: never leak the home directory
                     "milestone": milestone["title"],
                     "id": row["id"],
                     "text": row["text"],
