@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 DOCUMENTS = (
     ROOT / "README.md",
     ROOT / "SKILL.md",
+    ROOT / "AGENT.md",
+    ROOT / "CONTRIBUTING.md",
     *sorted((ROOT / "docs").rglob("*.md")),
     *sorted((ROOT / "guides").rglob("*.md")),
 )

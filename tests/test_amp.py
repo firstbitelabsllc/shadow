@@ -43,6 +43,7 @@ PLAN = """# Demo — Plan
 ## Progress
 
 - 2026-08-07T00:00:00Z ~aa11 PROOF true -> ok
+- 2026-08-07T00:01:00Z ~bb22 PROOF parser suite -> ok
 """
 
 
@@ -70,7 +71,17 @@ class AmpSelection(unittest.TestCase):
         self.assertEqual(row["id"], "~cc33")
 
     def test_complete_plan_raises_for_successor_minting(self) -> None:
-        done = PLAN.replace("[pending]", "[completed]").replace("[in_progress]", "[completed]")
+        # Flipping states does not make a plan complete: since 0.1.0 lint blocks
+        # a [completed] row with no paired PROOF line, and amp refuses to chain
+        # a successor over a plan that does not read clean. A genuinely finished
+        # plan carries one receipt per row, so the fixture has to as well.
+        done = (
+            PLAN.replace("[pending]", "[completed]").replace("[in_progress]", "[completed]")
+            + "- 2026-08-07T00:02:00Z ~cc33 PROOF suite -> ok\n"
+            + "- 2026-08-07T00:03:00Z ~dd44 PROOF gate -> ok\n"
+            + "- 2026-08-07T00:04:00Z ~ee55 PROOF owner released -> visible\n"
+            + "- 2026-08-07T00:05:00Z ~ff66 PROOF site re-observed -> renders\n"
+        )
         with self.assertRaises(LookupError) as caught:
             amp.build_block(amp._parse(done), Path("."), Path("PLAN.md"), None, 4000)
         self.assertIn("mint the successor", str(caught.exception))

@@ -37,6 +37,9 @@ TS_RE: Final = re.compile(r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ")
 SPIKE_RE: Final = re.compile(r"^- \S+ SPIKE (?P<id>~[0-9a-z]{4}) (?P<text>.+)$")
 DECISION_RE: Final = re.compile(r"^- \S+ DECISION (?P<id>~[0-9a-z]{4}) (?:keep|kill|promote)\b")
 ENDS_RE: Final = re.compile(r"\| ends: (?P<date>\S+)\s*$")
+# `shadow accept` writes "- <ts> <id> PROOF <argv> -> pass (accept)", and hand
+# flips follow the same shape. This is what pairs a completed row to evidence.
+PROOF_LINE_RE: Final = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
 MAX_LINE_CHARS: Final = 2_000
 
 
@@ -210,6 +213,27 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
         findings.append(
             _finding("SHIP-OVER-OPEN-SPIKE", 0, "blocking", "ship mode with an expired undecided spike")
         )
+
+    # "No proof, no completed" is the product's central claim, and until 0.1.0
+    # nothing enforced it: a row hand-flipped to [completed] with zero PROOF
+    # lines linted clean, and status then reported "every task complete; mint
+    # the successor". Shape was checked; truth was not. A completed row must
+    # name its receipt in Progress — that pairing is the whole contract.
+    proven = {
+        m.group("id")
+        for _, line in sections.get("Progress", [])
+        if (m := PROOF_LINE_RE.match(line))
+    }
+    for row_id, (number, state) in ids.items():
+        if state == "completed" and row_id not in proven:
+            findings.append(
+                _finding(
+                    "COMPLETED-NO-PROOF", number, "blocking",
+                    f"{row_id} is completed with no '<ts> {row_id} PROOF ...' line in ## Progress; "
+                    "run `shadow accept` for a cmd proof, or re-observe a read/gate proof and "
+                    "append the line with the flip",
+                )
+            )
 
     return sorted(findings, key=lambda f: (f["line"], f["check"]))
 

@@ -22,8 +22,8 @@ clone *is* the install, `git pull` is the update. Then paste the standing goal f
 ```bash
 shadow status                  # the board — same list from any directory, any machine
 shadow amp                     # one goal block that POINTS at the plan, ≤4k chars
-shadow throw --task ~ab12      # claim a row before handing it to another seat
-shadow accept --row ~ab12      # rerun the proof in a clean checkout, then flip the row
+shadow throw --task '~ab12'    # claim a row before handing it to another seat
+shadow accept --row '~ab12'    # rerun the proof in a clean checkout, then flip the row
 ```
 
 Also `init --here`, `lint`, `browse`, `host run`, `doctor`.

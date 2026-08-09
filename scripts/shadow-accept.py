@@ -21,6 +21,10 @@ from pathlib import Path
 
 
 ROW_ID_RE = re.compile(r"^~[0-9a-z]{4}$")
+# Unanchored twin for scanning a `needs:` value, which holds several ids.
+# ROW_ID_RE cannot do this job: its ^...$ anchors make findall return nothing
+# on "~cd34, ~ef56", which would turn the readiness check into a silent no-op.
+NEEDS_REF_RE = re.compile(r"~[0-9a-z]{4}")
 FIELD_RE = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
 # The grammar's row shape, mirrored from scripts/shadow-lint.py: the id is a
 # parsed field, never a substring, so a `needs:` reference or trailing prose
@@ -97,8 +101,24 @@ def remove_review_worktree(repo: Path, destination: Path) -> None:
     git_completed(repo, "worktree", "prune", timeout=15)
 
 
-def find_row(plan_text: str, row_id: str) -> tuple[int, str, str, str]:
-    """Return (line index, line, state, proof) for the one row carrying row_id.
+def unmet_needs(plan_text: str, needs: str) -> list[str]:
+    """Needs-targets in `needs` that are not completed anywhere in the plan.
+
+    The grammar calls this readiness — "a task is ready when it is pending and
+    every needs-target is completed" — and `shadow throw` enforced it while
+    accept did not, so a row could be flipped to completed over a dependency
+    still sitting at pending and lint would call the result clean.
+    """
+    completed = {
+        row.group("id")
+        for line in plan_text.splitlines()
+        if (row := ROW_LINE_RE.match(line)) is not None and row.group("state") == "completed"
+    }
+    return [ref for ref in NEEDS_REF_RE.findall(needs) if ref not in completed]
+
+
+def find_row(plan_text: str, row_id: str) -> tuple[int, str, str, str, str]:
+    """Return (line index, line, state, proof, needs) for the row carrying row_id.
 
     The proof comes from the parsed tail group only — prose in the row text may
     legally contain "| proof:" and must never stand in for the real field.
@@ -123,10 +143,11 @@ def find_row(plan_text: str, row_id: str) -> tuple[int, str, str, str]:
         raise AcceptError("the row's tail has residue outside `| key: value` fields; run shadow lint")
     if len(pairs) != len({key for key, _ in pairs}):
         raise AcceptError("the row repeats a tail field key; run shadow lint")
-    proof = dict(pairs).get("proof", "").strip()
+    fields = dict(pairs)
+    proof = fields.get("proof", "").strip()
     if not proof:
         raise AcceptError("the row has no proof field")
-    return index, line, row.group("state"), proof
+    return index, line, row.group("state"), proof, fields.get("needs", "").strip()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -145,9 +166,15 @@ def main(argv: list[str] | None = None) -> int:
             plan_text = plan_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             raise AcceptError(f"plan cannot be read: {exc}") from exc
-        _, row_line, state, proof = find_row(plan_text, row_id)
+        _, row_line, state, proof, needs = find_row(plan_text, row_id)
         if state == "completed":
             raise AcceptError("the row is already completed")
+        blocked_by = unmet_needs(plan_text, needs)
+        if blocked_by:
+            raise AcceptError(
+                f"{row_id} still needs {', '.join(blocked_by)} — a row is ready only when "
+                "every needs-target is completed; finish those first"
+            )
         if not proof.startswith("cmd "):
             kind = proof.split(" ", 1)[0]
             raise AcceptError(
@@ -186,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             plan_text = plan_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             raise AcceptError(f"plan cannot be re-read after the proof: {exc}") from exc
-        index, _, fresh_state, fresh_proof = find_row(plan_text, row_id)
+        index, _, fresh_state, fresh_proof, _ = find_row(plan_text, row_id)
         # Any state move during the run is somebody else's judgment about this
         # row — completed, or blocked because the work is not done. Overwriting
         # it with completed would erase that record, so only an unchanged row

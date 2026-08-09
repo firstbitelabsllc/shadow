@@ -15,13 +15,13 @@ sections that stood here until 2026-08-09 are archived at
 ## Tasks
 
 ### M1 — Method encoded
-- [completed] AGENT.md encodes the core, gate, and steering ~m3k7 | proof: cmd npm run docs:build
-- [completed] method.md contract lands with contract tests ~q8f2 | proof: cmd npm run test:py | needs: ~m3k7
+- [completed] AGENT.md encodes the core, gate, and steering ~m3k7 | proof: read AGENT.md carries ## The core, ## Folded behavior, ## The proxy stance
+- [completed] method.md contract lands with contract tests ~q8f2 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_grammar_contract | needs: ~m3k7
 - [completed] the Method rides the installed mounts ~w5d9 (DoD) | proof: read shadow doctor -> 11/11 with AGENT.md at root | needs: ~q8f2
 
 ### M2 — Board live
-- [completed] scanner serves gated entity/mode/milestone/checkpoint counts ~t2b8 | proof: cmd npm run test:py
-- [completed] read-only board view on desktop and phone ~j6n4 | proof: cmd npm run test:e2e | needs: ~t2b8
+- [completed] scanner serves gated entity/mode/milestone/checkpoint counts ~t2b8 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_status_focus
+- [completed] read-only board view on desktop and phone ~j6n4 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell | needs: ~t2b8
 - [completed] full gate matrix green and v3.0.x released ~r9c3 (DoD) | proof: cmd npm run verify | needs: ~j6n4
 
 ### M3 — v4 core
@@ -1533,7 +1533,43 @@ sections that stood here until 2026-08-09 are archived at
 
 - 2026-08-09T00:30:00Z LESSON `shadow accept` runs a cmd proof through shlex.split with NO shell, so a proof containing `&&`, `$(...)`, or a redirect is not a compound command -- the operators arrive as literal arguments to the first binary. This milestone's own DoD proof was written as `bash install.sh ... && shadow --version` and could never have passed: install.sh would have received `&&` as an unknown argument. It was also a false green by construction, since printing a version asserts nothing about it. Rewritten as one `bash -c '...'` token that clones origin/main, installs, and hard-asserts `test "$v" = 0.1.0` plus a doctor run. Verified failing today against main at 4.1.0 (rc=1, "installed 4.1.0"), which is what makes it a gate rather than a printout: a proof that cannot fail before the work is done is not proof. | trigger: reading shadow-accept.py:157 while checking whether my own DoD row was runnable
 
+- 2026-08-09T00:35:00Z ~m3k7 PROOF re-observed: AGENT.md carries ## The core, ## Folded behavior -- one sentence each, ## The proxy stance, ## Appendix. Its npm-era proof `npm run docs:build` retired with npm on 2026-08-09; this row's class changed cmd -> read because the docs build no longer exists and the claim was always about file content. (read)
+- 2026-08-09T00:36:00Z ~q8f2 PROOF scripts/shadow-python.sh -m unittest tests.test_grammar_contract -> Ran 6 tests, OK. Replaces the retired `npm run test:py`; same contract, existing runner. (cmd)
+- 2026-08-09T00:37:00Z ~t2b8 PROOF scripts/shadow-python.sh -m unittest tests.test_status_focus -> Ran 20 tests, OK. Replaces the retired `npm run test:py`. (cmd)
+- 2026-08-09T00:38:00Z ~j6n4 PROOF scripts/shadow-python.sh -m unittest tests.test_browser_shell -> Ran 7 tests, OK. Replaces `npm run test:e2e`, whose playwright board suite was deleted with npm; test_browser_shell ports its four source-contract assertions verbatim. (cmd)
+- 2026-08-09T00:40:00Z STRUCT lint gained COMPLETED-NO-PROOF (blocking): a [completed] row must name a "<ts> <id> PROOF ..." line in ## Progress. Why now: a 5-agent 0.1.0 audit proved the product's central claim false -- in a fresh `shadow init` tree a row hand-flipped to [completed] with zero PROOF lines linted "clean" rc=0, and status then said "every task complete; mint the successor". AGENT.md:4, grammar.md:5 and :58, and README property 3 all named lint as that enforcer; lint checked shape, never truth. Contradicts: nothing -- it makes four documents honest. It immediately caught four of this plan's own rows whose npm-era proof commands died with npm; each was re-pointed at a command that exists and re-run today rather than given a fabricated receipt. One test fixture faked completion by string-replacing states without adding proofs, the same shortcut a careless operator takes; it now carries receipts.
+
+## Contradictions
+
+- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
+  winner: keep the scaffold | opened 2026-08-09T01:00:00Z
+  The first command a stranger runs teaches `Outcome ID / Revision / State /
+  Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
+  contain (`grep -ic outcome` on it returns 0), and lint has no unknown-key
+  check so the scaffold passes forever. Cutting it to the four real keys is a
+  10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
+  those extra keys, so trimming init leaves `browser/outcome_source.py`,
+  `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
+  means deciding whether the browser's decision surface stays — an owner call,
+  not a lint fix. Held as a contradiction rather than settled quietly.
+
 ## Deferred proof (not a global blocker)
+
+- The v3 Outcome/Decision/chief-of-staff subsystem is ~1,746 lines with no live
+  producer: pointed at Shadow's own plan the board returns `"outcome": null,
+  "briefing": null, "decision": null`. Breakdown measured 2026-08-09:
+  `browser/outcome_source.py` 189 + `browser/decision_mode.py` 190 +
+  `browser/chief_of_staff.py` 156 + ~96 lines of `browser/server.py` +
+  `scripts/shadow-outcome-validate.py` 263 (unreachable — no dispatch case in
+  `bin/shadow`) + `schemas/*.json` 297 (nothing imports them) + `examples/` 65
+  + 2 reference docs + 462 lines of pinning tests. Retiring it also retires
+  the A/B/C sentences in `quickstart.md` and `docs/index.md` and two committed
+  screenshots. The remaining ~1,200-line read-only board is coherent and serves
+  200s. Owner call; do not cut it as cleanup.
+- `docs/superpowers/` (132K, 15 files) is linked from no index and prescribes
+  deleted machinery — `shadow route` and `npm install --package-lock-only`. If
+  kept, move it under `docs/plan-archive/` so a stranger does not read internal
+  design debate as documentation.
 
 - Cursor user rules live in application settings, not a file, so `shadow
   doctor` can only verify the standing goal in `~/.claude/CLAUDE.md` and
