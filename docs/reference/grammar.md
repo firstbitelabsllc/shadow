@@ -65,6 +65,13 @@ after every sibling. Milestone status is derived at read time, never stored.
 Structural edits land with a paired `STRUCT` Progress line naming the
 trigger.
 
+A milestone MAY carry one optional `- tools: <skills, flows, process — why>`
+line directly under its `###` heading, before the first task row. It records
+which skills/plugins/tooling this milestone's work actually needs — written
+by whoever works the milestone, living in the plan, never in a side store
+(pattern, not store). `shadow amp` projects it into the goal block; lint
+ignores it.
+
 ## Mode law
 
 `Mode: explore` is exploration and interrogation: spikes are opened with
