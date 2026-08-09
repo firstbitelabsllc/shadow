@@ -126,6 +126,14 @@ class AmpSelection(unittest.TestCase):
         self.assertIn("does not read clean", reason)
         self.assertIn("shadow lint", reason)
 
+    def test_stall_reason_tallies_every_open_row_shape(self) -> None:
+        # Bugbot (PR #263): the leftover bucket was incremented under a key
+        # the tally never defined, so any row that fell through raised
+        # KeyError mid-message and took `shadow amp` and `shadow status` down.
+        reason = amp.stall_reason(amp._parse(PLAN))  # carries ready rows too
+        self.assertIn("4 open row(s)", reason)
+        self.assertIn("2 other", reason)
+
     def test_clean_plan_reports_no_health_note(self) -> None:
         self.assertIsNone(amp.unclean_note(amp._parse(PLAN)))
 
