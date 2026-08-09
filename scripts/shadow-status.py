@@ -207,8 +207,14 @@ def in_flight(root: Path) -> list[dict]:
         plan = _amp._parse(text)
         project = plan["brief"].get("Project") or plan_path.parent.name
         stamps: dict[str, str] = {}
-        for m in re.finditer(r"^- (?P<ts>\S+) THROWN (?P<id>~[0-9a-z]{4})\b", text, flags=re.M):
+        leads: dict[str, str] = {}
+        for m in re.finditer(
+            r"^- (?P<ts>\S+) THROWN (?P<id>~[0-9a-z]{4})\b(?P<tail>.*)$", text, flags=re.M
+        ):
             stamps.setdefault(m.group("id"), m.group("ts"))
+            named = re.search(r"\| by: ([^|]+)", m.group("tail"))
+            if named:
+                leads.setdefault(m.group("id"), named.group(1).strip())
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
                 if row["state"] != "in_progress":
@@ -221,6 +227,7 @@ def in_flight(root: Path) -> list[dict]:
                     "text": row["text"],
                     "proof": row["fields"].get("proof", "MISSING"),
                     "thrown_at": stamps.get(row["id"]),
+                    "by": leads.get(row["id"]),
                     "dispatched": row["id"] in stamps,
                 })
     return rows
@@ -235,6 +242,10 @@ def render_in_flight(rows: list[dict]) -> str:
         out.append(project)
         for row in [r for r in rows if r["project"] == project]:
             kind = f"thrown {row['thrown_at']}" if row["dispatched"] else "hand-claimed (no THROWN line)"
+            # Who to talk to. With several leads on one plan this is the
+            # difference between "someone has this" and a name you can address.
+            if row.get("by"):
+                kind += f" by {row['by']}"
             out.append(f"  {row['id']} {row['text']}")
             out.append(f"       {kind} | {row['milestone']}")
             out.append(f"       proof: {row['proof']}")
