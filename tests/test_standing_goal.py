@@ -48,13 +48,21 @@ class GoalVerb(unittest.TestCase):
             'Never ask "which project?"',     # the proxy stance
             "shadow accept",                  # the only flip path
             "mint the",                       # goal chaining
+            "shadow throw",                   # dispatch law: nothing leaves unclaimed
+            "not a death certificate",        # and the reading that broke it twice
         ):
             self.assertIn(clause, text, f"standing goal lost: {clause}")
 
     def test_it_stops_at_the_fence_and_leaks_no_prose(self) -> None:
+        # This asserted `"Fifteen lines" not in text` until the block grew and
+        # the doc said "Nineteen" — the assertion stayed green while checking a
+        # string that no longer existed anywhere. Pin prose that survives an
+        # edit to the count, and prove the doc still contains it.
         text = emit().stdout
+        after_the_fence = "A host that loads only this block"
+        self.assertIn(after_the_fence, DOC.read_text(encoding="utf-8"))
         self.assertNotIn("```", text)
-        self.assertNotIn("Fifteen lines", text)          # the sentence after the fence
+        self.assertNotIn(after_the_fence, text)
         self.assertNotIn("## 3.", text)                  # the next heading
 
     def test_the_doc_is_the_only_copy(self) -> None:

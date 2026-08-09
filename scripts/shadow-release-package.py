@@ -45,6 +45,7 @@ REQUIRED_FILES = {
     # `shadow amp` and `shadow throw` exited 2 with "can't open file".
     "scripts/shadow-amp.py",
     "scripts/shadow-throw.py",
+    "scripts/shadow-host-directives.py",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
     "browser/outcome_source.py",
