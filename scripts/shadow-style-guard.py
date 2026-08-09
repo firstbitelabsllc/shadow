@@ -90,14 +90,20 @@ def closing_menu(text):
 def _still_offering(ending):
     """Whether what follows the last option leaves it standing as an offer.
 
-    A tail that closes by asking the reader to choose keeps the menu open, at any
-    length. A tail that closes with a courtesy question after the message already
-    chose does not, at any length; that is a report signing off.
+    A tail that asks the reader to choose keeps the menu open, at any length. A
+    tail whose closing question is a courtesy after the message already chose
+    does not, at any length; that is a report signing off.
+
+    What closes a tail is its last question, not its last line. "Which one? /
+    Let me know." is one ask with an addendum, and reading only the final line
+    would score the addendum and free the bare menu underneath it. Nothing after
+    the ask answers it, so the ask is what the reader is left holding.
     """
     prose = [line.strip() for line in ending if line.strip()]
     if len(prose) <= TRAILING_LINES:
         return True
-    return prose[-1].endswith("?") and bool(CHOOSING.search(prose[-1]))
+    asks = [line for line in prose if "?" in line]
+    return bool(asks) and bool(CHOOSING.search(asks[-1]))
 
 
 def _ending(lines, mark):

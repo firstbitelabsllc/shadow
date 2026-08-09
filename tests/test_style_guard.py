@@ -128,6 +128,27 @@ class StyleGuardTests(unittest.TestCase):
         self.assertTrue(self.guard.violations(text),
                         "a message still asking has not moved on, however it lays the tail out")
 
+    def test_a_line_after_the_ask_does_not_answer_it(self) -> None:
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "B keeps every hash.\n"
+            "Which one?\n"
+            "Let me know.\n"
+        )
+        self.assertTrue(self.guard.violations(text),
+                        "an addendum after the ask is not the message answering it")
+
+    def test_an_ask_trailed_by_prose_on_its_own_line_is_still_the_ask(self) -> None:
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "Neither is started.\n"
+            "Which do you prefer? Either is a few minutes of work.\n"
+        )
+        self.assertTrue(self.guard.violations(text),
+                        "a clause after the question mark does not close the menu")
+
     def test_a_report_that_signs_off_with_a_question_has_moved_on(self) -> None:
         text = (
             "- **A** — rebase onto main\n"
