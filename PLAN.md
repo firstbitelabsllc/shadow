@@ -33,7 +33,7 @@ sections that stood here until 2026-08-09 are archived at
 - tools: scripts/shadow-python.sh for gates; docs/reference/amp.md is the contract; grammar § Milestone law for the `- tools:` line
 - [completed] `shadow amp` projects a bounded pointer-first goal block from PLAN.md ~a4mp | proof: cmd npm run test:py
 - [completed] milestone `- tools:` line documented in the grammar and projected by amp ~t0ol | proof: cmd npm run docs:build | needs: ~a4mp
-- [completed] `shadow status` v3 outcome-schema path cut or migrated to the v4 Brief ~c9ut | proof: cmd shadow status reports v4 Brief fields, zero "outcome must be a string" on a grammar-clean plan | needs: ~a4mp
+- [completed] `shadow status` v3 outcome-schema path cut or migrated to the v4 Brief ~c9ut | proof: read shadow status -> v4 Brief fields, zero "outcome must be a string" on a grammar-clean plan | needs: ~a4mp
 - [pending] amp ships in a tagged release, installed mount green ~s4ip (DoD) | proof: gate owner resume: installed `shadow amp` in a v4 repo emits that plan's own goal block | needs: ~t0ol, ~c9ut
 
 ### M5 — Shadow is me: continuity + proxy stance
