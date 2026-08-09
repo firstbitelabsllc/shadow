@@ -82,8 +82,15 @@ sections that stood here until 2026-08-09 are archived at
 - tools: the plan is the channel and `git fetch` is the refresh; the push rejection is the mutex. Nothing here may add a lock, a coordinator, a session registry, or a roster file
 - [completed] a claim carries WHO made it: `--by` lands in the THROWN tail (never before the id) and `--in-flight` renders it ~lead | proof: cmd scripts/shadow-python.sh -m unittest tests.test_two_leads
 - [completed] two leads racing one row is resolved by the push, not by a lock: the loser recovers onto the winner's revision and is told whose row it is, and never runs over unrelated local commits ~race | proof: cmd scripts/shadow-python.sh -m unittest tests.test_two_leads.ThePushRejectionIsTheMutex | needs: ~lead
-- [pending] the collaboration protocol is written where a cold lead reads it: claim with a name, needs: is the dependency tree, NOTE addresses a lead, challenge in writing, no roster ~prot | proof: read AGENT.md "Several leads, one plan" and grammar.md Dispatch law carry all five; commands.md documents --by | needs: ~race
+- [completed] the collaboration protocol is written where a cold lead reads it: claim with a name, needs: is the dependency tree, NOTE addresses a lead, challenge in writing, no roster ~prot | proof: read AGENT.md "Several leads, one plan" and grammar.md Dispatch law carry all five; commands.md documents --by | needs: ~race
 - [pending] two real leads run one plan end to end -- both claim, one blocks on the other's needs:, one challenges a flip in writing, and neither loses work ~pair (DoD) | proof: gate leo resume: give the same goal to a Claude seat and a Codex seat, both with --by, and read `shadow status --in-flight` to see whose is whose | needs: ~prot
+
+### M11 — close the open-PR debt before it rots
+- tools: every one of these predates tonight and is BEHIND main; rebase or close, never leave a fourth stale branch. `gh pr diff` against current main before assuming a PR is still needed
+- [pending] the two halves of the explain-inline contract land together: the rule in SKILL.md and the guard that makes it fail ~styl | proof: cmd scripts/shadow-python.sh -m unittest tests.test_style_guard
+- [pending] the v3 route/seat excision finishes in docs/reference/native-hosts.md, and the seat-map example either lands outside Shadow or is dropped ~excs | proof: read native-hosts.md contains no dangling route or seat sentence; `git grep -c 'shadow route'` outside plan-archive is 0
+- [pending] every stale PR is landed or closed with its reason, and the branch is gone ~debt | proof: cmd bash -c 'test "$(gh pr list --json number --jq length)" -le 1' | needs: ~styl, ~excs
+- [pending] the repo has no open PR older than the newest merge, and main passes the full gate from a clean clone ~clen (DoD) | proof: cmd bash -c 'set -e; d=$(mktemp -d); trap "rm -rf $d" EXIT; git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; cd "$d/s"; scripts/shadow-python.sh -m unittest discover -s tests -p "test_*.py"; scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md' | needs: ~debt
 
 ## Worklane boundary
 
@@ -1402,6 +1409,10 @@ sections that stood here until 2026-08-09 are archived at
 
 - 2026-08-09T14:30:51Z ~lead PROOF scripts/shadow-python.sh -m unittest tests.test_two_leads -> pass (accept)
 - 2026-08-09T14:30:56Z ~race PROOF scripts/shadow-python.sh -m unittest tests.test_two_leads.ThePushRejectionIsTheMutex -> pass (accept)
+- 2026-08-09T08:20:00Z ~prot PROOF re-observed clause by clause rather than by section presence: AGENT.md "Several leads, one plan" carries all six -- claim with your name, the push rejection is the mutex, needs: is the dependency tree, talk in the plan, challenging is normal but silent overruling is not, and no roster. grammar.md Dispatch law documents `| by: <lead>` with the reason it must sit in the tail, and the `NOTE @<lead>` convention with its honest latency (delivery at fetch, not at keystroke). commands.md documents --by on throw. (read)
+
+- 2026-08-09T08:25:00Z STRUCT M11 added, and M10 closes on the agent side | trigger: goal chaining -- M10's three agent-side rows are proven and its DoD ~pair is person-gated ("give the same goal to a Claude seat and a Codex seat, both with --by, and read `shadow status --in-flight`"), so the plan closes agent-side and mints the successor rather than hanging on a human. Why M11 is the successor: four PRs opened before tonight are all BEHIND main and none were touched while six merged around them -- #256 (v3 route/seat prose surviving the v4 excision), #265 (a Deferred section that tonight's archive may have superseded outright), #266 (the explain-inline rule in SKILL.md), #267 (the guard that makes #266 fail). Stale branches are the same class as a worktree left standing after LAND. Contradicts: nothing. The highest-value pair is #266+#267, because a rule that cannot refuse is the exact defect four false greens taught this session.
+
 ## Contradictions
 
 - RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
