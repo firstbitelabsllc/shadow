@@ -65,12 +65,14 @@ class NoNodeDependency(unittest.TestCase):
     def test_no_tracked_file_invokes_npm_or_npx(self) -> None:
         import subprocess
 
-        # Invocations, not the word: the ruling itself is written down in these
-        # files ("no npm since 2026-08-09"), and a gate that fires on prose
-        # would make recording the decision impossible.
+        # `npx` takes an arbitrary package name, so any argument at all is an
+        # invocation and banned outright. `npm` is narrowed to its subcommands
+        # only because the ruling itself is written down in these files ("no
+        # npm since 2026-08-09"), and a gate that fires on prose would make
+        # recording the decision impossible.
         out = subprocess.run(
             ["git", "-C", str(ROOT), "grep", "-lE",
-             r"\b(npm|npx) +(run|install|ci|test|exec|pack|publish|start|build|i|x)\b", "--",
+             r"\b(npx +[^ ]|npm +(run|install|ci|test|exec|pack|publish|start|build|i|x)\b)", "--",
              "bin/", "scripts/", ".github/"],
             capture_output=True, text=True, check=False,
         )
