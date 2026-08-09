@@ -68,6 +68,15 @@ sections that stood here until 2026-08-09 are archived at
 - [completed] the fan-out law is stated where dispatch is decided: an unattended fan-out leaves a thrown row first, whichever mechanism spawns it ~fout | proof: read AGENT.md Row-first dispatch carries mechanism-neutrality, supervisable-by-default, and the mid-flight clause; grammar.md Dispatch law names a self-launched batch
 - [pending] 0.1.0 merged to main, installed from the clone, doctor green at that version ~land (DoD) | proof: cmd bash -c 'set -e; d=$(mktemp -d); git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; bash "$d/s/install.sh" --bin-dir "$d/bin" --no-skills >/dev/null; v=$("$d/bin/shadow" --version); test "$v" = 0.1.0; "$d/bin/shadow" doctor >/dev/null; rm -rf "$d"' | needs: ~vrst
 
+### M9 — Shadow installs itself: host directives, extension buckets, one canonical plan home
+- tools: superpowers is the reference implementation for host-directive injection; `shadow doctor` is where every claim in this milestone gets a check; research runs as NAMED agents on disjoint surfaces
+- [pending] `shadow install --hosts` writes a MANAGED block into ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, and the real Cursor surface -- idempotent, marker-delimited, refreshable, removable, never clobbering a person's own text ~host | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives
+- [pending] extension buckets: Shadow declares named slots where a method pack plugs in (superpowers, honcho, taste), install defaults them, and doctor reports each as present/absent/stale ~bkts | proof: cmd scripts/shadow-python.sh -m unittest tests.test_extension_buckets | needs: ~host
+- [pending] the canonical home for plans is decided from what is actually on this machine and written into grammar.md; the portfolio fallback either implements that rule or is corrected ~home | proof: read grammar.md names the rule; `shadow status` from three unrelated directories returns the same board
+- [pending] one deterministic setup verifier per host proves the wiring end to end -- not that files exist, but that a cold Claude/Codex/Cursor session resolves the skill, reads the directive, and reaches the board ~det | proof: cmd scripts/shadow-verify-host.sh --host claude-code && scripts/shadow-verify-host.sh --host codex | needs: ~host
+- [pending] observability verdict: adopt, augment, or kill Langfuse for end-to-end triage, decided against Shadow's no-daemon/no-transcript boundary, with the bounded design if adopted ~obsv | proof: read a written verdict citing what Langfuse requires on the wire and which Boundaries clause it touches
+- [pending] a stranger runs one command and ends with all three hosts wired, doctor green, and the board reachable from any directory ~inst (DoD) | proof: cmd bash -c 'set -e; d=$(mktemp -d); git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; HOME="$d/home" bash "$d/s/install.sh" --bin-dir "$d/bin"; HOME="$d/home" "$d/bin/shadow" doctor; rm -rf "$d"' | needs: ~bkts
+
 ## Worklane boundary
 
 - Shadow has its own product plan and proof gap. That gap never blocks an
@@ -1542,6 +1551,17 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-09T00:50:00Z ~audt PROOF the 0.1.0 audit returned 11 must-fix findings. Fixed: lint not enforcing no-proof-no-completed (the flagship claim, mutation-proven false), throw pushing to the wrong ref, accept skipping the needs gate, the release gate blessing a package with amp and throw deleted, CONTRIBUTING's four npm commands and its dead docs/doctrine link, plugin.json advertising deleted role routing, commands.md omitting three verbs, `shadow help throw` printing "unknown command", and every unquoted ~hash example. Held open: `shadow init` scaffolding 19 Brief keys against a 4-key grammar (Contradiction -- its only consumer is the browser's A/B/C surface) and the ~1,746-line v3 Outcome subsystem with no live producer (Deferred -- owner call). 243 tests, lint clean, artifact verifies at 0.1.0. The audit was the workflow I twice declared dead; it was running both times. (read)
 
 ## Contradictions
+
+- Langfuse is an off-box service; Shadow's Boundaries ban a transcript store |
+  provisional winner: Boundaries | opened 2026-08-09T01:10:00Z
+  `AGENT.md` and `SKILL.md` both say no router, daemon, scheduler, credential
+  relay, or transcript store, and `docs/reference/privacy.md` is built on
+  nothing leaving the machine. End-to-end triage of a failed cycle is a real
+  need and there is no local answer today, but the default Langfuse shape --
+  hosted endpoint, API keys, prompt and output payloads -- is precisely the
+  banned thing. ~obsv decides between: self-hosted only, metadata-only spans
+  with no payloads, or kill. Recorded before any code so the boundary is not
+  eroded by an integration that arrives working.
 
 - `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
   winner: keep the scaffold | opened 2026-08-09T01:00:00Z
