@@ -41,6 +41,19 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
 [[ -f "${ROOT}/bin/shadow" ]] || fail "run this from a Shadow checkout (bin/shadow not found)"
 
 mkdir -p "${BIN_DIR}"
+# The same two traps the skill mount guards against, which this line did not.
+# `ln -sfn` into an existing real DIRECTORY silently creates
+# ${BIN_DIR}/shadow/shadow, prints "installed", exits 0 — and running `shadow`
+# then gives "permission denied".
+if [[ -d "${BIN_DIR}/shadow" && ! -L "${BIN_DIR}/shadow" ]]; then
+  fail "${BIN_DIR}/shadow is a directory, not a command — move or delete it, then re-run"
+fi
+# And a real file here belongs to something else. Replacing another tool's
+# binary without a word is not an install, it is a theft.
+if [[ -e "${BIN_DIR}/shadow" && ! -L "${BIN_DIR}/shadow" ]]; then
+  fail "${BIN_DIR}/shadow already exists and is not a symlink — another tool may own it.
+           Move it aside, or choose a different --bin-dir."
+fi
 ln -sfn "${ROOT}/bin/shadow" "${BIN_DIR}/shadow"
 echo "installed: ${BIN_DIR}/shadow -> ${ROOT}/bin/shadow"
 
