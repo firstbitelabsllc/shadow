@@ -63,21 +63,41 @@ class NoNodeDependency(unittest.TestCase):
             self.assertFalse((ROOT / name).exists(), f"{name} is back — npm was ruled out 2026-08-09")
 
     def test_no_tracked_file_invokes_npm_or_npx(self) -> None:
+        # This test previously used `git grep -E '\\b(npm|npx) '` and was a FALSE
+        # GREEN: git grep's ERE has no \\b, so it matched nothing and could never
+        # fail — the guard against npm was itself unguarded. It now strips
+        # comments and looks for npm/npx in COMMAND position, so prose like
+        # "No npm since 2026-08-09" is fine and `run: npm ci` is not.
+        import re
         import subprocess
 
-        # `npx` takes an arbitrary package name, so any argument at all is an
-        # invocation and banned outright. `npm` is narrowed to its subcommands
-        # only because the ruling itself is written down in these files ("no
-        # npm since 2026-08-09"), and a gate that fires on prose would make
-        # recording the decision impossible.
-        out = subprocess.run(
-            ["git", "-C", str(ROOT), "grep", "-lE",
-             r"\b(npx +[^ ]|npm +(run|install|ci|test|exec|pack|publish|start|build|i|x)\b)", "--",
-             "bin/", "scripts/", ".github/"],
-            capture_output=True, text=True, check=False,
-        )
-        self.assertEqual(out.stdout.strip(), "", f"npm/npx invoked in: {out.stdout}")
+        tracked = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "--", "bin/", "scripts/", ".github/"],
+            capture_output=True, text=True, check=True,
+        ).stdout.split()
+        invocation = re.compile(r"(?:^|[;&|`]\s*|\$\(\s*|\brun:\s*|\bexec\s+)(npm|npx)\b")
+        offenders = []
+        for name in tracked:
+            path = ROOT / name
+            if path.suffix in {".md"} or not path.is_file():
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                code = line.split("#", 1)[0]          # shell / python / yaml comment
+                if invocation.search(code):
+                    offenders.append(f"{name}:{number}: {line.strip()[:80]}")
+        self.assertEqual(offenders, [], "npm/npx invoked in tracked tooling: " + "; ".join(offenders))
 
+    def test_the_ban_test_can_actually_fail(self) -> None:
+        # Mutation guard for the guard: the detector must fire on a real
+        # invocation and stay quiet on prose. Without this, the false-green
+        # regression above returns silently.
+        import re
 
-if __name__ == "__main__":
-    unittest.main()
+        invocation = re.compile(r"(?:^|[;&|`]\s*|\$\(\s*|\brun:\s*|\bexec\s+)(npm|npx)\b")
+        for fires in ("npm ci", "  run: npm test", "foo && npx playwright install",
+                      "exec npm start", "VER=$(npm pkg get version)"):
+            self.assertTrue(invocation.search(fires.split("#", 1)[0]), fires)
+        for quiet in ("# No npm since 2026-08-09", "the npm allowlist is gone",
+                      "  # tests fail if npm/npx appears",
+                      '"""Public-readiness identity (npm removed):'):
+            self.assertFalse(invocation.search(quiet.split("#", 1)[0]), quiet)

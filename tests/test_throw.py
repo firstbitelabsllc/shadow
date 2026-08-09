@@ -270,3 +270,46 @@ class InFlightView(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThrowRefusesInvisibleDispatch(unittest.TestCase):
+    """Codex review, PR #268: a rejected push used to warn and return 0, so a
+    caller launched work whose claim never reached the remote — every other
+    seat still saw the row as [pending]. That is precisely the invisibility
+    throw exists to prevent, so it must be fatal."""
+
+    def test_rejected_push_fails_and_withholds_the_goal_block(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            r = repo_with_plan(root / "work")
+            # a bare remote whose pre-receive hook rejects everything
+            bare = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+            hook = bare / "hooks" / "pre-receive"
+            hook.write_text("#!/bin/sh\necho 'rejected by policy' >&2\nexit 1\n", encoding="utf-8")
+            hook.chmod(0o755)
+            subprocess.run(["git", "-C", str(r), "remote", "add", "origin", str(bare)], check=True)
+
+            out = subprocess.run(
+                [sys.executable, str(THROW), "--repo", str(r), "--task", "~bb22"],
+                capture_output=True, text=True, check=False)
+
+            self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+            self.assertIn("PUSH REJECTED", out.stderr)
+            self.assertIn("Do not launch the work", out.stderr)
+            # the block must NOT be emitted: emitting it is what let a caller proceed
+            self.assertNotIn("/goal", out.stdout)
+
+    def test_pre_dirty_plan_is_refused_before_any_edit(self) -> None:
+        # `commit --only -- PLAN.md` commits the whole working-tree file, so an
+        # unrelated uncommitted plan edit would ride along with the claim.
+        with tempfile.TemporaryDirectory() as d:
+            r = repo_with_plan(Path(d))
+            (r / "PLAN.md").write_text(
+                (r / "PLAN.md").read_text(encoding="utf-8") + "\n- stray uncommitted edit\n",
+                encoding="utf-8")
+            out = throw(r, "--task", "~bb22")
+            self.assertEqual(out.returncode, 1)
+            self.assertIn("uncommitted edits", out.stderr)
+            # and it did not claim the row on the way out
+            self.assertIn("- [pending] the ready row ~bb22", (r / "PLAN.md").read_text(encoding="utf-8"))
