@@ -21,6 +21,48 @@ def _load():
     return module
 
 
+class WiringTests(unittest.TestCase):
+    """The documented install is a skills-directory mount, not a project checkout.
+
+    `ln -sfn "$(pwd)" ~/.claude/skills/shadow` puts a directory holding
+    `.claude-plugin/plugin.json` under a skills directory, so Claude Code loads
+    it as the plugin `shadow@skills-dir`. That load reads `hooks/hooks.json` and
+    defines `${CLAUDE_PLUGIN_ROOT}`; it never reads this repo's
+    `.claude/settings.json`, which applies only to whatever project is active.
+    """
+
+    def test_the_stop_hook_ships_where_a_plugin_load_reads_it(self) -> None:
+        self.assertTrue((ROOT / ".claude-plugin" / "plugin.json").is_file(),
+                        "the manifest is what makes the skills-dir mount a plugin")
+        wiring = ROOT / "hooks" / "hooks.json"
+        self.assertTrue(wiring.is_file(), "plugin hooks live in hooks/hooks.json")
+        entries = json.loads(wiring.read_text(encoding="utf-8"))["hooks"]["Stop"]
+        commands = [
+            hook["command"]
+            for entry in entries
+            for hook in entry["hooks"]
+            if hook.get("type") == "command"
+        ]
+        self.assertTrue(
+            any("shadow-style-guard.py" in command for command in commands),
+            "an installed user must actually execute the guard",
+        )
+        self.assertTrue(
+            all("${CLAUDE_PLUGIN_ROOT}" in command for command in commands),
+            "the plugin root is the only path that survives a symlinked mount",
+        )
+
+    def test_project_settings_do_not_claim_a_plugin_root(self) -> None:
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", json.dumps(settings),
+                         "project settings are not a plugin; that variable is undefined there")
+
+    def test_the_artifact_carries_the_hook_and_the_guard(self) -> None:
+        shipped = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["files"]
+        self.assertIn("hooks/hooks.json", shipped, "an unshipped hook enforces nothing")
+        self.assertIn("scripts/*.py", shipped, "the guard ships with the other scripts")
+
+
 class StyleGuardTests(unittest.TestCase):
     def setUp(self) -> None:
         self.assertTrue(GUARD.is_file(), "the guard must ship under scripts/")

@@ -17,6 +17,11 @@ Git, Bash, Python 3.10+, one native host (Claude Code, Codex, or Cursor). No Nod
 clone *is* the install, `git pull` is the update. Then paste the standing goal from
 [host integration](docs/reference/host-integration.md) into your hosts' instruction files.
 
+The Claude mount also activates the Brief contract's Stop hook: the mounted
+directory carries `.claude-plugin/plugin.json`, so Claude Code loads it as the
+plugin `shadow@skills-dir` and reads `hooks/hooks.json` from it. Run
+`/reload-plugins` or restart to pick it up in a live session.
+
 ## Use
 
 ```bash
