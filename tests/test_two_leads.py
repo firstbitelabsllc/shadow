@@ -180,6 +180,25 @@ class ThePushRejectionIsTheMutex(unittest.TestCase):
             self.assertIn("- [in_progress] a second open row ~cc33",
                           (b / "PLAN.md").read_text(encoding="utf-8"))
 
+    def test_a_rejection_with_an_unmoved_tip_is_not_a_race(self) -> None:
+        # A hook or branch policy bounces the push with nobody else landing
+        # anything. `head_before` is still an ancestor of the tip — of itself —
+        # so an ancestry-only test would hard-reset a good claim away and print
+        # race text. The tip has to have actually moved.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            a, _ = fleet(tmp_path)
+            hook = tmp_path / "origin.git" / "hooks" / "pre-receive"
+            hook.write_text("#!/bin/sh\necho 'policy: no\n' >&2\nexit 1\n", encoding="utf-8")
+            hook.chmod(0o755)
+
+            rejected = run_throw(a, "~bb22", "lead-a")
+            self.assertEqual(rejected.returncode, 1)
+            self.assertIn("PUSH REJECTED", rejected.stderr)
+            self.assertNotIn("claimed by", rejected.stderr)
+            # The local claim survives: it is the operator's to rebase or undo.
+            self.assertIn("| by: lead-a", (a / "PLAN.md").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -297,8 +297,22 @@ def main(argv: list[str] | None = None) -> int:
             # commit is the only local commit — a plain race. Anything else
             # (other local work, a diverged branch) is somebody's judgment call,
             # so the claim is left exactly where it is and the operator is told.
+            #
+            # The tip must also have MOVED. A hook or a branch policy rejects a
+            # push without anyone else landing anything, and there `head_before`
+            # is still an ancestor — of itself. Recovering there would throw
+            # away a perfectly good local claim and blame a race that never
+            # happened, when the honest answer is the push-rejected path.
             fetched = git(repo, "fetch", "--quiet", remote, remote_branch, check=False)
-            recoverable = fetched.returncode == 0 and git(
+            remote_tip = git(
+                repo, "rev-parse", "--verify", f"{remote}/{remote_branch}", check=False
+            ) if fetched.returncode == 0 else None
+            advanced = (
+                remote_tip is not None
+                and remote_tip.returncode == 0
+                and remote_tip.stdout.strip() not in ("", head_before)
+            )
+            recoverable = advanced and git(
                 repo, "merge-base", "--is-ancestor", head_before, f"{remote}/{remote_branch}",
                 check=False,
             ).returncode == 0
