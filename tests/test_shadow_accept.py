@@ -404,3 +404,56 @@ class NeedsIsAReadinessGate(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("still needs ~cd34", result.stdout + result.stderr)
             self.assertIn("[in_progress] x.txt", plan.read_text(encoding="utf-8"))
+
+
+class ShellOperatorsInAProofAreRefused(unittest.TestCase):
+    """The false green, end to end, at the only path that flips a row.
+
+    `accept` runs a cmd proof through `shlex.split` with NO shell, so `&&`
+    reaches argv[0] as a literal argument. `cmd echo done && shadow --version`
+    ran `echo`, exited 0, flipped the row to `[completed]` and wrote
+    `-> pass (accept)` — while `shadow --version` never executed. The tell was
+    already in the receipt (`shlex.join` quotes the `'&&'`) and nothing read it.
+
+    Lint refuses it too, but the refusal lives here as well on purpose: a plan
+    can reach accept without lint having run, and two gates that disagree are
+    how this got shipped in the first place.
+    """
+
+    PROOFED = PLAN.replace(
+        """cmd python3 -c "import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"""",
+        "cmd echo done && python3 -c \"import sys; sys.exit(1)\"",
+    )
+
+    def test_the_row_is_not_flipped_and_the_reason_names_the_operator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            (repo / "PLAN.md").write_text(self.PROOFED, encoding="utf-8")
+            git(repo, "commit", "-qam", "proof with an operator")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("&&", result.stdout + result.stderr)
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            self.assertNotIn("[completed] x.txt says hello", plan,
+                             "the row flipped on a proof whose command never ran")
+            self.assertNotIn("-> pass (accept)", plan)
+
+    def test_a_deliberate_shell_still_runs(self) -> None:
+        # A guard that refuses the sanctioned form too would just push people
+        # back to lying in the proof.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            (repo / "PLAN.md").write_text(
+                PLAN.replace(
+                    """cmd python3 -c "import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"""",
+                    "cmd bash -c 'set -e; test -f x.txt && grep -q hello x.txt'",
+                ), encoding="utf-8")
+            git(repo, "commit", "-qam", "proof wrapped in a shell")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[completed] x.txt says hello",
+                          (repo / "PLAN.md").read_text(encoding="utf-8"))

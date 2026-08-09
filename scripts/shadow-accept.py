@@ -36,6 +36,19 @@ ROW_LINE_RE = re.compile(
 PROGRESS_HEADING_RE = re.compile(r"^## Progress\s*$", re.MULTILINE)
 
 
+# Kept identical to `scripts/shadow-lint.py`: the enforcer and the only flip
+# path must refuse the same proofs, or one of them is decorative.
+SHELL_OPERATORS = frozenset({"&&", "||", "|", ";", "&", ">", ">>", "<", "<<"})
+SHELLS = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
+
+
+def _shell_operators(argv: list[str]) -> list[str]:
+    """Shell metacharacters sitting in argument position, worst-first."""
+    if argv[0] in SHELLS and "-c" in argv[1:3]:
+        return []
+    return sorted({a for a in argv[1:] if a in SHELL_OPERATORS or a.startswith("$(")})
+
+
 class AcceptError(ValueError):
     """Fail closed; nothing was changed."""
 
@@ -184,6 +197,19 @@ def main(argv: list[str] | None = None) -> int:
         argv_proof = shlex.split(proof[4:])
         if not argv_proof:
             raise AcceptError("the proof command is empty")
+        # The same refusal lint makes, made here too. Accept runs the proof
+        # with NO shell, so `&&`, `|`, `;` and `$(...)` reach argv[0] as
+        # literal arguments: `cmd echo done && shadow --version` would run
+        # `echo`, exit 0, and flip the row while `shadow` never ran. Lint alone
+        # is not enough — a plan can reach accept without lint having run, and
+        # two gates that disagree are how the false green got here.
+        offenders = _shell_operators(argv_proof)
+        if offenders:
+            raise AcceptError(
+                f"the proof passes {' '.join(offenders)} to `{argv_proof[0]}` as a literal "
+                "argument — accept runs proofs without a shell, so the rest of the command "
+                f"would never execute. Wrap it: cmd bash -c '<the whole command>'"
+            )
         head = git_completed(repo, "rev-parse", "--verify", "HEAD").stdout.strip()
         if not head:
             raise AcceptError("the project has no HEAD commit")

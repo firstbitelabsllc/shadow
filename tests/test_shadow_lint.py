@@ -319,3 +319,176 @@ class SectionOrderIsChecked(unittest.TestCase):
             "## Deferred proof (not a global blocker)\n\n- a | b | wake: c\n",
         )
         self.assertTrue([f for f in lint.lint_plan(text) if f["check"] == "SECTION-ORDER"])
+
+
+def _checks(text: str, **kw) -> set[str]:
+    return {f["check"] for f in lint.lint_plan(text, **kw)}
+
+
+class RowGrammarRunsWhereverAcceptWouldFlip(unittest.TestCase):
+    """The enforcer and the only flip path must agree on what a task is.
+
+    Row checks used to run only under the exact heading `## Tasks`, while
+    `shadow accept` builds its row list from `plan_text.splitlines()` — the
+    whole file. Any second heading was therefore a lint-free zone whose rows
+    accept would still flip to completed and still count for `needs`
+    readiness. A row invisible to the enforcer and real to the flip path is
+    the same defect class as a proof that proves nothing.
+    """
+
+    OUTSIDE = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M — the thing ships
+- [pending] a real row ~aa11 | proof: cmd true
+- [pending] it ships ~bb22 (DoD) | proof: read site -> renders
+
+## Worklane boundary
+
+- [pending] a duplicate id ~aa11 | proof: it totally works
+- [bogus_state] not even a legal state ~zz9 | proof: cmd true
+- [pending] no proof at all ~yy88
+"""
+
+    def test_a_row_under_another_heading_is_checked(self) -> None:
+        found = _checks(self.OUTSIDE)
+        self.assertIn("ID-DUP", found, "a duplicate id outside Tasks went unchecked")
+        self.assertIn("PROOF-CLASS", found, "an unclassed proof outside Tasks went unchecked")
+
+    def test_a_malformed_row_outside_tasks_is_checked(self) -> None:
+        found = _checks(self.OUTSIDE)
+        self.assertIn("ROW-SHAPE", found, "an illegal state outside Tasks went unchecked")
+        self.assertIn("PROOF-MISSING", found, "a proofless row outside Tasks went unchecked")
+
+    def test_milestone_grouping_stays_scoped_to_tasks(self) -> None:
+        # DoD law is about milestones. A stray row under another heading must
+        # not invent a milestone, or every plan with prose bullets goes red.
+        self.assertNotIn("DOD-COUNT", _checks(self.OUTSIDE))
+
+    def test_a_clean_plan_is_still_clean(self) -> None:
+        self.assertEqual(_checks(CLEAN_PLAN) - {"SECTION-MISSING", "TS-ORDER"}, set())
+
+
+class EverySectionLookupIsPrefixMatched(unittest.TestCase):
+    """PR #272 prefix-fixed Deferred and left every sibling exact-string."""
+
+    SUFFIXED = """# Demo
+
+## Brief — the north star
+
+- Project: demo
+- Mode: turbo
+
+## Tasks
+
+### M — the thing ships
+- [pending] a real row ~aa11 | proof: cmd true
+- [pending] it ships ~bb22 (DoD) | proof: read site -> renders
+
+## Progress
+
+- 2026-08-09T00:00:00Z ~aa11 PROOF true -> ok
+"""
+
+    def test_a_suffixed_brief_still_blocks_an_illegal_mode(self) -> None:
+        # The exact false green: with an exact-string lookup this returned
+        # SECTION-MISSING (warning, rc=0) and MODE-ILLEGAL never fired.
+        found = lint.lint_plan(self.SUFFIXED)
+        self.assertIn("MODE-ILLEGAL", {f["check"] for f in found})
+        self.assertTrue([f for f in found if f["severity"] == "blocking"])
+
+    def test_a_suffixed_heading_is_not_reported_missing(self) -> None:
+        details = {f["detail"] for f in lint.lint_plan(self.SUFFIXED)}
+        self.assertNotIn("no `## Brief` heading", details)
+
+    def test_every_canonical_section_accepts_a_suffix(self) -> None:
+        for name in ("Brief", "Tasks", "Deferred", "Contradictions", "Progress"):
+            sections = {f"{name} — with a suffix": [(1, "x")]}
+            self.assertTrue(lint._has_section(sections, name), name)
+            self.assertEqual(lint._section(sections, name), [(1, "x")], name)
+
+    def test_a_different_word_starting_with_the_name_is_not_matched(self) -> None:
+        # `## Briefing` is not `## Brief`. Prefix means "name plus a space".
+        self.assertFalse(lint._has_section({"Briefing": [(1, "x")]}, "Brief"))
+
+
+class ACmdProofIsValidatedAsArgv(unittest.TestCase):
+    """`accept` runs a cmd proof through shlex with NO shell.
+
+    So `&&`, `|`, `;` and `$(...)` arrive as literal ARGUMENTS. The class-word
+    check could not see that: `cmd echo done && shadow --version` linted clean,
+    ran `echo`, exited 0, flipped the row to completed and wrote `-> pass`
+    while `shadow` never ran.
+    """
+
+    def _plan(self, proof: str) -> str:
+        return f"""# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M — the thing ships
+- [pending] a real row ~aa11 | proof: {proof}
+- [pending] it ships ~bb22 (DoD) | proof: read site -> renders
+
+## Progress
+
+- 2026-08-09T00:00:00Z ~aa11 PROOF true -> ok
+"""
+
+    def test_the_documented_false_green_is_refused(self) -> None:
+        self.assertIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd echo done && true")))
+
+    def test_every_operator_that_reaches_argv_is_refused(self) -> None:
+        for operator in ("&&", ";", ">", ">>", "<", "&"):
+            with self.subTest(operator=operator):
+                self.assertIn("PROOF-SHELL-OPERATOR",
+                              _checks(self._plan(f"cmd true {operator} false")))
+
+    def test_a_pipe_is_blocked_by_the_field_separator_before_it_reaches_argv(self) -> None:
+        # `|` and `||` cannot survive to argv: the row tail is split on `|`, so
+        # the row stops parsing first. Still refused, by an earlier gate — and
+        # worth pinning, because "PROOF-SHELL-OPERATOR did not fire" reads as a
+        # hole until you know which check caught it instead.
+        for operator in ("|", "||"):
+            with self.subTest(operator=operator):
+                self.assertIn("ROW-SHAPE", _checks(self._plan(f"cmd true {operator} false")))
+
+    def test_command_substitution_is_refused(self) -> None:
+        self.assertIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd true $(whoami)")))
+
+    def test_a_deliberate_shell_is_allowed(self) -> None:
+        # The sanctioned form: the script after -c really is handed to a shell,
+        # so it means what it reads.
+        self.assertNotIn("PROOF-SHELL-OPERATOR",
+                         _checks(self._plan("cmd bash -c 'set -e; true && true'")))
+
+    def test_an_unparseable_command_line_is_its_own_finding(self) -> None:
+        self.assertIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd echo 'unbalanced")))
+
+    def test_a_command_that_exists_nowhere_is_refused_when_the_root_is_known(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            found = _checks(self._plan("cmd definitely-not-a-real-binary-xyz"), root=Path(tmp))
+            self.assertIn("PROOF-ARGV0", found)
+
+    def test_an_in_tree_path_resolves(self) -> None:
+        found = _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md"), root=ROOT)
+        self.assertNotIn("PROOF-ARGV0", found)
+
+    def test_argv0_is_not_guessed_when_the_root_is_unknown(self) -> None:
+        # Guessing would turn an unknowable into a false accusation.
+        self.assertNotIn("PROOF-ARGV0", _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md")))
+
+    def test_an_ordinary_proof_is_untouched(self) -> None:
+        self.assertNotIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd true")))
+        self.assertNotIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd true")))

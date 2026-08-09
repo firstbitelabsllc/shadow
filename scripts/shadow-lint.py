@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime
 import re
+import shlex
+import shutil
 import sys
 from pathlib import Path
 from typing import Final
@@ -47,6 +49,54 @@ def _finding(check: str, line: int, severity: str, detail: str) -> dict:
     return {"check": check, "line": line, "severity": severity, "detail": detail}
 
 
+# `shadow accept` runs a cmd proof through `shlex.split` with NO shell, so
+# `&&`, `|`, `;`, `$(...)` and redirects arrive as literal ARGUMENTS to argv[0].
+# `cmd echo done && shadow --version` therefore lints clean, runs `echo`, exits
+# 0, flips the row to completed and writes `-> pass` — while `shadow` never
+# ran. Validating the class word alone cannot see that; the argv can.
+SHELL_OPERATORS: Final = frozenset({"&&", "||", "|", ";", "&", ">", ">>", "<", "<<"})
+SHELLS: Final = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
+
+
+def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> list[dict]:
+    """A cmd proof must be a runnable argv, because that is how accept runs it."""
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        return [_finding("PROOF-UNPARSEABLE", number, "blocking",
+                         f"cmd proof does not parse as a command line: {exc}")]
+    if not argv:
+        return [_finding("PROOF-UNPARSEABLE", number, "blocking", "cmd proof is empty")]
+    # A shell invoked deliberately is the sanctioned way to use operators: the
+    # script after -c really is handed to a shell, so it means what it reads.
+    if argv[0] in SHELLS and "-c" in argv[1:3]:
+        return []
+    offenders = sorted({a for a in argv[1:] if a in SHELL_OPERATORS or a.startswith("$(")})
+    if offenders:
+        return [_finding("PROOF-SHELL-OPERATOR", number, "blocking",
+                         f"{' '.join(offenders)} is passed as a literal argument to "
+                         f"`{argv[0]}`, not interpreted — accept runs proofs without a shell. "
+                         f"Wrap it: cmd bash -c '<the whole command>'")]
+    # A proof naming a command that exists nowhere can never pass, so it is a
+    # rotted receipt pretending to be a predicate. Only checked when the plan's
+    # own directory is known — resolving an in-tree path needs it, and guessing
+    # would turn an unknowable into a false accusation.
+    if root is not None and not _resolves(argv[0], root):
+        return [_finding("PROOF-ARGV0", number, "blocking",
+                         f"`{argv[0]}` is neither in this repository nor on PATH, "
+                         "so this proof can never run")]
+    return []
+
+
+def _resolves(program: str, root: Path) -> bool:
+    if "/" in program:
+        candidate = Path(program)
+        if candidate.is_absolute():
+            return candidate.exists()
+        return (root / program).exists()
+    return shutil.which(program) is not None
+
+
 def _sections(lines: list[str]) -> dict[str, list[tuple[int, str]]]:
     sections: dict[str, list[tuple[int, str]]] = {}
     current = ""
@@ -59,7 +109,23 @@ def _sections(lines: list[str]) -> dict[str, list[tuple[int, str]]]:
     return sections
 
 
-def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
+# A heading may carry a suffix — `## Deferred (v3)`, `## Brief — the north
+# star`. PR #272 fixed that for Deferred and left every sibling exact-string,
+# so a suffixed `## Brief` silently downgraded MODE-ILLEGAL from blocking to a
+# warning. One accessor, so a future section cannot be half-fixed again.
+def _section(sections: dict[str, list[tuple[int, str]]], name: str) -> list[tuple[int, str]]:
+    found: list[tuple[int, str]] = []
+    for heading, entries in sections.items():
+        if heading == name or heading.startswith(name + " "):
+            found.extend(entries)
+    return found
+
+
+def _has_section(sections: dict[str, list[tuple[int, str]]], name: str) -> bool:
+    return any(h == name or h.startswith(name + " ") for h in sections)
+
+
+def lint_plan(text: str, *, today: date | None = None, root: Path | None = None) -> list[dict]:
     findings: list[dict] = []
     lines = text.splitlines()
     sections = _sections(lines)
@@ -68,12 +134,12 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
     # Section dispatch is exact-string: a typo'd or missing canonical heading
     # would otherwise exempt everything under it from every check, silently.
     for canonical in ("Brief", "Tasks", "Progress"):
-        if canonical not in sections:
+        if not _has_section(sections, canonical):
             findings.append(_finding("SECTION-MISSING", 0, "warning", f"no `## {canonical}` heading"))
     # A typo'd Tasks heading must not silently exempt its rows from every
     # blocking check: row-shaped lines with no canonical section to own them
     # block outright. History sections alongside a real Tasks section stay legal.
-    if "Tasks" not in sections:
+    if not _has_section(sections, "Tasks"):
         for number, line in enumerate(lines, 1):
             if ROW_LOOSE_RE.match(line):
                 findings.append(
@@ -89,24 +155,37 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
         if SECRET_SHAPE_RE.search(line):
             findings.append(_finding("PLAN-SECRET", number, "blocking", "line carries a secret-shaped value"))
 
-    for number, line in ((n, l) for n, l in sections.get("Brief", []) if MODE_RE.match(l)):
+    for number, line in ((n, l) for n, l in _section(sections, "Brief") if MODE_RE.match(l)):
         value = MODE_RE.match(line).group("value").strip()
         if value not in LEGAL_MODES:
             kind = "legacy mode" if value in LEGACY_MODES else "illegal mode"
             findings.append(_finding("MODE-ILLEGAL", number, "blocking", f"{kind}: {value}"))
     mode_ship = any(
         MODE_RE.match(l) and MODE_RE.match(l).group("value").strip() == "ship"
-        for _, l in sections.get("Brief", [])
+        for _, l in _section(sections, "Brief")
     )
 
     ids: dict[str, tuple[int, str]] = {}
     needs_refs: list[tuple[int, str]] = []
     milestone_rows: list[list[tuple[int, dict]]] = []
     current_rows: list[tuple[int, dict]] | None = None
-    for number, line in sections.get("Tasks", []):
+    # Row grammar runs over the WHOLE file, because `shadow accept` builds its
+    # row list from every line of the plan and will flip a row wherever it
+    # sits. Scoping the enforcer to `## Tasks` while the only flip path scans
+    # everything left every row under any other heading with ZERO checks and
+    # still flippable — the enforcer and the flip path disagreeing about what a
+    # task is. Milestone grouping stays Tasks-scoped: DoD law is about
+    # milestones, not about every task-shaped line in the file.
+    in_tasks = False
+    for number, line in enumerate(lines, 1):
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            in_tasks = heading == "Tasks" or heading.startswith("Tasks ")
+            continue
         if line.startswith("### "):
-            current_rows = []
-            milestone_rows.append(current_rows)
+            if in_tasks:
+                current_rows = []
+                milestone_rows.append(current_rows)
             continue
         match = ROW_RE.match(line)
         if not match:
@@ -137,12 +216,14 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
             findings.append(_finding("PROOF-MISSING", number, "blocking", "row has no proof field"))
         elif not PROOF_CLASS_RE.match(proof):
             findings.append(_finding("PROOF-CLASS", number, "blocking", "proof must be classed cmd | read | gate"))
+        elif proof.startswith("cmd "):
+            findings.extend(_check_cmd_proof(proof[4:], number, root))
         needs_value = fields.get("needs", "").strip()
         if needs_value and NEEDS_VALUE_RE.fullmatch(needs_value) is None:
             findings.append(_finding("NEEDS-SHAPE", number, "blocking", "needs must be ~hash ids only"))
         for target in HASH_RE.findall(needs_value):
             needs_refs.append((number, target))
-        if current_rows is not None:
+        if in_tasks and current_rows is not None:
             current_rows.append((number, row))
 
     for number, target in needs_refs:
@@ -207,7 +288,7 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
     previous: tuple[str, int] | None = None
     spikes: dict[str, tuple[int, date | None]] = {}
     decisions: dict[str, int] = {}
-    for number, line in sections.get("Progress", []):
+    for number, line in _section(sections, "Progress"):
         ts_match = TS_RE.match(line)
         if ts_match:
             stamp = ts_match.group("ts")
@@ -258,7 +339,7 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
     # name its receipt in Progress — that pairing is the whole contract.
     proven = {
         m.group("id")
-        for _, line in sections.get("Progress", [])
+        for _, line in _section(sections, "Progress")
         if (m := PROOF_LINE_RE.match(line))
     }
     for row_id, (number, state) in ids.items():
@@ -287,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{path}: unreadable: {exc}")
             worst = 1
             continue
-        findings = lint_plan(text)
+        findings = lint_plan(text, root=path.resolve().parent)
         for finding in findings:
             print(f"{path}:{finding['line']}: {finding['check']} [{finding['severity']}] {finding['detail']}")
             if finding["severity"] == "blocking":
