@@ -138,6 +138,14 @@ Lead with:
 Hide implementation detail unless it changes the decision. The browser is a
 loopback projection of the same plan; Markdown remains authority.
 
+## Extension buckets
+
+Shadow declares named slots its method assumes it can reach — superpowers for
+how a slice is worked, taste for the finished-quality grade, honcho for durable
+memory — in `docs/reference/buckets.md`. `shadow buckets` reports which are
+filled. Shadow runs correctly with every one empty: a bucket never gates a
+cycle, claims a row, or carries proof, and no plan verb reads it.
+
 ## Boundaries
 
 Shadow owns one product identity, one `PLAN.md` authority, and one bounded

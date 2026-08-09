@@ -183,6 +183,23 @@ def host_goal_checks() -> list[dict[str, Any]]:
     return results
 
 
+def bucket_checks() -> list[dict[str, Any]]:
+    """Which extension buckets are filled. Read-only, derived, never stored."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "shadow_buckets", ROOT / "scripts" / "shadow-buckets.py"
+    )
+    if spec is None or spec.loader is None:
+        return []
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        return module.checks()
+    except OSError:
+        return []
+
+
 def collect() -> dict[str, Any]:
     checks = [
         check(
@@ -196,6 +213,7 @@ def collect() -> dict[str, Any]:
         *host_checks(),
         *mount_checks(),
         *host_goal_checks(),
+        *bucket_checks(),
     ]
     failed = sum(item["state"] == "fail" for item in checks)
     warned = sum(item["state"] == "warn" for item in checks)
