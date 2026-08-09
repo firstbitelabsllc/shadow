@@ -78,7 +78,11 @@ def _installed_namesake(name: str, home: Path) -> Path | None:
 def _resolve_pack(bucket: dict[str, str], home: Path) -> tuple[str, str]:
     cache = home / PLUGIN_CACHE
     wanted = bucket["default"]
+    impostor: str | None = None
     if cache.is_dir():
+        # Every candidate is read before answering: one stale or broken install
+        # sorted first must not mask a good one under another version or
+        # marketplace. A mismatch is only reported when no match exists at all.
         for manifest in sorted(cache.glob(f"*/{wanted}/*/.claude-plugin/plugin.json")):
             try:
                 data = json.loads(manifest.read_text(encoding="utf-8"))
@@ -86,7 +90,10 @@ def _resolve_pack(bucket: dict[str, str], home: Path) -> tuple[str, str]:
                 continue
             if data.get("name") == wanted:
                 return "pass", f"pack {data.get('version', '?')}"
-            return "fail", f"a plugin at {wanted} answers to {data.get('name')!r}, not {wanted!r}"
+            if impostor is None:
+                impostor = f"{data.get('name')!r}"
+    if impostor is not None:
+        return "fail", f"a plugin at {wanted} answers to {impostor}, not {wanted!r}"
     return "warn", f"absent; {bucket['absent']}"
 
 

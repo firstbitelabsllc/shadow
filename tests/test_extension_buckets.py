@@ -134,6 +134,18 @@ class KindIsTheCheck(unittest.TestCase):
             self.assertEqual(state, "fail")
             self.assertIn("notsuperpowers", detail)
 
+    def test_a_stale_install_sorted_first_does_not_hide_a_good_one(self) -> None:
+        # The scan reads every candidate before answering. An older or broken
+        # install that sorts first must not turn a filled bucket into a hard
+        # failure that `shadow doctor` then reports.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            plugin(home, "superpowers", "0.9.0", manifest_name="notsuperpowers")
+            plugin(home, "superpowers", "6.2.0")
+            state, detail = self._state("superpowers", home)
+            self.assertEqual(state, "pass", detail)
+            self.assertIn("6.2.0", detail)
+
     def test_a_mounted_skill_resolves(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
