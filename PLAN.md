@@ -78,6 +78,13 @@ sections that stood here until 2026-08-09 are archived at
 - [pending] observability verdict: adopt, augment, or kill Langfuse for end-to-end triage, decided against Shadow's no-daemon/no-transcript boundary, with the bounded design if adopted ~obsv | proof: read a written verdict citing what Langfuse requires on the wire and which Boundaries clause it touches
 - [pending] a stranger runs one command and ends with all three hosts wired, doctor green, and the board reachable from any directory ~w1re (DoD) | proof: cmd bash -c 'set -e; d=$(mktemp -d); git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; HOME="$d/home" bash "$d/s/install.sh" --bin-dir "$d/bin"; HOME="$d/home" "$d/bin/shadow" doctor; rm -rf "$d"' | needs: ~bkts
 
+### M10 — two leads, one plan
+- tools: the plan is the channel and `git fetch` is the refresh; the push rejection is the mutex. Nothing here may add a lock, a coordinator, a session registry, or a roster file
+- [pending] a claim carries WHO made it: `--by` lands in the THROWN tail (never before the id) and `--in-flight` renders it ~lead | proof: cmd scripts/shadow-python.sh -m unittest tests.test_two_leads
+- [pending] two leads racing one row is resolved by the push, not by a lock: the loser recovers onto the winner's revision and is told whose row it is, and never runs over unrelated local commits ~race | proof: cmd scripts/shadow-python.sh -m unittest tests.test_two_leads.ThePushRejectionIsTheMutex | needs: ~lead
+- [pending] the collaboration protocol is written where a cold lead reads it: claim with a name, needs: is the dependency tree, NOTE addresses a lead, challenge in writing, no roster ~prot | proof: read AGENT.md "Several leads, one plan" and grammar.md Dispatch law carry all five; commands.md documents --by | needs: ~race
+- [pending] two real leads run one plan end to end -- both claim, one blocks on the other's needs:, one challenges a flip in writing, and neither loses work ~pair (DoD) | proof: gate leo resume: give the same goal to a Claude seat and a Codex seat, both with --by, and read `shadow status --in-flight` to see whose is whose | needs: ~prot
+
 ## Worklane boundary
 
 - Shadow has its own product plan and proof gap. That gap never blocks an
@@ -1558,6 +1565,8 @@ sections that stood here until 2026-08-09 are archived at
 
 - 2026-08-09T05:16:41Z ~land PROOF bash -c 'set -e; d=$(mktemp -d); trap "rm -rf $d" EXIT; git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; bash "$d/s/install.sh" --bin-dir "$d/bin" --no-skills >/dev/null; test "$("$d/bin/shadow" --version)" = 0.1.0; if HOME="$d/home" "$d/bin/shadow" doctor > "$d/out"; then :; fi; grep -q "^\[PASS\] python:" "$d/out"; grep -q "^\[PASS\] git:" "$d/out"; grep -qx "\[PASS\] product identity: shadow 0.1.0" "$d/out"' -> pass (accept)
 - 2026-08-09T05:22:23Z ~host PROOF scripts/shadow-python.sh -m unittest tests.test_host_directives -> pass (accept)
+- 2026-08-09T02:00:00Z STRUCT M10 added | trigger: owner, verbatim -- "two chats working on same shadow goal should be pairing and colaborating... instead of one orchsetrator its two leads and theeeir resplective team agents, above all the durable plan neeeds to supprot n amount of leads working on the plan together... a depedency tree basicallly of sub tasks". Why now: he says "btw codex is doing this same goal so please work together" often, and a screenshot this session showed it ALREADY working -- a Claude seat read the named authority, saw Codex owned gift-box-customizer-modal.js, and took a disjoint lane with no router. So the answer is not a collaboration system; it is the two things that were actually missing. A claim recorded no identity, so one lead's claim was indistinguishable from another's, and the loser of a simultaneous claim was told to fetch and rebase by hand. Contradicts: nothing -- `needs:` was already the dependency tree he described, and "done or validated" is one bar because completed is unreachable without a proof line, so no second state was invented. Explicitly NOT built: a roster file (v4 deleted roster/route/seat, and a list of legal leads would make an unlisted seat's honest claim illegal), and live chat between runtimes (that needs a transport, which is the daemon Boundaries ban; same-session agents already message directly, cross-runtime is the plan).
+
 ## Contradictions
 
 - Langfuse is an off-box service; Shadow's Boundaries ban a transcript store |

@@ -9,7 +9,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow status --in-flight` | Every row claimed by `throw` across the portfolio, with its proof and throw time — the recovery view after a chat dies. |
 | `shadow goal` | Print the static standing goal to paste into a host's instruction file. Same text every day; only what the plans point at changes. |
 | `shadow amp --repo PATH` | Project one paste-ready goal block that POINTS at the plan: authority ref, the resume row, its proof, within one paste budget. |
-| `shadow throw --task '~hash'` | Claim a row before work leaves the chat: refuses proofless, needs-blocked, already-thrown, and mid-merge rows, then flips it, records `THROWN`, commits `PLAN.md` alone, and pushes. |
+| `shadow throw --task '~hash' --by <lead>` | Claim a row before work leaves the chat: refuses proofless, needs-blocked, already-thrown, and mid-merge rows, then flips it, records `THROWN` with your name, commits `PLAN.md` alone, and pushes. If another lead pushed first, recovers onto their revision and says whose row it is. |
 | `shadow accept --row '~hash' --repo PATH` | Rerun one row's `cmd` proof in a clean detached checkout; on success flip the row with its paired PROOF line in one commit — the only code path that flips a row. |
 | `shadow lint PLAN.md …` | Check plans against the grammar; blocking findings exit non-zero. |
 | `shadow browse --root PATH` | Start the loopback briefing UI. |
