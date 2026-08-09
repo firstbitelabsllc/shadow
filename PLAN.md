@@ -50,7 +50,7 @@ sections that stood here until 2026-08-09 are archived at
 - [completed] the four JS source-contract tests ported to Python without loss ~jsp0 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell
 - [completed] npm deleted from the product: manifest, lockfile, vitest, playwright, vitepress, and every npm invocation in bin/scripts/CI ~npm0 | proof: cmd scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py' | needs: ~jsp0
 - [completed] install.sh replaces `npm install -g` and is proven by a stranger-install in the release verifier and in CI ~inst | proof: cmd scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty | needs: ~npm0
-- [pending] v4.1.0 cut from a clean tree and installed on both machines from the clone ~rel1 (DoD) | proof: gate leo resume: git pull on each machine, bash install.sh, shadow doctor green, then the car test | needs: ~inst
+- [pending] the release is installed from the clone on the SECOND machine ~rel1 (DoD) | proof: gate leo resume: on the other machine run git pull, bash install.sh, shadow doctor green, then open a cold session and confirm it names a row without being asked | needs: ~inst
 
 ### M7 — one chat, dozens of conversations
 - tools: scripts/shadow-throw.py is the dispatch record; `shadow status --in-flight` is the recovery view; design corpus = the 2026-08-08/09 session's five real cases
@@ -125,6 +125,39 @@ sections that stood here until 2026-08-09 are archived at
 - Writes are atomic and idempotent. Host work is limited to an exact worktree
   and explicit allowed paths. Scope escape fails closed.
 - Git history is preserved with ordinary forward commits.
+
+## Deferred
+
+- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
+- the v3 Outcome/Decision/chief-of-staff subsystem, ~1,746 lines with no live producer | retiring it also retires the A/B/C sentences in quickstart.md and docs/index.md and two committed screenshots, so it is a product call, not cleanup | wake: the owner rules on whether the browser's A/B/C decision view ships in 0.1.x
+- `docs/superpowers/` is linked from no index and prescribes deleted machinery (`shadow route`, `npm install --package-lock-only`) | it is now `export-ignore`d so it no longer ships, which removes the urgency but not the staleness | wake: someone edits a file under docs/superpowers/, or the owner asks where Shadow's own design records live
+- `shadow doctor` cannot verify the standing goal in Cursor | its user rules live in application settings, not a file, so asserting `~/.cursor/rules/shadow.md` would invent a convention and then report success for wiring that does nothing | wake: the owner names Cursor's real user-rule surface, or Cursor ships a documented file path
+
+## Contradictions
+
+- RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
+  Shadow. See the ~obsv PROOF line. |
+  winner: Boundaries | opened 2026-08-09T01:10:00Z
+  `AGENT.md` and `SKILL.md` both say no router, daemon, scheduler, credential
+  relay, or transcript store, and `docs/reference/privacy.md` is built on
+  nothing leaving the machine. End-to-end triage of a failed cycle is a real
+  need and there is no local answer today, but the default Langfuse shape --
+  hosted endpoint, API keys, prompt and output payloads -- is precisely the
+  banned thing. ~obsv decides between: self-hosted only, metadata-only spans
+  with no payloads, or kill. Recorded before any code so the boundary is not
+  eroded by an integration that arrives working.
+
+- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
+  winner: keep the scaffold | opened 2026-08-09T01:00:00Z
+  The first command a stranger runs teaches `Outcome ID / Revision / State /
+  Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
+  contain (`grep -ic outcome` on it returns 0), and lint has no unknown-key
+  check so the scaffold passes forever. Cutting it to the four real keys is a
+  10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
+  those extra keys, so trimming init leaves `browser/outcome_source.py`,
+  `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
+  means deciding whether the browser's decision surface stays — an owner call,
+  not a lint fix. Held as a contradiction rather than settled quietly.
 
 ## Progress
 
@@ -1414,37 +1447,3 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-09T08:25:00Z STRUCT M11 added, and M10 closes on the agent side | trigger: goal chaining -- M10's three agent-side rows are proven and its DoD ~pair is person-gated ("give the same goal to a Claude seat and a Codex seat, both with --by, and read `shadow status --in-flight`"), so the plan closes agent-side and mints the successor rather than hanging on a human. Why M11 is the successor: four PRs opened before tonight are all BEHIND main and none were touched while six merged around them -- #256 (v3 route/seat prose surviving the v4 excision), #265 (a Deferred section that tonight's archive may have superseded outright), #266 (the explain-inline rule in SKILL.md), #267 (the guard that makes #266 fail). Stale branches are the same class as a worktree left standing after LAND. Contradicts: nothing. The highest-value pair is #266+#267, because a rule that cannot refuse is the exact defect four false greens taught this session.
 
 - 2026-08-09T08:40:00Z ~styl PROOF #266 and #267 rebased onto tonight's main and landed together, because a rule without its guard is the exact defect four false greens taught this session. SKILL.md now says explain every term in the SAME message that uses it -- a change gets a before/after pair, a flow gets a drawing, a fact gets one line, and a PR number or file path is a reference, never an explanation. `scripts/shadow-style-guard.py` is the Stop hook that makes it fail: it reads the turn's final assistant text and BLOCKS an A/B/C offered with no drawing, fenced block, or table in the same message. Demonstrated both directions -- an A/B/C reading "A: adopt seat semantics / B: optional validator consolidation" is refused with the reason inline, and one carrying a BEFORE/AFTER block passes silently. Those two option labels are the owner's own banned phrases, so the guard's first real input was the thing it exists to stop. It reads `last_assistant_message` from the payload rather than scanning the transcript, because the transcript is written asynchronously and scanning it can judge the wrong ending. 358 tests, 30 of them the guard's. (cmd)
-
-## Contradictions
-
-- RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
-  Shadow. See the ~obsv PROOF line. |
-  winner: Boundaries | opened 2026-08-09T01:10:00Z
-  `AGENT.md` and `SKILL.md` both say no router, daemon, scheduler, credential
-  relay, or transcript store, and `docs/reference/privacy.md` is built on
-  nothing leaving the machine. End-to-end triage of a failed cycle is a real
-  need and there is no local answer today, but the default Langfuse shape --
-  hosted endpoint, API keys, prompt and output payloads -- is precisely the
-  banned thing. ~obsv decides between: self-hosted only, metadata-only spans
-  with no payloads, or kill. Recorded before any code so the boundary is not
-  eroded by an integration that arrives working.
-
-- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
-  winner: keep the scaffold | opened 2026-08-09T01:00:00Z
-  The first command a stranger runs teaches `Outcome ID / Revision / State /
-  Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
-  contain (`grep -ic outcome` on it returns 0), and lint has no unknown-key
-  check so the scaffold passes forever. Cutting it to the four real keys is a
-  10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
-  those extra keys, so trimming init leaves `browser/outcome_source.py`,
-  `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
-  means deciding whether the browser's decision surface stays — an owner call,
-  not a lint fix. Held as a contradiction rather than settled quietly.
-
-
-## Deferred
-
-- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
-- the v3 Outcome/Decision/chief-of-staff subsystem, ~1,746 lines with no live producer | retiring it also retires the A/B/C sentences in quickstart.md and docs/index.md and two committed screenshots, so it is a product call, not cleanup | wake: the owner rules on whether the browser's A/B/C decision view ships in 0.1.x
-- `docs/superpowers/` is linked from no index and prescribes deleted machinery (`shadow route`, `npm install --package-lock-only`) | it is now `export-ignore`d so it no longer ships, which removes the urgency but not the staleness | wake: someone edits a file under docs/superpowers/, or the owner asks where Shadow's own design records live
-- `shadow doctor` cannot verify the standing goal in Cursor | its user rules live in application settings, not a file, so asserting `~/.cursor/rules/shadow.md` would invent a convention and then report success for wiring that does nothing | wake: the owner names Cursor's real user-rule surface, or Cursor ships a documented file path
