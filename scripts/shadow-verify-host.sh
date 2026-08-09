@@ -10,9 +10,10 @@
 # Two tiers, because the honest answer is that only one of them is free:
 #
 #   offline (default)  Everything checkable without a model. Mount resolution,
-#                      shadowing by a higher-priority source, loadable skill
-#                      frontmatter, the directive present and current, and the
-#                      board actually reachable from an unrelated directory.
+#                      shadowing by a higher-priority source, parseable skill
+#                      frontmatter, the directive present and current, `shadow`
+#                      on PATH being THIS checkout, and the board reachable
+#                      from an unrelated directory through that same command.
 #
 #   --live             One real non-interactive host invocation. This is the
 #                      only thing that proves a SESSION resolves the skill, and
@@ -46,6 +47,18 @@ ok()   { printf '  [PASS] %s\n' "$1"; }
 bad()  { printf '  [FAIL] %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 skip() { printf '  [SKIP] %s\n' "$1"; }
 
+# Resolve a command to the real file it ends at, so a symlinked `shadow` on
+# PATH can be compared against this checkout's own binary.
+resolve_cmd() {
+  local p="$1" t
+  while [[ -L "${p}" ]]; do
+    t="$(readlink "${p}")"
+    [[ "${t}" != /* ]] && t="$(dirname "${p}")/${t}"
+    p="${t}"
+  done
+  printf '%s/%s\n' "$(cd -P "$(dirname "${p}")" 2>/dev/null && pwd)" "$(basename "${p}")"
+}
+
 echo "verify-host: ${HOST}"
 
 # 1. The mount resolves to THIS checkout. A mount pointing at another clone
@@ -72,14 +85,50 @@ done
 [[ "${SHADOWED}" -eq 0 ]] && ok "no competing 'shadow' skill in any host root"
 
 # 3. The skill is loadable, not merely present. A loader that cannot parse the
-#    frontmatter drops the skill without saying so.
+#    frontmatter drops the skill without saying so, so parse the block the way
+#    a host does: a terminated YAML mapping carrying name and description.
 SKILL="${MOUNT}/SKILL.md"
 if [[ ! -f "${SKILL}" ]]; then
   bad "no SKILL.md behind the mount"
-elif ! head -1 "${SKILL}" | grep -q '^---$' && ! head -1 "${SKILL}" | grep -q '^# '; then
-  bad "SKILL.md opens with neither frontmatter nor a heading — a loader may skip it"
+elif ! REASON="$(python3 - "${SKILL}" <<'PY'
+import re, sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+if not lines or lines[0].strip() != "---":
+    print("does not open with a --- fence"); sys.exit(1)
+end = next((i for i, l in enumerate(lines[1:], 1) if l.strip() in ("---", "...")), None)
+if end is None:
+    print("is never closed"); sys.exit(1)
+
+body = lines[1:end]
+try:
+    import yaml
+    data = yaml.safe_load("\n".join(body))
+except ImportError:
+    data = {}
+    for raw in body:
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^([A-Za-z0-9_-]+)\s*:\s*(.*)$", raw)
+        if not m:
+            data = None; break
+        value = m.group(2).strip()
+        if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        data[m.group(1)] = value
+except Exception:
+    print("is not valid YAML"); sys.exit(1)
+
+if not isinstance(data, dict):
+    print("is not a key/value mapping"); sys.exit(1)
+missing = [k for k in ("name", "description") if not str(data.get(k) or "").strip()]
+if missing:
+    print("is missing " + " and ".join(missing)); sys.exit(1)
+PY
+)"; then
+  bad "SKILL.md frontmatter ${REASON} — a loader would drop the skill"
 else
-  ok "SKILL.md is loadable"
+  ok "SKILL.md frontmatter parses, with name and description"
 fi
 
 # 4. The standing goal is present and current. `shadow doctor` owns the
@@ -114,11 +163,28 @@ PY
   fi
 fi
 
-# 5. THE POINT. A session's first move is `shadow status` from wherever it
+# 5. The command a cold session actually reaches. A session types `shadow`, so
+#    PATH identity is part of the wiring: an installer that linked into a
+#    directory the host never sees, or another checkout earlier on PATH, both
+#    leave every file in place and still break the first move. Everything below
+#    runs whatever PATH resolves, because that is what a session runs.
+ON_PATH="$(command -v shadow 2>/dev/null || true)"
+if [[ -z "${ON_PATH}" ]]; then
+  SHADOW_CMD="${ROOT}/bin/shadow"
+  bad "no 'shadow' on PATH — a cold session's first command is not found"
+elif [[ "$(resolve_cmd "${ON_PATH}")" != "$(resolve_cmd "${ROOT}/bin/shadow")" ]]; then
+  SHADOW_CMD="${ON_PATH}"
+  bad "'shadow' on PATH is ${ON_PATH} — a session would run another checkout"
+else
+  SHADOW_CMD="${ON_PATH}"
+  ok "'shadow' on PATH is this checkout"
+fi
+
+# 6. THE POINT. A session's first move is `shadow status` from wherever it
 #    opened. If that returns nothing, the host asks "which project?" — the one
 #    question this whole milestone exists to make unnecessary.
 SCRATCH="$(mktemp -d)"
-BOARD="$(cd "${SCRATCH}" && "${ROOT}/bin/shadow" status 2>/dev/null)"
+BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status 2>/dev/null)"
 rmdir "${SCRATCH}" 2>/dev/null || true
 if [[ -z "${BOARD}" ]]; then
   bad "the board is empty from an unrelated directory — a cold session has nothing to open"
@@ -128,44 +194,28 @@ else
   ok "the board is reachable from an unrelated directory, with a resume row"
 fi
 
-# 6. The live tier. Only this proves a SESSION loads the skill; everything
+# 7. The live tier. Only this proves a SESSION loads the skill; everything
 #    above proves the pieces are in place for it to.
 if [[ "${LIVE}" -eq 0 ]]; then
   skip "session check (costs model quota) — re-run with --live to prove a cold session resolves the skill"
 elif ! command -v "${BIN}" >/dev/null 2>&1; then
   bad "${BIN} is not installed, so the session check cannot run"
 else
-  # The expected row comes from ${ROOT}/bin/shadow, so the session has to run
-  # that same checkout. Bare `shadow` is the realistic command and stays the
-  # prompt when PATH already resolves here; when it resolves to another clone,
-  # asking for `shadow` would compare two different boards, so name the path.
-  resolve_cmd() {
-    local p="$1" t
-    while [[ -L "${p}" ]]; do
-      t="$(readlink "${p}")"
-      [[ "${t}" != /* ]] && t="$(dirname "${p}")/${t}"
-      p="${t}"
-    done
-    printf '%s/%s\n' "$(cd -P "$(dirname "${p}")" && pwd)" "$(basename "${p}")"
-  }
-  ON_PATH="$(command -v shadow 2>/dev/null || true)"
-  if [[ -n "${ON_PATH}" ]] && [[ "$(resolve_cmd "${ON_PATH}")" == "$(resolve_cmd "${ROOT}/bin/shadow")" ]]; then
-    STATUS_CMD='shadow status'
-  else
-    STATUS_CMD="${ROOT}/bin/shadow status"
-    skip "\`shadow\` on PATH is not this checkout — the session check names the full path instead"
-  fi
-  PROMPT="Run the shell command \`${STATUS_CMD}\` and reply with ONLY the text after \"Resume:\" on its first occurrence. No preamble."
+  # The prompt names no command on purpose. Spelling out `shadow status` would
+  # let any generic session pass by following instructions; asking only what
+  # the work is means the answer can arrive one way — the skill and standing
+  # goal loaded, and the session went to the board on its own.
+  PROMPT='What am I working on right now? Reply with ONLY the single line you would resume, and nothing else.'
   case "${HOST}" in
     claude-code) OUT="$("${BIN}" -p "${PROMPT}" 2>&1)" ;;
     codex)       OUT="$("${BIN}" exec "${PROMPT}" 2>&1)" ;;
     cursor)      OUT="$("${BIN}" -p "${PROMPT}" 2>&1)" ;;
   esac
-  EXPECTED="$("${ROOT}/bin/shadow" status 2>/dev/null | sed -n 's/^ *Resume: //p' | head -1)"
+  EXPECTED="$("${SHADOW_CMD}" status 2>/dev/null | sed -n 's/^ *Resume: //p' | head -1)"
   if [[ -n "${EXPECTED}" ]] && grep -qF "${EXPECTED:0:40}" <<<"${OUT}"; then
-    ok "a cold ${HOST} session reached the board and named the resume row"
+    ok "a cold ${HOST} session found the board unprompted and named the resume row"
   else
-    bad "a cold ${HOST} session did not return the resume row — it may not be loading the skill"
+    bad "a cold ${HOST} session did not name the resume row unprompted — it is not loading the skill"
   fi
 fi
 

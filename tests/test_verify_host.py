@@ -41,7 +41,8 @@ PLAN = """# Fixture
 """
 
 
-def run(home: Path, host: str = "claude-code") -> subprocess.CompletedProcess[str]:
+def run(home: Path, host: str = "claude-code",
+        path: str | None = None) -> subprocess.CompletedProcess[str]:
     # A scratch HOME has no ~/Development, so the board check would fail for a
     # reason that has nothing to do with the host's wiring. Point the portfolio
     # at a directory that owns one plan; the verifier is what is under test.
@@ -49,10 +50,14 @@ def run(home: Path, host: str = "claude-code") -> subprocess.CompletedProcess[st
     if not portfolio.exists():
         portfolio.mkdir(parents=True)
         (portfolio / "PLAN.md").write_text(PLAN, encoding="utf-8")
+    # A cold session types `shadow`, so a wired host has this checkout's bin on
+    # PATH. The fixture has to say so, or the verifier is right to go red.
+    if path is None:
+        path = f"{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"
     return subprocess.run(
         ["bash", str(SCRIPT), "--host", host],
         capture_output=True, text=True, check=False,
-        env={**os.environ, "HOME": str(home),
+        env={**os.environ, "HOME": str(home), "PATH": path,
              "SHADOW_PORTFOLIO_ROOT": str(home / "portfolio")},
     )
 
@@ -133,6 +138,57 @@ class EveryCheckCanFail(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("one of them is stale", result.stdout)
 
+    def test_a_skill_whose_frontmatter_a_loader_cannot_use_fails(self) -> None:
+        # Opening with `---` is not the same as parsing. A block that closes
+        # without a description is dropped by the loader without a word, and
+        # "SKILL.md exists" reports nothing about that.
+        def mutate(home: Path) -> None:
+            (home / ".claude/skills/shadow").unlink()
+            damaged = home / "damaged"
+            damaged.mkdir()
+            (damaged / "SKILL.md").write_text("---\nname: shadow\n---\n\n# Shadow\n",
+                                              encoding="utf-8")
+            (home / ".claude/skills/shadow").symlink_to(damaged, target_is_directory=True)
+
+        result = self._broken(mutate)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("a loader would drop the skill", result.stdout)
+
+    def test_shadow_missing_from_path_fails(self) -> None:
+        # The installer can link into a directory the host never sees. Every
+        # file is in place and the session's first command is not found.
+        tmp = tempfile.mkdtemp()
+        try:
+            home = Path(tmp)
+            wired(home)
+            empty = home / "empty-bin"
+            empty.mkdir()
+            result = run(home, path=f"{empty}{os.pathsep}/usr/bin{os.pathsep}/bin")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("first command is not found", result.stdout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_a_path_shadow_from_another_checkout_fails(self) -> None:
+        # Mount and directive can both point here while `shadow` earlier on
+        # PATH belongs to another clone — the session reads one version's law
+        # and runs another's board.
+        tmp = tempfile.mkdtemp()
+        try:
+            home = Path(tmp)
+            wired(home)
+            other = home / "other-bin"
+            other.mkdir()
+            shim = other / "shadow"
+            shim.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            shim.chmod(0o755)
+            result = run(home, path=f"{other}{os.pathsep}{ROOT / 'bin'}"
+                                    f"{os.pathsep}{os.environ.get('PATH', '')}")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("another checkout", result.stdout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_a_missing_directive_fails_with_the_command_that_fixes_it(self) -> None:
         result = self._broken(lambda home: (home / ".claude/CLAUDE.md").unlink())
         self.assertEqual(result.returncode, 1)
@@ -164,6 +220,7 @@ class EveryCheckCanFail(unittest.TestCase):
                 ["bash", str(SCRIPT), "--host", "claude-code"],
                 capture_output=True, text=True, check=False,
                 env={**os.environ, "HOME": str(home),
+                     "PATH": f"{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
                      "SHADOW_PORTFOLIO_ROOT": str(home / "nothing")},
             )
             self.assertEqual(result.returncode, 1)

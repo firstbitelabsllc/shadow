@@ -31,9 +31,11 @@ scripts/shadow-verify-host.sh --host codex --live         # one real session
 ```
 
 The offline tier proves the mount resolves to this checkout, that nothing
-shadows it from another root, that the skill is loadable, that the standing
-goal is present and appears exactly once, and that the board is reachable from
-an unrelated directory with a resume row on it.
+shadows it from another root, that `SKILL.md` frontmatter parses with the name
+and description a loader needs, that the standing goal is present and appears
+exactly once, that `shadow` on PATH is this checkout, and that the board is
+reachable from an unrelated directory through that same command, with a resume
+row on it.
 
 `--live` runs one non-interactive session and asserts it returns that resume
 row. It is the only check that proves a **session** loads the skill, and it
