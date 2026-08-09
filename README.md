@@ -2,110 +2,98 @@
 
 # Shadow
 
-Your chief of staff for AI coding work.
+**Shadow is you, one step down.** You shape intent; Shadow does everything
+you would otherwise have typed at an AI agent — opens the board, picks the
+row, builds the prompt, runs the work through a native host, challenges the
+result, writes the proof, mints the successor. You talk to Shadow; Shadow
+talks to the agents.
 
-Shadow tells you what work is trying to achieve, what is happening, what
-proof exists, and which A/B/C choice needs you. It drives an existing native
-coding tool only when you ask and reports the proof without taking custody of
-your login or conversation.
+Three properties make that trustworthy:
 
-Shadow scopes to one repository at a time; other projects keep working from
-their own `PLAN.md`.
+1. **One durable board, from anywhere.** Every project's truth is its own
+   `PLAN.md` in git. Open Shadow in any CLI, any directory, any machine —
+   a fresh chat, a voice session, an empty scratch dir — and `shadow status`
+   shows the *same* plan list (an empty directory falls back to your
+   portfolio root instead of pretending nothing exists). Chat is a
+   projection; the plan is the memory.
+2. **The goal is a pointer.** No goal prompt can carry a ten-project
+   portfolio in 4,000 characters, so Shadow never tries: `shadow amp`
+   projects a paste-ready goal block that *points* at the durable plan —
+   authority ref + section, the one resume row with its proof, the
+   milestone's tooling line — and the standing rule that when block and plan
+   disagree, the plan wins. The standing goal for any Shadow seat is static;
+   only what it points at changes.
+3. **No proof, no completed.** A task carries a `proof:` that can refuse bad
+   work (`cmd`, `read`, or `gate <owner>`). `shadow accept --row ~hash`
+   reruns the proof in a clean detached checkout and is the only code path
+   that flips a task. `shadow lint` enforces the grammar mechanically.
 
-## See it
+## Install — out of the box
 
-![Shadow's board](https://raw.githubusercontent.com/firstbitelabsllc/shadow/main/docs/assets/board-desktop.png)
+Requires Git, Bash, Python 3.10+, Node.js 20+, and at least one native
+coding host (Claude Code, Codex, or Cursor).
 
-*The board: one card per project, with its mode, status, lint result, and task
-counts. Running locally against a demo portfolio — Sunrise Bakery, Orbit, and
-Fieldnotes are fictional projects; unedited screenshot of v4.0.x.*
-
-Open a project and Shadow states the Outcome, what changed, the proof, and the
-one A/B/C decision waiting for you.
-
-![A brief and the decision waiting on you](https://raw.githubusercontent.com/firstbitelabsllc/shadow/main/docs/assets/brief-decision.png)
-
-*A brief and its waiting decision; nothing changes until you choose. Same demo
-portfolio, unedited screenshot of v4.0.x.*
-
-![The same board at phone width](https://raw.githubusercontent.com/firstbitelabsllc/shadow/main/docs/assets/board-phone.png)
-
-*The same board at phone width. Unedited screenshot of v4.0.x.*
-
-## Five-minute install
-
-Requires Git, Bash, Python 3.10+, Node.js 20+, and at least one supported
-coding host.
 
 ```bash
-git clone https://github.com/firstbitelabsllc/shadow.git
-cd shadow
+git clone https://github.com/firstbitelabsllc/shadow.git && cd shadow
 npm install -g .
-shadow doctor
-```
-
-To mount the same public skill in a host:
-
-```bash
 ln -sfn "$(pwd)" "$HOME/.claude/skills/shadow"
 ln -sfn "$(pwd)" "$HOME/.agents/skills/shadow"
 ln -sfn "$(pwd)" "$HOME/.cursor/skills/shadow"
+shadow doctor
 ```
 
-## Workflow
+Then paste the fifteen-line standing goal from
+[host integration](docs/reference/host-integration.md) into each host's
+top-level instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, Cursor
+user rules). That is the whole setup: a host that loads only that block
+cold-starts knowing where truth lives and what to do next.
 
-Start in the repository whose work you want to understand:
-
-```bash
-shadow init --here
-shadow status
-shadow browse
-```
-
-`PLAN.md` is the durable authority — one markdown plan per repo, one writer at
-a time. The loopback browser renders each project's plans as a read-only board:
-mode, current milestone, task counts, and the one decision waiting for you. It
-never writes.
-
-A task is a state the world reaches plus a `proof:` that can refuse
-bad work (`cmd`, `read`, or `gate <owner>`). A row flips to completed only in
-the same commit as its proof line, and `shadow accept --row ~hash` is the only
-code path that does it — it reruns the row's `cmd` proof in a clean detached
-checkout first. `shadow lint PLAN.md` is the mechanical enforcer and runs in
-the test gate. The whole method is `AGENT.md` (one page) and
-`docs/reference/grammar.md` (the grammar).
-
-Delegation to a native host is one sealed command — no roster, no routing
-layer; provider and account choice live in your own config:
+## The loop
 
 ```bash
+shadow status                 # the durable board — same list from anywhere
+shadow amp --repo <project>   # one goal block: pointer + resume + proof, ≤4k chars
+shadow lint PLAN.md           # the grammar, mechanically enforced
+shadow accept --row ~ab12 --repo <project>   # rerun proof in a clean checkout, flip the row
+shadow browse                 # read-only loopback board at :7191
 shadow host run --host codex --repo <clean worktree> \
   --task-file <frozen task> --task-id <id> --allowed-path <exact path> \
-  --out <repo>/.shadow/evidence/<id>.json
+  --out <repo>/.shadow/evidence/<id>.json    # one sealed delegated task
 ```
+
+`shadow init --here` bootstraps a new repo's plan. The method itself is one
+page — [`AGENT.md`](AGENT.md) — enforced by
+[the grammar](docs/reference/grammar.md); the proxy stance (never open empty,
+never ask "which project?", the chief-of-staff moves are Shadow's own) is
+part of that law.
+
+## What Shadow refuses to be
+
+- **A second store.** No database, no daemon, no scheduler, no cloud worker,
+  no chat-transcript memory. If a surface could mutate a row outside
+  `PLAN.md`, it is banned. (This is also the standing answer to "should we
+  install a memory service?" — see [honcho](docs/reference/honcho.md).)
+- **A credential or provider layer.** Native hosts own auth, model, and
+  account choice; `shadow host run` passes no selector and records none.
+- **A queue that pauses your projects.** Shadow supports the lane being
+  worked; every project keeps shipping the highest-value reachable row in
+  its own plan.
 
 ## Privacy boundary
 
-- Local by default; the browser binds to loopback.
-- `PLAN.md` remains the only work authority.
-- Evidence is bounded to `.shadow/evidence/` inside the project.
-- Prompts, raw transcripts, credentials, provider payloads, and absolute
-  private paths are not stored in receipts.
-- Shadow does not relay credentials, run a cloud worker, watch in the
-  background, or maintain a second queue. Provider, model, and account choice
-  live in your own config, never in Shadow.
-- There is no telemetry seam: local receipts and git history are the only
-  observation surfaces. See the [privacy contract](docs/reference/privacy.md).
+Local by default; the browser binds to loopback. Evidence is bounded to
+`.shadow/evidence/` inside the project. Prompts, transcripts, credentials,
+provider payloads, and private absolute paths stay out of receipts. There is
+no telemetry seam — local receipts and git history are the only observation
+surfaces. See the [privacy contract](docs/reference/privacy.md).
 
 ## Limitations
 
 - `shadow host run` runs one sealed task through one named host; it never
-  launches work on its own, swaps a host, retries, or owns a queue. The lead
-  chooses whether to run it and accepts proof.
-- `shadow accept --row` reruns only `cmd`-classed proofs; `read` and `gate`
-  proofs are judgments a human or agent re-observes, not subprocesses.
-- Host availability and authentication remain owned by Codex, Claude Code, or
-  Cursor.
+  launches work on its own, swaps hosts, retries, or owns a queue.
+- `shadow accept` reruns only `cmd`-classed proofs; `read` and `gate` proofs
+  are judgments a person or agent re-observes.
 - A receipt is evidence to review, not automatic acceptance.
 
 ## Development
@@ -116,5 +104,9 @@ npm run verify
 npm run docs:build
 ```
 
-See [the quick start](docs/guide/quickstart.md), [commands](docs/reference/commands.md),
-and [privacy contract](docs/reference/privacy.md). MIT licensed.
+[Quick start](docs/guide/quickstart.md) ·
+[Commands](docs/reference/commands.md) ·
+[Host integration](docs/reference/host-integration.md) ·
+[Amp](docs/reference/amp.md) ·
+[Grammar](docs/reference/grammar.md) ·
+[Privacy](docs/reference/privacy.md). MIT licensed.
