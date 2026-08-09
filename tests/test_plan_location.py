@@ -48,6 +48,11 @@ PLAN = """# {name}
 """
 
 
+def brief(plans_line: str) -> str:
+    """A plan whose Brief declares `plans_line` — the only place it counts."""
+    return PLAN.format(name="app", slug="app", extra=f"- Plans: {plans_line}\n")
+
+
 def make(root: Path, name: str, *, plans_line: str = "", nested: tuple[str, ...] = ()) -> Path:
     repo = root / name
     repo.mkdir(parents=True)
@@ -100,14 +105,29 @@ class DeclaredGlobs(unittest.TestCase):
             self.assertEqual(paths, ["app/PLAN.md", "app/plans/one/PLAN.md", "app/plans/two/PLAN.md"])
 
     def test_at_most_three_globs_are_honored(self) -> None:
-        self.assertEqual(len(declared_plan_globs("- Plans: a/*, b/*, c/*, d/*\n")), 3)
+        self.assertEqual(len(declared_plan_globs(brief("a/*, b/*, c/*, d/*"))), 3)
 
     def test_an_escaping_glob_is_dropped(self) -> None:
         # A repo-relative declaration must not reach outside its own repo. This
         # is the same reach a central index would have, arriving one line at a
         # time — so it is refused at parse, not at read.
-        globs = declared_plan_globs("- Plans: ../elsewhere/*/PLAN.md, /etc/*, ok/*/PLAN.md\n")
+        globs = declared_plan_globs(brief("../elsewhere/*/PLAN.md, /etc/*, ok/*/PLAN.md"))
         self.assertEqual(globs, ["ok/*/PLAN.md"])
+
+    def test_only_the_brief_can_declare(self) -> None:
+        # The grammar calls this one Brief line. A `- Plans:` line quoted in
+        # Progress — a note about what some other repo declares, a fenced
+        # example — is prose, and prose must not widen what the board reads.
+        text = PLAN.format(name="app", slug="app", extra="") + "- Plans: sneaky/*/PLAN.md\n"
+        self.assertEqual(declared_plan_globs(text), [])
+
+    def test_a_declaration_quoted_in_progress_reads_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = make(root, "app", nested=("plans/one/PLAN.md",))
+            with (repo / "PLAN.md").open("a", encoding="utf-8") as handle:
+                handle.write("- 2026-08-09T00:00:01Z NOTE it declares\n- Plans: plans/*/PLAN.md\n")
+            self.assertEqual([r["path"] for r in discover_plans(root)], ["app/PLAN.md"])
 
     def test_a_symlinked_glob_cannot_escape_either(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

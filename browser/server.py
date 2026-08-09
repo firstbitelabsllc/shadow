@@ -255,22 +255,26 @@ def _plan_mtime(repo: Path) -> float:
         return 0.0
 
 
-PLANS_LINE_RE = re.compile(r"^- Plans: (?P<globs>.+)$", re.MULTILINE)
 MAX_DECLARED_GLOBS = 3
 
 
 def declared_plan_globs(plan_text: str) -> list[str]:
     """The repo-relative globs a root plan declares, bounded and sanitized.
 
+    Read from the Brief and nowhere else, like every other operator field. The
+    grammar calls this "one Brief line"; scanning the whole document would let
+    a `- Plans:` line quoted in Progress, a note, or a fenced example become an
+    authoritative declaration that widens what the board reads.
+
     Repo-relative only. An absolute path or a `..` segment would let one
     repository's plan pull files from outside itself into the board — the same
     class of reach a central index would have, arriving one line at a time.
     """
-    match = PLANS_LINE_RE.search(plan_text)
-    if not match:
+    declaration = operator_brief(plan_text).get("plans")
+    if not declaration:
         return []
     globs: list[str] = []
-    for raw in match.group("globs").split(","):
+    for raw in declaration.split(","):
         candidate = raw.strip()
         if not candidate or candidate.startswith("/") or ".." in Path(candidate).parts:
             continue
