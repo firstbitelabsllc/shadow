@@ -46,6 +46,9 @@ elif mode == "scope":
 elif mode == "ignored":
     pathlib.Path.cwd().joinpath(".env").write_text("ignored escape\n", encoding="utf-8")
     changed = []
+elif mode == "task-state":
+    pathlib.Path.cwd().joinpath(".shadow", "tasks", "seed.md").write_text("mutated\n", encoding="utf-8")
+    changed = []
 else:
     changed = []
 
@@ -89,6 +92,15 @@ def make_repo(root: Path, *, ignore_evidence: bool = True) -> Path:
     git(repo, "add", "result.txt", ".gitignore")
     git(repo, "commit", "-qm", "base")
     return repo
+
+
+def add_tracked_task_metadata(repo: Path) -> Path:
+    task = repo / ".shadow" / "tasks" / "seed.md"
+    task.parent.mkdir(parents=True)
+    task.write_text("bounded task metadata\n", encoding="utf-8")
+    git(repo, "add", "-f", str(task.relative_to(repo)))
+    git(repo, "commit", "-qm", "add task metadata")
+    return task
 
 
 def make_host(root: Path, mode: str = "ok") -> Path:
@@ -491,6 +503,59 @@ class ShadowHostTests(unittest.TestCase):
                 payload = json.loads(output.read_text(encoding="utf-8"))
                 self.assertEqual(payload["status"], "ok")
                 self.assertEqual(payload["changed_paths"], ["result.txt"])
+
+    def test_tracked_task_metadata_is_inert_for_a_sealed_host_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root)
+            add_tracked_task_metadata(repo)
+            binary = make_host(root)
+            task = root / "task.txt"
+            task.write_text("Do the bounded task.\n", encoding="utf-8")
+            output = repo / ".shadow" / "evidence" / "attempt.json"
+            result = run_host(repo, binary, task, output, host="codex")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["changed_paths"], ["result.txt"])
+
+    def test_untracked_or_symlinked_task_metadata_never_earns_the_exemption(self) -> None:
+        for kind in ("untracked", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                repo = make_repo(root)
+                tasks = repo / ".shadow" / "tasks"
+                if kind == "untracked":
+                    tasks.mkdir(parents=True)
+                    (tasks / "private.md").write_text("ambient state\n", encoding="utf-8")
+                else:
+                    outside = root / "outside"
+                    outside.mkdir()
+                    (repo / ".shadow").mkdir()
+                    tasks.symlink_to(outside, target_is_directory=True)
+                binary = make_host(root)
+                task = root / "task.txt"
+                task.write_text("Do the bounded task.\n", encoding="utf-8")
+                output = repo / ".shadow" / "evidence" / "attempt.json"
+                result = run_host(repo, binary, task, output, host="codex")
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(output.exists())
+                self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "worktree_unsealed")
+
+    def test_host_edits_to_tracked_task_metadata_fail_the_scope_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root)
+            add_tracked_task_metadata(repo)
+            binary = make_host(root, mode="task-state")
+            task = root / "task.txt"
+            task.write_text("Do the bounded task.\n", encoding="utf-8")
+            output = repo / ".shadow" / "evidence" / "attempt.json"
+            result = run_host(repo, binary, task, output, host="codex")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "blocked")
+            self.assertEqual(payload["blocked"]["kind"], "scope_violation")
 
     def test_symlinked_pre_rename_evidence_is_never_exempt_from_sealing(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

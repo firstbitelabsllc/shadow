@@ -191,10 +191,66 @@ def assert_legacy_state_sealed(repo: Path) -> None:
             raise HostError("worktree_unsealed", "pre-rename evidence must contain regular files only")
 
 
+def tracked_paths(repo: Path, relative_root: str) -> set[str]:
+    """Return the committed paths under one project-relative root.
+
+    Host packets may read committed task metadata, but never ambient ignored
+    state.  Git is the authority for that distinction because `.shadow/` is
+    commonly ignored as a whole.
+    """
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-z", "--", relative_root],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect task metadata: {exc}") from exc
+    if result.returncode != 0:
+        raise HostError("git_unavailable", "cannot inspect task metadata")
+    return {
+        entry.decode("utf-8", errors="strict")
+        for entry in result.stdout.split(b"\0")
+        if entry
+    }
+
+
+def assert_task_state_sealed(repo: Path) -> None:
+    """Allow only tracked, inert `.shadow/tasks/` metadata in a host packet.
+
+    The directory is a task handoff surface, not host output.  Its contents
+    must already belong to Git, remain regular files, and stay outside every
+    packet's allowed paths.  Any edit is still caught by the normal Git scope
+    diff after execution.
+    """
+
+    tasks = repo / ".shadow" / "tasks"
+    if tasks.is_symlink():
+        raise HostError("worktree_unsealed", "project task metadata path must not be a symlink")
+    if not tasks.exists():
+        return
+    if not tasks.is_dir():
+        raise HostError("worktree_unsealed", "project task metadata must be a directory")
+    tracked = tracked_paths(repo, ".shadow/tasks")
+    for path in sorted(tasks.rglob("*")):
+        if path.is_symlink():
+            raise HostError("worktree_unsealed", "project task metadata must not contain symlinks")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise HostError("worktree_unsealed", "project task metadata must contain regular files only")
+        relative = path.relative_to(repo).as_posix()
+        if relative not in tracked:
+            raise HostError("worktree_unsealed", "project task metadata must be committed before host use")
+
+
 def local_state_snapshot(repo: Path) -> dict[str, str]:
     # Every flow that snapshots product state also exempts pre-rename evidence
     # from its sealing checks, so validate that directory's shape here.
     assert_legacy_state_sealed(repo)
+    assert_task_state_sealed(repo)
     state = repo / ".shadow"
     evidence = state / "evidence"
     if state.is_symlink() or evidence.is_symlink():
@@ -203,7 +259,7 @@ def local_state_snapshot(repo: Path) -> dict[str, str]:
         return {}
     if not state.is_dir():
         raise HostError("worktree_unsealed", "project evidence state must be a directory")
-    unexpected = [path for path in state.iterdir() if path.name != "evidence"]
+    unexpected = [path for path in state.iterdir() if path.name not in {"evidence", "tasks"}]
     if unexpected:
         raise HostError("worktree_unsealed", "project state contains material outside evidence")
     if not evidence.exists():

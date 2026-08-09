@@ -71,6 +71,7 @@ sections that stood here until 2026-08-09 are archived at
 ### M9 — Shadow installs itself: host directives, extension buckets, one canonical plan home
 - tools: superpowers is the reference implementation for host-directive injection; `shadow doctor` is where every claim in this milestone gets a check; research runs as NAMED agents on disjoint surfaces
 - [in_progress] the five open design questions are answered from evidence, not preference: how a tool safely owns a block in someone's CLAUDE.md, what Cursor's real user-rule surface is, where plans actually live on this machine, how an optional method pack is declared a dependency, and what Langfuse puts on the wire ~rsch | proof: read five agent reports folded into M9 as decisions, each citing file:line or a live observation
+- [completed] tracked `.shadow/tasks/` handoff metadata is inert for a sealed host packet; untracked, symlinked, or host-mutated task state still fails closed ~tsal | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_host
 - [pending] `shadow install --hosts` writes a MANAGED block into ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, and the real Cursor surface -- idempotent, marker-delimited, refreshable, removable, never clobbering a person's own text ~host | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives
 - [pending] extension buckets: Shadow declares named slots where a method pack plugs in (superpowers, honcho, taste), install defaults them, and doctor reports each as present/absent/stale ~bkts | proof: cmd scripts/shadow-python.sh -m unittest tests.test_extension_buckets | needs: ~host
 - [pending] the canonical home for plans is decided from what is actually on this machine and written into grammar.md; the portfolio fallback either implements that rule or is corrected ~home | proof: read grammar.md names the rule; `shadow status` from three unrelated directories returns the same board
@@ -299,6 +300,8 @@ sections that stood here until 2026-08-09 are archived at
   primary dirty/owned checkouts are never restarted or overwritten by proof.
 
 ## Progress
+
+- 2026-08-09T05:22:40Z ~tsal PROOF scripts/shadow-python.sh -m unittest tests.test_shadow_host -> 20 tests OK; full suite -> 248 tests OK. A committed regular `.shadow/tasks/` handoff file is now inert during a sealed native host packet, while ignored/untracked task state, task symlinks, and host edits to a tracked task file each fail closed. Why now: current Snowcubes handoff metadata was rejected before a worker could start, despite being committed and unchanged.
 
 - 2026-08-09T03:30:00Z ~dlaw PROOF plan lint 0 blocking with the dispatch law in AGENT.md (row-first dispatch, THROWN discriminator, write-at-discovery, post-death sequence) and grammar.md (THROWN vocabulary + Dispatch law section); the concurrency line was corrected in place — concurrent APPENDERS serialized by fast-forward are legal, concurrent FLIPPERS are not
 - 2026-08-09T03:30:00Z ~mstr PROOF tests.test_throw InFlightView -> --in-flight lists every claimed row portfolio-wide with project, milestone, proof, throw time, and dispatched-vs-hand-claimed; empty portfolio says so. This is the master multi-head view Leo asked for as a "trie" — its heads are plans, its data is rows that already exist
