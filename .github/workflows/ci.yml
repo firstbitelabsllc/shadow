@@ -40,7 +40,10 @@ jobs:
       - name: Release artifact contract
         run: scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty
 
-  install-and-public-ready:
+  # NAME IS LOAD-BEARING: `browser-and-docs` is a required status context in
+  # branch protection. Renaming this job makes that context never report, which
+  # blocks every PR forever. Rename only together with the protection rule.
+  browser-and-docs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
