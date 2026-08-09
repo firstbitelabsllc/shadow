@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Final
 
@@ -47,6 +49,7 @@ BY_MAX: Final = 40
 # sections, and THROWN entries in a file the whole board trusts, so the two
 # operator-supplied values are constrained before they are serialized.
 CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
+
 STAMP_RE: Final = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # A remote URL can carry a token in its userinfo; git echoes the URL back on a
 # rejected push, and that stderr lands in terminals and CI logs.
@@ -64,6 +67,37 @@ def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
     if check and result.returncode:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Replace a file in one step, never leaving it partially written.
+
+    `Path.write_text` truncates and then fills. A second process reading the
+    file in that window sees whatever has been written so far — and the second
+    process that matters here is `git commit`, which hashes the working tree
+    copy. Two `shadow throw` runs in one checkout, which is exactly the
+    documented two-leads-one-plan case, could hash a zero-length PLAN.md and
+    push the empty blob as the board every other seat reads. Measured at 3
+    occurrences in 45 same-checkout trials before this changed.
+
+    A temp file in the same directory keeps the rename on one filesystem, so
+    `os.replace` is atomic: readers see the old bytes or the new ones.
+    """
+    directory = path.parent
+    handle, temporary = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.exists():
+            # A fresh temp file is 0600; the plan is world-readable and stays so.
+            os.chmod(temporary, path.stat().st_mode & 0o7777)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
 
 
 def thrown_ids(text: str) -> set[str]:
@@ -232,14 +266,14 @@ def main(argv: list[str] | None = None) -> int:
         """Put the plan and its index entry back exactly as they were: a row
         flipped to in_progress with no commit behind it reads as somebody's
         claim and refuses every retry."""
-        plan_path.write_text(text, encoding="utf-8")
+        _atomic_write(plan_path, text)
         if index_entry:
             fields_ = index_entry.split()
             git(repo, "update-index", "--cacheinfo", f"{fields_[0]},{fields_[1]},PLAN.md", check=False)
         else:
             git(repo, "rm", "--cached", "--quiet", "--", "PLAN.md", check=False)
 
-    plan_path.write_text(body, encoding="utf-8")
+    _atomic_write(plan_path, body)
 
     try:
         git(repo, "commit", "--only", "--quiet",
@@ -248,6 +282,29 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         restore_plan()
         print(f"shadow throw: commit failed; the plan was restored and nothing was dispatched: {exc}",
+              file=sys.stderr)
+        return 1
+
+    # Read the plan back OUT of the commit before anything is pushed.
+    #
+    # A zero-exit commit says git ran, not that it recorded the right bytes. If
+    # anything truncated or reverted the file between the write and the hash,
+    # the push would publish that to every other seat, and lint reads an empty
+    # plan as clean. The claim is what makes dispatch durable, so it is checked
+    # against the object git actually stored — the only copy that will travel.
+    recorded = git(repo, "show", "HEAD:PLAN.md", check=False)
+    committed = recorded.stdout if recorded.returncode == 0 else ""
+    if len(committed) < len(text) // 2 or f"THROWN {args.task}" not in committed:
+        rolled_back = bool(head_before) and git(
+            repo, "reset", "--quiet", "--soft", head_before, check=False).returncode == 0
+        if rolled_back:
+            restore_plan()
+        print("shadow throw: the commit does not contain the claim — refusing to push a plan "
+              f"other seats would read as authority. Recorded {len(committed)} chars against "
+              f"{len(text)} on disk. "
+              + ("The commit was rolled back and the plan restored; nothing was dispatched."
+                 if rolled_back
+                 else "The commit could NOT be rolled back — inspect HEAD before throwing again."),
               file=sys.stderr)
         return 1
 

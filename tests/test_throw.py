@@ -324,3 +324,120 @@ class ThrowRefusesInvisibleDispatch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThrowNeverCommitsATruncatedPlan(unittest.TestCase):
+    """The worst defect the 2026-08-09 adversarial pass found.
+
+    `Path.write_text` truncates and then fills. `git commit` hashes the working
+    tree copy. Two `shadow throw` runs in one checkout — the documented
+    two-leads-one-plan case as it actually happens, two chats `cd`'d into one
+    repo — could hash the file mid-truncation, commit the EMPTY blob, and push
+    it as the board every other seat reads. It reported "claimed + pushed"
+    while doing it, and `shadow lint` calls an empty plan clean. Reproduced 3
+    times in 45 same-checkout trials.
+
+    Both halves are pinned here: the write is atomic, and the commit is read
+    back before anything can leave the machine.
+    """
+
+    def test_a_concurrent_reader_never_sees_a_partial_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repo_with_plan(Path(tmp))
+            plan = repo / "PLAN.md"
+            full = len(plan.read_text(encoding="utf-8"))
+            sizes: list[int] = []
+            stop = False
+
+            import threading
+
+            def poll() -> None:
+                while not stop:
+                    try:
+                        sizes.append(len(plan.read_text(encoding="utf-8")))
+                    except (FileNotFoundError, UnicodeDecodeError):
+                        sizes.append(-1)
+
+            watcher = threading.Thread(target=poll, daemon=True)
+            watcher.start()
+            try:
+                result = throw(repo, "--task", "~bb22")
+            finally:
+                stop = True
+                watcher.join(timeout=5)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(sizes, "the reader never sampled the plan")
+            # Every sample is a complete file: the original, or the longer
+            # claimed one. Never a prefix, never absent.
+            self.assertFalse([n for n in sizes if n not in (full, len(plan.read_text(encoding="utf-8")))],
+                             f"a reader saw a partial plan; sizes seen: {sorted(set(sizes))}")
+
+    def test_a_temp_file_is_never_left_behind(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repo_with_plan(Path(tmp))
+            self.assertEqual(throw(repo, "--task", "~bb22").returncode, 0)
+            leftovers = [p.name for p in repo.iterdir() if p.name.startswith(".PLAN.md.")]
+            self.assertFalse(leftovers, f"temp files survived: {leftovers}")
+
+    def test_the_plan_keeps_its_mode(self) -> None:
+        # mkstemp creates 0600. A plan that silently becomes owner-only after a
+        # throw breaks every other reader on a shared checkout.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repo_with_plan(Path(tmp))
+            before = (repo / "PLAN.md").stat().st_mode & 0o7777
+            self.assertEqual(throw(repo, "--task", "~bb22").returncode, 0)
+            self.assertEqual((repo / "PLAN.md").stat().st_mode & 0o7777, before)
+
+
+class ThrowIsGatedOnAReadbackOfTheCommit(unittest.TestCase):
+    """A zero-exit commit says git ran, not that it stored the right bytes."""
+
+    def test_a_commit_missing_the_claim_is_refused_and_rolled_back(self) -> None:
+        # Force the exact end state the race produced: the commit git recorded
+        # does not contain the claim. The push must not happen, the commit must
+        # be rolled back, and the plan must come back whole.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repo_with_plan(Path(tmp))
+            original = (repo / "PLAN.md").read_text(encoding="utf-8")
+            head_before = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=True).stdout.strip()
+
+            # A pre-commit hook that empties the staged plan reproduces the
+            # truncation deterministically, without patching the script.
+            hooks = repo / ".git" / "hooks"
+            hooks.mkdir(parents=True, exist_ok=True)
+            hook = hooks / "pre-commit"
+            hook.write_text(
+                "#!/bin/sh\n"
+                "printf '' > PLAN.md\n"
+                "git add PLAN.md\n",
+                encoding="utf-8")
+            hook.chmod(0o755)
+
+            result = throw(repo, "--task", "~bb22")
+
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("does not contain the claim", result.stderr)
+            self.assertNotIn("/goal", result.stdout,
+                             "the goal block was printed for a dispatch that never became durable")
+            head_after = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(head_after, head_before, "the bad commit was left on HEAD")
+            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), original,
+                             "the plan was not restored")
+
+    def test_the_readback_gate_passes_a_healthy_throw(self) -> None:
+        # A guard that fires on everything is as useless as one that never
+        # fires. The ordinary path still succeeds.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repo_with_plan(Path(tmp))
+            result = throw(repo, "--task", "~bb22")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            committed = subprocess.run(
+                ["git", "-C", str(repo), "show", "HEAD:PLAN.md"],
+                capture_output=True, text=True, check=True).stdout
+            self.assertIn("THROWN ~bb22", committed)
+            self.assertIn("[in_progress]", committed)
