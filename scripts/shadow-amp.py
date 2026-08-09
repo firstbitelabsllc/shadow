@@ -246,10 +246,12 @@ def stall_reason(plan: dict) -> str:
 
 
 def _clean(value: str, limit: int = MAX_GIT_VALUE) -> str:
-    """Git metadata (a remote URL, a branch name) is repository-controlled
-    data that lands in a block a person pastes into an agent prompt. A URL
-    carrying newlines could otherwise append its own instruction lines, so
-    control characters collapse to spaces and the value is bounded."""
+    """Git metadata (a remote URL, a branch name) and free-text Brief values
+    are repository-controlled data that land in a block a person pastes into
+    an agent prompt. A value carrying newlines could otherwise append its own
+    instruction lines, so control characters collapse to spaces and the value
+    is bounded. Every such value goes through here — a plan is authority over
+    what to work on, never authority over the rails around the work."""
     flat = CONTROL_RE.sub(" ", value).strip()
     return f"{flat[:limit]}…" if len(flat) > limit else flat
 
@@ -320,10 +322,10 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
             "\nUNCOMMITTED: this block was read from the working tree, which differs from\n"
             "the ref above — commit and push the plan before handing this goal to a seat."
         )
-    mode_bits = [f"MODE: {brief.get('Mode', 'explore')}"]
+    mode_bits = [f"MODE: {_clean(brief.get('Mode', 'explore'), 16)}"]
     if brief.get("Priority"):
-        mode_bits.append(f"Priority: {brief['Priority']}")
-    mode_bits.append(f"Loop: {loop}")
+        mode_bits.append(f"Priority: {_clean(brief['Priority'])}")
+    mode_bits.append(f"Loop: {_clean(loop, 64)}")
     mode_line = " | ".join(mode_bits)
 
     resume = f"RESUME: [{row['state']}] {row['text']} {row['id']}"
@@ -365,9 +367,21 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
         name, _ = kept.pop()
         dropped.append(name)
     if len(block) > max_chars:
+        # Name the part that is actually big AND shrinkable. This used to
+        # always blame the resume row, sending people to shrink a 30-char task
+        # line while an oversized Priority value was the real cause. The
+        # authority pointer is deliberately excluded: it is fixed boilerplate
+        # that no plan edit can shorten, so naming it is advice nobody can
+        # follow — its cost is reported separately as the floor.
+        part, size = max(
+            (("resume row", len(resume)), ("proof line", len(proof)),
+             ("mode/priority line", len(mode_line))),
+            key=lambda pair: pair[1],
+        )
         raise ValueError(
-            f"minimal block is {len(block)} chars (> {max_chars}); the resume row itself "
-            "is too large — shrink the task line in the plan (see READ-FIT)."
+            f"minimal block is {len(block)} chars (> {max_chars}); {len(header) + len(authority)} "
+            f"of that is the fixed authority pointer, and the largest plan-owned part is the "
+            f"{part} at {size} chars — raise --max-chars or shrink that line (see READ-FIT)."
         )
     return block, dropped
 
@@ -376,6 +390,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="shadow amp",
         description="Project one paste-ready goal block from a repository-owned PLAN.md.",
+        epilog="Deterministic: no LLM, no network. amp reads a plan file and cannot see "
+               "your conversation, so it projects the pointer, not the judgment; the "
+               "judgment half is SKILL.md section 'Shape a goal'.",
     )
     parser.add_argument("--repo", default=".", help="repository root (default: cwd)")
     parser.add_argument("--plan", default=None, help="plan path (default: <repo>/PLAN.md)")
