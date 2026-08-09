@@ -29,12 +29,13 @@ TABLE = re.compile(
 # How much the message may say after its last option and still be offering it.
 # One line is a closing question either way. Past that, length decides nothing:
 # "B keeps every hash. / Which one?" is the same shape as "I took A. / Anything
-# else?" and only the question tells them apart. One asks the reader to choose,
-# so the menu is still open; the other is a sign-off after the choice was made.
+# else?" and only the question tells them apart. The menu is still open when the
+# question sends the reader back to it, and only then. Offering some single next
+# thing ("want me to open the follow-up PR?") is not the menu; neither is a
+# courtesy sign-off. Both are a finished report ending politely.
 TRAILING_LINES = 1
 CHOOSING = re.compile(
-    r"\b(which|pick|choose|choice|prefer|either|your call|want me to|"
-    r"shall i|should i|go with|[abc] or [abc])\b",
+    r"\b(which|pick|choose|choice|prefer|either|your call|[abc] or [abc])\b",
     re.I,
 )
 
