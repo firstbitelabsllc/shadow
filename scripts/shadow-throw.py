@@ -285,6 +285,41 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
 
+    # THIS invocation's commit, pinned by sha. In the same-checkout concurrency
+    # case another process can land a commit between here and any later read of
+    # HEAD, so every check and every rollback below names this sha instead of
+    # the moving symbolic tip.
+    claim_commit = git(repo, "rev-parse", "--verify", "HEAD", check=False)
+    head_after = claim_commit.stdout.strip() if claim_commit.returncode == 0 else ""
+
+    def rollback_claim() -> bool:
+        """Undo this invocation's claim commit, or refuse and say so.
+
+        `reset` moves the branch, not a commit, so it may only run while this
+        commit is still the tip. If a concurrent `shadow throw` in the same
+        checkout committed on top, resetting to `head_before` would orphan both
+        that commit and this one — destroying another seat's claim to recover
+        from ours. Leaving HEAD alone is always the safe half of that trade.
+
+        Two things are proven before the branch moves: the tip is still the sha
+        this run saw after its commit, and that sha is a direct child of
+        `head_before`. The parent check catches the other order — somebody
+        landing a commit while `git commit` was still running — where the tip
+        looks stable but is not this invocation's work.
+        """
+        if not head_before or not head_after:
+            return False
+        current = git(repo, "rev-parse", "--verify", "HEAD", check=False)
+        if current.returncode != 0 or current.stdout.strip() != head_after:
+            return False
+        parent = git(repo, "rev-parse", "--verify", f"{head_after}^", check=False)
+        if parent.returncode != 0 or parent.stdout.strip() != head_before:
+            return False
+        if git(repo, "reset", "--quiet", "--soft", head_before, check=False).returncode != 0:
+            return False
+        restore_plan()
+        return True
+
     # Read the plan back OUT of the commit before anything is pushed.
     #
     # A zero-exit commit says git ran, not that it recorded the right bytes. If
@@ -292,19 +327,24 @@ def main(argv: list[str] | None = None) -> int:
     # the push would publish that to every other seat, and lint reads an empty
     # plan as clean. The claim is what makes dispatch durable, so it is checked
     # against the object git actually stored — the only copy that will travel.
-    recorded = git(repo, "show", "HEAD:PLAN.md", check=False)
-    committed = recorded.stdout if recorded.returncode == 0 else ""
-    if len(committed) < len(text) // 2 or f"THROWN {args.task}" not in committed:
-        rolled_back = bool(head_before) and git(
-            repo, "reset", "--quiet", "--soft", head_before, check=False).returncode == 0
-        if rolled_back:
-            restore_plan()
-        print("shadow throw: the commit does not contain the claim — refusing to push a plan "
-              f"other seats would read as authority. Recorded {len(committed)} chars against "
-              f"{len(text)} on disk. "
+    #
+    # Byte-for-byte against `body`, not a length threshold and not "does the
+    # claim line appear". A hook or a racing writer can drop tasks, proofs, or
+    # whole milestones and still leave the appended THROWN line and most of the
+    # characters intact; the goal block is then built from the in-memory `body`,
+    # so the command would report success while pushing a plan missing the very
+    # rows other seats read as authority. Anything but equality is a bad commit.
+    recorded = git(repo, "show", f"{head_after}:PLAN.md", check=False) if head_after else None
+    committed = recorded.stdout if recorded is not None and recorded.returncode == 0 else ""
+    if committed != body:
+        rolled_back = rollback_claim()
+        print("shadow throw: the commit does not match the plan this run wrote — refusing to "
+              "push a plan other seats would read as authority. Recorded "
+              f"{len(committed)} chars against {len(body)} written. "
               + ("The commit was rolled back and the plan restored; nothing was dispatched."
                  if rolled_back
-                 else "The commit could NOT be rolled back — inspect HEAD before throwing again."),
+                 else "The commit could NOT be rolled back safely (HEAD has moved on) — "
+                      "inspect HEAD before throwing again."),
               file=sys.stderr)
         return 1
 
@@ -314,11 +354,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         block, _ = _amp.build_block(_amp._parse(body), repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
     except (LookupError, ValueError) as exc:
-        rolled_back = bool(head_before) and git(
-            repo, "reset", "--quiet", "--soft", head_before, check=False
-        ).returncode == 0
+        rolled_back = rollback_claim()
         if rolled_back:
-            restore_plan()
             print(f"shadow throw: the goal block could not be built; the claim was rolled back "
                   f"and nothing was dispatched: {exc}", file=sys.stderr)
         else:

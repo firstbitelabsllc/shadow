@@ -419,7 +419,7 @@ class ThrowIsGatedOnAReadbackOfTheCommit(unittest.TestCase):
             result = throw(repo, "--task", "~bb22")
 
             self.assertEqual(result.returncode, 1, result.stdout)
-            self.assertIn("does not contain the claim", result.stderr)
+            self.assertIn("does not match the plan this run wrote", result.stderr)
             self.assertNotIn("/goal", result.stdout,
                              "the goal block was printed for a dispatch that never became durable")
             head_after = subprocess.run(
@@ -428,6 +428,75 @@ class ThrowIsGatedOnAReadbackOfTheCommit(unittest.TestCase):
             self.assertEqual(head_after, head_before, "the bad commit was left on HEAD")
             self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), original,
                              "the plan was not restored")
+
+    def test_a_commit_missing_a_task_row_is_refused_even_with_the_claim_intact(self) -> None:
+        # The damage that a "does it look about right" gate waves through: the
+        # THROWN line survives and most of the characters do, but a task row is
+        # gone. The goal block is built from the in-memory body, so without a
+        # byte-for-byte check the command would report success and push a plan
+        # with rows missing to every other seat.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repo_with_plan(Path(tmp))
+            original = (repo / "PLAN.md").read_text(encoding="utf-8")
+            head_before = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=True).stdout.strip()
+
+            hooks = repo / ".git" / "hooks"
+            hooks.mkdir(parents=True, exist_ok=True)
+            hook = hooks / "pre-commit"
+            hook.write_text(
+                "#!/bin/sh\n"
+                "grep -v '~ff66' PLAN.md > .plan.tmp\n"
+                "mv .plan.tmp PLAN.md\n"
+                "git add PLAN.md\n",
+                encoding="utf-8")
+            hook.chmod(0o755)
+
+            result = throw(repo, "--task", "~bb22")
+
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("does not match the plan this run wrote", result.stderr)
+            self.assertNotIn("/goal", result.stdout,
+                             "a plan missing a task row was dispatched as authority")
+            head_after = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(head_after, head_before, "the damaged commit was left on HEAD")
+            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), original,
+                             "the plan was not restored")
+
+    def test_rollback_is_declined_when_head_is_not_this_runs_commit(self) -> None:
+        # The same-checkout race, from the other side: a second process lands a
+        # commit while this one is committing. Resetting to head_before would
+        # orphan that commit as well as this one, so the claim is left where it
+        # is and the operator is told to look at HEAD.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repo_with_plan(Path(tmp))
+
+            # Stands in for the other seat's commit landing in the window
+            # between this run's commit and its readback, damaging the plan on
+            # the way.
+            hooks = repo / ".git" / "hooks"
+            hooks.mkdir(parents=True, exist_ok=True)
+            post = hooks / "post-commit"
+            post.write_text(
+                "#!/bin/sh\n"
+                "printf '' > PLAN.md\n"
+                "git add PLAN.md\n"
+                "git commit -q --no-verify -m 'other seat'\n",
+                encoding="utf-8")
+            post.chmod(0o755)
+
+            result = throw(repo, "--task", "~bb22")
+
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("could NOT be rolled back", result.stderr)
+            self.assertNotIn("/goal", result.stdout)
+            log = subprocess.run(
+                ["git", "-C", str(repo), "log", "--format=%s"],
+                capture_output=True, text=True, check=True).stdout
+            self.assertIn("other seat", log, "the other seat's commit was orphaned by a reset")
 
     def test_the_readback_gate_passes_a_healthy_throw(self) -> None:
         # A guard that fires on everything is as useless as one that never
