@@ -27,12 +27,16 @@ TABLE = re.compile(
 )
 
 # How much the message may say after its last option and still be offering it.
-# One line is a closing question either way. Past that, what separates "B keeps
-# every hash. / Which one?" from "I took A. / Nothing is waiting on you." is not
-# length, it is whether the message is still asking, so a short tail that ends in
-# a question is still a menu and anything longer has moved on to a report.
+# One line is a closing question either way. Past that, length decides nothing:
+# "B keeps every hash. / Which one?" is the same shape as "I took A. / Anything
+# else?" and only the question tells them apart. One asks the reader to choose,
+# so the menu is still open; the other is a sign-off after the choice was made.
 TRAILING_LINES = 1
-ASKING_LINES = 3
+CHOOSING = re.compile(
+    r"\b(which|pick|choose|choice|prefer|either|your call|want me to|"
+    r"shall i|should i|go with|[abc] or [abc])\b",
+    re.I,
+)
 
 
 def final_assistant_text(path):
@@ -76,11 +80,16 @@ def closing_menu(text):
 
 
 def _still_offering(ending):
-    """Whether what follows the last option leaves it standing as an offer."""
+    """Whether what follows the last option leaves it standing as an offer.
+
+    A tail that closes by asking the reader to choose keeps the menu open, at any
+    length. A tail that closes with a courtesy question after the message already
+    chose does not, at any length; that is a report signing off.
+    """
     prose = [line.strip() for line in ending if line.strip()]
     if len(prose) <= TRAILING_LINES:
         return True
-    return len(prose) <= ASKING_LINES and prose[-1].endswith("?")
+    return prose[-1].endswith("?") and bool(CHOOSING.search(prose[-1]))
 
 
 def _ending(lines, mark):
@@ -101,10 +110,6 @@ def _ending(lines, mark):
 
 def _indent(line):
     return len(line) - len(line.lstrip())
-
-
-def _prose(lines):
-    return sum(1 for line in lines if line.strip())
 
 
 def violations(text):

@@ -131,6 +131,16 @@ class StyleGuardTests(unittest.TestCase):
         self.assertFalse(self.guard.violations(text),
                          "a closing courtesy is not the message re-offering the menu")
 
+    def test_a_short_sign_off_is_read_the_same_as_a_long_one(self) -> None:
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "I took A; the branch is green.\n"
+            "Anything else?\n"
+        )
+        self.assertFalse(self.guard.violations(text),
+                         "the same sign-off must not flip on how many lines precede it")
+
     def test_a_menu_with_one_closing_question_is_still_a_menu(self) -> None:
         text = "- **A** — rebase\n- **B** — merge\n\nWhich one?\n"
         self.assertTrue(self.guard.violations(text), "the message still ends on the menu")
