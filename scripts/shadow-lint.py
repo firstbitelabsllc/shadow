@@ -167,6 +167,17 @@ def lint_plan(text: str, *, today: date | None = None) -> list[dict]:
     # blocker)" is a legal heading and it silently disabled this entire check:
     # the reference plan carried 47 wake-predicate-less rows, invisible to its
     # own enforcer, because the section name had four extra words.
+    # A plan carrying conflict markers linted CLEAN, which is how a half-merged
+    # PLAN.md reaches a commit. It matters more now that several leads write one
+    # plan: `shadow throw` refuses on unmerged paths, but nothing caught a
+    # marker that was already committed.
+    for number, line in enumerate(lines, 1):
+        if line.startswith(("<<<<<<< ", ">>>>>>> ")) or line.rstrip() == "=======":
+            findings.append(_finding(
+                "CONFLICT-MARKER", number, "blocking",
+                "unresolved merge conflict in the plan — resolve it before anything reads this",
+            ))
+
     deferred: list[tuple[int, str]] = []
     for name, entries in sections.items():
         if name == "Deferred" or name.startswith("Deferred "):
