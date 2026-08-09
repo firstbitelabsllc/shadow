@@ -26,10 +26,13 @@ TABLE = re.compile(
     re.M,
 )
 
-# A menu may be followed by a one-line question. More prose than that after the
-# last option means the message moved on and ended on something else, which is a
-# report, not a menu handed to the reader.
+# How much the message may say after its last option and still be offering it.
+# One line is a closing question either way. Past that, what separates "B keeps
+# every hash. / Which one?" from "I took A. / Nothing is waiting on you." is not
+# length, it is whether the message is still asking, so a short tail that ends in
+# a question is still a menu and anything longer has moved on to a report.
 TRAILING_LINES = 1
+ASKING_LINES = 3
 
 
 def final_assistant_text(path):
@@ -67,9 +70,17 @@ def closing_menu(text):
     marks = [i for i, line in enumerate(lines) if OPTION.match(line)]
     if not marks:
         return []
-    if _prose(_ending(lines, marks[-1])) > TRAILING_LINES:
+    if not _still_offering(_ending(lines, marks[-1])):
         return []  # the options were discussed and then left behind
     return [OPTION.match(lines[i]).group(1) for i in marks]
+
+
+def _still_offering(ending):
+    """Whether what follows the last option leaves it standing as an offer."""
+    prose = [line.strip() for line in ending if line.strip()]
+    if len(prose) <= TRAILING_LINES:
+        return True
+    return len(prose) <= ASKING_LINES and prose[-1].endswith("?")
 
 
 def _ending(lines, mark):
