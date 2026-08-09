@@ -38,6 +38,11 @@ sys.modules.setdefault("shadow_amp", _amp)
 _spec.loader.exec_module(_amp)
 
 NOTE_MAX: Final = 200
+# A lead is a name, not a sentence. Bounded because it lands in a Progress line
+# other seats parse, and in the `--in-flight` view a person reads to decide who
+# to talk to. Deliberately free text: v4 deleted the roster, and a registry of
+# legal lead names would rebuild it.
+BY_MAX: Final = 40
 # A Progress entry is one line. Anything that can end a line can forge rows,
 # sections, and THROWN entries in a file the whole board trusts, so the two
 # operator-supplied values are constrained before they are serialized.
@@ -66,6 +71,26 @@ def thrown_ids(text: str) -> set[str]:
     return set(re.findall(r"^- \S+ THROWN (~[0-9a-z]{4})\b", text, flags=re.M))
 
 
+def claimed_by(text: str, task_id: str) -> str | None:
+    """Which lead holds `task_id`, read from its THROWN line.
+
+    None when the row is not thrown at all. A name when `--by` was given, and
+    "another seat" when it was thrown anonymously — the row is still claimed,
+    and answering "nobody" because the claimant did not sign it would invite a
+    second lead onto work already in flight.
+
+    Progress is append-only, so a row handed back to [pending] and re-thrown
+    carries several THROWN lines. The LAST one is the live claim; naming the
+    historical claimant would send a losing lead to argue with someone who
+    already let the row go.
+    """
+    lines = re.findall(rf"^- \S+ THROWN {re.escape(task_id)}\b(.*)$", text, flags=re.M)
+    if not lines:
+        return None
+    named = re.search(r"\| by: ([^|]+)", lines[-1])
+    return named.group(1).strip() if named else "another seat"
+
+
 def _row_line(text: str, task_id: str) -> tuple[int, str] | None:
     for index, line in enumerate(text.splitlines()):
         match = _amp.ROW_RE.match(line)
@@ -81,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--repo", default=".", help="repository root (default: cwd)")
     parser.add_argument("--task", required=True, help="the row to claim, e.g. ~ab12")
+    parser.add_argument("--by", default="", help=f"which lead is claiming it (<={BY_MAX} chars, "
+                                                 "free text: codex, claude, a person's name)")
     parser.add_argument("--note", default="", help=f"why it is being thrown (<={NOTE_MAX} chars)")
     parser.add_argument("--timestamp", default=None, help="ISO8601 Z (default: now)")
     parser.add_argument("--no-push", action="store_true",
@@ -101,6 +128,16 @@ def main(argv: list[str] | None = None) -> int:
     if CONTROL_RE.search(args.note):
         print("shadow throw: --note must be a single line of text — a newline in a Progress "
               "entry would write rows and sections nobody authored", file=sys.stderr)
+        return 2
+    if len(args.by) > BY_MAX:
+        print(f"shadow throw: --by exceeds {BY_MAX} chars — it names a lead, not a sentence",
+              file=sys.stderr)
+        return 2
+    # `|` would open a second tail field, so a lead name could forge `note:` or
+    # any future key on a line other seats parse. Same class as the newline.
+    if CONTROL_RE.search(args.by) or "|" in args.by:
+        print("shadow throw: --by must be a single line with no '|' — it lands in a Progress "
+              "entry that other seats parse into fields", file=sys.stderr)
         return 2
     if args.timestamp is not None and not STAMP_RE.fullmatch(args.timestamp):
         print("shadow throw: --timestamp wants ISO8601 Z like 2026-08-09T03:00:00Z, "
@@ -166,8 +203,12 @@ def main(argv: list[str] | None = None) -> int:
     lines = text.splitlines()
     lines[index] = line.replace("- [pending] ", "- [in_progress] ", 1)
     body = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    # Tail only, never before the id: `_thrown_ids` in shadow-amp.py anchors on
+    # `^- \S+ THROWN (~hash)\b`, so a lead name inserted ahead of the id would
+    # make every thrown row invisible to auto-resume-skip, fleet-wide.
+    by = f" | by: {args.by}" if args.by else ""
     note = f" | note: {args.note}" if args.note else ""
-    thrown = f"- {stamp} THROWN {args.task} {match.group('text')}{note}\n"
+    thrown = f"- {stamp} THROWN {args.task} {match.group('text')}{by}{note}\n"
     # Progress is append-only, newest at the bottom (the grammar, and what
     # `shadow accept` does with its PROOF lines) — so the entry goes at the end
     # of the section, not under its heading.
@@ -249,6 +290,66 @@ def main(argv: list[str] | None = None) -> int:
         push = git(repo, "push", remote, f"HEAD:{remote_branch}", check=False)
         pushed = push.returncode == 0
         push_failed = not pushed
+        if push_failed and head_before:
+            # THE RACE. Two leads throw against one plan and both push; one
+            # lands, the other bounces. That bounce IS the mutex — no lock, no
+            # daemon, no coordinator, and no session registry. The loser can
+            # recover itself, and only one question matters: did the winner
+            # claim THIS row, or a different one?
+            #
+            # Recovery is attempted only when it is provably safe. `head_before`
+            # being an ancestor of the fetched remote tip means this claim
+            # commit is the only local commit — a plain race. Anything else
+            # (other local work, a diverged branch) is somebody's judgment call,
+            # so the claim is left exactly where it is and the operator is told.
+            #
+            # The tip must also have MOVED. A hook or a branch policy rejects a
+            # push without anyone else landing anything, and there `head_before`
+            # is still an ancestor — of itself. Recovering there would throw
+            # away a perfectly good local claim and blame a race that never
+            # happened, when the honest answer is the push-rejected path.
+            fetched = git(repo, "fetch", "--quiet", remote, remote_branch, check=False)
+            remote_tip = git(
+                repo, "rev-parse", "--verify", f"{remote}/{remote_branch}", check=False
+            ) if fetched.returncode == 0 else None
+            advanced = (
+                remote_tip is not None
+                and remote_tip.returncode == 0
+                and remote_tip.stdout.strip() not in ("", head_before)
+            )
+            # Ancestry proves there are no unpushed COMMITS. It says nothing
+            # about the index or the working tree, and the cleanliness check up
+            # front only covered PLAN.md — so edits to any other tracked file
+            # are still unsaved work that `reset --hard` would delete. Untracked
+            # files survive a reset, so they do not block recovery.
+            dirty = git(
+                repo, "status", "--porcelain", "--untracked-files=no", check=False
+            ).stdout.strip()
+            recoverable = advanced and not dirty and git(
+                repo, "merge-base", "--is-ancestor", head_before, f"{remote}/{remote_branch}",
+                check=False,
+            ).returncode == 0
+            if recoverable:
+                git(repo, "reset", "--quiet", "--hard", f"{remote}/{remote_branch}", check=False)
+                claimant = claimed_by(plan_path.read_text(encoding="utf-8"), args.task)
+                if claimant is not None:
+                    print(f"shadow throw: {args.task} was claimed by {claimant} while this claim "
+                          "was in flight, so the row is theirs and nothing was dispatched. This "
+                          "checkout is now on the winning revision. Take another row, or say so "
+                          "in the plan before contesting it.", file=sys.stderr)
+                else:
+                    print(f"shadow throw: another seat pushed first, but it claimed a different "
+                          f"row. This checkout is now on {remote}/{remote_branch} and {args.task} "
+                          "is still open — re-run to claim it.", file=sys.stderr)
+                return 1
+            if advanced and dirty:
+                # A real race, but recovery was declined. Say why, or the
+                # push-rejected text below reads as advice to rebase into a row
+                # somebody else already owns.
+                print("shadow throw: another seat pushed first, but this checkout has "
+                      "uncommitted changes to tracked files, so nothing was reset — recovering "
+                      "the claim would have destroyed them. Commit or stash them, then fetch "
+                      "and re-run throw.", file=sys.stderr)
         if push_failed:
             detail = CREDENTIAL_RE.sub("***@", push.stderr.strip())[:300]
             # Withhold the goal block. Exiting nonzero is not enough on its own:
