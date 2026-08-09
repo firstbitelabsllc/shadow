@@ -65,7 +65,7 @@ sections that stood here until 2026-08-09 are archived at
 - [completed] the v3 Outcome blob leaves PLAN.md; no live prose calls the product Pilot Puppy ~dslp | proof: read docs/plan-archive/2026-08-04-v3-outcome-receipts.md holds 839 lines incl. 54 mentions; every mention left in PLAN.md is a dated receipt or the rename note -- zero live law prose
 - [completed] VERSION and plugin.json read 0.1.0 and the release artifact verifies at that version ~vrst | proof: cmd scripts/shadow-python.sh scripts/shadow-release-package.py --expect-version 0.1.0 --allow-dirty
 - [in_progress] repo audited for 0.1.0 readiness by three named agents on disjoint surfaces; every must-fix either fixed or written as a row ~audt | proof: read three agent reports folded into this plan, each finding fixed or given a Deferred row with its reason
-- [pending] the fan-out law is stated where dispatch is decided: an unattended fan-out leaves a thrown row first, whichever mechanism spawns it ~fout | proof: cmd scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md | needs: ~audt
+- [completed] the fan-out law is stated where dispatch is decided: an unattended fan-out leaves a thrown row first, whichever mechanism spawns it ~fout | proof: read AGENT.md Row-first dispatch carries mechanism-neutrality, supervisable-by-default, and the mid-flight clause; grammar.md Dispatch law names a self-launched batch
 - [pending] 0.1.0 merged to main, installed from the clone, doctor green at that version ~land (DoD) | proof: cmd bash install.sh --bin-dir /tmp/shadow-010-bin --no-skills && /tmp/shadow-010-bin/shadow --version | needs: ~vrst
 
 ## Worklane boundary
@@ -1528,6 +1528,8 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-09T00:10:00Z ~vrst PROOF release verifier on the git artifact -> OK (0.1.0, 81 files, sha256=52fbf61b...); flipped by `shadow accept`, which reran the proof in a detached clean checkout (cmd)
 - 2026-08-09T00:15:00Z PROOF `shadow goal` ships the static standing goal and it is now pasted into ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md; `shadow doctor` -> 13/13 checks, 0 warnings, "standing goal: claude: current" and "standing goal: codex: current". Before this the adoption was 0 of 3 hosts and no executable could tell. (read)
 - 2026-08-09T00:20:00Z PROOF amp no longer lets a plan rewrite the rails of the block it feeds: Priority/Loop/Mode go through _clean, so a newline cannot append an instruction line and a 3,000-char value cannot evict RAILS from a 4k block. 4 tests, both halves mutation-tested (removing the bound and letting the fixed authority pointer win the size comparison each turn the class red). Full suite 240 tests OK, up from 224. (cmd)
+
+- 2026-08-09T00:25:00Z ~fout PROOF the ruling is that nothing new gets built: workflows stay opt-in for barrier and multi-model work, named agents are the default for supervisable work, and the chief's own dispatches obey row-first like every other seat's. Three clauses added to AGENT.md Row-first dispatch (a "conversation" is any work you stop watching; prefer the supervisable mechanism; a mid-flight reading is not a death certificate) and one to grammar.md Dispatch law. grammar.md already said "Liveness is never asserted -- probe the proof, never a process", which is precisely the law I broke -- the gap was never the text, it was that the text did not obviously cover a mechanism I did not think of as a conversation. (read)
 
 ## Deferred proof (not a global blocker)
 
