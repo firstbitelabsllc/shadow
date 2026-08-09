@@ -51,6 +51,12 @@ class BrowserShellContract(unittest.TestCase):
         self.assertIn("@media (prefers-color-scheme: dark)", CSS)
 
 
+# npm/npx in COMMAND position. Leading indentation counts as line start so an
+# indented `npm ci` inside a YAML `run: |` block is caught; prose keeps npm
+# mid-sentence, where this never fires.
+INVOCATION = re.compile(r"(?:^\s*|[;&|`]\s*|\$\(\s*|\brun:\s*|\bexec\s+)(npm|npx)\b")
+
+
 class NoNodeDependency(unittest.TestCase):
     """The 2026-08-09 ruling, enforced: Shadow installs and runs on Git, Bash,
     and Python alone. This test is the thing that keeps npm from creeping back."""
@@ -68,14 +74,13 @@ class NoNodeDependency(unittest.TestCase):
         # fail — the guard against npm was itself unguarded. It now strips
         # comments and looks for npm/npx in COMMAND position, so prose like
         # "No npm since 2026-08-09" is fine and `run: npm ci` is not.
-        import re
         import subprocess
 
         tracked = subprocess.run(
             ["git", "-C", str(ROOT), "ls-files", "--", "bin/", "scripts/", ".github/"],
             capture_output=True, text=True, check=True,
         ).stdout.split()
-        invocation = re.compile(r"(?:^|[;&|`]\s*|\$\(\s*|\brun:\s*|\bexec\s+)(npm|npx)\b")
+        invocation = INVOCATION
         offenders = []
         for name in tracked:
             path = ROOT / name
@@ -91,11 +96,10 @@ class NoNodeDependency(unittest.TestCase):
         # Mutation guard for the guard: the detector must fire on a real
         # invocation and stay quiet on prose. Without this, the false-green
         # regression above returns silently.
-        import re
-
-        invocation = re.compile(r"(?:^|[;&|`]\s*|\$\(\s*|\brun:\s*|\bexec\s+)(npm|npx)\b")
+        invocation = INVOCATION
         for fires in ("npm ci", "  run: npm test", "foo && npx playwright install",
-                      "exec npm start", "VER=$(npm pkg get version)"):
+                      "exec npm start", "VER=$(npm pkg get version)",
+                      "        npm ci", "\t\tnpx playwright install"):
             self.assertTrue(invocation.search(fires.split("#", 1)[0]), fires)
         for quiet in ("# No npm since 2026-08-09", "the npm allowlist is gone",
                       "  # tests fail if npm/npx appears",

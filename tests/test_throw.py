@@ -279,10 +279,6 @@ class InFlightView(unittest.TestCase):
             self.assertIn("Nothing in flight", out.stdout)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ThrowRefusesInvisibleDispatch(unittest.TestCase):
     """Codex review, PR #268: a rejected push used to warn and return 0, so a
     caller launched work whose claim never reached the remote — every other
@@ -324,3 +320,7 @@ class ThrowRefusesInvisibleDispatch(unittest.TestCase):
             self.assertIn("commit or stash them first", out.stderr)
             # and it did not claim the row on the way out
             self.assertIn("- [pending] the ready row ~bb22", (r / "PLAN.md").read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()
