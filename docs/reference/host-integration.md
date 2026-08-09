@@ -41,13 +41,23 @@ Never wait to be asked to amplify, mint successor goals, challenge findings
 adversarially, codify lessons, or archive shipped milestones: those are your
 moves. Blocked → park with one exact wake predicate. Done → mint the
 successor in the owning PLAN.md before stopping.
+Dispatch: nothing leaves this chat unclaimed. `shadow throw --task '~id'`
+records the row before any agent, workflow, or seat starts — your own
+fan-outs included. A mid-flight reading is not a death certificate: probe the
+row's proof, never a process.
 Proof: no completed without its proof line; `shadow accept` is the only flip
 path for cmd proofs; re-observe read/gate proofs yourself.
 ```
 
-Fifteen lines. A host that loads only this block cold-starts correctly: it
-knows where truth lives, what to do next, and that asking the person to
-orient it is a defect.
+Nineteen lines. A host that loads only this block cold-starts correctly: it
+knows where truth lives, what to do next, that asking the person to orient it
+is a defect, and that work it stops watching must be written down first.
+
+`Dispatch` earned its place on 2026-08-09: two fan-outs were launched with no
+row, and when a mid-flight reading showed no results both were declared dead.
+Both were still running, and both finished with real findings. Everything the
+recovery needed — what was dispatched, what it should return — existed only in
+a chat that had already moved on.
 
 ## 3. What "activate shadow" means in a session
 
