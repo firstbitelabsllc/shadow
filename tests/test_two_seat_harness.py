@@ -147,7 +147,7 @@ SEAT = __SEAT__
 MODE = os.environ.get("SHADOW_TEST_HOST_MODE", "complete")
 HOME = Path(os.environ["HOME"])
 PORTFOLIO = Path(os.environ["SHADOW_PORTFOLIO_ROOT"])
-SHADOW = os.environ["SHADOW_TEST_REAL_SHADOW"]
+SHADOW = "shadow"
 MARKER = Path(os.environ["SHADOW_TEST_INVOCATIONS"])
 MARKER.parent.mkdir(parents=True, exist_ok=True)
 with MARKER.open("a", encoding="utf-8") as stream:
@@ -180,54 +180,84 @@ def shadow(*args):
         env=os.environ,
     )
 
-claimed = None
-deadline = time.monotonic() + 15
-while claimed is None and time.monotonic() < deadline:
-    status = shadow("status", "--json", "--by", SEAT)
-    if status.returncode:
-        raise SystemExit(31)
-    data = json.loads(status.stdout)
-    for plan in data["v4_plans"]:
-        row = plan.get("next_unclaimed")
-        if not row:
-            continue
-        repo = PORTFOLIO / plan["project"]
-        thrown = shadow("throw", "--repo", str(repo), "--task", row, "--by", SEAT)
-        if thrown.returncode == 0:
-            claimed = (repo, row)
-            break
-    if claimed is None:
-        time.sleep(0.05)
-if claimed is None:
-    raise SystemExit(32)
-
-(HOME / ("claimed-" + SEAT)).write_text("yes", encoding="utf-8")
-peer = "codex" if SEAT == "claude" else "claude"
-while not (HOME / ("claimed-" + peer)).exists() and time.monotonic() < deadline:
-    time.sleep(0.05)
-
-if MODE == "drift" and SEAT == "claude":
-    shadow("priority", "--repo", str(claimed[0]), "--value", "5")
-if MODE not in ("partial", "orphan") or SEAT != "claude":
-    accepted = shadow("accept", "--repo", str(claimed[0]), "--row", claimed[1], "--by", SEAT)
-    if accepted.returncode:
-        raise SystemExit(33)
-
 all_args = " ".join(sys.argv[1:])
 goal = re.search(r"\b[0-9a-f]{64}\b", all_args)
 refs = re.findall(r"\b[0-9a-f]{40}\b", all_args)
 identity = ((goal.group(0) if goal else "0" * 64) + "\n" + (refs[-1] if refs else "0" * 40) + "\n")
+
+def emit_identity():
+    out = None
+    for index, arg in enumerate(sys.argv[:-1]):
+        if arg == "--output-last-message":
+            out = Path(sys.argv[index + 1])
+    if out:
+        out.write_text(identity, encoding="utf-8")
+    else:
+        sys.stdout.write(identity)
+
+if MODE == "one_seat" and SEAT == "codex":
+    emit_identity()
+    raise SystemExit(0)
+
+if MODE == "outside" and SEAT == "claude":
+    outside = Path(os.environ["SHADOW_TEST_OUTSIDE_REPO"])
+    attempted = shadow("throw", "--repo", str(outside), "--task", "~cc33", "--by", SEAT)
+    if attempted.returncode == 0:
+        raise SystemExit(41)
+
+claimed = None
+deadline = time.monotonic() + 15
+completions = 2 if MODE == "one_seat" and SEAT == "claude" else 1
+for completion in range(completions):
+    claimed = None
+    while claimed is None and time.monotonic() < deadline:
+        status = shadow("status", "--json", "--by", SEAT)
+        if status.returncode:
+            raise SystemExit(31)
+        data = json.loads(status.stdout)
+        for plan in data["v4_plans"]:
+            row = plan.get("next_unclaimed")
+            if not row:
+                continue
+            repo = PORTFOLIO / plan["project"]
+            thrown = shadow("throw", "--repo", str(repo), "--task", row, "--by", SEAT)
+            if thrown.returncode == 0:
+                claimed = (repo, row)
+                break
+        if claimed is None:
+            time.sleep(0.05)
+    if claimed is None:
+        raise SystemExit(32)
+
+    if MODE != "one_seat":
+        (HOME / ("claimed-" + SEAT)).write_text("yes", encoding="utf-8")
+        peer = "codex" if SEAT == "claude" else "claude"
+        while not (HOME / ("claimed-" + peer)).exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        observed = shadow("status", "--json", "--by", SEAT)
+        if observed.returncode:
+            raise SystemExit(34)
+
+    if MODE not in ("partial", "orphan") or SEAT != "claude":
+        accepted = shadow("accept", "--repo", str(claimed[0]), "--row", claimed[1], "--by", SEAT)
+        if accepted.returncode:
+            raise SystemExit(33)
+        (HOME / ("accepted-" + SEAT)).write_text("yes", encoding="utf-8")
+
+if MODE == "drift" and SEAT == "claude":
+    while not (HOME / "accepted-codex").exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    tampered = subprocess.run(
+        [os.environ["SHADOW_TEST_REAL_SHADOW"], "priority", "--repo", str(PORTFOLIO / "alpha"),
+         "--value", "5"],
+        env=os.environ, capture_output=True, text=True,
+    )
+    if tampered.returncode:
+        raise SystemExit(35)
+
 if MODE == "identity" and SEAT == "claude":
     identity = ("f" * 64) + "\n" + (refs[-1] if refs else "0" * 40) + "\n"
-
-out = None
-for index, arg in enumerate(sys.argv[:-1]):
-    if arg == "--output-last-message":
-        out = Path(sys.argv[index + 1])
-if out:
-    out.write_text(identity, encoding="utf-8")
-else:
-    sys.stdout.write(identity)
+emit_identity()
 '''
 
 
@@ -275,7 +305,7 @@ class OfflineDefaultIsSealed(unittest.TestCase):
 
 
 class LiveTwoSeatProof(unittest.TestCase):
-    def _run(self, mode: str = "complete", timeout_seconds: int = 10):
+    def _run(self, mode: str = "complete", timeout_seconds: int = 20):
         context = tempfile.TemporaryDirectory()
         root = Path(context.name).resolve()
         fixture = Fixture(root)
@@ -327,6 +357,91 @@ class LiveTwoSeatProof(unittest.TestCase):
             self.assertGreater(data["board"]["final_revision"], data["board"]["initial_revision"])
             fixture.assert_operator_state_untouched(self)
             assert_closed_receipt(self, data, [str(root), GOAL, "the feature is being built"])
+
+    def test_one_seat_cannot_complete_both_rows_and_fabricate_coordination(self) -> None:
+        context, root, fixture, _, _, result = self._run("one_seat")
+        with context:
+            self.assertNotEqual(result.returncode, 0)
+            data = receipt(result)
+            self.assertEqual(data["failure"], "seat_overlap_missing")
+            fixture.assert_operator_state_untouched(self)
+            assert_closed_receipt(self, data, [str(root), GOAL])
+
+    def test_host_cannot_register_or_mutate_an_outside_repository(self) -> None:
+        context = tempfile.TemporaryDirectory()
+        root = Path(context.name).resolve()
+        fixture = Fixture(root)
+        outside = root / "outside-product"
+        outside.mkdir()
+        Fixture._git(outside, "init", "-q")
+        Fixture._git(outside, "config", "user.name", "Outside Fixture")
+        Fixture._git(outside, "config", "user.email", "outside@example.invalid")
+        (outside / "PLAN.md").write_text(
+            "# Outside\n\n## Brief\n\n- Project: outside\n- Mode: ship\n- Priority: 1\n\n"
+            "## Tasks\n\n### Must remain untouched\n"
+            "- [pending] outside product row ~cc33 | proof: cmd true\n\n## Progress\n",
+            encoding="utf-8",
+        )
+        Fixture._git(outside, "add", "PLAN.md")
+        Fixture._git(outside, "commit", "-qm", "outside product")
+        before_plan = (outside / "PLAN.md").read_bytes()
+        before_head = Fixture._git(outside, "rev-parse", "HEAD").stdout.strip()
+        claude, codex, marker, drained = fake_hosts(root)
+        result = run_harness(
+            fixture.script,
+            fixture.operator_home,
+            "--live", "--goal-file", str(fixture.goal), "--timeout-seconds", "10", "--json",
+            extra_env={
+                "SHADOW_CLAUDE_CODE_BIN": str(claude),
+                "SHADOW_CODEX_BIN": str(codex),
+                "SHADOW_TEST_INVOCATIONS": str(marker),
+                "SHADOW_TEST_DRAINED": str(drained),
+                "SHADOW_TEST_HOST_MODE": "outside",
+                "SHADOW_TEST_OUTSIDE_REPO": str(outside),
+            },
+        )
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((outside / "PLAN.md").read_bytes(), before_plan)
+            self.assertEqual(Fixture._git(outside, "rev-parse", "HEAD").stdout.strip(), before_head)
+            fixture.assert_operator_state_untouched(self)
+
+    def test_launch_failure_and_dirty_source_return_closed_receipts(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            claude, codex, marker, drained = fake_hosts(root)
+            claude.write_text("#!/missing/interpreter\n", encoding="utf-8")
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--live", "--goal-file", str(fixture.goal), "--json",
+                extra_env={
+                    "SHADOW_CLAUDE_CODE_BIN": str(claude),
+                    "SHADOW_CODEX_BIN": str(codex),
+                    "SHADOW_TEST_INVOCATIONS": str(marker),
+                    "SHADOW_TEST_DRAINED": str(drained),
+                },
+            )
+            self.assertNotEqual(result.returncode, 0)
+            data = receipt(result)
+            self.assertEqual(data["failure"], "host_failed")
+            self.assertNotIn("Traceback", result.stderr)
+            assert_closed_receipt(self, data, [str(root), GOAL])
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            (fixture.checkout / "dirty-source.txt").write_text("dirty\n", encoding="utf-8")
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--live", "--goal-file", str(fixture.goal), "--json",
+            )
+            self.assertNotEqual(result.returncode, 0)
+            data = receipt(result)
+            self.assertEqual(data["failure"], "source_dirty")
+            assert_closed_receipt(self, data, [str(root), GOAL])
 
     def test_successful_host_exit_also_drains_background_descendants(self) -> None:
         context, _, fixture, _, drained, result = self._run("complete_descendant")

@@ -67,15 +67,18 @@ class HarnessError(RuntimeError):
 
 
 def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=str(cwd),
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
+    try:
+        return subprocess.run(
+            command,
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HarnessError("fixture_failed") from exc
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -90,9 +93,21 @@ def source_ref(live: bool) -> str:
         fetched = run(["git", "fetch", "origin", "main", "--quiet"], ROOT)
         if fetched.returncode:
             raise HarnessError("source_fetch_failed")
-    value = git(ROOT, "rev-parse", "origin/main")
+    result = run(["git", "rev-parse", "origin/main"], ROOT)
+    if result.returncode == 0:
+        value = result.stdout.strip()
+    else:
+        try:
+            value = (ROOT / "SOURCE_REF").read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError) as exc:
+            raise HarnessError("source_identity_invalid") from exc
     if not OID_RE.fullmatch(value):
         raise HarnessError("source_identity_invalid")
+    if live:
+        if git(ROOT, "rev-parse", "HEAD") != value:
+            raise HarnessError("source_identity_mismatch")
+        if git(ROOT, "status", "--porcelain", "--untracked-files=all"):
+            raise HarnessError("source_dirty")
     return value
 
 
@@ -215,10 +230,40 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
     shim_dir.mkdir(parents=True)
     shim = shim_dir / "shadow"
     shim.write_text(
-        "#!/bin/sh\n"
-        f"export HOME={json.dumps(str(home))}\n"
-        f"export SHADOW_PORTFOLIO_ROOT={json.dumps(str(portfolio))}\n"
-        f"exec {json.dumps(str(SHADOW))} \"$@\"\n",
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        f"home = pathlib.Path({str(home)!r})\n"
+        f"portfolio = pathlib.Path({str(portfolio)!r})\n"
+        f"real = {str(SHADOW)!r}\n"
+        "args = sys.argv[1:]\n"
+        "if not args or args[0] not in {'status', 'throw', 'accept'}:\n"
+        "    raise SystemExit(2)\n"
+        "if args[0] == 'status':\n"
+        "    if '--root' in args or '--shadowed' in args:\n"
+        "        raise SystemExit(2)\n"
+        "    if '--by' in args:\n"
+        "        try:\n"
+        "            seat = args[args.index('--by') + 1]\n"
+        "            board = json.loads((home / '.shadow/board.json').read_text(encoding='utf-8'))\n"
+        "            owners = sorted(c.get('owner') for c in board.get('claims', []) if isinstance(c, dict))\n"
+        "            with (home / '.two-seat-status-audit.jsonl').open('a', encoding='utf-8') as stream:\n"
+        "                stream.write(json.dumps({'seat': seat, 'owners': owners}, sort_keys=True) + '\\n')\n"
+        "        except (IndexError, OSError, ValueError, json.JSONDecodeError):\n"
+        "            raise SystemExit(2)\n"
+        "else:\n"
+        "    if '--repo' not in args:\n"
+        "        raise SystemExit(2)\n"
+        "    try:\n"
+        "        candidate = pathlib.Path(args[args.index('--repo') + 1]).resolve(strict=True)\n"
+        "    except (IndexError, OSError):\n"
+        "        raise SystemExit(2)\n"
+        "    allowed = {(portfolio / 'alpha').resolve(), (portfolio / 'beta').resolve()}\n"
+        "    if candidate not in allowed:\n"
+        "        raise SystemExit(2)\n"
+        "env = dict(os.environ)\n"
+        "env['HOME'] = str(home)\n"
+        "env['SHADOW_PORTFOLIO_ROOT'] = str(portfolio)\n"
+        "os.execve(real, [real, *args], env)\n",
         encoding="utf-8",
     )
     shim.chmod(0o700)
@@ -263,15 +308,76 @@ def live_seat(
     final = scratch / f"{seat}-final.txt"
     stdout = final if seat == "claude" else scratch / f"{seat}-diagnostics.txt"
     stderr = scratch / f"{seat}-stderr.txt"
-    result = run_bounded(
-        host_command(seat, binary, prompt, scratch, final),
-        cwd=scratch,
-        env=env,
-        stdout_path=stdout,
-        stderr_path=stderr,
-        timeout=timeout,
-    )
+    try:
+        result = run_bounded(
+            host_command(seat, binary, prompt, scratch, final),
+            cwd=scratch,
+            env=env,
+            stdout_path=stdout,
+            stderr_path=stderr,
+            timeout=timeout,
+        )
+    except OSError as exc:
+        raise HarnessError("host_failed") from exc
     return seat, result, final
+
+
+def claim_history(home: Path) -> dict[str, str]:
+    board_repo = home / ".shadow"
+    commits = git(board_repo, "rev-list", "--reverse", "HEAD").splitlines()
+    expected_rows = set(ROW_BY_PROJECT.values())
+    for commit in commits:
+        shown = run(["git", "show", f"{commit}:board.json"], board_repo)
+        if shown.returncode:
+            raise HarnessError("board_unavailable")
+        try:
+            payload = json.loads(shown.stdout)
+        except json.JSONDecodeError as exc:
+            raise HarnessError("board_unavailable") from exc
+        claims = payload.get("claims", [])
+        mapping = {
+            claim.get("row"): claim.get("owner")
+            for claim in claims
+            if isinstance(claim, dict)
+        }
+        if set(mapping) == expected_rows and set(mapping.values()) == set(SEATS):
+            return mapping
+    raise HarnessError("seat_overlap_missing")
+
+
+def peer_observation(home: Path) -> None:
+    try:
+        entries = [
+            json.loads(line)
+            for line in (home / ".two-seat-status-audit.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise HarnessError("seat_overlap_missing") from exc
+    observed = {
+        entry.get("seat")
+        for entry in entries
+        if isinstance(entry, dict) and set(entry.get("owners", [])) == set(SEATS)
+    }
+    if observed != set(SEATS):
+        raise HarnessError("seat_overlap_missing")
+
+
+def exact_scratch_entities(home: Path, portfolio: Path) -> None:
+    try:
+        payload = json.loads((home / ".shadow/board.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise HarnessError("board_unavailable") from exc
+    observed = {
+        (entity.get("project"), Path(entity.get("plan", "")).resolve())
+        for entity in payload.get("entities", [])
+        if isinstance(entity, dict)
+    }
+    expected = {
+        (project, (portfolio / project / "PLAN.md").resolve())
+        for project in ROW_BY_PROJECT
+    }
+    if observed != expected:
+        raise HarnessError("board_drift")
 
 
 def final_facts(home: Path, portfolio: Path, env: dict[str, str], initial: int) -> tuple[dict[str, Any], dict[str, bool]]:
@@ -282,10 +388,11 @@ def final_facts(home: Path, portfolio: Path, env: dict[str, str], initial: int) 
         raise HarnessError("board_unavailable")
     in_flight = shadow_json(env, portfolio, "status", "--in-flight", "--json")
     claims = len(in_flight.get("rows", []))
-    completed: dict[str, bool] = {}
+    exact_scratch_entities(home, portfolio)
+    completed_rows: dict[str, bool] = {}
     for project, row in ROW_BY_PROJECT.items():
         text = (portfolio / project / "PLAN.md").read_text(encoding="utf-8")
-        completed[project] = (
+        completed_rows[row] = (
             f"- [completed] complete the disposable {project} proof {row}" in text
             and f"{row} PROOF" in text
         )
@@ -299,10 +406,15 @@ def final_facts(home: Path, portfolio: Path, env: dict[str, str], initial: int) 
     facts = {
         "initial_revision": initial,
         "final_revision": final_revision,
-        "completed": sum(completed.values()),
+        "completed": sum(completed_rows.values()),
         "claims": claims,
     }
-    return facts, completed
+    owners = claim_history(home)
+    completed_seats = {
+        owner: completed_rows.get(row, False)
+        for row, owner in owners.items()
+    }
+    return facts, completed_seats
 
 
 def receipt(mode: str, goal_hash: str, ref: str) -> dict[str, Any]:
@@ -398,10 +510,12 @@ def main(argv: list[str] | None = None) -> int:
                     for future in futures:
                         future.result()
             facts, completed = final_facts(home, portfolio, env, initial)
+            if args.live:
+                peer_observation(home)
             public["board"] = facts
             public["seats"] = [
-                {"name": seat, "completed": completed.get(project, False)}
-                for seat, project in zip(SEATS, sorted(completed))
+                {"name": seat, "completed": completed.get(seat, False)}
+                for seat in SEATS
             ]
             if facts["completed"] != 2 or facts["claims"] != 0:
                 raise HarnessError("partial_completion")
@@ -413,6 +527,11 @@ def main(argv: list[str] | None = None) -> int:
         # Preserve whatever final board state was safely observed above.
         if exc.code == "board_drift":
             public["failure"] = "board_drift"
+    except Exception:
+        # Public output is a closed receipt even when an unexpected local
+        # launch or filesystem failure occurs. Diagnostics remain inside the
+        # disposable root and are removed; private paths never reach stdout.
+        public["failure"] = "internal_error"
     if args.json:
         print(json.dumps(public, sort_keys=True))
     elif code == 0:
