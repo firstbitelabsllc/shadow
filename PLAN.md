@@ -276,6 +276,33 @@ sections that stood here until 2026-08-09 are archived at
   all say so. ~curs decides it with evidence; inventing a path and reporting
   success for wiring that does nothing is the one outcome ruled out.
 
+- the standing goal's Outcome says "the durable board moves; no plan goes
+  stale silently", while the only enforcement is an agent choosing to obey a
+  prose directive | provisional winner: the boundary, with the cost recorded
+  | opened 2026-08-10T03:30:00Z
+  A dedicated investigation tested the claim that Claude and Codex lanes do
+  not automatically update the durable store. Verdict: TRUE, BY DESIGN, and
+  the claim needed no correction. Exactly three writers exist -- shadow init,
+  shadow throw, shadow accept -- all CLI subcommands nobody can trigger
+  without typing them, and `scripts/shadow-host.py` states in its own
+  docstring that the transport "does not choose a provider, create a queue,
+  accept a result, or write a durable plan", so a delegated lane is
+  architecturally denied write authority. Thirteen search surfaces came back
+  empty: LaunchAgents, LaunchDaemons, launchctl, crontab, Claude hooks, Codex
+  hooks, git hooks across roughly sixty repositories, core.hooksPath, and the
+  installer, which registers no background job. Two hits were false
+  positives and were cleared by reading the target scripts. Automatic
+  propagation would require a daemon, a scheduler, and a lane-to-row state
+  store: three of the seven surfaces SKILL.md bans by name. So it is a banned
+  feature, not a missing one. THE COST, measured and recorded here rather
+  than argued away: ten repositories with plans last touched between January
+  and July have zero Shadow commits in their entire history, and nothing
+  backfills them because nothing is watching. resplit-ios took ten THROWN
+  commits in one evening; everything-web, litty, moussey, silvana-events,
+  strongyes-web, nicole-jobhunt and others took none, ever. The Outcome is
+  enforced by compliance where a session runs, and not at all where one does
+  not.
+
 ## Progress
 
 - 2026-08-09T03:30:00Z ~dlaw PROOF plan lint 0 blocking with the dispatch law in AGENT.md (row-first dispatch, THROWN discriminator, write-at-discovery, post-death sequence) and grammar.md (THROWN vocabulary + Dispatch law section); the concurrency line was corrected in place — concurrent APPENDERS serialized by fast-forward are legal, concurrent FLIPPERS are not
@@ -1577,3 +1604,5 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T01:20:00Z NOTE ~slnk was found before it was written: `os.replace` onto a symlinked path REPLACES THE LINK with a regular file and leaves the canonical target untouched. Verified on this machine -- a symlinked host file survived exactly zero atomic writes. `shadow-host-directives.py:151` does this today, so the first `shadow goal --install` after any symlink migration would silently un-migrate the file while reporting success. It is a product defect wherever a user symlinks their own directive file, so it sits in M15 and M16's ~mrge depends on it.
 - 2026-08-10T02:40:00Z STRUCT M17 added | trigger: the owner reports that vidux, cursor-era, pilot-era, and duplicate worktree plans may make Shadow miss or misidentify live authority. grammar.md already bans a central index of plan locations -- it is a second store, it cannot be git-fetched per repository, and it goes stale independently of everything it points at -- so this milestone tightens what discovery READS and classifies the rest at read time, storing nothing. Why now: a board that names the wrong authority is worse than no board. Contradicts: nothing -- the no-central-ledger rule is preserved, which is why every row derives and none records.
 - 2026-08-10T02:40:00Z NOTE ~cnon this milestone is read-only against the machine and deletes no user work. A plan that is reclassified keeps its file exactly where it is; the only change is whether discovery reads it. Kept deliberately separate from the Snowcubes pouch investigation, which is a different project and a different lane.
+- 2026-08-10T03:30:00Z NOTE ~cnon the board can name a stale authority without any duplicate being involved. The audit measured `resplit-ios` rendering a working-tree plan dated 2026-06-28 while `origin/main` carries a different document, committed 2026-08-09, that calls itself "the one current Resplit execution and proof plan" -- the rendered checkout is 0 ahead and 785 behind. `mobiledevcombine-web` is the same shape at 1,174 behind. Dedup picked the correct DIRECTORY in all four contested cases, including shadow over pilot-puppy, so the rule works as written; it compares cards and has nothing to compare against when the winning card holds six-week-old bytes. ~disc as written covers canonical PATHS and does not cover stale CONTENT, so it does not close this. Also measured: the `- Plans:` glob mechanism has zero users in any repository on this machine, in working tree or at origin/main, while grammar.md says it exists to keep 36 nested plans visible; and four of the largest repositories -- ai, ai-leo, resplit-web, leojkwan -- own no root PLAN.md on any ref, so they cannot appear on the board and cannot declare anything either.
+- 2026-08-10T03:30:00Z NOTE ~disc two defects closed on PR 285, both reproduced red on main before any fix: a repository addressed by ssh and by https produced two dedup keys and rendered twice, and a declared `**/PLAN.md` descended into dot-directories and node_modules because Path.glob does. SKIP_DIRS named exactly those directories and had zero readers -- defined once, imported once, used nowhere -- so it was made load-bearing rather than duplicated. A third test pins the opposite error: two repositories that legally share a Project slug must both still render, because grouping by slug would hide a real repository.
