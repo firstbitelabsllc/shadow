@@ -592,6 +592,16 @@ def discover_plans(root: Path, *, include_shadowed: bool = False) -> list[dict[s
     return records + shadowed
 
 
+def is_live(record: dict[str, Any]) -> bool:
+    """Whether one record may be presented as authority.
+
+    The rule lives here, in one place, because it now has more than one caller:
+    the browser wire and `shadow status`. A second surface re-spelling
+    `not record["archived"]` is how the two drift back apart.
+    """
+    return not record.get("archived")
+
+
 def live_plans(root: Path) -> list[dict[str, Any]]:
     """What the board is allowed to render as authority.
 
@@ -601,7 +611,7 @@ def live_plans(root: Path) -> list[dict[str, Any]]:
     cannot be forgotten is the wire — a record the browser never receives
     cannot render as authority in any view, present or future.
     """
-    return [record for record in discover_plans(root) if not record.get("archived")]
+    return [record for record in discover_plans(root) if is_live(record)]
 
 
 def resolve_plan(root: Path, value: Any) -> Path:

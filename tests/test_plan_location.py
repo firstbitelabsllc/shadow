@@ -16,6 +16,7 @@ So: enumerate project roots, never walk directories.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -496,6 +497,92 @@ class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
             self._repo(root, "thing", "git@github.com:acme/thing.git")
             self._repo(root, "other", "git@github.com:acme/other.git")
             self.assertEqual(len(live_plans(root)), 2)
+
+
+class TheTerminalObeysTheVetoToo(unittest.TestCase):
+    """`shadow status` is the other surface that answers "what is authority".
+
+    Serving the browser from `live_plans` closed one path. The CLI kept reading
+    `discover_plans`, so the same archive shell the wire refused to send was
+    still printed at a terminal as a current plan, and `--in-flight` still
+    handed out its claimed rows for recovery. That is the resplit-ios split
+    re-created one surface over, which is worse than never having filtered: the
+    two answers now disagree.
+    """
+
+    STATUS = ROOT / "scripts" / "shadow-status.py"
+    BANNER = ("**[verified 2026-07-29: HISTORICAL ROUTING CONFIRMED — this root plan remains a "
+              "non-executable archive shell. do not revive or update the historical task rows "
+              "below.]**")
+
+    def _repo(self, root: Path, name: str, origin: str, banner: str = "") -> Path:
+        repo = root / name
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "PLAN.md").write_text(
+            f"# {name}\n\n{banner}\n\n## Brief\n\n- Project: {name}\n- Mode: ship\n\n"
+            "## Tasks\n\n### M\n"
+            f"- [in_progress] a claimed row in {name} ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n"
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE seeded\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
+        return repo
+
+    def _status(self, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(self.STATUS), "--root", str(root), *args],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+
+    def _portfolio(self, root: Path) -> None:
+        self._repo(root, "shell", "git@github.com:acme/shell.git", self.BANNER)
+        self._repo(root, "live", "git@github.com:acme/live.git")
+
+    def test_an_archive_shell_is_not_printed_as_a_current_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._portfolio(root)
+            result = self._status(root, "--json", "--all")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            served = json.loads(result.stdout)
+            paths = [row.get("path") for row in served["plans"] + served["v4_plans"]]
+            self.assertIn("live/PLAN.md", paths, "the healthy plan stopped rendering")
+            self.assertNotIn("shell/PLAN.md", paths,
+                             "the CLI quotes a plan the wire refuses to send")
+
+    def test_a_claim_inside_an_archive_shell_is_not_handed_to_a_successor(self) -> None:
+        # The worst form of the split: recovery reads `--in-flight` to find out
+        # what to pick up, so a row from a file that says "do not revive" is
+        # not merely noise: it is work actively dispatched against a verdict.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._portfolio(root)
+            result = self._status(root, "--in-flight", "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plans = {row["plan"] for row in json.loads(result.stdout)["rows"]}
+            self.assertEqual(plans, {"live/PLAN.md"})
+
+    def test_the_demotion_is_inspectable_rather_than_silent(self) -> None:
+        # A plan that vanishes with no reason is the ambiguity `--shadowed`
+        # exists to end, so the veto has to answer there in the plan's own words.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._portfolio(root)
+            result = self._status(root, "--shadowed", "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rows = {row["path"]: row["reason"] for row in json.loads(result.stdout)["rows"]}
+            self.assertIn("shell/PLAN.md", rows,
+                          "a demoted plan is simply gone, with nothing naming the phrase")
+            self.assertIn("non-executable archive shell", rows["shell/PLAN.md"].lower())
+
+    def test_a_directory_holding_only_a_shell_says_why_it_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "shell", "git@github.com:acme/shell.git", self.BANNER)
+            result = self._status(root, "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["v4_plans"], [])
+            self.assertIn("non-executable archive shell", result.stderr.lower())
 
 
 class ClassificationIsDeterministic(unittest.TestCase):
