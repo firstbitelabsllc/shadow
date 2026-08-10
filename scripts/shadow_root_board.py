@@ -346,6 +346,23 @@ def public_copy_locator(identity: object, display: object) -> str:
     return f"copy@{digest}/PLAN.md"
 
 
+def public_discovery_locator(identity: object, display: object) -> str:
+    """Keep useful relative labels public; make unsafe discovery labels opaque."""
+    if not isinstance(display, str) or not display:
+        raise BoardError("public discovery locator requires one discovered plan label")
+    path = Path(display)
+    unsafe = (
+        len(display) > 240
+        or not display.isprintable()
+        or bool(CONTROL.search(display))
+        or bool(PRIVATE_PATH_RE.search(display))
+        or bool(SECRET_SHAPE_RE.search(display))
+        or path.is_absolute()
+        or ".." in path.parts
+    )
+    return public_copy_locator(identity, display) if unsafe else display
+
+
 def public_plan_locator(plan: Path) -> str:
     """Return a stable human locator without exposing an absolute home path."""
     candidate = Path(os.path.abspath(plan))

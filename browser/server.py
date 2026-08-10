@@ -866,7 +866,8 @@ def discover_plans(
                         display = path.relative_to(root).as_posix()
                     except ValueError:
                         display = relative.as_posix()
-                    raise BrowserError(f"{display}: {reason}") from exc
+                    public_display = _root_board.public_discovery_locator(identity, display)
+                    raise BrowserError(f"{public_display}: {reason}") from exc
                 continue
             if capture_tokens:
                 record.setdefault("_logical_entity", identity)

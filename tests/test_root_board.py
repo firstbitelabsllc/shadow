@@ -1224,6 +1224,32 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             self.assertIn("unknown/PLAN.md", result.stderr)
             self._assert_board_unchanged(fixture)
 
+    def test_an_unknown_secret_named_candidate_fails_closed_without_leaking_its_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            secret = "ghp_" + ("A" * 24)
+            unknown = project(fixture["portfolio"], name=secret)
+            git(unknown, "remote", "add", "origin", "git@example.invalid:team/unknown.git")
+            (unknown / "PLAN.md").write_bytes(b"\xff\xfe")
+            git(unknown, "add", "PLAN.md")
+            git(unknown, "commit", "--quiet", "-m", "break secret-named copy")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            public = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("portfolio import refused", result.stderr)
+            self.assertRegex(result.stderr, r"copy@[0-9a-f]{12}/PLAN\.md")
+            self.assertNotIn(secret, public)
+            self.assertNotIn(str(Path(tmp)), public)
+            self._assert_board_unchanged(fixture)
+
     def test_a_broken_registered_pointer_cannot_suppress_an_unreadable_same_identity_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._pair(Path(tmp))
