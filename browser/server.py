@@ -252,8 +252,17 @@ VETO_SCAN_LINES = 40
 
 
 def _archive_veto(paths: list[Path]) -> str | None:
-    """The self-demotion found on ANY instance of one logical plan."""
+    """The self-demotion found on ANY instance of one logical plan.
+
+    Guarded exactly as `read_plan` guards the record it builds. A repo's root
+    `PLAN.md` is admitted on `is_file()`, which a symlink satisfies, so a
+    sibling checkout could point its plan anywhere on the filesystem and have
+    that content decide whether the logical plan is authority. The reader that
+    demotes must be no more permissive than the reader that renders.
+    """
     for candidate in paths:
+        if candidate.is_symlink() or not candidate.is_file() or candidate.name != "PLAN.md":
+            continue
         try:
             with candidate.open(encoding="utf-8") as handle:
                 head = "".join(next(handle, "") for _ in range(VETO_SCAN_LINES))
