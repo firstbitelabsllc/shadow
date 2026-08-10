@@ -23,6 +23,7 @@ import time
 from typing import Any
 
 from shadow_process_lib import ProcessResult, run_bounded
+from shadow_root_board import normalized_origin
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +40,7 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 OID_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_GOAL_BYTES = 64 * 1024
+CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
 
 
 PLAN = """# {name} acceptance fixture
@@ -90,6 +92,9 @@ def git(cwd: Path, *args: str) -> str:
 
 def source_ref(live: bool) -> str:
     if live:
+        configured = git(ROOT, "config", "--get", "remote.origin.url")
+        if normalized_origin(configured) != CANONICAL_ORIGIN:
+            raise HarnessError("source_origin_mismatch")
         fetched = run(["git", "fetch", "origin", "main", "--quiet"], ROOT)
         if fetched.returncode:
             raise HarnessError("source_fetch_failed")
@@ -227,15 +232,25 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
     for directive in (home / ".claude/CLAUDE.md", home / ".codex/AGENTS.md"):
         directive.parent.mkdir(parents=True, exist_ok=True)
         directive.write_text(goal.stdout, encoding="utf-8")
-    shim_dir.mkdir(parents=True)
-    shim = shim_dir / "shadow"
-    shim.write_text(
+    for bound_seat in SEATS:
+        seat_dir = shim_dir / bound_seat
+        seat_dir.mkdir(parents=True)
+        shim = seat_dir / "shadow"
+        shim.write_text(
         "#!/usr/bin/env python3\n"
         "import json, os, pathlib, sys\n"
         f"home = pathlib.Path({str(home)!r})\n"
         f"portfolio = pathlib.Path({str(portfolio)!r})\n"
         f"real = {str(SHADOW)!r}\n"
+        f"seat = {bound_seat!r}\n"
         "args = sys.argv[1:]\n"
+        "if '--by' not in args:\n"
+        "    raise SystemExit(2)\n"
+        "try:\n"
+        "    if args[args.index('--by') + 1] != seat:\n"
+        "        raise SystemExit(2)\n"
+        "except IndexError:\n"
+        "    raise SystemExit(2)\n"
         "if not args or args[0] not in {'status', 'throw', 'accept'}:\n"
         "    raise SystemExit(2)\n"
         "if args[0] == 'status':\n"
@@ -243,7 +258,6 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
         "        raise SystemExit(2)\n"
         "    if '--by' in args:\n"
         "        try:\n"
-        "            seat = args[args.index('--by') + 1]\n"
         "            board = json.loads((home / '.shadow/board.json').read_text(encoding='utf-8'))\n"
         "            owners = sorted(c.get('owner') for c in board.get('claims', []) if isinstance(c, dict))\n"
         "            with (home / '.two-seat-status-audit.jsonl').open('a', encoding='utf-8') as stream:\n"
@@ -264,9 +278,9 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
         "env['HOME'] = str(home)\n"
         "env['SHADOW_PORTFOLIO_ROOT'] = str(portfolio)\n"
         "os.execve(real, [real, *args], env)\n",
-        encoding="utf-8",
-    )
-    shim.chmod(0o700)
+            encoding="utf-8",
+        )
+        shim.chmod(0o700)
 
 
 def resolve_host(env_name: str, default: str) -> str:
@@ -309,10 +323,14 @@ def live_seat(
     stdout = final if seat == "claude" else scratch / f"{seat}-diagnostics.txt"
     stderr = scratch / f"{seat}-stderr.txt"
     try:
+        seat_env = {
+            **env,
+            "PATH": f"{scratch / 'bin' / seat}{os.pathsep}{env.get('PATH', '')}",
+        }
         result = run_bounded(
             host_command(seat, binary, prompt, scratch, final),
             cwd=scratch,
-            env=env,
+            env=seat_env,
             stdout_path=stdout,
             stderr_path=stderr,
             timeout=timeout,

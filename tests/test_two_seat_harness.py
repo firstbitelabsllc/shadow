@@ -100,6 +100,7 @@ class Fixture:
         self.sentinel = self.operator_home / ".shadow" / "root-board.json"
         self.sentinel.parent.mkdir()
         self.sentinel.write_text('{"operator":"untouched"}\n', encoding="utf-8")
+        self.operator_shadow_before = self._tree_snapshot(self.sentinel.parent)
         self.goal = self.root / "frozen-goal.txt"
         self.goal.write_text(GOAL, encoding="utf-8")
         self.checkout = self.root / "source"
@@ -111,7 +112,9 @@ class Fixture:
         self._git(self.checkout, "commit", "-qm", "fixture source")
         self.origin = self.root / "origin.git"
         self._git(self.root, "init", "-q", "--bare", str(self.origin))
-        self._git(self.checkout, "remote", "add", "origin", str(self.origin))
+        canonical = "https://github.com/firstbitelabsllc/shadow.git"
+        self._git(self.checkout, "config", f"url.{self.origin}.insteadOf", canonical)
+        self._git(self.checkout, "remote", "add", "origin", canonical)
         self._git(self.checkout, "push", "-q", "-u", "origin", "HEAD:main")
         self._git(self.origin, "symbolic-ref", "HEAD", "refs/heads/main")
         self.origin_main = self._git(self.checkout, "rev-parse", "HEAD").stdout.strip()
@@ -129,8 +132,27 @@ class Fixture:
     def script(self) -> Path:
         return self.checkout / "scripts" / SCRIPT.name
 
+    @staticmethod
+    def _tree_snapshot(root: Path) -> dict[str, tuple[str, int, bytes | str]]:
+        """Capture every operator-board entry without following symlinks."""
+        result: dict[str, tuple[str, int, bytes | str]] = {}
+        for path in sorted(root.rglob("*")):
+            relative = path.relative_to(root).as_posix()
+            mode = path.lstat().st_mode & 0o7777
+            if path.is_symlink():
+                result[relative] = ("symlink", mode, os.readlink(path))
+            elif path.is_dir():
+                result[relative] = ("directory", mode, b"")
+            else:
+                result[relative] = ("file", mode, path.read_bytes())
+        return result
+
     def assert_operator_state_untouched(self, test: unittest.TestCase) -> None:
-        test.assertEqual(self.sentinel.read_text(encoding="utf-8"), '{"operator":"untouched"}\n')
+        test.assertEqual(
+            self._tree_snapshot(self.sentinel.parent),
+            self.operator_shadow_before,
+            "the harness mutated the operator's real Shadow board tree",
+        )
         test.assertEqual(list(self.operator_portfolio.iterdir()), [])
 
 
@@ -204,6 +226,11 @@ if MODE == "outside" and SEAT == "claude":
     attempted = shadow("throw", "--repo", str(outside), "--task", "~cc33", "--by", SEAT)
     if attempted.returncode == 0:
         raise SystemExit(41)
+
+if MODE == "impersonate" and SEAT == "claude":
+    attempted = shadow("status", "--json", "--by", "codex")
+    if attempted.returncode == 0:
+        raise SystemExit(42)
 
 claimed = None
 deadline = time.monotonic() + 15
@@ -367,6 +394,13 @@ class LiveTwoSeatProof(unittest.TestCase):
             fixture.assert_operator_state_untouched(self)
             assert_closed_receipt(self, data, [str(root), GOAL])
 
+    def test_each_host_process_is_bound_to_its_stable_public_seat(self) -> None:
+        context, _, fixture, _, _, result = self._run("impersonate")
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(receipt(result)["status"], "pass")
+            fixture.assert_operator_state_untouched(self)
+
     def test_host_cannot_register_or_mutate_an_outside_repository(self) -> None:
         context = tempfile.TemporaryDirectory()
         root = Path(context.name).resolve()
@@ -428,6 +462,7 @@ class LiveTwoSeatProof(unittest.TestCase):
             self.assertEqual(data["failure"], "host_failed")
             self.assertNotIn("Traceback", result.stderr)
             assert_closed_receipt(self, data, [str(root), GOAL])
+            fixture.assert_operator_state_untouched(self)
 
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
@@ -442,6 +477,21 @@ class LiveTwoSeatProof(unittest.TestCase):
             data = receipt(result)
             self.assertEqual(data["failure"], "source_dirty")
             assert_closed_receipt(self, data, [str(root), GOAL])
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            Fixture._git(fixture.checkout, "remote", "set-url", "origin", str(fixture.origin))
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--live", "--goal-file", str(fixture.goal), "--json",
+            )
+            self.assertNotEqual(result.returncode, 0)
+            data = receipt(result)
+            self.assertEqual(data["failure"], "source_origin_mismatch")
+            assert_closed_receipt(self, data, [str(root), GOAL])
+            fixture.assert_operator_state_untouched(self)
 
     def test_successful_host_exit_also_drains_background_descendants(self) -> None:
         context, _, fixture, _, drained, result = self._run("complete_descendant")
