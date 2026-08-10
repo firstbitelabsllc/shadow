@@ -22,9 +22,16 @@ features:
     details: Shadow prepares a clear handoff to the coding tools you already use, without taking over.
 ---
 
-![Shadow's board](./assets/board-desktop.png)
+## Start here
 
-*The historical v4 screenshot below shows one card per project. The current
-board groups cards by project and projects every entity's reachable milestones
-and checkpoints without copying their text out of the entity plan. Sunrise
-Bakery, Orbit, and Fieldnotes are fictional demo projects.*
+[Install Shadow](/guide/installation) · [Run the first loop](/guide/quickstart) ·
+[See every command](/reference/commands) · [Understand host boundaries](/reference/native-hosts)
+
+## Historical visual
+
+![Historical Shadow board, v4 demo](./assets/board-desktop.png)
+
+This screenshot is retained as a historical v4 demo, not a current product
+contract. Its fictional projects show the earlier one-card-per-project view;
+the current board is the Git-backed computer board at `~/.shadow`, projecting
+project → entity → milestone → checkpoint from each committed `PLAN.md`.
