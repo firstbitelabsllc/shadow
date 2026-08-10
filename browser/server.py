@@ -219,6 +219,32 @@ def plan_record(path: Path, root: Path) -> dict[str, Any]:
     }
 
 
+# A plan demoting ITSELF, not prose about archiving. "docs/plan-archive/" and
+# "archive the milestone" appear in every healthy plan, so the marker has to be
+# a self-verdict: the words a person writes when they mean "stop working this
+# file". Matched case-insensitively over the first lines only, where a banner
+# lives — a phrase quoted deep in Progress is a record, not a verdict.
+ARCHIVE_VETO_RE = re.compile(
+    r"non-executable archive shell|do not revive|archive shell|historical shell",
+    re.IGNORECASE,
+)
+VETO_SCAN_LINES = 40
+
+
+def _archive_veto(paths: list[Path]) -> str | None:
+    """The self-demotion found on ANY instance of one logical plan."""
+    for candidate in paths:
+        try:
+            with candidate.open(encoding="utf-8") as handle:
+                head = "".join(next(handle, "") for _ in range(VETO_SCAN_LINES))
+        except (OSError, UnicodeError):
+            continue
+        found = ARCHIVE_VETO_RE.search(head)
+        if found:
+            return found.group(0)
+    return None
+
+
 def _origin_of(repo: Path) -> str:
     """The repo's origin URL, or its path when it has none.
 
@@ -440,6 +466,19 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
         )
     else:
         candidates = []
+    # Every instance of every key, gathered BEFORE election. A plan's own
+    # demotion can sit on a copy no rule elects — measured on this machine,
+    # where resplit-ios/PLAN.md wins on every structural rule while the
+    # "non-executable archive shell, do not revive" banner exists only on the
+    # unelected divergent copy at resplit-ios-deploy-watcher. Reading just the
+    # winner cannot see that, so the verdict is sought across the whole key,
+    # which is already enumerated here.
+    instances: dict[tuple[str, str], list[Path]] = {}
+    for repo in candidates:
+        for path in repo_plans(repo):
+            instances.setdefault(
+                (_origin_of(repo), str(path.relative_to(repo))), []).append(path)
+
     for repo in candidates:
         for path in repo_plans(repo):
             try:
@@ -452,6 +491,10 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
             if key in seen:
                 continue
             seen.add(key)
+            veto = _archive_veto(instances.get(key, [path]))
+            if veto:
+                record["archived"] = True
+                record["archive_veto"] = veto
             records.append(record)
     rank = {"needs_you": 0, "blocked": 1, "working": 2, "not_delivered": 3, "finished_with_proof": 4}
     records.sort(
