@@ -363,6 +363,33 @@ class OfflineDefaultIsSealed(unittest.TestCase):
             fixture.assert_operator_state_untouched(self)
             assert_closed_receipt(self, data, [str(root), GOAL, "fixture source"])
 
+    def test_ambient_shadow_root_cannot_redirect_the_sealed_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            alternate = root / "alternate-shadow"
+            shutil.copytree(fixture.checkout, alternate, ignore=shutil.ignore_patterns(".git"))
+            marker = root / "alternate-root-used.txt"
+            (alternate / "scripts" / "shadow-status.py").write_text(
+                "from pathlib import Path\n"
+                f"Path({str(marker)!r}).write_text('used', encoding='utf-8')\n"
+                "print('{}')\n",
+                encoding="utf-8",
+            )
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--goal-file", str(fixture.goal), "--json",
+                extra_env={
+                    "SHADOW_ROOT": str(alternate),
+                    "SHADOW_DEV_ROOT": str(alternate),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(receipt(result)["status"], "pass")
+            fixture.assert_operator_state_untouched(self)
+
 
 class LiveTwoSeatProof(unittest.TestCase):
     def _run(self, mode: str = "complete", timeout_seconds: int = 20):
