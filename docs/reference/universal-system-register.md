@@ -35,7 +35,8 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
    dedup and archive-veto machinery; ghost copies are excluded by
    construction.** Measured basis on the dogfood machine: 7,768 PLAN.md
    files, ~60% from one repository's ~120 never-torn-down worktrees plus
-   dated snapshot clones. Lands in: ~impt.
+   dated snapshot clones. Lands in: ~gc20 (the import half of the
+   board-hygiene row).
 6. **Compaction, completion, and garbage collection are a first-class
    subsystem.** owner directive (2026-08-10), ranked above all else after
    the ghost-copy measurement. Landed worktrees
