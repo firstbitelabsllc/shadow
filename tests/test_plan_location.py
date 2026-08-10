@@ -357,3 +357,76 @@ class ADuplicateNeverBecomesASecondRow(unittest.TestCase):
             for hidden in (".worktrees/pool/PLAN.md", "node_modules/pkg/PLAN.md", "dist/PLAN.md"):
                 self.assertNotIn(hidden, paths,
                                  f"discovery read a copy under a pruned directory: {hidden}")
+
+
+class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
+    """The demotion can live on the copy no rule elects.
+
+    Measured on this machine: `resplit-ios/PLAN.md` wins election on every
+    structural rule — its directory name matches its origin, `.git` is a real
+    directory, it is a portfolio-root child. Its "non-executable archive
+    shell ... do not revive" banner exists ONLY on the divergent copy at
+    `resplit-ios-deploy-watcher`, which nothing elects:
+
+        grep -c "non-executable" resplit-ios/PLAN.md                 -> 0
+        grep -c "non-executable" resplit-ios-deploy-watcher/PLAN.md  -> 1
+
+    So the board reads the undemoted twin as the project's authority while the
+    verdict sits in a file it never opens. A check that reads only the elected
+    file cannot see this; the verdict has to be sought across every instance
+    of a dedup key, which the key already enumerates.
+    """
+
+    BANNER = ("**[verified 2026-07-29: HISTORICAL ROUTING CONFIRMED — this root plan remains a "
+              "non-executable archive shell. do not revive or update the historical task rows "
+              "below.]**")
+
+    def _repo(self, root: Path, name: str, origin: str, banner: str = "") -> Path:
+        repo = root / name
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "PLAN.md").write_text(
+            f"# Demo\n\n{banner}\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n"
+            "## Tasks\n\n### M\n- [pending] a row ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n"
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE seeded\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
+        return repo
+
+    def test_a_veto_on_an_unelected_copy_demotes_the_elected_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")               # elected, no banner
+            self._repo(root, "thing-watcher", "git@github.com:acme/thing.git", self.BANNER)
+
+            found = discover_plans(root)
+            self.assertEqual(len(found), 1, "dedup regressed")
+            record = found[0]
+            self.assertTrue(record.get("archived"),
+                            "the elected plan renders as live authority while a copy of it "
+                            "says 'non-executable archive shell, do not revive'")
+            self.assertIn("non-executable", record.get("archive_veto", "").lower())
+
+    def test_a_plan_with_no_veto_anywhere_stays_authority(self) -> None:
+        # A guard that demotes everything is as useless as one that never fires.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            self._repo(root, "thing-watcher", "git@github.com:acme/thing.git")
+            record = discover_plans(root)[0]
+            self.assertFalse(record.get("archived"), "a healthy plan was demoted")
+
+    def test_the_veto_is_found_on_the_elected_file_too(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git", self.BANNER)
+            self.assertTrue(discover_plans(root)[0].get("archived"))
+
+    def test_the_word_archive_in_ordinary_prose_does_not_demote(self) -> None:
+        # `docs/plan-archive/` and "archive the milestone" are everywhere in a
+        # healthy plan. Only a self-demotion counts.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git",
+                       "The shipping commit moves the block to docs/plan-archive/<slug>.md.")
+            self.assertFalse(discover_plans(root)[0].get("archived"))
