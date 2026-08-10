@@ -161,6 +161,15 @@ explanation. Never send an A/B/C whose subject was not explained in that same
 message, and never re-send an option the person has ignored — repetition means
 the framing failed, so rewrite it.
 
+Every Shadow chat response ends with a compact `Ongoing tasks` projection. Read
+`shadow status --in-flight --json` at send time, then join the current seat's
+reachable and waiting rows from `shadow status --json --by <seat>`. List active
+claims first with project/outcome, checkpoint, owner, state, proof, and the
+next exact wake or command; group other reachable or waiting work by project.
+Print `Active tasks: none` only when the fresh board has no ongoing work. This
+is a view of the computer board, never a second queue: do not hard-code stale
+state or expose private paths, provider/account data, or chat-only work.
+
 Hide implementation detail unless it changes the decision. The browser is a
 loopback projection of the computer board joined to entity plans; it never
 becomes authority.
