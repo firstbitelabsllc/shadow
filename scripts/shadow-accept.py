@@ -205,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--row", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=900)
+    parser.add_argument("--no-push", action="store_true",
+                        help="commit without pushing (an unpushed flip is invisible to other seats)")
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
     row_id = args.row.strip()
@@ -345,7 +347,64 @@ def main(argv: list[str] | None = None) -> int:
     except AcceptError as exc:
         print(f"shadow accept: {exc}", file=sys.stderr)
         return 1
-    print(f"accepted {row_id}: proof passed in a clean checkout; row flipped with its PROOF line")
+    # The flip must travel. A claim is durable by design (throw pushes and
+    # refuses when it cannot); a completion left local is the same defect in
+    # the other direction — a seat that saw the claim never sees the finish.
+    # Found by the first full gauntlet run against a mock portfolio.
+    if args.no_push:
+        print(
+            f"accepted {row_id}: proof passed in a clean checkout; row flipped with its "
+            "PROOF line — NOT pushed (--no-push); the flip is invisible to other seats"
+        )
+        return 0
+    # Past this point the flip is already committed, so an unreadable Git or a
+    # timed-out push is NOT the fail-closed "nothing was changed" case above:
+    # it is the same half-landed state as a rejected push, and it says so with
+    # the same exit code instead of dying in a traceback.
+    try:
+        # remotename/remoteref from for-each-ref, never string-splitting the
+        # abbreviated upstream: a remote whose NAME contains a slash would make
+        # "my/remote/main".partition("/") push to the wrong place.
+        branch = git_completed(repo, "symbolic-ref", "--short", "HEAD")
+        upstream = (
+            git_completed(
+                repo, "for-each-ref",
+                "--format=%(upstream:remotename) %(upstream:remoteref)",
+                f"refs/heads/{branch.stdout.strip()}",
+            )
+            if branch.returncode == 0 and branch.stdout.strip()
+            else branch
+        )
+        parts = upstream.stdout.strip().split(" ", 1) if upstream.returncode == 0 else []
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            print(
+                f"accepted {row_id}: proof passed in a clean checkout; row flipped with its "
+                "PROOF line — local only: this branch has no upstream, so push it yourself "
+                "or the flip is invisible to other seats"
+            )
+            return 0
+        remote, remote_ref = parts
+        pushed = git_completed(repo, "push", remote, f"HEAD:{remote_ref}")
+    except AcceptError as exc:
+        print(
+            f"shadow accept: {row_id} is flipped and committed locally but the push could "
+            f"not be attempted: {exc} — other seats cannot see the completion; push the "
+            "PLAN.md commit yourself once Git is reachable.",
+            file=sys.stderr,
+        )
+        return 3
+    if pushed.returncode != 0:
+        print(
+            f"shadow accept: {row_id} is flipped and committed locally but the push was "
+            f"REJECTED — other seats cannot see the completion. On a protected trunk, "
+            "land the PLAN.md commit through a pull request; on a race, pull and push again.",
+            file=sys.stderr,
+        )
+        return 3
+    print(
+        f"accepted {row_id}: proof passed in a clean checkout; row flipped with its "
+        f"PROOF line and pushed to {remote} {remote_ref}"
+    )
     return 0
 
 
