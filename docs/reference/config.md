@@ -6,15 +6,23 @@ root. The file is declaration only: it stores no resolved state, gates no
 cycle, and never selects a provider, model, account, or credential. A repository
 without it behaves exactly as before.
 
-The first supported declaration is intentionally narrow:
+The supported declarations remain intentionally narrow:
 
 ```yaml
 version: 1
+adversarial-lenses: thermo, ponytail
 ```
 
 `shadow config --explain` reports whether that repository declaration or the
-built-in version 1 defaults are active. It is read-only and creates no local
-state. Later schema additions must retain the same absence behavior.
+built-in version 1 defaults are active, and prints the active adversarial lens
+set. The default is `thermo, ponytail`; a repository may name one to eight
+unique two-to-32-character lowercase slug names. The declaration records
+review intent only: it does not install a skill, create a role or seat, route
+work, or gate a cycle.
+The command is read-only and creates no local state. Later schema additions
+must retain the same absence behavior.
+
+The review step itself is [attack, then refute](method.md#attack-then-refute).
 
 These environment variables provide runtime defaults:
 

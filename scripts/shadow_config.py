@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 from typing import Final
@@ -16,6 +17,9 @@ from typing import Final
 CONFIG_NAME: Final = "shadow.yaml"
 MAX_CONFIG_BYTES: Final = 64 * 1024
 SCHEMA: Final = "shadow.config.explain.v1"
+DEFAULT_ADVERSARIAL_LENSES: Final = ("thermo", "ponytail")
+MAX_ADVERSARIAL_LENSES: Final = 8
+LENS_RE: Final = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 
 
 class ConfigError(RuntimeError):
@@ -26,12 +30,17 @@ class ConfigError(RuntimeError):
 class Config:
     source: str
     version: int = 1
+    adversarial_lenses: tuple[str, ...] = DEFAULT_ADVERSARIAL_LENSES
 
     def explain(self) -> dict[str, object]:
         return {
             "schema": SCHEMA,
             "source": self.source,
             "version": self.version,
+            "adversarial": {
+                "step": "attack-then-refute",
+                "lenses": list(self.adversarial_lenses),
+            },
             "bindings": {},
         }
 
@@ -91,6 +100,7 @@ def load(start: Path) -> Config:
         raise ConfigError(f"{CONFIG_NAME}: is not valid UTF-8") from error
 
     version_line: int | None = None
+    adversarial_lenses: tuple[str, ...] | None = None
     for line_number, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -101,10 +111,31 @@ def load(start: Path) -> Config:
                 raise ConfigError(f"{CONFIG_NAME}:{line_number}: duplicate version")
             version_line = line_number
             continue
+        prefix = "adversarial-lenses:"
+        if value.startswith(prefix):
+            if adversarial_lenses is not None:
+                raise ConfigError(
+                    f"{CONFIG_NAME}:{line_number}: duplicate adversarial-lenses"
+                )
+            names = tuple(name.strip() for name in value[len(prefix) :].split(","))
+            if (
+                not names
+                or len(names) > MAX_ADVERSARIAL_LENSES
+                or any(not LENS_RE.fullmatch(name) for name in names)
+                or len(set(names)) != len(names)
+            ):
+                raise ConfigError(
+                    f"{CONFIG_NAME}:{line_number}: invalid adversarial-lenses"
+                )
+            adversarial_lenses = names
+            continue
         raise ConfigError(f"{CONFIG_NAME}:{line_number}: unsupported declaration")
     if version_line is None:
         raise ConfigError(f"{CONFIG_NAME}:1: expected 'version: 1'")
-    return Config(source=CONFIG_NAME)
+    return Config(
+        source=CONFIG_NAME,
+        adversarial_lenses=adversarial_lenses or DEFAULT_ADVERSARIAL_LENSES,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2))
     else:
         print(f"shadow config: {report['source']} (version {report['version']})")
+        review = report["adversarial"]
+        print(f"adversarial: {review['step']} ({', '.join(review['lenses'])})")
         print("bindings: none")
     return 0
 
