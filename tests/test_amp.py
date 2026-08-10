@@ -302,6 +302,28 @@ class AmpBlock(unittest.TestCase):
             self._block(max_chars=120)
 
 
+class GoalMintingReadsThePlansOwnLessonRows(unittest.TestCase):
+    def test_latest_lesson_and_decision_are_projected_without_another_store(self) -> None:
+        text = PLAN + (
+            "- 2026-08-07T00:04:00Z LESSON queue state belongs in the plan\n"
+            "- 2026-08-07T00:05:00Z DECISION ~dd44 keep -> read plan receipts\n"
+            "- 2026-08-07T00:02:00Z LESSON old retry advice\n"
+            "- 2026-08-07T00:03:00Z DECISION ~cc33 kill -> old branch dies\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            plan_path = _write(repo, text)
+            before = sorted(path.relative_to(repo) for path in repo.rglob("*"))
+            block, _ = amp.build_block(amp._parse(text), repo, plan_path, None, 4_000)
+            after = sorted(path.relative_to(repo) for path in repo.rglob("*"))
+
+        self.assertIn("PLAN LEADS: LESSON queue state belongs in the plan", block)
+        self.assertIn("DECISION ~dd44 keep -> read plan receipts", block)
+        self.assertNotIn("old retry advice", block)
+        self.assertNotIn("old branch dies", block)
+        self.assertEqual(after, before)
+
+
 class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
     def _installed_home(self, home: Path) -> None:
         skill = home / ".agents" / "skills" / "craft"
