@@ -1,44 +1,66 @@
 ---
 name: goal
-description: "Shape a loose ask into a complete executable Shadow goal brief: gather, synthesize, cut, deliver a paste-ready block with Outcome, Authority, Resume, Scope, Proof, Policy."
+description: "Compile a loose ask into a canonical PLAN preflight when needed and a bounded 100-200 word Shadow launcher with Outcome, Authority, Resume, Scope, Proof, and Policy."
 ---
 
 # Shape a goal
 
-Turn a loose request into a complete executable brief before it becomes plan
-checkpoints. This skill owns prompt shaping only. The computer board keeps
-global project priority, entity pointers, claims, owners, and resume; each
-entity's `PLAN.md` keeps milestone, checkpoint, detail, and proof authority.
+Turn a loose request into a bounded launcher for durable work. The launcher is
+not the plan: detailed inventory, decisions, acceptance matrices, and
+anti-sprawl controls belong in the owning entity's `PLAN.md`. This skill owns
+prompt shaping only. The computer board keeps global project priority, entity
+pointers, claims, owners, and resume; each entity's `PLAN.md` keeps milestone,
+checkpoint, detail, and proof authority.
+
+Shadow has three goal layers:
+
+1. The fixed standing kernel opens the board and never carries project detail.
+2. A bounded preflight reconciles raw intent and current evidence into the
+   canonical `PLAN.md` when the plan is not yet executable.
+3. A short execution launcher points at that authority and starts or resumes
+   the current work. Successors carry pointers, never the accumulated prompt.
 
 ## Method
 
-1. **Gather** what makes the full goal executable: the computer board,
-   repository instructions, the owning entity `PLAN.md`, every relevant active
-   claim and reachable checkpoint, Git state, and the files, errors, or
-   surfaces the request names.
-2. **Synthesize** the brief: a plain-language Outcome; the authority
-   (which `PLAN.md` at which ref); the active and ranked reachable work;
-   every surface required by the Outcome plus prohibited paths; concrete
-   acceptance behavior; focused, integration, and real-surface proof; hard
-   rails (credentials, publishing, money, external messages).
-3. **Cut** filler, duplicate policy, invented phases, recurrence
-   instructions, and vague "improve everything" language without an
-   acceptance matrix. Never narrow "everything", "end to end", "all boats
-   rise", or equivalent outcome language into a single task, slice, or campaign.
-4. **Deliver** the goal ready to paste:
+1. **Gather** only what changes the launch decision: the computer board,
+   repository instructions, the owning entity `PLAN.md`, active claims,
+   reachable checkpoints, Git state, and the named real surfaces. Do not paste
+   the inventory into the launcher.
+2. **Compile** the raw ask into the existing canonical plan. For a broad or
+   contradictory ask, make bounded preflight the first executable checkpoint:
+   reconcile authority, unfinished work, contradictions, the finite acceptance
+   matrix, and anti-sprawl controls in `PLAN.md`, then continue into the first
+   reachable implementation checkpoint. Planning is not a stopping condition
+   unless the person explicitly asks for a plan only.
+3. **Synthesize** a plain-language Outcome, authority pointer, resume rule,
+   end-to-end scope, mechanical finish line, and only the human-authority
+   boundary relevant to the current work (or `none`). Reversible work is
+   execution-authorized by default.
+4. **Cut** inventories, skill rosters, agent assignments, copied policy,
+   project-irrelevant prohibitions, invented phases, recurrence instructions,
+   and vague "improve everything" language without a mechanical finish line.
+   Never narrow "everything", "end to end", "all boats rise", or equivalent
+   outcome language into a single task, slice, or campaign.
+5. **Deliver** a 100-200 word launcher, normally no more than 12 sentences:
 
 ```text
-Outcome: <plain result>.
-Authority: <computer board revision for coordination> + <entity PLAN.md at committed ref>.
-Resume: <all checkpoints owned by this stable seat, then ranked reachable checkpoints>.
-Scope: <every surface required by the Outcome>; do not touch <prohibited paths>.
-Proof: <focused checks per lane>, <affected integration>, <real surfaces>.
+Outcome: <finite behavior and what the person no longer has to supervise>.
+Authority: <refreshed computer board> + <entity PLAN.md at committed ref>.
+Resume: <owned claims>; otherwise <preflight if needed, then highest-value reachable checkpoint>.
+Scope: <end-to-end surfaces required by the Outcome>; detailed decisions stay in PLAN.md.
+Proof: <one mechanical finish line>; keep source, merge, install/deploy, and live receipts distinct.
 Policy: the computer board owns project priority, entity pointers, claims,
 owners, and resume; each entity PLAN.md owns milestones, checkpoints, detail,
-and proof. Park blockers with exact wakes and continue every reachable
-checkpoint; stop only when full acceptance is mechanically true or every
-remainder is hard-rail blocked.
+and proof. Reversible work is agent-decided. Pause only at <one relevant human
+authority boundary or none>; park it with one exact wake and continue every
+other reachable checkpoint.
 ```
+
+The launcher may point to a large outcome; it must not reproduce the large
+plan. Put named tools, capability routing, per-surface tests, migration order,
+and retirement criteria in plan checkpoints. If omitting a detail would make a
+fresh seat ask what the work means, add it to `PLAN.md` and keep the pointer in
+the launcher.
 
 ## When the request is a steer, not a task
 
@@ -50,7 +72,9 @@ order, and a worked example are in [amplify](./references/amplify.md).
 
 ## Quality gate
 
-Before delivery: a fresh session could start without asking what the
-task means; every line changes an implementation or safety decision;
-"done", "merged", "live", and "proven" stay distinct; the brief is
-shorter than the context it replaces. If not, cut again.
+Before delivery: a fresh session can start without asking what the task means;
+the plan has a finite mechanical finish line; the launcher authorizes forward
+motion instead of accumulating "no" clauses; every line changes an execution
+or human-authority decision; "done", "merged", "live", and "proven" stay
+distinct; and the launcher is 100-200 words. If not, compile into the plan and
+cut again.

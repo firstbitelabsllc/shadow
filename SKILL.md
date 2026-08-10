@@ -50,32 +50,20 @@ message, or receipt is not acceptance proof by itself.
 
 ## Shape a goal
 
-A loose ask becomes a complete executable goal brief before it becomes plan
-rows. Gather what makes the full outcome executable (the owning `PLAN.md`,
-active claims, reachable work, git state, and named files/errors/surfaces).
-Synthesize, then cut filler, duplicate policy, invented phases, and vague
-"improve everything" wording without an acceptance matrix. Never translate
-"everything", "end to end", "all boats rise", or equivalent outcome language
-into a single task, slice, or campaign.
-Deliver the goal ready to paste:
+`skills/goal/SKILL.md` is the one owner of goal shaping. A generated goal is a
+100-200 word launcher, not the durable plan: broad intent first compiles its
+authority map, decisions, acceptance matrix, and anti-sprawl controls into the
+owning `PLAN.md`, then the launcher points at the current executable work.
+Planning continues into implementation unless the person explicitly asks for
+a plan only.
 
-```text
-Outcome: <plain result>.
-Authority: <computer board revision for coordination> + <entity PLAN.md at committed ref>.
-Resume: <all checkpoints owned by this stable seat, then ranked reachable checkpoints>.
-Scope: <every surface required by the Outcome>; do not touch <prohibited paths>.
-Proof: <focused checks per lane>, <affected integration>, <real surfaces>.
-Policy: the computer board owns project priority, entity pointers, claims,
-owners, and resume; each entity PLAN.md owns milestones, checkpoints, detail,
-and proof. Park blockers with exact wakes and continue every reachable
-checkpoint; stop only when full acceptance is mechanically true or every
-remainder is hard-rail blocked.
-```
-
-Quality gate before delivery: a fresh session could start without asking
-what the task means; every line changes an implementation or safety
-decision; "done", "merged", "live", and "proven" stay distinct; the brief
-is shorter than the context it replaces.
+Keep the fixed standing kernel free of project detail. Keep inventories, skill
+rosters, per-surface proof, migration order, and unrelated prohibitions out of
+the launcher. State only the relevant human-authority boundary, or `none`;
+reversible work is agent-decided. Never translate "everything", "end to end",
+"all boats rise", or equivalent outcome language into a single task, slice, or
+campaign. Use the canonical goal skill for the exact gather, compile, cut,
+template, and quality-gate rules.
 
 `shadow throw --repo <project> --task '~id' --by <seat>` atomically claims the
 checkpoint and returns its deterministic starting block. `shadow amp` resumes
