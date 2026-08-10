@@ -4,8 +4,9 @@
 The goal is a POINTER to the durable plan, never a second copy of it. A goal
 may drive work across many milestones and repos; no 4,000-character block can
 carry that detail, so the block carries exactly enough to warm-start a seat —
-authority pointer, mode, the selected starting row with its proof, the milestone's
-tooling line, and the standing rails — and defers everything else to the plan.
+authority pointer, mode, the selected starting row with its proof, the latest
+plan-owned lesson and decision, the milestone's tooling line, and the standing
+rails — and defers everything else to the plan.
 
 Deterministic: no LLM, no network. Same plan, same block. The per-milestone
 tooling knowledge rides IN the plan (an optional `- tools:` line directly
@@ -42,6 +43,10 @@ ROW_RE: Final = re.compile(
 FIELD_RE: Final = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
 BRIEF_KEY_RE: Final = re.compile(r"^- (?P<key>Project|Mode|Priority|Loop): (?P<value>.+)$")
 TOOLS_RE: Final = re.compile(r"^- tools: (?P<value>.+)$")
+PLAN_LEAD_RE: Final = re.compile(
+    r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
+    r"(?P<kind>LESSON|DECISION) (?P<value>.+)$"
+)
 HASH_RE: Final = re.compile(r"~[0-9a-z]{4}\b")
 ROW_SHAPE_RE: Final = re.compile(r"^- \[")
 CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
@@ -149,10 +154,30 @@ def _parse(text: str) -> dict:
     contradictions = [
         line for line in sections.get("Contradictions", []) if line.startswith("- ")
     ]
+    # Goal minting reuses the plan's append-only knowledge. Only the newest
+    # entry of each kind is projected; the plan remains the authority and no
+    # parallel dossier, cache, or memory record is created.
+    latest_leads: dict[str, tuple[str, str]] = {}
+    for line in sections.get("Progress", []):
+        match = PLAN_LEAD_RE.match(line)
+        if match and (
+            match.group("kind") not in latest_leads
+            or match.group("ts") > latest_leads[match.group("kind")][0]
+        ):
+            latest_leads[match.group("kind")] = (
+                match.group("ts"),
+                match.group("value").strip(),
+            )
+    leads = [
+        f"{kind} {latest_leads[kind][1]}"
+        for kind in ("LESSON", "DECISION")
+        if kind in latest_leads
+    ]
     return {
         "brief": brief,
         "milestones": milestones,
         "contradictions": contradictions,
+        "leads": leads,
         "unparsed": unparsed,
         "text": text,
     }
@@ -753,6 +778,9 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     # bottom up until the block fits. The pointer and the resume never drop.
     required = [header, "", authority, "", mode_line, resume, proof]
     optional: list[tuple[str, str]] = []
+    if plan.get("leads"):
+        projected = " | ".join(_clean(lead, 240) for lead in plan["leads"])
+        optional.append(("LEADS", f"PLAN LEADS: {projected}"))
     if milestone["tools"]:
         active_home = Path.home()
         superpowers = _superpowers_snapshot(active_home)
