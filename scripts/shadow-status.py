@@ -16,7 +16,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from browser.server import (  # noqa: E402
-    SKIP_DIRS, discover_plans, is_plan_root, is_portfolio_child, repo_plans,
+    SKIP_DIRS, discover_plans, is_live, is_plan_root, is_portfolio_child,
+    live_plans, repo_plans,
 )
 
 # The v4 grammar parser lives in shadow-amp; status reuses it so the two
@@ -195,9 +196,13 @@ def in_flight(root: Path) -> list[dict]:
     """Every in_progress row in every plan under root — one master list with as
     many heads as there are plans. This is the recovery view a cold successor
     reads after a chat dies holding a dozen conversations: what was claimed,
-    what proof would tell you it finished, and when it was thrown."""
+    what proof would tell you it finished, and when it was thrown.
+
+    Read from `live_plans`, not `discover_plans`: a plan that demoted itself is
+    not authority on any surface. Recovering a claim out of an archive shell
+    would send a successor to work rows the file itself says are dead."""
     rows: list[dict] = []
-    for record in discover_plans(root):
+    for record in live_plans(root):
         path = record.get("path")
         if not path:
             continue
@@ -262,6 +267,18 @@ def render_in_flight(rows: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+def _suppression_reason(record: dict) -> str:
+    """Why the board did not render this plan, in the plan's own words.
+
+    Two rules suppress: a duplicate of a repository already read, and a plan
+    that demoted itself. The second quotes the phrase it was demoted on, so the
+    verdict can be argued with instead of merely obeyed.
+    """
+    if record.get("shadowed_by"):
+        return record["shadow_reason"]
+    return f'demoted by its own banner: "{record.get("archive_veto")}"'
+
+
 def _any_plan_file(root: Path) -> Path | None:
     """A plan this root legally owns, or None.
 
@@ -302,6 +319,10 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
     result.add_argument("--all", action="store_true", help="include finished Outcomes")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
+    result.add_argument(
+        "--shadowed", action="store_true",
+        help="every plan discovery deliberately did not read, and the rule that decided it",
+    )
     result.add_argument(
         "--in-flight",
         action="store_true",
@@ -355,6 +376,36 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 root = fallback.resolve()
+    if args.shadowed:
+        # The affirmative answer to "why is my plan not on the board". Without
+        # it, suppression is indistinguishable from a plan going missing, and
+        # the only honest thing a narrower board could be accused of is exactly
+        # that. Computed by the same pass that does the suppressing, so the
+        # explanation cannot drift from the behavior.
+        #
+        # Placed AFTER the portfolio fallback, with --in-flight: asked from a
+        # directory holding no plan, "what was suppressed" is a question about
+        # the portfolio the board would have shown, and answering "nothing"
+        # about an empty cwd is the same missing-plan ambiguity this view exists
+        # to kill.
+        #
+        # A self-demoted plan is suppressed by the same board, so it belongs in
+        # the same answer. Otherwise the veto reintroduces exactly the silence
+        # this view was built to end: the plan is simply gone from status, with
+        # nothing naming the phrase that removed it.
+        hidden = [r for r in discover_plans(root, include_shadowed=True)
+                  if r.get("shadowed_by") or r.get("archived")]
+        if args.json:
+            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": [
+                {"path": r["path"], "shadowed_by": r.get("shadowed_by"),
+                 "reason": _suppression_reason(r)} for r in hidden]}, indent=2))
+            return 0
+        if not hidden:
+            print("nothing suppressed — every plan discovery enumerated was read")
+            return 0
+        for row in hidden:
+            print(f"{row['path']} — {_suppression_reason(row)}")
+        return 0
     if args.in_flight:
         rows = in_flight(root)
         if args.json:
@@ -368,7 +419,15 @@ def main(argv: list[str] | None = None) -> int:
     # legacy validator and misreport as "needs a valid Brief".
     legacy_records: list[dict] = []
     v4_records: list[dict] = []
+    demoted: list[dict] = []
     for record in discover_plans(root):
+        if not is_live(record):
+            # An archive shell is not authority on this surface either. The
+            # board and the CLI reading the same list but applying different
+            # rules IS the split this milestone closes: one demoted on the
+            # wire, still quoted as current by `shadow status`.
+            demoted.append(record)
+            continue
         path = record.get("path")
         # discover_plans emits root-relative paths (browser/server.py keeps
         # them short for the board); resolve before reading.
@@ -378,6 +437,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             legacy_records.append(record)
     legacy_records = visible(legacy_records, args.all)
+    if demoted and not v4_records and not legacy_records:
+        # Every plan here demoted itself. Printing a bare empty board would be
+        # indistinguishable from "your plan went missing", so the reason is
+        # named on the channel that is not the machine-readable answer.
+        for record in demoted:
+            print(f"shadow status: {record['path']} — {_suppression_reason(record)}",
+                  file=sys.stderr)
     if args.json:
         print(
             json.dumps(
