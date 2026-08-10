@@ -1,7 +1,22 @@
 # Configuration
 
-Command-line flags are authoritative. These environment variables provide the
-same defaults without another configuration file:
+Command-line flags and environment variables remain authoritative for runtime
+behavior. A repository may also commit one optional `shadow.yaml` at its Git
+root. The file is declaration only: it stores no resolved state, gates no
+cycle, and never selects a provider, model, account, or credential. A repository
+without it behaves exactly as before.
+
+The first supported declaration is intentionally narrow:
+
+```yaml
+version: 1
+```
+
+`shadow config --explain` reports whether that repository declaration or the
+built-in version 1 defaults are active. It is read-only and creates no local
+state. Later schema additions must retain the same absence behavior.
+
+These environment variables provide runtime defaults:
 
 | Variable | Meaning |
 |---|---|
