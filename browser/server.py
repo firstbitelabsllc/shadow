@@ -26,10 +26,12 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 try:
+    from board_projection import project_board_brief
     from chief_of_staff import project_chief_of_staff
     from decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
     from outcome_source import OutcomeSourceError, project_plan_outcome
 except ModuleNotFoundError:
+    from browser.board_projection import project_board_brief
     from browser.chief_of_staff import project_chief_of_staff
     from browser.decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
     from browser.outcome_source import OutcomeSourceError, project_plan_outcome
@@ -196,13 +198,20 @@ def plan_record(path: Path, root: Path) -> dict[str, Any]:
     decision = None
     chief = None
     error = None
-    try:
-        outcome = project_plan_outcome(brief)
-        decision = project_decision(outcome)
-        plan_summary = {"latest_change": latest_progress(text)} if latest_progress(text) else None
-        chief = project_chief_of_staff(outcome, plan_brief=plan_summary)
-    except (OutcomeSourceError, DecisionInputError) as exc:
-        error = str(exc)
+    # The v4 board brief is TOTAL — every readable plan gets one. The v3
+    # typed-Outcome contract is attempted only for a plan that still carries
+    # its keys; its absence is the current grammar, not an error. Before this
+    # split, every v4 plan on a machine failed "outcome must be a string" and
+    # the board rendered nothing it existed to show.
+    board = project_board_brief(text)
+    if "outcome" in brief:
+        try:
+            outcome = project_plan_outcome(brief)
+            decision = project_decision(outcome)
+            plan_summary = {"latest_change": latest_progress(text)} if latest_progress(text) else None
+            chief = project_chief_of_staff(outcome, plan_brief=plan_summary)
+        except (OutcomeSourceError, DecisionInputError) as exc:
+            error = str(exc)
     return {
         "id": hashlib.sha256(relative.encode("utf-8")).hexdigest()[:16],
         "path": relative,
@@ -215,6 +224,7 @@ def plan_record(path: Path, root: Path) -> dict[str, Any]:
         "outcome": outcome,
         "decision": decision,
         "briefing": chief,
+        "board": board,
         "contract_error": error,
     }
 
