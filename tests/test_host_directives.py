@@ -9,6 +9,7 @@ and guessing where an unmarked block ends eats the paragraph after it.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -127,6 +128,201 @@ class WritesTheBlock(unittest.TestCase):
             backup = path.with_suffix(path.suffix + ".bak-shadow")
             self.assertTrue(backup.exists())
             self.assertEqual(backup.read_text(encoding="utf-8"), BEFORE)
+
+
+class ASymlinkedHostFileIsWrittenThrough(unittest.TestCase):
+    """One canonical directive file, linked from each host that reads one.
+
+    `os.replace` onto a symlink replaces THE LINK with a regular file and
+    leaves what it pointed at untouched, so before this a symlinked host file
+    survived exactly zero installs: the link became a copy, the canonical file
+    never received the block, and the install printed success either way. The
+    write resolves the link first, so the canonical file is what changes and
+    the link is still a link afterwards.
+    """
+
+    def _linked(self, tmp: Path, *, contents: str = BEFORE) -> tuple[Path, Path]:
+        """A canonical file in one directory and a host path pointing at it."""
+        host = tmp / ".claude"
+        host.mkdir(parents=True)
+        canonical = tmp / "canonical" / "DIRECTIVES.md"
+        canonical.parent.mkdir(parents=True)
+        canonical.write_text(contents, encoding="utf-8")
+        link = host / "CLAUDE.md"
+        link.symlink_to(canonical)
+        return link, canonical
+
+    def test_the_link_survives_and_the_canonical_file_carries_the_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            self.assertEqual(hd.apply(link, BLOCK), "added")
+            self.assertTrue(link.is_symlink(), "the link was replaced by a regular file")
+            self.assertEqual(Path(os.readlink(link)), canonical)
+            text = canonical.read_text(encoding="utf-8")
+            self.assertIn(BLOCK, text)
+            self.assertIn(BEFORE, text)
+
+    def test_a_relative_link_resolves_against_the_directory_holding_it(self) -> None:
+        # A link people write by hand is usually relative, and resolving one
+        # against the process's directory instead of the link's writes into
+        # whatever happens to be next to the current directory.
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            link.unlink()
+            link.symlink_to(Path("..") / "canonical" / "DIRECTIVES.md")
+            self.assertEqual(hd.apply(link, BLOCK), "added")
+            self.assertTrue(link.is_symlink())
+            self.assertIn(BLOCK, canonical.read_text(encoding="utf-8"))
+
+    def test_a_chain_of_links_lands_on_the_file_at_the_end(self) -> None:
+        # Migrations leave chains: the host file points at yesterday's path,
+        # which points at the canonical one. Every link in it stays a link.
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            middle = Path(tmp) / "previous-home.md"
+            middle.symlink_to(canonical)
+            link.unlink()
+            link.symlink_to(middle)
+            self.assertEqual(hd.apply(link, BLOCK), "added")
+            self.assertTrue(link.is_symlink())
+            self.assertTrue(middle.is_symlink())
+            self.assertIn(BLOCK, canonical.read_text(encoding="utf-8"))
+
+    def test_a_link_that_leaves_the_home_directory_is_written_not_refused(self) -> None:
+        # The reason anyone makes one of these links: the canonical file lives
+        # in a private repository, so it is versioned and shared between
+        # machines. Where the link goes is the person's business; refusing to
+        # follow it out of the home directory would refuse the whole feature.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            (home / ".claude").mkdir(parents=True)
+            canonical = Path(tmp) / "elsewhere" / "DIRECTIVES.md"
+            canonical.parent.mkdir(parents=True)
+            canonical.write_text(BEFORE, encoding="utf-8")
+            link = home / ".claude" / "CLAUDE.md"
+            link.symlink_to(canonical)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--host", "claude"],
+                capture_output=True, text=True, check=False,
+                env={**os.environ, "HOME": str(home)},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("added:", result.stdout)
+            self.assertTrue(link.is_symlink(), result.stdout)
+            self.assertIn(BLOCK, canonical.read_text(encoding="utf-8"))
+
+    def test_a_broken_link_is_refused_and_no_file_is_invented(self) -> None:
+        # A path with nothing at it says "nothing here yet" and is created. A
+        # link with nothing at the end says something else, and the two honest
+        # readings — the repository is not cloned on this machine yet, or the
+        # path is a typo — want opposite actions. Creating the target picks one
+        # silently: it invents a file where shadow guessed, reports success,
+        # and leaves the text the person meant to edit somewhere else.
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            missing = canonical.parent / "not-cloned-yet.md"
+            link.unlink()
+            link.symlink_to(missing)
+            with self.assertRaises(ValueError) as caught:
+                hd.apply(link, BLOCK)
+            self.assertIn("does not exist", str(caught.exception))
+            self.assertTrue(link.is_symlink())
+            self.assertFalse(missing.exists())
+
+    def test_a_link_to_something_that_is_not_a_file_is_refused(self) -> None:
+        # Following a link is not the same as following it anywhere. A
+        # directory, a device, or a fifo at the end of one is not a directive
+        # file that lost its way, and writing to it is not a recoverable
+        # mistake.
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            link.unlink()
+            link.symlink_to(canonical.parent)
+            with self.assertRaises(ValueError) as caught:
+                hd.apply(link, BLOCK)
+            self.assertIn("not a regular file", str(caught.exception))
+            self.assertTrue(canonical.parent.is_dir())
+            self.assertEqual(canonical.read_text(encoding="utf-8"), BEFORE)
+
+    def test_a_chain_of_links_that_loops_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            link, _ = self._linked(Path(tmp))
+            other = Path(tmp) / "round-again.md"
+            link.unlink()
+            link.symlink_to(other)
+            other.symlink_to(link)
+            with self.assertRaises(ValueError) as caught:
+                hd.apply(link, BLOCK)
+            self.assertIn("loops", str(caught.exception))
+            self.assertTrue(link.is_symlink())
+
+    def test_the_backup_sits_beside_the_canonical_file_not_the_link(self) -> None:
+        # The backup holds the bytes that are about to be overwritten, and
+        # those bytes live in the canonical file. Left beside the link it reads
+        # as a backup OF the link, so the obvious recovery — copy it back over
+        # CLAUDE.md — replaces the link with a regular file, which is the
+        # defect this whole class exists to prevent. Beside the target the same
+        # recovery restores the file that actually changed, and several hosts
+        # linking at one canonical file leave one backup of it rather than one
+        # per link, each snapshotting a different moment.
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            hd.apply(link, BLOCK)
+            beside_target = canonical.with_suffix(canonical.suffix + ".bak-shadow")
+            beside_link = link.with_suffix(link.suffix + ".bak-shadow")
+            self.assertEqual(beside_target.read_text(encoding="utf-8"), BEFORE)
+            self.assertFalse(beside_link.exists(), "restoring this would destroy the link")
+
+    def test_the_canonical_file_and_its_backup_keep_the_mode_it_had(self) -> None:
+        # Both directions are load-bearing. A fresh temp file is 0600, so a
+        # 0644 file quietly becomes private — invisible in git, and this file
+        # is shared between machines. A copy made with the default mask goes
+        # the other way and publishes a 0600 file's contents at 0644.
+        for mode in (0o600, 0o644):
+            with self.subTest(oct(mode)), tempfile.TemporaryDirectory() as tmp:
+                link, canonical = self._linked(Path(tmp))
+                canonical.chmod(mode)
+                hd.apply(link, BLOCK)
+                backup = canonical.with_suffix(canonical.suffix + ".bak-shadow")
+                self.assertEqual(canonical.stat().st_mode & 0o777, mode)
+                self.assertEqual(backup.stat().st_mode & 0o777, mode)
+
+    def test_writing_twice_through_the_link_changes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            hd.apply(link, BLOCK)
+            first = canonical.read_text(encoding="utf-8")
+            self.assertEqual(hd.apply(link, BLOCK), "current")
+            self.assertEqual(canonical.read_text(encoding="utf-8"), first)
+            self.assertTrue(link.is_symlink())
+
+    def test_remove_takes_the_block_out_of_the_canonical_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp), contents=BEFORE + hd.managed(BLOCK) + AFTER)
+            self.assertEqual(hd.apply(link, BLOCK, remove=True), "removed")
+            text = canonical.read_text(encoding="utf-8")
+            self.assertNotIn(hd.BEGIN, text)
+            self.assertIn("Do not break these.", text)
+            self.assertIn("Still mine.", text)
+            self.assertTrue(link.is_symlink())
+
+    def test_a_failed_write_leaves_the_link_and_the_canonical_file_as_they_were(self) -> None:
+        # A crash mid-install must not be the thing that costs someone their
+        # link either. Nothing is created anywhere: no temp file, and no
+        # half-taken backup standing in for a write that never happened.
+        with tempfile.TemporaryDirectory() as tmp:
+            link, canonical = self._linked(Path(tmp))
+            original = hd.os.replace
+            hd.os.replace = lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
+            try:
+                with self.assertRaises(OSError):
+                    hd.apply(link, BLOCK)
+            finally:
+                hd.os.replace = original
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(canonical.read_text(encoding="utf-8"), BEFORE)
+            self.assertEqual([p.name for p in canonical.parent.iterdir()], [canonical.name])
+            self.assertEqual([p.name for p in link.parent.iterdir()], [link.name])
 
 
 class RefusesRatherThanGuesses(unittest.TestCase):
