@@ -151,9 +151,23 @@ def mint_repo(scratch: Path, portfolio: Path, name: str, priority: int) -> Path:
     return repo
 
 
+def sealed_environment() -> dict[str, str]:
+    env = dict(os.environ)
+    for name in (
+        "SHADOW_ROOT",
+        "SHADOW_PORTFOLIO_ROOT",
+        "SHADOW_DEV_ROOT",
+        "SHADOW_PYTHON",
+        "SHADOW_PYTHON_COMMAND",
+    ):
+        env.pop(name, None)
+    env["SHADOW_ROOT"] = str(ROOT)
+    return env
+
+
 def shadow_env(home: Path, portfolio: Path, shim: Path) -> dict[str, str]:
     return {
-        **os.environ,
+        **sealed_environment(),
         "HOME": str(home),
         "SHADOW_PORTFOLIO_ROOT": str(portfolio),
         "PATH": f"{shim}{os.pathsep}{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
@@ -223,7 +237,7 @@ def deterministic_seat(
 
 
 def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
-    goal = run([str(SHADOW), "goal"], ROOT)
+    goal = run([str(SHADOW), "goal"], ROOT, sealed_environment())
     if goal.returncode:
         raise HarnessError("fixture_failed")
     for mount in (home / ".claude/skills/shadow", home / ".agents/skills/shadow"):
