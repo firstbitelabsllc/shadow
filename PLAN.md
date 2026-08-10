@@ -115,6 +115,31 @@ sections that stood here until 2026-08-09 are archived at
 - [pending] an unmarked standing-goal block is adopted only when the region really is the shipped block or a known earlier revision of it, so a drifted or customized heading is refused by name instead of silently overwritten ~hdop | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.UnmarkedAdoptionRefusesADriftedHeading tests.test_host_directives
 - [pending] every confirmed finding is fixed or carries a Deferred row with a wake predicate, and main passes the full gate from a clean clone ~aud1 (DoD) | proof: cmd bash -c 'set -e; d=$(mktemp -d); trap "rm -rf $d" EXIT; git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; cd "$d/s"; scripts/shadow-python.sh -m unittest discover -s tests -p "test_*.py"; scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md' | needs: ~atom, ~rows, ~argv, ~pfix, ~pyv3, ~acpt, ~hdop
 
+### M14 — telemetry and logging, data-minimized
+
+- tools: the owner reopened this after ~obsv killed it. Nothing here sends anything until ~endp is answered; every row below is buildable and testable with the machine offline
+- [pending] what Shadow may ever record is written down as a closed allowlist of field names, and anything not on it is dropped at the point of construction rather than filtered later ~flds | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.TheAllowlistIsClosed
+- [pending] a plan verb emits a structured local event to a file under the project evidence path, carrying ids, verbs, durations and outcomes and no plan text, no proof output, no paths outside the repo, no environment ~emit | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.EventsCarryNoPayload | needs: ~flds
+- [pending] a redaction test feeds secrets, absolute home paths, and full proof output through the emitter and proves none of them reach the event ~redk | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.NothingSensitiveSurvivesTheEmitter | needs: ~emit
+- [pending] the owner picks the endpoint and the exact field list before any network code exists, and records both in docs/reference/telemetry.md ~endp | proof: gate leo resume: the chosen endpoint and the approved field list are written into docs/reference/telemetry.md
+- [pending] telemetry is off by default, every event is inspectable on disk, and a machine that never opts in behaves exactly as it does today ~tobs (DoD) | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.TelemetryIsOffByDefault tests.test_telemetry.EveryEventIsInspectableOnDisk tests.test_telemetry.AMachineThatNeverOptsInIsUnchanged tests.test_telemetry | needs: ~flds, ~emit, ~redk, ~endp
+
+### M15 — every install activates Shadow in every supported host
+
+- tools: product requirement, shipped to strangers. M9 got claude and codex; this closes the gap and hardens the write. Distinct from M16, which is one person's file layout and ships to nobody
+- [pending] cursor either gets a real activation surface proven by a cold session, or it is written down as unsupported and removed from the supported list ~curs | proof: read docs/reference/native-hosts.md states cursor's activation surface with the cold-session evidence, or states that shadow does not activate cursor and why
+- [pending] a fresh install writes the activation instruction into every host docs/reference/native-hosts.md still lists as supported once the cursor decision has landed, never into an invented path, and doctor names any supported host that did not receive it ~acti | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.EverySupportedHostIsActivated tests.test_host_directives.TheSupportedListInTheDocsDrivesTheWriteTargets tests.test_doctor.DoctorNamesEverySupportedHostThatDidNotReceiveTheDirective | needs: ~curs
+- [pending] a host directive file that is a symlink is written THROUGH, never replaced: the canonical target changes and the link survives ~slnk | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.ASymlinkedHostFileIsWrittenThrough
+- [pending] a stranger installs on a clean machine and their next chat in every supported host opens the board without being asked ~act9 (DoD) | proof: gate leo resume: scripts/shadow-verify-host.sh --host HOST --live reports no FAIL for every host still listed as supported after ~curs, and cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.EverySupportedHostIsActivated tests.test_host_directives.ASymlinkedHostFileIsWrittenThrough tests.test_host_directives tests.test_verify_host is green | needs: ~acti, ~curs, ~slnk
+
+### M16 — one canonical private home for the owner's host directives
+
+- tools: the owner's personal setup, NOT the product. Nothing here ships in the package or runs on a stranger's machine. Shadow's managed block keeps working inside whatever file the host reads
+- [pending] the owner's claude, codex, and cursor top-level directive files all resolve to ONE SHARED canonical FILE in the private ai-leo repository -- one target, three links, not three per-host copies of a shared idea. If a host-specific syntax difference turns out to be genuinely unavoidable, it is opened as a Contradictions row BEFORE anything is split, naming the exact syntax and the host that requires it; splitting without that row is the drift this wording exists to prevent ~cano | proof: read exactly ONE canonical directive file exists in ai-leo at origin/main, all three host paths resolve to that single file, `readlink -f` on each returns the SAME path, and every host's prior content is accounted for line by line with nothing dropped
+- [pending] each host file is a symlink and all three resolve to the SAME target, and doctor reports the resolved path so a broken link, a hijacked one, or a silent split into per-host copies is visible ~vsym | proof: cmd scripts/shadow-python.sh -m unittest tests.test_doctor.HostDirectiveOriginIsReported | needs: ~cano
+- [pending] shadow goal --install still lands its managed block through the symlink, and the canonical file in ai-leo carries the change ~mrge | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.TheManagedBlockLandsInTheCanonicalSourceNotTheLink | needs: ~vsym, ~slnk
+- [pending] the owner edits THE one file in ai-leo, commits, and every host reads that same change with no copy step and no per-host duplicate anywhere ~cn16 (DoD) | proof: gate leo resume: a directive edited in ai-leo is visible to a fresh session of claude, codex, and cursor without any sync command, or cursor is excluded by citing the ~curs decision that shadow does not activate it | needs: ~cano, ~vsym, ~mrge
+
 ## Worklane boundary
 
 - Shadow has its own product plan and proof gap. That gap never blocks an
@@ -211,6 +236,35 @@ sections that stood here until 2026-08-09 are archived at
   signs `by:`, still appears in `--in-flight`. The moment the config can make a
   claim illegal it is the roster, and ~noks refuses the keys -- provider,
   model, account, credential -- that made the old roster a router.
+
+- `~obsv` DECISION killed Langfuse, and `SKILL.md` bans "a router, daemon,
+  scheduler, cloud executor, credential relay, transcript store, or parallel
+  status database" | provisional winner: the owner, bounded to local and
+  data-minimized | opened 2026-08-10T01:20:00Z
+  Owner, verbatim: "reopen Langfuse. We want telemetry and logging for
+  Shadow ... Do not configure credentials, transmit payloads, or deploy until
+  the endpoint and fields are explicitly chosen." The kill verdict rested on
+  two facts that have not changed: self-hosted Langfuse is six always-on
+  services plus an event bucket, and Shadow makes zero model or network calls
+  today. What survives is the reason, not the ruling. M14 builds the half that
+  is unambiguously safe -- a closed field allowlist and local structured
+  events with no payloads -- and stops at ~endp, a gate only the owner can
+  close. Nothing transmits until then, so the banned shapes are not reachable
+  by writing code, only by a decision recorded here.
+
+- M9's `~host` deliberately excluded cursor because "writing
+  `~/.cursor/rules/shadow.md` would invent a convention", and
+  `shadow-verify-host.sh` skips it as having "no file-backed directive" |
+  provisional winner: find cursor's real surface, or drop the claim | opened
+  2026-08-10T01:20:00Z
+  Owner, verbatim: "every Shadow install must update each supported host's
+  directive file with the activation instruction so a new chat automatically
+  activates Shadow." Cursor is currently listed as supported and is the one
+  host proven to fail cold start. Both halves cannot stand: either cursor has
+  an activation surface Shadow can write and a cold session proves it, or
+  cursor is not a supported host and the docs, the installer, and the verifier
+  all say so. ~curs decides it with evidence; inventing a path and reporting
+  success for wiring that does nothing is the one outcome ruled out.
 
 ## Progress
 
@@ -1509,3 +1563,8 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-09T23:05:00Z STRUCT M12 and M13 added | trigger: M12 is the owner's ask -- configurable major components in a config file, the adversarial step made part of the method, and /future thinking. Two Contradictions rows were opened before any code because it reverses three shipped surfaces, one written today. M13 is ~adv9's findings given rows, which is what ~adv9's proof requires before M11's DoD may flip. Why now: ~adv9 landed. Contradicts: config.md, honcho.md, and today's no-roster clause -- both recorded above.
 - 2026-08-09T23:40:00Z STRUCT ~acpt widened to carry the host-directive adoption fix | trigger: codex review on PR 279 found that shadow-host-directives.py:94 was named in the ~adv9 PROOF line and in no M13 row, so ~aud1 could have completed with a suffixed standing-goal heading still adoptable and overwritable. The row already runs tests.test_host_directives, so the fix lands where its regression already runs. Contradicts: nothing.
 - 2026-08-10T00:15:00Z STRUCT every remaining M13 row and ~ftur name a test class that does not exist yet | trigger: cursor review on PR 279 found ~acpt's proof ran whole modules that are green today, so accept could flip the row before the fix was written. The same held for five sibling rows. A proof that passes before its behavior exists is the false-green class this repo shipped five times in one night, so the fix is the class and not the one row cursor found. Each proof now names a class that must be authored plus the module it lives in, so the row fails until its own fix lands and any regression elsewhere in the module still counts. A peer lane had already applied this to ~atom and ~hdop and corrected six module names I got wrong; ~acpt's duplicate drift clause is dropped in favour of that lane's dedicated ~hdop row. Contradicts: nothing.
+- 2026-08-10T01:20:00Z STRUCT M14, M15, and M16 added | trigger: three owner directives in one session. M14 reopens telemetry, which ~obsv had killed -- recorded as a Contradiction with the owner's words, bounded so nothing transmits before the ~endp gate. M15 is the product requirement that every install activates Shadow in every supported host; it collides with M9's deliberate cursor exclusion, which is the second Contradiction. M16 is the owner's personal directive layout and ships to nobody -- kept as its own milestone because the owner asked explicitly that the universal installer requirement not be conflated with one person's symlink setup. Why now: all three were given as direction. Contradicts: ~obsv and M9 ~host, both recorded above.
+- 2026-08-10T01:20:00Z NOTE ~slnk was found before it was written: `os.replace` onto a symlinked path REPLACES THE LINK with a regular file and leaves the canonical target untouched. Verified on this machine -- a symlinked host file survived exactly zero atomic writes. `shadow-host-directives.py:151` does this today, so the first `shadow goal --install` after any symlink migration would silently un-migrate the file while reporting success. It is a product defect wherever a user symlinks their own directive file, so it sits in M15 and M16's ~mrge depends on it.
+- 2026-08-10T05:40:00Z STRUCT M16 rows rewritten to one shared file | trigger: the owner corrected the wording before implementation. The rows said "one canonical source ... with the per-host differences kept rather than flattened", which reads as three per-host copies and is the opposite of the intent. The requirement is ONE FILE, three symlinks resolving to the same target. A host-specific syntax difference does not license a split by itself: it must be opened as a Contradictions row first, naming the syntax and the host, so a divergence is a reviewed decision rather than something that happens quietly during implementation. Recorded before dispatch so it cannot drift. Contradicts: nothing -- this narrows M16, it does not reverse it.
+- 2026-08-10T05:40:00Z NOTE M15 and M16 are and remain SEPARATE requirements, and the installer is where they meet. M15 is universal and ships to every Shadow user: every install writes the activation instruction into every supported host so a stranger's next chat opens the board. M16 is one person's private layout in ai-leo and ships to nobody. The binding constraint between them: the universal installer MUST PRESERVE AN APPROVED SYMLINK -- writing through it to the canonical target, never replacing the link with a regular file. That is ~slnk, which already exists in M15 as a product defect because it is one for any user who symlinks their own directive file, not because the owner does.
+- 2026-08-10T05:50:00Z STRUCT ~cano proof made singular | trigger: the proof read "the canonical files exist" in the plural, so it could have passed against three split per-host copies -- the exact outcome the row's own text forbids. A proof looser than its row is the false-green shape this repository keeps finding, and it is worse here because the row was just narrowed for this reason. It now requires ONE file, all three host paths resolving to it, and `readlink -f` returning the same path for each. Contradicts: nothing.
