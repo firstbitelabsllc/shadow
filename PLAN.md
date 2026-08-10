@@ -121,8 +121,8 @@ sections that stood here until 2026-08-09 are archived at
 - [pending] what Shadow may ever record is written down as a closed allowlist of field names, and anything not on it is dropped at the point of construction rather than filtered later ~flds | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.TheAllowlistIsClosed
 - [pending] a plan verb emits a structured local event to a file under the project evidence path, carrying ids, verbs, durations and outcomes and no plan text, no proof output, no paths outside the repo, no environment ~emit | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.EventsCarryNoPayload | needs: ~flds
 - [pending] a redaction test feeds secrets, absolute home paths, and full proof output through the emitter and proves none of them reach the event ~redk | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.NothingSensitiveSurvivesTheEmitter | needs: ~emit
-- [pending] the owner picks the endpoint and the exact field list before any network code exists, and records both in this plan ~endp | proof: gate leo resume: the chosen endpoint and the approved field list are written into docs/reference/telemetry.md
-- [pending] telemetry is off by default, every event is inspectable on disk, and a machine that never opts in behaves exactly as it does today ~tobs (DoD) | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry | needs: ~flds, ~emit, ~redk, ~endp
+- [pending] the owner picks the endpoint and the exact field list before any network code exists, and records both in docs/reference/telemetry.md ~endp | proof: gate leo resume: the chosen endpoint and the approved field list are written into docs/reference/telemetry.md
+- [pending] telemetry is off by default, every event is inspectable on disk, and a machine that never opts in behaves exactly as it does today ~tobs (DoD) | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.TelemetryIsOffByDefault tests.test_telemetry.EveryEventIsInspectableOnDisk tests.test_telemetry.AMachineThatNeverOptsInIsUnchanged tests.test_telemetry | needs: ~flds, ~emit, ~redk, ~endp
 
 ### M15 — every install activates Shadow in every supported host
 
@@ -130,15 +130,15 @@ sections that stood here until 2026-08-09 are archived at
 - [pending] a fresh install writes the activation instruction into every host Shadow claims to support, and doctor names any supported host that did not receive it ~acti | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.EverySupportedHostIsActivated
 - [pending] cursor either gets a real activation surface proven by a cold session, or it is written down as unsupported and removed from the supported list ~curs | proof: read docs/reference/native-hosts.md states cursor's activation surface with the cold-session evidence, or states that shadow does not activate cursor and why
 - [pending] a host directive file that is a symlink is written THROUGH, never replaced: the canonical target changes and the link survives ~slnk | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.ASymlinkedHostFileIsWrittenThrough
-- [pending] a stranger installs on a clean machine and their next chat in every supported host opens the board without being asked ~act9 (DoD) | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives tests.test_verify_host | needs: ~acti, ~curs, ~slnk
+- [pending] a stranger installs on a clean machine and their next chat in every supported host opens the board without being asked ~act9 (DoD) | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.EverySupportedHostIsActivated tests.test_host_directives.ASymlinkedHostFileIsWrittenThrough tests.test_host_directives tests.test_verify_host | needs: ~acti, ~curs, ~slnk
 
 ### M16 — one canonical private home for the owner's host directives
 
 - tools: the owner's personal setup, NOT the product. Nothing here ships in the package or runs on a stranger's machine. Shadow's managed block keeps working inside whatever file the host reads
 - [pending] the owner's claude, codex, and cursor top-level directives have one canonical source in the private ai-leo repository, with the per-host differences kept rather than flattened ~cano | proof: read the canonical files exist in ai-leo at origin/main and each host's current content is accounted for line by line, with nothing dropped
 - [pending] each host file is a symlink to its canonical source, and doctor reports where it resolves to so a broken or hijacked link is visible ~vsym | proof: cmd scripts/shadow-python.sh -m unittest tests.test_doctor.HostDirectiveOriginIsReported | needs: ~cano
-- [pending] shadow goal --install still lands its managed block through the symlink, and the canonical file in ai-leo carries the change ~mrge | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.ASymlinkedHostFileIsWrittenThrough | needs: ~vsym, ~slnk
-- [pending] the owner edits one file in ai-leo, commits, and every host reads the change with no copy step ~cn16 (DoD) | proof: gate leo resume: a directive edited in ai-leo is visible to a fresh claude and codex session without any sync command
+- [pending] shadow goal --install still lands its managed block through the symlink, and the canonical file in ai-leo carries the change ~mrge | proof: cmd scripts/shadow-python.sh -m unittest tests.test_host_directives.TheManagedBlockLandsInTheCanonicalSourceNotTheLink | needs: ~vsym, ~slnk
+- [pending] the owner edits one file in ai-leo, commits, and every host reads the change with no copy step ~cn16 (DoD) | proof: gate leo resume: a directive edited in ai-leo is visible to a fresh claude and codex session without any sync command | needs: ~cano, ~vsym, ~mrge
 
 ## Worklane boundary
 
