@@ -357,29 +357,42 @@ def main(argv: list[str] | None = None) -> int:
             "PROOF line — NOT pushed (--no-push); the flip is invisible to other seats"
         )
         return 0
-    # remotename/remoteref from for-each-ref, never string-splitting the
-    # abbreviated upstream: a remote whose NAME contains a slash would make
-    # "my/remote/main".partition("/") push to the wrong place.
-    branch = git_completed(repo, "symbolic-ref", "--short", "HEAD")
-    upstream = (
-        git_completed(
-            repo, "for-each-ref",
-            "--format=%(upstream:remotename) %(upstream:remoteref)",
-            f"refs/heads/{branch.stdout.strip()}",
+    # Past this point the flip is already committed, so an unreadable Git or a
+    # timed-out push is NOT the fail-closed "nothing was changed" case above:
+    # it is the same half-landed state as a rejected push, and it says so with
+    # the same exit code instead of dying in a traceback.
+    try:
+        # remotename/remoteref from for-each-ref, never string-splitting the
+        # abbreviated upstream: a remote whose NAME contains a slash would make
+        # "my/remote/main".partition("/") push to the wrong place.
+        branch = git_completed(repo, "symbolic-ref", "--short", "HEAD")
+        upstream = (
+            git_completed(
+                repo, "for-each-ref",
+                "--format=%(upstream:remotename) %(upstream:remoteref)",
+                f"refs/heads/{branch.stdout.strip()}",
+            )
+            if branch.returncode == 0 and branch.stdout.strip()
+            else branch
         )
-        if branch.returncode == 0 and branch.stdout.strip()
-        else branch
-    )
-    parts = upstream.stdout.strip().split(" ", 1) if upstream.returncode == 0 else []
-    if len(parts) != 2 or not parts[0] or not parts[1]:
+        parts = upstream.stdout.strip().split(" ", 1) if upstream.returncode == 0 else []
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            print(
+                f"accepted {row_id}: proof passed in a clean checkout; row flipped with its "
+                "PROOF line — local only: this branch has no upstream, so push it yourself "
+                "or the flip is invisible to other seats"
+            )
+            return 0
+        remote, remote_ref = parts
+        pushed = git_completed(repo, "push", remote, f"HEAD:{remote_ref}")
+    except AcceptError as exc:
         print(
-            f"accepted {row_id}: proof passed in a clean checkout; row flipped with its "
-            "PROOF line — local only: this branch has no upstream, so push it yourself "
-            "or the flip is invisible to other seats"
+            f"shadow accept: {row_id} is flipped and committed locally but the push could "
+            f"not be attempted: {exc} — other seats cannot see the completion; push the "
+            "PLAN.md commit yourself once Git is reachable.",
+            file=sys.stderr,
         )
-        return 0
-    remote, remote_ref = parts
-    pushed = git_completed(repo, "push", remote, f"HEAD:{remote_ref}")
+        return 3
     if pushed.returncode != 0:
         print(
             f"shadow accept: {row_id} is flipped and committed locally but the push was "
