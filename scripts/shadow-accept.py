@@ -33,7 +33,10 @@ ROW_LINE_RE = re.compile(
     r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
     r"(?P<text>.+?) (?P<id>~[0-9a-z]{4})(?P<dod> \(DoD\))?(?P<tail>(?: \| [a-z]+:.*)?)$"
 )
-PROGRESS_HEADING_RE = re.compile(r"^## Progress\s*$", re.MULTILINE)
+# Prefix-matched, exactly as lint's `_section` reads a heading: `## Progress —
+# the receipts` is a Progress section to the enforcer, so an exact-string match
+# here would refuse to append the PROOF line after a proof that already passed.
+PROGRESS_HEADING_RE = re.compile(r"^## Progress(?: [^\n]*)?$", re.MULTILINE)
 
 
 # Kept identical to `scripts/shadow-lint.py`: the enforcer and the only flip
@@ -42,11 +45,29 @@ SHELL_OPERATORS = frozenset({"&&", "||", "|", ";", "&", ">", ">>", "<", "<<"})
 SHELLS = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
 
 
+def _shell_script_index(argv: list[str]) -> int:
+    """Index of the -c script — the ONE token a deliberate shell interprets.
+
+    Exempting the whole argv here was the same false green one level up:
+    `cmd bash -c 'true' && shadow --version` hands `true` to bash and passes
+    `&&`, `shadow`, `--version` to it as positional arguments it never runs.
+    """
+    if argv[0] not in SHELLS:
+        return -1
+    for index in (1, 2):
+        if index < len(argv) and argv[index] == "-c":
+            return index + 1
+    return -1
+
+
 def _shell_operators(argv: list[str]) -> list[str]:
     """Shell metacharacters sitting in argument position, worst-first."""
-    if argv[0] in SHELLS and "-c" in argv[1:3]:
-        return []
-    return sorted({a for a in argv[1:] if a in SHELL_OPERATORS or a.startswith("$(")})
+    script = _shell_script_index(argv)
+    return sorted({
+        token for index, token in enumerate(argv)
+        if index and index != script
+        and (token in SHELL_OPERATORS or token.startswith("$("))
+    })
 
 
 class AcceptError(ValueError):

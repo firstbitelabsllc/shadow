@@ -58,6 +58,31 @@ SHELL_OPERATORS: Final = frozenset({"&&", "||", "|", ";", "&", ">", ">>", "<", "
 SHELLS: Final = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
 
 
+def _shell_script_index(argv: list[str]) -> int:
+    """Index of the -c script — the ONE token a deliberate shell interprets.
+
+    Exempting the whole argv here was the same false green one level up:
+    `cmd bash -c 'true' && shadow --version` hands `true` to bash and passes
+    `&&`, `shadow`, `--version` to it as positional arguments it never runs.
+    """
+    if argv[0] not in SHELLS:
+        return -1
+    for index in (1, 2):
+        if index < len(argv) and argv[index] == "-c":
+            return index + 1
+    return -1
+
+
+def _shell_operators(argv: list[str]) -> list[str]:
+    """Shell metacharacters sitting in argument position, worst-first."""
+    script = _shell_script_index(argv)
+    return sorted({
+        token for index, token in enumerate(argv)
+        if index and index != script
+        and (token in SHELL_OPERATORS or token.startswith("$("))
+    })
+
+
 def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> list[dict]:
     """A cmd proof must be a runnable argv, because that is how accept runs it."""
     try:
@@ -67,11 +92,7 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
                          f"cmd proof does not parse as a command line: {exc}")]
     if not argv:
         return [_finding("PROOF-UNPARSEABLE", number, "blocking", "cmd proof is empty")]
-    # A shell invoked deliberately is the sanctioned way to use operators: the
-    # script after -c really is handed to a shell, so it means what it reads.
-    if argv[0] in SHELLS and "-c" in argv[1:3]:
-        return []
-    offenders = sorted({a for a in argv[1:] if a in SHELL_OPERATORS or a.startswith("$(")})
+    offenders = _shell_operators(argv)
     if offenders:
         return [_finding("PROOF-SHELL-OPERATOR", number, "blocking",
                          f"{' '.join(offenders)} is passed as a literal argument to "

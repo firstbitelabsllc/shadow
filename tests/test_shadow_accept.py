@@ -457,3 +457,39 @@ class ShellOperatorsInAProofAreRefused(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("[completed] x.txt says hello",
                           (repo / "PLAN.md").read_text(encoding="utf-8"))
+
+    def test_the_shell_exemption_covers_the_script_only(self) -> None:
+        # Bugbot (PR #282, High): exempting the whole argv once `-c` appeared
+        # rebuilt the false green inside the sanctioned form. bash runs `true`
+        # and takes `&&`, `grep`, ... as positional arguments it never runs.
+        self.assertEqual(
+            ["&&"],
+            accept._shell_operators(["bash", "-c", "true", "&&", "grep", "-q", "nope", "x.txt"]),
+        )
+        self.assertEqual([], accept._shell_operators(["bash", "-c", "set -e; true && true"]))
+
+
+class AcceptReadsAProgressHeadingTheWayLintDoes(unittest.TestCase):
+    """Bugbot (PR #282, Medium): lint prefix-matches section headings.
+
+    `## Progress — the receipts` is a Progress section to the enforcer, so an
+    exact-string match here would fail the append AFTER the proof had already
+    passed: a plan lint calls valid that accept cannot finish.
+    """
+
+    def test_a_suffixed_progress_heading_still_takes_the_proof_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            (repo / "PLAN.md").write_text(
+                PLAN.replace("## Progress\n", "## Progress — the receipts\n"), encoding="utf-8")
+            git(repo, "commit", "-qam", "a suffixed Progress heading")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            self.assertIn("[completed] x.txt says hello", plan)
+            self.assertIn("~ab12 PROOF", plan)
+
+    def test_a_different_word_starting_with_progress_is_not_a_progress_section(self) -> None:
+        self.assertIsNone(accept.PROGRESS_HEADING_RE.search("## Progressive\n"))

@@ -473,6 +473,13 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
         self.assertNotIn("PROOF-SHELL-OPERATOR",
                          _checks(self._plan("cmd bash -c 'set -e; true && true'")))
 
+    def test_the_shell_exemption_covers_the_script_only(self) -> None:
+        # Bugbot (PR #282, High): exempting the whole argv once `-c` appeared
+        # rebuilt the false green inside the sanctioned form — bash runs
+        # `true` and takes `&&`, `false` as positional arguments it never runs.
+        self.assertIn("PROOF-SHELL-OPERATOR",
+                      _checks(self._plan("cmd bash -c 'true' && false")))
+
     def test_an_unparseable_command_line_is_its_own_finding(self) -> None:
         self.assertIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd echo 'unbalanced")))
 
