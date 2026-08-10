@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Final
 
@@ -47,6 +49,7 @@ BY_MAX: Final = 40
 # sections, and THROWN entries in a file the whole board trusts, so the two
 # operator-supplied values are constrained before they are serialized.
 CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
+
 STAMP_RE: Final = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # A remote URL can carry a token in its userinfo; git echoes the URL back on a
 # rejected push, and that stderr lands in terminals and CI logs.
@@ -64,6 +67,37 @@ def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
     if check and result.returncode:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Replace a file in one step, never leaving it partially written.
+
+    `Path.write_text` truncates and then fills. A second process reading the
+    file in that window sees whatever has been written so far — and the second
+    process that matters here is `git commit`, which hashes the working tree
+    copy. Two `shadow throw` runs in one checkout, which is exactly the
+    documented two-leads-one-plan case, could hash a zero-length PLAN.md and
+    push the empty blob as the board every other seat reads. Measured at 3
+    occurrences in 45 same-checkout trials before this changed.
+
+    A temp file in the same directory keeps the rename on one filesystem, so
+    `os.replace` is atomic: readers see the old bytes or the new ones.
+    """
+    directory = path.parent
+    handle, temporary = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.exists():
+            # A fresh temp file is 0600; the plan is world-readable and stays so.
+            os.chmod(temporary, path.stat().st_mode & 0o7777)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
 
 
 def thrown_ids(text: str) -> set[str]:
@@ -232,14 +266,14 @@ def main(argv: list[str] | None = None) -> int:
         """Put the plan and its index entry back exactly as they were: a row
         flipped to in_progress with no commit behind it reads as somebody's
         claim and refuses every retry."""
-        plan_path.write_text(text, encoding="utf-8")
+        _atomic_write(plan_path, text)
         if index_entry:
             fields_ = index_entry.split()
             git(repo, "update-index", "--cacheinfo", f"{fields_[0]},{fields_[1]},PLAN.md", check=False)
         else:
             git(repo, "rm", "--cached", "--quiet", "--", "PLAN.md", check=False)
 
-    plan_path.write_text(body, encoding="utf-8")
+    _atomic_write(plan_path, body)
 
     try:
         git(repo, "commit", "--only", "--quiet",
@@ -251,17 +285,96 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
 
+    # THIS invocation's commit, pinned by sha. In the same-checkout concurrency
+    # case another process can land a commit between here and any later read of
+    # HEAD, so every check and every rollback below names this sha instead of
+    # the moving symbolic tip.
+    claim_commit = git(repo, "rev-parse", "--verify", "HEAD", check=False)
+    head_after = claim_commit.stdout.strip() if claim_commit.returncode == 0 else ""
+
+    def rollback_claim() -> bool:
+        """Undo this invocation's claim commit, or refuse and say so.
+
+        `reset` moves the branch, not a commit, so it may only run while this
+        commit is still the tip. If a concurrent `shadow throw` in the same
+        checkout committed on top, resetting to `head_before` would orphan both
+        that commit and this one — destroying another seat's claim to recover
+        from ours. Leaving HEAD alone is always the safe half of that trade.
+
+        Two things are proven before the branch moves: the tip is still the sha
+        this run saw after its commit, and that sha is a direct child of
+        `head_before`. The parent check catches the other order — somebody
+        landing a commit while `git commit` was still running — where the tip
+        looks stable but is not this invocation's work.
+        """
+        if not head_before or not head_after:
+            return False
+        current = git(repo, "rev-parse", "--verify", "HEAD", check=False)
+        if current.returncode != 0 or current.stdout.strip() != head_after:
+            return False
+        parent = git(repo, "rev-parse", "--verify", f"{head_after}^", check=False)
+        if parent.returncode != 0 or parent.stdout.strip() != head_before:
+            return False
+        if git(repo, "reset", "--quiet", "--soft", head_before, check=False).returncode != 0:
+            return False
+        restore_plan()
+        return True
+
+    # Read the plan back OUT of the commit before anything is pushed.
+    #
+    # A zero-exit commit says git ran, not that it recorded the right bytes. If
+    # anything truncated or reverted the file between the write and the hash,
+    # the push would publish that to every other seat, and lint reads an empty
+    # plan as clean. The claim is what makes dispatch durable, so it is checked
+    # against the object git actually stored — the only copy that will travel.
+    #
+    # Byte-for-byte against `body`, not a length threshold and not "does the
+    # claim line appear". A hook or a racing writer can drop tasks, proofs, or
+    # whole milestones and still leave the appended THROWN line and most of the
+    # characters intact; the goal block is then built from the in-memory `body`,
+    # so the command would report success while pushing a plan missing the very
+    # rows other seats read as authority. Anything but equality is a bad commit.
+    recorded = git(repo, "show", f"{head_after}:PLAN.md", check=False) if head_after else None
+    committed = recorded.stdout if recorded is not None and recorded.returncode == 0 else ""
+    if committed != body:
+        rolled_back = rollback_claim()
+        if rolled_back:
+            outcome = "The commit was rolled back and the plan restored; nothing was dispatched."
+        else:
+            # No rollback, but the working tree cannot be left holding whatever
+            # damaged the commit — an empty or half-written PLAN.md on disk is
+            # read as the board by every later shadow command in this checkout.
+            # Resync to HEAD rather than to this run's pre-throw copy: HEAD is
+            # the one version that is also somebody's committed history, so it
+            # is the only content this process can restore without overwriting
+            # a concurrent seat's landed plan. The pre-throw bytes stay
+            # recoverable from `head_before`, which the operator is handed.
+            resynced = git(repo, "checkout", "HEAD", "--", "PLAN.md", check=False).returncode == 0
+            outcome = (
+                "The commit could NOT be rolled back safely (HEAD is not this run's commit, so "
+                "resetting would orphan somebody else's work). "
+                + ("The working tree was resynced to HEAD, so no half-written plan is left on "
+                   "disk. " if resynced
+                   else "The working tree could NOT be resynced to HEAD — PLAN.md on disk may be "
+                        "half-written. ")
+                + (f"The plan as it stood before this run is `git show {head_before}:PLAN.md`. "
+                   if head_before else "")
+                + "Inspect HEAD before throwing again."
+            )
+        print("shadow throw: the commit does not match the plan this run wrote — refusing to "
+              "push a plan other seats would read as authority. Recorded "
+              f"{len(committed)} chars against {len(body)} written. " + outcome,
+              file=sys.stderr)
+        return 1
+
     # Build the block before pushing. While the claim has not left this machine
     # it can still be undone, so a block that cannot be built dispatches
     # nothing — which is what a nonzero exit is read to mean.
     try:
         block, _ = _amp.build_block(_amp._parse(body), repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
     except (LookupError, ValueError) as exc:
-        rolled_back = bool(head_before) and git(
-            repo, "reset", "--quiet", "--soft", head_before, check=False
-        ).returncode == 0
+        rolled_back = rollback_claim()
         if rolled_back:
-            restore_plan()
             print(f"shadow throw: the goal block could not be built; the claim was rolled back "
                   f"and nothing was dispatched: {exc}", file=sys.stderr)
         else:
