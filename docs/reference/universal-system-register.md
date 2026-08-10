@@ -192,6 +192,17 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     Cursor documents a real user-rule surface that survives a cold-session
     proof. Lands in: host verification, native-host documentation, and ~actv.
 
+29. **Two-seat acceptance is seat-bound, identity-handshaken, and
+    time-bounded.** Each real seat prints the same seat-neutral goal, its
+    SHA-256, and its freshly fetched origin/main ref before claiming with one
+    stable public seat name. Expected work comes from that seat's live claim,
+    or its next reachable checkpoint when unclaimed, never from the first
+    global resume. Board revisions are observed receipts, not values required
+    to remain equal after claims. A host timeout or board drift is
+    inconclusive, never green. The disposable gauntlet completes both
+    disjoint rows and leaves no orphan claim. Lands in: ~2st8, host
+    verification, and the repeated gauntlet.
+
 ## Rejected
 
 1. **The machine ledger as a monolith absorbing every task** (codex-seat

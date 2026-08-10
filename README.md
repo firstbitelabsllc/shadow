@@ -49,8 +49,8 @@ session loaded the skill. For that boundary, use the offline verifier first and
 then the quota-bearing live check when you have a stable board:
 
 ```bash
-scripts/shadow-verify-host.sh --host claude-code
-scripts/shadow-verify-host.sh --host codex --live
+scripts/shadow-verify-host.sh --host claude-code --by claude
+scripts/shadow-verify-host.sh --host codex --by codex --live
 ```
 
 ## First run: one complete handoff

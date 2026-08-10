@@ -29,21 +29,24 @@ that has the files and still opens cold, without the skill, asking which
 project to attach to.
 
 ```bash
-scripts/shadow-verify-host.sh --host claude-code          # offline, free
-scripts/shadow-verify-host.sh --host codex --live         # one real session
+scripts/shadow-verify-host.sh --host claude-code --by claude          # offline, free
+scripts/shadow-verify-host.sh --host codex --by codex --live          # one real session
 ```
 
 The offline tier proves the mount resolves to this checkout, that nothing
 shadows it from another root, that `SKILL.md` frontmatter parses with the name
 and description a loader needs, that the standing goal is present and appears
 exactly once, that `shadow` on PATH is this checkout, and that the board is
-reachable from an unrelated directory through that same command, with a resume
-row on it.
+reachable from an unrelated directory through that same command, with work for
+the named seat on it.
 
-`--live` runs one non-interactive session and asserts it returns that resume
-row. It is the only check that proves a **session** loads the skill, and it
-costs model quota, so it never runs by default — a skipped check says so rather
-than leaving a green run implying it happened.
+`--live` runs one non-interactive session and asserts it returns the named
+seat's owned claim, or that seat's next reachable checkpoint when it owns
+nothing. It is time-bounded by `--timeout-seconds` (default: 120); a timeout or
+board drift is inconclusive, never green. This is the only check that proves a
+**session** loads the skill, and it costs model quota, so it never runs by
+default — a skipped check says so rather than leaving a green run implying it
+happened.
 
 ## Two things that bite on the first try
 
