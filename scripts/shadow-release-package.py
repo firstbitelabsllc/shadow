@@ -58,6 +58,7 @@ REQUIRED_FILES = {
     "scripts/shadow-verify-host.sh",
     "scripts/shadow-verify-two-seat.py",
     "scripts/shadow_process_lib.py",
+    "scripts/shadow_cmd_proof.py",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
     "browser/outcome_source.py",

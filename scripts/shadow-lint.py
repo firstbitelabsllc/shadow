@@ -20,6 +20,7 @@ from typing import Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
+from shadow_cmd_proof import script_operand_issue  # noqa: E402
 import shadow_root_board as _board  # noqa: E402
 
 
@@ -124,6 +125,7 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
     # rotted receipt pretending to be a predicate. Only checked when the plan's
     # own directory is known — resolving an in-tree path needs it, and guessing
     # would turn an unknowable into a false accusation.
+    findings: list[dict] = []
     if root is not None and not _resolves(argv[0], root):
         # Severity follows the evidence. A path is answered by the repository
         # itself, so the same text gives the same finding anywhere: blocking.
@@ -132,12 +134,21 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
         # on what happens to be installed on the runner, against this file's
         # determinism contract. It is still worth saying out loud.
         if "/" in argv[0]:
-            return [_finding("PROOF-ARGV0", number, "blocking",
-                             f"`{argv[0]}` is not in this repository, so this proof can never run")]
-        return [_finding("PROOF-ARGV0", number, "warning",
-                         f"`{argv[0]}` is not on this machine's PATH, so this proof cannot run "
-                         "here — install it or name an in-tree path")]
-    return []
+            findings.append(_finding(
+                "PROOF-ARGV0", number, "blocking",
+                f"`{argv[0]}` is not in this repository, so this proof can never run",
+            ))
+        else:
+            findings.append(_finding(
+                "PROOF-ARGV0", number, "warning",
+                f"`{argv[0]}` is not on this machine's PATH, so this proof cannot run "
+                "here — install it or name an in-tree path",
+            ))
+    if root is not None:
+        issue = script_operand_issue(argv, root)
+        if issue:
+            findings.append(_finding("PROOF-SCRIPT", number, "blocking", issue))
+    return findings
 
 
 def _resolves(program: str, root: Path) -> bool:

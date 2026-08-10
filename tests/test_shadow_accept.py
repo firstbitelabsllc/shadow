@@ -1478,6 +1478,71 @@ class NeedsIsAReadinessGate(unittest.TestCase):
             self.assertIn("[in_progress] x.txt", plan.read_text(encoding="utf-8"))
 
 
+class ProofScriptArgumentsAreValidatedIdentically(unittest.TestCase):
+    ORIGINAL = """cmd python3 -c "import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\""""
+
+    def test_a_missing_interpreter_script_is_refused_before_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    self.ORIGINAL, "cmd node scripts/definitely-missing.mjs"
+                ),
+                encoding="utf-8",
+            )
+            git(repo, "commit", "-qam", "missing proof script")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("interpreter script", result.stdout + result.stderr)
+            self.assertNotIn("[completed] x.txt says hello", plan.read_text(encoding="utf-8"))
+
+    def test_a_committed_relative_interpreter_script_can_be_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            script = repo / "scripts" / "proof.py"
+            script.parent.mkdir()
+            script.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    self.ORIGINAL, "cmd python3 scripts/proof.py"
+                ),
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md", "scripts/proof.py")
+            git(repo, "commit", "-m", "relative proof script")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[completed] x.txt says hello", plan.read_text(encoding="utf-8"))
+
+    def test_env_chdir_cannot_redirect_a_relative_script_outside_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = make_repo(root)
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "proof.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    self.ORIGINAL, f"cmd env -C {outside} python3 proof.py"
+                ),
+                encoding="utf-8",
+            )
+            git(repo, "commit", "-qam", "redirected proof script")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("working directory", result.stdout + result.stderr)
+            self.assertNotIn("[completed] x.txt says hello", plan.read_text(encoding="utf-8"))
+
+
 class ShellOperatorsInAProofAreRefused(unittest.TestCase):
     """The false green, end to end, at the only path that flips a row.
 

@@ -100,6 +100,9 @@ class ReleasePackageTests(unittest.TestCase):
         for clause in ("--live", "--goal-file", "--timeout-seconds", "--json"):
             self.assertIn(clause, output.stdout)
 
+    def test_cmd_proof_validator_ships_with_lint_and_accept(self) -> None:
+        self.assertIn("scripts/shadow_cmd_proof.py", mod.REQUIRED_FILES)
+
     def test_disposable_fixture_commit_waits_for_git_maintenance(self) -> None:
         project = Path("/unused-fixture")
         with mock.patch.object(mod, "command") as observed:
