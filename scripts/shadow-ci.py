@@ -63,6 +63,10 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_install_doctor", "tests.test_host_directives", "tests.test_verify_host",
         "tests.test_standing_goal", "tests.test_release_package",
     )),
+    (("scripts/shadow-verify-two-seat.py", "scripts/shadow_process_lib.py"), (
+        "tests.test_two_seat_harness", "tests.test_gauntlet", "tests.test_release_package",
+        "tests.test_readme_contract", "tests.test_public_ready_grep_gate",
+    )),
     (("scripts/shadow-host.py",), ("tests.test_shadow_host", "tests.test_verify_host")),
     (("scripts/shadow-release-package.py", ".gitattributes", "VERSION", ".claude-plugin/"), (
         "tests.test_release_package", "tests.test_grammar_contract", "tests.test_standing_goal",
@@ -90,6 +94,8 @@ DOC_MODULES = {
 DOC_ROOTS = ("docs/", "README.md", "AGENT.md", "SKILL.md", "skills/", "CONTRIBUTING.md", "PLAN.md")
 RELEASE_PATHS = (
     "scripts/shadow-ci.py",
+    "scripts/shadow-verify-two-seat.py",
+    "scripts/shadow_process_lib.py",
     ".github/workflows/ci.yml",
     "scripts/shadow-release-package.py",
     "schemas/retirement-manifest.v1.json",
