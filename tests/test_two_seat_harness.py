@@ -100,7 +100,10 @@ class Fixture:
         self.sentinel = self.operator_home / ".shadow" / "root-board.json"
         self.sentinel.parent.mkdir()
         self.sentinel.write_text('{"operator":"untouched"}\n', encoding="utf-8")
-        self.operator_shadow_before = self._tree_snapshot(self.sentinel.parent)
+        self.operator_shadow_before = (
+            self.sentinel.parent.lstat().st_mode & 0o7777,
+            self._tree_snapshot(self.sentinel.parent),
+        )
         self.goal = self.root / "frozen-goal.txt"
         self.goal.write_text(GOAL, encoding="utf-8")
         self.checkout = self.root / "source"
@@ -149,7 +152,10 @@ class Fixture:
 
     def assert_operator_state_untouched(self, test: unittest.TestCase) -> None:
         test.assertEqual(
-            self._tree_snapshot(self.sentinel.parent),
+            (
+                self.sentinel.parent.lstat().st_mode & 0o7777,
+                self._tree_snapshot(self.sentinel.parent),
+            ),
             self.operator_shadow_before,
             "the harness mutated the operator's real Shadow board tree",
         )
@@ -223,14 +229,41 @@ if MODE == "one_seat" and SEAT == "codex":
 
 if MODE == "outside" and SEAT == "claude":
     outside = Path(os.environ["SHADOW_TEST_OUTSIDE_REPO"])
-    attempted = shadow("throw", "--repo", str(outside), "--task", "~cc33", "--by", SEAT)
-    if attempted.returncode == 0:
+    attempts = (
+        shadow("throw", "--repo", str(PORTFOLIO / "alpha"), "--repo", str(outside),
+               "--task", "~cc33", "--by", SEAT),
+        shadow("status", f"--root={outside}", "--json", "--by", SEAT),
+    )
+    if any(attempt.returncode == 0 for attempt in attempts):
         raise SystemExit(41)
 
 if MODE == "impersonate" and SEAT == "claude":
-    attempted = shadow("status", "--json", "--by", "codex")
-    if attempted.returncode == 0:
+    attempts = (
+        shadow("status", "--json", "--by", "codex"),
+        shadow("status", "--json", "--by", "claude", "--by", "codex"),
+    )
+    if any(attempt.returncode == 0 for attempt in attempts):
         raise SystemExit(42)
+
+if MODE == "cross_shim":
+    if SEAT == "codex":
+        emit_identity()
+        raise SystemExit(0)
+    claude_shadow = Path.cwd() / "bin" / "claude" / "shadow"
+    codex_shadow = Path.cwd() / "bin" / "codex" / "shadow"
+    commands = (
+        (claude_shadow, "throw", "--repo", str(PORTFOLIO / "alpha"), "--task", "~aa11", "--by", "claude"),
+        (codex_shadow, "throw", "--repo", str(PORTFOLIO / "beta"), "--task", "~bb22", "--by", "codex"),
+        (claude_shadow, "status", "--json", "--by", "claude"),
+        (codex_shadow, "status", "--json", "--by", "codex"),
+        (claude_shadow, "accept", "--repo", str(PORTFOLIO / "alpha"), "--row", "~aa11", "--by", "claude"),
+        (codex_shadow, "accept", "--repo", str(PORTFOLIO / "beta"), "--row", "~bb22", "--by", "codex"),
+    )
+    for direct in commands:
+        if subprocess.run([str(direct[0]), *direct[1:]], env=os.environ).returncode:
+            raise SystemExit(43)
+    emit_identity()
+    raise SystemExit(0)
 
 claimed = None
 deadline = time.monotonic() + 15
@@ -400,6 +433,15 @@ class LiveTwoSeatProof(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(receipt(result)["status"], "pass")
             fixture.assert_operator_state_untouched(self)
+
+    def test_one_process_cannot_use_both_seat_specific_shims(self) -> None:
+        context, root, fixture, _, _, result = self._run("cross_shim")
+        with context:
+            self.assertNotEqual(result.returncode, 0)
+            data = receipt(result)
+            self.assertEqual(data["failure"], "seat_overlap_missing")
+            fixture.assert_operator_state_untouched(self)
+            assert_closed_receipt(self, data, [str(root), GOAL])
 
     def test_host_cannot_register_or_mutate_an_outside_repository(self) -> None:
         context = tempfile.TemporaryDirectory()
