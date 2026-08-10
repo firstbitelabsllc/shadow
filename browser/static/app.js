@@ -25,8 +25,8 @@ function renderProjects() {
   for (const plan of state.plans) {
     const button = el('button', { className: plan.id === state.selected ? 'project active' : 'project', type: 'button' });
     button.append(el('strong', { text: plan.title }));
-    const status = plan.briefing?.state ? plan.briefing.state.replaceAll('_', ' ') : 'needs a brief';
-    button.append(el('span', { text: status }));
+    const status = plan.briefing?.state || plan.board?.state || 'unreadable';
+    button.append(el('span', { text: status.replaceAll('_', ' ') }));
     button.addEventListener('click', () => {
       state.selected = plan.id;
       render();
@@ -61,6 +61,67 @@ async function choose(plan, option) {
   document.querySelectorAll('.choice').forEach((button) => { button.disabled = true; });
 }
 
+function renderBoardBriefCard(plan) {
+  const brief = plan.board;
+  if (!brief || brief.state === 'empty' || brief.state === 'unmigrated') {
+    const card = el('section', { className: 'card empty' });
+    card.append(el('p', { className: 'eyebrow', text: plan.title }));
+    if (brief?.state === 'unmigrated') {
+      card.append(el('h2', { text: 'Written before the current plan grammar' }));
+      card.append(el('p', { text: 'This plan has content but no task rows Shadow can read. Migrate it with shadow init --here, or leave it as history.' }));
+      // A pre-grammar plan can also carry a broken v3 Outcome. Staying silent
+      // about that error would send the owner migrating when the real defect
+      // is in the Brief they already have.
+      if (plan.contract_error) {
+        card.append(el('p', { text: `Its Brief also has an Outcome Shadow could not read: ${plan.contract_error}` }));
+      }
+    } else {
+      card.append(el('h2', { text: 'This plan has no readable tasks yet' }));
+      card.append(el('p', { text: plan.contract_error || 'Add a ## Tasks section with milestone rows, then refresh.' }));
+    }
+    main.append(card);
+    return;
+  }
+  const card = el('article', { className: `card state-${brief.state}` });
+  const head = el('div', { className: 'card-head' });
+  head.append(el('span', { className: 'status', text: brief.state.replaceAll('_', ' ') }));
+  head.append(el('span', { className: 'project-name', text: plan.title }));
+  card.append(head);
+  if (brief.priority) {
+    card.append(el('p', { className: 'eyebrow', text: 'Priority' }));
+    card.append(el('h2', { text: brief.priority }));
+  }
+  const milestone = brief.milestone;
+  if (milestone) {
+    card.append(el('p', { className: 'eyebrow', text: 'Milestone' }));
+    card.append(el('p', { className: 'current', text: milestone.title }));
+    const meter = checkpointMeter(milestone.counts);
+    if (meter) card.append(meter);
+    const now = milestone.current || milestone.next;
+    if (now) {
+      card.append(el('p', { className: 'eyebrow', text: milestone.current ? 'Now' : 'Next' }));
+      card.append(el('p', { className: 'current', text: now }));
+    }
+    if (milestone.dod) {
+      const dod = el('dl', { className: 'brief' });
+      dod.append(row('Done means', `${milestone.dod.text} (${milestone.dod.state.replaceAll('_', ' ')})`));
+      card.append(dod);
+    }
+  }
+  if (brief.contradictions_open) {
+    card.append(el('p', {
+      className: 'board-decision',
+      text: `${brief.contradictions_open} open contradiction${brief.contradictions_open === 1 ? '' : 's'} — read before landing work`,
+    }));
+  }
+  if (brief.latest_change) {
+    const change = el('dl', { className: 'brief' });
+    change.append(row('Latest change', brief.latest_change));
+    card.append(change);
+  }
+  main.append(card);
+}
+
 function renderPlan(plan) {
   main.replaceChildren();
   if (!plan) {
@@ -72,11 +133,7 @@ function renderPlan(plan) {
     return;
   }
   if (!plan.outcome || !plan.briefing) {
-    const card = el('section', { className: 'card empty' });
-    card.append(el('p', { className: 'eyebrow', text: plan.title }));
-    card.append(el('h2', { text: 'This plan needs a Brief' }));
-    card.append(el('p', { text: plan.contract_error || 'Add the typed Outcome fields to PLAN.md.' }));
-    main.append(card);
+    renderBoardBriefCard(plan);
     return;
   }
   const outcome = plan.outcome.outcome;
@@ -188,9 +245,12 @@ function renderBoard() {
       top.append(el('strong', { text: plan.title }));
       if (plan.mode) top.append(el('span', { className: `mode-chip mode-${plan.mode}`, text: plan.mode }));
       card.append(top);
-      const status = plan.briefing?.state ? plan.briefing.state.replaceAll('_', ' ') : 'needs a brief';
-      card.append(el('span', { className: 'board-state', text: status }));
-      if (plan.milestone) card.append(el('p', { className: 'board-milestone', text: plan.milestone }));
+      const status = plan.briefing?.state || plan.board?.state || 'unreadable';
+      card.append(el('span', { className: 'board-state', text: status.replaceAll('_', ' ') }));
+      const milestoneTitle = plan.board?.milestone?.title || plan.milestone;
+      if (milestoneTitle) card.append(el('p', { className: 'board-milestone', text: milestoneTitle }));
+      const nowLine = plan.board?.milestone?.current || plan.board?.milestone?.next;
+      if (nowLine) card.append(el('p', { className: 'board-now', text: nowLine }));
       if (plan.lint) {
         if (!plan.lint.parse_ok || plan.lint.blocking) card.classList.add('red');
         const verdict = !plan.lint.parse_ok
@@ -201,8 +261,9 @@ function renderBoard() {
         card.append(el('span', { className: plan.lint.blocking || !plan.lint.parse_ok ? 'lint-chip bad' : 'lint-chip', text: verdict }));
       }
 
-      if (plan.tasks) {
-        const meter = checkpointMeter(plan.tasks);
+      const counts = plan.board?.milestone?.counts || plan.tasks;
+      if (counts) {
+        const meter = checkpointMeter(counts);
         if (meter) card.append(meter);
       }
       if (plan.briefing?.choices?.length) {

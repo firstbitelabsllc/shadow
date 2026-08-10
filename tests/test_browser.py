@@ -376,6 +376,83 @@ BOARD_PLAN = """# Gift flow live
 """
 
 
+class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
+    """The board renders the v4 grammar; a missing v3 Outcome is not a defect.
+
+    The v3 typed-Outcome block was retired from the grammar on 2026-08-09, but
+    the browser kept demanding it — so EVERY current plan on a machine failed
+    "outcome must be a string" and the board rendered a wall of dead cards.
+    These tests pin the split: the v4 board brief is total, and the v3
+    contract can only error for a plan that actually still carries its keys.
+    """
+
+    def _record(self, plan_text: str):
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = root / "repo"
+            plan = repo / "proj" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(plan_text, encoding="utf-8")
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "test@example.invalid")
+            git(repo, "config", "user.name", "Test")
+            git(repo, "add", "proj/PLAN.md")
+            git(repo, "commit", "-qm", "fixture")
+            return server.plan_record(plan, repo)
+
+    def test_a_v4_plan_without_the_retired_outcome_key_is_not_an_error(self) -> None:
+        record = self._record(BOARD_PLAN)
+        self.assertIsNone(record["contract_error"],
+                          "the retired v3 key's absence was reported as a defect")
+        board = record["board"]
+        self.assertEqual(board["state"], "working")
+        self.assertEqual(board["milestone"]["title"], "M1 — Gift flow live")
+        self.assertEqual(board["milestone"]["counts"],
+                         {"pending": 1, "in_progress": 1, "blocked": 0, "completed": 1})
+        self.assertIn("Checkout smoke green", board["milestone"]["current"])
+        self.assertEqual(board["milestone"]["dod"]["state"], "pending")
+
+    def test_a_v3_plan_still_gets_its_rich_briefing(self) -> None:
+        record = self._record(PLAN)
+        self.assertIsNone(record["contract_error"])
+        self.assertIsNotNone(record["briefing"])
+        self.assertIsNotNone(record["board"])
+
+    def test_a_v3_plan_with_malformed_outcome_still_reports_its_error(self) -> None:
+        broken = PLAN.replace("- Outcome State: needs_input", "- Outcome State: vibing")
+        record = self._record(broken)
+        self.assertIsNotNone(record["contract_error"],
+                             "a malformed v3 contract must still be named")
+        self.assertIsNotNone(record["board"], "the board brief is total even then")
+
+    def test_states_ready_blocked_and_resting_derive_from_the_rows(self) -> None:
+        ready = BOARD_PLAN.replace("- [in_progress]", "- [pending]")
+        self.assertEqual(self._record(ready)["board"]["state"], "ready")
+        blocked = BOARD_PLAN.replace("- [in_progress]", "- [blocked]").replace("- [pending]", "- [blocked]")
+        self.assertEqual(self._record(blocked)["board"]["state"], "blocked")
+        resting = (BOARD_PLAN.replace("- [in_progress]", "- [completed]")
+                             .replace("- [pending]", "- [completed]"))
+        self.assertEqual(self._record(resting)["board"]["state"], "resting")
+
+    def test_a_plan_with_no_tasks_is_an_honest_empty_not_a_crash(self) -> None:
+        record = self._record("# Just notes\n\nno sections at all\n")
+        self.assertEqual(record["board"]["state"], "empty")
+        self.assertIsNone(record["contract_error"])
+
+    def test_a_pre_grammar_plan_reads_unmigrated_not_empty(self) -> None:
+        essay = "# Old plan\n\n## Goal\n" + "\n".join(
+            f"line {i} of a real pre-grammar document" for i in range(14)
+        )
+        self.assertEqual(self._record(essay)["board"]["state"], "unmigrated")
+
+    def test_open_contradictions_are_counted_resolved_ones_are_not(self) -> None:
+        with_contra = BOARD_PLAN + (
+            "\n## Contradictions\n\n- one open thing | opened 2026-08-09\n"
+            "- RESOLVED 2026-08-09 in favor of X | winner: X\n"
+        )
+        self.assertEqual(self._record(with_contra)["board"]["contradictions_open"], 1)
+
+
 class BoardProjectionTests(unittest.TestCase):
     def make_board_repo(self, root: Path, plan_text: str) -> tuple[Path, Path]:
         repo = root / "repo"
