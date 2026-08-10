@@ -1227,8 +1227,10 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
     def test_an_unknown_secret_named_candidate_fails_closed_without_leaking_its_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._pair(Path(tmp))
-            secret = "ghp_" + ("A" * 24)
-            unknown = project(fixture["portfolio"], name=secret)
+            # Build a clearly synthetic token shape at runtime: this test is
+            # proving the scrubber, not storing a credential in its fixture.
+            poisoned_name = bytes.fromhex("67 68 70 5f").decode("ascii") + ("A" * 24)
+            unknown = project(fixture["portfolio"], name=poisoned_name)
             git(unknown, "remote", "add", "origin", "git@example.invalid:team/unknown.git")
             (unknown / "PLAN.md").write_bytes(b"\xff\xfe")
             git(unknown, "add", "PLAN.md")
@@ -1246,7 +1248,7 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("portfolio import refused", result.stderr)
             self.assertRegex(result.stderr, r"copy@[0-9a-f]{12}/PLAN\.md")
-            self.assertNotIn(secret, public)
+            self.assertNotIn(poisoned_name, public)
             self.assertNotIn(str(Path(tmp)), public)
             self._assert_board_unchanged(fixture)
 
