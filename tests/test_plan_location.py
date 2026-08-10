@@ -245,3 +245,68 @@ class Boundedness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ADuplicateNeverBecomesASecondRow(unittest.TestCase):
+    """Two spellings of one repository, and one repository's own copies.
+
+    Both were red when this was written, on main, with no mutation needed.
+
+    A clone addressed as `git@github.com:acme/thing.git` and one addressed as
+    `https://github.com/acme/thing` are the same repository. The dedup key was
+    the raw URL string, so they were two keys and both rendered — the board
+    said two projects where one exists.
+
+    Separately, `Path.glob` descends into dot-directories: a declared
+    `**/PLAN.md` reached into `.worktrees/`, `node_modules/`, and any vendored
+    copy. `SKIP_DIRS` named exactly those directories and had zero readers.
+    """
+
+    def _repo(self, root: Path, name: str, origin: str | None, plan: str) -> Path:
+        repo = root / name
+        (repo).mkdir(parents=True, exist_ok=True)
+        (repo / "PLAN.md").write_text(plan, encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        if origin:
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
+        return repo
+
+    PLAN = ("# T\n\n## Brief\n\n- Project: thing\n- Mode: ship\n\n## Tasks\n\n"
+            "### M\n- [pending] a row ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n## Progress\n\n"
+            "- 2026-08-09T00:00:00Z NOTE seeded\n")
+
+    def test_two_url_spellings_of_one_repo_render_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git", self.PLAN)
+            self._repo(root, "thing-clone", "https://github.com/acme/thing", self.PLAN)
+            found = discover_plans(root)
+            self.assertEqual(len(found), 1,
+                             f"one repository rendered {len(found)} times: "
+                             f"{[r['path'] for r in found]}")
+
+    def test_two_different_repos_sharing_a_project_slug_both_render(self) -> None:
+        # The opposite error. Brief law legalizes multi-repo projects, so
+        # grouping by `- Project:` would hide a real repository.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "web", "git@github.com:acme/web.git", self.PLAN)
+            self._repo(root, "api", "git@github.com:acme/api.git", self.PLAN)
+            self.assertEqual(len(discover_plans(root)), 2)
+
+    def test_a_declared_glob_never_descends_into_a_hidden_or_vendor_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            declaring = self.PLAN.replace("- Mode: ship", "- Mode: ship\n- Plans: **/PLAN.md")
+            repo = self._repo(root, "thing", "git@github.com:acme/thing.git", declaring)
+            for buried in (".worktrees/pool", "node_modules/pkg", "dist", "sub"):
+                (repo / buried).mkdir(parents=True, exist_ok=True)
+                (repo / buried / "PLAN.md").write_text(self.PLAN, encoding="utf-8")
+
+            paths = {str(p.relative_to(repo)) for p in repo_plans(repo)}
+
+            self.assertIn("sub/PLAN.md", paths, "a real nested plan was pruned")
+            for hidden in (".worktrees/pool/PLAN.md", "node_modules/pkg/PLAN.md", "dist/PLAN.md"):
+                self.assertNotIn(hidden, paths,
+                                 f"discovery read a copy under a pruned directory: {hidden}")
