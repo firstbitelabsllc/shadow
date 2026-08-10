@@ -88,6 +88,7 @@ class ReleasePackageTests(unittest.TestCase):
     def test_two_seat_harness_ships_with_its_process_boundary(self) -> None:
         self.assertIn("scripts/shadow-verify-two-seat.py", mod.REQUIRED_FILES)
         self.assertIn("scripts/shadow_process_lib.py", mod.REQUIRED_FILES)
+        self.assertIn("SOURCE_REF", mod.REQUIRED_FILES)
         output = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "shadow-verify-two-seat.py"), "--help"],
             cwd=ROOT,

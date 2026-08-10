@@ -37,6 +37,7 @@ REQUIRED_FILES = {
     "LICENSE",
     "README.md",
     "SECURITY.md",
+    "SOURCE_REF",
     "SKILL.md",
     "skills/goal/SKILL.md",
     "VERSION",
@@ -348,7 +349,6 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         or two_seat.get("board", {}).get("claims") != 0
     ):
         raise RuntimeError("installed two-seat harness did not complete its offline proof")
-
     project = root / "installed-project"
     project.mkdir()
     command(["git", "init", "--quiet"], project)

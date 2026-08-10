@@ -64,10 +64,13 @@ HOME, two disposable Git repositories with local bare remotes, and one board;
 two deterministic seats then use the real `status`, `throw`, and `accept`
 paths. Explicit `--live` spends host quota and gives Claude and Codex the same
 frozen goal hash and one freshly fetched `origin/main` ref. Both host process
-groups are bounded and drained on every exit. Identity mismatch, timeout,
-board drift, partial completion, or any orphan claim is inconclusive, never
-green. The temporary tree is removed on exit, and the harness reports evidence
-for the person-observed gate without flipping that gate itself.
+groups are bounded and drained on every exit. Live mode refuses unless the
+executing checkout is clean and exactly at that fetched ref. The final proof
+binds each completed row to its historical owner and requires both seats to
+refresh status while both claims overlap. Identity mismatch, timeout, board
+drift, partial completion, or any orphan claim is inconclusive, never green.
+The temporary tree is removed on exit, and the harness reports evidence for
+the person-observed gate without flipping that gate itself.
 
 ## Two things that bite on the first try
 

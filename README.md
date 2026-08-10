@@ -65,8 +65,11 @@ scripts/shadow-python.sh scripts/shadow-verify-two-seat.py \
   --live --goal-file ./frozen-goal.txt --json
 ```
 
-The receipt proves the shared goal hash/ref, two completed proofs, and zero
-orphan claims. It never completes the person-observed gate on its own.
+The receipt proves the shared goal hash/ref, two distinct historical owners,
+overlapping peer-visible claims, two completed proofs, and zero orphan claims.
+Live mode also requires the running checkout to be clean and exactly at the
+freshly fetched ref. The harness never completes the person-observed gate on
+its own.
 
 ## First run: one complete handoff
 

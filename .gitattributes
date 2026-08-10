@@ -8,5 +8,6 @@ tests/              export-ignore
 .gitattributes      export-ignore
 .gitleaks.toml      export-ignore
 PLAN.md             export-ignore
+SOURCE_REF          export-subst
 docs/plan-archive/ export-ignore
 docs/superpowers/ export-ignore
