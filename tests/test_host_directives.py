@@ -11,10 +11,12 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "shadow-host-directives.py"
@@ -479,13 +481,15 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
         hd._test_between_resolve_and_write = repoint
         with self.assertRaisesRegex(ValueError, "repointed"):
             hd.apply(self.link, BLOCK)
-        # The write went to the file the link named when it was pinned — that
-        # is the pin-time contract — and the refusal exists because success
-        # would describe a file the host no longer reads. The file it reads
-        # NOW is untouched.
+        # The link is re-resolved once more immediately BEFORE the rename, so a
+        # repoint that has already happened is refused with nothing written.
+        # The file the host reads now is untouched, and so — unlike the
+        # post-write detection this replaced — is the pin-time target: neither
+        # file is touched, exactly as the name promises.
         self.assertEqual(other.read_text(encoding="utf-8"), "the file the host now reads\n")
-        self.assertIn(hd.BEGIN, self.target.read_text(encoding="utf-8"),
-                      "the pin-time target should carry the block the error describes")
+        self.assertEqual(self.target.read_text(encoding="utf-8"), "owner text\n")
+        self.assertNotIn(hd.BEGIN, self.target.read_text(encoding="utf-8"),
+                         "a repoint caught before the rename must leave the pin-time target untouched")
 
     def test_a_target_deleted_inside_the_window_is_not_recreated(self) -> None:
         hd._test_between_resolve_and_write = lambda: self.target.unlink()
@@ -621,13 +625,12 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
                          "## Shadow — standing goal\ntext\n",
                          "the sandboxed source of truth was modified")
 
-    def test_the_final_window_cannot_clobber_a_swapped_in_file(self) -> None:
-        # THE closure test for lstat-to-commit. The swap happens after the
-        # verify, at the last possible instant. With rename semantics the
-        # swapped-in file would be silently destroyed; with the pinned
-        # descriptor our bytes land on the detached previous inode, the
-        # bystander is untouched, and the lost race is a loud refusal instead
-        # of a false success.
+    def test_a_swap_before_the_identity_reverify_is_refused(self) -> None:
+        # A swap in the window BEFORE the final identity re-verify: the
+        # re-verify then reads a different inode at the pathname than the one
+        # pinned, so it refuses and the temp is discarded — the swapped-in file
+        # is never renamed over. (The instant AFTER the re-verify is a
+        # different, undetectable window; see the last-writer-wins test below.)
         # The seam fires once for the backup's commit and once for the final
         # write; the window under test is the SECOND. Firing on the first
         # would swap during the backup and be caught by the earlier identity
@@ -709,6 +712,188 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
         self.assertEqual(hd.apply(self.link, BLOCK), "added")
         self.assertTrue(self.link.is_symlink())
         self.assertIn(hd.BEGIN, self.target.read_text(encoding="utf-8"))
+
+    def test_a_hard_link_added_after_the_pin_is_refused_before_the_rename(self) -> None:
+        # The pin-time nlink check is not the whole story: a second name can
+        # appear in the window between the pin and the rename. Renaming then
+        # would split the names — the new alias would keep the old bytes
+        # forever — so the count is re-checked immediately before the rename
+        # and refused there too, not only at the pin.
+        twin = self.target.parent / "TWIN.md"
+
+        def add_link() -> None:
+            hd._test_between_resolve_and_write = None
+            os.link(self.target, twin)
+
+        hd._test_between_resolve_and_write = add_link
+        try:
+            with self.assertRaisesRegex(ValueError, "gained a hard link"):
+                hd.apply(self.link, BLOCK)
+        finally:
+            hd._test_between_resolve_and_write = None
+        self.assertEqual(self.target.read_text(encoding="utf-8"), "owner text\n")
+        self.assertNotIn(hd.BEGIN, self.target.read_text(encoding="utf-8"))
+
+    def test_an_idempotent_current_write_revalidates_the_link_first(self) -> None:
+        # "current" claims the host already reads this block. If the link was
+        # repointed after the pin, that claim is about the file it USED to
+        # read; the one it reads now may carry nothing. The no-op path must
+        # re-resolve the link before returning "current", exactly as a write
+        # re-resolves before reporting "added".
+        hd.apply(self.link, BLOCK)  # target now carries the block: next call is "current"
+        other = self.target.parent / "OTHER.md"
+        other.write_text("a different owner, no block\n", encoding="utf-8")
+
+        def repoint() -> None:
+            hd._test_between_snapshot_and_read = None
+            self.link.unlink()
+            self.link.symlink_to(other)
+
+        hd._test_between_snapshot_and_read = repoint
+        try:
+            with self.assertRaisesRegex(ValueError, "repointed"):
+                hd.apply(self.link, BLOCK)
+        finally:
+            hd._test_between_snapshot_and_read = None
+
+    def test_the_final_instant_before_the_rename_is_last_writer_wins(self) -> None:
+        # THE documented POSIX floor, asserted rather than pretended away.
+        # After the identity re-verify passes, one instant remains before the
+        # rename. A different process that renames its own file over the target
+        # in exactly that instant cannot be detected: POSIX rename has no
+        # compare-and-swap (nor does Darwin expose one), so this write wins and
+        # buries the racer's. What is STILL guaranteed even here: the person's
+        # pre-write state is preserved in .bak-shadow, and no reader ever saw a
+        # partial file. The racer's transient bytes are lost by design — this
+        # test pins that boundary so a change that silently narrows it (or
+        # pretends to close it, as a since-removed "bury detector" did by
+        # firing on every normal write) fails loudly.
+        backup = self.plain.with_suffix(self.plain.suffix + ".bak-shadow")
+
+        def swap_in_final_instant() -> None:
+            hd._test_between_final_verify_and_replace = None
+            _swap_with_distinct_inode(self.plain, "a racer's transient write\n")
+
+        hd._test_between_final_verify_and_replace = swap_in_final_instant
+        try:
+            self.assertEqual(hd.apply(self.plain, BLOCK), "added")  # we win the rename
+        finally:
+            hd._test_between_final_verify_and_replace = None
+        result = self.plain.read_text(encoding="utf-8")
+        self.assertIn(hd.BEGIN, result)
+        self.assertNotIn("a racer's transient write", result,
+                         "the racer's file survived — the floor moved")
+        self.assertEqual(backup.read_text(encoding="utf-8"), "plain host file\n",
+                         "even at the floor, the person's pre-write state is preserved")
+
+
+class ThePinnedDescriptorIsAlwaysClosed(unittest.TestCase):
+    """apply() opens one O_NOFOLLOW descriptor; every exit path releases it.
+
+    The pin is acquired near the top of apply and used by every branch below —
+    the idempotent "current" return, the "absent" no-op, each refusal, and the
+    normal write. A branch that returns or raises without closing it leaks a
+    descriptor: invisible to behavior tests, fatal to a long-running install
+    that exhausts its fd table. Measured against /dev/fd, this process's own
+    open descriptors.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.file = self.root / "HOST.md"
+        self.file.write_text("host text\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    @staticmethod
+    def _open_fd_count() -> int:
+        return len(os.listdir("/dev/fd"))
+
+    def _assert_no_leak(self, call) -> None:
+        # Prime once so any lazy one-time allocation (module caches) is not
+        # miscounted, then repeat: a per-call leak of even one fd grows the
+        # count by the repeat count, which `<=` catches without flaking on the
+        # transient fd os.listdir itself opens (it is opened and closed the
+        # same way each measurement).
+        try:
+            call()
+        except Exception:
+            pass
+        before = self._open_fd_count()
+        for _ in range(6):
+            try:
+                call()
+            except Exception:
+                pass
+        after = self._open_fd_count()
+        self.assertLessEqual(after, before,
+                             f"apply leaked a descriptor over repeats: {before} -> {after}")
+
+    def test_the_normal_write_and_current_noop_close_the_descriptor(self) -> None:
+        self._assert_no_leak(lambda: hd.apply(self.file, BLOCK))
+
+    def test_the_absent_remove_closes_the_descriptor(self) -> None:
+        self._assert_no_leak(lambda: hd.apply(self.file, BLOCK, remove=True))
+
+    def test_a_hard_link_refusal_closes_the_descriptor(self) -> None:
+        os.link(self.file, self.root / "TWIN.md")  # nlink=2 → refused at the pin
+        self._assert_no_leak(lambda: hd.apply(self.file, BLOCK))
+
+    def test_a_not_a_regular_file_refusal_closes_the_descriptor(self) -> None:
+        sock = self.root / "DIR"
+        sock.mkdir()  # a directory: pinned, then refused as not a regular file
+        self._assert_no_leak(lambda: hd.apply(sock, BLOCK))
+
+
+class ACompletedWriteIsFsyncedToDisk(unittest.TestCase):
+    """Durability is claimed only because the file AND its directory are synced.
+
+    Atomic visibility (temp + rename) stops a partial read; it does not by
+    itself make the rename survive power loss — the directory entry recording
+    the new name must be fsynced too. The module docstring claims durability,
+    so these assert both a file descriptor and a directory descriptor are
+    fsynced, on the rename path and on the exclusive-create path. Power loss
+    cannot be simulated in a unit test; that both syncs are issued is the
+    mechanical proof the claim rests on.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _fsynced_kinds(self, call) -> dict:
+        kinds = {"file": False, "dir": False}
+        real = os.fsync
+
+        def spy(fd):
+            try:
+                kind = "dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"
+                kinds[kind] = True
+            except OSError:
+                pass
+            return real(fd)
+
+        with mock.patch("os.fsync", spy):
+            call()
+        return kinds
+
+    def test_an_existing_file_rewrite_fsyncs_file_and_directory(self) -> None:
+        f = self.root / "HOST.md"
+        f.write_text("host text\n", encoding="utf-8")
+        kinds = self._fsynced_kinds(lambda: hd.apply(f, BLOCK))
+        self.assertTrue(kinds["file"], "the new bytes were not fsynced")
+        self.assertTrue(kinds["dir"], "the rename was not made durable (no directory fsync)")
+
+    def test_a_fresh_create_fsyncs_file_and_directory(self) -> None:
+        f = self.root / "sub" / "NEW.md"
+        kinds = self._fsynced_kinds(lambda: hd.apply(f, BLOCK))
+        self.assertTrue(kinds["file"], "the created file's bytes were not fsynced")
+        self.assertTrue(kinds["dir"], "the link(2) create was not made durable (no directory fsync)")
 
 
 class AFailedWriteLeavesNoNewBackup(unittest.TestCase):

@@ -13,6 +13,45 @@ The contract, in order of how much it matters:
    one, never a truncated one. The first write also leaves a `.bak-shadow`
    copy. A host file that is a symlink is written THROUGH — the canonical file
    it points at is what changes, and the link is still a link afterwards.
+
+### Concurrency and durability model — what this promises, and what it does not
+
+This file writes correctly against a person editing by hand and against its own
+reruns. It does NOT implement a lock, and it makes no claim of safety against an
+arbitrary other process racing the same file. The precise boundary, because an
+over-promise here would be a lie about someone's hand-written instructions:
+
+- **Guaranteed.** *Atomic visibility*: a reader at any instant sees the complete
+  old directive or the complete new one, never a partial or empty one — the new
+  bytes are fully written and `fsync`-ed to a temp file before an atomic rename
+  ever gives them the target's name. *Durability*: a write reported complete has
+  had both the temp file and its parent directory `fsync`-ed, so it survives a
+  process or OS crash. *Create/backup exclusivity*: a fresh target or a
+  `.bak-shadow` is made with `link(2)`, which the kernel refuses atomically if
+  the name is already taken — nothing is ever clobbered into existence, and on
+  any failure the pre-write state is preserved (the backup is kept and named in
+  the error). *Symlink survival*: a symlinked host file stays a symlink; its
+  canonical target receives the bytes.
+- **Best-effort.** *Identity re-verification*: from the moment the resolved file
+  is pinned (an `O_RDONLY|O_NOFOLLOW` descriptor, whose link count reads zero the
+  instant the file loses its last name — inode numbers recycle, a live descriptor
+  does not) up to the rename instant, every guard re-checks that the pathname
+  still names the pinned file, that no hard link appeared, and — for a link — that
+  it still resolves to the same target. This catches human-scale races (a swap, a
+  delete, a repoint between resolve and write) and refuses loudly.
+- **Out of scope, by decision, not oversight.** The single instant *at* the
+  rename cannot be made both atomic-replacing and never-clobber-a-concurrent-
+  writer: POSIX rename offers no compare-and-swap, and Darwin exposes none
+  either (`renameatx_np` gives EXCL only for an absent destination and SWAP
+  without an expected identity; `RENAME_SECLUDE` is undocumented as a
+  concurrency primitive). So if a *different* process renames its own file over
+  the target in that instant, last writer wins and this cannot detect it — which
+  is why crash-safety, not race-detection, is the property kept at the floor.
+  Likewise a concurrent writer that edits the *same inode in place* (rather than
+  renaming a replacement over it) is invisible to every identity check by
+  construction. Cooperating processes that need mutual exclusion must take a
+  shared advisory lock around resolve-read-write themselves; a process that
+  ignores such a lock is, and is documented to be, outside this contract.
 2. **Own only between the markers.** Text before and after is untouched, byte
    for byte.
 3. **Idempotent.** Writing twice changes nothing the second time.
@@ -195,6 +234,27 @@ _test_between_resolve_and_write = None
 _test_between_snapshot_and_read = None
 _test_between_resolve_and_snapshot = None
 _test_between_verify_and_commit = None
+_test_between_final_verify_and_replace = None
+
+
+def _fsync_dir(directory: Path) -> None:
+    """Flush a rename/link into the directory so the name change is durable.
+
+    `fsync` on the file makes its BYTES survive a crash; the directory ENTRY —
+    the fact that those bytes now wear this name — survives only if the parent
+    directory is synced too. Without this the write is atomically *visible* but
+    not *durable*: a crash immediately after the rename could lose the name
+    change. Kept best-effort — a few filesystems reject a directory fsync — but
+    the common case (APFS, ext4) makes the completed write crash-durable, which
+    is the only condition under which the module docstring claims durability.
+    """
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
@@ -221,6 +281,7 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
             os.link(temporary, path)
         except FileExistsError:
             return False
+        _fsync_dir(path.parent)
         return True
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -279,13 +340,52 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
                     f"{path} changed identity after it was resolved; rerun so the "
                     "write sees what is there now"
                 )
+            if pinned is not None and os.fstat(pinned).st_nlink > 1:
+                # A hard link ADDED inside the window. Renaming would split
+                # the names — the new alias keeps the old bytes forever — so
+                # this refuses for exactly the reason the pin-time check does.
+                raise ValueError(
+                    f"{path} gained a hard link while the write was in flight; "
+                    "a directive file must have one name — rerun after removing it"
+                )
+            if via is not None:
+                # Re-resolve the LINK before clobbering, not only after. A
+                # repoint that already happened is caught here, before the old
+                # target is touched at all — the temp is discarded and nothing
+                # the host stopped reading is modified. The post-rename check
+                # below still stands for the one instant this cannot cover.
+                try:
+                    ahead = os.path.realpath(via, strict=True)
+                except OSError as exc:
+                    raise ValueError(
+                        f"{via} no longer resolves ({exc.strerror or exc}) before "
+                        f"the write; nothing was written to {path} — repoint or "
+                        "restore the link, then rerun"
+                    ) from None
+                if Path(ahead) != path:
+                    raise ValueError(
+                        f"{via} was repointed to {ahead} before the write landed; "
+                        f"nothing was written to {path} — rerun to write the file "
+                        "it points at now"
+                    )
+            if _test_between_final_verify_and_replace is not None:
+                _test_between_final_verify_and_replace()
             os.replace(temporary, path)
+            _fsync_dir(path.parent)
             final = os.lstat(path)
             if (final.st_dev, final.st_ino) != (placed.st_dev, placed.st_ino):
                 raise ValueError(
                     f"{path} was replaced again as this write landed; another "
                     "writer won — rerun to see what is there now"
                 )
+            # No post-rename "was a concurrent write buried" check exists,
+            # and none can: after a SUCCESSFUL os.replace the pinned inode
+            # legitimately reads st_nlink == 0 because this write replaced it,
+            # indistinguishable from a swap. POSIX rename offers no
+            # compare-and-swap, so atomic replacement and
+            # never-clobber-a-concurrent-writer cannot both be had. This file
+            # keeps atomic replacement and crash safety; the concurrency it
+            # does and does not promise is stated in the module docstring.
             if via is not None:
                 # The link is what the host reads, and only NOW is there a
                 # success to report. Re-resolve it; if it was repointed at any
@@ -319,6 +419,7 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
 
 def apply(path: Path, block: str, *, remove: bool = False) -> str:
     """Write the block into `path`. Returns what happened, for the caller."""
+    linked = path.is_symlink()
     target = _canonical(path)
     if _test_between_resolve_and_snapshot is not None:
         _test_between_resolve_and_snapshot()
@@ -332,120 +433,140 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
     # later act — the read, the guards, the final write — is keyed to it.
     pinned: int | None = None
     try:
-        pinned = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
-        identity = os.fstat(pinned)
-    except FileNotFoundError:
-        identity = None
-    except OSError as exc:
-        if exc.errno in (errno.ELOOP, errno.EMLINK):
+        try:
+            pinned = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
+            identity = os.fstat(pinned)
+        except FileNotFoundError:
+            identity = None
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.EMLINK):
+                raise ValueError(
+                    f"{target} became a symlink as it was being pinned; rerun so "
+                    "the write sees what is there now"
+                ) from None
+            raise
+        if identity is not None and not stat.S_ISREG(identity.st_mode):
+            raise ValueError(f"{target} is not a regular file")
+        if identity is not None and identity.st_nlink > 1:
+            # A second hard link is a second NAME for this same file. Every write
+            # strategy breaks the contract somewhere: rename splits the names
+            # (the other one keeps the old bytes forever), and writing the inode
+            # mutates a file the person knows by a name this install never saw.
+            # There is no honest write, so there is a refusal that says why.
             raise ValueError(
-                f"{target} became a symlink as it was being pinned; rerun so "
-                "the write sees what is there now"
-            ) from None
-        raise
-    if identity is not None and not stat.S_ISREG(identity.st_mode):
-        raise ValueError(f"{target} is not a regular file")
-    if identity is not None and identity.st_nlink > 1:
-        # A second hard link is a second NAME for this same file. Every write
-        # strategy breaks the contract somewhere: rename splits the names
-        # (the other one keeps the old bytes forever), and writing the inode
-        # mutates a file the person knows by a name this install never saw.
-        # There is no honest write, so there is a refusal that says why.
-        raise ValueError(
-            f"{target} has {identity.st_nlink} hard links; a directive file "
-            "must have one name — break the extra link or point the hosts at "
-            "one path through symlinks, then rerun"
-        )
-    if identity is None and path.is_symlink():
-        # The chain resolved an instant ago and its end is already gone. For a
-        # LINK that is never a fresh create: inventing the target would
-        # recreate a file someone just removed, at a path shadow followed
-        # rather than was given.
-        raise ValueError(
-            f"{path} resolves to {target}, which vanished as it was being "
-            "resolved; restore that file or repoint the link, then rerun"
-        )
-    existed = identity is not None
-    if _test_between_snapshot_and_read is not None:
-        _test_between_snapshot_and_read()
-    if existed:
-        # Read the pinned descriptor itself — not the pathname. Whatever
-        # happens to the directory entry after the pin, this reads the exact
-        # file that was resolved, and the commit guards below refuse if that
-        # file has since lost its name.
-        with os.fdopen(os.dup(pinned), "r", encoding="utf-8") as stream:
-            text = stream.read()
-    else:
-        text = ""
-    span = _span(text, block) if text else None
-
-    if remove:
-        if span is None:
-            return "absent"
-        head, tail = text[: span[0]], text[span[1] :]
-        new = (head.rstrip("\n") + "\n" + tail.lstrip("\n")) if head.strip() else tail.lstrip("\n")
-        action = "removed"
-    else:
-        wanted = managed(block)
-        if span is None:
-            separator = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
-            new = text + separator + wanted + "\n"
-            action = "added" if existed else "created"
+                f"{target} has {identity.st_nlink} hard links; a directive file "
+                "must have one name — break the extra link or point the hosts at "
+                "one path through symlinks, then rerun"
+            )
+        if identity is None and path.is_symlink():
+            # The chain resolved an instant ago and its end is already gone. For a
+            # LINK that is never a fresh create: inventing the target would
+            # recreate a file someone just removed, at a path shadow followed
+            # rather than was given.
+            raise ValueError(
+                f"{path} resolves to {target}, which vanished as it was being "
+                "resolved; restore that file or repoint the link, then rerun"
+            )
+        existed = identity is not None
+        if _test_between_snapshot_and_read is not None:
+            _test_between_snapshot_and_read()
+        if existed:
+            # Read the pinned descriptor itself — not the pathname. Whatever
+            # happens to the directory entry after the pin, this reads the exact
+            # file that was resolved, and the commit guards below refuse if that
+            # file has since lost its name.
+            with os.fdopen(os.dup(pinned), "r", encoding="utf-8") as stream:
+                text = stream.read()
         else:
-            current = text[span[0] : span[1]]
-            if current == wanted:
-                return "current"
-            new = text[: span[0]] + wanted + text[span[1] :]
-            action = "refreshed" if current.startswith(BEGIN) else "adopted"
+            text = ""
+        span = _span(text, block) if text else None
 
-    linked = path.is_symlink()
-    mode: int | None = None
-    if not existed:
-        target.parent.mkdir(parents=True, exist_ok=True)
-    else:
-        mode = identity.st_mode & 0o7777
-        # Beside the canonical file, not beside the link. These are the
-        # canonical file's bytes, and a copy left next to the link reads as a
-        # backup OF the link — so the obvious recovery, `cp CLAUDE.md.bak-shadow
-        # CLAUDE.md`, replaces the link with a regular file, which is the defect
-        # writing through exists to prevent. Several hosts pointed at one file
-        # also leave one backup of it rather than one per link, each snapshotting
-        # a different moment and only the first of them pre-shadow.
-        backup = target.with_suffix(target.suffix + ".bak-shadow")
+        if remove:
+            if span is None:
+                return "absent"
+            head, tail = text[: span[0]], text[span[1] :]
+            new = (head.rstrip("\n") + "\n" + tail.lstrip("\n")) if head.strip() else tail.lstrip("\n")
+            action = "removed"
+        else:
+            wanted = managed(block)
+            if span is None:
+                separator = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
+                new = text + separator + wanted + "\n"
+                action = "added" if existed else "created"
+            else:
+                current = text[span[0] : span[1]]
+                if current == wanted:
+                    if linked:
+                        # "current" asserts the host already reads this block. If
+                        # the link was repointed after the pin, that assertion is
+                        # about the WRONG file — the one it reads now may carry
+                        # nothing. Verify before claiming, exactly as a write
+                        # verifies before reporting added.
+                        try:
+                            lands = os.path.realpath(path, strict=True)
+                        except OSError as exc:
+                            raise ValueError(
+                                f"{path} no longer resolves ({exc.strerror or exc}); "
+                                "the block is current in the file it used to point "
+                                "at — rerun to act on what it points at now"
+                            ) from None
+                        if Path(lands) != target:
+                            raise ValueError(
+                                f"{path} was repointed to {lands}; the block is "
+                                f"current in {target}, not in the file the host "
+                                "reads now — rerun"
+                            )
+                    return "current"
+                new = text[: span[0]] + wanted + text[span[1] :]
+                action = "refreshed" if current.startswith(BEGIN) else "adopted"
 
-    made_backup = False
-    if existed:
-        # link(2) is the claim: creation succeeds atomically or the name was
-        # taken — a concurrent backup, a pre-existing one, even a dangling
-        # symlink someone parked there — and whatever bears the name is
-        # KEPT, never overwritten. No lexists window exists to race.
-        made_backup = _place_exclusive(backup, text, mode=mode)
+        mode: int | None = None
+        if not existed:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            mode = identity.st_mode & 0o7777
+            # Beside the canonical file, not beside the link. These are the
+            # canonical file's bytes, and a copy left next to the link reads as a
+            # backup OF the link — so the obvious recovery, `cp CLAUDE.md.bak-shadow
+            # CLAUDE.md`, replaces the link with a regular file, which is the defect
+            # writing through exists to prevent. Several hosts pointed at one file
+            # also leave one backup of it rather than one per link, each snapshotting
+            # a different moment and only the first of them pre-shadow.
+            backup = target.with_suffix(target.suffix + ".bak-shadow")
 
-    if _test_between_resolve_and_write is not None:
-        _test_between_resolve_and_write()
+        made_backup = False
+        if existed:
+            # link(2) is the claim: creation succeeds atomically or the name was
+            # taken — a concurrent backup, a pre-existing one, even a dangling
+            # symlink someone parked there — and whatever bears the name is
+            # KEPT, never overwritten. No lexists window exists to race.
+            made_backup = _place_exclusive(backup, text, mode=mode)
 
-    try:
-        _atomic_write(target, new, mode=mode, expect=identity,
-                      pinned=pinned,
-                      expect_absent=not existed,
-                      via=path if linked else None,
-                      restore=text if existed else None)
-    except BaseException as exc:
-        # The backup is RETAINED on failure, deliberately. Deleting it was
-        # tried and audited into the ground: removal is a pathname operation,
-        # so any deletion can race a concurrent writer and destroy a file
-        # this run did not create — and after a failed write, the backup may
-        # be the only surviving copy of the pre-write state. A kept backup is
-        # never wrong, only redundant; the error says where it is.
-        if made_backup:
-            raise type(exc)(
-                f"{exc}; the pre-write state is preserved at {backup}"
-            ) from exc
-        raise
+        if _test_between_resolve_and_write is not None:
+            _test_between_resolve_and_write()
+
+        try:
+            _atomic_write(target, new, mode=mode, expect=identity,
+                          pinned=pinned,
+                          expect_absent=not existed,
+                          via=path if linked else None,
+                          restore=text if existed else None)
+        except BaseException as exc:
+            # The backup is RETAINED on failure, deliberately. Deleting it was
+            # tried and audited into the ground: removal is a pathname operation,
+            # so any deletion can race a concurrent writer and destroy a file
+            # this run did not create — and after a failed write, the backup may
+            # be the only surviving copy of the pre-write state. A kept backup is
+            # never wrong, only redundant; the error says where it is.
+            if made_backup:
+                raise type(exc)(
+                    f"{exc}; the pre-write state is preserved at {backup}"
+                ) from exc
+            raise
+        return action
     finally:
         if pinned is not None:
             os.close(pinned)
-    return action
 
 
 def main(argv: list[str] | None = None) -> int:
