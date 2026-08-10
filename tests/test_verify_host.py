@@ -228,6 +228,49 @@ class EveryCheckCanFail(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_a_board_with_only_resume_none_fails(self) -> None:
+        # A syntactically present Resume line is not work. The verifier used
+        # to accept `Resume: none`, which let a cold host pass while every
+        # checkpoint on the board was blocked.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            project = home / "portfolio" / "project"
+            project.mkdir(parents=True)
+            project.joinpath("PLAN.md").write_text(
+                PLAN.replace(
+                    "- [pending] a row ~aa11 | proof: cmd true",
+                    "- [blocked] a row ~aa11 | proof: gate owner resume: credentials arrive",
+                ).replace(
+                    "## Progress",
+                    "## Deferred\n\n"
+                    "- a row ~aa11 | credentials are absent | wake: credentials arrive\n\n"
+                    "## Progress",
+                ),
+                encoding="utf-8",
+            )
+            result = run(home)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("no reachable resume checkpoint", result.stdout)
+
+    def test_a_last_good_board_does_not_hide_a_failed_refresh(self) -> None:
+        # A cold session must not treat stale authority as current merely
+        # because the previous board still contains a reachable row.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            self.assertEqual(run(home).returncode, 0)
+            plan = home / "portfolio" / "project" / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "- Mode: ship", "- Mode: invalid"
+                ),
+                encoding="utf-8",
+            )
+            result = run(home)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("board refresh fails", result.stdout)
+
     def test_a_stale_standing_goal_fails(self) -> None:
         def mutate(home: Path) -> None:
             path = home / ".claude/CLAUDE.md"

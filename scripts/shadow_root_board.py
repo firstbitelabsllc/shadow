@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import tempfile
 from typing import Iterator
@@ -35,6 +36,7 @@ PROJECT_ID = re.compile(r"[a-z][a-z0-9-]{1,31}")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 BOARD_NAME = "board.json"
 LOCK_NAME = ".board.lock"
+MAX_PLAN_BYTES = 1_000_000
 
 
 class BoardError(ValueError):
@@ -167,6 +169,98 @@ def regular_plan(plan: Path) -> bool:
         return False
 
 
+def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
+    """Freeze one locator state and at most the bounded byte prefix it exposes."""
+    def unavailable_token() -> str:
+        try:
+            metadata = os.lstat(plan)
+            target = os.readlink(plan) if stat.S_ISLNK(metadata.st_mode) else ""
+        except OSError:
+            return "unavailable"
+        unavailable = (
+            f"{metadata.st_mode}\0{metadata.st_size}\0{metadata.st_mtime_ns}\0"
+            f"{metadata.st_ctime_ns}\0{metadata.st_dev}\0{metadata.st_ino}\0{target}"
+        ).encode("utf-8")
+        return hashlib.sha256(unavailable).hexdigest()
+
+    if not regular_plan(plan):
+        return unavailable_token(), None
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(plan, flags)
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            os.close(descriptor)
+            descriptor = -1
+            return unavailable_token(), None
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            content = stream.read(MAX_PLAN_BYTES + 1)
+            after = os.fstat(stream.fileno())
+    except (OSError, ValueError):
+        if descriptor >= 0:
+            os.close(descriptor)
+        return unavailable_token(), None
+    before_state = (
+        before.st_mode,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+        before.st_dev,
+        before.st_ino,
+    )
+    after_state = (
+        after.st_mode,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+        after.st_dev,
+        after.st_ino,
+    )
+    if before_state != after_state:
+        return "unavailable", None
+    frozen = "\0".join(str(value) for value in after_state).encode("ascii") + b"\0" + content
+    return hashlib.sha256(frozen).hexdigest(), content
+
+
+def read_plan_bytes(plan: Path) -> bytes:
+    """Read one bounded authority snapshot without following a leaf symlink."""
+    state, content = plan_state_snapshot(plan)
+    if state == "unavailable":
+        raise BoardError("plan must be a regular non-symlink PLAN.md")
+    if content is None:
+        raise BoardError("plan is unreadable")
+    if len(content) > MAX_PLAN_BYTES:
+        raise BoardError("plan exceeds the bounded size limit")
+    return content
+
+
+def read_plan_text(plan: Path) -> str:
+    """Decode the one bounded PLAN.md authority snapshot shared by all views."""
+    try:
+        return read_plan_bytes(plan).decode("utf-8")
+    except UnicodeError as exc:
+        raise BoardError("plan is not valid UTF-8") from exc
+
+
+def plan_content_token(text: str) -> tuple[int, str]:
+    """Return the byte-size and digest used to CAS a parsed plan into the board."""
+    content = text.encode("utf-8")
+    return len(content), hashlib.sha256(content).hexdigest()
+
+
+def plan_state_token(plan: Path) -> str:
+    """Fingerprint a locator's bounded state, including an unavailable sentinel."""
+    state, _ = plan_state_snapshot(plan)
+    return state
+
+
 def validate_owner(owner: object) -> str:
     """Return one public-safe seat name or refuse it before persistence."""
     if (
@@ -235,6 +329,40 @@ def origin_repo_name(origin: str) -> str:
     return tail.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
 
 
+def public_entity_locator(identity: object) -> str:
+    """Name one logical entity without deriving display data from its private pointer."""
+    if not isinstance(identity, str) or not ENTITY_ID.fullmatch(identity):
+        raise BoardError("public entity locator requires one logical entity id")
+    return f"entity@{identity[:12]}/PLAN.md"
+
+
+def public_copy_locator(identity: object, display: object) -> str:
+    """Name one discovered checkout without emitting its machine-owned path."""
+    if not isinstance(identity, str) or not ENTITY_ID.fullmatch(identity):
+        raise BoardError("public copy locator requires one logical entity id")
+    if not isinstance(display, str) or not display:
+        raise BoardError("public copy locator requires one discovered plan label")
+    digest = hashlib.sha256(f"{identity}\0{display}".encode("utf-8")).hexdigest()[:12]
+    return f"copy@{digest}/PLAN.md"
+
+
+def public_discovery_locator(identity: object, display: object) -> str:
+    """Keep useful relative labels public; make unsafe discovery labels opaque."""
+    if not isinstance(display, str) or not display:
+        raise BoardError("public discovery locator requires one discovered plan label")
+    path = Path(display)
+    unsafe = (
+        len(display) > 240
+        or not display.isprintable()
+        or bool(CONTROL.search(display))
+        or bool(PRIVATE_PATH_RE.search(display))
+        or bool(SECRET_SHAPE_RE.search(display))
+        or path.is_absolute()
+        or ".." in path.parts
+    )
+    return public_copy_locator(identity, display) if unsafe else display
+
+
 def public_plan_locator(plan: Path) -> str:
     """Return a stable human locator without exposing an absolute home path."""
     candidate = Path(os.path.abspath(plan))
@@ -279,11 +407,11 @@ def plan_mtime(repo: Path) -> float:
         return 0.0
 
 
-def entity_id(plan: Path) -> str:
-    """Logical entity identity: normalized origin plus repository-relative path."""
-    if not regular_plan(plan):
+def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[str, str]:
+    """Resolve logical identity fields without reading the PLAN.md body."""
+    if require_regular and not regular_plan(plan):
         raise BoardError("entity identity requires a regular, non-symlink PLAN.md")
-    plan = plan.resolve()
+    plan = Path(os.path.abspath(plan))
     marker = _git_marker(plan.parent)
     result = _git(plan.parent, "rev-parse", "--show-toplevel")
     if result.returncode == 0 and result.stdout.strip():
@@ -291,12 +419,25 @@ def entity_id(plan: Path) -> str:
         try:
             relative = plan.relative_to(repo).as_posix()
         except ValueError:
-            relative = plan.name
+            try:
+                relative = (plan.parent.resolve() / plan.name).relative_to(repo).as_posix()
+            except ValueError:
+                relative = plan.name
     elif marker is not None:
         raise BoardError("project Git identity could not be read; retry when Git is available")
     else:
         repo, relative = plan.parent, plan.name
-    logical = f"{origin_of(repo)}\0{relative}".encode("utf-8")
+    return origin_of(repo), relative
+
+
+def entity_id(plan: Path) -> str:
+    """Logical entity identity: normalized origin plus repository-relative path."""
+    return logical_entity_id(*plan_identity_parts(plan, require_regular=True))
+
+
+def logical_entity_id(origin: str, relative: str) -> str:
+    """Hash the logical identity already resolved by bounded discovery."""
+    logical = f"{origin}\0{relative}".encode("utf-8")
     return hashlib.sha256(logical).hexdigest()
 
 
@@ -666,6 +807,17 @@ def _identity_index(payload: dict) -> dict[str, list[dict]]:
     return result
 
 
+def registered_locator_index(*, home: Path | None = None) -> dict[str, tuple[Path, ...]]:
+    """Current logical identities and every locator the board stores for each."""
+    payload = snapshot(home=home)
+    if payload is None:
+        return {}
+    return {
+        identity: tuple(Path(entity["plan"]) for entity in entities)
+        for identity, entities in _identity_index(payload).items()
+    }
+
+
 def _entity_aliases(payload: dict, plan: Path) -> list[dict]:
     """Every stored locator that currently resolves to one logical entity."""
     return _identity_index(payload).get(entity_id(plan), [])
@@ -982,6 +1134,7 @@ def reconcile(
     legacy_claims: list[dict],
     *,
     retired_entities: list[str] | None = None,
+    retired_sources: list[dict] | None = None,
     home: Path | None = None,
 ) -> dict:
     """Atomically import bounded discovery into pointer-only local authority.
@@ -996,12 +1149,51 @@ def reconcile(
         for identity in retired_ids
     ):
         raise BoardError("retired entities must be logical entity ids")
+    prepared_retired: list[dict] = []
+    for source in retired_sources or []:
+        identity = source.get("identity")
+        plan = source.get("plan")
+        expected_state = source.get("expected_state")
+        registered_plan = source.get("registered_plan")
+        if identity not in retired_ids:
+            raise BoardError("retired source must name a retired entity")
+        if not isinstance(plan, str) or not Path(plan).is_absolute():
+            raise BoardError("retired source must name an absolute plan locator")
+        if (
+            not isinstance(expected_state, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected_state) is None
+        ):
+            raise BoardError("retired source content token is invalid")
+        if registered_plan is not None and (
+            not isinstance(registered_plan, str) or not Path(registered_plan).is_absolute()
+        ):
+            raise BoardError("retired registered locator predicate is invalid")
+        prepared_retired.append(
+            {
+                "identity": identity,
+                "plan": plan,
+                "expected_state": expected_state,
+                "registered_plan": registered_plan,
+            }
+        )
+    if (
+        len(prepared_retired) != len(retired_ids)
+        or {source["identity"] for source in prepared_retired} != retired_ids
+    ):
+        raise BoardError("every retired entity must carry one bounded source token")
     prepared: list[dict] = []
     for seed in entities:
         source = Path(seed.get("plan", ""))
         project = seed.get("project")
         priority = seed.get("priority")
         candidates = seed.get("candidates")
+        rows = seed.get("rows", candidates)
+        expected_identity = seed.get("identity")
+        expected_size = seed.get("expected_size")
+        expected_sha256 = seed.get("expected_sha256")
+        repair_from = seed.get("repair_from")
+        repair_state = seed.get("repair_state")
+        registered_plan = seed.get("registered_plan")
         if not regular_plan(source):
             raise BoardError("import entity must point to a regular, non-symlink PLAN.md")
         plan = source.resolve()
@@ -1014,13 +1206,67 @@ def reconcile(
             for row in candidates
         ):
             raise BoardError("import candidates must be row ids")
+        if not isinstance(rows, list) or any(
+            not isinstance(row, str) or ROW_ID.fullmatch(row) is None
+            for row in rows
+        ):
+            raise BoardError("import rows must be row ids")
+        if not set(candidates).issubset(rows):
+            raise BoardError("import candidates must also be import rows")
+        identity = entity_id(plan)
+        if expected_identity is not None and (
+            not isinstance(expected_identity, str)
+            or ENTITY_ID.fullmatch(expected_identity) is None
+            or expected_identity != identity
+        ):
+            raise BoardError("bounded discovery entity identity changed before reconciliation")
+        if (expected_size is None) != (expected_sha256 is None):
+            raise BoardError("bounded discovery content token is incomplete")
+        if expected_size is not None and (
+            isinstance(expected_size, bool)
+            or not isinstance(expected_size, int)
+            or expected_size < 0
+            or expected_size > MAX_PLAN_BYTES
+            or not isinstance(expected_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None
+        ):
+            raise BoardError("bounded discovery content token is invalid")
+        locator_fields: dict[str, str | None] = {}
+        for name, value in (
+            ("repair_from", repair_from),
+            ("registered_plan", registered_plan),
+        ):
+            if value is not None:
+                if not isinstance(value, str) or not Path(value).is_absolute():
+                    raise BoardError("bounded discovery locator predicate is invalid")
+                locator_fields[name] = str(Path(value))
+            else:
+                locator_fields[name] = None
+        if repair_from is not None and registered_plan is not None:
+            raise BoardError("bounded discovery locator predicates conflict")
+        if repair_from is None:
+            if repair_state is not None:
+                raise BoardError("bounded discovery repair token has no locator")
+        elif (
+            not isinstance(repair_state, str)
+            or (
+                repair_state != "unavailable"
+                and re.fullmatch(r"[0-9a-f]{64}", repair_state) is None
+            )
+        ):
+            raise BoardError("bounded discovery repair token is invalid")
         prepared.append(
             {
-                "id": entity_id(plan),
+                "id": identity,
                 "project": project,
                 "plan": str(plan),
                 "priority": priority,
                 "candidates": list(dict.fromkeys(candidates)),
+                "rows": list(dict.fromkeys(rows)),
+                "expected_size": expected_size,
+                "expected_sha256": expected_sha256,
+                "repair_state": repair_state,
+                **locator_fields,
             }
         )
     if len({seed["id"] for seed in prepared}) != len(prepared):
@@ -1028,13 +1274,87 @@ def reconcile(
     if retired_ids.intersection(seed["id"] for seed in prepared):
         raise BoardError("bounded discovery marked one entity both live and retired")
 
+    def assert_seed_content() -> None:
+        for seed in prepared:
+            if seed["expected_size"] is None:
+                continue
+            try:
+                content = read_plan_bytes(Path(seed["plan"]))
+            except BoardError as exc:
+                raise BoardError(
+                    "bounded discovery entity changed during reconciliation; retry"
+                ) from exc
+            if (
+                len(content) != seed["expected_size"]
+                or hashlib.sha256(content).hexdigest() != seed["expected_sha256"]
+            ):
+                raise BoardError(
+                    "bounded discovery entity changed during reconciliation; retry"
+                )
+            if entity_id(Path(seed["plan"])) != seed["id"]:
+                raise BoardError(
+                    "bounded discovery entity identity changed during reconciliation; retry"
+                )
+
+    def assert_repair_states() -> None:
+        for seed in prepared:
+            if seed["repair_from"] is None:
+                continue
+            if plan_state_token(Path(seed["repair_from"])) != seed["repair_state"]:
+                raise BoardError(
+                    "registered board locator changed during reconciliation; retry"
+                )
+
+    def assert_retired_content() -> None:
+        for source in prepared_retired:
+            try:
+                pointer = Path(source["plan"])
+                state = plan_state_token(pointer)
+                identity = entity_id(pointer)
+            except BoardError as exc:
+                raise BoardError(
+                    "self-demotion source changed during reconciliation; retry"
+                ) from exc
+            if (
+                state != source["expected_state"]
+                or identity != source["identity"]
+            ):
+                raise BoardError(
+                    "self-demotion source changed during reconciliation; retry"
+                )
+
+    assert_seed_content()
+    assert_repair_states()
+    assert_retired_content()
     with _transaction(home) as (root, path, payload):
+        assert_seed_content()
+        assert_repair_states()
+        assert_retired_content()
         original_payload = json.loads(json.dumps(payload))
         changed = False
         identity_index = _identity_index(payload)
         prepared_by_id = {seed["id"]: seed for seed in prepared}
         original_entities = json.loads(json.dumps(payload["entities"]))
         original_claims = json.loads(json.dumps(payload["claims"]))
+
+        for seed in prepared:
+            expected_locator = seed["registered_plan"] or seed["repair_from"]
+            if expected_locator is None:
+                continue
+            aliases = identity_index.get(seed["id"], [])
+            if len(aliases) != 1 or aliases[0]["plan"] != expected_locator:
+                raise BoardError(
+                    "registered board locator changed during reconciliation; retry"
+                )
+        for source in prepared_retired:
+            expected_locator = source["registered_plan"]
+            if expected_locator is None:
+                continue
+            aliases = identity_index.get(source["identity"], [])
+            if not any(alias["plan"] == expected_locator for alias in aliases):
+                raise BoardError(
+                    "registered board locator changed during reconciliation; retry"
+                )
 
         # Work out every identity transition against immutable old ids, then
         # replace entities and claims once. Incremental id mutation is unsafe:
@@ -1087,10 +1407,7 @@ def reconcile(
                         f"entity aliases both claim {row} by {', '.join(sorted(owners))}; "
                         "return one exact locator before convergence"
                     )
-                try:
-                    seed_bytes = Path(seed["plan"]).read_bytes()
-                except OSError as exc:
-                    raise BoardError("bounded discovery entity became unreadable") from exc
+                seed_bytes = read_plan_bytes(Path(seed["plan"]))
                 for alias in aliases:
                     pointer = Path(alias["plan"])
                     owned = [claim for claim in alias_claims if claim["entity"] == alias["id"]]
@@ -1101,14 +1418,11 @@ def reconcile(
                                 "restore that exact plan before convergence"
                             )
                         continue
-                    try:
-                        if pointer.read_bytes() != seed_bytes:
-                            raise BoardError(
-                                "entity aliases have divergent PLAN.md bytes; converge the "
-                                "plans before their board identities can merge"
-                            )
-                    except OSError as exc:
-                        raise BoardError("an entity alias became unreadable") from exc
+                    if read_plan_bytes(pointer) != seed_bytes:
+                        raise BoardError(
+                            "entity aliases have divergent PLAN.md bytes; converge the "
+                            "plans before their board identities can merge"
+                        )
                     if alias["resume"] is not None and alias["resume"] not in seed["candidates"]:
                         raise BoardError(
                             f"entity alias resume {alias['resume']} is absent from the converged plan"
@@ -1149,7 +1463,24 @@ def reconcile(
             old_to_final[source["id"]] = identity
             entity["id"] = identity
             if seed is not None:
-                if entity["plan"] != seed["plan"] and not regular_plan(Path(entity["plan"])):
+                should_repair = seed["repair_from"] is not None
+                if entity["plan"] != seed["plan"] and (
+                    not regular_plan(Path(entity["plan"])) or should_repair
+                ):
+                    owned_rows = {
+                        claim["row"]
+                        for claim in original_claims
+                        if claim["entity"] == source["id"]
+                    }
+                    missing = sorted(owned_rows.difference(seed["rows"]))
+                    if missing:
+                        raise BoardError(
+                            f"repaired entity plan is missing claimed row {missing[0]}"
+                        )
+                    if entity["resume"] is not None and entity["resume"] not in seed["rows"]:
+                        raise BoardError(
+                            f"repaired entity plan is missing resume {entity['resume']}"
+                        )
                     entity["plan"] = seed["plan"]
                     seed["refresh"] = True
                 else:
@@ -1252,7 +1583,12 @@ def reconcile(
                 continue
             entity = by_id[seed["resolved_id"]]
             claimed = claims_by_entity.get(entity["id"], set())
-            resume = _choose_resume(entity["resume"], seed["candidates"], claimed)
+            resume = (
+                entity["resume"]
+                if seed["repair_from"] is not None
+                and entity["resume"] in seed["candidates"]
+                else _choose_resume(entity["resume"], seed["candidates"], claimed)
+            )
             if entity["resume"] != resume:
                 entity["resume"] = resume
                 changed = True
@@ -1267,6 +1603,9 @@ def reconcile(
         payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
         payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        assert_seed_content()
+        assert_repair_states()
+        assert_retired_content()
         if payload == original_payload:
             return json.loads(json.dumps(payload))
         payload["revision"] = original_payload["revision"] + 1

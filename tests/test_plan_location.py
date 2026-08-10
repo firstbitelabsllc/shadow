@@ -758,16 +758,18 @@ class TheTerminalObeysTheVetoToo(unittest.TestCase):
 
     def test_the_demotion_is_inspectable_rather_than_silent(self) -> None:
         # A plan that vanishes with no reason is the ambiguity `--shadowed`
-        # exists to end, so the veto has to answer there in the plan's own words.
+        # exists to end. Its public receipt names an opaque copy and a fixed
+        # reason without exposing the checkout directory that supplied either.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._portfolio(root)
             result = self._status(root, "--shadowed", "--json")
             self.assertEqual(result.returncode, 0, result.stderr)
-            rows = {row["path"]: row["reason"] for row in json.loads(result.stdout)["rows"]}
-            self.assertIn("shell/PLAN.md", rows,
-                          "a demoted plan is simply gone, with nothing naming the phrase")
-            self.assertIn("non-executable archive shell", rows["shell/PLAN.md"].lower())
+            rows = json.loads(result.stdout)["rows"]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(set(rows[0]), {"path", "shadowed_by", "reason"})
+            self.assertRegex(rows[0]["path"], r"^copy@[0-9a-f]{12}/PLAN\.md$")
+            self.assertIn("non-executable archive shell", rows[0]["reason"].lower())
 
     def test_a_directory_holding_only_a_shell_says_why_it_is_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

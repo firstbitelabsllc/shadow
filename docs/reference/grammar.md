@@ -66,9 +66,12 @@ only that owner's claim and accepts exactly three durable states: a completed
 row with its PROOF receipt, a blocked row with one Deferred wake naming the
 row, or an owner handback of pending/in-progress work. A healthy stored
 entity-plan pointer remains the canonical local locator; another branch or
-worktree cannot claim checkpoint text absent from it. If that pointer breaks,
-a valid checkout of the same logical entity repairs it during bounded
-reconciliation.
+worktree cannot claim checkpoint text absent from it. During import, a
+different checkout of that same identity is withheld before its body is parsed
+only when exactly one registered locator is regular, bounded-readable,
+grammar-clean, and otherwise healthy. Its self-demotion banner still retires
+the identity. If the registered pointer breaks or aliases multiply, no
+suppression applies: the candidate follows the ordinary fail-closed path.
 
 Discovery may show a plain-directory plan as read-only material, but actionable
 entities are Git-backed: claim, proof, acceptance, publication, and durable
@@ -90,9 +93,15 @@ Bounded discovery walks **project roots, not directories**: the portfolio root's
 immediate children that own a `PLAN.md`, each asked for its own plan plus its
 declared globs. There is no recursive search, and both each repository and the
 whole import have a hard 250-plan admission budget. Overflow fails loudly; it
-is never truncated, and no directory outside the portfolio is read.
+is never truncated. No unregistered directory outside the portfolio is scanned;
+the sole external read is the exact registered `PLAN.md` pointer already stored
+in this computer's board.
 Import is all-or-nothing: an unreadable, malformed, oversized, symlinked, or
-non-regular legal candidate fails loudly and leaves the board unchanged.
+non-regular unknown or unsafely aliased legal candidate fails loudly and leaves
+the board unchanged. The sole exception is the same-identity sibling of one
+healthy registered locator described above; `shadow status --shadowed` names
+that suppression with stable opaque entity/copy locators, without exposing a
+checkout path or a secret-shaped directory name.
 
 One logical entity per `(normalized origin, repo-relative plan path)`. A
 worktree or clone resolves to the same identity as its main checkout and never
