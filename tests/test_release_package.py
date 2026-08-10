@@ -85,6 +85,21 @@ class ReleasePackageTests(unittest.TestCase):
         for option in ("--retirement-manifest", "--expect", "--by"):
             self.assertIn(option, argparse_help.stdout)
 
+    def test_two_seat_harness_ships_with_its_process_boundary(self) -> None:
+        self.assertIn("scripts/shadow-verify-two-seat.py", mod.REQUIRED_FILES)
+        self.assertIn("scripts/shadow_process_lib.py", mod.REQUIRED_FILES)
+        self.assertIn("SOURCE_REF", mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "shadow-verify-two-seat.py"), "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        for clause in ("--live", "--goal-file", "--timeout-seconds", "--json"):
+            self.assertIn(clause, output.stdout)
+
     def test_disposable_fixture_commit_waits_for_git_maintenance(self) -> None:
         project = Path("/unused-fixture")
         with mock.patch.object(mod, "command") as observed:
