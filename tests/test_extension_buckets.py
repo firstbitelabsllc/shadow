@@ -7,7 +7,7 @@ these and mark them as dependencies."
 The npm-shaped reading of that dies on two shipped facts, and these tests pin
 both. honcho is uninstallable BY LAW — `docs/reference/honcho.md` rules it "a
 pattern Shadow implements, not a service Shadow installs" — so a slot that
-installs its filler is self-contradictory for one of the three named buckets.
+installs its filler is self-contradictory for one of the four named buckets.
 And M6 deleted the package manager on purpose, so an install-that-fetches
 reverses a shipped decision.
 
@@ -57,10 +57,10 @@ class TheDeclaration(unittest.TestCase):
             for field in ("name", "default", "fills", "absent"):
                 self.assertTrue(bucket[field].strip(), f"{bucket['name']}: empty {field}")
 
-    def test_the_three_named_buckets_ship(self) -> None:
+    def test_the_four_named_buckets_ship(self) -> None:
         # Dropping one becomes a deliberate test edit, never a silent removal.
         names = {b["name"] for b in buckets.declared()}
-        self.assertEqual(names, {"superpowers", "honcho", "taste"})
+        self.assertEqual(names, {"superpowers", "honcho", "taste", "future"})
 
     def test_names_are_unique(self) -> None:
         names = [b["name"] for b in buckets.declared()]
@@ -85,6 +85,19 @@ class TheDeclaration(unittest.TestCase):
             for stamped in ("installed:", "last_checked", "installedAt", "lastUpdated",
                             "version:", "resolved:"):
                 self.assertNotIn(stamped, line, f"a bucket line stores resolved state: {line[:60]}")
+
+
+class FutureIsADeclaredBucket(unittest.TestCase):
+    def test_future_is_an_optional_skill_never_a_stored_result(self) -> None:
+        future = next(b for b in buckets.declared() if b["name"] == "future")
+        self.assertEqual(future["kind"], "skill")
+        self.assertEqual(future["default"], "future")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(buckets.resolve(future, home)[0], "warn")
+            skill(home, "future")
+            self.assertEqual(buckets.resolve(future, home)[0], "pass")
 
 
 class AbsentNeverFails(unittest.TestCase):

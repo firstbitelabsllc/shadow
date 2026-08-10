@@ -21,6 +21,7 @@ there is no bucket configuration file.
 - bucket superpowers | kind: pack | default: superpowers | fills: the process discipline inside every applicable claimed lane — brainstorm before building, test first, review, and verify before claiming done. Shadow owns the durable plan and keeps the full Outcome moving | absent: install superpowers from the claude-plugins-official marketplace, or set SHADOW_BUCKET_SUPERPOWERS=off
 - bucket honcho | kind: builtin | default: docs/reference/honcho.md | fills: durable memory of what the work is trying to achieve, and continuity across CLIs, providers, and machines — carried by PLAN.md and git, never by an installed store | absent: unreachable; a builtin bucket ships filled by this repository
 - bucket taste | kind: skill | default: taste | fills: the finished-quality grade on a human-visible surface, after it works and before anyone calls it done | absent: mount a skill named taste in one of the three skill roots, or set SHADOW_BUCKET_TASTE=off
+- bucket future | kind: skill | default: future | fills: receipt-grounded pre-mortem questions before a plan commits to risky work, seeded by the entity plan's own lessons and decisions rather than another memory store | absent: mount a skill named future in one of the three skill roots, or set SHADOW_BUCKET_FUTURE=off
 
 The `superpowers` binding is leaf-only. The pack root is never selected. Shadow
 may name only a concrete installed whole leaf from this compatible set:
