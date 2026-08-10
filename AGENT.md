@@ -79,6 +79,25 @@ lane, spike, brief.
   line names the task it came from.
 - Before honoring a mode flip, run `shadow lint`, then ask of the diff:
   does any task duplicate another, and can each proof refuse bad work?
+- Liveness is proven by the artifact, never the process: probe the row's
+  proof and the branch's commits, and treat an artifact that changed between
+  two probes as the only trustworthy heartbeat (2026-08-10: a live worker was
+  written off as dead, and a dead one was believed alive, in the same night).
+- A worktree path is not a lane. Dispatch is real when a branch or PR carries
+  the claim; a directory existing proves nothing, and a worker launched into
+  a detached worktree has nowhere to land (2026-08-10: the L4 dispatch).
+- An accusation grounds on the merge-base diff, never the tip diff — two-dot
+  output mixes the branch's changes with everything main did since
+  (2026-08-10: a clean worker was nearly charged with editing PLAN.md).
+- Every read names its ref, and a working tree is presumed stale until it is
+  fast-forwarded onto that ref — fetching alone moves only remote-tracking
+  refs, so read the fetched ref directly (`git show origin/main:PLAN.md`,
+  `git ls-tree origin/main`) rather than the checkout: `ls` against a tree
+  1,697 commits behind main produced a false "the repo owns no root plan"
+  that reached two boards before retraction (2026-08-10).
+- Green fixtures prove the fixtures, never the field: a suite whose every
+  card had an initialised picker passed while the uninitialised-picker case
+  let money through unintercepted (2026-08-10: the L4 gift path).
 - Transfer the lesson, never the work: a pattern that generalizes becomes a
   skill or one Deferred row in the sibling's own plan.
 - The loop skill is `/<project>-loop` by derivation; write `- Loop:` only
