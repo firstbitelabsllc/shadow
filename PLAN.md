@@ -138,12 +138,13 @@ sections that stood here until 2026-08-09 are archived at
 
 ### M19 — this session is processed to zero
 
-- tools: the owner's standing order for the 2026-08-09/10 session: process the whole session's findings and fix everything wrong, with delegation and adversarial review as the method and the board as the memory. Scope discipline: this milestone holds ONLY findings no existing row owns — M15, M16, and the universal-system rows keep theirs, and repeating them here would be the second queue Shadow bans. M14 is retired by the owner's explicit no-telemetry ruling. The former M18 remote-claim milestone is retired because the completed per-computer root board supersedes its premise. M17 is NOT on this board: its stack (PRs 286 and 290, plus the unbuilt ~cnon) stays its own work, and nothing may be excluded from M19 on the claim that M17 owns it — any plan-authority finding the ~z9fn sweep raises takes a row here unless a milestone that actually exists names it
+- tools: the owner's standing order for the 2026-08-09/10 session: process the whole session's findings and fix everything wrong, with delegation and adversarial review as the method and the board as the memory. Scope discipline: this milestone holds ONLY findings no existing row owns — M15, M16, and the universal-system rows keep theirs, and repeating them here would be the second queue Shadow bans. M14 is retired by the owner's explicit no-telemetry ruling. The former M18 remote-claim milestone is retired because the completed per-computer root board supersedes its premise. The nonexistent M17 cannot own work: its archive-veto and classification implementations merged in PRs 286 and 290, while the still-unbuilt canonical-plan proof on `m17-canonical-plan-authority@64cda75` is migrated here as `~cnon`; that remote branch is provenance, not a second authority. Any new plan-authority finding takes a row here unless a milestone that actually exists names it
 - [completed] the session's transferable lessons stand in AGENT.md as concise general rules, each with a one-line dated incident: liveness is proven by the artifact, never the process; a worktree path is not a lane; an accusation grounds on the merge-base diff, never the tip diff; every read names its ref and an unfetched tree is presumed stale; green fixtures prove the fixtures, never the field ~lssn | proof: read current AGENT.md carries each rule with its 2026-08-10 incident, PR 291 is merged, and the receipt names why its historical merge alone did not prove the rules survived the later standing-law rewrite
 - [completed] the canonical-checkout anomaly is closed at the strongest recoverable claim: the deleted local branch reflog prevents proving who repointed codex/browser-routing-shadow-20260809 or why, while the surviving remote merge graph proves the work itself landed without establishing that local action's provenance; no corruption or deliberate-repoint conclusion survives without the missing primary receipt ~canx | proof: read the closing Progress receipt names the introducing commit, pull-request record, surviving refs, local and remote reflog searches, session-receipt search, and the exact evidence gap without inferring actor or intent
 - [completed] legacy labels such as `P9a~formats` resolve only as compatibility selectors against the committed entity plan's existing trailing canonical id (`~3549` in the live Snowcubes row). `throw --task`, `amp --task`, `accept --row`, and `return --row` accept the exact leading label, then every claim, receipt, dependency, lifecycle association, and board byte uses the four-base36 canonical id. Missing or duplicate labels fail closed; no entity-plan rewrite, hand-written claim, alias ledger, remote claim ledger, or widened id grammar is introduced. Snowcubes adoption remains Snowcubes-plan work ~lqid | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.TheIdGrammarMatchesTheDecisionRecordedInGrammarMd tests.test_throw.ALegacyIdRowIsClaimedByThrowWithoutAHandWrittenLine tests.test_throw tests.test_shadow_lint tests.test_shadow_accept
 - [completed] lint and manual claim return recognize the same read-proof receipts, so a completed row that lint accepts cannot strand its owner merely because its historical receipt predates the canonical result delimiter ~rprf | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.ACompletedReadProofNeedsACanonicalReceipt tests.test_root_board.ManualProofsCanCloseClaims tests.test_shadow_lint tests.test_return
-- [pending] a dated audit of THIS repository closes the session: every finding from the 2026-08-09/10 session names its disposition — a row, a merged PR, or an owner and gate — with the evidence file or ref beside each, and every in_progress source lane names a branch or PR a stranger can fetch. That remote artifact proves the work is recoverable; claim ownership remains solely on each computer's local board ~z9fn (DoD) | proof: read the audit lands as a dated Progress entry naming each finding and its evidence, and for every in_progress source lane the entry names an artifact a second seat actually fetches from a fresh clone with nothing but the row id — the branch or PR resolves on the remote and its content is read back; no remote artifact is called claim authority | needs: ~lssn, ~canx, ~lqid, ~rprf
+- [pending] every discovered logical project resolves to one canonical plan before portfolio parsing: registered pointers win their identity, duplicate worktrees and retired shells cannot re-enter, and a stale elected checkout is reported as stale rather than silently treated as current authority; the proof exercises the real classification contract without storing a second location index or deleting any plan ~cnon | proof: cmd scripts/shadow-python.sh -m unittest tests.test_plan_location.EveryProjectResolvesToOneCanonicalPlan tests.test_root_board.RegisteredPointerIsCanonicalBeforePortfolioParsing tests.test_plan_location tests.test_root_board
+- [pending] a dated audit of THIS repository closes the session: every finding from the 2026-08-09/10 session names its disposition — a row, a merged PR, or an owner and gate — with the evidence file or ref beside each, and every in_progress source lane names a branch or PR a stranger can fetch. That remote artifact proves the work is recoverable; claim ownership remains solely on each computer's local board ~z9fn (DoD) | proof: read the audit lands as a dated Progress entry naming each finding and its evidence, and for every in_progress source lane the entry names an artifact a second seat actually fetches from a fresh clone with nothing but the row id — the branch or PR resolves on the remote and its content is read back; no remote artifact is called claim authority | needs: ~lssn, ~canx, ~lqid, ~rprf, ~cnon
 
 ### Universal system: one root board per computer
 
@@ -209,17 +210,17 @@ sections that stood here until 2026-08-09 are archived at
 
 ## Deferred
 
-- 29 follow-ups from the 17-agent trust audit -- regex duplication between lint and accept, a host-prompt example-receipt collision, doctor's VERSION-grammar quadruplication, packaging globs shipping design records, atomic-write and accessibility nits | the full list exists only in a session transcript a fresh checkout cannot read, so the five named here are all that is recoverable from this repository | wake: the next release train; if that transcript is unreachable when it fires, re-run the audit sweep rather than treating this row as done
+- 29 follow-ups from the 17-agent trust audit -- five are recoverable here: regex duplication between lint and accept, a host-prompt example-receipt collision, doctor's VERSION-grammar quadruplication, packaging globs shipping design records, and atomic-write/accessibility nits; the other 24 individual findings are unrecoverable because the only claimed source was a session transcript no fresh checkout can read | disposition: no unnamed finding is asserted fixed or silently dropped; the next release train reruns the audit sweep and mints rows for every reproduced live defect | wake: the next release train, using current source rather than the missing transcript
 - a session-start portfolio brief: a fresh session opens already knowing every project's state, mode, and next move, without being asked | `shadow status` plus the standing goal already gets a cold session to the board, so this is polish on a solved problem | wake: a product cycle names cold-start friction in its own plan
 - harden the sealed-lane argv: `claude --setting-sources user --allowedTools`, `cursor --sandbox enabled` | the flags are verified present in the installed CLIs, but lane behavior under them is unverified and `shadow host run` has never been exercised against a live host | wake: the first real delegated host run
 - native structured receipts via `codex --output-schema` and `claude --json-schema` | text-scraping the receipt works today and a schema is only better when the scrape breaks | wake: a receipt-shape scrape failure actually occurs
-- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
+- six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/PLAN.md, vidux/*/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
 - browser-routing drift is closed at its owner ~brws: `/browse` remains the sole browser-policy source; Browser Use handles external interactive work and `/playwright` proves owned products; Shadow delegates by host and never embeds vendor routing, so the residual `/shopper` availability check that can still force Codex @Computer ahead of the chosen `/browse` route is one bounded guard repair in the shared-skill source | the repair lands in `ai-skill-source-origin-main`, not in this repository, so as an M11 task it would hold M11's DoD open forever: `~clen` cannot flip while a non-completed sibling stands without shadow-lint raising a blocking DOD-EARLY | wake: leojkwan/ai PR 156 is merged to main, which lands the /browse routing repair and the /shopper guard together -- the checkouts are clean and the work is pushed, so nothing is blocked on this machine any more
 - `shadow doctor` cannot read Cursor's global User Rules | the documented surface is Cursor Settings -> Rules, not a file or API, so doctor may report the expected managed-block hash but cannot claim it inspected the application setting | wake: Cursor ships a documented readable file or API for global User Rules
 
 ## Contradictions
 
-- per-repo-only authority vs the owner's per-computer root board | provisional
+- RESOLVED 2026-08-10T20:07:33Z in favor of the per-computer root board plus subordinate entity-plan shards |
   winner: root board + subordinate shards | opened 2026-08-10T04:24:00Z
   The law says PLAN.md at a project root is the only authority (`AGENT.md:11`,
   `SKILL.md:165`, `docs/reference/grammar.md:46`, `bin/shadow` init, and the
@@ -229,7 +230,7 @@ sections that stood here until 2026-08-09 are archived at
   and resume pointers; project plans remain authoritative for their own rows,
   proof, and evidence. The board holds pointers, never copies. `AGENT.md:166`
   ("each machine's board is its own plan set") is precedent, not conflict.
-  M20 implements; every listed law surface is rewritten when ~actv lands.
+  Accepted `~root`, `~gc20`, and `~actv` implement the decision.
 
 - RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
   Shadow. See the ~obsv PROOF line. |
@@ -243,7 +244,7 @@ sections that stood here until 2026-08-09 are archived at
   with no payloads, or kill. Recorded before any code so the boundary is not
   eroded by an integration that arrives working.
 
-- `shadow init` scaffolds 19 Brief keys; the grammar defines 4 | provisional
+- RESOLVED 2026-08-10T20:07:33Z in favor of the v4 grammar and removal of the v3 producer/consumer stack |
   winner: keep the scaffold | opened 2026-08-09T01:00:00Z
   The first command a stranger runs teaches `Outcome ID / Revision / State /
   Decision / Option A|B|C` — vocabulary `docs/reference/grammar.md` does not
@@ -252,13 +253,13 @@ sections that stood here until 2026-08-09 are archived at
   10-line change, EXCEPT the browser's A/B/C decision surface reads exactly
   those extra keys, so trimming init leaves `browser/outcome_source.py`,
   `decision_mode.py`, and `chief_of_staff.py` with no producer. Resolving this
-  means deciding whether the browser's decision surface stays — an owner call,
-  not a lint fix. Held as a contradiction rather than settled quietly.
+  The owner chose v4; accepted M22 rows `~v3rm`, `~dsup`, `~fold`, and `~r22d`
+  remove the dormant Outcome/Decision surface instead of preserving its keys.
 
 - `docs/reference/config.md` says environment variables give the same defaults
   "without another configuration file", `docs/reference/honcho.md` records that
   v4 deleted "the roster, route, seat, and YAML config layers", and `SKILL.md`
-  bans a parallel status database | provisional winner: the owner, bounded by
+  bans a parallel status database | RESOLVED 2026-08-10T20:07:33Z in favor of the owner, bounded by
   the buckets law | opened 2026-08-09T23:05:00Z
   The owner said it twice. First: "shadow will have buckets and the method open
   for superpowers, whereever users want to configure that". Then, harder:
@@ -269,21 +270,22 @@ sections that stood here until 2026-08-09 are archived at
   cycle, and a machine without one behaves identically. Read-only preference is
   not routing. The owner's 2026-08-10 clarification narrows this further: the
   effective YAML is local and ignored; only a recommended template may be
-  tracked. M12 is the bounded version; ~cfg1 and ~noks are its refusals, while
-  ~locl and ~ovrd correct the branch implementation before acceptance.
+  tracked. Accepted M12 rows `~cfg1`, `~noks`, `~locl`, and `~ovrd` are the
+  bounded implementation and refusal surface.
 
 - `AGENT.md` and `docs/reference/grammar.md` say a lead is free text because "a
   file of legal names would be the roster v4 deleted, and would make an
   unlisted seat's honest claim illegal" -- written today -- while the owner
-  asks for a roster in config | provisional winner: both, by splitting
+  asks for a roster in config | RESOLVED 2026-08-10T20:07:33Z in favor of both, by splitting
   preference from legality | opened 2026-08-09T23:05:00Z
   A `leads:` block may carry display names, handles, and default lenses; it may
   never decide whether a claim is legal. An unlisted lead still claims, still
   signs `by:`, still appears in `--in-flight`. The moment the config can make a
   claim illegal it is the roster, and ~noks refuses the keys -- provider,
-  model, account, credential -- that made the old roster a router.
+  model, account, credential -- that made the old roster a router. Accepted
+  `~noks` and the 2026-08-10T18:14:58 stable-identity decision close it.
 
-- one computer board vs a repo-local `board_store` override | provisional
+- one computer board vs a repo-local `board_store` override | RESOLVED 2026-08-10T20:07:33Z
   winner: machine bootstrap chooses once; entity configs may only assert |
   opened 2026-08-10T18:37:13Z
   `shadow status` must open the computer board from an unrelated directory,
@@ -293,7 +295,8 @@ sections that stood here until 2026-08-09 are archived at
   the explicit machine bootstrap context: it may declare the one board root
   and directive topology. Entity configs keep method preferences and may
   assert the expected root, failing before mutation on mismatch; they never
-  retarget the board or the machine-global installer.
+  retarget the board or the machine-global installer. Accepted `~ovrd` is the
+  implementation proof.
 
 - RESOLVED 2026-08-10T18:14:58Z in favor of no telemetry. The owner clarified
   "keep network telemetry nonexistent" and rejected telemetry as a product
@@ -1708,3 +1711,16 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T19:55:14Z CHECKPOINT ~lqid compatibility boundary: CLI aliases canonicalize before board ownership or mutation; interrupted accept resolves from HEAD before exact journal recovery and rechecks recovered bytes; historical THROWN imports and lifecycle receipts canonicalize at read time while preserving exact archived receipt text; duplicate aliases block lint. Focused selector, accept, return, import, and lifecycle proofs pass. This is source proof until the declared clean-checkout acceptance reruns the full contract.
 - 2026-08-10T20:00:49Z CHECKPOINT ~lqid authority review: an adversarial diff pass found that amp and historical THROWN import initially compared aliases only to mutable working-tree text, and that `\b` accepted a shorter label before punctuation. Both leaks now fail closed: a legacy selector must map to the same canonical row in HEAD and working-tree views before projection/import, and the label must end at whitespace or end-of-text. Dirty remap, board-byte immutability, and punctuation-suffix regressions pass; canonical selectors retain their prior dirty-plan behavior.
 - 2026-08-10T20:03:21Z ~lqid PROOF scripts/shadow-python.sh -m unittest tests.test_shadow_lint.TheIdGrammarMatchesTheDecisionRecordedInGrammarMd tests.test_throw.ALegacyIdRowIsClaimedByThrowWithoutAHandWrittenLine tests.test_throw tests.test_shadow_lint tests.test_shadow_accept -> pass (accept)
+- 2026-08-10T20:07:33Z AUDIT ~z9fn 2026-08-09/10 findings disposition — THIS repository only; source, acceptance, human gates, and historical gaps remain distinct:
+  - 0.1 audit: nine direct repairs landed in `b76dfa3`; the v3 producer/consumer finding is retired by accepted M22 `~v3rm/~dsup/~fold/~r22d` (`0bc0b89`, `6a9f3ce`, `ebb466c`, `5f7776b`).
+  - M13 adversarial findings: zero-byte claim=`~atom`/`842ea09`; row scope=`~rows`/`62ca0cc`; shell argv=`~argv`/`8234ce4`; suffixed headings=`~pfix`/`011b342`; stock Python plus README doctor=`~pyv3`/`af1badf`; lint gate plus style-fence and backup-mode=`~acpt`/`c7cd55e`; unmarked directive drift=`~hdop`/`52d229f`. Clean-main DoD remains `~aud1`.
+  - M12 configuration: `~cfg1/~yml2/~noks/~advm/~ftur/~locl/~ovrd` are accepted through `d64c2f1`; stranger-main acceptance remains `~conf`. The effective file is ignored, machine bootstrap owns one board root/directive topology, entity YAML only asserts that root and declares preferences, and no provider or telemetry routing exists.
+  - Host activation: `~curs/~acti/~slnk/~tmpr/~disc` are accepted; corrected Cursor User Rules projection=`~curu`, three-host stranger proof=`~act9`, and private canonical directive work=`~cano→~vsym→~mrge→~cn16`, all exact Leo gates where named.
+  - Universal system: `~dreg/~root/~gc20/~actv/~bops/~tier` are accepted; the live uncoached two-seat proof remains `~2st8`. Board UI source is accepted at `~v4bd/~vgal`; live restart observation remains `~v21d`.
+  - M19: standing-law restoration=`~lssn` plus merged PR 291/`5bb083a`; deleted-reflog uncertainty=`~canx` with the later unrecoverable-evidence receipt controlling over the superseded 08:20 reset claim; proof-parser parity=`~rprf`/`9812177`; legacy selectors=`~lqid`/`8cd2a23`.
+  - Historical M17: archive veto merged PR 286/`98bd652`; deterministic classification merged PR 290/`33278bb`; fresh remote inspection found the unbuilt canonical-plan row on `m17-canonical-plan-authority@64cda75`, so its live disposition is migrated into this milestone as `~cnon` rather than left on a non-authoritative branch.
+  - Retired decisions: Langfuse=`~obsv` kill; telemetry/M14=no replacement; protected-remote claim M18=local root-board supersession; v3 Outcome/Decision OS=M22 removal. The five formerly provisional Contradictions now name their accepted winners.
+  - Remaining product/human acceptance is explicitly owned: second machine=`~rel1`; killed-chat cycle=`~live`; paired leads=`~pair`; clean-main source gates=`~conf/~aud1`; Cursor/cold hosts=`~curu/~act9`; private directives=M16 chain; two-seat=`~2st8`; live board=`~v21d`.
+  - Deferred ownership remains wake-bound: cold-start polish on a product-friction report; sealed argv on first live delegated host run; structured receipts on first scrape failure; six repo-local plan declarations on those repositories' own edits (the invalid recursive leojkwan glob is corrected to `vidux/PLAN.md, vidux/*/PLAN.md`); shared `/browse` repair on leojkwan/ai PR 156 merge; Cursor doctor visibility on a documented readable API/file.
+  - Trust-audit evidence gap: only five of the claimed 29 follow-ups are reconstructable from this repository; the other 24 are not called fixed. Their disposition is a fresh audit at the next release train, with a row minted for every reproduced defect rather than an inference from an unavailable transcript.
+  - Recoverability is evidence, not claim authority: the only current Shadow source lane is `codex/shadow-config-regime-20260810`, already fetchable at predecessor `8cd2a23`; the local computer board alone owns `~z9fn`. A fresh-clone readback of the audit-bearing commit is required before this row flips.
