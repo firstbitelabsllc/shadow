@@ -85,9 +85,10 @@ over-promise here would be a lie about someone's hand-written instructions:
    from a blank line the person typed, so one such line can come out with the
    block; a file that never ended in a newline gains one on the round trip.
 
-Cursor is deliberately absent: its user rules live in application settings, not
-a file, so writing `~/.cursor/rules/shadow.md` would invent a convention. That
-is a row in the plan, not a silent gap.
+Cursor is deliberately absent, by decision: its user-level rules live in
+application settings, not a file, so writing `~/.cursor/rules/shadow.md` would
+invent a convention. The decision, its evidence, and its reopen condition are
+recorded in docs/reference/native-hosts.md § Activation surfaces.
 """
 
 from __future__ import annotations
