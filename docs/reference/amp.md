@@ -1,11 +1,12 @@
 # shadow amp — the goal is a pointer
 
-`shadow amp` projects one paste-ready goal block from a repository-owned
+`shadow amp` projects a paste-ready starting block from a repository-owned
 `PLAN.md`. It exists because of a hard size truth: a real goal may iterate
 over ten projects and hundreds of plan rows, and no goal prompt — bounded to
 one paste, default 4,000 characters — can carry that detail. The durable
-detail lives in the plan; the goal block MUST be a pointer to it, plus the
-minimum a seat needs to warm-start without re-deriving state.
+detail lives in the plan; the goal block MUST be a pointer to it, plus what a
+seat needs to warm-start without re-deriving state. The selected row is a
+starting pointer, never the Outcome's scope or stopping condition.
 
 ## The contract
 
@@ -14,12 +15,14 @@ minimum a seat needs to warm-start without re-deriving state.
    standing instruction: *the plan wins* — when block and plan disagree, the
    block is stale, never the plan. First move is always fetch + read + state
    your ref.
-2. **One resume row.** Selection is the cycle law: the `in_progress` row
+2. **Starting pointer, never scope.** Selection starts with an `in_progress` row
    first, else the first `pending` row whose `needs:` are all completed,
    milestone order. Person-gated rows (`proof: gate <owner> …`) are never
    auto-selected — they are agent-side stops, not work a seat may claim.
    `--task ~hash` targets one row explicitly, gated or not: that is a person
-   choosing.
+   choosing. After that row is proven, reread the plan, claim the next
+   reachable work, and fan out path-disjoint rows when useful. A projected row
+   never implies "do this and stop."
 3. **Proof rides along.** The resume row's `proof:` field is in the block —
    a seat should know the bar before writing a line.
 4. **Tooling from the milestone, not a store.** The optional milestone

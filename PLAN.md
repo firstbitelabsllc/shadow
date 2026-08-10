@@ -164,12 +164,11 @@ sections that stood here until 2026-08-09 are archived at
 - Shadow has its own product plan and proof gap. That gap never blocks an
   unrelated product from shipping the highest-value reachable row in *its* own
   canonical plan.
-- “One bounded task” means one reviewable handoff with an exact scope. It does
-  not mean only one project may move, nor that the Outcome has only one
-  deliverable. It is an execution-granularity and safety rule: after one packet
-  is proven, resume the next highest-value reachable lane in this same plan.
-  A safe, obvious in-scope improvement must not wait for an unrelated host,
-  quota, or portability check.
+- Reviewable task boundaries scope ownership and proof; they never cap the
+  Outcome, session, project set, or deliverables. Drain every reachable lane,
+  fan out path-disjoint work, integrate its proof, and immediately claim the
+  next reachable work. Safe, obvious in-scope improvement never waits for an
+  unrelated host, quota, or portability check.
 - Use Shadow where its briefing, bounded execution, or resume record helps.
   Otherwise work directly in the product lane and prove the real user-visible
   outcome there. Amp only sharpens that lane's brief; it does not dispatch,
@@ -1137,8 +1136,8 @@ sections that stood here until 2026-08-09 are archived at
 
 - 2026-08-03T17:17:49Z: Amp review corrected the operating brief: the active
   goal is the full Star67, Moussey, Snowcubes, security, deployment, and
-  handoff portfolio. “One bounded task” is only the safe execution packet; it
-  is not a one-feature or one-repository finish line. Refreshed the external
+  handoff portfolio. Reviewable execution packets protect ownership and proof;
+  they never create a feature, repository, session, or campaign finish line. Refreshed the external
   readback to Snowcubes `origin/main@c16d1f93`; PR #1567 remains OPEN/CLEAN at
   `77e2bb5e` against its previously reviewed `27665b6e` base. No product code
   was changed. Continue all reachable lanes; leave owner-admin, authenticated
@@ -1452,7 +1451,7 @@ sections that stood here until 2026-08-09 are archived at
   about 15 seconds; the attempt was closed without reaching the remote UI.
   No clone, install, doctor, mount, or native-host receipt was produced. The
   target-host availability predicate is still unmet; do not retry in a loop.
-- 2026-08-03T23:03Z: Made one bounded follow-up attempt after a fresh Jump
+- 2026-08-03T23:03Z: Made a low-cost follow-up attempt after a fresh Jump
   state check. `Leos-Macbook-M4-Pro` remained at `Connecting...` for another
   15 seconds and was closed without reaching the remote UI. No clone,
   install, doctor, mount, Outcome/A/B/C, or native-host receipt was produced.
@@ -1605,3 +1604,4 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T04:43:17Z STRUCT the universal-system milestone and its activation acceptance now require plain outcome language on every human-facing surface | trigger: the owner rejected milestone and row codenames as confusing and contrary to how Shadow should operate; stable IDs remain internal machine references only. Contradicts: the active temporary goal's milestone label, superseded by this plan's descriptive heading.
 - 2026-08-10T04:43:17Z ~dreg PROOF docs/reference/universal-system-register.md represents both seats' requirements through the owner's plain-language correction; the Codex seat re-read the complete register against its chat and confirmed coverage (read)
 - 2026-08-10T04:47:31Z THROWN ~root the root board exists and is claim-safe: a git repository at ~/.shadow holding priority, claims, owners, and one resume pointer per project — pointers, never copies of rows. The LOCAL file is the authority; a private remote is optional recovery, best-effort and async, never required for a write to count and never live authority — recovery is only ever as fresh as the last push, and that limit is stated where the remote is configured. The claim contract is mechanically proven: of two seats claiming the same row concurrently exactly one wins and the loser is told, and a seat that dies mid-claim leaves a recoverable board — an advisory lock reusing the installer's crash-safe write discipline is the implementation candidate, not the contract | by: codex | note: Per-computer root board, local authority, single-winner claims, and crash recovery; implementation starts only after this claim reaches main.
+- 2026-08-10T06:30:00Z STRUCT outcome-completeness law replaced packet-minimalism across the Method, goal shaping, standing activation, amp runtime rails, init scaffold, browser, guides, and public product copy | trigger: the owner rejected the repeated conversion of full-product intent into a single campaign or slice and required all reachable lanes to rise together. Reviewable rows, one-writer claims, and proof remain safety units; they no longer cap a session or Outcome. The new refusal test scans every live instruction surface for the retired narrowing phrases and requires queue drain, safe disjoint fan-out, and full acceptance. Contradicts: the prior Worklane wording and amp/init defaults, replaced in this same change.

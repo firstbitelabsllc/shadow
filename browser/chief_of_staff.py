@@ -2,7 +2,7 @@
 
 The Chief of Staff is a report, not another runtime.  This module accepts the
 same validated ``shadow.outcome.v1`` document used by the decision view and an optional,
-already-redacted plan summary.  It returns one bounded, provider-neutral brief
+already-redacted plan summary. It returns a concise provider-neutral brief
 that a desk view and a compact client can render identically.
 
 It does not read plans, write receipts, invoke hosts, choose providers, or keep
@@ -90,7 +90,7 @@ def _recommendation(state: str, *, has_proof: bool, has_choice: bool) -> str:
 
 
 def project_chief_of_staff(document: Any, *, plan_brief: Any = None) -> dict[str, Any]:
-    """Return one bounded five-question brief from the shared semantic source.
+    """Return the concise five-question brief from the shared semantic source.
 
     ``plan_brief`` is a tiny, already-redacted projection of the owning plan;
     it is never read from disk here.  The returned ``proof`` is limited to one

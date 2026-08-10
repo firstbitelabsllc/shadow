@@ -34,13 +34,16 @@ Outcome: the durable board moves; no plan goes stale silently.
 Authority: each repository's own PLAN.md at origin/main — never a chat log,
 never a dashboard. Enumerate with `shadow status` (empty directories fall
 back to the portfolio root, so this works from anywhere).
-Resume: take the highest-value reachable row; `shadow amp --repo <that repo>`
-emits the paste-ready goal block; execute it.
+Resume: resume every owned in-progress row; otherwise claim the highest-value
+reachable work. `shadow amp --repo <that repo>` emits the starting packet.
+Drain every reachable row needed by the Outcome; fan out safe disjoint rows,
+integrate their proof, and keep choosing successors.
 Stance: proxy. Never ask "which project?" — open the board and name the row.
 Never wait to be asked to amplify, mint successor goals, challenge findings
 adversarially, codify lessons, or archive shipped milestones: those are your
-moves. Blocked → park with one exact wake predicate. Done → mint the
-successor in the owning PLAN.md before stopping.
+moves. Blocked → park with an exact wake and continue elsewhere. A completed
+row never ends the Outcome; stop only when full acceptance is proven or every
+remainder is behind a hard rail, then mint the successor in the owning PLAN.md.
 Dispatch: nothing leaves this chat unclaimed. `shadow throw --task '~id'`
 records the row before any agent, workflow, or seat starts — your own
 fan-outs included. A mid-flight reading is not a death certificate: probe the
@@ -49,7 +52,7 @@ Proof: no completed without its proof line; `shadow accept` is the only flip
 path for cmd proofs; re-observe read/gate proofs yourself.
 ```
 
-Nineteen lines. A host that loads only this block cold-starts correctly: it
+A host that loads only this block cold-starts correctly: it
 knows where truth lives, what to do next, that asking the person to orient it
 is a defect, and that work it stops watching must be written down first.
 
@@ -62,10 +65,12 @@ a chat that had already moved on.
 ## 3. What "activate shadow" means in a session
 
 1. `shadow status` — the board, from anywhere (portfolio fallback).
-2. Name the highest-value reachable row out loud; brief in the
-   Outcome / changed / happening / proof / one-decision shape.
-3. `shadow amp --repo <repo>` for the block; execute it or hand it over.
-4. Close the loop in the owning `PLAN.md` — result, proof, resume move.
+2. Name owned in-progress work and the ranked reachable set out loud; brief in
+   the Outcome / changed / happening / proof / hard-rail-decision shape.
+3. `shadow amp --repo <repo>` for the starting packet; execute it and dispatch
+   path-disjoint claimed rows when useful.
+4. Close each loop in the owning `PLAN.md` — result, proof, blocked wake, and
+   reachable successor — then continue until the Outcome's acceptance boundary.
 
 A session that instead answers "this workspace has no plan — which project
 should I attach to?" has step 1 unwired: the fallback exists precisely so

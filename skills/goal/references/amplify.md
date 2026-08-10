@@ -53,7 +53,8 @@ constraint arrives before the elaboration.
 - **Front-load the refusal.** What must NOT happen goes early and absolute:
   *never force-push; never touch another lane's row.* Buried prohibitions are
   prohibitions that get skipped.
-- **One idea per line.** A line holding two constraints gets half-followed.
+- **Atomic constraints per line.** A line holding unrelated constraints gets
+  half-followed; parallel outcome lanes still belong in the same goal.
 - **Table over prose** for anything with more than three parallel cases.
 - **Name the artifact, not the intent.** "Append a row to `PLAN.md`" beats
   "track the work".
@@ -104,7 +105,7 @@ captured.
 ```text
 Outcome: every finding in <scope> is either proven with file:line or dead.
 Authority: <repo>/PLAN.md @ origin/main — fetch first, state the ref you read.
-Resume: <the one exact next move>.
+Resume: <all owned in-progress work, then the ranked reachable set; fan out disjoint rows>.
 Method: find, then REFUTE. Each finding gets 3 independent verifiers with
 distinct lenses (correctness, security, does-it-reproduce); ≥2 refutations
 kills it. Default to refuted when uncertain.

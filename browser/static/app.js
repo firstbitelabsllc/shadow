@@ -95,10 +95,10 @@ function renderPlan(plan) {
   roleGuide.append(el('p', { className: 'eyebrow', text: 'How Shadow can help' }));
   const roles = el('dl', { className: 'role-guide-list' });
   [
-    ['Think it through', 'When the next move is still unclear.'],
-    ['Make a small change', 'For one clear improvement.'],
-    ['Fix something broken', 'When you can point to what went wrong.'],
-    ['Take on a hard build', 'When the work needs extra care and checking.'],
+    ['Drive the full outcome', 'Continue through every reachable requirement.'],
+    ['Fan out safe work', 'Claim path-disjoint lanes and integrate their proof.'],
+    ['Fix every proven defect', 'Keep going until acceptance or an exact hard rail.'],
+    ['Raise every surface', 'Apply the required design, reliability, and release gates.'],
   ].forEach(([work, explanation]) => {
     const item = el('div', { className: 'role-guide-item' });
     item.append(el('dt', { text: work }), el('dd', { text: explanation }));
@@ -107,7 +107,7 @@ function renderPlan(plan) {
   roleGuide.append(roles);
   roleGuide.append(el('p', {
     className: 'role-guide-note',
-    text: 'Shadow picks from the coding tools already on this computer. It never starts one without your say-so.',
+    text: 'Shadow uses supported local coding tools autonomously after durable claims; only hard rails pause.',
   }));
   card.append(roleGuide);
 

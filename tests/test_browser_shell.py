@@ -41,6 +41,9 @@ class BrowserShellContract(unittest.TestCase):
         self.assertIn("row('Change', briefing.changed)", APP)
         self.assertIn("text: 'Choose what happens next'", APP)
         self.assertIn("text: 'How Shadow can help'", APP)
+        self.assertIn("'Drive the full outcome'", APP)
+        self.assertIn("'Fan out safe work'", APP)
+        self.assertIn("only hard rails pause", APP)
         self.assertIn("briefing.proof ? 'Proof' : 'Proof not available yet'", APP)
         # PROVEN FALSE GREEN (2026-08-09): this guard was written as
         # `assertNotIn("text: 'planner'", APP)`, but app.js never writes a role

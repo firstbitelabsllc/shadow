@@ -30,7 +30,7 @@ PLAN = """# Release notes
 - Option A Consequence: Use the accepted proof and finish today.
 - Option B ID: cold-review
 - Option B: Run a cold review
-- Option B Consequence: Spend one bounded pass on independent judgment.
+- Option B Consequence: Apply independent judgment across every relevant surface.
 - Option C ID: hold-release
 - Option C: Hold the release
 - Option C Consequence: Keep the Outcome open until new evidence exists.

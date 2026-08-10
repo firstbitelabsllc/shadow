@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""shadow amp — project one paste-ready goal block from a repository's PLAN.md.
+"""shadow amp — project a paste-ready starting block from a repository's PLAN.md.
 
 The goal is a POINTER to the durable plan, never a second copy of it. A goal
 may drive work across many milestones and repos; no 4,000-character block can
 carry that detail, so the block carries exactly enough to warm-start a seat —
-authority pointer, mode, the one resume row with its proof, the milestone's
+authority pointer, mode, the selected starting row with its proof, the milestone's
 tooling line, and the standing rails — and defers everything else to the plan.
 
 Deterministic: no LLM, no network. Same plan, same block. The per-milestone
@@ -357,9 +357,10 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
         ))
     optional.append((
         "RAILS",
-        "RAILS: one bounded task per cycle; no proof, no completed; run `shadow lint` "
-        "before honoring a mode flip; append your own Progress rows, never rewrite "
-        "another lane's; end by writing the next resume move into the plan.",
+        "RAILS: drain every reachable row needed by the Outcome; fan out safe disjoint "
+        "claims; park only exact hard-rail wakes; no proof, no completed; run `shadow "
+        "lint` before mode flips; append your own Progress rows, never rewrite another "
+        "lane's; keep choosing successors until full acceptance.",
     ))
 
     kept = list(optional)
@@ -393,7 +394,7 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="shadow amp",
-        description="Project one paste-ready goal block from a repository-owned PLAN.md.",
+        description="Project a paste-ready starting block from a repository-owned PLAN.md.",
         epilog="Deterministic: no LLM, no network. amp reads a plan file and cannot see "
                "your conversation, so it projects the pointer, not the judgment; the "
                "judgment half is SKILL.md section 'Shape a goal'.",
