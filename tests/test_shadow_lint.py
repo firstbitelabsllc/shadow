@@ -106,6 +106,31 @@ class ShadowLintTests(unittest.TestCase):
         hits = [f for f in findings if f["check"] == "READ-FIT"]
         self.assertTrue(hits and all(f["severity"] == "warning" for f in hits))
 
+    def test_hot_plan_byte_row_and_milestone_budgets_are_blocking(self) -> None:
+        oversized = CLEAN_PLAN + "\n<!-- " + "x" * lint._board.HOT_PLAN_MAX_BYTES + " -->\n"
+        rows = (
+            "# Demo\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n"
+            "## Tasks\n\n### Too many tasks\n"
+            + "".join(
+                f"- [pending] bounded result {index} ~{index:04x} | proof: cmd true\n"
+                for index in range(lint._board.HOT_PLAN_MAX_TASK_ROWS + 1)
+            )
+            + "\n## Progress\n"
+        )
+        milestones = CLEAN_PLAN.replace(
+            "\n## Deferred\n",
+            "\n"
+            + "".join(
+                f"### Extra bounded milestone {index}\n"
+                for index in range(lint._board.HOT_PLAN_MAX_MILESTONES + 1)
+            )
+            + "\n## Deferred\n",
+        )
+
+        self.assertIn("HOT-PLAN-BYTES", blocking(oversized))
+        self.assertIn("HOT-PLAN-ROWS", blocking(rows))
+        self.assertIn("HOT-PLAN-MILESTONES", blocking(milestones))
+
     def test_box_lifecycle_checks(self) -> None:
         no_end = CLEAN_PLAN.replace(" | ends: 2026-08-07", "")
         self.assertIn("SPIKE-NO-END", blocking(no_end))

@@ -253,6 +253,14 @@ def unclean_note(plan: dict) -> str | None:
     parts = []
     if plan.get("unparsed"):
         parts.append(f"{len(plan['unparsed'])} row-shaped line(s) the grammar rejects")
+    try:
+        budget = _board.hot_plan_budget(plan.get("text", "").encode("utf-8"))
+    except (_board.BoardError, UnicodeError):
+        budget = {"exceeded": []}
+    if budget["exceeded"]:
+        parts.append(
+            "hot plan budget exceeded (" + ", ".join(budget["exceeded"]) + ")"
+        )
     blocking = _lint_blocking(plan.get("text", ""))
     if blocking:
         parts.append(f"{blocking} blocking lint finding(s)")

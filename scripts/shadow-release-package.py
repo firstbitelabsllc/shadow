@@ -62,6 +62,7 @@ REQUIRED_FILES = {
     "browser/static/index.html",
     "browser/static/style.css",
     "docs/reference/chief-of-staff.md",
+    "docs/reference/commands.md",
     "docs/reference/grammar.md",
     "docs/reference/host-integration.md",
     "docs/reference/native-hosts.md",
@@ -72,6 +73,7 @@ REQUIRED_FILES = {
     "schemas/decision-choice.v1.json",
     "schemas/decision-receipt.v1.json",
     "schemas/outcome-choice.v1.json",
+    "schemas/retirement-manifest.v1.json",
     "scripts/shadow-doctor.py",
     "scripts/shadow-accept.py",
     "scripts/shadow-lint.py",
@@ -297,7 +299,13 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         "throw": ("--entity ID", "--by OWNER"),
         "return": ("--entity ID", "--by OWNER"),
         "accept": ("--by OWNER", "--row '~hash'"),
-        "lifecycle": ("--apply", "--milestone 'exact heading'"),
+        "lifecycle": (
+            "--apply",
+            "--milestone 'exact heading'",
+            "--retirement-manifest /ABS/manifest.json",
+            "--expect CAS",
+            "--by SEAT",
+        ),
     }
     for verb, clauses in expected_help.items():
         output = command([str(cli), "help", verb], consumer, env=env).stdout
