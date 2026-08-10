@@ -37,6 +37,11 @@ historical entries below.
   and recoverable after process death before or after replacement. Canonical
   project lifecycle locks serialize claim, return, and completion without
   holding the computer-wide lock across proof execution or project commits.
+- `shadow lifecycle` makes the hot-plan limits executable: lint, import, and
+  claim refuse oversized authority; exact-CAS compaction preserves proven
+  history and one operation-bound successor. Strict manifests can retire one
+  clean landed non-primary worktree or one expired recoverable snapshot without
+  force, with crash journals and immutable path-free receipts.
 
 ## 0.1.0 — 2026-08-09 — renumbered from 4.1.0
 

@@ -37,6 +37,13 @@ CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 BOARD_NAME = "board.json"
 LOCK_NAME = ".board.lock"
 MAX_PLAN_BYTES = 1_000_000
+HOT_PLAN_MAX_BYTES = 256 * 1024
+HOT_PLAN_MAX_TASK_ROWS = 128
+HOT_PLAN_MAX_MILESTONES = 32
+HOT_TASK_ROW_RE = re.compile(
+    r"^- \[(?:pending|in_progress|blocked|completed)\] .+ "
+    r"~[0-9a-z]{4}(?: \(DoD\))?(?: \|.*)?$"
+)
 
 
 class BoardError(ValueError):
@@ -247,6 +254,57 @@ def read_plan_text(plan: Path) -> str:
         return read_plan_bytes(plan).decode("utf-8")
     except UnicodeError as exc:
         raise BoardError("plan is not valid UTF-8") from exc
+
+
+def hot_plan_budget(content: bytes) -> dict:
+    """Measure the checked-in hot-authority limits shared by every entry door."""
+    try:
+        text = content.decode("utf-8")
+    except UnicodeError as exc:
+        raise BoardError("plan is not valid UTF-8") from exc
+    task_rows = 0
+    milestone_count = 0
+    in_tasks = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            in_tasks = heading == "Tasks" or heading.startswith("Tasks ")
+            continue
+        if not in_tasks:
+            continue
+        if line.startswith("### "):
+            milestone_count += 1
+        if HOT_TASK_ROW_RE.fullmatch(line):
+            task_rows += 1
+    values = {
+        "bytes": len(content),
+        "task_rows": task_rows,
+        "milestones": milestone_count,
+    }
+    limits = {
+        "bytes": HOT_PLAN_MAX_BYTES,
+        "task_rows": HOT_PLAN_MAX_TASK_ROWS,
+        "milestones": HOT_PLAN_MAX_MILESTONES,
+    }
+    exceeded = [name for name, value in values.items() if value > limits[name]]
+    return {
+        **values,
+        "limits": limits,
+        "exceeded": exceeded,
+        "within_limits": not exceeded,
+    }
+
+
+def assert_hot_plan_budget(content: bytes) -> dict:
+    """Refuse a plan that cannot enter or mutate the normal computer board."""
+    measured = hot_plan_budget(content)
+    if measured["exceeded"]:
+        raise BoardError(
+            "hot plan exceeds the checked-in "
+            + ", ".join(measured["exceeded"])
+            + " budget; archive one proven milestone with shadow lifecycle"
+        )
+    return measured
 
 
 def plan_content_token(text: str) -> tuple[int, str]:
@@ -1059,11 +1117,21 @@ def claim(
     owner = validate_owner(owner)
     claimed = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     returned = claimed + timedelta(hours=DEFAULT_CLAIM_HOURS)
+    if expected_plan is not None:
+        preflight_plan, preflight_content = committed_plan_snapshot(plan)
+        if preflight_plan != expected_plan:
+            raise BoardError("project plan changed before the claim committed; retry")
+    else:
+        preflight_content = read_plan_bytes(plan)
+    assert_hot_plan_budget(preflight_content)
     with _transaction(home) as (root, path, payload):
         if expected_plan is not None:
-            observed, _ = committed_plan_snapshot(plan)
+            observed, observed_content = committed_plan_snapshot(plan)
             if observed != expected_plan:
                 raise BoardError("project plan changed before the claim committed; retry")
+        else:
+            observed_content = read_plan_bytes(plan)
+        assert_hot_plan_budget(observed_content)
         entity = _entity_for(payload, plan)
         identity = entity["id"] if entity is not None else entity_id(plan)
         target = (identity, row)
@@ -1278,15 +1346,14 @@ def reconcile(
 
     def assert_seed_content() -> None:
         for seed in prepared:
-            if seed["expected_size"] is None:
-                continue
             try:
                 content = read_plan_bytes(Path(seed["plan"]))
             except BoardError as exc:
                 raise BoardError(
                     "bounded discovery entity changed during reconciliation; retry"
                 ) from exc
-            if (
+            assert_hot_plan_budget(content)
+            if seed["expected_size"] is not None and (
                 len(content) != seed["expected_size"]
                 or hashlib.sha256(content).hexdigest() != seed["expected_sha256"]
             ):

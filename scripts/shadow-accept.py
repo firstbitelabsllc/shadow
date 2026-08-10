@@ -259,6 +259,7 @@ def proof_passes(worktree: Path, proof: list[str], timeout_seconds: int) -> bool
         result = subprocess.run(
             proof,
             cwd=worktree,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
             stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=timeout_seconds,
@@ -290,21 +291,45 @@ def lead_review_passes(
 ) -> bool:
     if not proof_passes(worktree / proof_directory, proof, timeout_seconds):
         return False
-    status = git_completed(worktree, "status", "--porcelain=v1", "--untracked-files=all")
+    status = git_completed(
+        worktree,
+        "status",
+        "--porcelain=v1",
+        "--ignored=matching",
+        "--untracked-files=all",
+    )
     if status.returncode:
         return False
-    dirt = [
-        line
-        for line in status.stdout.splitlines()
-        if line.strip() and not line[3:].startswith(".shadow/")
-        and not line[3:].startswith("__pycache__/") and "/__pycache__/" not in line[3:]
-    ]
-    return not dirt
+    return not status.stdout.strip()
 
 
 def remove_review_worktree(repo: Path, destination: Path) -> None:
-    git_completed(repo, "worktree", "remove", "--force", str(destination), timeout=30)
-    git_completed(repo, "worktree", "prune", timeout=15)
+    status = git_completed(
+        destination,
+        "status",
+        "--porcelain=v1",
+        "--ignored=matching",
+        "--untracked-files=all",
+        timeout=15,
+    )
+    if status.returncode or status.stdout:
+        raise AcceptError(
+            "lead review checkout carries tracked, untracked, ignored, or submodule state; "
+            "it was retained for inspection"
+        )
+    removed = git_completed(
+        repo,
+        "worktree",
+        "remove",
+        "--",
+        str(destination),
+        timeout=30,
+    )
+    if removed.returncode:
+        raise AcceptError("clean lead review checkout could not be retired without force")
+    pruned = git_completed(repo, "worktree", "prune", timeout=15)
+    if pruned.returncode:
+        raise AcceptError("retired lead review checkout could not be pruned")
 
 
 def unmet_needs(plan_text: str, needs: str) -> list[str]:
