@@ -446,12 +446,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.timeout_seconds < 1:
         parser().error("--timeout-seconds must be positive")
     mode = "live" if args.live else "offline"
-    goal = goal_bytes(args.goal_file)
-    goal_hash = hashlib.sha256(goal).hexdigest()
+    goal_hash = "0" * 64
     ref = "0" * 40
     public = receipt(mode, goal_hash, ref)
     code = 1
     try:
+        goal = goal_bytes(args.goal_file)
+        goal_hash = hashlib.sha256(goal).hexdigest()
+        public["goal_sha256"] = goal_hash
         ref = source_ref(args.live)
         public["origin_main"] = ref
         operator_home = Path(os.environ.get("HOME", "")).resolve()

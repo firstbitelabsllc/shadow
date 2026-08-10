@@ -495,6 +495,30 @@ class CommandSurfaceIsFailClosed(unittest.TestCase):
                 result = run_harness(SCRIPT, home, *args)
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
+    def test_invalid_goal_inputs_return_one_closed_path_free_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            home = root / "home"
+            home.mkdir()
+            valid = root / "valid-goal.txt"
+            valid.write_text(GOAL, encoding="utf-8")
+            symlink = root / "linked-goal.txt"
+            symlink.symlink_to(valid)
+            invalid = root / "invalid-goal.txt"
+            invalid.write_bytes(b"\xff\xfe")
+            missing = root / "missing-goal.txt"
+            for goal in (missing, symlink, invalid):
+                with self.subTest(goal=goal.name):
+                    result = run_harness(
+                        SCRIPT, home, "--live", "--goal-file", str(goal), "--json"
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    data = receipt(result)
+                    self.assertEqual(data["failure"], "goal_invalid")
+                    self.assertEqual(data["goal_sha256"], "0" * 64)
+                    self.assertEqual(result.stderr, "")
+                    assert_closed_receipt(self, data, [str(root), GOAL])
+
 
 if __name__ == "__main__":
     unittest.main()
