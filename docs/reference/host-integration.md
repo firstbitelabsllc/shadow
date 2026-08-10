@@ -41,11 +41,6 @@ project priority, entity pointers, claims, owners, and resume. Each entity's
 committed `PLAN.md` owns its milestones, checkpoints, detail, and proof. Chats,
 dashboards, worktree copies, provider-private plans, and native host plans are
 never competing authority.
-Reckoning: one Outcome per real product result. When two goals, plans, skill
-doors, or queues name the same work, pick one owner and drain the rest —
-never a second queue. Prefer deleting the extra surface over inventing a
-merger skill. Core craft stays one portable home; a Snap/Leo overlay may
-superset it, never fork a second writer for the same reader-facing job.
 Hierarchy: computer → project → entity → milestone → checkpoint. A project may
 span entities; each entity keeps its own durable plan and resume checkpoint.
 Resume: establish one stable public seat name, run `shadow status --by <seat>`
@@ -90,14 +85,6 @@ row, and when a mid-flight reading showed no results both were declared dead.
 Both were still running, and both finished with real findings. Everything the
 recovery needed — what was dispatched, what it should return — existed only in
 a chat that had already moved on.
-
-`Reckoning` earned its place on 2026-08-10: several skill doors and Outcomes
-were treated as if each owned the same reader-facing job, while duplicate
-goals multiplied beside a working board. Authority already banned competing
-chats; it did not say to drain duplicate goals and skill doors.
-Thermo/ponytail apply to Outcomes the same way they apply to code: one owner,
-delete the rest. A Snap/Leo overlay may superset portable core craft; it may
-not fork a second writer.
 
 ## 3. What "activate shadow" means in a session
 

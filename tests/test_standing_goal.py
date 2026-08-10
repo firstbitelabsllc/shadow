@@ -58,9 +58,6 @@ class GoalVerb(unittest.TestCase):
             "stranger-install",               # CI proves only its bounded install surface
             "never infer those from CI",      # merge/deploy/live remain separate receipts
             "native host plans",              # disposable UI, never authority
-            "Reckoning:",                     # drain duplicate goals/skills
-            "never a second queue",           # dupe Outcome/plan/skill door ban
-            "Prefer deleting the extra surface",  # thermo/ponytail on goals
         ):
             self.assertIn(clause, text, f"standing goal lost: {clause}")
 
