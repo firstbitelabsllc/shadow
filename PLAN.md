@@ -96,7 +96,7 @@ sections that stood here until 2026-08-09 are archived at
 ### M12 — the configurable half: one config file, the adversarial step, /future
 
 - tools: the fixed half already shipped (standing goal, `--install`, drift check, grammar, proof law). This milestone is only what the owner said users decide. Every row keeps the buckets law: declaration only, zero resolved state, absent is fully functional
-- [in_progress] shadow reads one repo-local config file, and a machine that has none behaves identically to today ~cfg1 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults
+- [completed] shadow reads one repo-local config file, and a machine that has none behaves identically to today ~cfg1 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults
 - [pending] the parser refuses the YAML it does not support by naming the file and line, instead of misreading it into a wrong binding ~yml2 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults.TheSubsetRefusesWhatItCannotParse
 - [pending] a provider, model, account, or credential key anywhere in the config is refused, never quietly ignored ~noks | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults.NoSelectorKeys | needs: ~cfg1
 - [pending] the adversarial step is written into the method as attack-then-refute with lens sets the config can name, and the no-runtime-roles boundary still reads true ~advm | proof: read docs/reference/method.md names the step and its default lenses, `shadow config --explain` prints them, and SKILL.md still says Thermo and Ponytail are review disciplines rather than runtime roles
@@ -1515,3 +1515,4 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T00:42:04Z ~atom PROOF scripts/shadow-python.sh -m unittest tests.test_throw.ThrowNeverCommitsATruncatedPlan tests.test_throw -> pass (accept)
 - 2026-08-10T00:47:21Z ~pyv3 PROOF scripts/shadow-python.sh -m unittest tests.test_install_doctor.TheGateUsesTheResolvedPythonNotBarePython3 tests.test_install_doctor -> pass (accept)
 - 2026-08-10T00:49:14Z ~hdop PROOF scripts/shadow-python.sh -m unittest tests.test_host_directives.UnmarkedAdoptionRefusesADriftedHeading tests.test_host_directives -> pass (accept)
+- 2026-08-10T00:51:51Z ~cfg1 PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults -> pass (accept)
