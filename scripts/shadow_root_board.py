@@ -721,6 +721,8 @@ def _commit(root: Path, message: str) -> None:
         root,
         "-c", "core.hooksPath=/dev/null",
         "-c", "commit.gpgSign=false",
+        "-c", "maintenance.autoDetach=false",
+        "-c", "gc.autoDetach=false",
         "commit", "--quiet", "--only", "-m", message, "--", BOARD_NAME,
     )
     if committed.returncode:
