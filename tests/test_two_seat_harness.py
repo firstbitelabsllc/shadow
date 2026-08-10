@@ -173,8 +173,12 @@ import time
 
 SEAT = __SEAT__
 MODE = os.environ.get("SHADOW_TEST_HOST_MODE", "complete")
+# The host process keeps the operator's real HOME (a live session must be a
+# logged-in one); everything scratch-scoped is reached through the portfolio,
+# whose parent is the harness scratch root holding the sealed home.
 HOME = Path(os.environ["HOME"])
 PORTFOLIO = Path(os.environ["SHADOW_PORTFOLIO_ROOT"])
+SCRATCH_HOME = PORTFOLIO.parent / "home"
 SHADOW = "shadow"
 MARKER = Path(os.environ["SHADOW_TEST_INVOCATIONS"])
 MARKER.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +189,7 @@ with MARKER.open("a", encoding="utf-8") as stream:
         "cwd": str(Path.cwd().resolve()),
         "home": str(HOME.resolve()),
         "portfolio": str(PORTFOLIO.resolve()),
-        "board_exists": (HOME / ".shadow").is_dir(),
+        "board_exists": (SCRATCH_HOME / ".shadow").is_dir(),
     }, sort_keys=True) + "\n")
 
 if MODE == "nonzero" and SEAT == "claude":
@@ -290,9 +294,9 @@ for completion in range(completions):
         raise SystemExit(32)
 
     if MODE != "one_seat":
-        (HOME / ("claimed-" + SEAT)).write_text("yes", encoding="utf-8")
+        (SCRATCH_HOME / ("claimed-" + SEAT)).write_text("yes", encoding="utf-8")
         peer = "codex" if SEAT == "claude" else "claude"
-        while not (HOME / ("claimed-" + peer)).exists() and time.monotonic() < deadline:
+        while not (SCRATCH_HOME / ("claimed-" + peer)).exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         observed = shadow("status", "--json", "--by", SEAT)
         if observed.returncode:
@@ -302,15 +306,17 @@ for completion in range(completions):
         accepted = shadow("accept", "--repo", str(claimed[0]), "--row", claimed[1], "--by", SEAT)
         if accepted.returncode:
             raise SystemExit(33)
-        (HOME / ("accepted-" + SEAT)).write_text("yes", encoding="utf-8")
+        (SCRATCH_HOME / ("accepted-" + SEAT)).write_text("yes", encoding="utf-8")
 
 if MODE == "drift" and SEAT == "claude":
-    while not (HOME / "accepted-codex").exists() and time.monotonic() < deadline:
+    while not (SCRATCH_HOME / "accepted-codex").exists() and time.monotonic() < deadline:
         time.sleep(0.05)
     tampered = subprocess.run(
         [os.environ["SHADOW_TEST_REAL_SHADOW"], "priority", "--repo", str(PORTFOLIO / "alpha"),
          "--value", "5"],
-        env=os.environ, capture_output=True, text=True,
+        # Bypassing the shim on purpose to simulate drift — but pinned to the
+        # SCRATCH home, or this tamper would edit the operator's real board.
+        env={**os.environ, "HOME": str(SCRATCH_HOME)}, capture_output=True, text=True,
     )
     if tampered.returncode:
         raise SystemExit(35)
@@ -470,10 +476,15 @@ class LiveTwoSeatProof(unittest.TestCase):
                 argv = " ".join(call["argv"])
                 self.assertNotIn(str(fixture.operator_home), argv)
                 self.assertNotIn(str(ROOT), argv)
-                scratch_home = Path(call["home"])
+                host_home = Path(call["home"])
                 scratch_portfolio = Path(call["portfolio"])
                 scratch_cwd = Path(call["cwd"])
-                self.assertTrue(scratch_home.is_relative_to(scratch_cwd))
+                # A live session is a logged-in one: the host keeps the
+                # operator's identity while every shadow verb is pinned to
+                # the scratch home by the shim — proven by the scratch
+                # board existing and the operator state staying untouched.
+                self.assertEqual(host_home, fixture.operator_home.resolve())
+                self.assertFalse(host_home.is_relative_to(scratch_cwd))
                 self.assertTrue(scratch_portfolio.is_relative_to(scratch_cwd))
                 self.assertTrue(call["board_exists"])
                 if call["seat"] == "codex":
