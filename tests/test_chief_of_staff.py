@@ -99,7 +99,9 @@ class ChiefOfStaffTests(unittest.TestCase):
         self.assertEqual(result["choices"], [])
         self.assertIsNone(result["blocker"])
         self.assertIsNone(result["action"])
-        self.assertEqual(result["recommendation"], "Continue the current move.")
+        self.assertEqual(
+            result["recommendation"], "Continue through every reachable requirement."
+        )
         self.assertNotIn("provider", result)
         self.assertNotIn("model", result)
         self.assertNotIn("prompt", result)

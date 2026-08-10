@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create one repository-owned Shadow PLAN.md."""
+"""Create the repository-owned Shadow PLAN.md."""
 
 from __future__ import annotations
 
@@ -50,28 +50,29 @@ def plan_text(repo: Path, now: str) -> str:
 - Outcome Revision: 1
 - Outcome Updated At: {now}
 - Outcome State: needs_input
-- Outcome: Ship one useful, evidence-backed result for {name}.
-- Next: Choose the first bounded move.
-- Decision ID: choose-first-move
-- Decision: What should Shadow do first?
-- Option A ID: inspect-current-state
-- Option A: Inspect current state
-- Option A Consequence: Read the repository and report the smallest useful next move.
-- Option B ID: implement-smallest-result
-- Option B: Build the smallest result
-- Option B Consequence: Make one bounded change and prove it locally.
-- Option C ID: stop-with-brief
-- Option C: Brief only
-- Option C Consequence: Explain current truth without changing the repository.
+- Outcome: Complete the full declared outcome for {name}; move every reachable lane to proof or an exact hard-rail wake.
+- Next: Derive the complete acceptance matrix from repository evidence, then claim and execute every safe reachable lane.
+- Decision ID: define-full-outcome
+- Decision: What complete product outcome and acceptance matrix govern this project?
+- Option A ID: derive-and-execute
+- Option A: Derive and execute
+- Option A Consequence: Read current source, plans, reports, and real surfaces; record the full matrix and start every safe disjoint lane.
+- Option B ID: execute-declared-outcome
+- Option B: Execute declared requirements
+- Option B Consequence: Preserve the existing product intent, fill missing acceptance behavior, and drain all reachable work.
+- Option C ID: isolate-product-forks
+- Option C: Isolate true product forks
+- Option C Consequence: Park only irrecoverable intent questions with exact wakes and continue all unambiguous work.
 
 ## Tasks
 
-### M1 — first useful result
-- [pending] the first bounded move is chosen and completed ~a1b2 (DoD) | proof: read the repository gate named by this plan
+### M1 — complete outcome
+- [pending] the full product outcome, scenario matrix, hard rails, and proof tiers are recorded from current evidence ~a1b2 | proof: read PLAN.md -> the Brief and task rows name every required surface and acceptance behavior
+- [pending] every reachable row is proven and integrated or parked solely on an exact hard-rail wake ~b2c3 (DoD) | proof: read PLAN.md -> no agent-reachable acceptance work remains
 
 ## Progress
 
-- {now}: Shadow initialized one repository-owned plan.
+- {now}: Shadow initialized the repository-owned plan; full-outcome definition is the only unresolved product decision.
 """
 
 

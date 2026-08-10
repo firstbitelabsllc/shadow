@@ -100,8 +100,11 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     overwritten as dogfood, with backup and an upgrade-converges proof.
     codex-seat (2026-08-10). Lands in: ~actv.
 19. **GC has teeth.** Enforced byte/row/milestone budgets, return-by on
-    every claim, finite slices with successors, dry-run-first idempotent
-    cleanup, refusal to delete dirty or provenance-bearing state.
+    every claim, finite claim and GC receipts with successors, dry-run-first
+    idempotent cleanup, refusal to delete dirty or provenance-bearing state.
+    Finite means each lease and cleanup run terminates; it never means the
+    Outcome stops. Closing a receipt exposes and claims the next reachable
+    work until full acceptance or exact hard-rail wakes.
     codex-seat (2026-08-10). Lands in: ~gc20.
 20. **Capability selection is amp's job and it is recorded.** Filled
     buckets alone prove nothing; `shadow amp` deterministically selects and
@@ -116,6 +119,15 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     names stay internal and appear only when an exact machine reference is
     requested. owner directive (2026-08-10). Lands in: the activation and
     human-language acceptance proof.
+23. **Outcome completeness outranks packet size.** Drain every reachable row
+    required by the Outcome, fan out safe path-disjoint claims, integrate
+    their proof, and keep choosing successors. Reviewable tasks, claims, and
+    focused checks are safety units, never a session, campaign, or ambition
+    cap. Stop only when full acceptance is mechanically true or every
+    remainder has an exact hard-rail wake. owner + codex-seat (2026-08-10),
+    correcting the repeated collapse of full-product intent into a single
+    campaign or slice. Lands in: Method, goal shaping, amp runtime rails,
+    standing activation, init, browser, guides, and ~gc20 lifecycle law.
 
 ## Rejected
 
