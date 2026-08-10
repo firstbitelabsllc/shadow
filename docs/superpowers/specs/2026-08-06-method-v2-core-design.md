@@ -111,7 +111,7 @@ rationale: r2-ruling-01 (verification), -02 (modes), -03 (surfaces),
   the existing Grafana/Phoenix substrate. B — keep the seam anyway.
 - **D-3 Drive's last outing:** A (default) — delete now under the binding
   conditions; zero real packets exist and the evidence is sufficient. B —
-  run a representative 2–3-lane Drive falsification on a real repo and fold the
+  run one bounded 2–3-lane Drive session on a real repo first and fold the
   receipts; reopen #33 only if the batch measurably beats the composed
   path. Silence = A.
 - *(resolved)* Two postures vs four modes: stands as amended — the BOX/

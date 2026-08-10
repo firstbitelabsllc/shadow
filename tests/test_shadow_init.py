@@ -45,6 +45,7 @@ class InitTests(unittest.TestCase):
         self.assertNotIn(dirname, json.dumps(record))
         self.assertIn("Complete the full declared outcome", plan)
         self.assertIn("every safe reachable lane", plan)
+        self.assertIn("- Option A ID: derive-and-execute", plan)
         self.assertNotIn("smallest", plan.lower())
         self.assertNotIn(" ".join(("one", "bounded")), plan.lower())
 
