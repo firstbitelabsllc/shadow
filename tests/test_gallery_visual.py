@@ -10,13 +10,15 @@ keep as an artifact, so a human can re-observe any run.
 
 The skip contract, per the register's silent-skip law: without
 ``SHADOW_VISUAL=1`` these tests skip VISIBLY (the runner prints the skip and
-why).  With ``SHADOW_VISUAL=1`` — CI sets it — a missing browser is a
+why) whether the package is missing or its Chromium binary was never
+downloaded.  With ``SHADOW_VISUAL=1`` — CI sets it — either absence is a
 FAILURE, never a skip: the environment promised visual proof and could not
 deliver it.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
@@ -35,6 +37,21 @@ try:
     HAVE_PLAYWRIGHT = True
 except ModuleNotFoundError:
     HAVE_PLAYWRIGHT = False
+
+# Every state the stylesheet promises its own chip treatment for.  Each of
+# these rules must FIRE — the suite proves that against an unstyled baseline,
+# so deleting any one of them (or dropping one state from a shared selector)
+# turns this job red.  Kept in step with the ``.state-*`` rules in
+# browser/static/style.css.
+STYLED_STATES = ("needs_you", "blocked", "ready", "working", "resting")
+
+
+def fixture_states() -> set[str]:
+    """The states the checked-in gallery fixtures promise to render."""
+    fixtures = json.loads(
+        (ROOT / "browser" / "static" / "gallery-fixtures.json").read_text()
+    )
+    return {entry["expected_state"] for entry in fixtures.values()}
 
 
 class TheGalleryLooksRight(unittest.TestCase):
@@ -67,9 +84,33 @@ class TheGalleryLooksRight(unittest.TestCase):
             cls.service.shutdown()
             cls._tmp.cleanup()
 
+    @staticmethod
+    def _launch(pw):
+        """Launch Chromium, honouring the same skip contract as the import.
+
+        A partial install — playwright the package present, its browser binary
+        never downloaded — must behave exactly like a missing package: a
+        VISIBLE skip normally, a FAILURE under ``SHADOW_VISUAL=1``, never a
+        confusing launch traceback standing in for either.
+        """
+        try:
+            return pw.chromium.launch()
+        except Exception as error:  # playwright.sync_api.Error and friends
+            if VISUAL_REQUIRED:
+                raise AssertionError(
+                    "SHADOW_VISUAL=1 promises visual proof but chromium would "
+                    f"not launch ({error}) — run `playwright install chromium` "
+                    "or unset the promise. A silent skip here is the defect "
+                    "class this suite exists to prevent."
+                ) from error
+            raise unittest.SkipTest(
+                f"visual proof skipped: chromium would not launch ({error}) "
+                "(set SHADOW_VISUAL=1 to make this a failure)"
+            ) from error
+
     def test_the_gallery_renders_styled_differentiated_and_clean(self) -> None:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
+            browser = self._launch(pw)
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             console_errors: list[str] = []
             page.on(
@@ -106,36 +147,57 @@ class TheGalleryLooksRight(unittest.TestCase):
             # compared against an unstyled baseline chip injected into a
             # stateless card. (First version compared working to blocked only,
             # and deleting the working rule survived — the vacuous-guard trap.)
-            backgrounds = page.evaluate(
-                """() => {
-                    const probe = document.createElement('article');
-                    probe.className = 'card';
-                    const chip = document.createElement('span');
-                    chip.className = 'status';
-                    probe.append(chip);
-                    document.body.append(probe);
-                    const baseline = getComputedStyle(chip).backgroundColor;
-                    probe.remove();
-                    const of = (sel) => {
-                      const el = document.querySelector(sel);
-                      return el ? getComputedStyle(el).backgroundColor : null;
+            # EVERY promised state is probed, including the ones sharing a
+            # selector and the ones no fixture renders, so dropping `.state-ready`
+            # from its shared rule or deleting `.state-resting`'s opacity is red.
+            styles = page.evaluate(
+                """(states) => {
+                    const signature = (el) => {
+                      const s = getComputedStyle(el);
+                      return [s.backgroundColor, s.color, s.opacity].join(' | ');
                     };
-                    return {
-                      baseline,
-                      working: of('.card.state-working .status'),
-                      blocked: of('.card.state-blocked .status'),
+                    const probe = (className) => {
+                      const card = document.createElement('article');
+                      card.className = className;
+                      const chip = document.createElement('span');
+                      chip.className = 'status';
+                      card.append(chip);
+                      document.body.append(card);
+                      const sig = signature(chip);
+                      card.remove();
+                      return sig;
                     };
-                }"""
+                    const probed = {}, rendered = {};
+                    for (const state of states) {
+                      probed[state] = probe(`card state-${state}`);
+                      const el = document.querySelector(`.card.state-${state} .status`);
+                      rendered[state] = el ? signature(el) : null;
+                    }
+                    return { baseline: probe('card'), probed, rendered };
+                }""",
+                list(STYLED_STATES),
             )
-            self.assertIsNotNone(backgrounds["working"], "no working-state card rendered")
-            self.assertIsNotNone(backgrounds["blocked"], "no blocked-state card rendered")
-            for name in ("working", "blocked"):
+            baseline = styles["baseline"]
+            for state in STYLED_STATES:
                 self.assertNotEqual(
-                    backgrounds[name], backgrounds["baseline"],
-                    f"the {name} state rule has no visual effect — its style is broken or deleted",
+                    styles["probed"][state], baseline,
+                    f"the {state} state rule has no visual effect — "
+                    "its style is broken or deleted",
                 )
+
+            # …and the fixtures the gallery promises actually wear those rules,
+            # so the page cannot drift away from the classes just proven.
+            for state in sorted(fixture_states() & set(STYLED_STATES)):
+                self.assertIsNotNone(
+                    styles["rendered"][state], f"no {state}-state card rendered"
+                )
+                self.assertEqual(
+                    styles["rendered"][state], styles["probed"][state],
+                    f"the rendered {state} chip does not carry its state style",
+                )
+
             self.assertNotEqual(
-                backgrounds["working"], backgrounds["blocked"],
+                styles["probed"]["working"], styles["probed"]["blocked"],
                 "working and blocked chips are visually identical",
             )
 
