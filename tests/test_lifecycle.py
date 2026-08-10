@@ -369,7 +369,7 @@ def apply_with_cas(
 
 class BudgetsAreEnforced(unittest.TestCase):
     def test_all_three_checked_in_limits_have_teeth(self) -> None:
-        too_many_rows = "\n".join(
+        too_many_rows = "## Tasks\n\n### Too many tasks\n" + "\n".join(
             f"- [pending] result {index} ~aa11 | proof: cmd true"
             for index in range(lifecycle.MAX_TASK_ROWS + 1)
         )
@@ -381,6 +381,8 @@ class BudgetsAreEnforced(unittest.TestCase):
             lifecycle.measure("x" * (lifecycle.MAX_PLAN_BYTES + 1))["exceeded"],
         )
         self.assertIn("task_rows", lifecycle.measure(too_many_rows)["exceeded"])
+        outside_tasks = too_many_rows.replace("## Tasks", "## Legal history", 1)
+        self.assertNotIn("task_rows", lifecycle.measure(outside_tasks)["exceeded"])
         structured = f"## Tasks\n\n{too_many_milestones}\n\n## Progress\n"
         self.assertIn("milestones", lifecycle.measure(structured)["exceeded"])
 

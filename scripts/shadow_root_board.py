@@ -270,7 +270,9 @@ def hot_plan_budget(content: bytes) -> dict:
             heading = line[3:].strip()
             in_tasks = heading == "Tasks" or heading.startswith("Tasks ")
             continue
-        if in_tasks and line.startswith("### "):
+        if not in_tasks:
+            continue
+        if line.startswith("### "):
             milestone_count += 1
         if HOT_TASK_ROW_RE.fullmatch(line):
             task_rows += 1
