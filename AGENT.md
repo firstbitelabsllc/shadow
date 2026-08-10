@@ -87,10 +87,12 @@ lane, spike, brief.
 - An accusation grounds on the merge-base diff, never the tip diff — two-dot
   output mixes the branch's changes with everything main did since
   (2026-08-10: a clean worker was nearly charged with editing PLAN.md).
-- Every read names its ref, and a working tree is presumed stale until
-  fetched: `ls` against a checkout 1,697 commits behind main produced a false
-  "the repo owns no root plan" that reached two boards before retraction
-  (2026-08-10).
+- Every read names its ref, and a working tree is presumed stale until it is
+  fast-forwarded onto that ref — fetching alone moves only remote-tracking
+  refs, so read the fetched ref directly (`git show origin/main:PLAN.md`,
+  `git ls-tree origin/main`) rather than the checkout: `ls` against a tree
+  1,697 commits behind main produced a false "the repo owns no root plan"
+  that reached two boards before retraction (2026-08-10).
 - Green fixtures prove the fixtures, never the field: a suite whose every
   card had an initialised picker passed while the uninitialised-picker case
   let money through unintercepted (2026-08-10: the L4 gift path).
