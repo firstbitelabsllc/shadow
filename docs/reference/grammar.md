@@ -227,9 +227,10 @@ limits before mutating the computer board; lifecycle is the repair door.
 
 Worktree and snapshot deletion use the strict
 `schemas/retirement-manifest.v1.json` contract. The command never discovers a
-target. A worktree manifest pins one absolute registered non-primary linked
+target. Every manifest path uses its canonical absolute spelling and no path
+component may be a symlink. A worktree manifest pins one registered non-primary linked
 worktree, its exact HEAD, and the authority ref that already contains it. A
-snapshot manifest pins one immediate child of an absolute root, the same
+snapshot manifest pins one immediate child of a canonical root, the same
 logical entity, exact HEAD, UTC expiry, and a recovery ref in the authority
 repository. Dry run refuses staged, tracked, untracked, ignored, conflicted,
 and dirty submodule state; proves exact identity, recoverability, and a
