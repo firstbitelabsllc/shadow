@@ -320,4 +320,6 @@ async function load() {
 refresh.addEventListener('click', load);
 // The gallery page reuses these renderers against fixture data; it must not
 // also fetch and render the machine's real plans into its stub surface.
-if (!document.body.dataset.gallery) load();
+// Bare `data-gallery` reads back as the empty string, so test for the
+// attribute's presence rather than its (falsy) value.
+if (!('gallery' in document.body.dataset)) load();
