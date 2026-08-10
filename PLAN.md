@@ -6,7 +6,7 @@ This file is the sole plan, proof, and resume authority for Shadow (formerly Pil
 
 - Project: shadow
 - Mode: ship
-- Priority: Shadow installs itself — a stranger runs one command and all three hosts are wired, verified, and drift-checked
+- Priority: 1
 
 Superseded authority: the v3 `Outcome` block, portfolio readback, and platform
 sections that stood here until 2026-08-09 are archived at

@@ -84,11 +84,15 @@ def reconcile_portfolio(
         unclean = amp.unclean_note(plan)
         if unclean:
             raise board.BoardError(f"{relative} cannot enter the computer board: {unclean}")
+        try:
+            priority = _priority(plan)
+        except board.BoardError as exc:
+            raise board.BoardError(f"{relative}: {exc}") from exc
         seeds.append(
             {
                 "plan": str(plan_path),
                 "project": plan["brief"]["Project"],
-                "priority": _priority(plan),
+                "priority": priority,
                 "candidates": amp._candidate_ids(plan),
             }
         )
