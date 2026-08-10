@@ -27,6 +27,92 @@ PLAN = """# Demo
 
 
 class ConfigDefaultsTests(unittest.TestCase):
+    def _repo(self, parent: Path) -> Path:
+        repo = parent / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
+        return repo
+
+    def _run_config(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(CLI), "config", "--repo", str(repo), *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_repo_local_file_is_read_and_existing_status_does_not_change(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = self._repo(Path(dirname))
+            nested = repo / "nested" / "work"
+            nested.mkdir(parents=True)
+            baseline = subprocess.run(
+                [str(CLI), "status", "--json", "--root", str(repo)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            (repo / "shadow.yaml").write_text(
+                """buckets:
+  taste: product-taste
+leads:
+  - name: editorial
+    lenses:
+      - accessibility
+      - copy
+""",
+                encoding="utf-8",
+            )
+            result = self._run_config(nested, "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout),
+                {
+                    "schema": "shadow.config.v1",
+                    "path": "shadow.yaml",
+                    "config": {
+                        "buckets": {"taste": "product-taste"},
+                        "leads": [{"name": "editorial", "lenses": ["accessibility", "copy"]}],
+                    },
+                },
+            )
+
+            configured = subprocess.run(
+                [str(CLI), "status", "--json", "--root", str(repo)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(configured.returncode, 0, configured.stderr)
+            self.assertEqual(configured.stdout, baseline.stdout)
+            self.assertEqual(configured.stderr, baseline.stderr)
+
+    def test_no_config_is_an_empty_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = self._repo(Path(dirname))
+            result = self._run_config(repo, "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout),
+                {"schema": "shadow.config.v1", "path": None, "config": {}},
+            )
+
+    def test_malformed_config_is_refused_not_treated_as_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = self._repo(Path(dirname))
+            (repo / "shadow.yaml").write_text("leads: [editorial]\n", encoding="utf-8")
+            result = self._run_config(repo, "--json")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("shadow config: shadow.yaml:1:", result.stderr)
+            self.assertIn("flow collections", result.stderr)
+
     def test_status_uses_dev_root_env_and_cli_flag_wins(self) -> None:
         with tempfile.TemporaryDirectory() as dirname, tempfile.TemporaryDirectory() as override:
             root = Path(dirname)
