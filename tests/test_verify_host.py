@@ -409,6 +409,32 @@ printf '%s\n' 'For fixture, I am finishing the verifier that activates cold host
             self.assertIn("timed out after 1 second", result.stdout)
             self.assertIn("inconclusive", result.stdout)
 
+    def test_every_host_exit_drains_its_background_process_group(self) -> None:
+        for exit_status in (0, 23):
+            with self.subTest(exit_status=exit_status), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                wired(home)
+                marker = home / "descendant-terminated.txt"
+                path = self._fake_host(
+                    home,
+                    "claude",
+                    f"""marker="$SHADOW_TEST_MARKER"
+(
+  trap 'printf terminated > "$marker"; exit 0' TERM INT
+  while :; do sleep 1; done
+) &
+printf '%s\\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'
+exit {exit_status}""",
+                )
+                result = run(
+                    home,
+                    path=path,
+                    live=True,
+                    extra_env={"SHADOW_TEST_MARKER": str(marker)},
+                )
+                self.assertEqual(result.returncode, 0 if exit_status == 0 else 1, result.stdout)
+                self.assertEqual(marker.read_text(encoding="utf-8"), "terminated")
+
     def test_a_humanized_hyphenated_project_slug_is_the_same_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

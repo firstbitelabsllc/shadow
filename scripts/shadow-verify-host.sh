@@ -123,11 +123,27 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 
 timeout = int(sys.argv[1])
 stdout_path = Path(sys.argv[2])
 stderr_path = Path(sys.argv[3])
 command = sys.argv[4:]
+
+def stop_process_group(process: subprocess.Popen[bytes]) -> None:
+    # A host may return after leaving tools or helpers in the background. The
+    # verifier owns the whole fresh process group on every exit path, not only
+    # on timeout, so no successful proof can leak work into the next run.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return
+    time.sleep(0.2)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
 with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
     process = subprocess.Popen(
         command,
@@ -136,21 +152,13 @@ with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         start_new_session=True,
     )
     try:
-        raise SystemExit(process.wait(timeout=timeout))
+        returncode = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
+        stop_process_group(process)
+        process.wait()
         raise SystemExit(124)
+    stop_process_group(process)
+    raise SystemExit(returncode)
 PY
 }
 
