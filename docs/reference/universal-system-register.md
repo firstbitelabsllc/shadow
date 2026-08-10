@@ -129,6 +129,18 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     campaign or slice. Lands in: Method, goal shaping, amp runtime rails,
     standing activation, init, browser, guides, and ~gc20 lifecycle law.
 
+24. **The bar has a name: the system is an extension of its owner, and it
+    is reached only through gauntlets.** owner directive (2026-08-10, on
+    going to bed): the product is not done when features exist — it is done
+    when the loop challenges findings, selects and uses every relevant
+    installed skill, and makes the owner's calls as if the owner were
+    present; and confidence comes ONLY from repeated end-to-end gauntlets —
+    the whole system run against disposable mock portfolios (fake repos,
+    plans, ghosts, two seats) with proof at every step — until the runs are
+    boringly green. This sharpens the two-seat DoD's spirit: one passing run
+    is a demo; the gauntlet repeated is the product. Lands in: ~2st8 and
+    ~tier, and the Method's standing verification law.
+
 ## Rejected
 
 1. **The machine ledger as a monolith absorbing every task** (codex-seat
