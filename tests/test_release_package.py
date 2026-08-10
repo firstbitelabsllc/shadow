@@ -46,10 +46,16 @@ class ReleasePackageTests(unittest.TestCase):
         plugin, pack, tracked = baseline()
         self.assertEqual(self.errors(plugin, pack, tracked), [])
 
+    def test_top_changelog_release_matches_version(self) -> None:
+        self.assertEqual(mod.changelog_version(ROOT), VERSION)
+
     def test_missing_required_file_fails(self) -> None:
         plugin, pack, tracked = baseline()
         pack["files"] = [item for item in pack["files"] if item["path"] != "bin/shadow"]
         self.assertTrue(any("missing" in error for error in self.errors(plugin, pack, tracked)))
+
+    def test_lifecycle_command_ships_with_the_dispatcher(self) -> None:
+        self.assertIn("scripts/shadow-lifecycle.py", mod.REQUIRED_FILES)
 
     def test_second_skill_or_private_stream_fails(self) -> None:
         plugin, pack, tracked = baseline()

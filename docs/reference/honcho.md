@@ -17,20 +17,22 @@ drift from `PLAN.md`, one more daemon to keep honest.
 
 | The honcho idea | Where it actually lives |
 |---|---|
-| Durable memory of what work is trying to achieve | The repo's `PLAN.md` — Brief, Tasks, Progress. Git is the sync layer. |
+| Durable global coordination | This computer's Git-backed root board — project priority, entity pointers, claims, owners, leases, and entity resume checkpoints. |
+| Durable detail about what work is trying to achieve | Each entity's committed `PLAN.md` — milestones, checkpoints, decisions, proof, and Progress. Git is the cross-computer sync layer. |
 | "It just knows which tools/flows fit this work" | The milestone's `- tools:` line, written by whoever worked the milestone; `shadow amp` projects it into every goal block. Knowledge rides IN the plan. |
-| Continuity across CLIs, providers, machines | The plan pointer (`repo + PLAN.md @ ref + section`) plus the portfolio fallback in `shadow status`. A chat is a projection; the plan is the memory. |
+| Continuity across CLIs and providers on one computer | `shadow status --by <seat>` reads the root board and dereferences its entity plan pointers. A chat is only a projection. |
+| Continuity across computers | Project Git remotes carry committed entity plans and proof; each computer reconstructs its own root board. One computer never impersonates another's live coordination state. |
 | Learned lessons that persist | The shipping commit's folded LESSON, Progress lines, and skills — never a side database. |
 
 ## Why not install a memory service anyway
 
-- A store that answers faster than `PLAN.md` becomes the authority by
-  convenience, and the plan rots — the precise failure v4 was built to end.
+- A second store that answers faster than the root board plus entity plans
+  becomes authority by convenience, and the real hierarchy rots.
 - Every honcho capability above already has a git-durable home with a
   mechanical enforcer (`shadow lint`, `shadow accept`).
 - The observed failure honcho keeps being reached for — "shadow opened
-  somewhere new and knew nothing" — was an entry-point bug (empty cwd scan),
-  not a memory gap. Fixed by the portfolio fallback, not by a database.
+  somewhere new and knew nothing" — was an entry-point bug, not a memory gap.
+  It is fixed by the per-computer board and bounded import, not another database.
 
 ## If the ruling should change
 

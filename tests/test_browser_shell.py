@@ -29,10 +29,10 @@ class BrowserShellContract(unittest.TestCase):
         self.assertIn("fetch('/api/plans')", APP)
         self.assertIn("fetch('/api/decision'", APP)
         self.assertNotIn("/api/drive", APP)
-        self.assertIn(
-            "{ plan: plan.path, option_id: option.id, revision: plan.outcome.revision }",
-            APP,
-        )
+        self.assertIn("entity: plan.entity", APP)
+        self.assertIn("root_board_revision: state.boardRevision", APP)
+        self.assertIn("id=\"board-warning\"", HTML)
+        self.assertIn("boardWarning.hidden = !state.warning", APP)
         self.assertNotIn("localStorage", APP)
         self.assertNotIn("WebSocket", APP)
 

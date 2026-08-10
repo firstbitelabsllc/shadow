@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -52,6 +53,29 @@ class DocumentedTargetTests(unittest.TestCase):
 
         self.assertTrue(documented, "expected at least one documented target")
         self.assertEqual([], missing, "documented targets must exist in this checkout")
+
+    def test_public_help_matches_the_ownership_and_entity_flags(self):
+        shadow = ROOT / "bin" / "shadow"
+        expected = {
+            "status": ("--by OWNER", "--in-flight"),
+            "amp": ("--entity ID", "--by OWNER"),
+            "throw": ("--entity ID", "--by OWNER"),
+            "return": ("--entity ID", "--by OWNER"),
+            "accept": ("--by OWNER", "--row '~hash'"),
+        }
+        for verb, clauses in expected.items():
+            result = subprocess.run(
+                [str(shadow), "help", verb], cwd=ROOT, capture_output=True,
+                text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for clause in clauses:
+                self.assertIn(clause, result.stdout, f"{verb}: {clause}")
+        status = subprocess.run(
+            [str(shadow), "help", "status"], cwd=ROOT, capture_output=True,
+            text=True, check=False,
+        ).stdout
+        self.assertNotIn("--all", status)
 
 
 if __name__ == "__main__":

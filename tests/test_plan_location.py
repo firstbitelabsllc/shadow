@@ -28,8 +28,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from browser.server import (  # noqa: E402
-    declared_plan_globs, discover_plans, is_plan_root, live_plans, repo_plans,
+    BrowserError, MAX_PLAN_BYTES, MAX_PLANS, declared_plan_globs, discover_plans,
+    is_plan_root, live_plans, repo_plans,
 )
+
+STATUS = ROOT / "scripts" / "shadow-status.py"
 
 PLAN = """# {name}
 
@@ -42,6 +45,7 @@ PLAN = """# {name}
 
 ### M1 — live
 - [pending] a row ~aa11 | proof: cmd true
+- [pending] live closes ~bb22 (DoD) | proof: cmd true | needs: ~aa11
 
 ## Progress
 
@@ -255,6 +259,25 @@ class OneLogicalPlan(unittest.TestCase):
 
 
 class Boundedness(unittest.TestCase):
+    def test_recursive_or_over_budget_declarations_fail_loudly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            recursive = make(root, "recursive", plans_line="**/PLAN.md")
+            with self.assertRaisesRegex(BrowserError, "recursive plan globs"):
+                repo_plans(recursive)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            nested = tuple(f"plans/p{index:03d}/PLAN.md" for index in range(MAX_PLANS))
+            crowded = make(
+                root,
+                "crowded",
+                plans_line="plans/*/PLAN.md",
+                nested=nested,
+            )
+            with self.assertRaisesRegex(BrowserError, f"more than {MAX_PLANS} plans"):
+                repo_plans(crowded)
+
     def test_a_symlinked_child_cannot_smuggle_a_plan_in(self) -> None:
         # A symlink is a directory that owns a PLAN.md by every test the
         # enumeration makes, while living anywhere on the filesystem. Following
@@ -289,6 +312,140 @@ class Boundedness(unittest.TestCase):
             for record in discover_plans(root):
                 self.assertFalse(record["path"].startswith("/"), record["path"])
                 self.assertNotIn(str(Path.home()), record["path"])
+
+
+class StrictDiscoveryForBoardImport(unittest.TestCase):
+    def _assert_default_omits_strict_refuses(self, plan_writer) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "broken"
+            repo.mkdir()
+            plan_writer(repo / "PLAN.md", root)
+
+            self.assertEqual(discover_plans(root), [])
+            with self.assertRaisesRegex(BrowserError, r"broken/PLAN\.md"):
+                discover_plans(root, fail_on_skipped=True)
+
+    def test_invalid_utf8_is_omitted_by_default_and_refused_by_strict_import(self) -> None:
+        self._assert_default_omits_strict_refuses(
+            lambda plan, _root: plan.write_bytes(b"\xff\xfe")
+        )
+
+    def test_oversized_plan_is_omitted_by_default_and_refused_by_strict_import(self) -> None:
+        self._assert_default_omits_strict_refuses(
+            lambda plan, _root: plan.write_bytes(b"#" * (MAX_PLAN_BYTES + 1))
+        )
+
+    def test_symlinked_plan_is_omitted_by_default_and_refused_by_strict_import(self) -> None:
+        def symlink(plan: Path, root: Path) -> None:
+            target = root / "outside-plan"
+            target.write_text(
+                PLAN.format(name="outside", slug="outside", extra=""),
+                encoding="utf-8",
+            )
+            plan.symlink_to(target)
+
+        self._assert_default_omits_strict_refuses(symlink)
+
+    def test_non_regular_plan_is_omitted_by_default_and_refused_by_strict_import(self) -> None:
+        self._assert_default_omits_strict_refuses(
+            lambda plan, _root: plan.mkdir()
+        )
+
+    def test_broken_duplicate_is_ignored_after_the_canonical_checkout_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical = make(root, "thing")
+            duplicate = make(root, "thing-worktree")
+            remote = "git@example.invalid:acme/thing.git"
+            for repo in (canonical, duplicate):
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin", remote],
+                    check=True,
+                )
+            (duplicate / "PLAN.md").write_bytes(b"\xff\xfe")
+
+            records = discover_plans(root, fail_on_skipped=True)
+
+            self.assertEqual([record["path"] for record in records], ["thing/PLAN.md"])
+
+    def _status(self, home: Path, portfolio: Path, cwd: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(STATUS), "--json"],
+            cwd=cwd,
+            env={
+                **os.environ,
+                "HOME": str(home),
+                "SHADOW_PORTFOLIO_ROOT": str(portfolio),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_strict_import_failure_does_not_create_a_root_board(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            broken = portfolio / "broken"
+            broken.mkdir()
+            (broken / "PLAN.md").write_bytes(b"\xff\xfe")
+
+            result = self._status(home, portfolio, root)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("portfolio import refused", result.stderr)
+            self.assertFalse((home / ".shadow" / "board.json").exists())
+
+    def test_strict_import_failure_does_not_advance_an_existing_board(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            make(portfolio, "healthy")
+            first = self._status(home, portfolio, root)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            board = home / ".shadow" / "board.json"
+            before = board.read_bytes()
+
+            broken = portfolio / "broken"
+            broken.mkdir()
+            (broken / "PLAN.md").write_bytes(b"\xff\xfe")
+            refused = self._status(home, portfolio, root)
+
+            self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+            self.assertIn("portfolio import refused", refused.stderr)
+            self.assertEqual(board.read_bytes(), before)
+
+    def test_blocking_plan_lint_does_not_advance_an_existing_board(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            make(portfolio, "healthy")
+            first = self._status(home, portfolio, root)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            board = home / ".shadow" / "board.json"
+            before = board.read_bytes()
+
+            malformed = make(portfolio, "malformed") / "PLAN.md"
+            malformed.write_text(
+                malformed.read_text(encoding="utf-8").replace("~bb22", "~aa11"),
+                encoding="utf-8",
+            )
+            refused = self._status(home, portfolio, root)
+
+            self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+            self.assertIn("cannot enter the computer board", refused.stderr)
+            self.assertEqual(board.read_bytes(), before)
 
 
 if __name__ == "__main__":
@@ -346,7 +503,7 @@ class ADuplicateNeverBecomesASecondRow(unittest.TestCase):
     def test_a_declared_glob_never_descends_into_a_hidden_or_vendor_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            declaring = self.PLAN.replace("- Mode: ship", "- Mode: ship\n- Plans: **/PLAN.md")
+            declaring = self.PLAN.replace("- Mode: ship", "- Mode: ship\n- Plans: */PLAN.md")
             repo = self._repo(root, "thing", "git@github.com:acme/thing.git", declaring)
             for buried in (".worktrees/pool", "node_modules/pkg", "dist", "sub"):
                 (repo / buried).mkdir(parents=True, exist_ok=True)
@@ -519,19 +676,27 @@ class TheTerminalObeysTheVetoToo(unittest.TestCase):
         repo = root / name
         repo.mkdir(parents=True, exist_ok=True)
         (repo / "PLAN.md").write_text(
-            f"# {name}\n\n{banner}\n\n## Brief\n\n- Project: {name}\n- Mode: ship\n\n"
+            f"# {name}\n\n{banner}\n\n## Brief\n\n- Project: {name}\n- Mode: ship\n"
+            "- Priority: 3\n\n"
             "## Tasks\n\n### M\n"
             f"- [in_progress] a claimed row in {name} ~aa11 | proof: cmd true\n"
             "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n"
-            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE seeded\n", encoding="utf-8")
+            "## Progress\n\n"
+            "- 2026-08-09T00:00:00Z THROWN ~aa11 | by: archive-veto-test\n",
+            encoding="utf-8",
+        )
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
         return repo
 
     def _status(self, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        home = root / ".home"
+        home.mkdir(exist_ok=True)
+        env = os.environ.copy()
+        env.update({"HOME": str(home), "SHADOW_PORTFOLIO_ROOT": str(root)})
         return subprocess.run(
             [sys.executable, str(self.STATUS), "--root", str(root), *args],
-            cwd=ROOT, capture_output=True, text=True, check=False,
+            cwd=ROOT, env=env, capture_output=True, text=True, check=False,
         )
 
     def _portfolio(self, root: Path) -> None:
@@ -542,12 +707,12 @@ class TheTerminalObeysTheVetoToo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._portfolio(root)
-            result = self._status(root, "--json", "--all")
+            result = self._status(root, "--json")
             self.assertEqual(result.returncode, 0, result.stderr)
             served = json.loads(result.stdout)
-            paths = [row.get("path") for row in served["plans"] + served["v4_plans"]]
-            self.assertIn("live/PLAN.md", paths, "the healthy plan stopped rendering")
-            self.assertNotIn("shell/PLAN.md", paths,
+            projects = {row.get("project") for row in served["v4_plans"]}
+            self.assertIn("live", projects, "the healthy plan stopped rendering")
+            self.assertNotIn("shell", projects,
                              "the CLI quotes a plan the wire refuses to send")
 
     def test_a_claim_inside_an_archive_shell_is_not_handed_to_a_successor(self) -> None:
@@ -559,8 +724,37 @@ class TheTerminalObeysTheVetoToo(unittest.TestCase):
             self._portfolio(root)
             result = self._status(root, "--in-flight", "--json")
             self.assertEqual(result.returncode, 0, result.stderr)
-            plans = {row["plan"] for row in json.loads(result.stdout)["rows"]}
-            self.assertEqual(plans, {"live/PLAN.md"})
+            projects = {row["project"] for row in json.loads(result.stdout)["rows"]}
+            self.assertEqual(projects, {"live"})
+
+    def test_a_registered_entity_is_retired_when_any_copy_self_demotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = self._repo(root, "live", "git@github.com:acme/live.git") / "PLAN.md"
+            first = self._status(root, "--json")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            before = json.loads(first.stdout)["root_board"]
+            self.assertEqual(len(before["entities"]), 1)
+            self.assertEqual(len(before["claims"]), 1)
+
+            text = plan.read_text(encoding="utf-8")
+            plan.write_text(text.replace("# live\n", f"# live\n\n{self.BANNER}\n", 1),
+                            encoding="utf-8")
+            second = self._status(root, "--json")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            after = json.loads(second.stdout)["root_board"]
+            self.assertEqual(after["entities"], [])
+            self.assertEqual(after["claims"], [])
+            self.assertGreater(after["revision"], before["revision"])
+
+            ledger = root / ".home" / ".shadow"
+            prior = subprocess.run(
+                ["git", "-C", str(ledger), "show", "HEAD^:board.json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertEqual(len(json.loads(prior.stdout)["claims"]), 1)
 
     def test_the_demotion_is_inspectable_rather_than_silent(self) -> None:
         # A plan that vanishes with no reason is the ambiguity `--shadowed`

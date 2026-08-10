@@ -8,8 +8,9 @@ stale — the same law as milestone status, which is derived at read time and
 never stored.
 
 Shadow runs correctly with every bucket empty. A bucket says what the method
-would use if it were there; it never gates a cycle, claims a row, or carries
-proof. `PLAN.md` remains the only plan, proof, and resume authority.
+would use if it were there; it never gates a cycle, claims a checkpoint, or
+carries proof. The computer board owns coordination and entity `PLAN.md` files
+own milestone/checkpoint detail and proof.
 
 Override one binding with `SHADOW_BUCKET_<NAME>` — an absolute path, or `off`
 to say the emptiness is deliberate. Flags and environment stay authoritative;
@@ -20,6 +21,26 @@ there is no bucket configuration file.
 - bucket superpowers | kind: pack | default: superpowers | fills: the process discipline inside every applicable claimed lane — brainstorm before building, test first, review, and verify before claiming done. Shadow owns the durable plan and keeps the full Outcome moving | absent: install superpowers from the claude-plugins-official marketplace, or set SHADOW_BUCKET_SUPERPOWERS=off
 - bucket honcho | kind: builtin | default: docs/reference/honcho.md | fills: durable memory of what the work is trying to achieve, and continuity across CLIs, providers, and machines — carried by PLAN.md and git, never by an installed store | absent: unreachable; a builtin bucket ships filled by this repository
 - bucket taste | kind: skill | default: taste | fills: the finished-quality grade on a human-visible surface, after it works and before anyone calls it done | absent: mount a skill named taste in one of the three skill roots, or set SHADOW_BUCKET_TASTE=off
+
+The `superpowers` binding is leaf-only. The pack root is never selected. Shadow
+may name only a concrete installed whole leaf from this compatible set:
+`verification-before-completion`, `test-driven-development`,
+`systematic-debugging`, and `receiving-code-review`. Brainstorm and
+request-review ideas are adapted disciplines inside Shadow Method, not partial
+or selected plugin leaves. `writing-plans`, `executing-plans`,
+`dispatching-parallel-agents`, `subagent-driven-development`,
+`using-superpowers`, `brainstorming`, and `requesting-code-review` are refused
+even when explicitly requested. The same default-deny applies to every other
+pack leaf not in the compatible set, including `using-git-worktrees`,
+`finishing-a-development-branch`, and `writing-skills`: the computer board,
+entity plan, and Shadow host-run keep those jobs. A pack with no compatible
+whole leaf falls back to the native host plus Shadow Method. A generic pack
+request also falls back; the milestone tools line must name matching TDD,
+debugging, receiving-review, or verification intent before amp records that
+installed leaf as source for a host-neutral Shadow Method adaptation. A
+Claude-cache leaf is never printed as if Codex or Cursor could invoke it.
+Raw `/superpowers` and refused leaf invocations are also removed from the
+projected `TOOLS:` line; unrelated project tools remain unchanged.
 
 ## How each kind resolves
 
@@ -60,9 +81,16 @@ from reality; it can only be wrong about intent, and wrong-about-intent is a
 reviewed git edit. Contrast a plugin manager's `installed_plugins.json`, which
 stores exactly the resolved state that *can* go stale.
 
-Nothing dispatches through this file. `shadow throw`, `shadow accept`,
-`shadow amp`, and `shadow status` never read it; deleting it changes no
-behavior and only blinds doctor. It is the same doc-as-data trick the standing
-goal already uses, applied once more.
+Nothing coordinates through this file. `shadow throw`, `shadow accept`, and
+`shadow status` never read it. `shadow amp` may resolve only capabilities that
+the selected milestone explicitly named in `- tools:` and records the result
+inside its optional handoff block; it writes no state and absence never blocks
+the packet. Deleting this declaration therefore removes resolution detail, not
+rows, claims, priority, proof, or resume.
+
+Declaration or resolution exceptions follow the same optional law: amp records
+a deterministic warning (exception type, never machine-specific error text)
+and falls back to the native host plus Shadow Method. An optional bucket can
+never abort a resume packet.
 
 Install adds no code: the declaration ships committed, so cloning defaults it.

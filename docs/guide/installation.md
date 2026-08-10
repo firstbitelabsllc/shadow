@@ -21,6 +21,13 @@ bash install.sh --no-skills                # command only, skip the host mounts
 ```
 
 The mount points at the same repository; it does not copy state or credentials.
+The default install also writes Shadow's marker-delimited standing block into
+Claude and Codex host instructions without replacing surrounding text. Cursor
+Cold Cursor directive activation is unsupported because Cursor exposes no
+equivalent reviewed writable file. The installer does not invent a path or ask
+you to paste into an unverified setting; Cursor's skill mount and sealed host
+runner remain supported.
+`--no-skills` deliberately skips both mounts and host-instruction installation.
 
 ## Upgrading from the old name
 

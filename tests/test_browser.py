@@ -17,6 +17,9 @@ PLAN = """# Release notes
 
 ## Brief
 
+- Project: release-notes
+- Mode: ship
+- Priority: 2
 - Outcome ID: ship-release-notes
 - Outcome Revision: 7
 - Outcome Updated At: 2026-08-03T02:00:00Z
@@ -39,9 +42,12 @@ PLAN = """# Release notes
 - Proof Summary: Browser contract tests pass.
 - Proof Delivery: delivered
 
-## Work
+## Tasks
 
-- [in_progress] Choose the final review depth
+### Release notes decision
+
+- [pending] Choose the final review depth ~aa11 | proof: read tests/test_browser.py -> passes
+- [pending] Decision receipt is durable ~bb22 (DoD) | proof: read .shadow/evidence -> recorded
 
 ## Progress
 
@@ -129,6 +135,429 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(records[0]["path"], "project/PLAN.md")
         self.assertNotIn(dirname, json.dumps(records))
 
+    def test_browser_reads_and_writes_only_the_computer_board_entity(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            portfolio = Path(dirname)
+            home = portfolio / "home"
+            home.mkdir()
+            canonical = portfolio / "canonical"
+            canonical.mkdir()
+            plan = canonical / "PLAN.md"
+            plan.write_text(PLAN, encoding="utf-8")
+            git(canonical, "init", "-q")
+            git(canonical, "config", "user.email", "test@example.invalid")
+            git(canonical, "config", "user.name", "Test")
+            git(canonical, "add", "PLAN.md")
+            git(canonical, "commit", "-qm", "canonical")
+            origin = "git@example.invalid:leo/sibling.git"
+            git(canonical, "remote", "add", "origin", origin)
+
+            first, _, warning = server.board_plan_records(canonical, home)
+            self.assertIsNone(warning)
+            identity = first["entities"][0]["id"]
+            server._root_board.claim(
+                plan,
+                "~aa11",
+                "seat-a",
+                project="release-notes",
+                priority=2,
+                home=home,
+            )
+            server._root_board.set_priority(plan, 1, home=home)
+
+            sibling = portfolio / "sibling"
+            git(portfolio, "clone", "-q", str(canonical), str(sibling))
+            git(sibling, "remote", "set-url", "origin", origin)
+            (sibling / "PLAN.md").write_text(
+                PLAN.replace("# Release notes", "# Wrong sibling bytes"),
+                encoding="utf-8",
+            )
+
+            service = server.Server(("127.0.0.1", 0), portfolio, home=home)
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", "/api/plans")
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                connection.close()
+                self.assertEqual(response.status, 200, payload)
+                self.assertEqual(payload["root_board_revision"], first["revision"] + 2)
+                self.assertEqual(len(payload["plans"]), 1)
+                record = payload["plans"][0]
+                self.assertEqual(record["entity"], identity)
+                self.assertEqual(record["title"], "Release notes")
+                self.assertEqual(record["priority"], 1)
+                self.assertEqual(record["resume"], "~aa11")
+                self.assertEqual(record["owner"], "seat-a")
+                self.assertEqual(record["board"]["state"], "working")
+
+                body = json.dumps(
+                    {
+                        "entity": identity,
+                        "root_board_revision": payload["root_board_revision"],
+                        "option_id": "cold-review",
+                        "revision": 7,
+                    }
+                )
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "POST",
+                    "/api/decision",
+                    body=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Origin": f"http://127.0.0.1:{port}",
+                    },
+                )
+                decided = connection.getresponse()
+                receipt = json.loads(decided.read())
+                connection.close()
+                self.assertEqual(decided.status, 200, receipt)
+                self.assertTrue((canonical / ".shadow" / "evidence").is_dir())
+                self.assertFalse((sibling / ".shadow" / "evidence").exists())
+
+                returned = server._root_board.release(
+                    plan,
+                    "~aa11",
+                    resumes=["~aa11", "~bb22"],
+                    owner="seat-a",
+                    reason="handback",
+                    home=home,
+                )
+                self.assertIsNotNone(returned)
+                self.assertTrue(returned[1])
+                _, records, warning = server.board_plan_records(portfolio, home)
+                self.assertIsNone(warning)
+                self.assertNotIn("owner", records[0])
+                self.assertEqual(records[0]["resume"], "~aa11")
+                self.assertEqual(records[0]["board"]["state"], "ready")
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
+
+    def test_browser_projects_every_open_milestone_with_checkpoint_owners(self) -> None:
+        multi = """# m20 — Rotation
+
+## Brief
+
+- Project: rotation
+- Mode: ship
+- Priority: 2
+
+## Tasks
+
+### M0 — retired history
+- [completed] old work landed ~zz11 | proof: cmd true
+- [completed] old work closed ~zz22 (DoD) | proof: read x -> y
+
+### M1 — groundwork waits
+- [completed] groundwork landed ~aa11 | proof: cmd true
+- [pending] dependent work ~bb22 | proof: cmd true | needs: ~cc33
+- [pending] groundwork closes ~bb23 (DoD) | proof: read x -> y | needs: ~bb22
+
+### M2 — release is moving
+- [in_progress] live release work ~cc33 | proof: cmd true
+- [blocked] upstream is unavailable ~dd44 | proof: cmd true
+- [pending] release closes ~ee55 (DoD) | proof: read x -> y | needs: ~cc33
+
+## Progress
+
+- 2026-08-09T22:00:00Z ~zz11 PROOF true -> ok
+- 2026-08-09T23:00:00Z ~zz22 PROOF x -> y
+- 2026-08-10T00:00:00Z ~aa11 PROOF true -> ok
+"""
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = Path(dirname) / "repo"
+            home = Path(dirname) / "home"
+            repo.mkdir()
+            home.mkdir()
+            plan = repo / "PLAN.md"
+            plan.write_text(multi, encoding="utf-8")
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "test@example.invalid")
+            git(repo, "config", "user.name", "Test")
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "-qm", "fixture")
+            _, _, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            server._root_board.claim(
+                plan,
+                "~cc33",
+                "seat-a",
+                project="rotation",
+                priority=2,
+                home=home,
+            )
+            _, records, warning = server.board_plan_records(repo, home)
+
+        self.assertIsNone(warning)
+        self.assertEqual(records[0]["title"], "Rotation")
+        milestones = records[0]["milestones"]
+        self.assertEqual(
+            [milestone["title"] for milestone in milestones],
+            ["groundwork waits", "release is moving"],
+        )
+        self.assertFalse(milestones[0]["current"])
+        self.assertTrue(milestones[1]["current"])
+        checkpoints = {
+            checkpoint["id"]: checkpoint
+            for milestone in milestones
+            for checkpoint in milestone["checkpoints"]
+        }
+        self.assertEqual(checkpoints["~bb22"]["availability"], "waiting")
+        self.assertEqual(checkpoints["~cc33"]["availability"], "claimed")
+        self.assertEqual(checkpoints["~cc33"]["owners"], ["seat-a"])
+        self.assertEqual(checkpoints["~dd44"]["availability"], "blocked")
+
+    def test_browser_renderer_iterates_the_rotation_in_brief_and_board_views(self) -> None:
+        source = (Path(server.__file__).parent / "static" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(
+            source.count("for (const milestone of rotationOf(plan))"),
+            3,
+        )
+        self.assertNotIn("const milestoneTitle = plan.board?.milestone", source)
+
+    def test_symlinked_canonical_plan_cannot_import_external_milestones(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            repo = root / "repo"
+            home.mkdir()
+            repo.mkdir()
+            plan = repo / "PLAN.md"
+            plan.write_text(PLAN, encoding="utf-8")
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "test@example.invalid")
+            git(repo, "config", "user.name", "Test")
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "-qm", "fixture")
+            server.board_plan_records(repo, home)
+            outside = root / "outside-PLAN.md"
+            outside.write_text(
+                PLAN.replace("# Release notes", "# External authority"),
+                encoding="utf-8",
+            )
+            plan.unlink()
+            plan.symlink_to(outside)
+
+            _, records, warning = server.board_plan_records(root / "empty", home)
+
+        self.assertIsNotNone(warning)
+        self.assertTrue(records[0]["broken"])
+        self.assertEqual(records[0]["milestones"], [])
+        self.assertNotIn("External authority", json.dumps(records[0]))
+
+    def test_decision_post_refuses_a_last_good_board_when_refresh_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            repo, _ = self.make_repo(root)
+            payload, _, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            identity = payload["entities"][0]["id"]
+            broken = repo / "broken" / "PLAN.md"
+            broken.parent.mkdir()
+            broken.write_bytes(b"\xff\xfe")
+
+            service = server.Server(("127.0.0.1", 0), repo, home=home)
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", "/api/plans")
+                response = connection.getresponse()
+                current = json.loads(response.read())
+                connection.close()
+                self.assertEqual(response.status, 200, current)
+                self.assertIsNotNone(current["warning"])
+                self.assertEqual(current["root_board_revision"], payload["revision"])
+
+                body = json.dumps(
+                    {
+                        "entity": identity,
+                        "root_board_revision": current["root_board_revision"],
+                        "option_id": "cold-review",
+                        "revision": 7,
+                    }
+                )
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "POST",
+                    "/api/decision",
+                    body=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Origin": f"http://127.0.0.1:{port}",
+                    },
+                )
+                refused = connection.getresponse()
+                error = json.loads(refused.read())
+                connection.close()
+
+                self.assertEqual(refused.status, 400, error)
+                self.assertIn("refresh failed", error["error"])
+                self.assertFalse((repo / ".shadow" / "evidence").exists())
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
+
+    def test_decision_receipt_holds_board_cas_until_receipt_is_durable(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            repo, plan = self.make_repo(root)
+            payload, _, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            identity = payload["entities"][0]["id"]
+            original_receipt = server.write_decision_receipt
+            original_flock = server._root_board.fcntl.flock
+            mutation_attempted = threading.Event()
+            mutation_done = threading.Event()
+            mutation_threads: list[threading.Thread] = []
+
+            def observed_flock(descriptor: int, operation: int) -> None:
+                if (
+                    mutation_threads
+                    and threading.current_thread() is mutation_threads[0]
+                    and operation & server._root_board.fcntl.LOCK_EX
+                ):
+                    mutation_attempted.set()
+                original_flock(descriptor, operation)
+
+            def wrapped_receipt(*args, **kwargs):
+                def mutate_priority() -> None:
+                    server._root_board.set_priority(plan, 1, home=home)
+                    mutation_done.set()
+
+                worker = threading.Thread(target=mutate_priority)
+                mutation_threads.append(worker)
+                worker.start()
+                self.assertTrue(mutation_attempted.wait(2), "mutator never reached the board CAS")
+                self.assertFalse(mutation_done.is_set(), "board changed before receipt durability")
+                return original_receipt(*args, **kwargs)
+
+            service = server.Server(("127.0.0.1", 0), repo, home=home)
+            service.RequestHandlerClass.log_message = lambda *args: None
+            service_thread = threading.Thread(target=service.serve_forever, daemon=True)
+            service_thread.start()
+            port = service.server_address[1]
+            try:
+                body = json.dumps(
+                    {
+                        "entity": identity,
+                        "root_board_revision": payload["revision"],
+                        "option_id": "cold-review",
+                        "revision": 7,
+                    }
+                )
+                with mock.patch.object(
+                    server._root_board.fcntl, "flock", side_effect=observed_flock
+                ), mock.patch.object(
+                    server, "write_decision_receipt", side_effect=wrapped_receipt
+                ):
+                    connection = http.client.HTTPConnection("127.0.0.1", port)
+                    connection.request(
+                        "POST",
+                        "/api/decision",
+                        body=body,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Origin": f"http://127.0.0.1:{port}",
+                        },
+                    )
+                    response = connection.getresponse()
+                    receipt = json.loads(response.read())
+                    connection.close()
+                self.assertEqual(response.status, 200, receipt)
+                mutation_threads[0].join(timeout=2)
+                self.assertTrue(mutation_done.is_set())
+                self.assertEqual(
+                    server._root_board.snapshot(home=home)["revision"],
+                    payload["revision"] + 1,
+                )
+                self.assertTrue((repo / ".shadow" / "evidence").is_dir())
+            finally:
+                service.shutdown()
+                service.server_close()
+                service_thread.join(timeout=2)
+
+    def test_deleted_claimed_row_is_a_loud_broken_board_not_a_working_card(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            repo, plan = self.make_repo(root)
+            payload, _, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            server._root_board.claim(
+                plan,
+                "~aa11",
+                "seat-a",
+                project="release-notes",
+                priority=2,
+                home=home,
+            )
+            plan.write_text(PLAN.replace("~aa11", "~cc33"), encoding="utf-8")
+            git(repo, "add", "project/PLAN.md")
+            git(repo, "commit", "-qm", "replace claimed row")
+
+            _, records, warning = server.board_plan_records(repo, home)
+
+            self.assertIsNotNone(warning)
+            self.assertIn("broken", warning)
+            self.assertTrue(records[0]["broken"])
+            self.assertEqual(records[0]["board"]["state"], "broken")
+            self.assertIn("~aa11", records[0]["contract_error"])
+
+    def test_deleted_canonical_plan_is_a_loud_broken_board(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            repo, plan = self.make_repo(root)
+            _, _, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            plan.unlink()
+
+            _, records, warning = server.board_plan_records(root / "empty", home)
+
+            self.assertIsNotNone(warning)
+            self.assertIn("broken", warning)
+            self.assertTrue(records[0]["broken"])
+            self.assertEqual(records[0]["board"]["state"], "broken")
+            self.assertIn("missing or unreadable", records[0]["contract_error"])
+
+    def test_decision_write_rejects_a_stale_board_revision_and_entity_id(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            repo, plan = self.make_repo(root)
+            payload, _, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            identity = payload["entities"][0]["id"]
+            server._root_board.set_priority(plan, 1, home=home)
+            with self.assertRaisesRegex(server.BrowserError, "changed"):
+                server.board_entity_plan(identity, payload["revision"], home)
+
+            current = server._root_board.snapshot(home=home)
+            self.assertIsNotNone(current)
+            git(repo, "remote", "add", "origin", "git@example.invalid:org/moved.git")
+            with self.assertRaisesRegex(server.BrowserError, "stale"):
+                server.board_entity_plan(identity, current["revision"], home)
+
     def test_non_loopback_bind_is_rejected(self) -> None:
         self.assertEqual(server.main(["--host", "0.0.0.0", "--port", "7191", "--root", "."]), 2)
 
@@ -148,7 +577,12 @@ class BrowserTests(unittest.TestCase):
                 self.assertEqual(connection.getresponse().status, 403)
                 connection.close()
 
-                body = json.dumps({"plan": "project/PLAN.md", "option_id": "ship-now", "revision": 7})
+                body = json.dumps({
+                    "entity": "0" * 64,
+                    "root_board_revision": 0,
+                    "option_id": "ship-now",
+                    "revision": 7,
+                })
                 connection = http.client.HTTPConnection("127.0.0.1", port)
                 connection.request("POST", "/api/decision", body=body, headers={"Content-Type": "application/json"})
                 self.assertEqual(connection.getresponse().status, 403)
@@ -187,6 +621,9 @@ class BrowserTests(unittest.TestCase):
     def test_allow_listed_proxy_host_reads_and_decides(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, _ = self.make_repo(Path(dirname).resolve())
+            payload, _, warning = server.board_plan_records(repo, repo)
+            self.assertIsNone(warning)
+            identity = payload["entities"][0]["id"]
             service = server.Server(
                 ("127.0.0.1", 0), repo, frozenset({"studio.tailnet.example.ts.net"})
             )
@@ -203,7 +640,12 @@ class BrowserTests(unittest.TestCase):
                 self.assertEqual(connection.getresponse().status, 200)
                 connection.close()
 
-                body = json.dumps({"plan": "project/PLAN.md", "option_id": "cold-review", "revision": 7})
+                body = json.dumps({
+                    "entity": identity,
+                    "root_board_revision": payload["revision"],
+                    "option_id": "cold-review",
+                    "revision": 7,
+                })
                 connection = http.client.HTTPConnection("127.0.0.1", port)
                 connection.putrequest("POST", "/api/decision", skip_host=True)
                 connection.putheader("Host", "studio.tailnet.example.ts.net")
@@ -258,6 +700,9 @@ class BrowserTests(unittest.TestCase):
     def test_post_errors_never_reflect_exception_text(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, _ = self.make_repo(Path(dirname).resolve())
+            board, _, warning = server.board_plan_records(repo, repo)
+            self.assertIsNone(warning)
+            identity = board["entities"][0]["id"]
             service = server.Server(("127.0.0.1", 0), repo)
             service.RequestHandlerClass.log_message = lambda *args: None
             thread = threading.Thread(target=service.serve_forever, daemon=True)
@@ -267,7 +712,12 @@ class BrowserTests(unittest.TestCase):
                 failure = PermissionError(
                     f"[Errno 13] Permission denied: '{repo}/.shadow/evidence'"
                 )
-                body = json.dumps({"plan": "project/PLAN.md", "option_id": "ship-now", "revision": 7})
+                body = json.dumps({
+                    "entity": identity,
+                    "root_board_revision": board["revision"],
+                    "option_id": "ship-now",
+                    "revision": 7,
+                })
                 with mock.patch.object(server, "write_decision_receipt", side_effect=failure):
                     connection = http.client.HTTPConnection("127.0.0.1", port)
                     connection.request(
@@ -517,6 +967,8 @@ class TheGalleryShowsEveryStateHonestly(unittest.TestCase):
                 connection.close()
             finally:
                 service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
 
 
 class BoardProjectionTests(unittest.TestCase):

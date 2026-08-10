@@ -1,4 +1,4 @@
-const state = { plans: [], selected: null, view: 'briefs' };
+const state = { plans: [], selected: null, view: 'briefs', boardRevision: null, warning: null };
 const projects = document.getElementById('projects');
 const main = document.getElementById('main');
 const refresh = document.getElementById('refresh');
@@ -6,6 +6,7 @@ const board = document.getElementById('board');
 const shell = document.querySelector('.shell');
 const viewBoard = document.getElementById('view-board');
 const viewBriefs = document.getElementById('view-briefs');
+const boardWarning = document.getElementById('board-warning');
 
 function el(tag, options = {}) {
   const node = document.createElement(tag);
@@ -48,7 +49,12 @@ async function choose(plan, option) {
   const response = await fetch('/api/decision', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ plan: plan.path, option_id: option.id, revision: plan.outcome.revision }),
+    body: JSON.stringify({
+      entity: plan.entity,
+      root_board_revision: state.boardRevision,
+      option_id: option.id,
+      revision: plan.outcome.revision,
+    }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Choice could not be saved.');
@@ -91,23 +97,7 @@ function renderBoardBriefCard(plan) {
     card.append(el('p', { className: 'eyebrow', text: 'Priority' }));
     card.append(el('h2', { text: brief.priority }));
   }
-  const milestone = brief.milestone;
-  if (milestone) {
-    card.append(el('p', { className: 'eyebrow', text: 'Milestone' }));
-    card.append(el('p', { className: 'current', text: milestone.title }));
-    const meter = checkpointMeter(milestone.counts);
-    if (meter) card.append(meter);
-    const now = milestone.current || milestone.next;
-    if (now) {
-      card.append(el('p', { className: 'eyebrow', text: milestone.current ? 'Now' : 'Next' }));
-      card.append(el('p', { className: 'current', text: now }));
-    }
-    if (milestone.dod) {
-      const dod = el('dl', { className: 'brief' });
-      dod.append(row('Done means', `${milestone.dod.text} (${milestone.dod.state.replaceAll('_', ' ')})`));
-      card.append(dod);
-    }
-  }
+  for (const milestone of rotationOf(plan)) appendMilestone(card, milestone);
   if (brief.contradictions_open) {
     card.append(el('p', {
       className: 'board-decision',
@@ -147,6 +137,7 @@ function renderPlan(plan) {
   card.append(el('h2', { text: outcome.summary }));
   card.append(el('p', { className: 'eyebrow', text: 'Now' }));
   card.append(el('p', { className: 'current', text: outcome.current_move }));
+  for (const milestone of rotationOf(plan)) appendMilestone(card, milestone);
 
   const roleGuide = el('section', { className: 'role-guide' });
   roleGuide.append(el('p', { className: 'eyebrow', text: 'How Shadow can help' }));
@@ -180,6 +171,7 @@ function renderPlan(plan) {
     choices.append(el('p', { className: 'choice-question', text: briefing.blocker || 'Choose the next move' }));
     briefing.choices.forEach((option, index) => {
       const button = el('button', { className: 'choice', type: 'button' });
+      button.disabled = Boolean(state.warning);
       button.append(el('span', { className: 'choice-letter', text: String.fromCharCode(65 + index) }));
       const copy = el('span', { className: 'choice-copy' });
       copy.append(el('strong', { text: option.label }), el('small', { text: option.consequence }));
@@ -189,7 +181,11 @@ function renderPlan(plan) {
       });
       choices.append(button);
     });
-    choices.append(el('p', { id: 'choice-status', className: 'choice-status', text: 'Nothing changes until you choose.' }));
+    choices.append(el('p', {
+      id: 'choice-status',
+      className: 'choice-status',
+      text: state.warning ? 'Refresh the computer board before choosing.' : 'Nothing changes until you choose.',
+    }));
     card.append(choices);
   }
 
@@ -209,6 +205,10 @@ function laneName(plan) {
   return plan.project || 'unassigned';
 }
 
+function humanName(value) {
+  return value.replaceAll('-', ' ');
+}
+
 function checkpointMeter(counts) {
   const total = counts.pending + counts.in_progress + counts.blocked + counts.completed;
   if (!total) return null;
@@ -216,6 +216,41 @@ function checkpointMeter(counts) {
   meter.append(el('span', { className: 'meter-count', text: `Tasks ${counts.completed}/${total}` }));
   if (counts.blocked) meter.append(el('span', { className: 'meter-blocked', text: `${counts.blocked} blocked` }));
   return meter;
+}
+
+function rotationOf(plan) {
+  if (Array.isArray(plan.milestones) && plan.milestones.length) return plan.milestones;
+  return plan.board?.milestone ? [plan.board.milestone] : [];
+}
+
+function appendMilestone(card, milestone) {
+  const group = el('section', { className: 'milestone-rotation' });
+  group.append(el('p', {
+    className: 'eyebrow',
+    text: milestone.current === true ? 'Current milestone' : 'Milestone in rotation',
+  }));
+  group.append(el('p', { className: 'board-milestone', text: milestone.title }));
+  const meter = checkpointMeter(milestone.counts);
+  if (meter) group.append(meter);
+  const checkpoints = Array.isArray(milestone.checkpoints) ? milestone.checkpoints : [];
+  if (checkpoints.length) {
+    for (const checkpoint of checkpoints) {
+      const owner = checkpoint.owners?.length ? ` · ${checkpoint.owners.join(', ')}` : '';
+      group.append(el('p', {
+        className: 'board-now',
+        text: `${checkpoint.state.replaceAll('_', ' ')} · ${checkpoint.availability}: ${checkpoint.text}${owner}`,
+      }));
+    }
+  } else {
+    const now = milestone.current || milestone.next;
+    if (now) group.append(el('p', { className: 'board-now', text: now }));
+  }
+  if (milestone.dod) {
+    const dod = el('dl', { className: 'brief' });
+    dod.append(row('Done means', `${milestone.dod.text} (${milestone.dod.state.replaceAll('_', ' ')})`));
+    group.append(dod);
+  }
+  card.append(group);
 }
 
 // The board is a read-only projection: its only interactive element is
@@ -235,8 +270,8 @@ function renderBoard() {
   for (const [name, plans] of lanes) {
     const lane = el('section', { className: 'lane' });
     const head = el('div', { className: 'lane-head' });
-    head.append(el('h2', { className: 'lane-title', text: name }));
-    head.append(el('span', { className: 'lane-count', text: `${plans.length} plan${plans.length === 1 ? '' : 's'}` }));
+    head.append(el('h2', { className: 'lane-title', text: humanName(name) }));
+    head.append(el('span', { className: 'lane-count', text: `${plans.length} entit${plans.length === 1 ? 'y' : 'ies'}` }));
     lane.append(head);
     const rowEl = el('div', { className: 'lane-cards' });
     for (const plan of plans) {
@@ -247,10 +282,7 @@ function renderBoard() {
       card.append(top);
       const status = plan.briefing?.state || plan.board?.state || 'unreadable';
       card.append(el('span', { className: 'board-state', text: status.replaceAll('_', ' ') }));
-      const milestoneTitle = plan.board?.milestone?.title || plan.milestone;
-      if (milestoneTitle) card.append(el('p', { className: 'board-milestone', text: milestoneTitle }));
-      const nowLine = plan.board?.milestone?.current || plan.board?.milestone?.next;
-      if (nowLine) card.append(el('p', { className: 'board-now', text: nowLine }));
+      for (const milestone of rotationOf(plan)) appendMilestone(card, milestone);
       if (plan.lint) {
         if (!plan.lint.parse_ok || plan.lint.blocking) card.classList.add('red');
         const verdict = !plan.lint.parse_ok
@@ -261,7 +293,7 @@ function renderBoard() {
         card.append(el('span', { className: plan.lint.blocking || !plan.lint.parse_ok ? 'lint-chip bad' : 'lint-chip', text: verdict }));
       }
 
-      const counts = plan.board?.milestone?.counts || plan.tasks;
+      const counts = rotationOf(plan).length ? null : plan.tasks;
       if (counts) {
         const meter = checkpointMeter(counts);
         if (meter) card.append(meter);
@@ -308,9 +340,14 @@ async function load() {
     if (!response.ok) throw new Error('Shadow could not read plans.');
     const data = await response.json();
     state.plans = Array.isArray(data.plans) ? data.plans : [];
+    state.boardRevision = data.root_board_revision;
+    state.warning = data.warning || null;
+    boardWarning.textContent = state.warning ? `Computer board needs attention: ${state.warning}` : '';
+    boardWarning.hidden = !state.warning;
     if (!state.plans.some((plan) => plan.id === state.selected)) state.selected = state.plans[0]?.id || null;
     render();
   } catch (error) {
+    boardWarning.hidden = true;
     main.replaceChildren(el('p', { className: 'error', text: error.message }));
   } finally {
     refresh.disabled = false;

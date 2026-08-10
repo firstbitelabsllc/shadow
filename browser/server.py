@@ -37,10 +37,21 @@ except ModuleNotFoundError:
     from browser.outcome_source import OutcomeSourceError, project_plan_outcome
 from shadow_scrub_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
 from shadow_scrub_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
+from shadow_root_board import (
+    normalized_origin as _normalized_origin,
+    origin_of as _origin_of,
+    origin_repo_name as _origin_repo_name,
+    plan_mtime as _plan_mtime,
+)
+import shadow_root_board as _root_board
+import shadow_board_import as _board_import
 import importlib.util as _ilu
 _LINT_SPEC = _ilu.spec_from_file_location("shadow_lint", SCRIPTS / "shadow-lint.py")
 shadow_lint = _ilu.module_from_spec(_LINT_SPEC)
 _LINT_SPEC.loader.exec_module(shadow_lint)
+_AMP_SPEC = _ilu.spec_from_file_location("shadow_browser_amp", SCRIPTS / "shadow-amp.py")
+shadow_amp = _ilu.module_from_spec(_AMP_SPEC)
+_AMP_SPEC.loader.exec_module(shadow_amp)
 
 
 PRODUCT = "Shadow"
@@ -123,6 +134,7 @@ def title(text: str, fallback: str) -> str:
     for line in text.splitlines():
         if line.startswith("# "):
             clean = " ".join(line[2:].split())
+            clean = re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", clean)
             if clean and UNSAFE_TITLE_RE.search(clean) is None:
                 return clean[:120]
     return public_id(fallback).replace("-", " ").title()
@@ -199,6 +211,215 @@ def plan_record(path: Path, root: Path) -> dict[str, Any]:
     return record_from_text(text, relative, path.parent.name)
 
 
+def _board_payload(root: Path, home: Path) -> tuple[dict, str | None]:
+    """Refresh bounded discovery, or keep serving the last good computer board."""
+    from shadow_board_import import reconcile_portfolio
+
+    try:
+        return reconcile_portfolio(root, shadow_amp, home=home), None
+    except _root_board.BoardError as exc:
+        try:
+            payload = _root_board.snapshot(home=home)
+        except _root_board.BoardError as board_exc:
+            raise BrowserError("this computer's root board is unreadable") from board_exc
+        if payload is None:
+            raise BrowserError(str(exc)) from exc
+        return payload, str(exc)
+
+
+def _rotation_text(value: str, fallback: str, limit: int = 220) -> str:
+    clean = " ".join(value.split())
+    if not clean or UNSAFE_TITLE_RE.search(clean):
+        return fallback
+    return clean[:limit]
+
+
+def _milestone_rotation(
+    parsed: dict,
+    resume_id: str | None,
+    claims: list[dict],
+) -> list[dict[str, Any]]:
+    """Project every live milestone from the already parsed canonical plan."""
+    owners: dict[str, list[str]] = {}
+    for claim in claims:
+        owners.setdefault(claim["row"], []).append(claim["owner"])
+    parsed["claimed"] = set(owners)
+    reachable = set(shadow_amp._candidate_ids(parsed))
+    rotation: list[dict[str, Any]] = []
+    for milestone in parsed["milestones"]:
+        checkpoints = []
+        for row in milestone["rows"]:
+            row_owners = sorted(set(owners.get(row["id"], [])))
+            is_resume = row["id"] == resume_id
+            if row["state"] == "completed" and not row_owners and not is_resume:
+                continue
+            checkpoints.append(
+                {
+                    "id": row["id"],
+                    "state": row["state"],
+                    "text": _rotation_text(row["text"], "Checkpoint text withheld"),
+                    "availability": (
+                        "claimed" if row_owners else
+                        "blocked" if row["state"] == "blocked" else
+                        "reachable" if row["id"] in reachable else
+                        "waiting"
+                    ),
+                    "resume": is_resume,
+                    "owners": row_owners,
+                }
+            )
+        if not any(row["state"] != "completed" for row in milestone["rows"]) and not checkpoints:
+            continue
+        counts = {
+            state: sum(1 for row in milestone["rows"] if row["state"] == state)
+            for state in CHECKPOINT_STATES
+        }
+        rotation.append(
+            {
+                "title": _rotation_text(
+                    re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", milestone["title"]),
+                    "Milestone",
+                ),
+                "counts": counts,
+                "current": any(row["resume"] for row in checkpoints),
+                "resume": next(
+                    (row["id"] for row in checkpoints if row["resume"]), None
+                ),
+                "owners": sorted(
+                    {owner for row in checkpoints for owner in row["owners"]}
+                ),
+                "checkpoints": checkpoints,
+            }
+        )
+    return rotation
+
+
+def _board_plan_record(
+    payload: dict,
+    entity: dict,
+    priorities: dict[str, int],
+) -> dict[str, Any]:
+    """Project one canonical entity pointer without making its locator authority."""
+    plan = Path(entity["plan"])
+    locator = _root_board.public_plan_locator(plan)
+    text = ""
+    parsed = None
+    try:
+        if not _root_board.regular_plan(plan):
+            raise BrowserError("registered entity plan is missing, unreadable, or a symlink")
+        text = read_plan(plan)
+        parsed = shadow_amp._parse(text)
+        record = record_from_text(text, locator, entity["project"])
+    except (BrowserError, OSError, UnicodeError, ValueError):
+        record = record_from_text("", locator, entity["project"])
+        record["contract_error"] = "The registered entity plan is missing or unreadable."
+        record["broken"] = True
+        record["board"]["state"] = "broken"
+    claims = [
+        claim for claim in payload["claims"] if claim["entity"] == entity["id"]
+    ]
+    record.update(
+        {
+            "id": entity["id"],
+            "entity": entity["id"],
+            "project": entity["project"],
+            "path": locator,
+            "priority": priorities[entity["project"]],
+            "resume": entity["resume"],
+            "root_board_revision": payload["revision"],
+            "claims": [
+                {
+                    "row": claim["row"],
+                    "owner": claim["owner"],
+                    "return_by": claim["return_by"],
+                }
+                for claim in claims
+            ],
+        }
+    )
+    record["milestones"] = (
+        _milestone_rotation(parsed, entity["resume"], claims)
+        if parsed is not None else []
+    )
+    record["board"]["priority"] = str(priorities[entity["project"]])
+    active = next(
+        (claim for claim in claims if claim["row"] == entity["resume"]),
+        claims[0] if claims else None,
+    )
+    if active is not None and parsed is not None:
+        located = next(
+            (
+                (milestone, row)
+                for milestone in parsed["milestones"]
+                for row in milestone["rows"]
+                if row["id"] == active["row"]
+            ),
+            None,
+        )
+        record["board"]["state"] = "working"
+        record["owner"] = active["owner"]
+        if located is not None:
+            milestone, row = located
+            shown = record["board"].get("milestone") or {
+                "title": milestone["title"],
+                "counts": {state: 0 for state in CHECKPOINT_STATES},
+                "current": None,
+                "next": None,
+                "dod": None,
+            }
+            shown["title"] = milestone["title"]
+            shown["current"] = row["text"]
+            record["board"]["milestone"] = shown
+    if parsed is not None:
+        row_ids = {
+            row["id"]
+            for milestone in parsed["milestones"]
+            for row in milestone["rows"]
+        }
+        issue = _root_board.entity_integrity(
+            entity,
+            claims,
+            row_ids,
+            shadow_amp._candidate_ids(parsed),
+        )
+        if issue:
+            record["broken"] = True
+            record["contract_error"] = issue
+            record["board"]["state"] = "broken"
+    return record
+
+
+def board_plan_records(root: Path, home: Path) -> tuple[dict, list[dict[str, Any]], str | None]:
+    payload, warning = _board_payload(root, home)
+    priorities = {project["id"]: project["priority"] for project in payload["projects"]}
+    ordered = sorted(
+        payload["entities"],
+        key=lambda entity: (priorities[entity["project"]], entity["project"], entity["id"]),
+    )
+    records = [
+        _board_plan_record(payload, entity, priorities) for entity in ordered
+    ]
+    broken = sum(1 for record in records if record.get("broken"))
+    if broken:
+        warning = warning or f"{broken} computer-board entity pointer(s) are broken"
+    return payload, records, warning
+
+
+def board_entity_plan(identity: Any, revision: Any, home: Path) -> Path:
+    if not isinstance(identity, str) or _root_board.ENTITY_ID.fullmatch(identity) is None:
+        raise BrowserError("entity id is required")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise BrowserError("root board revision is required")
+    try:
+        return _root_board.canonical_plan_by_id_at_revision(
+            identity,
+            revision=revision,
+            home=home,
+        )
+    except _root_board.BoardError as exc:
+        raise BrowserError(str(exc)) from exc
+
+
 def record_from_text(text: str, relative: str, title_fallback: str) -> dict[str, Any]:
     """One projection pipeline for real plans and gallery fixtures alike.
 
@@ -259,8 +480,6 @@ def gallery_records() -> list[dict[str, Any]]:
         record["expected_state"] = entry["expected_state"]
         records.append(record)
     return records
-
-
 # A plan demoting ITSELF, not prose about archiving. "docs/plan-archive/" and
 # "archive the milestone" appear in every healthy plan, so the marker has to be
 # a self-verdict: the words a person writes when they mean "stop working this
@@ -314,73 +533,6 @@ def _archive_veto(paths: list[Path]) -> str | None:
         if found:
             return found.group(0)
     return None
-
-
-def _origin_of(repo: Path) -> str:
-    """The repo's origin URL, or its path when it has none.
-
-    This is the deduplication key's first half: two checkouts of one repository
-    share an origin, so a worktree and its main checkout collapse to one card.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
-            capture_output=True, text=True, timeout=5, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return str(repo)
-    return _normalized_origin(result.stdout.strip()) or str(repo)
-
-
-def _normalized_origin(origin: str) -> str:
-    """One repository, one key, however the remote is spelled.
-
-    `git@github.com:acme/thing.git` and `https://github.com/acme/thing` are the
-    same repository. The key was the raw URL string, so they were two keys and
-    both checkouts rendered — the board reported two projects where one exists.
-    `_origin_repo_name` already understood they were the same repo; the dedup
-    key did not.
-
-    Deliberately textual: no network, no `git ls-remote`, so it is the same
-    answer offline and on any machine.
-
-    Only the hostname is case-folded, because only the hostname is defined to
-    be case-insensitive. A path is not: `/srv/git/Foo.git` and
-    `/srv/git/foo.git` are two repositories on a case-sensitive filesystem, and
-    folding the whole string would give them one key — collapsing a real
-    project off the board, which is the very failure this normalization exists
-    to prevent, inverted.
-    """
-    if not origin:
-        return ""
-    text = origin.strip().rstrip("/").removesuffix(".git")
-    text = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", text)
-    text = re.sub(r"^[^/@]+@", "", text)          # user[:password]@
-    text = re.sub(r"^([^/:]+):(?!/)", r"\1/", text)  # scp-style host:path
-    host, slash, path = text.partition("/")
-    return host.lower() + slash + path
-
-
-def _origin_repo_name(origin: str) -> str:
-    """The repository name an origin URL ends in.
-
-    Splitting on `/` alone is not enough: an SCP-style remote can name the
-    repository straight after the colon (`git@host:repo.git`), so the slash
-    split returns the whole URL and the canonical-checkout comparison can
-    never match — leaving the tie-break to mtime and alphabetical order, which
-    is exactly how a stale rename-era clone wins.
-    """
-    tail = origin.rstrip("/").removesuffix(".git")
-    return tail.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
-
-
-def _plan_mtime(repo: Path) -> float:
-    try:
-        return (repo / "PLAN.md").stat().st_mtime
-    except OSError:
-        return 0.0
-
-
 MAX_DECLARED_GLOBS = 3
 
 
@@ -404,6 +556,10 @@ def declared_plan_globs(plan_text: str) -> list[str]:
         candidate = raw.strip()
         if not candidate or candidate.startswith("/") or ".." in Path(candidate).parts:
             continue
+        if "**" in Path(candidate).parts:
+            raise BrowserError(
+                "recursive plan globs are not supported; declare bounded depths explicitly"
+            )
         globs.append(candidate)
         if len(globs) == MAX_DECLARED_GLOBS:
             break
@@ -413,28 +569,41 @@ def declared_plan_globs(plan_text: str) -> list[str]:
 def repo_plans(repo: Path) -> list[Path]:
     """This root's own plan, plus anything that plan declares."""
     root_plan = repo / "PLAN.md"
-    if not root_plan.is_file():
+    if not (root_plan.exists() or root_plan.is_symlink()):
         return []
-    found = [root_plan]
+    found = {root_plan}
     try:
-        text = root_plan.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return found
+        text = read_plan(root_plan)
+    except (BrowserError, OSError, UnicodeError):
+        return [root_plan]
     # BOTH sides resolved. Comparing an unresolved repo against resolved
     # parents never matches on macOS, where /var is a symlink to /private/var —
     # which silently excluded every declared plan while looking like a working
     # containment check.
     here = repo.resolve()
     for pattern in declared_plan_globs(text):
-        for path in sorted(repo.glob(pattern)):
+        for path in repo.glob(pattern):
             # A glob that escapes through a symlink is the one way a
             # repo-relative pattern still reaches outside its own repo.
-            if not (path.is_file() and path not in found and here in path.resolve().parents):
+            if path in found or path.name != "PLAN.md":
+                continue
+            if path.is_symlink():
+                found.add(path)
+                continue
+            try:
+                contained = here in path.resolve().parents
+            except OSError:
+                contained = False
+            if not contained or not path.exists():
                 continue
             if _pruned_segment(path.relative_to(repo)):
                 continue
-            found.append(path)
-    return found
+            found.add(path)
+            if len(found) > MAX_PLANS:
+                raise BrowserError(
+                    f"one repository declares more than {MAX_PLANS} plans; split its bounded shards"
+                )
+    return [root_plan, *sorted(found - {root_plan})]
 
 
 def _pruned_segment(relative: Path) -> str | None:
@@ -472,7 +641,8 @@ def is_plan_root(path: Path) -> bool:
     for. Git identity is used for deduplication when it is there, and the path
     stands in when it is not.
     """
-    return (path / "PLAN.md").is_file()
+    plan = path / "PLAN.md"
+    return plan.exists() or plan.is_symlink()
 
 
 def is_portfolio_child(child: Path, root: Path) -> bool:
@@ -488,7 +658,12 @@ def is_portfolio_child(child: Path, root: Path) -> bool:
         return False
 
 
-def discover_plans(root: Path, *, include_shadowed: bool = False) -> list[dict[str, Any]]:
+def discover_plans(
+    root: Path,
+    *,
+    include_shadowed: bool = False,
+    fail_on_skipped: bool = False,
+) -> list[dict[str, Any]]:
     """Every plan the portfolio can legally see.
 
     Repositories are enumerated, never directories. A recursive walk reached
@@ -508,7 +683,9 @@ def discover_plans(root: Path, *, include_shadowed: bool = False) -> list[dict[s
     elif root.is_dir():
         try:
             children = list(root.iterdir())
-        except OSError:
+        except OSError as exc:
+            if fail_on_skipped:
+                raise BrowserError("portfolio root cannot be enumerated") from exc
             children = []
         # BOTH sides resolved, for the same reason the declared globs are:
         # a symlinked child resolves somewhere else entirely, and following it
@@ -555,13 +732,34 @@ def discover_plans(root: Path, *, include_shadowed: bool = False) -> list[dict[s
 
     for repo in candidates:
         for path in repo_plans(repo):
+            relative = path.relative_to(repo)
+            key = (_origin_of(repo), relative.as_posix())
+            # Deduplicate before reading. A broken ghost checkout must not veto
+            # the healthy canonical copy that already won this logical key.
+            if key in seen and not include_shadowed:
+                continue
+            if len(seen) >= MAX_PLANS:
+                raise BrowserError(
+                    f"portfolio exposes more than {MAX_PLANS} logical plans; "
+                    "close, archive, or split the import scope"
+                )
             try:
                 record = plan_record(path, root)
-            except (BrowserError, OSError, UnicodeError, ValueError):
+            except (BrowserError, OSError, UnicodeError, ValueError) as exc:
+                if fail_on_skipped:
+                    reason = (
+                        str(exc)
+                        if isinstance(exc, BrowserError)
+                        else "plan is unreadable, invalid UTF-8, or malformed"
+                    )
+                    try:
+                        display = path.relative_to(root).as_posix()
+                    except ValueError:
+                        display = relative.as_posix()
+                    raise BrowserError(f"{display}: {reason}") from exc
                 continue
             # One logical plan per (origin, repo-relative path): a worktree or
             # clone is the same plan as its main checkout, not a second card.
-            key = (_origin_of(repo), str(path.relative_to(repo)))
             if key in seen:
                 # Suppression is a real answer, and a reader who cannot see it
                 # has no way to tell "identical copy dropped" from "a plan I
@@ -602,7 +800,7 @@ def is_live(record: dict[str, Any]) -> bool:
     return not record.get("archived")
 
 
-def live_plans(root: Path) -> list[dict[str, Any]]:
+def live_plans(root: Path, *, fail_on_skipped: bool = False) -> list[dict[str, Any]]:
     """What the board is allowed to render as authority.
 
     Annotating a demoted record is not a demotion: the projections iterate the
@@ -611,7 +809,11 @@ def live_plans(root: Path) -> list[dict[str, Any]]:
     cannot be forgotten is the wire — a record the browser never receives
     cannot render as authority in any view, present or future.
     """
-    return [record for record in discover_plans(root) if is_live(record)]
+    return [
+        record
+        for record in discover_plans(root, fail_on_skipped=fail_on_skipped)
+        if is_live(record)
+    ]
 
 
 def resolve_plan(root: Path, value: Any) -> Path:
@@ -719,6 +921,10 @@ class Handler(BaseHTTPRequestHandler):
     def scan_root(self) -> Path:
         return self.server.scan_root  # type: ignore[attr-defined]
 
+    @property
+    def board_home(self) -> Path:
+        return self.server.board_home  # type: ignore[attr-defined]
+
     def _headers(self, status: int, content_type: str, length: int) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -795,7 +1001,19 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/plans":
-            self._json(200, {"product": PRODUCT, "plans": live_plans(self.scan_root)})
+            try:
+                payload, plans, warning = board_plan_records(self.scan_root, self.board_home)
+                self._json(
+                    200,
+                    {
+                        "product": PRODUCT,
+                        "root_board_revision": payload["revision"],
+                        "plans": plans,
+                        "warning": warning,
+                    },
+                )
+            except BrowserError as exc:
+                self._json(400, {"error": str(exc)})
             return
         if parsed.path == "/api/gallery":
             self._json(200, {"product": PRODUCT, "plans": gallery_records()})
@@ -822,18 +1040,40 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             payload = json.loads(self.rfile.read(length))
-            if not isinstance(payload, dict) or set(payload) != {"plan", "option_id", "revision"}:
+            if not isinstance(payload, dict) or set(payload) != {
+                "entity", "root_board_revision", "option_id", "revision"
+            }:
                 raise BrowserError("decision request has unknown or missing fields")
-            plan = resolve_plan(self.scan_root, payload["plan"])
-            record = plan_record(plan, self.scan_root)
-            if record["outcome"] is None:
-                raise BrowserError(record["contract_error"] or "plan has no typed Outcome")
-            receipt = write_decision_receipt(
-                plan,
-                record["outcome"],
-                payload["option_id"],
-                payload["revision"],
-            )
+            refreshed, warning = _board_payload(self.scan_root, self.board_home)
+            if warning is not None:
+                raise BrowserError(
+                    "computer board refresh failed; resolve the displayed warning and reload"
+                )
+            if refreshed["revision"] != payload["root_board_revision"]:
+                raise BrowserError("root board changed; refresh before writing")
+            try:
+                with _root_board.locked_entity_plan_by_id_at_revision(
+                    payload["entity"],
+                    revision=payload["root_board_revision"],
+                    home=self.board_home,
+                ) as plan:
+                    record = record_from_text(
+                        read_plan(plan),
+                        _root_board.public_plan_locator(plan),
+                        plan.parent.name,
+                    )
+                    if record["outcome"] is None:
+                        raise BrowserError(
+                            record["contract_error"] or "plan has no typed Outcome"
+                        )
+                    receipt = write_decision_receipt(
+                        plan,
+                        record["outcome"],
+                        payload["option_id"],
+                        payload["revision"],
+                    )
+            except _root_board.BoardError as exc:
+                raise BrowserError(str(exc)) from exc
             self._json(200, {"ok": True, "receipt": receipt})
         except (BrowserError, DecisionInputError) as exc:
             self._json(400, {"error": str(exc)})
@@ -854,10 +1094,18 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(
-        self, address: tuple[str, int], root: Path, extra_hosts: frozenset[str] = frozenset()
+        self,
+        address: tuple[str, int],
+        root: Path,
+        extra_hosts: frozenset[str] = frozenset(),
+        *,
+        home: Path | None = None,
     ) -> None:
         super().__init__(address, Handler)
-        self.scan_root = root
+        self.scan_root = root.resolve()
+        # Tests and embedded callers default to an isolated root-owned home;
+        # the production entrypoint passes the real user home explicitly.
+        self.board_home = (home or root).resolve()
         # Opt-in Host-header allowlist for a proxy the operator runs on this
         # machine (e.g. `tailscale serve`). The bind itself never leaves
         # loopback: proxied requests still arrive from 127.0.0.1.
@@ -870,7 +1118,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--port", type=int, default=os.environ.get("SHADOW_BROWSER_PORT") or "7191")
     value.add_argument(
         "--root",
-        default=os.environ.get("SHADOW_DEV_ROOT") or str(Path.home() / "Development"),
+        default=str(_board_import.portfolio_root(Path.cwd())),
     )
     value.add_argument("--no-open", action="store_true")
     value.add_argument(
@@ -898,7 +1146,12 @@ def main(argv: list[str] | None = None) -> int:
     if not DEV_ROOT.is_dir():
         print("shadow browse: scan root is not a directory", file=sys.stderr)
         return 2
-    server = Server((args.host, args.port), DEV_ROOT, frozenset(args.allow_host or ()))
+    server = Server(
+        (args.host, args.port),
+        DEV_ROOT,
+        frozenset(args.allow_host or ()),
+        home=Path.home(),
+    )
     actual = server.server_address[1]
     print(f"Shadow -> http://{args.host}:{actual}", file=sys.stderr, flush=True)
     if not args.no_open:
