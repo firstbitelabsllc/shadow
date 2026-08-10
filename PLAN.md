@@ -106,7 +106,7 @@ sections that stood here until 2026-08-09 are archived at
 ### M13 — what the adversarial pass found, fixed
 
 - tools: 44 agents, 5 attack lanes over ref 88c758c, every finding refutation-tested before it landed here; 33 survived and 5 were killed. Ranked by cost if left. The full report is the ~adv9 PROOF line
-- [pending] `shadow throw` mutates only the computer board: successful and failed claim transactions leave the entity PLAN.md bytes, project HEAD, and committed PLAN blob unchanged, and a failed board write emits no goal packet ~atom | proof: cmd scripts/shadow-python.sh -m unittest tests.test_throw.ThrowNeverCommitsATruncatedPlan tests.test_throw
+- [completed] `shadow throw` mutates only the computer board: successful and failed claim transactions leave the entity PLAN.md bytes, project HEAD, and committed PLAN blob unchanged, and a failed board write emits no goal packet ~atom | proof: cmd scripts/shadow-python.sh -m unittest tests.test_throw.ThrowNeverCommitsATruncatedPlan tests.test_throw
 - [pending] row grammar is checked wherever accept would flip a row, so the enforcer and the only flip path agree on what a task is ~rows | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.RowGrammarRunsWhereverAcceptWouldFlip tests.test_shadow_lint
 - [pending] a cmd proof is validated as argv: shell operators are refused unless argv is a shell with -c, and argv zero must resolve ~argv | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.ACmdProofIsValidatedAsArgv tests.test_shadow_lint tests.test_shadow_accept
 - [pending] every section lookup is prefix-matched, so a suffixed heading cannot silently drop a blocking check ~pfix | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.EverySectionLookupIsPrefixMatched tests.test_shadow_lint | needs: ~rows
@@ -1661,3 +1661,4 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T17:05:57Z ~cfg1 PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults -> pass (accept)
 - 2026-08-10T17:07:01Z ~yml2 PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults.TheSubsetRefusesWhatItCannotParse -> pass (accept)
 - 2026-08-10T17:07:06Z ~ftur PROOF scripts/shadow-python.sh -m unittest tests.test_extension_buckets.FutureIsADeclaredBucket tests.test_amp.GoalMintingReadsThePlansOwnLessonRows tests.test_extension_buckets tests.test_amp -> pass (accept)
+- 2026-08-10T17:07:23Z ~atom PROOF scripts/shadow-python.sh -m unittest tests.test_throw.ThrowNeverCommitsATruncatedPlan tests.test_throw -> pass (accept)
