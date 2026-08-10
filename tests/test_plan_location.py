@@ -196,6 +196,53 @@ class OneLogicalPlan(unittest.TestCase):
             paths = [r["path"] for r in discover_plans(root)]
             self.assertEqual(paths, ["thing/PLAN.md"])
 
+    def test_a_differently_cased_checkout_still_matches_its_origin(self) -> None:
+        # The normalized origin is lowercased so one repository is one key, and
+        # that same value names the canonical checkout. A `Thing` directory
+        # cloned from `.../thing` must still win the tie-break; otherwise the
+        # normalization that fixed the duplicate row hands the card to a stale
+        # clone that merely sorts first and was touched last.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("aaa-old-name", "Thing"):
+                repo = make(root, name)
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin",
+                     "git@example.invalid:acme/thing.git"], check=True)
+            os.utime(root / "aaa-old-name" / "PLAN.md", (2_000_000_000, 2_000_000_000))
+            paths = [r["path"] for r in discover_plans(root)]
+            self.assertEqual(paths, ["Thing/PLAN.md"])
+
+    def test_two_paths_differing_only_in_case_are_two_repositories(self) -> None:
+        # A hostname is case-insensitive; a path is not. `/srv/git/Foo.git` and
+        # `/srv/git/foo.git` are two repositories, so folding the whole origin
+        # would give them one key and drop a real project from the board — the
+        # duplicate-row bug inverted, and worse, because it hides work.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, remote in (("upper", "/srv/git/Foo.git"), ("lower", "/srv/git/foo.git")):
+                repo = make(root, name)
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin", remote], check=True)
+            paths = sorted(r["path"] for r in discover_plans(root))
+            self.assertEqual(paths, ["lower/PLAN.md", "upper/PLAN.md"])
+
+    def test_one_origin_spelled_two_ways_still_collapses(self) -> None:
+        # Case-folding only the host must not cost the dedup this PR exists
+        # for: SSH and HTTPS spellings of one GitHub repository stay one key.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            remotes = ("git@Example.invalid:acme/thing.git", "https://example.invalid/acme/thing")
+            for name, remote in zip(("thing", "thing-clone"), remotes):
+                repo = make(root, name)
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin", remote], check=True)
+            paths = [r["path"] for r in discover_plans(root)]
+            self.assertEqual(paths, ["thing/PLAN.md"])
+
     def test_unrelated_roots_without_git_are_not_merged(self) -> None:
         # No origin means the path stands in as identity. Two plain
         # directories are two plans, not one.
@@ -245,3 +292,68 @@ class Boundedness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ADuplicateNeverBecomesASecondRow(unittest.TestCase):
+    """Two spellings of one repository, and one repository's own copies.
+
+    Both were red when this was written, on main, with no mutation needed.
+
+    A clone addressed as `git@github.com:acme/thing.git` and one addressed as
+    `https://github.com/acme/thing` are the same repository. The dedup key was
+    the raw URL string, so they were two keys and both rendered — the board
+    said two projects where one exists.
+
+    Separately, `Path.glob` descends into dot-directories: a declared
+    `**/PLAN.md` reached into `.worktrees/`, `node_modules/`, and any vendored
+    copy. `SKIP_DIRS` named exactly those directories and had zero readers.
+    """
+
+    def _repo(self, root: Path, name: str, origin: str | None, plan: str) -> Path:
+        repo = root / name
+        (repo).mkdir(parents=True, exist_ok=True)
+        (repo / "PLAN.md").write_text(plan, encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        if origin:
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
+        return repo
+
+    PLAN = ("# T\n\n## Brief\n\n- Project: thing\n- Mode: ship\n\n## Tasks\n\n"
+            "### M\n- [pending] a row ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n## Progress\n\n"
+            "- 2026-08-09T00:00:00Z NOTE seeded\n")
+
+    def test_two_url_spellings_of_one_repo_render_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git", self.PLAN)
+            self._repo(root, "thing-clone", "https://github.com/acme/thing", self.PLAN)
+            found = discover_plans(root)
+            self.assertEqual(len(found), 1,
+                             f"one repository rendered {len(found)} times: "
+                             f"{[r['path'] for r in found]}")
+
+    def test_two_different_repos_sharing_a_project_slug_both_render(self) -> None:
+        # The opposite error. Brief law legalizes multi-repo projects, so
+        # grouping by `- Project:` would hide a real repository.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "web", "git@github.com:acme/web.git", self.PLAN)
+            self._repo(root, "api", "git@github.com:acme/api.git", self.PLAN)
+            self.assertEqual(len(discover_plans(root)), 2)
+
+    def test_a_declared_glob_never_descends_into_a_hidden_or_vendor_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            declaring = self.PLAN.replace("- Mode: ship", "- Mode: ship\n- Plans: **/PLAN.md")
+            repo = self._repo(root, "thing", "git@github.com:acme/thing.git", declaring)
+            for buried in (".worktrees/pool", "node_modules/pkg", "dist", "sub"):
+                (repo / buried).mkdir(parents=True, exist_ok=True)
+                (repo / buried / "PLAN.md").write_text(self.PLAN, encoding="utf-8")
+
+            paths = {str(p.relative_to(repo)) for p in repo_plans(repo)}
+
+            self.assertIn("sub/PLAN.md", paths, "a real nested plan was pruned")
+            for hidden in (".worktrees/pool/PLAN.md", "node_modules/pkg/PLAN.md", "dist/PLAN.md"):
+                self.assertNotIn(hidden, paths,
+                                 f"discovery read a copy under a pruned directory: {hidden}")
