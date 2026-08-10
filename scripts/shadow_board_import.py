@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -47,6 +48,94 @@ def _priority(plan: dict) -> int:
     return value
 
 
+def _registered_state(
+    amp: ModuleType,
+    *,
+    home: Path | None,
+    archive_veto_text,
+    declared_globs,
+    operator_brief,
+    browser_error: type[Exception],
+) -> tuple[dict[str, Path], dict[str, dict], dict[str, tuple[Path, str]]]:
+    """Unique healthy, retired, and repairable registered board locators."""
+    trusted: dict[str, Path] = {}
+    retired: dict[str, dict] = {}
+    repairable: dict[str, tuple[Path, str]] = {}
+    for identity, pointers in board.registered_locator_index(home=home).items():
+        frozen = {
+            pointer: board.plan_state_snapshot(pointer)
+            for pointer in sorted(pointers, key=str)
+        }
+        # Demotion is identity-wide even when two old board records have
+        # converged onto one Git identity. Multiplicity disables canonical
+        # substitution and repair, but it must not hide an exact registered
+        # plan's own archive verdict.
+        for pointer, (state_token, content) in frozen.items():
+            if content is None:
+                continue
+            try:
+                if board.entity_id(pointer) != identity:
+                    continue
+            except board.BoardError:
+                continue
+            head = content[:65_536].decode("utf-8", errors="ignore")
+            if archive_veto_text(head):
+                retired[identity] = {
+                    "identity": identity,
+                    "plan": str(pointer.resolve()),
+                    "expected_state": state_token,
+                    "registered_plan": str(pointer),
+                }
+                break
+        if identity in retired:
+            if len(pointers) == 1:
+                trusted[identity] = pointers[0].resolve()
+            continue
+        if len(pointers) != 1:
+            continue
+        pointer = pointers[0]
+        state_token, content = frozen[pointer]
+        if state_token == "unavailable" or content is None:
+            repairable[identity] = (pointer, state_token)
+            continue
+        try:
+            if board.entity_id(pointer) != identity:
+                continue
+            if len(content) > board.MAX_PLAN_BYTES:
+                raise board.BoardError("registered plan exceeds the bounded size limit")
+            text = content.decode("utf-8")
+            parsed = amp._parse(text)
+            if not parsed["brief"].get("Project") or not parsed["brief"].get("Mode"):
+                raise board.BoardError("registered plan lacks current board fields")
+            if amp.unclean_note(parsed):
+                raise board.BoardError("registered plan is not grammar-clean")
+            _priority(parsed)
+            amp._candidate_ids(parsed)
+            declaration = operator_brief(text).get("plans", "")
+            if any(
+                not candidate
+                or candidate.startswith("/")
+                or ".." in Path(candidate).parts
+                for candidate in (part.strip() for part in declaration.split(","))
+                if declaration
+            ):
+                raise board.BoardError("registered plan declaration is unsafe")
+            declared_globs(text)
+        except (
+            board.BoardError,
+            browser_error,
+            KeyError,
+            OSError,
+            TypeError,
+            UnicodeError,
+            ValueError,
+        ):
+            repairable[identity] = (pointer, state_token)
+            continue
+        trusted[identity] = pointer.resolve()
+    return trusted, retired, repairable
+
+
 def reconcile_portfolio(
     root: Path,
     amp: ModuleType,
@@ -54,26 +143,70 @@ def reconcile_portfolio(
     home: Path | None = None,
 ) -> dict:
     """Import exactly the plans returned by shipped bounded discovery."""
-    from browser.server import BrowserError, discover_plans, is_live
+    from browser.server import (
+        BrowserError,
+        _archive_veto_text,
+        declared_plan_globs,
+        discover_plans,
+        is_live,
+        operator_brief,
+        read_plan,
+    )
 
     seeds: list[dict] = []
     historical: list[dict] = []
-    retired: list[str] = []
+    registered, registered_retired, repairable = _registered_state(
+        amp,
+        home=home,
+        archive_veto_text=_archive_veto_text,
+        declared_globs=declared_plan_globs,
+        operator_brief=operator_brief,
+        browser_error=BrowserError,
+    )
+    retired: dict[str, dict] = dict(registered_retired)
     try:
-        records = discover_plans(root, fail_on_skipped=True)
+        records = discover_plans(
+            root,
+            fail_on_skipped=True,
+            registered_plans=registered,
+            retired_registered=set(registered_retired),
+            capture_tokens=True,
+        )
     except BrowserError as exc:
         raise board.BoardError(f"portfolio import refused: {exc}") from exc
     for record in records:
         relative = record.get("path")
         if not relative:
             continue
-        plan_path = (root / relative).resolve()
+        plan_path = Path(os.path.abspath(root / relative))
         if not is_live(record):
-            retired.append(board.entity_id(plan_path))
+            identity = record.get("_logical_entity") or board.entity_id(plan_path)
+            registered_retirement = registered_retired.get(identity)
+            if registered_retirement is not None and record.get("_retired_plan") is None:
+                retirement = dict(registered_retirement)
+            else:
+                retirement = {
+                    "identity": identity,
+                    "plan": record.get("_retired_plan"),
+                    "expected_state": record.get("_retired_state"),
+                }
+                if (
+                    registered_retirement is not None
+                    and registered_retirement.get("plan") == retirement["plan"]
+                ):
+                    retirement["registered_plan"] = registered_retirement["registered_plan"]
+            retired[identity] = retirement
             continue
+        source_path = plan_path
+        if record.get("_registered_pointer"):
+            source_path = registered.get(record.get("_logical_entity"))
+            if source_path is None:
+                raise board.BoardError(
+                    f"{relative}: registered board locator changed during import"
+                )
         try:
-            text = plan_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            text = read_plan(source_path)
+        except (BrowserError, OSError, UnicodeError) as exc:
             raise board.BoardError(f"{relative} cannot be read during board import") from exc
         plan = amp._parse(text)
         # Legacy outcome plans remain visible during migration but do not have
@@ -88,14 +221,29 @@ def reconcile_portfolio(
             priority = _priority(plan)
         except board.BoardError as exc:
             raise board.BoardError(f"{relative}: {exc}") from exc
-        seeds.append(
-            {
-                "plan": str(plan_path),
-                "project": plan["brief"]["Project"],
-                "priority": priority,
-                "candidates": amp._candidate_ids(plan),
-            }
-        )
+        identity = record.get("_logical_entity") or board.entity_id(plan_path)
+        content = text.encode("utf-8")
+        seed = {
+            "identity": identity,
+            "plan": str(source_path),
+            "project": plan["brief"]["Project"],
+            "priority": priority,
+            "candidates": amp._candidate_ids(plan),
+            "rows": [
+                row["id"]
+                for milestone in plan["milestones"]
+                for row in milestone["rows"]
+            ],
+            "expected_size": len(content),
+            "expected_sha256": hashlib.sha256(content).hexdigest(),
+        }
+        if record.get("_registered_pointer"):
+            seed["registered_plan"] = str(source_path)
+        elif identity in repairable:
+            repair_from, repair_state = repairable[identity]
+            seed["repair_from"] = str(repair_from)
+            seed["repair_state"] = repair_state
+        seeds.append(seed)
 
         latest: dict[str, tuple[str, str]] = {}
         for match in THROWN.finditer(text):
@@ -112,7 +260,7 @@ def reconcile_portfolio(
         }
         historical.extend(
             {
-                "plan": str(plan_path),
+                "plan": str(source_path),
                 "row": row,
                 "owner": owner,
                 "claimed_at": stamp,
@@ -123,20 +271,49 @@ def reconcile_portfolio(
     return board.reconcile(
         seeds,
         historical,
-        retired_entities=retired,
+        retired_entities=sorted(retired),
+        retired_sources=list(retired.values()),
         home=home,
     )
 
 
-def suppression_receipts(root: Path) -> list[dict[str, str | None]]:
+def suppression_receipts(
+    root: Path,
+    amp: ModuleType,
+    *,
+    home: Path | None = None,
+) -> list[dict[str, str | None]]:
     """Bounded, public reasons discovery withheld a plan from authority."""
-    from browser.server import BrowserError, discover_plans
+    from browser.server import (
+        BrowserError,
+        _archive_veto_text,
+        declared_plan_globs,
+        discover_plans,
+        operator_brief,
+    )
+
+    registered, registered_retired, _ = _registered_state(
+        amp,
+        home=home,
+        archive_veto_text=_archive_veto_text,
+        declared_globs=declared_plan_globs,
+        operator_brief=operator_brief,
+        browser_error=BrowserError,
+    )
 
     try:
-        records = discover_plans(root, include_shadowed=True, fail_on_skipped=True)
+        records = discover_plans(
+            root,
+            include_shadowed=True,
+            fail_on_skipped=True,
+            registered_plans=registered,
+            retired_registered=set(registered_retired),
+            capture_tokens=True,
+        )
     except BrowserError as exc:
         raise board.BoardError(f"portfolio inspection refused: {exc}") from exc
     receipts: list[dict[str, str | None]] = []
+    archived_identities: set[str] = set()
     for record in records:
         if record.get("shadowed_by"):
             receipts.append(
@@ -147,14 +324,39 @@ def suppression_receipts(root: Path) -> list[dict[str, str | None]]:
                 }
             )
         elif record.get("archived"):
+            if record.get("_logical_entity"):
+                archived_identities.add(record["_logical_entity"])
             receipts.append(
                 {
                     "path": record["path"],
                     "shadowed_by": None,
+                    "reason": "demoted by its own non-executable archive shell banner",
+                }
+            )
+        elif record.get("_registered_pointer"):
+            canonical = registered.get(record.get("_logical_entity"))
+            if canonical is None:
+                continue
+            receipts.append(
+                {
+                    "path": record["path"],
+                    "shadowed_by": board.public_plan_locator(canonical),
                     "reason": (
-                        "demoted by its own banner: "
-                        f'"{record.get("archive_veto", "self-demotion")}"'
+                        "same logical entity already has one healthy registered "
+                        "computer-board locator"
                     ),
                 }
             )
+    for identity in sorted(set(registered_retired).difference(archived_identities)):
+        pointer_value = registered_retired[identity].get("plan")
+        if not isinstance(pointer_value, str):
+            continue
+        pointer = Path(pointer_value)
+        receipts.append(
+            {
+                "path": board.public_plan_locator(pointer),
+                "shadowed_by": None,
+                "reason": "demoted by its own non-executable archive shell banner",
+            }
+        )
     return receipts
