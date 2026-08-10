@@ -595,6 +595,29 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
             hd.apply(fresh, BLOCK)
         self.assertEqual(fresh.read_text(encoding="utf-8"), "someone got here first\n")
 
+    def test_a_file_planted_at_the_link_instant_of_a_fresh_create_is_refused(self) -> None:
+        # The TIGHTEST fresh-create window: a file planted at the very instant
+        # before link(2), inside _place_exclusive, after the temp is written and
+        # fsynced. link(2) is the fail-closed primitive — it refuses atomically
+        # when the name is taken and never falls back to os.replace — so the
+        # interloper is kept whole and the install refuses. This is the mirror,
+        # for a fresh HOST file, of the backup path's last-instant test.
+        fresh = Path(self._tmp.name) / "codex" / "NEW.md"
+
+        def plant() -> None:
+            hd._test_between_verify_and_commit = None  # one-shot
+            fresh.parent.mkdir(parents=True, exist_ok=True)
+            fresh.write_text("someone got here first\n", encoding="utf-8")
+
+        hd._test_between_verify_and_commit = plant
+        try:
+            with self.assertRaisesRegex(ValueError, "appeared while the install was writing"):
+                hd.apply(fresh, BLOCK)
+        finally:
+            hd._test_between_verify_and_commit = None
+        self.assertEqual(fresh.read_text(encoding="utf-8"), "someone got here first\n",
+                         "the interloper at the link instant was clobbered")
+
     def test_a_link_into_shadows_own_checkout_is_refused(self) -> None:
         # Reviewed adversarially: pointed at docs/reference/host-integration.md,
         # the unmarked-adoption branch wraps the standing goal's SOURCE in
@@ -755,6 +778,29 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
                 hd.apply(self.link, BLOCK)
         finally:
             hd._test_between_snapshot_and_read = None
+
+    def test_a_linked_remove_revalidates_the_link_before_reporting_absent(self) -> None:
+        # --remove on a link whose resolved target has no block would return
+        # "absent". If the link was repointed after the pin to a file that DOES
+        # carry the managed block, "absent" is a lie — the host now reads a file
+        # WITH the block, and --remove would silently leave it. The remove path
+        # re-resolves the link first, exactly as the write and "current" paths.
+        other = self.target.parent / "OTHER.md"
+        other.write_text(hd.managed(BLOCK) + "\n", encoding="utf-8")  # the block IS here
+
+        def repoint() -> None:
+            hd._test_between_snapshot_and_read = None
+            self.link.unlink()
+            self.link.symlink_to(other)
+
+        hd._test_between_snapshot_and_read = repoint
+        try:
+            with self.assertRaisesRegex(ValueError, "repointed"):
+                hd.apply(self.link, BLOCK, remove=True)
+        finally:
+            hd._test_between_snapshot_and_read = None
+        self.assertIn(hd.BEGIN, other.read_text(encoding="utf-8"),
+                      "the block in the file the host now reads must be left intact")
 
     def test_the_final_instant_before_the_rename_is_last_writer_wins(self) -> None:
         # THE documented POSIX floor, asserted rather than pretended away.

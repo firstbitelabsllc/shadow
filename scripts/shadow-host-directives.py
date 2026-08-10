@@ -24,9 +24,17 @@ over-promise here would be a lie about someone's hand-written instructions:
 - **Guaranteed.** *Atomic visibility*: a reader at any instant sees the complete
   old directive or the complete new one, never a partial or empty one — the new
   bytes are fully written and `fsync`-ed to a temp file before an atomic rename
-  ever gives them the target's name. *Durability*: a write reported complete has
-  had both the temp file and its parent directory `fsync`-ed, so it survives a
-  process or OS crash. *Create/backup exclusivity*: a fresh target or a
+  ever gives them the target's name. *Durability*: the temp file — its bytes and
+  its mode, `fchmod`-ed before the sync — is `fsync`-ed, and on a filesystem that
+  supports a directory `fsync` (APFS and ext4, the deployed cases) the target's
+  own directory is too, so a completed write survives a process or OS crash; a
+  filesystem that rejects a directory `fsync` degrades to atomic visibility, not
+  crash-durability of the name change — never to a partial write. This covers a
+  write into a directory that already exists, which every installed host's does
+  (`~/.claude`, `~/.codex`); a fresh create that must also make new parent
+  directories syncs the file and its immediate directory but not the chain of
+  newly created ancestors, whose persistence across power loss is best-effort.
+  *Create/backup exclusivity*: a fresh target or a
   `.bak-shadow` is made with `link(2)`, which the kernel refuses atomically if
   the name is already taken — nothing is ever clobbered into existence, and on
   any failure the pre-write state is preserved (the backup is kept and named in
@@ -271,10 +279,13 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             stream.write(text)
+            # chmod BEFORE the fsync, and via the descriptor, so the mode is
+            # part of what fsync makes durable — a chmod after the sync could be
+            # lost in a crash, leaving the file readable at the mkstemp default.
+            if mode is not None:
+                os.fchmod(stream.fileno(), mode)
             stream.flush()
             os.fsync(stream.fileno())
-        if mode is not None:
-            os.chmod(temporary, mode)
         if _test_between_verify_and_commit is not None:
             _test_between_verify_and_commit()
         try:
@@ -291,7 +302,6 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
                   expect: os.stat_result | None = None,
                   expect_absent: bool = False,
                   via: Path | None = None,
-                  restore: str | None = None,
                   pinned: int | None = None) -> None:
     """Commit `text` to `path` without ever leaving it half-written.
 
@@ -300,14 +310,18 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
     one, never a truncation. Immediately before it, identity is re-verified
     two ways: the pathname still carries the pinned (dev, ino), and the
     pinned descriptor still has a name (`st_nlink > 0` — inode numbers are
-    recycled, the pin's link count cannot be spoofed). Immediately after it,
-    the pathname is read back; if another writer's rename landed in the one
-    unclosable window, this run lost and says so loudly instead of reporting
-    success. That window is the POSIX floor: atomic replacement and
-    never-replace-a-concurrent-writer cannot both be had from rename, and
-    crash-safety is the one this file cannot give up — a truncated directive
-    with its backup in doubt is strictly worse than a lost race that is
-    detected and retried.
+    recycled, the pin's link count cannot be spoofed). The single instant AT
+    the rename is the POSIX floor and is NOT detectable: a different process
+    that renames its own file over the target in that instant wins, and after
+    our own rename the pathname carries OUR inode — indistinguishable from
+    having won cleanly — so the post-rename readback confirms only that our
+    rename produced the file we placed, never that no racer's write was
+    buried. Atomic replacement and never-replace-a-concurrent-writer cannot
+    both be had from rename (there is no compare-and-swap); crash-safety is the
+    property kept at the floor, because a truncated directive with its backup
+    in doubt is strictly worse than a transient racer's write lost to a rename
+    nothing could have made conditional. The module docstring states the whole
+    concurrency contract.
 
     FRESH path: link(2), which refuses atomically if anything appeared.
     """
@@ -316,10 +330,12 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as stream:
                 stream.write(text)
+                # chmod before the fsync (see _place_exclusive) so the mode is
+                # durable, not just the bytes.
+                if mode is not None:
+                    os.fchmod(stream.fileno(), mode)
                 stream.flush()
                 os.fsync(stream.fileno())
-            if mode is not None:
-                os.chmod(temporary, mode)
             placed = os.stat(temporary)
             if _test_between_verify_and_commit is not None:
                 _test_between_verify_and_commit()
@@ -483,6 +499,28 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
 
         if remove:
             if span is None:
+                if linked:
+                    # "absent" claims the host reads no managed block. If the
+                    # link was repointed after the pin, that claim is about the
+                    # file it USED to read; the one it reads now may still carry
+                    # the block. Re-resolve before claiming, exactly as the
+                    # write and "current" paths do — otherwise --remove reports
+                    # "nothing to do" while the block sits in the file the host
+                    # actually reads.
+                    try:
+                        lands = os.path.realpath(path, strict=True)
+                    except OSError as exc:
+                        raise ValueError(
+                            f"{path} no longer resolves ({exc.strerror or exc}); the "
+                            "block is absent from the file it used to point at — "
+                            "rerun to act on what it points at now"
+                        ) from None
+                    if Path(lands) != target:
+                        raise ValueError(
+                            f"{path} was repointed to {lands}; the block's absence "
+                            f"was checked in {target}, not in the file the host "
+                            "reads now — rerun"
+                        )
                 return "absent"
             head, tail = text[: span[0]], text[span[1] :]
             new = (head.rstrip("\n") + "\n" + tail.lstrip("\n")) if head.strip() else tail.lstrip("\n")
@@ -549,8 +587,7 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
             _atomic_write(target, new, mode=mode, expect=identity,
                           pinned=pinned,
                           expect_absent=not existed,
-                          via=path if linked else None,
-                          restore=text if existed else None)
+                          via=path if linked else None)
         except BaseException as exc:
             # The backup is RETAINED on failure, deliberately. Deleting it was
             # tried and audited into the ground: removal is a pathname operation,
