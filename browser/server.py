@@ -488,7 +488,7 @@ def is_portfolio_child(child: Path, root: Path) -> bool:
         return False
 
 
-def discover_plans(root: Path) -> list[dict[str, Any]]:
+def discover_plans(root: Path, *, include_shadowed: bool = False) -> list[dict[str, Any]]:
     """Every plan the portfolio can legally see.
 
     Repositories are enumerated, never directories. A recursive walk reached
@@ -499,7 +499,10 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
     from rendering session directories whose names are prompt text.
     """
     records: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    shadowed: list[dict[str, Any]] = []
+    # key -> the root-relative path that won it, so a suppressed record can
+    # name its winner instead of just vanishing.
+    seen: dict[tuple[str, str], str] = {}
     if is_plan_root(root):
         candidates = [root]
     elif root.is_dir():
@@ -560,8 +563,16 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
             # clone is the same plan as its main checkout, not a second card.
             key = (_origin_of(repo), str(path.relative_to(repo)))
             if key in seen:
+                # Suppression is a real answer, and a reader who cannot see it
+                # has no way to tell "identical copy dropped" from "a plan I
+                # needed went missing". The record is already built above, so
+                # surfacing it costs a field, not a second parse.
+                if include_shadowed:
+                    record["shadowed_by"] = seen[key]
+                    record["shadow_reason"] = f"same repository as {seen[key]}"
+                    shadowed.append(record)
                 continue
-            seen.add(key)
+            seen[key] = record["path"]
             veto = _archive_veto(instances.get(key, [path]))
             if veto:
                 record["archived"] = True
@@ -575,7 +586,10 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
             item["path"],
         )
     )
-    return records
+    # Shadowed rows sort after every rendered one, by reason then path, so the
+    # extra view is a stable append rather than a reshuffle of the board.
+    shadowed.sort(key=lambda item: (item["shadow_reason"], item["path"]))
+    return records + shadowed
 
 
 def live_plans(root: Path) -> list[dict[str, Any]]:

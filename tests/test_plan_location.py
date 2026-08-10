@@ -496,3 +496,116 @@ class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
             self._repo(root, "thing", "git@github.com:acme/thing.git")
             self._repo(root, "other", "git@github.com:acme/other.git")
             self.assertEqual(len(live_plans(root)), 2)
+
+
+class ClassificationIsDeterministic(unittest.TestCase):
+    """The same portfolio must classify the same way, twice and anywhere.
+
+    Two things could make it drift, and both were measured on this machine
+    rather than imagined:
+
+    Filesystem iteration order. `pilot-puppy` sorts BEFORE `shadow` and shares
+    its dedup key exactly — same origin, same repo-relative path — so a
+    first-seen winner would elect a plan that contains the string "shadow"
+    zero times and claims authority over the whole portfolio. The candidate
+    sort's `repo.name != _origin_repo_name(...)` term is what stops that, and
+    it is a set-membership test, so listing order cannot reach it.
+
+    Modification time. `git checkout` and worktree creation rewrite mtimes
+    wholesale — `resplit-ios/PLAN.md` reads 2026-06-28 while the file is
+    unmodified on main — so mtime is a fact about the last checkout, never
+    about liveness. It may break ties; it must never decide classification.
+    """
+
+    PLAN = ("# T\n\n## Brief\n\n- Project: t\n- Mode: ship\n\n## Tasks\n\n### M\n"
+            "- [pending] a row ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n"
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE seeded\n")
+
+    def _build(self, root: Path, order: list[str], mtimes: dict[str, int]) -> None:
+        """One fixture, built in a caller-chosen order with chosen mtimes."""
+        for name in order:
+            repo = root / name
+            repo.mkdir(parents=True)
+            (repo / "PLAN.md").write_text(self.PLAN, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                            "git@github.com:acme/thing.git"], check=True)
+            stamp = mtimes[name]
+            os.utime(repo / "PLAN.md", (stamp, stamp))
+
+    def _observe(self, root: Path) -> list[tuple]:
+        """Everything a reader could see, made root-relative."""
+        return [
+            (r["path"], r.get("shadowed_by"), r.get("shadow_reason"),
+             bool(r.get("archived")))
+            for r in discover_plans(root, include_shadowed=True)
+        ]
+
+    def test_listing_order_and_mtimes_cannot_change_the_answer(self) -> None:
+        forward = ["thing", "thing-copy", "another-copy"]
+        backward = list(reversed(forward))
+        # Permuted so the mtime ranking is inverted between the two runs.
+        early = {"thing": 1_600_000_000, "thing-copy": 1_700_000_000, "another-copy": 1_650_000_000}
+        late = {"thing": 1_700_000_000, "thing-copy": 1_600_000_000, "another-copy": 1_650_000_000}
+
+        observations = []
+        for order, mtimes in ((forward, early), (backward, late),
+                              (backward, early), (forward, late)):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._build(root, order, mtimes)
+                observations.append(self._observe(root))
+                observations.append(self._observe(root))  # second run, same root
+
+        first = observations[0]
+        for index, observed in enumerate(observations[1:], start=1):
+            self.assertEqual(observed, first,
+                             f"run {index} classified differently — order or mtime reached the answer")
+
+    def test_the_canonical_name_decides_and_not_the_newest_file(self) -> None:
+        # The measured pilot-puppy case: the directory whose name matches the
+        # origin wins even when a sibling's plan is newer. Deleting that term
+        # from the sort is what turns this red.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "zzz-newer-copy"],
+                        {"thing": 1_600_000_000, "zzz-newer-copy": 1_900_000_000})
+            rendered = [r for r in discover_plans(root, include_shadowed=True)
+                        if not r.get("shadowed_by")]
+            self.assertEqual(len(rendered), 1)
+            self.assertTrue(rendered[0]["path"].startswith("thing/"),
+                            f"the newer copy won: {rendered[0]['path']}")
+
+    def test_every_suppressed_plan_is_reported_with_the_rule_that_suppressed_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "thing-copy"],
+                        {"thing": 1_600_000_000, "thing-copy": 1_600_000_000})
+            shadowed = [r for r in discover_plans(root, include_shadowed=True)
+                        if r.get("shadowed_by")]
+            self.assertEqual(len(shadowed), 1)
+            self.assertTrue(shadowed[0]["shadow_reason"],
+                            "a plan was suppressed with no reason a reader could act on")
+            self.assertTrue(shadowed[0]["shadowed_by"].startswith("thing/"))
+
+    def test_the_flag_off_output_is_unchanged(self) -> None:
+        # The migration must be a no-op for anyone not asking for the extra view.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "thing-copy"],
+                        {"thing": 1_600_000_000, "thing-copy": 1_600_000_000})
+            self.assertEqual(discover_plans(root),
+                             [r for r in discover_plans(root, include_shadowed=True)
+                              if not r.get("shadowed_by")])
+
+    def test_no_reason_string_leaks_an_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "thing-copy"],
+                        {"thing": 1_600_000_000, "thing-copy": 1_600_000_000})
+            for record in discover_plans(root, include_shadowed=True):
+                for field in ("path", "shadowed_by", "shadow_reason"):
+                    value = record.get(field) or ""
+                    self.assertNotIn(str(root), value,
+                                     f"{field} leaked an absolute path, so the answer is machine-specific")
