@@ -53,6 +53,13 @@ Nineteen lines. A host that loads only this block cold-starts correctly: it
 knows where truth lives, what to do next, that asking the person to orient it
 is a defect, and that work it stops watching must be written down first.
 
+`shadow goal --install` can adopt an unmarked copy only when its complete text
+matches this shipped block or the exact fifteen-line version shipped before the
+Dispatch clause. It names and refuses any other unmarked `## Shadow …` heading
+instead of overwriting it or appending a duplicate; resolve a hand-edited copy
+by hand, or put the managed markers around the exact block that Shadow should
+own, then rerun the command.
+
 `Dispatch` earned its place on 2026-08-09: two fan-outs were launched with no
 row, and when a mid-flight reading showed no results both were declared dead.
 Both were still running, and both finished with real findings. Everything the

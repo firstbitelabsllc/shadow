@@ -15,10 +15,12 @@ The contract, in order of how much it matters:
 2. **Own only between the markers.** Text before and after is untouched, byte
    for byte.
 3. **Idempotent.** Writing twice changes nothing the second time.
-4. **Adopt an unmarked copy.** Anyone who pasted the block by hand before
-   markers existed has an unmarked copy; that exact region is wrapped rather
-   than duplicated. An older revision, whose last line no longer matches, has
-   no discernible end — that is refused out loud, not guessed at.
+4. **Adopt only a known unmarked revision.** Anyone who pasted a shipped block
+   by hand before markers existed has an unmarked copy; that exact region is
+   wrapped rather than duplicated. The current block and explicitly recorded
+   older revisions are the only admissible shapes. An unrecognized `## Shadow`
+   heading is refused by name — never guessed at, overwritten, or followed by
+   a duplicate block.
 5. **Removable.** `--remove` takes the block and its markers out and leaves the
    surrounding text as it was.
 
@@ -42,9 +44,34 @@ DOC: Final = ROOT / "docs" / "reference" / "host-integration.md"
 
 BEGIN: Final = "<!-- shadow:goal:begin — managed by `shadow goal --install`; edits here are overwritten -->"
 END: Final = "<!-- shadow:goal:end -->"
-# The heading the block always starts with. Used to find an unmarked copy left
-# by someone who pasted it before markers existed.
+# The prefix that identifies an unmarked candidate. A candidate is writable
+# only when its complete text matches the current block or an explicitly known
+# shipped predecessor below.
 ANCHOR: Final = "## Shadow "
+
+# This is the exact fifteen-line standing goal shipped in 4.1.0, before the
+# dispatch law was added. Keep historical blocks here rather than deriving a
+# boundary from a heading or tail line: a hand-edited host instruction file is
+# the person's text, and shape alone is not authority to replace it.
+KNOWN_EARLIER_STANDING_GOALS: Final = (
+    "\n".join((
+        "## " + "Shadow — standing goal (static; the pointer moves, this text does not)",
+        "",
+        "Outcome: the durable board moves; no plan goes stale silently.",
+        "Authority: each repository's own PLAN.md at origin/main — never a chat log,",
+        "never a dashboard. Enumerate with `shadow status` (empty directories fall",
+        "back to the portfolio root, so this works from anywhere).",
+        "Resume: take the highest-value reachable row; `shadow amp --repo <that repo>`",
+        "emits the paste-ready goal block; execute it.",
+        "Stance: proxy. Never ask \"which project?\" — open the board and name the row.",
+        "Never wait to be asked to amplify, mint successor goals, challenge findings",
+        "adversarially, codify lessons, or archive shipped milestones: those are your",
+        "moves. Blocked → park with one exact wake predicate. Done → mint the",
+        "successor in the owning PLAN.md before stopping.",
+        "Proof: no completed without its proof line; `shadow accept` is the only flip",
+        "path for cmd proofs; re-observe read/gate proofs yourself.",
+    )),
+)
 
 HOSTS: Final = {
     "claude": Path.home() / ".claude" / "CLAUDE.md",
@@ -89,27 +116,42 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
         # rather than guess how far the block ran — a wrong guess eats their
         # text, and that is the one outcome this module exists to prevent.
         raise ValueError("found the begin marker with no end marker; fix the file by hand")
-    # Unmarked legacy copy: adopt exactly the region matching the shipped block
-    # or an earlier revision of it, identified by its heading and last line.
-    head = block.splitlines()[0]
-    start = text.find(head)
-    if start == -1:
+    # An unmarked copy is adoptable only if its *complete* region is a known
+    # shipped block. Looking for this release's heading plus its last line let
+    # a person-customized middle be silently overwritten; looking for a loose
+    # `## Shadow …` heading and appending let a renamed copy acquire a second
+    # directive. Both paths alter ambiguous person-owned text, so fail closed.
+    headings: list[tuple[int, str]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        heading = line.rstrip("\r\n")
+        if heading.startswith(ANCHOR):
+            headings.append((offset, heading))
+        offset += len(line)
+    if not headings:
         return None
-    tail_line = block.splitlines()[-1]
-    end = text.find(tail_line, start)
-    if end == -1:
-        # The heading is present but the block's own last line is not: an older
-        # revision, and nothing in the file says how far it ran. Shape is not
-        # evidence — a note glued under the last paragraph, or one of their own
-        # paragraphs opening `Word: `, reads exactly like block text, so any
-        # rule that guesses eats it. Same answer as a begin with no end: say so
-        # and let the person draw the line.
+
+    spans: dict[int, tuple[int, int]] = {}
+    for known in (block, *KNOWN_EARLIER_STANDING_GOALS):
+        start = text.find(known)
+        while start != -1:
+            spans[start] = (start, start + len(known))
+            start = text.find(known, start + 1)
+
+    for start, heading in headings:
+        if start not in spans:
+            raise ValueError(
+                f"found unmarked Shadow heading {heading!r}, but it is not an exact shipped "
+                "standing-goal revision; delete that block by hand, or wrap the intended block in the "
+                f"markers ({BEGIN.split(' —')[0]} … {END}), then rerun"
+            )
+    if len(headings) != 1:
+        names = ", ".join(repr(heading) for _, heading in headings)
         raise ValueError(
-            "found an unmarked copy of the standing goal whose last line has changed, "
-            "so where it ends is a guess; delete that block by hand, or wrap it in the "
-            f"markers ({BEGIN.split(' —')[0]} … {END}), then rerun"
+            f"found multiple unmarked standing-goal headings ({names}); leave them unchanged "
+            f"or wrap the intended block in the markers ({BEGIN.split(' —')[0]} … {END}), then rerun"
         )
-    return start, end + len(tail_line)
+    return spans[headings[0][0]]
 
 
 def apply(path: Path, block: str, *, remove: bool = False) -> str:
