@@ -507,6 +507,51 @@ class RefusesRatherThanGuesses(unittest.TestCase):
             self.assertEqual(leftovers, [], "a failed write left a temp file behind")
 
 
+class UnmarkedAdoptionRefusesADriftedHeading(unittest.TestCase):
+    def test_an_exact_known_earlier_revision_is_adopted(self) -> None:
+        # A legacy copy is safe to replace only because its complete region,
+        # not merely the heading and tail, matches a recorded shipped block.
+        legacy = hd.KNOWN_EARLIER_STANDING_GOALS[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            path.write_text(BEFORE + legacy + AFTER, encoding="utf-8")
+            self.assertEqual(hd.apply(path, BLOCK), "adopted")
+            self.assertEqual(path.read_text(encoding="utf-8"), BEFORE + hd.managed(BLOCK) + AFTER)
+
+    def test_a_drifted_or_customized_heading_is_refused_by_name(self) -> None:
+        heading = BLOCK.splitlines()[0]
+        copies = {
+            "renamed": BLOCK.replace(heading, "## Shadow — Leo's private operating rule", 1),
+            # This keeps the heading but changes the middle. The old finder
+            # would have accepted it because its tail still matched.
+            "customized": BLOCK.replace(
+                "Outcome: act as the user's active local proxy; reconstruct what matters,",
+                "Outcome: Leo's private board takes priority over the durable board.",
+                1,
+            ),
+        }
+        for name, copy in copies.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "CLAUDE.md"
+                contents = BEFORE + copy + AFTER
+                path.write_text(contents, encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    hd.apply(path, BLOCK)
+                self.assertIn(copy.splitlines()[0], str(caught.exception))
+                self.assertIn("exact shipped standing-goal revision", str(caught.exception))
+                self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
+    def test_multiple_exact_unmarked_copies_are_refused_without_a_guess(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            contents = BEFORE + BLOCK + "\n\n" + hd.KNOWN_EARLIER_STANDING_GOALS[0] + AFTER
+            path.write_text(contents, encoding="utf-8")
+            with self.assertRaises(ValueError) as caught:
+                hd.apply(path, BLOCK)
+            self.assertIn("multiple unmarked standing-goal headings", str(caught.exception))
+            self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
+
 class CursorIsNotInvented(unittest.TestCase):
     def test_cursor_is_not_a_written_host(self) -> None:
         # Its user rules live in application settings, not a file. Writing
@@ -1352,7 +1397,7 @@ class TheAuditedByteFidelity(unittest.TestCase):
             impostor = lines[0] + "\n\nMy own private notes.\n\n" + lines[-1] + "\n"
             original = "before\n\n" + impostor + "\nafter\n"
             path.write_text(original, encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "not the shipped block"):
+            with self.assertRaisesRegex(ValueError, "not an exact shipped standing-goal revision"):
                 hd.apply(path, BLOCK)
             self.assertEqual(path.read_text(encoding="utf-8"), original,
                              "a refusal must leave the file untouched")
