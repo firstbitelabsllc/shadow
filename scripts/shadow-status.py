@@ -568,16 +568,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.shadowed:
         try:
             inspection_root = root if explicit_root else _import.portfolio_root(root)
-            hidden = _import.suppression_receipts(inspection_root, _amp)
+            receipts = _import.suppression_receipts(inspection_root, _amp)
         except _board.BoardError as exc:
             print(f"shadow status: {exc}", file=sys.stderr)
             return 1
         if args.json:
-            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": hidden}, indent=2))
-        elif not hidden:
+            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": receipts}, indent=2))
+        elif not receipts:
             print("nothing suppressed — every plan discovery enumerated was read")
         else:
-            for row in hidden:
+            for row in receipts:
                 print(f"{row['path']} — {row['reason']}")
         return 0
     try:
@@ -629,10 +629,10 @@ def main(argv: list[str] | None = None) -> int:
     v4_records = board_records(root_board)
     if not v4_records and import_error is None:
         try:
-            hidden = _import.suppression_receipts(root, _amp)
+            receipts = _import.suppression_receipts(root, _amp)
         except _board.BoardError:
-            hidden = []
-        for receipt in hidden:
+            receipts = []
+        for receipt in receipts:
             if receipt["shadowed_by"] is None:
                 print(
                     f"shadow status: {receipt['path']} — {receipt['reason']}",
