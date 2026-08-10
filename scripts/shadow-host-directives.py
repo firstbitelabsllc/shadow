@@ -312,10 +312,20 @@ def _refuse_unless_host_still_leads_to_pin(host: Path, target: Path,
                 f"there now; {claim!r} was decided before it appeared — rerun"
             )
         return
-    if os.fstat(pinned).st_nlink == 0:
+    now = os.fstat(pinned)
+    if now.st_nlink == 0:
         raise ValueError(
             f"the file behind {host} was replaced while it was being read, so "
             f"{claim!r} describes a file that no longer has a name — rerun"
+        )
+    if now.st_nlink > 1:
+        # Every pin starts at one name (a multi-link file refuses before the
+        # read), so more than one now means a hard link APPEARED in the
+        # window. The no-op claim was decided about a one-name file.
+        raise ValueError(
+            f"{host} gained a hard link while it was being read; {claim!r} was "
+            "decided about a file with one name — break the extra link or "
+            "rerun"
         )
     try:
         there = os.lstat(target)
@@ -357,7 +367,7 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     """
     handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=".shadow-", suffix=".tmp")
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
             stream.write(text)
             # chmod BEFORE the fsync, and via the descriptor, so the mode is
             # part of what fsync makes durable — a chmod after the sync could be
@@ -408,7 +418,7 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
     if expect is not None:
         handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=".shadow-", suffix=".tmp")
         try:
-            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
                 stream.write(text)
                 # chmod before the fsync (see _place_exclusive) so the mode is
                 # durable, not just the bytes.
@@ -608,7 +618,11 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
             # happens to the directory entry after the pin, this reads the exact
             # file that was resolved, and the commit guards below refuse if that
             # file has since lost its name.
-            with os.fdopen(os.dup(pinned), "r", encoding="utf-8") as stream:
+            with os.fdopen(os.dup(pinned), "r", encoding="utf-8",
+                           newline="") as stream:
+                # newline="" — a CRLF file must come back CRLF. The
+                # default universal-newline read once rewrote every
+                # line ending in the person's file (and its backup).
                 text = stream.read()
         else:
             text = ""

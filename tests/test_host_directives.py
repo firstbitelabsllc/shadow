@@ -1172,6 +1172,52 @@ class AFailedWriteLeavesNoNewBackup(unittest.TestCase):
                      if q.name.startswith(".shadow-")]
         self.assertEqual(leftovers, [])
 
+class TheAuditedByteFidelity(unittest.TestCase):
+    """Round-2 audit blockers, pinned.
+
+    A CRLF host file must come back CRLF — the universal-newline read once
+    rewrote every line ending in the person's file AND its backup. And a
+    no-op claim must refuse when a hard link appears in its window, exactly
+    as the write path does.
+    """
+
+    def tearDown(self) -> None:
+        hd._test_between_snapshot_and_read = None
+
+    def test_a_crlf_file_keeps_its_line_endings_and_its_backup_is_byte_exact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            original = b"# Mine\r\n\r\nDo not translate me.\r\n"
+            path.write_bytes(original)
+            self.assertEqual(hd.apply(path, BLOCK), "added")
+            after = path.read_bytes()
+            self.assertTrue(
+                after.startswith(original),
+                f"the person's CRLF bytes were rewritten: {after[:40]!r}",
+            )
+            backup = path.with_suffix(path.suffix + ".bak-shadow")
+            self.assertEqual(backup.read_bytes(), original,
+                             "the backup is not a byte copy of the pre-shadow file")
+
+    def test_a_crlf_file_round_trips_add_then_remove(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            original = b"# Mine\r\nkeep me\r\n"
+            path.write_bytes(original)
+            self.assertEqual(hd.apply(path, BLOCK), "added")
+            self.assertEqual(hd.apply(path, BLOCK, remove=True), "removed")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_a_hard_link_appearing_during_a_no_op_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            path.write_text("hers\n\n" + hd.managed(BLOCK) + "\n", encoding="utf-8")
+            second = Path(tmp) / "second-name.md"
+            hd._test_between_snapshot_and_read = lambda: os.link(path, second)
+            with self.assertRaisesRegex(ValueError, "gained a hard link"):
+                hd.apply(path, BLOCK)
+
+
 
 if __name__ == "__main__":
     unittest.main()
