@@ -479,7 +479,7 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
             self.link.symlink_to(other)
 
         hd._test_between_resolve_and_write = repoint
-        with self.assertRaisesRegex(ValueError, "repointed"):
+        with self.assertRaisesRegex(ValueError, "now leads to"):
             hd.apply(self.link, BLOCK)
         # The link is re-resolved once more immediately BEFORE the rename, so a
         # repoint that has already happened is refused with nothing written.
@@ -774,7 +774,7 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
 
         hd._test_between_snapshot_and_read = repoint
         try:
-            with self.assertRaisesRegex(ValueError, "repointed"):
+            with self.assertRaisesRegex(ValueError, "now leads to"):
                 hd.apply(self.link, BLOCK)
         finally:
             hd._test_between_snapshot_and_read = None
@@ -795,12 +795,104 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
 
         hd._test_between_snapshot_and_read = repoint
         try:
-            with self.assertRaisesRegex(ValueError, "repointed"):
+            with self.assertRaisesRegex(ValueError, "now leads to"):
                 hd.apply(self.link, BLOCK, remove=True)
         finally:
             hd._test_between_snapshot_and_read = None
         self.assertIn(hd.BEGIN, other.read_text(encoding="utf-8"),
                       "the block in the file the host now reads must be left intact")
+
+    def test_a_target_swap_makes_current_refuse_not_noop(self) -> None:
+        # THE no-op blocker: "current" is decided by reading the PINNED file.
+        # If the canonical target is atomically replaced at the same pathname
+        # after the pin, the host — through an unchanged symlink — now reads
+        # the replacement, which carries no block. Returning "current" would be
+        # a false success about a file nobody reads. The swap fires between the
+        # snapshot and the read, before any no-op return.
+        hd.apply(self.link, BLOCK)  # target carries the block; next run would no-op
+        def swap() -> None:
+            hd._test_between_snapshot_and_read = None
+            _swap_with_distinct_inode(self.target, "the replacement, no block\n")
+        hd._test_between_snapshot_and_read = swap
+        try:
+            with self.assertRaisesRegex(ValueError, "replaced"):
+                hd.apply(self.link, BLOCK)
+        finally:
+            hd._test_between_snapshot_and_read = None
+        self.assertEqual(self.target.read_text(encoding="utf-8"),
+                         "the replacement, no block\n",
+                         "the replacement itself must be untouched")
+
+    def test_a_target_swap_makes_absent_refuse_not_noop(self) -> None:
+        # Mirror of the "current" case for --remove: the pinned file has no
+        # block, so "absent" would be reported — but the swapped-in target the
+        # host now reads DOES carry the block, and --remove would leave it.
+        def swap() -> None:
+            hd._test_between_snapshot_and_read = None
+            _swap_with_distinct_inode(self.target, hd.managed(BLOCK) + "\n")
+        hd._test_between_snapshot_and_read = swap
+        try:
+            with self.assertRaisesRegex(ValueError, "replaced"):
+                hd.apply(self.link, BLOCK, remove=True)
+        finally:
+            hd._test_between_snapshot_and_read = None
+        self.assertIn(hd.BEGIN, self.target.read_text(encoding="utf-8"),
+                      "the block in the file the host now reads must survive")
+
+    def test_a_plain_file_becoming_a_symlink_in_the_window_is_refused(self) -> None:
+        # The mutable-pathname blocker: the host file is REGULAR at the start,
+        # so no start-of-run flag would mark it linked. It becomes a symlink to
+        # another file inside the window. The old resolved target must not be
+        # written and reported added — the host now reads elsewhere. The write
+        # re-resolves the pathname by what it IS at commit time, so this
+        # refuses; the pin sees the original lose its name.
+        elsewhere = Path(self._tmp.name) / "elsewhere.md"
+        elsewhere.write_text("the file the host reads now\n", encoding="utf-8")
+        def become_link() -> None:
+            hd._test_between_resolve_and_write = None
+            self.plain.unlink()
+            self.plain.symlink_to(elsewhere)
+        hd._test_between_resolve_and_write = become_link
+        try:
+            with self.assertRaises(ValueError):
+                hd.apply(self.plain, BLOCK)
+        finally:
+            hd._test_between_resolve_and_write = None
+        self.assertEqual(elsewhere.read_text(encoding="utf-8"),
+                         "the file the host reads now\n",
+                         "the file the host now reads was written")
+
+    def test_remove_of_a_never_existing_file_is_still_a_plain_absent(self) -> None:
+        # The no-pin path: nothing was ever there, so there is no pinned
+        # descriptor. "absent" must come back as an ordinary answer — not a
+        # crash on the missing pin, and no file may be invented.
+        missing = Path(self._tmp.name) / "nowhere" / "CLAUDE.md"
+        self.assertEqual(hd.apply(missing, BLOCK, remove=True), "absent")
+        self.assertFalse(missing.exists())
+
+    def test_a_fresh_create_whose_path_is_swapped_after_creation_refuses(self) -> None:
+        # Post-create half of the mutable-pathname rule: link(2) proved the
+        # name was ours at the create instant; if the pathname is immediately
+        # swapped for a symlink elsewhere, "created" would describe a file the
+        # host no longer reads. The post-create check re-resolves and refuses.
+        fresh = Path(self._tmp.name) / "codex" / "NEW.md"
+        elsewhere = Path(self._tmp.name) / "elsewhere.md"
+        elsewhere.write_text("the file the host reads now\n", encoding="utf-8")
+        real_place = hd._place_exclusive
+        def place_then_swap(path, text, *, mode):
+            ok = real_place(path, text, mode=mode)
+            if ok and Path(path) == fresh:
+                fresh.unlink()
+                fresh.symlink_to(elsewhere)
+            return ok
+        hd._place_exclusive = place_then_swap
+        try:
+            with self.assertRaisesRegex(ValueError, "not a regular file|now leads to"):
+                hd.apply(fresh, BLOCK)
+        finally:
+            hd._place_exclusive = real_place
+        self.assertEqual(elsewhere.read_text(encoding="utf-8"),
+                         "the file the host reads now\n")
 
     def test_the_final_instant_before_the_rename_is_last_writer_wins(self) -> None:
         # THE documented POSIX floor, asserted rather than pretended away.

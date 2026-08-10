@@ -265,6 +265,77 @@ def _fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
+def _host_reads(host: Path) -> Path:
+    """The file the host pathname leads to RIGHT NOW.
+
+    realpath resolves whatever `host` currently IS — a symlink chain, or a
+    regular file under symlinked parent directories — so the answer never
+    depends on what its type was when this run started. That distinction is the
+    whole point: a regular host file can become a symlink (and a symlink a
+    regular file) between resolution and commit, and a boolean captured up
+    front would then validate the wrong thing in either direction.
+    """
+    return Path(os.path.realpath(host, strict=True))
+
+
+def _refuse_unless_host_still_leads_to_pin(host: Path, target: Path,
+                                           pinned: int | None,
+                                           identity: os.stat_result | None,
+                                           claim: str) -> None:
+    """Guard the NO-OP successes, which are claims about what the host reads.
+
+    "current" says the host already reads this block; "absent" says it reads
+    none. Both are read off the PINNED file — the one resolved when this run
+    started. If the canonical target was atomically replaced at the same
+    pathname since then, the host now reads a different file that may carry
+    the opposite, and the symlink itself is untouched so re-resolving it alone
+    proves nothing. Three things must hold to report a no-op honestly: the
+    pinned file still has a name, the target pathname still names IT, and the
+    host pathname still leads there.
+
+    With NO pin — the target never existed, so "absent" rests on that absence —
+    the claim is honest only while nothing has appeared at either pathname.
+    """
+    if pinned is None or identity is None:
+        if os.path.lexists(target) or os.path.lexists(host):
+            raise ValueError(
+                f"{host} was absent when this run started but something exists "
+                f"there now; {claim!r} was decided before it appeared — rerun"
+            )
+        return
+    if os.fstat(pinned).st_nlink == 0:
+        raise ValueError(
+            f"the file behind {host} was replaced while it was being read, so "
+            f"{claim!r} describes a file that no longer has a name — rerun"
+        )
+    try:
+        there = os.lstat(target)
+    except OSError as exc:
+        raise ValueError(
+            f"{target} is gone ({exc.strerror or exc}), so {claim!r} describes a "
+            "file the host no longer reads — rerun"
+        ) from None
+    if (there.st_dev, there.st_ino) != (identity.st_dev, identity.st_ino):
+        raise ValueError(
+            f"{target} was replaced by a different file while it was being read; "
+            f"{claim!r} was decided from the old one — rerun to see what the host "
+            "reads now"
+        )
+    try:
+        lands = _host_reads(host)
+        settled = _host_reads(target)   # both sides resolved; see _atomic_write
+    except OSError as exc:
+        raise ValueError(
+            f"{host} no longer resolves ({exc.strerror or exc}); {claim!r} describes "
+            "the file it used to lead to — rerun to act on what it leads to now"
+        ) from None
+    if lands != settled:
+        raise ValueError(
+            f"{host} now leads to {lands}, not {target}; {claim!r} was decided in a "
+            "file the host no longer reads — rerun"
+        )
+
+
 def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     """Create `path` with these bytes atomically, or report that it exists.
 
@@ -365,24 +436,30 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
                     "a directive file must have one name — rerun after removing it"
                 )
             if via is not None:
-                # Re-resolve the LINK before clobbering, not only after. A
-                # repoint that already happened is caught here, before the old
-                # target is touched at all — the temp is discarded and nothing
+                # Re-resolve the HOST PATHNAME before clobbering, by whatever it
+                # is NOW — not by the type it had when this run started. A
+                # repoint, and equally a regular host file that has since become
+                # a symlink pointing elsewhere, is caught here, before the old
+                # target is touched at all: the temp is discarded and nothing
                 # the host stopped reading is modified. The post-rename check
                 # below still stands for the one instant this cannot cover.
                 try:
-                    ahead = os.path.realpath(via, strict=True)
+                    ahead = _host_reads(via)
+                    # BOTH sides resolved: _canonical hands back a plain file's
+                    # path untouched, so a raw compare would read every
+                    # symlinked parent directory (/var -> /private/var) as a
+                    # repoint and refuse every ordinary write.
+                    here = _host_reads(path)
                 except OSError as exc:
                     raise ValueError(
                         f"{via} no longer resolves ({exc.strerror or exc}) before "
                         f"the write; nothing was written to {path} — repoint or "
                         "restore the link, then rerun"
                     ) from None
-                if Path(ahead) != path:
+                if ahead != here:
                     raise ValueError(
-                        f"{via} was repointed to {ahead} before the write landed; "
-                        f"nothing was written to {path} — rerun to write the file "
-                        "it points at now"
+                        f"{via} now leads to {ahead}, not {path}; nothing was "
+                        "written — rerun to write the file the host reads now"
                     )
             if _test_between_final_verify_and_replace is not None:
                 _test_between_final_verify_and_replace()
@@ -409,14 +486,15 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
                 # link used to name, and saying "added" would be a lie about
                 # what the host sees.
                 try:
-                    lands = os.path.realpath(via, strict=True)
+                    lands = _host_reads(via)
+                    settled = _host_reads(path)
                 except OSError as exc:
                     raise ValueError(
                         f"{via} no longer resolves ({exc.strerror or exc}); the "
                         f"block was written to {path}, which the host no longer "
                         "reads — repoint or restore the link, then rerun"
                     ) from None
-                if Path(lands) != path:
+                if lands != settled:
                     raise ValueError(
                         f"{via} was repointed to {lands} while the block was being "
                         f"written to {path}; the host no longer reads that file — "
@@ -432,10 +510,40 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
             f"{path} appeared while the install was writing it; rerun so the "
             "write sees what is there now"
         )
+    # Post-create check, mirroring the existing-file postcheck: "created" is a
+    # claim about what the host pathname reads NOW. link(2) proved the name was
+    # ours at the create instant; if the pathname was swapped or became a link
+    # elsewhere right after, say so instead of reporting a success about a file
+    # the host no longer reads.
+    made = os.lstat(path)
+    if not stat.S_ISREG(made.st_mode):
+        raise ValueError(
+            f"{path} was replaced by something that is not a regular file as it "
+            "was being created; the created text was displaced — rerun"
+        )
+    if via is not None:
+        try:
+            lands = _host_reads(via)
+            settled = _host_reads(path)
+        except OSError as exc:
+            raise ValueError(
+                f"{via} no longer resolves ({exc.strerror or exc}); the file was "
+                f"created at {path}, which the host no longer reads — rerun"
+            ) from None
+        if lands != settled:
+            raise ValueError(
+                f"{via} now leads to {lands}, not {path}; the file was created "
+                "where the host no longer reads — rerun"
+            )
 
 def apply(path: Path, block: str, *, remove: bool = False) -> str:
     """Write the block into `path`. Returns what happened, for the caller."""
-    linked = path.is_symlink()
+    # No is_symlink() snapshot is taken here, deliberately. A host pathname is
+    # mutable: a regular file can become a symlink, and a symlink a regular
+    # file, between this line and the commit. Every success path therefore
+    # re-resolves the pathname by what it IS at that moment (_host_reads), and
+    # a boolean captured up front would only make one of those two transitions
+    # invisible.
     target = _canonical(path)
     if _test_between_resolve_and_snapshot is not None:
         _test_between_resolve_and_snapshot()
@@ -499,28 +607,8 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
 
         if remove:
             if span is None:
-                if linked:
-                    # "absent" claims the host reads no managed block. If the
-                    # link was repointed after the pin, that claim is about the
-                    # file it USED to read; the one it reads now may still carry
-                    # the block. Re-resolve before claiming, exactly as the
-                    # write and "current" paths do — otherwise --remove reports
-                    # "nothing to do" while the block sits in the file the host
-                    # actually reads.
-                    try:
-                        lands = os.path.realpath(path, strict=True)
-                    except OSError as exc:
-                        raise ValueError(
-                            f"{path} no longer resolves ({exc.strerror or exc}); the "
-                            "block is absent from the file it used to point at — "
-                            "rerun to act on what it points at now"
-                        ) from None
-                    if Path(lands) != target:
-                        raise ValueError(
-                            f"{path} was repointed to {lands}; the block's absence "
-                            f"was checked in {target}, not in the file the host "
-                            "reads now — rerun"
-                        )
+                _refuse_unless_host_still_leads_to_pin(
+                    path, target, pinned, identity, "absent")
                 return "absent"
             head, tail = text[: span[0]], text[span[1] :]
             new = (head.rstrip("\n") + "\n" + tail.lstrip("\n")) if head.strip() else tail.lstrip("\n")
@@ -534,26 +622,8 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
             else:
                 current = text[span[0] : span[1]]
                 if current == wanted:
-                    if linked:
-                        # "current" asserts the host already reads this block. If
-                        # the link was repointed after the pin, that assertion is
-                        # about the WRONG file — the one it reads now may carry
-                        # nothing. Verify before claiming, exactly as a write
-                        # verifies before reporting added.
-                        try:
-                            lands = os.path.realpath(path, strict=True)
-                        except OSError as exc:
-                            raise ValueError(
-                                f"{path} no longer resolves ({exc.strerror or exc}); "
-                                "the block is current in the file it used to point "
-                                "at — rerun to act on what it points at now"
-                            ) from None
-                        if Path(lands) != target:
-                            raise ValueError(
-                                f"{path} was repointed to {lands}; the block is "
-                                f"current in {target}, not in the file the host "
-                                "reads now — rerun"
-                            )
+                    _refuse_unless_host_still_leads_to_pin(
+                        path, target, pinned, identity, "current")
                     return "current"
                 new = text[: span[0]] + wanted + text[span[1] :]
                 action = "refreshed" if current.startswith(BEGIN) else "adopted"
@@ -587,7 +657,7 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
             _atomic_write(target, new, mode=mode, expect=identity,
                           pinned=pinned,
                           expect_absent=not existed,
-                          via=path if linked else None)
+                          via=path)
         except BaseException as exc:
             # The backup is RETAINED on failure, deliberately. Deleting it was
             # tried and audited into the ground: removal is a pathname operation,
