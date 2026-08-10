@@ -519,7 +519,10 @@ def suppression_receipts(
                 path=board.public_copy_locator(identity, record["path"]),
                 shadowed_by=board.public_entity_locator(identity),
                 reason=(
-                    "same logical entity already has one healthy registered "
+                    "historical archive explicitly superseded by the current "
+                    "committed plan"
+                    if record.get("_archive_superseded")
+                    else "same logical entity already has one healthy registered "
                     "computer-board locator"
                 ),
             ))

@@ -519,6 +519,7 @@ ARCHIVE_VETO_RE = re.compile(
 )
 VETO_SCAN_LINES = 40
 PUBLIC_ARCHIVE_VETO = "non-executable archive shell"
+ARCHIVE_SUPERSESSION_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _archive_veto_text(text: str) -> str | None:
@@ -634,6 +635,8 @@ def _archive_veto_receipt(
         return cache[memo_key]
     receipt: dict[str, Any] | None = None
     witnesses: list[dict[str, str]] = []
+    demotions: list[dict[str, str]] = []
+    every_demotion_read = True
     newest_demoted: int | None = None
     newest_live: int | None = None
     for candidate in ordered:
@@ -651,6 +654,9 @@ def _archive_veto_receipt(
             {"plan": str(candidate.resolve()), "expected_state": state}
         )
         if found:
+            demotions.append(
+                {"plan": str(candidate.resolve()), "expected_state": state}
+            )
             if receipt is None:
                 receipt = {
                     "match": found,
@@ -660,6 +666,9 @@ def _archive_veto_receipt(
             if committed is None:
                 # An undatable demotion can never be proven superseded.
                 newest_demoted = None
+                # The scan stops here, so the demotion set is now partial and
+                # cannot support the "exactly one archive source" contract.
+                every_demotion_read = False
                 break
             newest_demoted = max(newest_demoted or committed, committed)
         elif committed is not None:
@@ -676,6 +685,11 @@ def _archive_veto_receipt(
             # bounded content took no part in the verdict, and CASing it would
             # make an unreadable sibling able to block every retirement.
             receipt["witnesses"] = witnesses
+            # Every demoted copy, not just the one quoted back: an explicit
+            # supersession may only retire a single named archive, so it needs
+            # to see all of them. Absent when the scan stopped early.
+            if every_demotion_read:
+                receipt["demotions"] = demotions
     elif witnesses:
         # "No demotion found" is also a verdict about every readable copy.
         # Freeze those inputs so a copy cannot self-demote after discovery and
@@ -684,6 +698,60 @@ def _archive_veto_receipt(
     if cache is not None:
         cache[memo_key] = receipt
     return receipt
+
+
+def _explicitly_supersedes_archives(
+    registered_plan: Path, receipt: dict[str, Any] | None,
+) -> bool:
+    """Permit one named, committed archive handoff and nothing broader.
+
+    A stale checkout's archive banner normally retires its whole logical
+    identity. The only exception is a current *registered* plan that names the
+    exact archived commit in its Brief, is itself committed, and descends from
+    that commit. This keeps an archive as evidence while making a conscious
+    replacement durable; a typo, an uncommitted edit, a non-ancestor, or a
+    second archived commit remains a veto.
+
+    This is the deliberate handoff, distinct from the commit-time rule the
+    receipt already applies: that one clears a demotion the repository has
+    provably moved past on its own, this one clears a demotion the operator
+    names. Both leave every other demotion standing.
+    """
+    if receipt is None:
+        return False
+    # Absent when the demotion scan stopped early, so the archive set is only
+    # partially known and the single-source contract cannot be checked.
+    demotions = receipt.get("demotions")
+    if not demotions:
+        return False
+    try:
+        current, current_bytes = _root_board.committed_plan_snapshot(registered_plan)
+        text = current_bytes.decode("utf-8")
+        declared = operator_brief(text).get("supersedes_archive_commit", "").lower()
+        if ARCHIVE_SUPERSESSION_COMMIT_RE.fullmatch(declared) is None:
+            return False
+        for demotion in demotions:
+            archived = Path(demotion["plan"])
+            if _root_board.plan_state_token(archived) != demotion["expected_state"]:
+                return False
+            archive, _ = _root_board.committed_plan_snapshot(archived)
+            if (
+                archive["head"] != declared
+                or _root_board.entity_id(archived) != _root_board.entity_id(registered_plan)
+            ):
+                return False
+            ancestry = _root_board._git(
+                Path(current["repo"]),
+                "merge-base",
+                "--is-ancestor",
+                archive["head"],
+                current["head"],
+            )
+            if ancestry.returncode != 0:
+                return False
+    except (KeyError, OSError, UnicodeError, _root_board.BoardError):
+        return False
+    return True
 
 
 def _archive_veto(paths: list[Path]) -> str | None:
@@ -982,6 +1050,7 @@ def discover_plans(
             )
             veto_receipt = None
             veto = None
+            archive_superseded = False
             compared_registered = (
                 registered_plan is not None
                 and Path(os.path.abspath(path)) != registered_plan
@@ -994,6 +1063,15 @@ def discover_plans(
                     veto_paths, cache=veto_cache, dates=commit_dates
                 )
                 veto = veto_receipt["match"] if veto_receipt else None
+                # Only a live registered pointer may name a handoff. A registered
+                # copy that is itself retired stays retired; the commit-time rule
+                # above is the only thing that can move that pointer.
+                if registered_override is not None:
+                    archive_superseded = _explicitly_supersedes_archives(
+                        registered_plan, veto_receipt
+                    )
+                    if archive_superseded:
+                        veto = None
             # Deduplicate before reading. A broken ghost checkout must not veto
             # the healthy canonical copy that already won this logical key.
             if key in seen and not include_shadowed:
@@ -1023,6 +1101,8 @@ def discover_plans(
                     if capture_tokens:
                         record["_registered_pointer"] = True
                         record["_logical_entity"] = identity
+                        if archive_superseded:
+                            record["_archive_superseded"] = True
                 else:
                     record = plan_record(path, root)
             except (BrowserError, OSError, UnicodeError, ValueError) as exc:

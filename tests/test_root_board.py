@@ -1540,6 +1540,104 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             self.assertEqual(moved, real_commit_time(plan))
             self.assertNotEqual(moved, first)
 
+    def test_registered_current_plan_can_explicitly_supersede_one_ancestor_archive(self) -> None:
+        """A named, committed, ancestral archive is the one demotion an operator may retire.
+
+        Dates are pinned so the archive banner is the identity's NEWEST commit:
+        the commit-time rule therefore refuses to supersede it, and only the
+        explicit handoff can. Ancestry, not a clock, is what proves the current
+        plan came after — dates tie, skew, and survive rebases unchanged.
+        """
+
+        def commit_at(repo: Path, message: str, when: str) -> None:
+            result = subprocess.run(
+                ["git", "-C", str(repo), "commit", "--quiet", "-m", message],
+                capture_output=True,
+                text=True,
+                env={
+                    **os.environ,
+                    "GIT_AUTHOR_DATE": when,
+                    "GIT_COMMITTER_DATE": when,
+                },
+                check=False,
+            )
+            if result.returncode:
+                raise AssertionError(result.stderr)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            archived_plan = fixture["sibling"] / "PLAN.md"
+            archived_plan.write_text(
+                archived_plan.read_text(encoding="utf-8").replace(
+                    "# Project\n", f"# Project\n\n{self.BANNER}\n", 1
+                ),
+                encoding="utf-8",
+            )
+            git(fixture["sibling"], "add", "PLAN.md")
+            commit_at(
+                fixture["sibling"],
+                "archive old authority",
+                "2026-08-10T18:15:14+00:00",
+            )
+            archived_head = subprocess.run(
+                ["git", "-C", str(fixture["sibling"]), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+
+            # The new authority is deliberately a descendant of the archived
+            # commit, then replaces the archive banner with the exact handoff.
+            git(fixture["healthy"], "merge", "--ff-only", archived_head)
+            current_plan = fixture["healthy"] / "PLAN.md"
+            current_plan.write_text(
+                current_plan.read_text(encoding="utf-8")
+                .replace(f"\n{self.BANNER}\n", "\n", 1)
+                .replace(
+                    "- Priority: 2\n",
+                    f"- Priority: 2\n- Supersedes archive commit: {archived_head}\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            git(fixture["healthy"], "add", "PLAN.md")
+            commit_at(
+                fixture["healthy"],
+                "supersede archived authority",
+                "2026-06-24T02:06:40+00:00",
+            )
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = board(fixture["home"])
+            self.assertEqual(len(payload["entities"]), 1)
+            self.assertEqual(
+                payload["entities"][0]["plan"],
+                str(current_plan.resolve()),
+            )
+            self.assertEqual(len(json.loads(result.stdout)["v4_plans"]), 1)
+
+            hidden = run(
+                fixture["home"],
+                "status",
+                "--shadowed",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+            self.assertEqual(hidden.returncode, 0, hidden.stderr)
+            self.assertIn(
+                "historical archive explicitly superseded",
+                json.dumps(json.loads(hidden.stdout)["rows"]),
+            )
+
     def test_one_self_demoted_registered_alias_retires_the_whole_logical_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._registered_alias_pair(Path(tmp))
