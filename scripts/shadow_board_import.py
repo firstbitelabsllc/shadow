@@ -70,7 +70,7 @@ def _registered_state(
         # converged onto one Git identity. Multiplicity disables canonical
         # substitution and repair, but it must not hide an exact registered
         # plan's own archive verdict.
-        for pointer, (state_token, content) in frozen.items():
+        for pointer, (state_fingerprint, content) in frozen.items():
             if content is None:
                 continue
             try:
@@ -83,7 +83,7 @@ def _registered_state(
                 retired[identity] = {
                     "identity": identity,
                     "plan": str(pointer.resolve()),
-                    "expected_state": state_token,
+                    "expected_state": state_fingerprint,
                     "registered_plan": str(pointer),
                 }
                 break
@@ -94,9 +94,9 @@ def _registered_state(
         if len(pointers) != 1:
             continue
         pointer = pointers[0]
-        state_token, content = frozen[pointer]
-        if state_token == "unavailable" or content is None:
-            repairable[identity] = (pointer, state_token)
+        state_fingerprint, content = frozen[pointer]
+        if state_fingerprint == "unavailable" or content is None:
+            repairable[identity] = (pointer, state_fingerprint)
             continue
         try:
             if board.entity_id(pointer) != identity:
@@ -130,7 +130,7 @@ def _registered_state(
             UnicodeError,
             ValueError,
         ):
-            repairable[identity] = (pointer, state_token)
+            repairable[identity] = (pointer, state_fingerprint)
             continue
         trusted[identity] = pointer.resolve()
     return trusted, retired, repairable
