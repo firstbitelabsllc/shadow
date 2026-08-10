@@ -23,14 +23,14 @@ inside the native host on that computer.
 
 1. In the target project, read `PLAN.md` before acting. It is the only Outcome,
    proof, and resume authority.
-2. Inspect the exact revision and worktree state, then resume the in-progress
-   row or take the highest unblocked row.
-3. Make one bounded change through one selected native host. Freeze the task in
-   a file and allow only the exact paths it may change.
+2. Inspect the exact revision and worktree state, resume locally owned
+   in-progress rows, then rank every reachable row.
+3. Claim and dispatch path-disjoint work through supported native hosts. Freeze
+   each task in a file and allow only the exact paths it may change.
 4. Review the diff and reproduce the important test locally. A host receipt is
    evidence, not acceptance by itself.
-5. Record the result, uncertainty, proof, and one next A/B/C decision in the
-   owning `PLAN.md`.
+5. Record each result, uncertainty, proof, blocked wake, and reachable successor
+   in the owning `PLAN.md`; continue until full acceptance or hard rails.
 
 Do not create another queue, autonomous router, daemon, watcher, cloud
 executor, credential relay, transcript store, or parallel status database. A
@@ -43,8 +43,8 @@ transcripts, provider payloads, or absolute private paths in it.
 
 | Skill | Use it for |
 | --- | --- |
-| `/shadow` | Start/resume work, read the Outcome, drive one bounded host task, and leave proof plus a resume point. |
-| `/amp` | Turn a vague request into one short, repository-grounded prompt. It does not dispatch or own a queue. |
+| `/shadow` | Start/resume work, read the Outcome, drain reachable lanes, and leave proof plus successors. |
+| `/amp` | Turn a vague request into a complete, repository-grounded prompt. It does not dispatch or own a queue. |
 | `/ponytail` | Decide what to delete, reuse, defer, or implement before adding scope. |
 | `/thermo` | Review the working implementation after correctness for ownership, duplication, and boundary failures. |
 | `/browse` | Research current external facts or projects; keep sources and uncertainty explicit. |
@@ -75,5 +75,5 @@ shadow doctor
 ```
 
 When handing work to the next computer, pass the repository, exact revision,
-owning `PLAN.md` row, allowed paths, proof command, and one resume predicate.
+owning `PLAN.md` rows, allowed paths, proof commands, and blocked wakes.
 That is enough context; do not paste a transcript.

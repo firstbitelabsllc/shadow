@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read one frozen UTF-8 task through a bounded, non-symlink file descriptor."""
+"""Read a frozen UTF-8 task through a size-limited, non-symlink descriptor."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class TaskError(ValueError):
 
 
 def read_frozen_task(value: str | Path) -> str:
-    """Return one bounded UTF-8 task without a path check/read race.
+    """Return a size-limited UTF-8 task without a path check/read race.
 
     The descriptor is opened with ``O_NOFOLLOW`` where the platform supports
     it, checked with ``fstat``, and read incrementally. This prevents a later

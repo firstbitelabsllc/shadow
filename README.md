@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/shadow-banner.svg" alt="Shadow reads a plan, acts on one bounded task, verifies proof, and leaves a resume point." width="100%" /></p>
+<p align="center"><img src="assets/shadow-banner.svg" alt="Shadow reads the plan, moves every reachable lane, verifies proof, and keeps choosing successors." width="100%" /></p>
 
 # Shadow
 
@@ -26,7 +26,7 @@ plugin `shadow@skills-dir` and reads `hooks/hooks.json` from it. Run
 
 ```bash
 shadow status                  # the board — same list from any directory, any machine
-shadow amp                     # one goal block that POINTS at the plan, ≤4k chars
+shadow amp                     # starting block that POINTS at the full plan, ≤4k chars
 shadow throw --task '~ab12'    # claim a row before handing it to another seat
 shadow accept --row '~ab12'    # rerun the proof in a clean checkout, then flip the row
 ```
@@ -40,7 +40,7 @@ anywhere — an empty directory falls back to your portfolio instead of pretendi
 Chat is a projection; the plan is the memory.
 
 **The goal is a pointer.** No prompt carries ten projects in 4,000 characters, so `amp` doesn't
-try: authority ref, one resume row, its proof, and the rule that *when block and plan disagree,
+try: authority ref, a starting row, its proof, and the rule that *when block and plan disagree,
 the plan wins*.
 
 **No proof, no completed.** Every task carries a `proof:` that can refuse bad work — `cmd`, `read`,
@@ -49,8 +49,8 @@ or `gate <owner>`. `accept` reruns it in a clean checkout and is the only path t
 ## What it won't do
 
 No database, daemon, scheduler, or transcript memory — a surface that could mutate a row outside
-`PLAN.md` is banned. Native hosts keep auth and model choice. `host run` runs one sealed task and
-never launches work itself. `accept` reruns only `cmd` proofs; `read` and `gate` are judgments a
+`PLAN.md` is banned. Native hosts keep auth and model choice. `host run` executes each claimed
+task and never launches unclaimed work itself. `accept` reruns only `cmd` proofs; `read` and `gate` are judgments a
 person re-observes. A receipt is evidence, not acceptance.
 
 ## Develop

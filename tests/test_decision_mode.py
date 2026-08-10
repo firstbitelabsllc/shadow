@@ -1,4 +1,4 @@
-"""Focused tests for one bounded Shadow A/B/C decision."""
+"""Focused tests for the Shadow A/B/C decision contract."""
 
 from __future__ import annotations
 

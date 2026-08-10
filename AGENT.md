@@ -16,9 +16,11 @@ lane, spike, brief.
 2. **The task.** A task is a state the world reaches, with a `proof:`
    that can refuse bad work — `cmd <runnable>`, `read <artifact/url +
    expected observation>`, or `gate <owner> resume: <predicate>`. No proof,
-   no completed, ever. A task fits in one cycle; anything larger is a
-   milestone. A cycle drives one task to a recorded result before starting
-   the next. A task flips completed only in the same commit as its PROOF
+   no completed, ever. Tasks are reviewable claim and proof units; milestones
+   hold larger outcomes. Each lane drives its claimed task to a recorded
+   result while path-disjoint lanes may run in parallel. Closing a task
+   immediately exposes or claims the next reachable work; it never closes the
+   Outcome by itself. A task flips completed only in the same commit as its PROOF
    Progress line; `shadow accept --row` reruns the proof in a clean checkout
    and is the only code path that flips a task.
 
@@ -67,9 +69,9 @@ lane, spike, brief.
 
 ## Folded behavior — one sentence each
 
-- A loose ask becomes one executable goal brief (SKILL.md: Shape a
-  goal) before it becomes tasks; the brief is shorter than the context it
-  replaces.
+- A loose ask becomes a complete executable goal brief (SKILL.md: Shape a
+  goal) before it becomes tasks; the brief preserves the full acceptance
+  surface while remaining shorter than the context it replaces.
 - Steering is one multiple-choice prompt with a default — at session start,
   on a DoD flip, or when asked, never per task; default-if-silent is the
   highest-Priority project's ready task, logged as one Progress line.
@@ -87,8 +89,9 @@ lane, spike, brief.
   claimed and pushed: `shadow throw --task ~id` refuses unless a ready
   `[pending]` row with a proof exists, flips it to `[in_progress]`, appends a
   `THROWN` line, commits `PLAN.md` alone, and pushes — launch and flush are one
-  atom. One row per named job the plan must survive losing; a ten-agent
-  workflow is one row.
+  atom. Use a row for each independently recoverable job. Fan-out lanes that
+  can land or fail independently get distinct rows; a read-only judging batch
+  may share a parent only when its barrier and combined proof are explicit.
 - **"Conversation" means any work you stop watching**, whichever mechanism
   spawns it: a named agent, a script that fans out, a cron, another seat, a
   cloud run. The rule is not about chat windows — it is about whether the plan
@@ -157,6 +160,11 @@ Shadow does everything they would otherwise have typed at an agent. Concretely:
   on its own findings, codify the lesson into the plan or a skill, archive
   the shipped milestone. If the person has to request any of these, that is
   a defect in the stance, not a request.
+- **Outcome completeness outranks packet size.** Drain every reachable row
+  needed by the Outcome, fan out safe path-disjoint lanes, integrate their
+  proof, and keep choosing successors. Reviewable rows protect ownership and
+  verification; they never tell a seat to stop. Stop only when acceptance is
+  mechanically true or every remaining row has an exact hard-rail wake.
 - **The goal is static; the pointer moves.** There is exactly one standing
   goal for any Shadow seat — continue the portfolio from its durable plans —
   and it never changes; only what the plans point at changes. The paste-ready
