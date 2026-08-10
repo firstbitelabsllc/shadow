@@ -35,10 +35,13 @@ esac
 fail() { echo "install.sh: $*" >&2; exit 1; }
 
 command -v git >/dev/null 2>&1 || fail "git is required"
-command -v python3 >/dev/null 2>&1 || fail "python3 is required (3.10+)"
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
-  || fail "python3 is older than 3.10"
 [[ -f "${ROOT}/bin/shadow" ]] || fail "run this from a Shadow checkout (bin/shadow not found)"
+# Keep the installer on the same interpreter-resolution path as the command it
+# links. A stock machine can retain an older `python3` while a usable
+# `python3.10+` lives alongside it.
+if ! SHADOW_PYTHON="$(SHADOW_PYTHON_COMMAND=install "${ROOT}/scripts/shadow-python.sh" --print)"; then
+  fail "Python 3.10+ is required"
+fi
 
 mkdir -p "${BIN_DIR}"
 # The same two traps the skill mount guards against, which this line did not.
@@ -82,7 +85,7 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   # This owns only its own marker-delimited block — the rest of the file is
   # untouched, an unmarked copy is adopted rather than duplicated, and
   # `shadow goal --remove` takes it back out.
-  python3 "${ROOT}/scripts/shadow-host-directives.py" \
+  "${SHADOW_PYTHON}" "${ROOT}/scripts/shadow-host-directives.py" \
     || echo "note:      standing goal not written; run: shadow goal --install" >&2
 fi
 
@@ -92,4 +95,7 @@ case ":${PATH}:" in
 esac
 
 echo
-echo "next: shadow doctor"
+case ":${PATH}:" in
+  *":${BIN_DIR}:"*) echo "next: shadow doctor" ;;
+  *) echo "next: ${BIN_DIR}/shadow doctor" ;;
+esac

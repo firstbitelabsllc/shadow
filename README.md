@@ -10,12 +10,15 @@ loses work: a chat dying, a machine change, ten conversations at once.
 
 ```bash
 git clone https://github.com/firstbitelabsllc/shadow.git && cd shadow
-bash install.sh && shadow doctor
+bash install.sh
+~/.local/bin/shadow doctor
 ```
 
 Git, Bash, Python 3.10+, one native host (Claude Code, Codex, or Cursor). No Node, no npm — the
-clone *is* the install, `git pull` is the update. Then paste the standing goal from
-[host integration](docs/reference/host-integration.md) into your hosts' instruction files.
+clone *is* the install, `git pull` is the update. The installer mounts the skill and writes or
+refreshes the standing goal in its host instruction files. Do not paste the goal separately: a
+duplicate is intentionally a `shadow doctor` failure. If `~/.local/bin` is already on your PATH,
+the last command can simply be `shadow doctor`.
 
 The Claude mount also activates the Brief contract's Stop hook: the mounted
 directory carries `.claude-plugin/plugin.json`, so Claude Code loads it as the
