@@ -19,18 +19,28 @@
 #                      only thing that proves a SESSION resolves the skill, and
 #                      it costs the owner's quota, so it never runs by default.
 #
-# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor [--live]
+# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor [--by SEAT] [--live] [--timeout-seconds N]
 set -uo pipefail
 
 ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST=""
 LIVE=0
+SEAT=""
+LIVE_TIMEOUT=120
 FAILURES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --host) HOST="${2:-}"; shift 2 ;;
+    --host)
+      [[ $# -ge 2 ]] || { echo "verify-host: --host requires a value" >&2; exit 2; }
+      HOST="$2"; shift 2 ;;
+    --by)
+      [[ $# -ge 2 ]] || { echo "verify-host: --by requires a value" >&2; exit 2; }
+      SEAT="$2"; shift 2 ;;
     --live) LIVE=1; shift ;;
+    --timeout-seconds)
+      [[ $# -ge 2 ]] || { echo "verify-host: --timeout-seconds requires a value" >&2; exit 2; }
+      LIVE_TIMEOUT="$2"; shift 2 ;;
     -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "verify-host: unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -43,6 +53,16 @@ case "${HOST}" in
   *) echo "verify-host: --host must be claude-code, codex, or cursor" >&2; exit 2 ;;
 esac
 
+[[ -z "${SEAT}" ]] && SEAT="${HOST/claude-code/claude}"
+if [[ ! "${SEAT}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "verify-host: --by must be one stable public seat name" >&2
+  exit 2
+fi
+if [[ ! "${LIVE_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "verify-host: --timeout-seconds must be a positive integer" >&2
+  exit 2
+fi
+
 ok()   { printf '  [PASS] %s\n' "$1"; }
 bad()  { printf '  [FAIL] %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 skip() { printf '  [SKIP] %s\n' "$1"; }
@@ -53,13 +73,35 @@ import json, sys
 
 try:
     data = json.load(sys.stdin)
-    current = next(
-        plan for plan in data.get("v4_plans", []) if plan.get("board_resume")
-    )
+    seat = sys.argv[1]
+    plans = data.get("v4_plans", [])
+    current = None
+    selected = None
+    for plan in plans:
+        claim = next(
+            (item for item in plan.get("live_claims", []) if item.get("owner") == seat),
+            None,
+        )
+        if claim:
+            current = plan
+            selected = claim
+            break
+    if current is None:
+        current = next((plan for plan in plans if plan.get("next_unclaimed")), None)
+        if current is not None:
+            row_id = current["next_unclaimed"]
+            selected = next(
+                checkpoint
+                for milestone in current.get("milestones", [])
+                for checkpoint in milestone.get("checkpoints", [])
+                if checkpoint.get("id") == row_id
+            )
+    if current is None or selected is None:
+        raise ValueError
     revision = data["root_board"]["revision"]
     project = current["project"]
-    resume = current["board_resume"]
-    work = current["resume_human"]
+    resume = selected.get("row") or selected.get("id")
+    work = selected.get("text")
     if not isinstance(revision, int) or not project or not resume or not work:
         raise ValueError
 except (KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError):
@@ -69,7 +111,55 @@ print(revision)
 print(project)
 print(resume)
 print(work)
-'
+' "${1}"
+}
+
+run_bounded() {
+  local stdout_path="$1" stderr_path="$2"
+  shift 2
+  python3 - "${LIVE_TIMEOUT}" "${stdout_path}" "${stderr_path}" "$@" <<'PY'
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+timeout = int(sys.argv[1])
+stdout_path = Path(sys.argv[2])
+stderr_path = Path(sys.argv[3])
+command = sys.argv[4:]
+
+def stop_process_group(process: subprocess.Popen[bytes]) -> None:
+    # A host may return after leaving tools or helpers in the background. The
+    # verifier owns the whole fresh process group on every exit path, not only
+    # on timeout, so no successful proof can leak work into the next run.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return
+    time.sleep(0.2)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+    process = subprocess.Popen(
+        command,
+        stdout=stdout,
+        stderr=stderr,
+        start_new_session=True,
+    )
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop_process_group(process)
+        process.wait()
+        raise SystemExit(124)
+    stop_process_group(process)
+    raise SystemExit(returncode)
+PY
 }
 
 # Resolve a command to the real file it ends at, so a symlinked `shadow` on
@@ -211,8 +301,8 @@ fi
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf -- "${SCRATCH}"' EXIT
 BOARD_STATUS=0
-BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json 2>/dev/null)" || BOARD_STATUS=$?
-BOARD_FACTS="$(printf '%s' "${BOARD}" | board_facts 2>/dev/null || true)"
+BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json --by "${SEAT}" 2>/dev/null)" || BOARD_STATUS=$?
+BOARD_FACTS="$(printf '%s' "${BOARD}" | board_facts "${SEAT}" 2>/dev/null || true)"
 BOARD_REVISION="$(sed -n '1p' <<<"${BOARD_FACTS}")"
 BOARD_PROJECT="$(sed -n '2p' <<<"${BOARD_FACTS}")"
 BOARD_RESUME="$(sed -n '3p' <<<"${BOARD_FACTS}")"
@@ -243,7 +333,7 @@ else
   # the work is means the answer can arrive one way — the skill and standing
   # goal loaded, and the session went to the board on its own. It names neither
   # the command, the evidence fields, nor any value the verifier will accept.
-  PROMPT='What am I working on right now?'
+  PROMPT="As seat ${SEAT}, what am I working on right now?"
   LIVE_OUT="${SCRATCH}/host-final.txt"
   LIVE_LOG="${SCRATCH}/host-diagnostics.txt"
   BOARD_TEXT_FILE="${SCRATCH}/board.txt"
@@ -251,7 +341,7 @@ else
   READ_ONLY_BIN="${SCRATCH}/read-only-bin"
   LIVE_STATUS=0
   BOARD_TEXT_STATUS=0
-  (cd "${SCRATCH}" && "${SHADOW_CMD}" status >"${BOARD_TEXT_FILE}" 2>/dev/null) || BOARD_TEXT_STATUS=$?
+  (cd "${SCRATCH}" && "${SHADOW_CMD}" status --by "${SEAT}" >"${BOARD_TEXT_FILE}" 2>/dev/null) || BOARD_TEXT_STATUS=$?
   printf '%s' "${BOARD}" >"${BOARD_JSON_FILE}"
   mkdir "${READ_ONLY_BIN}"
   cat >"${READ_ONLY_BIN}/shadow" <<'SH'
@@ -276,21 +366,26 @@ SH
     case "${HOST}" in
       claude-code)
         (cd "${SCRATCH}" && PATH="${READ_ONLY_BIN}:${PATH}" \
+          run_bounded "${LIVE_OUT}" "${LIVE_LOG}" \
           "${BIN}" --no-session-persistence --permission-mode plan \
-          -p "${PROMPT}") >"${LIVE_OUT}" 2>"${LIVE_LOG}" || LIVE_STATUS=$?
+          -p "${PROMPT}") || LIVE_STATUS=$?
         ;;
       codex)
         (cd "${SCRATCH}" && PATH="${READ_ONLY_BIN}:${PATH}" \
+          run_bounded "${LIVE_LOG}" "${LIVE_LOG}.stderr" \
           "${BIN}" exec --ephemeral --skip-git-repo-check --sandbox read-only \
-          --output-last-message "${LIVE_OUT}" "${PROMPT}") >"${LIVE_LOG}" 2>&1 || LIVE_STATUS=$?
+          --output-last-message "${LIVE_OUT}" "${PROMPT}") || LIVE_STATUS=$?
         ;;
     esac
   fi
   AFTER_STATUS=0
-  AFTER_BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json 2>/dev/null)" || AFTER_STATUS=$?
-  AFTER_FACTS="$(printf '%s' "${AFTER_BOARD}" | board_facts 2>/dev/null || true)"
+  AFTER_BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json --by "${SEAT}" 2>/dev/null)" || AFTER_STATUS=$?
+  AFTER_FACTS="$(printf '%s' "${AFTER_BOARD}" | board_facts "${SEAT}" 2>/dev/null || true)"
   if [[ "${BOARD_TEXT_STATUS}" -ne 0 ]]; then
     : # The specific failure was already reported without spending host quota.
+  elif [[ "${LIVE_STATUS}" -eq 124 ]]; then
+    [[ "${LIVE_TIMEOUT}" -eq 1 ]] && TIME_UNIT="second" || TIME_UNIT="seconds"
+    bad "the cold ${HOST} session timed out after ${LIVE_TIMEOUT} ${TIME_UNIT} — the result is inconclusive; re-run"
   elif [[ "${LIVE_STATUS}" -ne 0 ]]; then
     bad "the cold ${HOST} session invocation failed"
   elif [[ "${AFTER_STATUS}" -ne 0 || -z "${AFTER_FACTS}" ]]; then
