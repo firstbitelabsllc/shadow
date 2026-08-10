@@ -228,9 +228,18 @@ def _board_payload(root: Path, home: Path) -> tuple[dict, str | None]:
 
 def _rotation_text(value: str, fallback: str, limit: int = 220) -> str:
     clean = " ".join(value.split())
+    clean = re.sub(r"~[0-9a-z]{4}\b", "", clean)   # row ids never reach a card
+    clean = clean.replace("`", "")
+    clean = re.sub(r"\s+([,;:.])", r"\1", clean)
+    clean = " ".join(clean.split())
     if not clean or UNSAFE_TITLE_RE.search(clean):
         return fallback
-    return clean[:limit]
+    if len(clean) > limit:
+        cut = clean[: limit - 1]
+        if " " in cut:
+            cut = cut[: cut.rfind(" ")]
+        clean = cut.rstrip(" ,;:—–-") + "…"
+    return clean
 
 
 def _milestone_rotation(

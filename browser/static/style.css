@@ -22,17 +22,27 @@ button { font: inherit; }
 #refresh { border: 1px solid var(--line); border-radius: 999px; padding: 10px 18px; background: var(--surface); color: var(--ink); cursor: pointer; }
 #refresh:hover { border-color: var(--accent); }
 .shell { width: min(1240px, 100%); margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 32px; padding: 32px clamp(20px, 4vw, 64px) 64px; }
+/* A nowrap label makes a grid item's min-content the FULL text width; without
+   min-width: 0 at every level the 250px track blows out and the list paints
+   under the card — the owner's screenshot. */
+.shell > nav { min-width: 0; }
+.projects, .project { min-width: 0; max-width: 100%; }
+.projects { grid-template-columns: minmax(0, 1fr); }
+/* The list scrolls itself; reading a long brief no longer scrolls the
+   project list offscreen. */
+.shell > nav { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow-y: auto; }
 nav h2 { margin: 0 0 14px; font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .projects { display: grid; gap: 8px; }
 .project { width: 100%; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--ink); padding: 12px 14px; text-align: left; cursor: pointer; }
 .project strong, .project span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project span { margin-top: 4px; color: var(--muted); font-size: .82rem; }
+.project .state-chip { display: inline-block; margin-top: 6px; padding: 3px 8px; font-size: .68rem; }
 .project:hover, .project.active { background: var(--surface); border-color: var(--line); }
 main:focus { outline: none; }
 .card { max-width: 860px; overflow: hidden; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: 0 20px 60px rgba(22, 36, 29, .07); }
 .card > * { margin-left: clamp(24px, 5vw, 56px); margin-right: clamp(24px, 5vw, 56px); }
 .card-head { margin: 0; padding: 24px clamp(24px, 5vw, 56px); display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line); }
-.status { border-radius: 999px; padding: 7px 11px; background: var(--accent-soft); color: var(--accent); font-size: .76rem; font-weight: 750; text-transform: uppercase; }
+.status { border-radius: 999px; padding: 7px 11px; background: var(--accent-soft); color: var(--accent); font-size: .76rem; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.state-unmigrated .status, .state-empty .status, .state-unreadable .status { background: color-mix(in srgb, var(--muted) 14%, var(--surface)); color: var(--muted); }
 .state-needs_you .status, .state-blocked .status { background: var(--warm-soft); color: var(--warm); }
 .state-ready .status, .state-working .status { background: var(--good-soft, #e4f2e7); color: var(--good, #256a3a); }
 .state-resting .status { opacity: 0.65; }
@@ -48,9 +58,18 @@ main:focus { outline: none; }
 .role-guide-item dd { margin: 5px 0 0; color: var(--accent); font-weight: 800; }
 .role-guide-note { margin: 16px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
 .brief { margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--line); }
-.brief-row { display: grid; grid-template-columns: 150px 1fr; gap: 22px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.brief-row { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 22px; padding: 22px 0; border-bottom: 1px solid var(--line); }
 .brief dt { color: var(--muted); font-size: .82rem; font-weight: 700; }
-.brief dd { margin: 0; line-height: 1.5; }
+.brief dd { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.dod { display: grid; gap: 10px; justify-items: start; }
+.dod .state-chip { padding: 4px 9px; font-size: .68rem; }
+.change { display: grid; gap: 6px; }
+.change-meta { margin: 0; display: flex; gap: 10px; align-items: baseline; }
+.change-when { font-weight: 700; }
+.change-kind { color: var(--muted); font-size: .82rem; }
+.change-summary { margin: 0; color: var(--muted); line-height: 1.5; }
+.notice { margin-top: 0; margin-bottom: 28px; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--warm) 35%, var(--line)); border-radius: 14px; background: var(--warm-soft); color: var(--warm); font-weight: 650; }
+.notice-count { flex: 0 0 auto; min-width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--warm); color: var(--warm-soft); font-weight: 800; }
 .choices { margin: 0; padding: 34px clamp(24px, 5vw, 56px); background: color-mix(in srgb, var(--warm-soft) 50%, var(--surface)); }
 .choice { width: 100%; display: flex; align-items: center; gap: 16px; margin: 10px 0; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
 .choice:hover { border-color: var(--accent); transform: translateY(-1px); }
@@ -119,3 +138,6 @@ main:focus { outline: none; }
 .lint-chip { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: #2c7a4b; }
 .lint-chip.bad { color: #a03d2e; font-weight: 600; }
 .board-card.red { border-color: #a03d2e; background: color-mix(in srgb, #a03d2e 8%, var(--surface)); }
+
+.checkpoint { display: flex; align-items: baseline; gap: 8px; }
+.checkpoint .state-chip { flex: 0 0 auto; padding: 3px 8px; font-size: .65rem; }

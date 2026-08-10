@@ -10,7 +10,7 @@ import threading
 import unittest
 from unittest import mock
 
-from browser import server
+from browser import board_projection, server
 
 
 PLAN = """# Release notes
@@ -856,7 +856,7 @@ class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
                           "the retired v3 key's absence was reported as a defect")
         board = record["board"]
         self.assertEqual(board["state"], "working")
-        self.assertEqual(board["milestone"]["title"], "M1 — Gift flow live")
+        self.assertEqual(board["milestone"]["title"], "Gift flow live")
         self.assertEqual(board["milestone"]["counts"],
                          {"pending": 1, "in_progress": 1, "blocked": 0, "completed": 1})
         self.assertIn("Checkout smoke green", board["milestone"]["current"])
@@ -1078,6 +1078,72 @@ class BoardProjectionTests(unittest.TestCase):
         self.assertEqual(record["project"], "gift-flow")
         self.assertIsNone(record["mode"])
         self.assertIsNone(record["milestone"])
+
+
+
+class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
+    """The owner graded the board F for printing machine text on human cards.
+
+    The projection is where the fix holds: no commit hash, no receipt
+    grammar keyword, no milestone code number, and no mid-word cut ever
+    reaches a card. The renderer can then trust every string it is handed.
+    """
+
+    PLAN = (
+        "# T\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n## Tasks\n\n"
+        "### M3 — Soft cloudy props for tables\n"
+        "- [completed] groundwork ~aa11 | proof: cmd true\n"
+        "- [blocked] the remembered soft cloudy direction is represented by an "
+        "evidence-backed shortlist, every finalist has a photo and factual vendor "
+        "receipt, the list is simple and image-first, and any unavailable route is "
+        "named with its exact wake predicate so a cold reader can resume without "
+        "asking anything of anyone ever again ~aa12 (DoD) | proof: gate owner\n\n"
+        "## Progress\n\n"
+        "- 2026-08-10T14:13:05Z STRUCT Final authority read — objective SHA "
+        "`b30773705e835d97f9792ea81e3775fa19dbb238f7d5de13bc1e88160827f5fc`, "
+        "Snowcubes `origin/main` and both clean authority checkouts agree ~aa11\n"
+    )
+
+    def _board(self):
+        return board_projection.project_board_brief(self.PLAN)
+
+    def test_a_milestone_title_carries_no_code_number(self) -> None:
+        title = self._board()["milestone"]["title"]
+        self.assertEqual(title, "Soft cloudy props for tables")
+        self.assertNotRegex(title, r"^M\d+")
+
+    def test_the_latest_change_is_structured_and_hash_free(self) -> None:
+        change = self._board()["latest_change"]
+        self.assertEqual(change["when"], "2026-08-10T14:13:05Z")
+        self.assertEqual(change["kind"], "Plan structure changed")
+        self.assertNotIn("STRUCT", change["summary"])
+        self.assertNotRegex(change["summary"], r"[0-9a-f]{12}")
+        self.assertNotIn("~aa11", change["summary"])
+        self.assertIn("authority", change["summary"])
+
+    def test_a_bounded_text_never_cuts_mid_word(self) -> None:
+        dod = self._board()["milestone"]["dod"]["text"]
+        self.assertTrue(dod.endswith("…"), "fixture must exercise the bound")
+        # The last kept token must be a COMPLETE word from the source row —
+        # "any unavailable r…" (half of "route") is the debug-dump tell the
+        # owner photographed.
+        source_words = set(self.PLAN.split())
+        last = dod.rstrip("…").split()[-1]
+        self.assertIn(
+            last, source_words,
+            f"the bound cut inside a word: …{last!r}",
+        )
+        self.assertLessEqual(len(dod), board_projection.MAX_ROW_TEXT)
+
+    def test_a_plain_note_without_keyword_still_projects(self) -> None:
+        plan = self.PLAN.replace(
+            "- 2026-08-10T14:13:05Z STRUCT Final authority read",
+            "- a hand-written note with no stamp and no keyword at all",
+        )
+        change = board_projection.project_board_brief(plan)["latest_change"]
+        self.assertIsNone(change["when"])
+        self.assertIsNone(change["kind"])
+        self.assertIn("hand-written note", change["summary"])
 
 
 if __name__ == "__main__":
