@@ -404,3 +404,100 @@ class NeedsIsAReadinessGate(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("still needs ~cd34", result.stdout + result.stderr)
             self.assertIn("[in_progress] x.txt", plan.read_text(encoding="utf-8"))
+
+
+class ShellOperatorsInAProofAreRefused(unittest.TestCase):
+    """The false green, end to end, at the only path that flips a row.
+
+    `accept` runs a cmd proof through `shlex.split` with NO shell, so `&&`
+    reaches argv[0] as a literal argument. `cmd echo done && shadow --version`
+    ran `echo`, exited 0, flipped the row to `[completed]` and wrote
+    `-> pass (accept)` — while `shadow --version` never executed. The tell was
+    already in the receipt (`shlex.join` quotes the `'&&'`) and nothing read it.
+
+    Lint refuses it too, but the refusal lives here as well on purpose: a plan
+    can reach accept without lint having run, and two gates that disagree are
+    how this got shipped in the first place.
+    """
+
+    PROOFED = PLAN.replace(
+        """cmd python3 -c "import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"""",
+        "cmd echo done && python3 -c \"import sys; sys.exit(1)\"",
+    )
+
+    def test_the_row_is_not_flipped_and_the_reason_names_the_operator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            (repo / "PLAN.md").write_text(self.PROOFED, encoding="utf-8")
+            git(repo, "commit", "-qam", "proof with an operator")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("&&", result.stdout + result.stderr)
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            self.assertNotIn("[completed] x.txt says hello", plan,
+                             "the row flipped on a proof whose command never ran")
+            self.assertNotIn("-> pass (accept)", plan)
+
+    def test_a_deliberate_shell_still_runs(self) -> None:
+        # A guard that refuses the sanctioned form too would just push people
+        # back to lying in the proof.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            (repo / "PLAN.md").write_text(
+                PLAN.replace(
+                    """cmd python3 -c "import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"""",
+                    "cmd bash -c 'set -e; test -f x.txt && grep -q hello x.txt'",
+                ), encoding="utf-8")
+            git(repo, "commit", "-qam", "proof wrapped in a shell")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[completed] x.txt says hello",
+                          (repo / "PLAN.md").read_text(encoding="utf-8"))
+
+    def test_the_shell_exemption_covers_the_script_only(self) -> None:
+        # Bugbot (PR #282, High): exempting the whole argv once `-c` appeared
+        # rebuilt the false green inside the sanctioned form. bash runs `true`
+        # and takes `&&`, `grep`, ... as positional arguments it never runs.
+        self.assertEqual(["&&"], accept._shell_operators("bash -c 'true' && grep -q nope x.txt"))
+        self.assertEqual([], accept._shell_operators("bash -c 'set -e; true && true'"))
+
+    def test_an_operator_glued_to_its_neighbour_is_still_an_operator(self) -> None:
+        # Codex (PR #282, P1): `shlex.split` returns `done&&`, so comparing
+        # whole tokens saw no offender while accept still ran `echo` alone.
+        self.assertEqual(["&&"], accept._shell_operators("echo done&& false"))
+        self.assertEqual([">"], accept._shell_operators("echo done>/missing"))
+        self.assertEqual([">&"], accept._shell_operators("true 2>&1"))
+
+    def test_a_quoted_metacharacter_is_a_literal_the_proof_meant_to_pass(self) -> None:
+        self.assertEqual([], accept._shell_operators("grep -q 'a&&b' x.txt"))
+        self.assertEqual([], accept._shell_operators("echo 'done > here'"))
+
+
+class AcceptReadsAProgressHeadingTheWayLintDoes(unittest.TestCase):
+    """Bugbot (PR #282, Medium): lint prefix-matches section headings.
+
+    `## Progress — the receipts` is a Progress section to the enforcer, so an
+    exact-string match here would fail the append AFTER the proof had already
+    passed: a plan lint calls valid that accept cannot finish.
+    """
+
+    def test_a_suffixed_progress_heading_still_takes_the_proof_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            (repo / "PLAN.md").write_text(
+                PLAN.replace("## Progress\n", "## Progress — the receipts\n"), encoding="utf-8")
+            git(repo, "commit", "-qam", "a suffixed Progress heading")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            self.assertIn("[completed] x.txt says hello", plan)
+            self.assertIn("~ab12 PROOF", plan)
+
+    def test_a_different_word_starting_with_progress_is_not_a_progress_section(self) -> None:
+        self.assertIsNone(accept.PROGRESS_HEADING_RE.search("## Progressive\n"))

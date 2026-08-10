@@ -319,3 +319,245 @@ class SectionOrderIsChecked(unittest.TestCase):
             "## Deferred proof (not a global blocker)\n\n- a | b | wake: c\n",
         )
         self.assertTrue([f for f in lint.lint_plan(text) if f["check"] == "SECTION-ORDER"])
+
+
+def _checks(text: str, **kw) -> set[str]:
+    return {f["check"] for f in lint.lint_plan(text, **kw)}
+
+
+class RowGrammarRunsWhereverAcceptWouldFlip(unittest.TestCase):
+    """The enforcer and the only flip path must agree on what a task is.
+
+    Row checks used to run only under the exact heading `## Tasks`, while
+    `shadow accept` builds its row list from `plan_text.splitlines()` — the
+    whole file. Any second heading was therefore a lint-free zone whose rows
+    accept would still flip to completed and still count for `needs`
+    readiness. A row invisible to the enforcer and real to the flip path is
+    the same defect class as a proof that proves nothing.
+    """
+
+    OUTSIDE = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M — the thing ships
+- [pending] a real row ~aa11 | proof: cmd true
+- [pending] it ships ~bb22 (DoD) | proof: read site -> renders
+
+## Worklane boundary
+
+- [pending] a duplicate id ~aa11 | proof: it totally works
+- [bogus_state] not even a legal state ~zz9 | proof: cmd true
+- [pending] no proof at all ~yy88
+"""
+
+    def test_a_row_under_another_heading_is_checked(self) -> None:
+        found = _checks(self.OUTSIDE)
+        self.assertIn("ID-DUP", found, "a duplicate id outside Tasks went unchecked")
+        self.assertIn("PROOF-CLASS", found, "an unclassed proof outside Tasks went unchecked")
+
+    def test_a_malformed_row_outside_tasks_is_checked(self) -> None:
+        found = _checks(self.OUTSIDE)
+        self.assertIn("ROW-SHAPE", found, "an illegal state outside Tasks went unchecked")
+        self.assertIn("PROOF-MISSING", found, "a proofless row outside Tasks went unchecked")
+
+    def test_milestone_grouping_stays_scoped_to_tasks(self) -> None:
+        # DoD law is about milestones. A stray row under another heading must
+        # not invent a milestone, or every plan with prose bullets goes red.
+        self.assertNotIn("DOD-COUNT", _checks(self.OUTSIDE))
+
+    def test_a_clean_plan_is_still_clean(self) -> None:
+        self.assertEqual(_checks(CLEAN_PLAN) - {"SECTION-MISSING", "TS-ORDER"}, set())
+
+
+class EverySectionLookupIsPrefixMatched(unittest.TestCase):
+    """PR #272 prefix-fixed Deferred and left every sibling exact-string."""
+
+    SUFFIXED = """# Demo
+
+## Brief — the north star
+
+- Project: demo
+- Mode: turbo
+
+## Tasks
+
+### M — the thing ships
+- [pending] a real row ~aa11 | proof: cmd true
+- [pending] it ships ~bb22 (DoD) | proof: read site -> renders
+
+## Progress
+
+- 2026-08-09T00:00:00Z ~aa11 PROOF true -> ok
+"""
+
+    def test_a_suffixed_brief_still_blocks_an_illegal_mode(self) -> None:
+        # The exact false green: with an exact-string lookup this returned
+        # SECTION-MISSING (warning, rc=0) and MODE-ILLEGAL never fired.
+        found = lint.lint_plan(self.SUFFIXED)
+        self.assertIn("MODE-ILLEGAL", {f["check"] for f in found})
+        self.assertTrue([f for f in found if f["severity"] == "blocking"])
+
+    def test_a_suffixed_heading_is_not_reported_missing(self) -> None:
+        details = {f["detail"] for f in lint.lint_plan(self.SUFFIXED)}
+        self.assertNotIn("no `## Brief` heading", details)
+
+    def test_every_canonical_section_accepts_a_suffix(self) -> None:
+        for name in ("Brief", "Tasks", "Deferred", "Contradictions", "Progress"):
+            sections = {f"{name} — with a suffix": [(1, "x")]}
+            self.assertTrue(lint._has_section(sections, name), name)
+            self.assertEqual(lint._section(sections, name), [(1, "x")], name)
+
+    def test_a_different_word_starting_with_the_name_is_not_matched(self) -> None:
+        # `## Briefing` is not `## Brief`. Prefix means "name plus a space".
+        self.assertFalse(lint._has_section({"Briefing": [(1, "x")]}, "Brief"))
+
+
+class ACmdProofIsValidatedAsArgv(unittest.TestCase):
+    """`accept` runs a cmd proof through shlex with NO shell.
+
+    So `&&`, `|`, `;` and `$(...)` arrive as literal ARGUMENTS. The class-word
+    check could not see that: `cmd echo done && shadow --version` linted clean,
+    ran `echo`, exited 0, flipped the row to completed and wrote `-> pass`
+    while `shadow` never ran.
+    """
+
+    def _plan(self, proof: str) -> str:
+        return f"""# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M — the thing ships
+- [pending] a real row ~aa11 | proof: {proof}
+- [pending] it ships ~bb22 (DoD) | proof: read site -> renders
+
+## Progress
+
+- 2026-08-09T00:00:00Z ~aa11 PROOF true -> ok
+"""
+
+    def test_the_documented_false_green_is_refused(self) -> None:
+        self.assertIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd echo done && true")))
+
+    def test_every_operator_that_reaches_argv_is_refused(self) -> None:
+        for operator in ("&&", ";", ">", ">>", "<", "&"):
+            with self.subTest(operator=operator):
+                self.assertIn("PROOF-SHELL-OPERATOR",
+                              _checks(self._plan(f"cmd true {operator} false")))
+
+    def test_a_pipe_is_blocked_by_the_field_separator_before_it_reaches_argv(self) -> None:
+        # `|` and `||` cannot survive to argv: the row tail is split on `|`, so
+        # the row stops parsing first. Still refused, by an earlier gate — and
+        # worth pinning, because "PROOF-SHELL-OPERATOR did not fire" reads as a
+        # hole until you know which check caught it instead.
+        for operator in ("|", "||"):
+            with self.subTest(operator=operator):
+                self.assertIn("ROW-SHAPE", _checks(self._plan(f"cmd true {operator} false")))
+
+    def test_command_substitution_is_refused(self) -> None:
+        self.assertIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd true $(whoami)")))
+
+    def test_a_deliberate_shell_is_allowed(self) -> None:
+        # The sanctioned form: the script after -c really is handed to a shell,
+        # so it means what it reads.
+        self.assertNotIn("PROOF-SHELL-OPERATOR",
+                         _checks(self._plan("cmd bash -c 'set -e; true && true'")))
+
+    def test_the_shell_exemption_covers_the_script_only(self) -> None:
+        # Bugbot (PR #282, High): exempting the whole argv once `-c` appeared
+        # rebuilt the false green inside the sanctioned form — bash runs
+        # `true` and takes `&&`, `false` as positional arguments it never runs.
+        self.assertIn("PROOF-SHELL-OPERATOR",
+                      _checks(self._plan("cmd bash -c 'true' && false")))
+
+    def test_an_operator_glued_to_its_neighbour_is_still_an_operator(self) -> None:
+        # Codex (PR #282, P1): `shlex.split` returns `done&&` as one token, so
+        # comparing whole tokens saw no offender while accept ran `echo` alone.
+        for proof in ("cmd echo done&& false", "cmd echo done>/missing", "cmd true 2>&1"):
+            with self.subTest(proof=proof):
+                self.assertIn("PROOF-SHELL-OPERATOR", _checks(self._plan(proof)))
+
+    def test_a_quoted_metacharacter_is_a_literal_the_proof_meant_to_pass(self) -> None:
+        # The refusal must not swallow arguments that only look like operators.
+        self.assertNotIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd grep -q 'a&&b' f")))
+
+    def test_an_unparseable_command_line_is_its_own_finding(self) -> None:
+        self.assertIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd echo 'unbalanced")))
+
+    def test_a_command_that_exists_nowhere_is_refused_when_the_root_is_known(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            found = _checks(self._plan("cmd definitely-not-a-real-binary-xyz"), root=Path(tmp))
+            self.assertIn("PROOF-ARGV0", found)
+
+    def test_severity_follows_the_evidence_the_finding_rests_on(self) -> None:
+        # Codex (PR #282, P1): this file promises "same text, same findings".
+        # A missing in-tree path is answered by the repository, so it blocks
+        # anywhere. A bare name is answered by PATH, which is not the plan's
+        # text — blocking on it would tie the gate's exit code to whatever the
+        # runner happens to have installed.
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = lint.lint_plan(self._plan("cmd tools/gone.sh"), root=Path(tmp))
+            missing_name = lint.lint_plan(
+                self._plan("cmd definitely-not-a-real-binary-xyz"), root=Path(tmp))
+        self.assertEqual(
+            ["blocking"], [f["severity"] for f in missing_path if f["check"] == "PROOF-ARGV0"])
+        self.assertEqual(
+            ["warning"], [f["severity"] for f in missing_name if f["check"] == "PROOF-ARGV0"])
+
+    def test_an_in_tree_path_resolves(self) -> None:
+        found = _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md"), root=ROOT)
+        self.assertNotIn("PROOF-ARGV0", found)
+
+    def test_argv0_is_not_guessed_when_the_root_is_unknown(self) -> None:
+        # Guessing would turn an unknowable into a false accusation.
+        self.assertNotIn("PROOF-ARGV0", _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md")))
+
+    def test_an_ordinary_proof_is_untouched(self) -> None:
+        self.assertNotIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd true")))
+        self.assertNotIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd true")))
+
+
+class ThisRepositorysOwnPlanSurvivesTheGate(unittest.TestCase):
+    """The regression that would have turned every CI matrix job red.
+
+    argv0 resolution first consulted `shutil.which` and blocked on a miss.
+    `PLAN.md` carries `proof: cmd shadow status ...`, and the workflow checks
+    out the repository without installing `shadow` — so the gate would have
+    failed on a plan that is fine, everywhere except a developer's laptop.
+
+    Pinned against the real file the gate runs on, with a root supplied, which
+    is how `main()` calls it. A synthetic fixture would not have caught it.
+    """
+
+    def test_the_real_plan_has_no_blocking_finding(self) -> None:
+        findings = lint.lint_plan((ROOT / "PLAN.md").read_text(encoding="utf-8"), root=ROOT)
+        blocking = [f for f in findings if f["severity"] == "blocking"]
+        self.assertEqual(blocking, [], f"the gate would reject this repository's own plan: {blocking}")
+
+    def test_no_finding_depends_on_what_is_installed(self) -> None:
+        # An empty PATH is the CI runner at its most bare. Whatever lint says
+        # about this plan, it must say the same thing there — otherwise the
+        # verdict is about the machine, not the plan.
+        import os
+        plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
+        before = {(f["check"], f["line"], f["severity"]) for f in lint.lint_plan(plan, root=ROOT)}
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = ""
+        try:
+            after = {(f["check"], f["line"], f["severity"]) for f in lint.lint_plan(plan, root=ROOT)}
+        finally:
+            os.environ["PATH"] = saved
+        blocking_before = {f for f in before if f[2] == "blocking"}
+        blocking_after = {f for f in after if f[2] == "blocking"}
+        self.assertEqual(blocking_before, blocking_after,
+                         "the gate's exit code changes with the machine's PATH")
