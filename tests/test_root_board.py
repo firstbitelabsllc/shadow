@@ -1325,6 +1325,38 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
                 (home / ".shadow" / "board.json").read_bytes(),
             )
 
+    def test_a_lone_broken_registered_checkout_still_fails_closed(self) -> None:
+        # The repair bypass exists only because a same-identity copy can carry
+        # the plan instead. With no alternative, skipping the broken checkout
+        # would silently drop a registered entity, so it stays a hard refusal.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+            registered = project(portfolio, name="shadow", display_name="shadow")
+            git(registered, "remote", "add", "origin", self.REMOTE)
+            seeded = run(home, "status", "--root", str(registered), "--json")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            before = board(home)
+            (registered / "PLAN.md").write_bytes(b"\xff\xfe")
+            git(registered, "add", "PLAN.md")
+            git(registered, "commit", "--quiet", "-m", "break the only checkout")
+
+            refused = run(
+                home,
+                "status",
+                "--json",
+                cwd=blank,
+                extra_env={"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            )
+
+            self.assertEqual(refused.returncode, 1)
+            self.assertIn("shadow/PLAN.md", refused.stderr)
+            self.assertEqual(board(home), before)
+
     def test_unsafe_registered_plan_declaration_repairs_to_a_valid_same_identity_sibling(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._pair(Path(tmp))
