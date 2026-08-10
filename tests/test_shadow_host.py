@@ -467,18 +467,23 @@ class ShadowHostTests(unittest.TestCase):
             self.assertIn(".env", payload["ignored_artifact_paths"])
             self.assertNotIn(".env", payload["changed_paths"])
 
-    def test_pre_rename_evidence_directory_never_blocks_a_packet(self) -> None:
-        for ignore_legacy in (False, True):
-            with self.subTest(ignore_legacy=ignore_legacy), tempfile.TemporaryDirectory() as dirname:
+    def test_pre_rename_evidence_is_ordinary_dirt_with_no_exemption(self) -> None:
+        # The compatibility path is gone, and no exemption replaces it. An
+        # untracked pre-rename directory is ordinary dirt (worktree not
+        # clean); a gitignored one is a pre-existing ignored file outside the
+        # packet, which the seal refuses too. Both refuse — the host no
+        # longer recognizes the old name at all.
+        for ignored, expected_kind in ((False, "worktree_dirty"), (True, "worktree_unsealed")):
+            with self.subTest(ignored=ignored), tempfile.TemporaryDirectory() as dirname:
                 root = Path(dirname)
                 repo = make_repo(root)
-                if ignore_legacy:
+                if ignored:
                     ignore_file = repo / ".gitignore"
                     ignore_file.write_text(
                         ignore_file.read_text(encoding="utf-8") + ".pilot-puppy/\n", encoding="utf-8"
                     )
                     git(repo, "add", ".gitignore")
-                    git(repo, "commit", "-qm", "ignore pre-rename evidence")
+                    git(repo, "commit", "-qm", "ignore the pre-rename directory")
                 legacy = repo / ".pilot-puppy" / "evidence"
                 legacy.mkdir(parents=True)
                 (legacy / "old-attempt.json").write_text("{}\n", encoding="utf-8")
@@ -487,28 +492,10 @@ class ShadowHostTests(unittest.TestCase):
                 task.write_text("Add the proof marker and run the bounded test.\n", encoding="utf-8")
                 output = repo / ".shadow" / "evidence" / "attempt.json"
                 result = run_host(repo, binary, task, output, host="codex")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                payload = json.loads(output.read_text(encoding="utf-8"))
-                self.assertEqual(payload["status"], "ok")
-                self.assertEqual(payload["changed_paths"], ["result.txt"])
-
-    def test_symlinked_pre_rename_evidence_is_never_exempt_from_sealing(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            root = Path(dirname)
-            repo = make_repo(root)
-            outside = root / "outside"
-            outside.mkdir()
-            (repo / ".pilot-puppy").symlink_to(outside, target_is_directory=True)
-            binary = make_host(root)
-            task = root / "task.txt"
-            task.write_text("Do the bounded task.\n", encoding="utf-8")
-            output = repo / ".shadow" / "evidence" / "attempt.json"
-            result = run_host(repo, binary, task, output, host="codex")
-            self.assertEqual(result.returncode, 1)
-            self.assertFalse(output.exists())
-            self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "worktree_unsealed")
-
-
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertFalse(output.exists())
+                self.assertEqual(
+                    json.loads(result.stdout)["blocked"]["kind"], expected_kind)
 
     def test_private_or_unbounded_host_receipt_data_blocks_without_persisting_it(self) -> None:
         cases = (

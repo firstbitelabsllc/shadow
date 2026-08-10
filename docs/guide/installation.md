@@ -24,9 +24,9 @@ The mount points at the same repository; it does not copy state or credentials.
 
 ## Upgrading from the old name
 
-Shadow was previously published as pilot-puppy. Project evidence written before
-the rename lives in `.pilot-puppy/`; new evidence goes to `.shadow/` (`mv
-.pilot-puppy .shadow` in a project if you want one directory). Remove the old
-global install and its mounts, then re-run `bash install.sh` so
-`~/.claude/skills`, `~/.agents/skills`, and `~/.cursor/skills` point at this
-checkout.
+Shadow shipped under a different name before 0.1.0. Its compatibility path is
+gone: evidence lives in `.shadow/`, and a repository still carrying the
+pre-rename evidence directory shows as dirty until that directory is renamed
+to `.shadow/` or deleted. Remove the old global install and its mounts, then
+re-run `bash install.sh` so `~/.claude/skills`, `~/.agents/skills`, and
+`~/.cursor/skills` point at this checkout.
