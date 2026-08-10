@@ -210,6 +210,10 @@ class RepoLocalConfigDefaults(unittest.TestCase):
                     "schema": "shadow.config.explain.v1",
                     "source": "shadow.yaml",
                     "version": 1,
+                    "adversarial": {
+                        "step": "attack-then-refute",
+                        "lenses": ["thermo", "ponytail"],
+                    },
                     "bindings": {},
                 },
             )
@@ -232,6 +236,10 @@ class RepoLocalConfigDefaults(unittest.TestCase):
                     "schema": "shadow.config.explain.v1",
                     "source": "built-in",
                     "version": 1,
+                    "adversarial": {
+                        "step": "attack-then-refute",
+                        "lenses": ["thermo", "ponytail"],
+                    },
                     "bindings": {},
                 },
             )
@@ -304,6 +312,51 @@ class NoSelectorKeys(unittest.TestCase):
                 self.assertEqual(result.stdout, "")
                 self.assertIn(
                     "shadow config: shadow.yaml:2: unsupported declaration",
+                    result.stderr,
+                )
+
+
+class AdversarialLensDeclarations(unittest.TestCase):
+    def test_repository_can_name_a_bounded_review_lens_set(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = git_repo(Path(dirname))
+            (repo / "shadow.yaml").write_text(
+                "version: 1\nadversarial-lenses: thermo, ponytail, taste\n",
+                encoding="utf-8",
+            )
+
+            result = run_config(repo)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout)["adversarial"],
+                {
+                    "step": "attack-then-refute",
+                    "lenses": ["thermo", "ponytail", "taste"],
+                },
+            )
+
+    def test_invalid_or_duplicate_lens_names_fail_closed(self) -> None:
+        cases = {
+            "empty": "",
+            "duplicate": "thermo, thermo",
+            "path": "../private",
+            "too many": ", ".join(f"lens-{index}" for index in range(9)),
+        }
+        for name, lenses in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as dirname:
+                repo = git_repo(Path(dirname))
+                (repo / "shadow.yaml").write_text(
+                    f"version: 1\nadversarial-lenses: {lenses}\n",
+                    encoding="utf-8",
+                )
+
+                result = run_config(repo)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(
+                    "shadow config: shadow.yaml:2: invalid adversarial-lenses",
                     result.stderr,
                 )
 
