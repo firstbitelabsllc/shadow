@@ -88,6 +88,8 @@ constraint arrives before the elaboration.
 - Every mechanism has a refusable proof, or is labelled taste with a judge.
 - The brief is **shorter than the context it replaces**. If it is longer, the
   extraction failed — go back to step 1.
+- The launcher is normally three lines and at most 80 words. Durable detail
+  belongs in `PLAN.md`, not a longer prompt.
 
 ## Worked example
 
@@ -104,19 +106,8 @@ captured.
 
 ```text
 Outcome: every finding in <scope> is either proven with file:line or dead.
-Authority: <repo>/PLAN.md @ origin/main — fetch first, state the ref you read.
-Resume: <all owned in-progress work, then the ranked reachable set; fan out disjoint rows>.
-Method: find, then REFUTE. Each finding gets 3 independent verifiers with
-distinct lenses (correctness, security, does-it-reproduce); ≥2 refutations
-kills it. Default to refuted when uncertain.
-Precision: every surviving finding quotes file:line or command output. A claim
-without one is dropped, not softened.
-Autonomy: decide and execute in the same turn; no option menus. Exhaust the
-reachable queue before reporting idle. Pause only for: force-push, real money,
-external sends, secrets.
-Proof: <focused command> green, and <real surface> re-observed from fresh state.
-Done when: the surviving-findings list is stable across one more refutation
-round, and each entry names its evidence.
+Resume: <repo>/PLAN.md @ origin/main; continue owned rows, then ranked reachable rows.
+Proof: each finding gets correctness, security, and reproduction refuters; two refutations kill it. Survivors require file:line or command evidence, <focused command> green, and <real surface> re-observed from fresh state.
 ```
 
 Three mechanisms, each bound to a refusal, nothing decorative. That is the

@@ -1,6 +1,6 @@
 ---
 name: goal
-description: "Compile loose intent into the canonical PLAN and a 60-100 word Shadow launcher."
+description: "Compile loose intent into the canonical PLAN and a three-line Shadow launcher of at most 80 words."
 ---
 
 # Shape a goal
@@ -15,26 +15,26 @@ outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 2. If the plan is not executable, update it with the missing authority,
    contradictions, acceptance, and reachable checkpoints, then continue into
    implementation. Stop after planning only when explicitly asked.
-3. Emit 60-100 words, normally six one-line sentences:
+3. Emit at most 80 words, normally three one-line sentences:
 
 ```text
 Outcome: <finite end state and what the person stops supervising>.
-Authority: <refreshed board> + <PLAN.md at committed ref>.
-Resume: <owned claims>; otherwise <highest-value reachable checkpoint or plan preflight>.
-Scope: <end-to-end boundary>; details stay in PLAN.md.
-Proof: <PLAN definition-of-done or one exact acceptance receipt>; keep source, merge, install/deploy, and live distinct.
-Policy: reversible work is agent-decided; pause at <one relevant human boundary or none>, record its wake, and continue elsewhere.
+Resume: <refreshed board + PLAN.md at committed ref>; continue owned claims, then the highest-value reachable checkpoint.
+Proof: <mechanical finish line>; keep source, merge, install/deploy, and live distinct.
 ```
 
 Never copy inventories, skill or agent rosters, implementation sequences,
 test matrices, capability routing, anti-sprawl lists, or unrelated prohibitions
-into the launcher. Put new durable detail in `PLAN.md` and point to it. A broad
-outcome stays broad; brevity must not narrow it to one task.
+into the launcher. Do not add `Authority`, `Scope`, `Policy`, or `Method` lines
+when standing policy and `PLAN.md` already answer them. Add one extra line only
+for a request-specific prohibition or human boundary. Put new durable detail
+in `PLAN.md` and point to it. A broad outcome stays broad; brevity must not
+narrow it to one task.
 
 For a loose steer, translate only the operative signal using
 [amplify](./references/amplify.md).
 
 ## Quality gate
 
-The launcher is 60-100 words, every line changes execution, and a fresh seat
-can begin by opening its authority. If not, update the plan and cut again.
+The launcher is at most 80 words, every line changes execution, and a fresh
+seat can begin by opening its authority. If not, update the plan and cut again.
