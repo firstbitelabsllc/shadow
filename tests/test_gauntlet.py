@@ -20,10 +20,10 @@ What one gauntlet run proves, in order:
 4.  reachability: a cold seat in another clone sees WHO claimed WHICH row from
     the same local computer board — the remote project plan never becomes a
     competing claim ledger;
-5.  acceptance: `shadow accept` reruns the row's cmd proof in a clean
-    checkout and flips it with its paired PROOF line, pushed;
-6.  honesty: the flip is visible to seat B only after the push, and the
-    completed row carries its receipt.
+5.  acceptance: `shadow accept` reruns both rows' cmd proofs in clean
+    checkouts and flips each with its paired PROOF line, pushed;
+6.  honesty: the flip is visible to seat B only after the push, both
+    completed rows carry receipts, and no orphan claim remains.
 
 Nothing here touches the machine's real portfolio: every path lives under a
 TemporaryDirectory, and the remote is a local bare repository.
@@ -247,17 +247,27 @@ class TheGauntlet(unittest.TestCase):
                 {("~aa12", "seat-a"), ("~aa22", "seat-b")},
             )
 
-            # --- 5. acceptance: the cmd proof reruns clean and flips ---
-            accepted = run(
+            # --- 5. acceptance: both cmd proofs rerun clean and flip ---
+            accepted_a = run(
                 [str(SHADOW), "accept", "--repo", str(alpha), "--row", "~aa12",
                  "--by", "seat-a"],
                 alpha,
                 env=shadow_env,
             )
-            self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
-            flipped = (alpha / "PLAN.md").read_text(encoding="utf-8")
-            self.assertIn("- [completed] the feature is being built ~aa12", flipped)
-            self.assertIn("~aa12 PROOF", flipped, "a flip without its receipt is a lie")
+            accepted_b = run(
+                [str(SHADOW), "accept", "--repo", str(beta), "--row", "~aa22",
+                 "--by", "seat-b"],
+                beta,
+                env=shadow_env,
+            )
+            self.assertEqual(accepted_a.returncode, 0, accepted_a.stdout + accepted_a.stderr)
+            self.assertEqual(accepted_b.returncode, 0, accepted_b.stdout + accepted_b.stderr)
+            flipped_a = (alpha / "PLAN.md").read_text(encoding="utf-8")
+            flipped_b = (beta / "PLAN.md").read_text(encoding="utf-8")
+            self.assertIn("- [completed] the feature is being built ~aa12", flipped_a)
+            self.assertIn("~aa12 PROOF", flipped_a, "a flip without its receipt is a lie")
+            self.assertIn("- [completed] the feature is being built ~aa22", flipped_b)
+            self.assertIn("~aa22 PROOF", flipped_b, "a flip without its receipt is a lie")
 
             # --- 6. honesty: seat B sees the flip only after the push ---
             git(seat_b, "fetch", "-q", "origin")
@@ -272,10 +282,7 @@ class TheGauntlet(unittest.TestCase):
                     env=shadow_env,
                 ).stdout
             )["rows"]
-            self.assertEqual(
-                [(row["id"], row["by"]) for row in remaining],
-                [("~aa22", "seat-b")],
-            )
+            self.assertEqual(remaining, [], "two completed rows must leave no orphan claim")
 
 
 if __name__ == "__main__":
