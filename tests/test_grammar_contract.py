@@ -69,14 +69,16 @@ class GrammarContractTests(unittest.TestCase):
         self.assertNotIn("Outcome: <plain result>", root_skill)
         for anchor in (
             "A goal is a pointer, not a plan",
-            "60-100 words",
+            "at most 80 words",
             "Stop after planning only when explicitly asked",
-            "details stay in PLAN.md",
-            "one relevant human boundary or none",
+            "request-specific prohibition or human boundary",
+            "brevity must not narrow it to one task",
         ):
             self.assertIn(anchor, normalized_goal, anchor)
         self.assertNotIn("100-200 word", root_skill + goal_skill)
+        self.assertNotIn("60-100 word", root_skill + goal_skill)
         self.assertNotIn("do not touch <prohibited paths>", goal_skill)
+        self.assertNotIn("Authority: <refreshed computer board>", goal_skill)
 
     def test_only_shadow_is_an_invented_name(self) -> None:
         # Standard vocabulary only: the old fun terms must not resurface in law.
