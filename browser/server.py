@@ -261,6 +261,61 @@ def gallery_records() -> list[dict[str, Any]]:
     return records
 
 
+# A plan demoting ITSELF, not prose about archiving. "docs/plan-archive/" and
+# "archive the milestone" appear in every healthy plan, so the marker has to be
+# a self-verdict: the words a person writes when they mean "stop working this
+# file". Matched case-insensitively over the first lines only, where a banner
+# lives — a phrase quoted deep in Progress is a record, not a verdict.
+#
+# The demotion phrase alone is not enough either. A live plan can open with
+# "do not revive the old service" or call a component "a historical shell":
+# true sentences about something else. So the phrase only counts when it is
+# bound, inside one sentence, to a subject naming THIS plan — the difference
+# between describing an archive and being one.
+#
+# The qualifiers between "this" and the noun are a closed list, not any word:
+# "this deployment plan" or "this rollout plan" names a plan of work, and a row
+# saying "do not update this deployment plan yet" is scheduling, not a verdict.
+# Only a phrase that can mean the file being read counts.
+_VETO_SELF = (
+    r"this\s+(?:root\s+|top-level\s+|entire\s+|whole\s+|repo(?:sitory)?\s+"
+    r"|milestone\s+|shadow\s+)*(?:plan(?:\.md)?|file|document)\b"
+)
+_VETO_DEMOTION = (
+    r"non-executable(?:\s+archive)?(?:\s+shell)?|archive shell|historical shell"
+    r"|do not revive|do not update"
+)
+ARCHIVE_VETO_RE = re.compile(
+    rf"(?:{_VETO_SELF})[^.\n]{{0,80}}?(?:{_VETO_DEMOTION})"
+    rf"|(?:{_VETO_DEMOTION})[^.\n]{{0,80}}?(?:{_VETO_SELF})",
+    re.IGNORECASE,
+)
+VETO_SCAN_LINES = 40
+
+
+def _archive_veto(paths: list[Path]) -> str | None:
+    """The self-demotion found on ANY instance of one logical plan.
+
+    Guarded exactly as `read_plan` guards the record it builds. A repo's root
+    `PLAN.md` is admitted on `is_file()`, which a symlink satisfies, so a
+    sibling checkout could point its plan anywhere on the filesystem and have
+    that content decide whether the logical plan is authority. The reader that
+    demotes must be no more permissive than the reader that renders.
+    """
+    for candidate in paths:
+        if candidate.is_symlink() or not candidate.is_file() or candidate.name != "PLAN.md":
+            continue
+        try:
+            with candidate.open(encoding="utf-8") as handle:
+                head = "".join(next(handle, "") for _ in range(VETO_SCAN_LINES))
+        except (OSError, UnicodeError):
+            continue
+        found = ARCHIVE_VETO_RE.search(head)
+        if found:
+            return found.group(0)
+    return None
+
+
 def _origin_of(repo: Path) -> str:
     """The repo's origin URL, or its path when it has none.
 
@@ -433,7 +488,7 @@ def is_portfolio_child(child: Path, root: Path) -> bool:
         return False
 
 
-def discover_plans(root: Path) -> list[dict[str, Any]]:
+def discover_plans(root: Path, *, include_shadowed: bool = False) -> list[dict[str, Any]]:
     """Every plan the portfolio can legally see.
 
     Repositories are enumerated, never directories. A recursive walk reached
@@ -444,7 +499,10 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
     from rendering session directories whose names are prompt text.
     """
     records: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    shadowed: list[dict[str, Any]] = []
+    # key -> the root-relative path that won it, so a suppressed record can
+    # name its winner instead of just vanishing.
+    seen: dict[tuple[str, str], str] = {}
     if is_plan_root(root):
         candidates = [root]
     elif root.is_dir():
@@ -482,6 +540,19 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
         )
     else:
         candidates = []
+    # Every instance of every key, gathered BEFORE election. A plan's own
+    # demotion can sit on a copy no rule elects — measured on this machine,
+    # where resplit-ios/PLAN.md wins on every structural rule while the
+    # "non-executable archive shell, do not revive" banner exists only on the
+    # unelected divergent copy at resplit-ios-deploy-watcher. Reading just the
+    # winner cannot see that, so the verdict is sought across the whole key,
+    # which is already enumerated here.
+    instances: dict[tuple[str, str], list[Path]] = {}
+    for repo in candidates:
+        for path in repo_plans(repo):
+            instances.setdefault(
+                (_origin_of(repo), str(path.relative_to(repo))), []).append(path)
+
     for repo in candidates:
         for path in repo_plans(repo):
             try:
@@ -492,8 +563,20 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
             # clone is the same plan as its main checkout, not a second card.
             key = (_origin_of(repo), str(path.relative_to(repo)))
             if key in seen:
+                # Suppression is a real answer, and a reader who cannot see it
+                # has no way to tell "identical copy dropped" from "a plan I
+                # needed went missing". The record is already built above, so
+                # surfacing it costs a field, not a second parse.
+                if include_shadowed:
+                    record["shadowed_by"] = seen[key]
+                    record["shadow_reason"] = f"same repository as {seen[key]}"
+                    shadowed.append(record)
                 continue
-            seen.add(key)
+            seen[key] = record["path"]
+            veto = _archive_veto(instances.get(key, [path]))
+            if veto:
+                record["archived"] = True
+                record["archive_veto"] = veto
             records.append(record)
     rank = {"needs_you": 0, "blocked": 1, "working": 2, "not_delivered": 3, "finished_with_proof": 4}
     records.sort(
@@ -503,7 +586,32 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
             item["path"],
         )
     )
-    return records
+    # Shadowed rows sort after every rendered one, by reason then path, so the
+    # extra view is a stable append rather than a reshuffle of the board.
+    shadowed.sort(key=lambda item: (item["shadow_reason"], item["path"]))
+    return records + shadowed
+
+
+def is_live(record: dict[str, Any]) -> bool:
+    """Whether one record may be presented as authority.
+
+    The rule lives here, in one place, because it now has more than one caller:
+    the browser wire and `shadow status`. A second surface re-spelling
+    `not record["archived"]` is how the two drift back apart.
+    """
+    return not record.get("archived")
+
+
+def live_plans(root: Path) -> list[dict[str, Any]]:
+    """What the board is allowed to render as authority.
+
+    Annotating a demoted record is not a demotion: the projections iterate the
+    served list and never read `archived`, so a vetoed archive shell would keep
+    its card, its live briefing and its decision buttons. The one place that
+    cannot be forgotten is the wire — a record the browser never receives
+    cannot render as authority in any view, present or future.
+    """
+    return [record for record in discover_plans(root) if is_live(record)]
 
 
 def resolve_plan(root: Path, value: Any) -> Path:
@@ -687,7 +795,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/plans":
-            self._json(200, {"product": PRODUCT, "plans": discover_plans(self.scan_root)})
+            self._json(200, {"product": PRODUCT, "plans": live_plans(self.scan_root)})
             return
         if parsed.path == "/api/gallery":
             self._json(200, {"product": PRODUCT, "plans": gallery_records()})
