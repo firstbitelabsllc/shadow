@@ -55,6 +55,9 @@
       50% { opacity: 1; }
     }
     .pulse { animation: pulse-node 3s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      .flow-line, .pulse { animation: none; }
+    }
   </style>
 
   <!-- Background -->

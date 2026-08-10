@@ -15,9 +15,10 @@ shadow doctor
 root that exists (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`).
 Pass `--no-skills` to link the command alone.
 
-Expected result: `shadow doctor` reports the product identity, command,
-three host probes, and each installed mount as passing. Authentication stays
-inside the native host on that computer.
+Expected result: `shadow doctor` reports product identity, command, and the
+host/mount checks that exist on that computer. Missing optional hosts or mounts
+are warnings; Cursor cold directive activation is an explicit unsupported
+surface. Authentication stays inside the native host on that computer.
 
 ## The normal loop
 

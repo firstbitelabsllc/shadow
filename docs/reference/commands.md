@@ -5,9 +5,9 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | Command | Purpose |
 |---|---|
 | `shadow init --here` | Create `PLAN.md` without overwriting one. |
-| `shadow status --by <seat> [--root PATH]` | Read this computer's root board, show every claim owned by the stable seat, then rank reachable entity checkpoints. `--root` changes only the bounded import root; it never bypasses the board. |
-| `shadow status --in-flight` | Every root-board claim on this computer, joined at read time to its project-owned text and proof — the recovery view after a chat dies. |
-| `shadow goal` | Print the static standing goal. The default installer manages it in Claude and Codex. Cursor cold directive activation is unsupported until a reviewed writable user-rule surface exists; its skill mount and sealed host runner remain supported. Same text every day; only board pointers move. |
+| `shadow status --by <seat> [--root PATH] [--shadowed]` | Read this computer's root board, show every claim owned by the stable seat, then rank reachable entity checkpoints. `--root` changes only the bounded import root; it never bypasses the board. `--shadowed` adds safe reasons for suppressed or retired copies. |
+| `shadow status --in-flight` | Every root-board claim on this computer, joined at read time to its project-owned text and proof — the recovery view after a chat dies. Add `--json` for a machine-readable end-of-chat footer. |
+| `shadow goal [--install|--remove] [--host HOST]` | Print the static standing goal, or install/remove its managed block in supported host instruction files. Cursor cold directive activation is unsupported until a reviewed writable user-rule surface exists; its skill mount and sealed host runner remain supported. |
 | `shadow amp --entity ID --by <seat>` | Resume a paste-ready packet for a checkpoint already claimed by that seat. It never dispatches unclaimed work. |
 | `shadow throw --task '~hash' --by <seat> [--repo PATH\|--entity ID]` | Atomically claim an entity checkpoint before work leaves the seat, then print its packet. The board records pointer, row id, owner, lease, and recovery action; the entity plan is unchanged. `--adopt-expired` replaces only an overdue claim after proof was probed. |
 | `shadow return --row '~hash' --by <seat> [--repo PATH\|--entity ID]` | Idempotently close the named owner's claim after a committed manual proof, a committed blocked state plus one Deferred wake, or an explicit handback; then advance resume without changing the plan. |
