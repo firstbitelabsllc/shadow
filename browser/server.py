@@ -418,11 +418,14 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
         # replace the canonical checkout's plan with a stale copy — observed on
         # the reference machine against this very repository. Prefer the
         # checkout whose directory name matches the origin's repository name,
-        # then the one whose plan was touched most recently.
+        # then the one whose plan was touched most recently. The comparison is
+        # case-folded on both sides: the normalized origin is lowercased, so a
+        # `Thing` directory cloned from `.../thing` would otherwise lose the
+        # tie-break to whatever mtime and alphabetical order happened to pick.
         candidates = sorted(
             found,
             key=lambda repo: (
-                repo.name != _origin_repo_name(_origin_of(repo)),
+                repo.name.lower() != _origin_repo_name(_origin_of(repo)).lower(),
                 -_plan_mtime(repo),
                 repo.name,
             ),

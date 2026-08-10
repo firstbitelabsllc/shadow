@@ -196,6 +196,24 @@ class OneLogicalPlan(unittest.TestCase):
             paths = [r["path"] for r in discover_plans(root)]
             self.assertEqual(paths, ["thing/PLAN.md"])
 
+    def test_a_differently_cased_checkout_still_matches_its_origin(self) -> None:
+        # The normalized origin is lowercased so one repository is one key, and
+        # that same value names the canonical checkout. A `Thing` directory
+        # cloned from `.../thing` must still win the tie-break; otherwise the
+        # normalization that fixed the duplicate row hands the card to a stale
+        # clone that merely sorts first and was touched last.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("aaa-old-name", "Thing"):
+                repo = make(root, name)
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin",
+                     "git@example.invalid:acme/thing.git"], check=True)
+            os.utime(root / "aaa-old-name" / "PLAN.md", (2_000_000_000, 2_000_000_000))
+            paths = [r["path"] for r in discover_plans(root)]
+            self.assertEqual(paths, ["Thing/PLAN.md"])
+
     def test_unrelated_roots_without_git_are_not_merged(self) -> None:
         # No origin means the path stands in as identity. Two plain
         # directories are two plans, not one.
