@@ -147,6 +147,20 @@ sections that stood here until 2026-08-09 are archived at
 - [pending] durability means REACHABLE by another seat, not merely pushed somewhere — a claim sitting on an unmerged branch is visible only to someone already told the branch name, and the check says which of the two it got ~pver | proof: cmd scripts/shadow-python.sh -m unittest tests.test_throw.AClaimOnAnUnmergedBranchIsNotCalledDurable | needs: ~pdis
 - [pending] a stranger clones a repository whose trunk is protected, claims a row, and a second machine finds that claim without being told where to look ~pd18 (DoD) | proof: cmd scripts/shadow-python.sh -m unittest tests.test_throw | needs: ~pdis, ~pver
 
+### M20 — the universal system: one root board per computer
+
+- tools: minted from the owner's direction across two seats (2026-08-10): one root board per COMPUTER for priority, claims, and resume pointers; project plans stay authoritative shards for their own rows and proof; the board indexes and arbitrates, it never absorbs — a task's text exists in exactly one file, ever. The goal prompt is a pointer to THIS milestone; requirements live here and in the register, never in the prompt
+- [in_progress] every requirement from both seats' chats is folded into one decision register — each entry adopted, rejected with its reason, or deferred with an exact wake; nothing remains chat-only ~dreg | proof: read docs/reference/universal-system-register.md lists both seats' entries and a second seat confirms its chat is fully represented
+- [pending] the root board exists: a git repository at ~/.shadow with a private remote, pushed after every accepted write, holding priority, claims, owners, and one resume pointer per project — pointers, never copies of rows ~root | proof: cmd scripts/shadow-python.sh -m unittest tests.test_root_board.TheBoardHoldsPointersNeverRowCopies tests.test_root_board.ALostMachineLosesNoState
+- [pending] two seats claim concurrently and cannot collide: an advisory lock around read-claim-write, reusing the installer's crash-safe atomic write discipline; a seat that dies mid-claim leaves a recoverable board ~lock | proof: cmd scripts/shadow-python.sh -m unittest tests.test_root_board.ConcurrentClaimsCannotCollide tests.test_root_board.ACrashMidClaimLeavesARecoverableBoard | needs: ~root
+- [pending] bounded provenance-preserving import: real plans enter the board as pointers; worktree and snapshot ghost copies are excluded by construction using the shipped dedup and archive-veto machinery ~impt | proof: cmd scripts/shadow-python.sh -m unittest tests.test_root_board.ImportExcludesGhostCopiesByConstruction | needs: ~root
+- [pending] compaction, completion, and garbage collection are a first-class subsystem: landed worktrees retire, dated snapshots expire, shipped milestones archive, hot plans compact without losing receipts, standing loops declare their lifecycle — growth can never recreate the 7,768-ghost-plan state ~gc20 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_lifecycle | needs: ~impt
+- [pending] the activation text is frozen to one invariant plus the loop and rails, byte-identical for every supported host, installed only through the managed markers so it is iterable forever; the owner's machine is the dogfood target with full-overwrite authorization on record ~actv | proof: read both installed host files carry byte-identical blocks whose hash matches the shipped source | needs: ~slnk
+- [pending] the extension buckets are filled with the fleet's best in-house operators — brainstorming and code review from the superpowers plugin, design through /craft with /taste as the quality bar, delegation through shadow's own host-run — external agent products are not used; their published patterns are studied into Method ~bkts | proof: cmd bin/shadow buckets reports each named bucket filled and its source
+- [pending] verification is tiered and declared: feature lanes run declared focused checks, the trunk runs affected integration checks and curates test health, release candidates run the full story-driven gauntlet; a silent skip fails loudly and that failure is itself tested ~tier | proof: cmd scripts/shadow-python.sh -m unittest tests.test_verification_tiers.ASilentSkipFailsLoudly
+- [pending] the two-seat proof, uncoached: under a scratch HOME two concurrent seats see one identical board and each other's claims; then a real claude session and a real codex session on this machine independently print the same activation hash and board revision, claim disjoint rows, and complete them with proof ~2st8 (DoD) | proof: gate leo re-observes both real sessions; and cmd scripts/shadow-python.sh -m unittest tests.test_root_board tests.test_lifecycle is green | needs: ~root, ~lock, ~impt, ~gc20, ~actv, ~tier
+
+
 ## Worklane boundary
 
 - Shadow has its own product plan and proof gap. That gap never blocks an
@@ -194,6 +208,18 @@ sections that stood here until 2026-08-09 are archived at
 - `shadow doctor` cannot verify the standing goal in Cursor | its user rules live in application settings, not a file, so asserting `~/.cursor/rules/shadow.md` would invent a convention and then report success for wiring that does nothing | wake: the owner names Cursor's real user-rule surface, or Cursor ships a documented file path
 
 ## Contradictions
+
+- per-repo-only authority vs the owner's per-computer root board | provisional
+  winner: root board + subordinate shards | opened 2026-08-10T04:24:00Z
+  The law says PLAN.md at a project root is the only authority (`AGENT.md:11`,
+  `SKILL.md:165`, `docs/reference/grammar.md:46`, `bin/shadow` init, and the
+  shipped standing-goal text in `docs/reference/host-integration.md:34`). The
+  owner's direction (2026-08-10, verbatim: "not per repo, per fucking
+  computer") supersedes it: ONE root board per computer owns priority, claims,
+  and resume pointers; project plans remain authoritative for their own rows,
+  proof, and evidence. The board holds pointers, never copies. `AGENT.md:166`
+  ("each machine's board is its own plan set") is precedent, not conflict.
+  M20 implements; every listed law surface is rewritten when ~actv lands.
 
 - RESOLVED 2026-08-09T05:40:00Z in favor of Boundaries: Langfuse is KILLED for
   Shadow. See the ~obsv PROOF line. |
