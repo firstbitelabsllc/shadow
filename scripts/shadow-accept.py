@@ -665,12 +665,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="commit without pushing (an unpushed flip is invisible to other seats)")
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
-    row_id = args.row.strip()
+    selector = args.row.strip()
     try:
         board_root = _board.configured_root()
         _board.assert_entity_board(repo, root=board_root)
-        if ROW_ID_RE.fullmatch(row_id) is None:
-            raise AcceptError("row must be a ~hash id, four base36 chars")
+        if not _amp.valid_selector(selector):
+            raise AcceptError(
+                "row must be a four-character ~hash or an exact leading legacy "
+                "label like P9a~formats"
+            )
         try:
             owner = _board.validate_owner(args.by)
         except _board.BoardError as exc:
@@ -678,7 +681,6 @@ def main(argv: list[str] | None = None) -> int:
         try:
             requested_plan = repo / "PLAN.md"
             state = _board.entity_state(requested_plan, root=board_root)
-            owned_claim(state, row_id, owner)
             plan_path = _board.canonical_plan(
                 requested_plan, repair_missing=True, root=board_root
             )
@@ -697,10 +699,27 @@ def main(argv: list[str] | None = None) -> int:
         if git_completed(repo, "ls-files", "-u", "--", str(plan_relative)).stdout.strip():
             raise AcceptError("PLAN.md has unresolved merge conflicts; resolve them first")
         try:
+            head_token, head_bytes = _board.head_plan_snapshot(plan_path)
+            head_plan = _amp._parse(head_bytes.decode("utf-8"))
+            row_id = _amp.resolve_row_selector(head_plan, selector)
+        except (_board.BoardError, _amp.SelectorError, OSError, UnicodeError) as exc:
+            raise AcceptError(
+                f"row selector cannot be resolved from committed authority: {exc}"
+            ) from exc
+        owned_claim(state, row_id, owner)
+        try:
             plan_token, plan_bytes = committed_or_recovered_snapshot(plan_path, row_id)
             plan_text = plan_bytes.decode("utf-8")
         except (_board.BoardError, AcceptError, OSError, UnicodeError) as exc:
             raise AcceptError(f"plan must be one committed authority before proof: {exc}") from exc
+        if plan_token != head_token:
+            raise AcceptError("the committed project plan changed while resolving the row; retry")
+        try:
+            resolved_again = _amp.resolve_row_selector(_amp._parse(plan_text), selector)
+        except _amp.SelectorError as exc:
+            raise AcceptError(f"row selector changed while resolving the plan: {exc}") from exc
+        if resolved_again != row_id:
+            raise AcceptError("row selector changed canonical identity while resolving the plan")
         enforce_row_grammar(plan_text, repo)
         enforce_plan_lint(plan_text, plan_path.parent)
         _, row_line, state, proof, needs = find_row(plan_text, row_id)

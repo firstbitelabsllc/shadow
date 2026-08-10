@@ -74,6 +74,30 @@ class ACompletedReadProofNeedsACanonicalReceipt(unittest.TestCase):
         self.assertNotIn("COMPLETED-NO-PROOF", blocking(canonical))
 
 
+class TheIdGrammarMatchesTheDecisionRecordedInGrammarMd(unittest.TestCase):
+    def test_legacy_label_keeps_a_separate_four_character_canonical_id(self) -> None:
+        labeled = CLEAN_PLAN.replace(
+            "smoke green ~cd34", "P9a~formats smoke green ~3549"
+        )
+        descriptive_id = CLEAN_PLAN.replace("smoke green ~cd34", "smoke green ~formats")
+
+        self.assertEqual(blocking(labeled), set())
+        self.assertTrue(blocking(descriptive_id), "a descriptive suffix cannot replace the canonical id")
+        grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(encoding="utf-8")
+        self.assertIn("legacy row labels", grammar)
+        self.assertIn("P9a~formats", grammar)
+        self.assertIn("~3549", grammar)
+
+    def test_duplicate_legacy_labels_are_ambiguous_and_blocking(self) -> None:
+        duplicated = CLEAN_PLAN.replace(
+            "smoke green ~cd34",
+            "P9a~formats smoke green ~cd34\n"
+            "- [pending] P9a~formats second row ~9876 | proof: cmd true",
+        )
+
+        self.assertIn("ID-ALIAS-DUP", blocking(duplicated))
+
+
 class ShadowLintTests(unittest.TestCase):
     def test_clean_v2_plan_has_no_blocking_findings(self) -> None:
         self.assertEqual(blocking(CLEAN_PLAN), set())

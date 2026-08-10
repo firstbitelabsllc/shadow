@@ -26,6 +26,12 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as _board  # noqa: E402
 from shadow_config import load_config  # noqa: E402
+from shadow_row_ids import (  # noqa: E402
+    LEGACY_SELECTOR_PATTERN,
+    ROW_ID_PATTERN,
+    SelectorError,
+    resolve_row_selector,
+)
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
@@ -39,7 +45,10 @@ ROW_RE = re.compile(
 ROW_LOOSE_RE = re.compile(r"^- \[[^\]]*\] ")
 FIELD_RE = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
 HASH_RE = re.compile(r"~[0-9a-z]{4}\b")
-PROOF_LINE_RE = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
+SELECTOR_RE = re.compile(rf"(?<![A-Za-z0-9~])(?:{ROW_ID_PATTERN}|{LEGACY_SELECTOR_PATTERN})\b")
+PROOF_LINE_RE = re.compile(
+    rf"^- \S+ (?P<selector>{ROW_ID_PATTERN}|{LEGACY_SELECTOR_PATTERN}) PROOF\b"
+)
 STAMP_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ", re.MULTILINE)
 TOMBSTONE_RE_TEMPLATE = (
     r"<!-- shadow:lifecycle:{slug}:sha256:(?P<digest>[0-9a-f]{{64}}):"
@@ -258,15 +267,29 @@ def validate_milestone(
         if re.match(r"^(?:cmd|read|gate) \S", proof) is None:
             raise LifecycleError(f"{row['id']} has no typed proof")
 
-    all_ids = {
-        match.group("id")
+    all_rows = [
+        {"id": match.group("id"), "text": match.group("text")}
         for line in lines
         if (match := ROW_RE.match(line.rstrip("\r\n")))
-    }
+    ]
+    all_ids = {row["id"] for row in all_rows}
+
+    def resolved_refs(item: str) -> set[str]:
+        refs: set[str] = set()
+        for match in SELECTOR_RE.finditer(item):
+            selector = match.group(0)
+            try:
+                refs.add(resolve_row_selector(all_rows, selector))
+            except SelectorError as exc:
+                if str(exc).startswith("no task carries selector "):
+                    continue
+                raise LifecycleError(str(exc)) from exc
+        return refs
+
     selected = []
     proven: set[str] = set()
     for start, end, item in progress_items(lines):
-        refs = set(HASH_RE.findall(item))
+        refs = resolved_refs(item)
         if not refs.intersection(ids):
             continue
         foreign = refs.intersection(all_ids - ids)
@@ -277,7 +300,11 @@ def validate_milestone(
         selected.append((start, end, item))
         for line in item.splitlines():
             if match := PROOF_LINE_RE.match(line):
-                proven.add(match.group("id"))
+                try:
+                    proven.add(resolve_row_selector(all_rows, match.group("selector")))
+                except SelectorError as exc:
+                    if not str(exc).startswith("no task carries selector "):
+                        raise LifecycleError(str(exc)) from exc
     missing = sorted(ids - proven)
     if missing:
         raise LifecycleError("completed milestone lacks PROOF receipts: " + ", ".join(missing))

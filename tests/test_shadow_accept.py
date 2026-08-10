@@ -146,6 +146,61 @@ class ShadowAcceptTests(unittest.TestCase):
             )
         return result, output.getvalue()
 
+    def test_legacy_selector_accepts_and_records_only_the_canonical_id(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "x.txt says hello ~ab12", "P9a~formats x.txt says hello ~3549"
+                ),
+                encoding="utf-8",
+            )
+            git(repo, "commit", "-qam", "retain legacy selector")
+            home = root / "home"
+            home.mkdir()
+            accept._board.reconcile(
+                [{
+                    "plan": str(plan),
+                    "project": "demo",
+                    "priority": 3,
+                    "candidates": ["~3549"],
+                }],
+                [],
+                home=home,
+            )
+            accept._board.claim(
+                plan, "~3549", "seat-a", project="demo", priority=3, home=home
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "P9a~formats",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            landed = plan.read_text(encoding="utf-8")
+            self.assertIn("[completed] P9a~formats x.txt says hello ~3549", landed)
+            self.assertEqual(landed.count("~3549 PROOF"), 1)
+            self.assertNotIn("P9a~formats PROOF", landed)
+            board_text = (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            self.assertNotIn("P9a~formats", board_text)
+            self.assertEqual(json.loads(board_text)["claims"], [])
+
     def _leave_completed_plan_after_atomic_replace(
         self,
         repo: Path,

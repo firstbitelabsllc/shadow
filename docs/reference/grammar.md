@@ -122,6 +122,12 @@ plan.
 - State ∈ `pending | in_progress | blocked | completed`.
 - IDs are four base36 chars (`~ab12`), unique per plan, stable across
   reordering; on a mint collision, re-mint. References always use the hash.
+- Migrated legacy row labels may remain as an exact leading label such as
+  `P9a~formats` before its prose and canonical trailing ID (`~3549`). The
+  label is a compatibility selector only: `throw --task`, `amp --task`,
+  `accept --row`, and `return --row` resolve it against the committed plan.
+  Claims, `needs:`, proof receipts, successors, and board storage always use
+  the canonical ID. Missing or duplicate legacy selectors fail closed.
 - Proof classes: `cmd <runnable>` (machine-rerunnable), `read <artifact/url
   -> expected observation>` (a human or agent re-reads the real surface), or
   `gate <owner> resume: <predicate>` (person-gated; closes agent-side with a

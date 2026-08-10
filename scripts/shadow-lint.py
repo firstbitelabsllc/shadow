@@ -21,6 +21,7 @@ from typing import Final
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
 import shadow_root_board as _board  # noqa: E402
+from shadow_row_ids import leading_legacy_selector  # noqa: E402
 
 
 LEGAL_MODES: Final = {"explore", "ship"}
@@ -48,6 +49,7 @@ ROW_GRAMMAR_CHECKS: Final = frozenset({
     "ROWS-WITHOUT-TASKS",
     "ROW-SHAPE",
     "ID-DUP",
+    "ID-ALIAS-DUP",
     "PROOF-MISSING",
     "PROOF-CLASS",
     "PROOF-UNPARSEABLE",
@@ -257,6 +259,8 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
     )
 
     ids: dict[str, tuple[int, str]] = {}
+    aliases: dict[str, int] = {}
+    aliases_by_id: dict[str, str] = {}
     needs_refs: list[tuple[int, str]] = []
     milestone_rows: list[list[tuple[int, dict]]] = []
     current_rows: list[tuple[int, dict]] | None = None
@@ -292,6 +296,20 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
             findings.append(_finding("ID-DUP", number, "blocking", f"{row_id} first used on line {ids[row_id][0]}"))
         else:
             ids[row_id] = (number, row["state"])
+        alias = leading_legacy_selector(row["text"])
+        if alias is not None:
+            if alias in aliases:
+                findings.append(
+                    _finding(
+                        "ID-ALIAS-DUP",
+                        number,
+                        "blocking",
+                        f"{alias} first used on line {aliases[alias]}",
+                    )
+                )
+            else:
+                aliases[alias] = number
+                aliases_by_id[row_id] = alias
         tail = row["tail"] or ""
         pairs = FIELD_RE.findall(tail)
         # Every byte of the tail must be accounted for by a parsed field: an
@@ -429,7 +447,20 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
     # the successor". Shape was checked; truth was not. A completed row must
     # name its receipt in Progress — that pairing is the whole contract.
     for row_id, (number, state) in ids.items():
-        if state == "completed" and not _board.progress_proof_receipts(text, row_id):
+        alias = aliases_by_id.get(row_id)
+        legacy_receipt = bool(alias) and any(
+            re.match(
+                rf"^- \d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z "
+                rf"{re.escape(alias)} PROOF\b",
+                line,
+            )
+            for line in _board.section_lines(text, "Progress")
+        )
+        if (
+            state == "completed"
+            and not _board.progress_proof_receipts(text, row_id)
+            and not legacy_receipt
+        ):
             findings.append(
                 _finding(
                     "COMPLETED-NO-PROOF", number, "blocking",

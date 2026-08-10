@@ -21,7 +21,7 @@ import shadow_root_board as board
 
 THROWN = re.compile(
     r"^- (?P<stamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
-    r"THROWN (?P<row>~[0-9a-z]{4})\b(?P<tail>.*)$",
+    r"THROWN (?P<row>\S{1,80})(?=\s|$)(?P<tail>.*)$",
     flags=re.M,
 )
 OWNER = re.compile(r"\| by: (?P<owner>[^|]+)")
@@ -273,8 +273,47 @@ def reconcile_portfolio(
 
         latest: dict[str, tuple[str, str]] = {}
         for match in THROWN.finditer(text):
+            selector = match.group("row")
+            if not amp.valid_selector(selector):
+                continue
+            if not selector.startswith("~"):
+                try:
+                    _, committed_bytes = board.head_plan_snapshot(source_path)
+                    committed_plan = amp._parse(committed_bytes.decode("utf-8"))
+                    row_id = amp.resolve_row_selector(committed_plan, selector)
+                except amp.SelectorError as exc:
+                    if str(exc).startswith("no task carries selector "):
+                        continue
+                    raise board.BoardError(
+                        f"{relative} has an ambiguous committed row selector: {exc}"
+                    ) from exc
+                except (OSError, UnicodeError) as exc:
+                    raise board.BoardError(
+                        f"{relative} committed legacy selector authority is unreadable"
+                    ) from exc
+                try:
+                    live_row = amp.resolve_row_selector(plan, selector)
+                except amp.SelectorError as exc:
+                    raise board.BoardError(
+                        f"{relative} row selector {selector} does not match both "
+                        "committed and working-tree authority"
+                    ) from exc
+                if live_row != row_id:
+                    raise board.BoardError(
+                        f"{relative} row selector {selector} changed canonical "
+                        "identity outside committed authority"
+                    )
+            else:
+                try:
+                    row_id = amp.resolve_row_selector(plan, selector)
+                except amp.SelectorError as exc:
+                    if str(exc).startswith("no task carries selector "):
+                        continue
+                    raise board.BoardError(
+                        f"{relative} has an ambiguous historical row selector: {exc}"
+                    ) from exc
             owner = OWNER.search(match.group("tail"))
-            latest[match.group("row")] = (
+            latest[row_id] = (
                 match.group("stamp"),
                 owner.group("owner").strip() if owner else "another seat",
             )

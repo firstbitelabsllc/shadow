@@ -99,7 +99,9 @@ def _config_preferences(
     return minutes, display, lenses
 
 
-def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str, str]]:
+def _validated_target(
+    plan_path: Path, task: str
+) -> tuple[Path, dict, dict[str, str], str]:
     """Read one exact project authority and reject an unsafe/untakeable row."""
     repo = _repo_for(plan_path)
     relative = str(plan_path.relative_to(repo)) if plan_path.is_relative_to(repo) else plan_path.name
@@ -115,12 +117,26 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
     except (OSError, UnicodeError) as exc:
         raise _board.BoardError("project plan is missing or unreadable") from exc
     plan = _amp._parse(text)
-    located = _row_line(text, task)
+    try:
+        canonical_task = _amp.resolve_row_selector(plan, task)
+    except _amp.SelectorError as exc:
+        if "duplicated in the plan" in str(exc):
+            unclean = _amp.unclean_note(plan)
+            if unclean:
+                raise _board.BoardError(
+                    f"project plan cannot be claimed: {unclean}"
+                ) from exc
+        raise _board.BoardError(str(exc)) from exc
+    located = _row_line(text, canonical_task)
     if located is None:
-        raise _board.BoardError(f"no task carries {task} in the stored canonical project plan")
+        raise _board.BoardError(
+            f"no task carries {canonical_task} in the stored canonical project plan"
+        )
     _, match = located
     if match.group("state") not in {"pending", "in_progress"}:
-        raise _board.BoardError(f"{task} is [{match.group('state')}], not claimable")
+        raise _board.BoardError(
+            f"{canonical_task} is [{match.group('state')}], not claimable"
+        )
     done = _amp._completed_ids(plan["milestones"])
     fields = {
         field.group("key"): field.group("value").strip()
@@ -128,10 +144,10 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
     }
     unmet = [ref for ref in _amp.HASH_RE.findall(fields.get("needs", "")) if ref not in done]
     if unmet:
-        raise _board.BoardError(f"{task} still needs {', '.join(unmet)}")
+        raise _board.BoardError(f"{canonical_task} still needs {', '.join(unmet)}")
     if not fields.get("proof"):
         raise _board.BoardError(
-            f"{task} has no proof, so nobody could tell whether it finished"
+            f"{canonical_task} has no proof, so nobody could tell whether it finished"
         )
     unclean = _amp.unclean_note(plan)
     if unclean:
@@ -142,7 +158,7 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
     plan["authority_pointer"] = (
         f"{token['relative']} @ {token['head']} in {public_repo}"
     )
-    return repo, plan, token
+    return repo, plan, token, canonical_task
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -215,8 +231,12 @@ def main(argv: list[str] | None = None) -> int:
     if not _board.regular_plan(plan_path):
         print(f"shadow throw: no regular, non-symlink plan at {plan_path}", file=sys.stderr)
         return 2
-    if not re.fullmatch(r"~[0-9a-z]{4}", args.task):
-        print(f"shadow throw: --task wants a four-char id like ~ab12, got {args.task}", file=sys.stderr)
+    if not _amp.valid_selector(args.task):
+        print(
+            "shadow throw: --task wants a four-char id like ~ab12 or an exact "
+            f"leading legacy label like P9a~formats, got {args.task}",
+            file=sys.stderr,
+        )
         return 2
     try:
         _board.validate_owner(args.by)
@@ -225,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         with _board.project_lock(plan_path):
-            repo, plan, plan_token = _validated_target(plan_path, args.task)
+            repo, plan, plan_token, canonical_task = _validated_target(plan_path, args.task)
             _board.assert_entity_board(repo, root=board_root)
             claim_return_minutes, seat_display_name, seat_lenses = _config_preferences(
                 repo, args.by, board_root
@@ -264,10 +284,12 @@ def main(argv: list[str] | None = None) -> int:
             # Prove the final block fits before taking a claim. A concurrent board
             # write may advance this preview; the claimed block is rebuilt below
             # from the transaction's actual revision.
-            block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
+            block, _ = _amp.build_block(
+                plan, repo, plan_path, canonical_task, _amp.DEFAULT_MAX_CHARS
+            )
             receipt = _board.claim(
                 plan_path,
-                args.task,
+                canonical_task,
                 args.by,
                 project=plan["brief"]["Project"],
                 priority=_priority(plan),
@@ -286,7 +308,9 @@ def main(argv: list[str] | None = None) -> int:
             plan["seat_owner"] = claimed["owner"]
             plan["seat_display_name"] = seat_display_name
             plan["seat_lenses"] = seat_lenses
-            block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
+            block, _ = _amp.build_block(
+                plan, repo, plan_path, canonical_task, _amp.DEFAULT_MAX_CHARS
+            )
     except _board.AlreadyClaimed as exc:
         print(
             f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",
@@ -299,8 +323,12 @@ def main(argv: list[str] | None = None) -> int:
 
     sys.stdout.write(block)
     count = len(payload["claims"])
+    display_task = (
+        args.task if args.task == canonical_task else f"{args.task} -> {canonical_task}"
+    )
     print(
-        f"[throw] {args.task} claimed by {args.by} on this computer; {count} claim(s) visible to every local seat",
+        f"[throw] {display_task} claimed by {args.by} on this computer; "
+        f"{count} claim(s) visible to every local seat",
         file=sys.stderr,
     )
     if count >= BUSY_THRESHOLD:

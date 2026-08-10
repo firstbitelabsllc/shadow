@@ -155,6 +155,94 @@ class ThrowRefusesAmbiguousWork(unittest.TestCase):
             self.assertFalse((home / ".shadow").exists())
 
 
+class ALegacyIdRowIsClaimedByThrowWithoutAHandWrittenLine(unittest.TestCase):
+    def test_legacy_label_selects_its_canonical_id_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "the ready row ~bb22", "P9a~formats the ready row ~3549"
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "legacy id"], check=True)
+            before = plan.read_bytes()
+            head = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+
+            result = run(THROW, repo, env, "--task", "P9a~formats", "--by", "codex")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("P9a~formats the ready row", result.stdout)
+            payload = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["claims"][0]["row"], "~3549")
+            resumed = run(
+                AMP, repo, env, "--task", "P9a~formats", "--by", "codex"
+            )
+            self.assertEqual(resumed.returncode, 0, resumed.stderr)
+            self.assertIn("P9a~formats the ready row", resumed.stdout)
+            competing = run(
+                THROW, repo, env, "--task", "P9a~formats", "--by", "claude"
+            )
+            self.assertEqual(competing.returncode, 1)
+            self.assertIn("codex", competing.stderr)
+            second = run(THROW, repo, env, "--task", "~dd44", "--by", "codex")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            plan.write_text(
+                plan.read_text(encoding="utf-8")
+                .replace("P9a~formats the ready row ~3549", "the ready row ~3549")
+                .replace(
+                    "the unfinished dependency ~dd44",
+                    "P9a~formats the unfinished dependency ~dd44",
+                ),
+                encoding="utf-8",
+            )
+            dirty = run(
+                AMP, repo, env, "--task", "P9a~formats", "--by", "codex"
+            )
+            self.assertEqual(dirty.returncode, 1)
+            self.assertIn("changed canonical identity", dirty.stderr)
+            plan.write_bytes(before)
+            self.assertEqual(plan.read_bytes(), before)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                head,
+            )
+
+    def test_punctuation_suffix_is_not_a_shorter_exact_legacy_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "the ready row ~bb22",
+                    "P9a~formats-extra the ready row ~3549",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-qam", "punctuated token"],
+                check=True,
+            )
+
+            result = run(
+                THROW, repo, env, "--task", "P9a~formats", "--by", "codex"
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("no task carries selector", result.stderr)
+
+
 class ThrowUsesTheRootBoard(unittest.TestCase):
     def test_claim_prints_the_pointer_without_changing_the_project_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

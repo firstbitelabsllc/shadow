@@ -84,6 +84,42 @@ def payload(home: Path) -> dict:
 
 
 class ReturnRequiresTheClaimOwner(unittest.TestCase):
+    def test_legacy_selector_returns_its_canonical_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "inspect the result ~aa11",
+                    "P9a~formats inspect the result ~3549",
+                ).replace("needs: ~aa11", "needs: ~3549"),
+                encoding="utf-8",
+            )
+            git(repo, "commit", "--quiet", "-am", "retain legacy selector")
+            claimed = run(
+                env, "throw", "--repo", str(repo), "--task", "~3549", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+            returned = run(
+                env,
+                "return",
+                "--repo",
+                str(repo),
+                "--row",
+                "P9a~formats",
+                "--by",
+                "seat-a",
+            )
+
+            self.assertEqual(returned.returncode, 0, returned.stderr)
+            self.assertIn("P9a~formats -> ~3549", returned.stdout)
+            self.assertEqual(payload(home)["claims"], [])
+            self.assertNotIn(
+                "P9a~formats",
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8"),
+            )
+
     def test_wrong_owner_cannot_close_and_right_owner_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))

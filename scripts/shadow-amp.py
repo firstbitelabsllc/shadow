@@ -31,6 +31,11 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+from shadow_row_ids import (  # noqa: E402
+    SelectorError,
+    resolve_row_selector as _resolve_row_selector,
+    valid_selector,
+)
 
 DEFAULT_MAX_CHARS: Final = 4_000
 MAX_GIT_VALUE: Final = 200
@@ -210,6 +215,12 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
                 ):
                     return milestone, row
     return None
+
+
+def resolve_row_selector(plan: dict, selector: str) -> str:
+    """Resolve a CLI compatibility selector without changing board identity."""
+    rows = [row for milestone in plan["milestones"] for row in milestone["rows"]]
+    return _resolve_row_selector(rows, selector)
 
 
 def _candidate_ids(plan: dict) -> list[str]:
@@ -952,8 +963,9 @@ def main(argv: list[str] | None = None) -> int:
             plan_path = unresolved.resolve()
         else:
             plan_path = repo / "PLAN.md"
-    if args.task and not re.fullmatch(r"~[0-9a-z]{4}", args.task):
-        print(f"shadow amp: --task wants a four-char id like ~ab12, got {args.task}",
+    if args.task and not valid_selector(args.task):
+        print(f"shadow amp: --task wants a four-char id like ~ab12 or an exact "
+              f"leading legacy label like P9a~formats, got {args.task}",
               file=sys.stderr)
         return 2
 
@@ -986,7 +998,20 @@ def main(argv: list[str] | None = None) -> int:
         repo = Path(top.stdout.strip()).resolve()
     text = plan_path.read_text(encoding="utf-8")
     plan = _parse(text)
-    selected_task = args.task
+    try:
+        selected_task = resolve_row_selector(plan, args.task) if args.task else None
+        if args.task and not args.task.startswith("~"):
+            _, committed_bytes = _board.head_plan_snapshot(plan_path)
+            committed_task = resolve_row_selector(
+                _parse(committed_bytes.decode("utf-8")), args.task
+            )
+            if committed_task != selected_task:
+                raise SelectorError(
+                    f"row selector {args.task} changed canonical identity outside committed authority"
+                )
+    except (SelectorError, _board.BoardError, OSError, UnicodeError) as exc:
+        print(f"shadow amp: {exc}", file=sys.stderr)
+        return 1
     if state is None:
         print(
             "shadow amp: no computer-board claim exists; use shadow throw to claim "

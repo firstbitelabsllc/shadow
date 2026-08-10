@@ -1912,6 +1912,64 @@ class HotPlanBudgetsGateNormalBoardEntry(unittest.TestCase):
 
 
 class HistoricalClaimsAreConsumedOnce(unittest.TestCase):
+    def test_legacy_thrown_selector_imports_only_its_canonical_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            repo = project(portfolio, name="legacy-label", display_name="legacy-label")
+            plan_path = repo / "PLAN.md"
+            text = plan_path.read_text(encoding="utf-8")
+            plan_path.write_text(
+                text.replace(
+                    "- [pending] TASK-BODY-MUST-NOT-ENTER-THE-BOARD ~aa11",
+                    "- [in_progress] P9a~formats TASK-BODY-MUST-NOT-ENTER-THE-BOARD ~3549",
+                )
+                .replace("needs: ~aa11", "needs: ~3549")
+                + "- 2026-08-10T01:00:00Z THROWN P9a~formats legacy work | by: old-seat\n",
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "seed legacy-selector claim")
+            environment = {"SHADOW_PORTFOLIO_ROOT": str(portfolio)}
+
+            imported = run(home, "status", "--json", cwd=root, extra_env=environment)
+
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            first = board(home)
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in first["claims"]],
+                [("~3549", "old-seat")],
+            )
+            self.assertNotIn(
+                "P9a~formats",
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8"),
+            )
+            repeated = run(home, "status", "--json", cwd=root, extra_env=environment)
+            self.assertEqual(repeated.returncode, 0, repeated.stderr)
+            self.assertEqual(board(home)["revision"], first["revision"])
+            before_dirty_import = (home / ".shadow" / "board.json").read_bytes()
+            plan_path.write_text(
+                plan_path.read_text(encoding="utf-8")
+                .replace(
+                    "P9a~formats TASK-BODY-MUST-NOT-ENTER-THE-BOARD ~3549",
+                    "TASK-BODY-MUST-NOT-ENTER-THE-BOARD ~3549",
+                )
+                .replace(
+                    "the outcome is proven ~bb22",
+                    "P9a~formats the outcome is proven ~bb22",
+                ),
+                encoding="utf-8",
+            )
+            dirty = run(home, "status", "--json", cwd=root, extra_env=environment)
+            self.assertEqual(dirty.returncode, 1)
+            self.assertIn("changed canonical identity", dirty.stderr)
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(), before_dirty_import
+            )
+
     def test_old_progress_claim_is_imported_once_and_cannot_be_reclaimed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -584,6 +584,34 @@ class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
             self.assertFalse((repo / "docs" / "plan-archive").exists())
             self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
 
+    def test_legacy_only_proof_receipt_archives_with_its_canonical_row(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            legacy_plan = (
+                PLAN.replace(
+                    "first result exists ~aa11",
+                    "P9a~formats first result exists ~3549",
+                )
+                .replace("needs: ~aa11", "needs: ~3549")
+                .replace("~aa11 PROOF true -> pass", "P9a~formats PROOF true -> pass")
+            )
+            repo = make_repo(Path(dirname), legacy_plan)
+            _, preview, cas = preview_cas(repo, "--milestone", "Finished work")
+            self.assertEqual(preview["action"], "would_archive")
+
+            result, report, _ = apply_with_cas(
+                repo, "--milestone", "Finished work", cas=cas
+            )
+
+            self.assertEqual(result.returncode, 0, (result.stderr, report))
+            archive = (
+                repo / "docs" / "plan-archive" / "finished-work.md"
+            ).read_text(encoding="utf-8")
+            hot = (repo / "PLAN.md").read_text(encoding="utf-8")
+            self.assertIn("P9a~formats first result exists ~3549", archive)
+            self.assertIn("P9a~formats PROOF true -> pass", archive)
+            self.assertNotIn("P9a~formats", hot)
+            self.assertNotIn("~3549", hot)
+
     def test_apply_preserves_receipts_commits_once_and_repeats_as_noop(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo = make_repo(Path(dirname))

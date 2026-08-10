@@ -29,8 +29,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--row", required=True)
     parser.add_argument("--by", required=True, help="the current claim owner")
     args = parser.parse_args(argv)
-    if board.ROW_ID.fullmatch(args.row) is None:
-        print("shadow return: --row wants a four-char id like ~ab12", file=sys.stderr)
+    if not amp.valid_selector(args.row):
+        print(
+            "shadow return: --row wants a four-char id like ~ab12 or an exact "
+            "leading legacy label like P9a~formats",
+            file=sys.stderr,
+        )
         return 2
     try:
         board.validate_owner(args.by)
@@ -68,17 +72,21 @@ def main(argv: list[str] | None = None) -> int:
             plan_token, plan_bytes = board.committed_plan_snapshot(plan_path)
             plan_text = plan_bytes.decode("utf-8")
             parsed = amp._parse(plan_text)
+            try:
+                row_id = amp.resolve_row_selector(parsed, args.row)
+            except amp.SelectorError as exc:
+                raise board.BoardError(str(exc)) from exc
             rows = [
                 row
                 for milestone in parsed["milestones"]
                 for row in milestone["rows"]
-                if row["id"] == args.row
+                if row["id"] == row_id
             ]
             if not rows:
-                print(f"shadow return: no task carries {args.row}", file=sys.stderr)
+                print(f"shadow return: no task carries {row_id}", file=sys.stderr)
                 return 1
             if len(rows) != 1:
-                raise board.BoardError(f"task id {args.row} is duplicated in the project plan")
+                raise board.BoardError(f"task id {row_id} is duplicated in the project plan")
             unclean = amp.unclean_note(parsed)
             if unclean:
                 raise board.BoardError(f"project plan cannot return a claim: {unclean}")
@@ -95,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             parsed["claimed"] = set()
             result = board.release(
                 plan_path,
-                args.row,
+                row_id,
                 resumes=amp._candidate_ids(parsed),
                 owner=args.by,
                 reason=reason,
@@ -110,10 +118,17 @@ def main(argv: list[str] | None = None) -> int:
         print("shadow return: this project was not registered on the computer board", file=sys.stderr)
         return 1
     payload, changed = result
+    display_row = args.row if args.row == row_id else f"{args.row} -> {row_id}"
     if not changed:
-        print(f"{args.row} already absent; root board unchanged at revision {payload['revision']}")
+        print(
+            f"{display_row} already absent; root board unchanged at "
+            f"revision {payload['revision']}"
+        )
         return 0
-    print(f"returned {args.row} ({reason}); root board revision {payload['revision']}")
+    print(
+        f"returned {display_row} ({reason}); "
+        f"root board revision {payload['revision']}"
+    )
     return 0
 
 
