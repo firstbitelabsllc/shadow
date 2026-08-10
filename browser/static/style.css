@@ -34,6 +34,8 @@ main:focus { outline: none; }
 .card-head { margin: 0; padding: 24px clamp(24px, 5vw, 56px); display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line); }
 .status { border-radius: 999px; padding: 7px 11px; background: var(--accent-soft); color: var(--accent); font-size: .76rem; font-weight: 750; text-transform: uppercase; }
 .state-needs_you .status, .state-blocked .status { background: var(--warm-soft); color: var(--warm); }
+.state-ready .status, .state-working .status { background: var(--good-soft, #e4f2e7); color: var(--good, #256a3a); }
+.state-resting .status { opacity: 0.65; }
 .project-name { color: var(--muted); font-weight: 650; }
 .card > .eyebrow { margin-top: 42px; }
 .card h2 { max-width: 16ch; margin-top: 0; margin-bottom: 18px; font-size: clamp(2rem, 5vw, 4.2rem); line-height: 1.02; letter-spacing: -.055em; }
@@ -102,6 +104,7 @@ main:focus { outline: none; }
 .mode-chip { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; border: 1px solid currentColor; border-radius: 999px; padding: 0.1rem 0.5rem; }
 .board-state { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; }
 .board-milestone { margin: 0; font-size: 0.85rem; }
+.board-now { margin: 0; font-size: 0.8rem; opacity: 0.8; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .meter { margin: 0; font-size: 0.8rem; display: flex; gap: 0.6rem; }
 .meter-blocked { color: #a03d2e; }
 .board-decision { margin: 0; font-size: 0.8rem; font-weight: 600; }

@@ -159,6 +159,14 @@ sections that stood here until 2026-08-09 are archived at
 - [pending] the two-seat proof, uncoached: under a scratch HOME two concurrent seats see one identical board and each other's claims; then a real claude session and a real codex session on this machine independently print the same activation hash and board revision, claim disjoint rows, and complete them with proof ~2st8 (DoD) | proof: gate leo re-observes both real sessions; and cmd scripts/shadow-python.sh -m unittest tests.test_root_board tests.test_lifecycle is green | needs: ~dreg, ~root, ~gc20, ~actv, ~bops, ~tier
 
 
+### M21 — the board renders the grammar it displays
+
+- tools: found by the owner opening the live board and seeing every project dead — "the UI UX is completely broken." Diagnosis: the browser still demanded the v3 typed-Outcome Brief the grammar retired on 2026-08-09, so all 11 real plans on the dogfood machine failed "outcome must be a string" and rendered as walls of "needs a Brief". A v3 surface reading v4 plans. The owner's bar for this surface: open-source-grade, with component-state and visual proof — capability in-house (this repo is Python-only per M6), patterns learned from Storybook and Playwright rather than their npm toolchains imported
+- [in_progress] the board projects the v4 grammar: a TOTAL board brief per plan (state, priority, shown milestone with counts/current/next/DoD, open contradictions, latest change) — milestone selection follows the work (in_progress first, stale pendings cannot shadow it; rows above the first ### form an implicit group), pre-grammar plans read "unmigrated" not "empty", and the v3 contract can only error for a plan that still carries its keys ~v4bd | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser.AV4PlanGetsABoardBriefNotAnError
+- [pending] visual states are fixtures with proof: every board/brief card state (working, ready, blocked, resting, unmigrated, empty, v3-rich, decision-waiting) renders from a checked-in fixture set served by the same server, and an automated screenshot harness fails on unintended visual change — silent skips fail loudly ~vgal | proof: cmd the harness runs in CI and a deliberately broken state style turns it red | needs: ~v4bd
+- [pending] the owner opens the live board and every real plan on the machine shows its true state — a working project shows its milestone and current row, a pre-grammar plan says so, nothing renders as an error wall ~v21d (DoD) | proof: gate leo re-observes the board at :7191 after the fix is merged and the server restarted | needs: ~v4bd, ~vgal
+
+
 ## Worklane boundary
 
 - Shadow has its own product plan and proof gap. That gap never blocks an
