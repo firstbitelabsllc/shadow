@@ -50,20 +50,11 @@ message, or receipt is not acceptance proof by itself.
 
 ## Shape a goal
 
-`skills/goal/SKILL.md` is the one owner of goal shaping. A generated goal is a
-100-200 word launcher, not the durable plan: broad intent first compiles its
-authority map, decisions, acceptance matrix, and anti-sprawl controls into the
-owning `PLAN.md`, then the launcher points at the current executable work.
-Planning continues into implementation unless the person explicitly asks for
-a plan only.
-
-Keep the fixed standing kernel free of project detail. Keep inventories, skill
-rosters, per-surface proof, migration order, and unrelated prohibitions out of
-the launcher. State only the relevant human-authority boundary, or `none`;
-reversible work is agent-decided. Never translate "everything", "end to end",
-"all boats rise", or equivalent outcome language into a single task, slice, or
-campaign. Use the canonical goal skill for the exact gather, compile, cut,
-template, and quality-gate rules.
+`skills/goal/SKILL.md` owns goal shaping. Generated goals are 60-100 word
+pointers to the board and owning `PLAN.md`, never summaries of the plan. Broad
+intent is compiled into that plan before execution; inventories, rosters,
+proof matrices, sequencing, and rail lists stay there. Shortening the pointer
+must never narrow the outcome.
 
 `shadow throw --repo <project> --task '~id' --by <seat>` atomically claims the
 checkpoint and returns its deterministic starting block. `shadow amp` resumes
