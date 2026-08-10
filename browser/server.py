@@ -246,6 +246,13 @@ def _normalized_origin(origin: str) -> str:
 
     Deliberately textual: no network, no `git ls-remote`, so it is the same
     answer offline and on any machine.
+
+    Only the hostname is case-folded, because only the hostname is defined to
+    be case-insensitive. A path is not: `/srv/git/Foo.git` and
+    `/srv/git/foo.git` are two repositories on a case-sensitive filesystem, and
+    folding the whole string would give them one key — collapsing a real
+    project off the board, which is the very failure this normalization exists
+    to prevent, inverted.
     """
     if not origin:
         return ""
@@ -253,7 +260,8 @@ def _normalized_origin(origin: str) -> str:
     text = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", text)
     text = re.sub(r"^[^/@]+@", "", text)          # user[:password]@
     text = re.sub(r"^([^/:]+):(?!/)", r"\1/", text)  # scp-style host:path
-    return text.lower()
+    host, slash, path = text.partition("/")
+    return host.lower() + slash + path
 
 
 def _origin_repo_name(origin: str) -> str:

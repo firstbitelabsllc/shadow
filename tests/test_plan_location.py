@@ -214,6 +214,35 @@ class OneLogicalPlan(unittest.TestCase):
             paths = [r["path"] for r in discover_plans(root)]
             self.assertEqual(paths, ["Thing/PLAN.md"])
 
+    def test_two_paths_differing_only_in_case_are_two_repositories(self) -> None:
+        # A hostname is case-insensitive; a path is not. `/srv/git/Foo.git` and
+        # `/srv/git/foo.git` are two repositories, so folding the whole origin
+        # would give them one key and drop a real project from the board — the
+        # duplicate-row bug inverted, and worse, because it hides work.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, remote in (("upper", "/srv/git/Foo.git"), ("lower", "/srv/git/foo.git")):
+                repo = make(root, name)
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin", remote], check=True)
+            paths = sorted(r["path"] for r in discover_plans(root))
+            self.assertEqual(paths, ["lower/PLAN.md", "upper/PLAN.md"])
+
+    def test_one_origin_spelled_two_ways_still_collapses(self) -> None:
+        # Case-folding only the host must not cost the dedup this PR exists
+        # for: SSH and HTTPS spellings of one GitHub repository stay one key.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            remotes = ("git@Example.invalid:acme/thing.git", "https://example.invalid/acme/thing")
+            for name, remote in zip(("thing", "thing-clone"), remotes):
+                repo = make(root, name)
+                subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "remote", "add", "origin", remote], check=True)
+            paths = [r["path"] for r in discover_plans(root)]
+            self.assertEqual(paths, ["thing/PLAN.md"])
+
     def test_unrelated_roots_without_git_are_not_merged(self) -> None:
         # No origin means the path stands in as identity. Two plain
         # directories are two plans, not one.
