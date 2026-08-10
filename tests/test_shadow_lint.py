@@ -56,6 +56,24 @@ def blocking(plan: str) -> set[str]:
     return {f["check"] for f in lint.lint_plan(plan) if f["severity"] == "blocking"}
 
 
+class ACompletedReadProofNeedsACanonicalReceipt(unittest.TestCase):
+    def test_historical_receipt_without_result_delimiter_stays_recognized(self) -> None:
+        historical = CLEAN_PLAN.replace(
+            "~ab12 PROOF npm run test:pdp -> pass",
+            "~ab12 PROOF observed the artifact",
+        )
+
+        self.assertNotIn("COMPLETED-NO-PROOF", blocking(historical))
+
+    def test_canonical_read_receipt_is_accepted(self) -> None:
+        canonical = CLEAN_PLAN.replace(
+            "~ab12 PROOF npm run test:pdp -> pass",
+            "~ab12 PROOF read artifact -> pass (lead review)",
+        )
+
+        self.assertNotIn("COMPLETED-NO-PROOF", blocking(canonical))
+
+
 class ShadowLintTests(unittest.TestCase):
     def test_clean_v2_plan_has_no_blocking_findings(self) -> None:
         self.assertEqual(blocking(CLEAN_PLAN), set())

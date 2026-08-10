@@ -2343,6 +2343,42 @@ class ManualProofsCanCloseClaims(unittest.TestCase):
             self.assertEqual(payload["claims"], [])
             self.assertEqual(payload["entities"][0]["resume"], "~bb22")
 
+    def test_lint_accepted_historical_receipt_can_return_the_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root, first_proof="read observed result")
+            claimed = run(
+                home, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+            plan_path = repo / "PLAN.md"
+            plan_path.write_text(
+                plan_path.read_text(encoding="utf-8").replace(
+                    "- [pending] TASK-BODY", "- [completed] TASK-BODY"
+                )
+                + "- 2026-08-10T00:01:00Z ~aa11 PROOF observed historical result\n",
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "record historical manual proof")
+
+            returned = run(
+                home,
+                "return",
+                "--repo",
+                str(repo),
+                "--row",
+                "~aa11",
+                "--by",
+                "seat-a",
+            )
+
+            self.assertEqual(returned.returncode, 0, returned.stderr)
+            self.assertEqual(board(home)["claims"], [])
+
 
 class ConcurrentClaimsHaveExactlyOneWinner(unittest.TestCase):
     def test_two_seats_racing_one_pointer_produce_one_named_winner(self) -> None:

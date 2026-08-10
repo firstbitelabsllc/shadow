@@ -1830,16 +1830,24 @@ def section_lines(text: str, section: str) -> list[str]:
 
 
 def progress_proof_receipts(text: str, row: str) -> list[tuple[str, str]]:
-    """Parse only the row's canonical Progress receipts, never notes elsewhere."""
+    """Parse the row's Progress receipts, including pre-result legacy lines."""
     receipts: list[tuple[str, str]] = []
-    pattern = re.compile(
+    canonical_pattern = re.compile(
         rf"^- \d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z "
         rf"{re.escape(row)} PROOF (?P<proof>.+) -> (?P<result>.+)$"
     )
+    historical_pattern = re.compile(
+        rf"^- \d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z "
+        rf"{re.escape(row)} PROOF (?P<proof>.+)$"
+    )
     for line in section_lines(text, "Progress"):
-        match = pattern.match(line)
-        if match is not None:
-            receipts.append((match.group("proof"), match.group("result")))
+        canonical = canonical_pattern.match(line)
+        if canonical is not None:
+            receipts.append((canonical.group("proof"), canonical.group("result")))
+            continue
+        historical = historical_pattern.match(line)
+        if historical is not None:
+            receipts.append((historical.group("proof"), ""))
     return receipts
 
 

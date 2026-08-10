@@ -40,9 +40,6 @@ TS_RE: Final = re.compile(r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ")
 SPIKE_RE: Final = re.compile(r"^- \S+ SPIKE (?P<id>~[0-9a-z]{4}) (?P<text>.+)$")
 DECISION_RE: Final = re.compile(r"^- \S+ DECISION (?P<id>~[0-9a-z]{4}) (?:keep|kill|promote)\b")
 ENDS_RE: Final = re.compile(r"\| ends: (?P<date>\S+)\s*$")
-# `shadow accept` writes "- <ts> <id> PROOF <argv> -> pass (accept)", and hand
-# flips follow the same shape. This is what pairs a completed row to evidence.
-PROOF_LINE_RE: Final = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
 MAX_LINE_CHARS: Final = 2_000
 # This is the row law rather than the plan-wide policy law.  `shadow accept`
 # imports this named surface before it flips a row: copying these checks into
@@ -431,17 +428,12 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
     # lines linted clean, and status then reported "every task complete; mint
     # the successor". Shape was checked; truth was not. A completed row must
     # name its receipt in Progress — that pairing is the whole contract.
-    proven = {
-        m.group("id")
-        for _, line in _section(sections, "Progress")
-        if (m := PROOF_LINE_RE.match(line))
-    }
     for row_id, (number, state) in ids.items():
-        if state == "completed" and row_id not in proven:
+        if state == "completed" and not _board.progress_proof_receipts(text, row_id):
             findings.append(
                 _finding(
                     "COMPLETED-NO-PROOF", number, "blocking",
-                    f"{row_id} is completed with no '<ts> {row_id} PROOF ...' line in ## Progress; "
+                    f"{row_id} is completed with no canonical '<ts> {row_id} PROOF ... -> result' line in ## Progress; "
                     "run `shadow accept` for a cmd proof, or re-observe a read/gate proof and "
                     "append the line with the flip",
                 )
