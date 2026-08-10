@@ -53,7 +53,7 @@ used and why an otherwise relevant one was omitted.
 
 ## Declaring preferences
 
-`shadow.yaml` names the repository default at
+`.shadow/local.yaml` names the machine-local repository default at
 `method.adversarial_lenses`; a `leads` entry may name its own default lens set.
 The repository set is the method default; a lead's set is a preference for
 work signed by that lead. `shadow config --explain` prints the effective set

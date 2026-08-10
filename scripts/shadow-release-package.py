@@ -38,6 +38,7 @@ REQUIRED_FILES = {
     "README.md",
     "SECURITY.md",
     "SKILL.md",
+    "shadow.example.yaml",
     "skills/goal/SKILL.md",
     "VERSION",
     "bin/shadow",

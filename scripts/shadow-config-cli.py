@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explain the effective repo-local Shadow configuration without storing it."""
+"""Initialize or explain the effective machine-local Shadow configuration."""
 
 from __future__ import annotations
 
@@ -9,7 +9,13 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from shadow_config import ConfigError, find_config, load_config
+from shadow_config import (
+    ConfigError,
+    config_paths,
+    find_config,
+    initialize_local_config,
+    load_config,
+)
 
 
 def _flatten(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
@@ -29,9 +35,15 @@ def _flatten(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="shadow config",
-        description="Read one repo-root shadow.yaml and explain its effective values.",
+        description="Initialize or explain one ignored repository-local override.",
     )
-    result.add_argument("--explain", action="store_true", help="print effective values and their source")
+    action = result.add_mutually_exclusive_group(required=True)
+    action.add_argument("--explain", action="store_true", help="print effective values and their source")
+    action.add_argument(
+        "--init-local",
+        action="store_true",
+        help="copy the reviewed template to the ignored effective config",
+    )
     result.add_argument("--repo", type=Path, help="repository or child path; defaults to the current directory")
     result.add_argument("--json", action="store_true", help="emit the same explanation as JSON")
     return result
@@ -39,9 +51,31 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    if not args.explain:
-        parser().error("--explain is required")
     start = (args.repo or Path.cwd()).resolve()
+    if args.init_local:
+        try:
+            config, template, created = initialize_local_config(start)
+        except ConfigError as exc:
+            print(f"shadow config: {exc}", file=sys.stderr)
+            return 1
+        payload = {
+            "created": created,
+            "effective": config.relative_to(config_paths(start)[0]).as_posix(),
+            "template": (
+                template.relative_to(config_paths(start)[0]).as_posix()
+                if template.is_relative_to(config_paths(start)[0])
+                else template.name
+            ),
+            "tracked": False,
+        }
+        if args.json:
+            print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        else:
+            state = "created" if created else "already exists"
+            print(f"effective: {payload['effective']} ({state}, locally ignored, not staged)")
+            print(f"template: {payload['template']} (recommended only)")
+        return 0
+
     try:
         source = find_config(start)
         config = load_config(start)
@@ -49,13 +83,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shadow config: {exc}", file=sys.stderr)
         return 1
 
-    source_name = source.name if source is not None else "built-in defaults"
-    payload = {"source": source_name, "config": config}
+    root, effective, template = config_paths(start)
+    source_name = effective.relative_to(root).as_posix() if source is not None else "built-in defaults"
+    payload = {
+        "source": source_name,
+        "effective": effective.relative_to(root).as_posix(),
+        "template": template.relative_to(root).as_posix(),
+        "config": config,
+    }
     if args.json:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 0
 
     print(f"source: {source_name}")
+    print(f"effective: {payload['effective']} (machine-local, must be ignored)")
+    print(f"template: {payload['template']} (recommended only)")
     for name, value in _flatten(config):
         rendered = json.dumps(value, sort_keys=True, separators=(",", ":"))
         print(f"{name} = {rendered}")

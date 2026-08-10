@@ -25,7 +25,7 @@ sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
-from shadow_config import ConfigError, load_config  # noqa: E402
+from shadow_config import ConfigError, LOCAL_CONFIG, load_config  # noqa: E402
 
 
 BY_MAX: Final = 40
@@ -66,22 +66,22 @@ def _config_preferences(repo: Path, owner: str) -> tuple[int, str | None, list[s
     config = load_config(repo)
     durability = config.get("durability", {})
     if not isinstance(durability, dict):
-        raise ConfigError(repo / "shadow.yaml", 1, "durability must be a mapping")
+        raise ConfigError(repo / LOCAL_CONFIG, 1, "durability must be a mapping")
     minutes = durability.get("claim_return_minutes", _board.DEFAULT_CLAIM_RETURN_MINUTES)
     if isinstance(minutes, bool) or not isinstance(minutes, int):
-        raise ConfigError(repo / "shadow.yaml", 1, "durability.claim_return_minutes must be an integer")
+        raise ConfigError(repo / LOCAL_CONFIG, 1, "durability.claim_return_minutes must be an integer")
     leads = config.get("leads", {})
     if not isinstance(leads, dict):
-        raise ConfigError(repo / "shadow.yaml", 1, "leads must be a mapping")
+        raise ConfigError(repo / LOCAL_CONFIG, 1, "leads must be a mapping")
     lead = leads.get(owner, {})
     if not isinstance(lead, dict):
-        raise ConfigError(repo / "shadow.yaml", 1, f"leads.{owner} must be a mapping")
+        raise ConfigError(repo / LOCAL_CONFIG, 1, f"leads.{owner} must be a mapping")
     display = lead.get("display_name")
     if display is not None and not isinstance(display, str):
-        raise ConfigError(repo / "shadow.yaml", 1, f"leads.{owner}.display_name must be a string")
+        raise ConfigError(repo / LOCAL_CONFIG, 1, f"leads.{owner}.display_name must be a string")
     lenses = lead.get("default_lenses", [])
     if not isinstance(lenses, list) or not all(isinstance(item, str) for item in lenses):
-        raise ConfigError(repo / "shadow.yaml", 1, f"leads.{owner}.default_lenses must be a string list")
+        raise ConfigError(repo / LOCAL_CONFIG, 1, f"leads.{owner}.default_lenses must be a string list")
     return minutes, display, lenses
 
 

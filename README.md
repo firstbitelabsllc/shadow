@@ -36,6 +36,7 @@ shadow amp --entity <id> --by codex    # resume a checkpoint already owned by th
 shadow return --row '~ab12' --by codex # proven finish, blocked wake, or handback
 shadow priority --value 1      # change global project rank without editing its plan
 shadow accept --repo . --row '~ab12' --by codex # prove, flip, publish, close claim
+shadow config --init-local     # copy the reviewed template to ignored local preferences
 ```
 
 Also `init --here`, `lint`, `browse`, `host run`, `doctor`.

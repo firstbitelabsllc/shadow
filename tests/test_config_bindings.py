@@ -52,7 +52,19 @@ class ConfigBindsTasteDurabilityAndLeads(unittest.TestCase):
             repo.mkdir()
             home.mkdir()
             (repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
-            (repo / "shadow.yaml").write_text(
+            git(repo, "init", "--quiet")
+            git(repo, "config", "user.email", "shadow-test@example.invalid")
+            git(repo, "config", "user.name", "Shadow Test")
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "seed")
+            initialized = subprocess.run(
+                [str(SHADOW), "config", "--init-local", "--repo", str(repo)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(initialized.returncode, 0, initialized.stderr)
+            (repo / ".shadow/local.yaml").write_text(
                 "version: 1\n"
                 "leads:\n"
                 "  alice:\n"
@@ -65,11 +77,6 @@ class ConfigBindsTasteDurabilityAndLeads(unittest.TestCase):
                 "  claim_return_minutes: 30\n",
                 encoding="utf-8",
             )
-            git(repo, "init", "--quiet")
-            git(repo, "config", "user.email", "shadow-test@example.invalid")
-            git(repo, "config", "user.name", "Shadow Test")
-            git(repo, "add", "PLAN.md")
-            git(repo, "commit", "--quiet", "-m", "seed")
 
             skill = home / ".claude" / "skills" / "custom-grade"
             skill.mkdir(parents=True)
@@ -96,16 +103,23 @@ class ConfigBindsTasteDurabilityAndLeads(unittest.TestCase):
 
     def test_unknown_and_mistyped_keys_are_never_silently_ignored(self) -> None:
         cases = (
-            ("versoin: 1\n", "shadow.yaml:1: unknown configuration key 'versoin'"),
-            ("version: 2\n", "shadow.yaml:1: version must be the integer 1"),
-            ("durability:\n  claim_return_minutes: soon\n", "shadow.yaml:2: durability.claim_return_minutes"),
-            ("leads:\n  alice:\n    display: Alice\n", "shadow.yaml:3: unknown lead preference 'display'"),
+            ("versoin: 1\n", ".shadow/local.yaml:1: unknown configuration key 'versoin'"),
+            ("version: 2\n", ".shadow/local.yaml:1: version must be the integer 1"),
+            ("durability:\n  claim_return_minutes: soon\n", ".shadow/local.yaml:2: durability.claim_return_minutes"),
+            ("leads:\n  alice:\n    display: Alice\n", ".shadow/local.yaml:3: unknown lead preference 'display'"),
         )
         for source, expected in cases:
             with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
                 repo = Path(directory)
                 git(repo, "init", "--quiet")
-                (repo / "shadow.yaml").write_text(source, encoding="utf-8")
+                initialized = subprocess.run(
+                    [str(SHADOW), "config", "--init-local", "--repo", str(repo)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(initialized.returncode, 0, initialized.stderr)
+                (repo / ".shadow/local.yaml").write_text(source, encoding="utf-8")
                 result = subprocess.run(
                     [str(SHADOW), "config", "--explain", "--repo", str(repo)],
                     capture_output=True,

@@ -86,7 +86,7 @@ class RetiredDesignRecordsDoNotShip(unittest.TestCase):
     def test_current_method_configuration_and_bucket_instructions_remain(self) -> None:
         expected = {
             "docs/reference/method.md": "Attack, then refute",
-            "docs/reference/config.md": "shadow.yaml",
+            "docs/reference/config.md": ".shadow/local.yaml",
             "docs/reference/buckets.md": "Extension buckets",
         }
         for relative, expected_text in expected.items():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -12,6 +13,17 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import shadow_config
+
+
+def write_local_config(root: Path, text: str) -> Path:
+    subprocess.run(["git", "-C", str(root), "init", "--quiet"], check=True)
+    exclude = root / ".git/info/exclude"
+    with exclude.open("a", encoding="utf-8") as stream:
+        stream.write("/.shadow/local.yaml\n")
+    config = root / ".shadow/local.yaml"
+    config.parent.mkdir(exist_ok=True)
+    config.write_text(text, encoding="utf-8")
+    return config
 
 
 class ConfigParserTests(unittest.TestCase):
@@ -28,7 +40,8 @@ class ConfigParserTests(unittest.TestCase):
     def test_subset_parses_reviewed_nested_mapping_list_and_scalar_shape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "shadow.yaml").write_text(
+            write_local_config(
+                root,
                 """version: 1
 leads:
   codex:
@@ -45,7 +58,6 @@ buckets:
 durability:
   claim_return_minutes: 120
 """,
-                encoding="utf-8",
             )
             loaded = shadow_config.load_config(root)
         self.assertEqual(loaded["version"], 1)
@@ -61,11 +73,10 @@ durability:
     def test_repo_root_config_is_found_from_a_nested_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / ".git").mkdir()
-            (root / "shadow.yaml").write_text("version: 1\n", encoding="utf-8")
+            config = write_local_config(root, "version: 1\n")
             nested = root / "a" / "b"
             nested.mkdir(parents=True)
-            self.assertEqual(shadow_config.find_config(nested), (root / "shadow.yaml").resolve())
+            self.assertEqual(shadow_config.find_config(nested), config.resolve())
             self.assertEqual(shadow_config.load_config(nested)["version"], 1)
 
     def test_unknown_keys_are_available_to_the_later_schema_validator(self) -> None:

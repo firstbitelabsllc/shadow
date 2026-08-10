@@ -1,0 +1,22 @@
+# Recommended starting point only. Run `shadow config --init-local` to copy
+# this into the repository's ignored .shadow/local.yaml effective config.
+version: 1
+leads:
+  codex:
+    display_name: Codex
+    default_lenses:
+      - integration
+      - crash_recovery
+method:
+  adversarial_lenses:
+    - assumptions
+    - correctness
+    - integration
+    - crash_recovery
+    - privacy
+    - stranger_install
+buckets:
+  taste: taste
+  future: future
+durability:
+  claim_return_minutes: 480

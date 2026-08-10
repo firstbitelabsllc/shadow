@@ -85,6 +85,10 @@ class ReleasePackageTests(unittest.TestCase):
         for option in ("--retirement-manifest", "--expect", "--by"):
             self.assertIn(option, argparse_help.stdout)
 
+    def test_reviewed_config_template_is_release_required(self) -> None:
+        self.assertIn("shadow.example.yaml", mod.REQUIRED_FILES)
+        self.assertTrue((ROOT / "shadow.example.yaml").is_file())
+
     def test_disposable_fixture_commit_waits_for_git_maintenance(self) -> None:
         project = Path("/unused-fixture")
         with mock.patch.object(mod, "command") as observed:

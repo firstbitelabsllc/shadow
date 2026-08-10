@@ -19,6 +19,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow host probe --host HOST` | Check a native host without using it. |
 | `shadow host run …` | Run a claimed task in its clean worktree; invoke again for path-disjoint lanes. |
 | `shadow buckets` | Report which extension buckets are filled. Absent is a WARN and exits 0; a wrong binding FAILs, and so does an *installed* honcho — that bucket's ruling says it is a pattern, never a service. |
+| `shadow config --init-local\|--explain [--repo PATH]` | Copy the reviewed template into ignored `.shadow/local.yaml`, or explain the effective local preferences and their source. The example is never effective, and Shadow never stages the local file. |
 | `shadow doctor` | Check installation, skill mounts, native hosts, and whether each host carries the current standing goal. |
 
 ## Verifying a host actually works

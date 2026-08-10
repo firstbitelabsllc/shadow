@@ -1,16 +1,26 @@
 # Configuration
 
-Shadow reads at most one checked-in `shadow.yaml` at the current Git repository
-root. Its declarations are preferences, never resolved state: no cache,
-timestamp, installation record, claim, task, proof, provider binding, or
-credential is written from configuration. A repository with no file behaves
-identically through built-in defaults.
+Shadow reads at most one effective `.shadow/local.yaml` in the current Git
+worktree. That file is machine-local and must be ignored and untracked. A
+repository may track `shadow.example.yaml` as a reviewed recommendation, but
+the example is never effective merely because it exists. Declarations are
+preferences, never resolved state: no cache, timestamp, installation record,
+claim, task, proof, provider binding, or credential is written from
+configuration. A repository with no local file behaves identically through
+built-in defaults.
 
-Use `shadow config --explain` to print the effective values and whether they
-came from `shadow.yaml` or built-in defaults. The supported file shape is a
-strict YAML subset: nested mappings, scalar values, and scalar lists with
-two-space indentation. Unsupported YAML is refused with the filename and line
-instead of being guessed.
+Run `shadow config --init-local` once to copy the repository's reviewed
+`shadow.example.yaml` (or Shadow's shipped template when the consumer has no
+repository-specific example) into `.shadow/local.yaml`. Initialization first
+adds `/.shadow/local.yaml` to that checkout's Git exclusion, never edits the
+tracked `.gitignore`, never runs `git add`, and never overwrites an existing
+local file. `shadow config --explain` names the recommended and effective
+surfaces and prints the effective values. A tracked, symlinked, or Git-visible
+effective file fails closed rather than becoming publishable configuration.
+
+The supported file shape is a strict YAML subset: nested mappings, scalar
+values, and scalar lists with two-space indentation. Unsupported YAML is
+refused with the filename and line instead of being guessed.
 
 ```yaml
 version: 1
@@ -42,11 +52,12 @@ heartbeat or scheduler. Provider, model, account, credential, token, host-route,
 and legal-seat selectors are refused anywhere in the document.
 
 Explicit command-line flags remain authoritative. Environment variables are
-machine-local overrides; configuration supplies reviewed repository defaults;
-built-ins are the final fallback:
+machine-local overrides; `.shadow/local.yaml` supplies checkout-local
+preferences copied from a reviewed recommendation; built-ins are the final
+fallback:
 
 ```text
-flag > environment > shadow.yaml > built-in default
+flag > environment > .shadow/local.yaml > built-in default
 ```
 
 These environment variables remain available:
@@ -66,9 +77,13 @@ These environment variables remain available:
 
 Provider logins remain in their native tools.
 
-Shadow keeps bounded local evidence in `.shadow/` inside each
-project. Adding `.shadow/` to the project's `.gitignore` is recommended to
-keep ordinary Git output quiet.
+Shadow also keeps bounded local evidence in `.shadow/` inside each project.
+The initializer protects only `.shadow/local.yaml` through the checkout's
+local Git exclusion; it does not claim custody of other `.shadow/` contents.
+An explicit `git add -f` can override any Git ignore, so every config consumer
+also refuses the effective path if it appears in the index. Like other ignored
+checkout-local files, the override does not survive `git clean -fdx`; the
+tracked example is the recovery source.
 
 The computer authority is `~/.shadow/board.json`, inside its own local Git
 repository. It groups entity-plan pointers by project, stores global project

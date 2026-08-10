@@ -14,7 +14,7 @@ own milestone/checkpoint detail and proof.
 
 Override one binding with `SHADOW_BUCKET_<NAME>` — an absolute path, or `off`
 to say the emptiness is deliberate. Flags and environment stay authoritative;
-`shadow.yaml` may bind a declared bucket to another skill/pack name or to
+`.shadow/local.yaml` may bind a declared bucket to another skill/pack name or to
 `off`. The declaration remains the catalog and default; the config is a
 reviewed repo preference and never stores whether resolution succeeded.
 

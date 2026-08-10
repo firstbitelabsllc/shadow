@@ -34,7 +34,7 @@ from typing import Any, Final
 ROOT: Final = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
-from shadow_config import ConfigError, load_config  # noqa: E402
+from shadow_config import ConfigError, LOCAL_CONFIG, load_config  # noqa: E402
 DOC: Final = ROOT / "docs" / "reference" / "buckets.md"
 KINDS: Final = ("pack", "skill", "builtin")
 LINE_RE: Final = re.compile(
@@ -128,11 +128,11 @@ def configured_default(bucket: dict[str, str], repo: Path | None = None) -> str:
     config = load_config(repo)
     bindings = config.get("buckets", {})
     if not isinstance(bindings, dict):
-        raise ConfigError(Path(repo) / "shadow.yaml", 1, "buckets must be a mapping")
+        raise ConfigError(Path(repo) / LOCAL_CONFIG, 1, "buckets must be a mapping")
     binding = bindings.get(bucket["name"], bucket["default"])
     if not isinstance(binding, str) or not binding:
         raise ConfigError(
-            Path(repo) / "shadow.yaml", 1,
+            Path(repo) / LOCAL_CONFIG, 1,
             f"buckets.{bucket['name']} must be a nonempty string",
         )
     return binding
@@ -155,7 +155,7 @@ def resolve(
     effective = dict(bucket)
     binding = configured_default(bucket, repo)
     if binding.strip().lower() == "off":
-        return "pass", f"off by shadow.yaml buckets.{bucket['name']}"
+        return "pass", f"off by {LOCAL_CONFIG.as_posix()} buckets.{bucket['name']}"
     effective["default"] = binding
     return {"pack": _resolve_pack, "skill": _resolve_skill, "builtin": _resolve_builtin}[
         effective["kind"]](effective, home)

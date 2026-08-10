@@ -1,4 +1,4 @@
-"""Read Shadow's deliberately small, repo-local ``shadow.yaml`` format.
+"""Read Shadow's deliberately small, machine-local repository configuration.
 
 This is intentionally *not* a general YAML parser.  Shadow needs one tiny,
 reviewable configuration surface, so unsupported YAML is refused with an exact
@@ -11,12 +11,19 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import re
+import stat
+import subprocess
+import tempfile
 from typing import Any, Final
 
 
 ConfigValue = str | int | bool | None | list["ConfigValue"] | dict[str, "ConfigValue"]
+
+LOCAL_CONFIG: Final = Path(".shadow/local.yaml")
+RECOMMENDED_TEMPLATE: Final = Path("shadow.example.yaml")
 
 # These are the behavior-equivalent defaults.  ``load_config`` always returns
 # a fresh deep copy, so a caller can never turn a read into process state by
@@ -166,7 +173,7 @@ def _refuse_selector_or_secret_keys(text: str, path: Path) -> None:
 
     The syntax parser intentionally returns a generic AST so the config
     schema can evolve without a second parser.  This safety boundary is kept
-    beside loading instead: every actual ``shadow.yaml`` load performs it,
+    beside loading instead: every actual local-config load performs it,
     while a caller that only parses source can still inspect unsupported-key
     candidates in a test or future schema diagnostic.
     """
@@ -313,7 +320,7 @@ def _parse_block(
     return result, index
 
 
-def parse_config(text: str, path: Path | str = Path("shadow.yaml")) -> dict[str, ConfigValue]:
+def parse_config(text: str, path: Path | str = LOCAL_CONFIG) -> dict[str, ConfigValue]:
     """Parse the supported YAML subset into JSON-serializable Python values.
 
     A config document must be one root mapping.  Every unsupported feature
@@ -343,17 +350,252 @@ def _repo_root(start: Path) -> Path | None:
     return None
 
 
-def find_config(start: Path) -> Path | None:
-    """Find exactly the current repository's root ``shadow.yaml``, if any."""
+def config_paths(start: Path) -> tuple[Path, Path, Path]:
+    """Return the repository root, effective local path, and reviewed template."""
     root = _repo_root(Path(start))
     if root is None:
         candidate = Path(start).resolve()
         if candidate.is_file():
             candidate = candidate.parent
-    else:
-        candidate = root
-    config = candidate / "shadow.yaml"
+        root = candidate
+    return root, root / LOCAL_CONFIG, root / RECOMMENDED_TEMPLATE
+
+
+def find_config(start: Path) -> Path | None:
+    """Find exactly the current repository's machine-local override, if any."""
+    _, config, _ = config_paths(start)
     return config if config.is_file() else None
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _require_local_contract(root: Path, config: Path) -> None:
+    """Refuse an effective config Git could publish or one already tracked."""
+    relative = LOCAL_CONFIG.as_posix()
+    if _git(root, "ls-files", "--error-unmatch", "--", relative).returncode == 0:
+        raise ConfigError(config, 1, "effective configuration must not be tracked by Git")
+    ignored = _git(root, "check-ignore", "--quiet", "--no-index", "--", relative)
+    if ignored.returncode != 0:
+        raise ConfigError(
+            config,
+            1,
+            "effective configuration is not locally ignored; run 'shadow config --init-local'",
+        )
+
+
+def _exclude_path(root: Path) -> Path:
+    result = _git(root, "rev-parse", "--git-path", "info/exclude")
+    if result.returncode:
+        raise ConfigError(root / LOCAL_CONFIG, 1, "repository Git exclusion path is unavailable")
+    path = Path(result.stdout.strip())
+    if not path.is_absolute():
+        path = root / path
+    return path
+
+
+def _write_atomic(path: Path, text: str, mode: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _create_atomic(path: Path, text: str, mode: int) -> None:
+    """Publish a complete new file without ever replacing an existing path."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError as exc:
+            raise ConfigError(path, 1, "effective configuration already exists; it was not overwritten") from exc
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _install_local_exclude(root: Path) -> tuple[Path, bool, str, str, int, bool]:
+    exclude = _exclude_path(root)
+    try:
+        if exclude.is_symlink():
+            raise ConfigError(root / LOCAL_CONFIG, 1, "repository Git exclude file must not be a symlink")
+        existed = exclude.exists()
+        current = exclude.read_text(encoding="utf-8") if existed else ""
+        mode = stat.S_IMODE(exclude.stat().st_mode) if existed else 0o600
+    except (OSError, UnicodeError) as exc:
+        raise ConfigError(root / LOCAL_CONFIG, 1, f"cannot read repository Git exclude: {exc}") from exc
+    rule = f"/{LOCAL_CONFIG.as_posix()}"
+    changed = rule not in current.splitlines()
+    updated = current
+    if changed:
+        if updated and not updated.endswith("\n"):
+            updated += "\n"
+        updated += rule + "\n"
+        try:
+            _write_atomic(exclude, updated, mode)
+        except OSError as exc:
+            raise ConfigError(
+                root / LOCAL_CONFIG,
+                1,
+                f"cannot update repository Git exclude: {exc}",
+            ) from exc
+    return exclude, existed, current, updated, mode, changed
+
+
+def _rollback_local_exclude(receipt: tuple[Path, bool, str, str, int, bool]) -> None:
+    """Undo only our exact exclusion write; never overwrite a concurrent edit."""
+    exclude, existed, original, installed, mode, changed = receipt
+    if not changed:
+        return
+    try:
+        if not exclude.is_file() or exclude.is_symlink():
+            return
+        if exclude.read_text(encoding="utf-8") != installed:
+            return
+        if existed:
+            _write_atomic(exclude, original, mode)
+        else:
+            exclude.unlink()
+            directory = os.open(exclude.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+    except (OSError, UnicodeError):
+        # A failed initialization must not turn rollback into permission to
+        # clobber a Git file whose state can no longer be proven unchanged.
+        return
+
+
+def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
+    """Create an ignored effective config from the repository's reviewed template."""
+    root = _repo_root(Path(start))
+    if root is None:
+        raise ConfigError(Path(start).resolve() / LOCAL_CONFIG, 1, "--init-local requires a Git repository")
+    _, config, repository_template = config_paths(root)
+    shipped_template = Path(__file__).resolve().parent.parent / RECOMMENDED_TEMPLATE
+    if repository_template.exists() or repository_template.is_symlink():
+        if _git(root, "ls-files", "--error-unmatch", "--", RECOMMENDED_TEMPLATE.as_posix()).returncode:
+            raise ConfigError(
+                repository_template,
+                1,
+                "repository-specific recommended template must be tracked by Git",
+            )
+        if (
+            _git(root, "cat-file", "-e", f"HEAD:{RECOMMENDED_TEMPLATE.as_posix()}").returncode
+            or _git(root, "diff", "--quiet", "--", RECOMMENDED_TEMPLATE.as_posix()).returncode
+            or _git(root, "diff", "--cached", "--quiet", "--", RECOMMENDED_TEMPLATE.as_posix()).returncode
+        ):
+            raise ConfigError(
+                repository_template,
+                1,
+                "repository-specific recommended template must match its committed HEAD bytes",
+            )
+        template = repository_template
+    else:
+        template = shipped_template
+    try:
+        metadata = template.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ConfigError(template, 1, "recommended template must be a regular file")
+        text = template.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ConfigError(template, 1, "recommended template is missing") from exc
+    except (OSError, UnicodeError) as exc:
+        raise ConfigError(template, 1, f"cannot read recommended template: {exc}") from exc
+    parsed = parse_config(text, template)
+    _refuse_selector_or_secret_keys(text, template)
+    _validate_config(parsed, text, template)
+
+    if config.is_symlink():
+        raise ConfigError(config, 1, "effective configuration must not be a symlink")
+    if config.parent.is_symlink():
+        raise ConfigError(config, 1, "effective configuration parent must not be a symlink")
+    if config.parent.exists() and not config.parent.is_dir():
+        raise ConfigError(config, 1, "effective configuration parent must be a directory")
+    if config.exists() and not config.is_file():
+        raise ConfigError(config, 1, "effective configuration must be a regular file")
+    if _git(root, "ls-files", "--error-unmatch", "--", LOCAL_CONFIG.as_posix()).returncode == 0:
+        raise ConfigError(config, 1, "effective configuration must not be tracked by Git")
+    if config.exists():
+        try:
+            existing_text = config.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise ConfigError(config, 1, f"cannot read effective configuration: {exc}") from exc
+        existing = parse_config(existing_text, config)
+        _refuse_selector_or_secret_keys(existing_text, config)
+        _validate_config(existing, existing_text, config)
+
+    ignore_probe = _git(
+        root,
+        "check-ignore",
+        "--verbose",
+        "--no-index",
+        "--",
+        LOCAL_CONFIG.as_posix(),
+    )
+    if ignore_probe.returncode and ignore_probe.stdout.strip():
+        raise ConfigError(
+            config,
+            1,
+            "repository ignore rules expose the effective configuration; remove the negation",
+        )
+    receipt = _install_local_exclude(root)
+    try:
+        if _git(
+            root,
+            "check-ignore",
+            "--quiet",
+            "--no-index",
+            "--",
+            LOCAL_CONFIG.as_posix(),
+        ).returncode:
+            raise ConfigError(
+                config,
+                1,
+                "repository ignore rules expose the effective configuration; remove the negation",
+            )
+        created = not config.exists()
+        if created:
+            try:
+                _create_atomic(config, text, 0o600)
+            except ConfigError:
+                raise
+            except OSError as exc:
+                raise ConfigError(config, 1, f"cannot create effective configuration: {exc}") from exc
+        _require_local_contract(root, config)
+    except Exception:
+        _rollback_local_exclude(receipt)
+        raise
+    return config, template, created
 
 
 def _merge(defaults: dict[str, ConfigValue], supplied: dict[str, ConfigValue]) -> dict[str, ConfigValue]:
@@ -370,9 +612,19 @@ def _merge(defaults: dict[str, ConfigValue], supplied: dict[str, ConfigValue]) -
 
 def load_config(start: Path) -> dict[str, ConfigValue]:
     """Load the current repo's config, or a fresh behavior-equivalent default."""
+    root, local_path, _ = config_paths(start)
+    if _git(root, "ls-files", "--error-unmatch", "--", LOCAL_CONFIG.as_posix()).returncode == 0:
+        raise ConfigError(local_path, 1, "effective configuration must not be tracked by Git")
+    if local_path.is_symlink():
+        raise ConfigError(local_path, 1, "effective configuration must not be a symlink")
+    if local_path.exists() and not local_path.is_file():
+        raise ConfigError(local_path, 1, "effective configuration must be a regular file")
     config = find_config(start)
     if config is None:
         return deepcopy(DEFAULT_CONFIG)
+    if config.is_symlink():
+        raise ConfigError(config, 1, "effective configuration must not be a symlink")
+    _require_local_contract(root, local_path)
     try:
         text = config.read_text(encoding="utf-8")
     except OSError as exc:
