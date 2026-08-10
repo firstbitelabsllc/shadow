@@ -224,8 +224,9 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
             )
         )
 
-    # Section dispatch is exact-string: a typo'd or missing canonical heading
-    # would otherwise exempt everything under it from every check, silently.
+    # Section dispatch recognizes a canonical heading or that heading plus a
+    # suffix. A typo'd or missing canonical prefix must not silently exempt the
+    # section from its checks.
     for canonical in ("Brief", "Tasks", "Progress"):
         if not _has_section(sections, canonical):
             findings.append(_finding("SECTION-MISSING", 0, "warning", f"no `## {canonical}` heading"))
