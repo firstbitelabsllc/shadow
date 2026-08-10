@@ -167,6 +167,7 @@ _test_between_resolve_and_write = None
 
 def _atomic_write(path: Path, text: str, *, mode: int | None,
                   expect: os.stat_result | None = None,
+                  pinned: int | None = None,
                   expect_absent: bool = False) -> None:
     """Replace `path` in one step, never leaving it partially written.
 
@@ -192,7 +193,7 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
             # person may have deliberately removed it; if something else was
             # put there — above all a fresh symlink — renaming would replace
             # it, which for a link is this feature's own defect one level
-            # down. Identity is the inode, not the content: a same-bytes file
+            # down. Identity is the file, not the content: a same-bytes file
             # swapped in is still not the file that was resolved.
             try:
                 current = os.lstat(path)
@@ -205,7 +206,17 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
                     f"{path} was replaced by something that is not a regular file "
                     "after it was resolved; refusing to overwrite it"
                 )
-            if (current.st_dev, current.st_ino) != (expect.st_dev, expect.st_ino):
+            # Inode NUMBERS are recycled. Delete a file and write a new one in
+            # the same directory and the filesystem hands back the number it
+            # just freed — ext4 does this as a matter of course — so
+            # (st_dev, st_ino) alone cannot tell "still the same file" from "a
+            # different file wearing its number", and the swap this guard
+            # exists for walks straight through. The descriptor opened at
+            # resolution pins the ORIGINAL inode: the kernel drops its link
+            # count to zero the moment the last name for it goes away, which
+            # is what a swap is, whoever inherits the number afterwards.
+            swapped = pinned is not None and os.fstat(pinned).st_nlink == 0
+            if swapped or (current.st_dev, current.st_ino) != (expect.st_dev, expect.st_ino):
                 raise ValueError(
                     f"{path} changed identity after it was resolved; rerun so the "
                     "write sees what is there now"
@@ -249,10 +260,14 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
 
     mode: int | None = None
     identity: os.stat_result | None = None
+    pinned: int | None = None
     if not existed:
         target.parent.mkdir(parents=True, exist_ok=True)
     else:
-        identity = os.lstat(target)
+        # Held open until the write lands, purely so the guard below can ask
+        # the kernel whether the file it resolved still has a name.
+        pinned = os.open(target, os.O_RDONLY)
+        identity = os.fstat(pinned)
         mode = identity.st_mode & 0o7777
         # Beside the canonical file, not beside the link. These are the
         # canonical file's bytes, and a copy left next to the link reads as a
@@ -263,26 +278,30 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
         # a different moment and only the first of them pre-shadow.
         backup = target.with_suffix(target.suffix + ".bak-shadow")
 
-    made_backup = False
-    if existed and not backup.exists():
-        _atomic_write(backup, text, mode=mode)
-        made_backup = True
-
-    if _test_between_resolve_and_write is not None:
-        _test_between_resolve_and_write()
-
     try:
-        _atomic_write(target, new, mode=mode, expect=identity,
-                      expect_absent=not existed)
-    except BaseException:
-        # All-or-nothing includes the backup. One that this run created
-        # alongside a write that never landed records a change that never
-        # happened, and its existence makes the NEXT run skip backing up the
-        # state that actually preceded it. A pre-existing backup is somebody's
-        # earlier state and is never touched.
-        if made_backup:
-            backup.unlink(missing_ok=True)
-        raise
+        made_backup = False
+        if existed and not backup.exists():
+            _atomic_write(backup, text, mode=mode)
+            made_backup = True
+
+        if _test_between_resolve_and_write is not None:
+            _test_between_resolve_and_write()
+
+        try:
+            _atomic_write(target, new, mode=mode, expect=identity,
+                          pinned=pinned, expect_absent=not existed)
+        except BaseException:
+            # All-or-nothing includes the backup. One that this run created
+            # alongside a write that never landed records a change that never
+            # happened, and its existence makes the NEXT run skip backing up
+            # the state that actually preceded it. A pre-existing backup is
+            # somebody's earlier state and is never touched.
+            if made_backup:
+                backup.unlink(missing_ok=True)
+            raise
+    finally:
+        if pinned is not None:
+            os.close(pinned)
     return action
 
 

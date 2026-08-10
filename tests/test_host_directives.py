@@ -429,8 +429,9 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
     explicit seam (`_test_between_resolve_and_write`) instead of racing
     threads: a probabilistic test would pass for years while the guard rotted.
 
-    Identity is the inode, not the content: a same-bytes file swapped in is
-    still not the file that was resolved.
+    Identity is the file, not the content: a same-bytes file swapped in is
+    still not the file that was resolved — and not the inode NUMBER either,
+    which the filesystem is free to hand straight back to the replacement.
     """
 
     def setUp(self) -> None:
@@ -475,11 +476,46 @@ class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
 
         def swap() -> None:
             self.target.unlink()
-            self.target.write_text(original, encoding="utf-8")  # same bytes, new inode
+            self.target.write_text(original, encoding="utf-8")  # same bytes, new file
 
         self._mutate(swap)
         with self.assertRaisesRegex(ValueError, "changed identity"):
             hd.apply(self.link, BLOCK)
+
+    def test_a_swap_onto_a_recycled_inode_number_is_still_refused(self) -> None:
+        # The test above only catches the swap on filesystems that hand the
+        # replacement a fresh inode number. Numbers are recycled: ext4 gives
+        # the new file the one it just freed, so the pair the guard compares
+        # matches and the swap walks through — which is how this passed on a
+        # developer's overlayfs and failed on CI. Here the recycling is forced
+        # rather than hoped for: os.lstat is made to report the number the
+        # resolved file had, and the guard must still refuse.
+        original = self.target.read_text(encoding="utf-8")
+        before = os.lstat(self.target)
+        real_lstat = os.lstat
+
+        class _Recycled:
+            """A stat of the new file, wearing the old one's number."""
+
+            def __init__(self, of: os.stat_result) -> None:
+                self.st_mode = of.st_mode
+                self.st_dev = before.st_dev
+                self.st_ino = before.st_ino
+
+        def swap() -> None:
+            self.target.unlink()
+            self.target.write_text(original, encoding="utf-8")
+            os.lstat = lambda p, *a, **k: (
+                _Recycled(real_lstat(p, *a, **k))
+                if Path(p) == self.target else real_lstat(p, *a, **k)
+            )
+
+        self.addCleanup(setattr, os, "lstat", real_lstat)
+        self._mutate(swap)
+        with self.assertRaisesRegex(ValueError, "changed identity"):
+            hd.apply(self.link, BLOCK)
+        self.assertEqual(self.target.read_text(encoding="utf-8"), original,
+                         "the write landed in a file that was not the one resolved")
 
     def test_a_file_appearing_during_a_fresh_create_is_not_clobbered(self) -> None:
         fresh = Path(self._tmp.name) / "codex" / "AGENTS.md"
