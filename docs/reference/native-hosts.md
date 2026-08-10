@@ -5,7 +5,7 @@ directly: `shadow host run --host <name>` is the complete sealed path. There
 is no roster, route, or seat layer in front of it, and Shadow cannot verify
 or guarantee the provider model or billing tier inside a host.
 
-Every run requires one exact clean Git worktree, one frozen task file, one task
+Every run requires an exact clean Git worktree, a frozen task file, a task
 ID, and one or more exact allowed paths. Scope escape, missing receipt,
 non-zero exit, timeout, or missing passing tests fails closed. The returned
 claim stays `accepted_by_lead: false` until a person or lead agent reproduces

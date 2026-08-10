@@ -17,7 +17,7 @@ there is no bucket configuration file.
 
 ## The buckets
 
-- bucket superpowers | kind: pack | default: superpowers | fills: the process discipline inside one slice — brainstorm before building, test first, verify before claiming done. Shadow owns the durable plan; this owns how a slice is worked | absent: install superpowers from the claude-plugins-official marketplace, or set SHADOW_BUCKET_SUPERPOWERS=off
+- bucket superpowers | kind: pack | default: superpowers | fills: the process discipline inside every applicable claimed lane — brainstorm before building, test first, review, and verify before claiming done. Shadow owns the durable plan and keeps the full Outcome moving | absent: install superpowers from the claude-plugins-official marketplace, or set SHADOW_BUCKET_SUPERPOWERS=off
 - bucket honcho | kind: builtin | default: docs/reference/honcho.md | fills: durable memory of what the work is trying to achieve, and continuity across CLIs, providers, and machines — carried by PLAN.md and git, never by an installed store | absent: unreachable; a builtin bucket ships filled by this repository
 - bucket taste | kind: skill | default: taste | fills: the finished-quality grade on a human-visible surface, after it works and before anyone calls it done | absent: mount a skill named taste in one of the three skill roots, or set SHADOW_BUCKET_TASTE=off
 

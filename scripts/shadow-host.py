@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run one bounded Shadow task through a native coding host.
+"""Run a claimed Shadow task through a native coding host.
 
 This is deliberately a thin transport seam. It does not choose a provider,
 create a queue, accept a result, or write a durable plan. The caller supplies
-one host, one clean worktree, one task file, and exact allowed paths. The host
-must return one ``shadow.host-receipt.v1`` JSON fence; otherwise the attempt is
+the host, a clean worktree, a task file, and exact allowed paths. The host
+must return a ``shadow.host-receipt.v1`` JSON fence; otherwise the attempt is
 blocked or failed closed.
 """
 
@@ -783,7 +783,7 @@ def parser() -> argparse.ArgumentParser:
     probe_parser.add_argument("--binary")
     probe_parser.add_argument("--json", action="store_true")
     probe_parser.set_defaults(handler=probe)
-    run_parser = sub.add_parser("run", help="run one bounded packet through one native host")
+    run_parser = sub.add_parser("run", help="run a claimed packet through a native host")
     run_parser.add_argument("--host", choices=sorted(HOSTS), required=True)
     run_parser.add_argument("--binary")
     run_parser.add_argument("--repo", default=os.getcwd())

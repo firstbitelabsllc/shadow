@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rerun one task's proof in a clean checkout, then flip it.
+"""Rerun the selected task's proof in a clean checkout, then flip it.
 
 This is the only code path that flips a task to completed. It parses
 the repo's PLAN.md, finds the row by its ~hash id, reruns a ``cmd``-classed

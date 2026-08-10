@@ -1,12 +1,13 @@
 ---
 name: shadow
-description: "Chief-of-staff briefing, durable plan/proof/resume, and bounded native-host execution for AI coding work."
+description: "Chief-of-staff briefing, durable plan/proof/resume, and proactive parallel native-host execution for AI coding work."
 ---
 
 # Shadow
 
 Use Shadow when work must survive sessions, hosts, or interruptions and a
-cold reader should know the Outcome, current move, proof, and next decision.
+cold reader should know the Outcome, active lanes, proof, and reachable
+successors.
 
 Skip it for a factual answer or an obvious one-step edit with no handoff.
 
@@ -23,40 +24,47 @@ and proof mechanics underneath them.
 
 ## Worklane boundary
 
-Shadow supports the project currently being worked on; it is not a global
-gate for every project. Its own open proof must not stop another product from
-shipping the highest-value reachable row in that product's canonical plan.
-“One bounded task” keeps a handoff reviewable—it does not make the fleet
-single-threaded or defer safe, obvious in-scope improvement.
+Shadow supports every claimed lane needed by the current Outcome; its own open
+proof must not stop another product from shipping reachable work in that
+product's canonical plan. Drain the reachable queue, fan out safe disjoint
+lanes, integrate proof, and keep choosing successors. A task boundary protects
+ownership and reviewability; it is never a session, campaign, or ambition cap.
 
 ## Start every cycle
 
 1. Read repository instructions and the repository-owned `PLAN.md`.
 2. Inspect the exact Git revision, worktree state, and proof named by the plan.
-3. Resume an in-progress item; otherwise take the highest unblocked item.
-4. Make one bounded, reversible change and run the real repository gate.
-5. Record result, proof, uncertainty, and one exact resume move in `PLAN.md`.
+3. Resume every locally owned in-progress row; otherwise claim the highest
+   reachable work and fan out path-disjoint rows when useful.
+4. Drive claimed lanes to recorded results and run their real repository gates.
+5. Record each result, proof, uncertainty, blocked wake, and reachable
+   successor in `PLAN.md`.
+6. Continue until the Outcome is mechanically accepted or every remaining row
+   is behind an exact hard rail.
 
 Never overwrite unexplained work or create a second queue. A commit, worker
 message, or receipt is not acceptance proof by itself.
 
 ## Shape a goal
 
-A loose ask becomes one executable goal brief before it becomes plan rows.
-Gather only what makes it executable (the owning `PLAN.md` and its current
-task, git state, the named files/errors/surfaces). Synthesize, then cut
-filler, duplicate policy, invented phases, and "improve everything" scope.
+A loose ask becomes a complete executable goal brief before it becomes plan
+rows. Gather what makes the full outcome executable (the owning `PLAN.md`,
+active claims, reachable work, git state, and named files/errors/surfaces).
+Synthesize, then cut filler, duplicate policy, invented phases, and vague
+"improve everything" wording without an acceptance matrix. Never translate
+"everything", "end to end", "all boats rise", or equivalent outcome language
+into a single task, slice, or campaign.
 Deliver the goal ready to paste:
 
 ```text
 Outcome: <plain result>.
 Authority: <repo + PLAN.md> at <ref — fetch first, state your ref>.
-Resume: <the current in-progress task or one exact next move>.
-Scope: <bounded files/surfaces>; do not touch <prohibited paths>.
-Proof: <focused command>, <real surface to re-observe>.
-Policy: PLAN.md is the only plan/proof/resume layer; park a blocked
-slice with one exact resume predicate; done only when the acceptance
-behavior is mechanically true.
+Resume: <all owned in-progress work, then ranked reachable rows; fan out disjoint work>.
+Scope: <every surface required by the Outcome>; do not touch <prohibited paths>.
+Proof: <focused checks per lane>, <affected integration>, <real surfaces>.
+Policy: PLAN.md is the only plan/proof/resume layer; park blocked rows
+with exact wakes and continue every reachable row; stop only when the full
+acceptance behavior is mechanically true or every remainder is hard-rail blocked.
 ```
 
 Quality gate before delivery: a fresh session could start without asking
@@ -80,9 +88,9 @@ test, and the rule that every mechanism gets a proof that can refuse it.
 `shadow goal` prints the static standing goal for a host's instruction file.
 That text never changes; only what the plans point at does.
 
-## Delegate one task
+## Delegate claimed work
 
-Use the active host directly for normal work. For a bounded handoff, use:
+Use the active host directly for normal work. For each claimed handoff, use:
 
 ```bash
 shadow host run --host codex|claude-code|cursor \
@@ -92,7 +100,7 @@ shadow host run --host codex|claude-code|cursor \
 ```
 
 The task file is frozen, the worktree must be clean, allowed paths are exact,
-and the host must emit one bounded receipt with passing tests. Which provider
+and the host must emit a scoped receipt with passing tests. Which provider
 or account the host uses is the host CLI's own business — Shadow passes no
 selector and records none.
 
@@ -114,8 +122,8 @@ line with the flip.
 A goal is never allowed to simply end. When a goal condition is met, parks,
 or is superseded, the SAME closeout must:
 
-1. append the successor pointer to the owning PLAN.md — one row naming the
-   next Outcome and its exact resume move (or none-mission-complete with the
+1. append a successor pointer row to the owning PLAN.md naming the next
+   Outcome and its reachable start set (or none-mission-complete with the
    evidence line);
 2. when successor work exists, hand the person the next /goal text ready to
    paste — the chain carries continuity, not the person memory;
@@ -155,14 +163,14 @@ loopback projection of the same plan; Markdown remains authority.
 ## Extension buckets
 
 Shadow declares named slots its method assumes it can reach — superpowers for
-how a slice is worked, taste for the finished-quality grade, honcho for durable
+how each claimed lane is worked, taste for the finished-quality grade, honcho for durable
 memory — in `docs/reference/buckets.md`. `shadow buckets` reports which are
 filled. Shadow runs correctly with every one empty: a bucket never gates a
 cycle, claims a row, or carries proof, and no plan verb reads it.
 
 ## Boundaries
 
-Shadow owns one product identity, one `PLAN.md` authority, and one bounded
+Shadow owns a single product identity, a single `PLAN.md` authority, and a
 project-local evidence path. Native Codex, Claude Code, and Cursor own model
 authentication and execution. Do not add a router, daemon, scheduler, cloud
 executor, credential relay, transcript store, or parallel status database.
