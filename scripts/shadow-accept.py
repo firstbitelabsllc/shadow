@@ -357,18 +357,29 @@ def main(argv: list[str] | None = None) -> int:
             "PROOF line — NOT pushed (--no-push); the flip is invisible to other seats"
         )
         return 0
-    upstream = git_completed(
-        repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+    # remotename/remoteref from for-each-ref, never string-splitting the
+    # abbreviated upstream: a remote whose NAME contains a slash would make
+    # "my/remote/main".partition("/") push to the wrong place.
+    branch = git_completed(repo, "symbolic-ref", "--short", "HEAD")
+    upstream = (
+        git_completed(
+            repo, "for-each-ref",
+            "--format=%(upstream:remotename) %(upstream:remoteref)",
+            f"refs/heads/{branch.stdout.strip()}",
+        )
+        if branch.returncode == 0 and branch.stdout.strip()
+        else branch
     )
-    if upstream.returncode != 0:
+    parts = upstream.stdout.strip().split(" ", 1) if upstream.returncode == 0 else []
+    if len(parts) != 2 or not parts[0] or not parts[1]:
         print(
             f"accepted {row_id}: proof passed in a clean checkout; row flipped with its "
             "PROOF line — local only: this branch has no upstream, so push it yourself "
             "or the flip is invisible to other seats"
         )
         return 0
-    remote, _, remote_branch = upstream.stdout.strip().partition("/")
-    pushed = git_completed(repo, "push", remote, f"HEAD:{remote_branch}")
+    remote, remote_ref = parts
+    pushed = git_completed(repo, "push", remote, f"HEAD:{remote_ref}")
     if pushed.returncode != 0:
         print(
             f"shadow accept: {row_id} is flipped and committed locally but the push was "
@@ -379,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     print(
         f"accepted {row_id}: proof passed in a clean checkout; row flipped with its "
-        f"PROOF line and pushed to {remote}/{remote_branch}"
+        f"PROOF line and pushed to {remote} {remote_ref}"
     )
     return 0
 
