@@ -137,7 +137,7 @@ if [[ -z "${DIRECTIVE}" ]]; then
   # Cursor user rules live in application settings, not a file. Asserting a
   # path here would invent a convention and then report success for wiring
   # that does nothing.
-  skip "no file-backed directive for this host — verify its user rules by hand"
+  skip "cold directive activation is unsupported for this host; host-run and skill mount remain verifiable"
 elif [[ ! -f "${DIRECTIVE}" ]]; then
   bad "no instruction file — run: shadow goal --install"
 elif ! "${ROOT}/bin/shadow" goal | head -1 | grep -qF "$(head -1 <("${ROOT}/bin/shadow" goal))" 2>/dev/null; then

@@ -1,7 +1,9 @@
 # shadow amp — the goal is a pointer
 
-`shadow amp` projects a paste-ready starting block from a repository-owned
-`PLAN.md`. It exists because of a hard size truth: a real goal may iterate
+`shadow amp` projects a paste-ready resume block for a checkpoint already
+claimed by the named seat in an entity-owned `PLAN.md`. New work enters only
+through `shadow throw`, which atomically claims it before returning the same
+kind of packet. The pointer exists because a real goal may iterate
 over ten projects and hundreds of plan rows, and no goal prompt — bounded to
 one paste, default 4,000 characters — can carry that detail. The durable
 detail lives in the plan; the goal block MUST be a pointer to it, plus what a
@@ -11,31 +13,36 @@ starting pointer, never the Outcome's scope or stopping condition.
 ## The contract
 
 1. **Pointer first.** The block names the plan path, the ref
-   (`branch@sha`), the origin, and the exact `### <milestone>` section. Its
-   standing instruction: *the plan wins* — when block and plan disagree, the
-   block is stale, never the plan. First move is always fetch + read + state
-   your ref.
-2. **Starting pointer, never scope.** Selection starts with an `in_progress` row
-   first, else the first `pending` row whose `needs:` are all completed,
-   milestone order. Person-gated rows (`proof: gate <owner> …`) are never
-   auto-selected — they are agent-side stops, not work a seat may claim.
-   `--task ~hash` targets one row explicitly, gated or not: that is a person
-   choosing. After that row is proven, reread the plan, claim the next
-   reachable work, and fan out path-disjoint rows when useful. A projected row
-   never implies "do this and stop."
+   (`branch@sha`), the origin, and the exact `### <milestone>` section. The
+   computer board owns priority, claims, owners, and resume; the project plan
+   owns task detail and proof. The block owns neither. First move is always
+   fetch + read + state your ref.
+2. **Owned pointer, never scope.** `--by <seat>` is required for executable
+   projection. The selected checkpoint must have one root-board claim owned by
+   that seat; `--task '~hash'` may narrow among that seat's claims but can never
+   bypass ownership. After it is proven, reread the board, claim the next
+   reachable checkpoint through `shadow throw`, and fan out path-disjoint
+   claims when useful. A projected checkpoint never implies "do this and stop."
 3. **Proof rides along.** The resume row's `proof:` field is in the block —
    a seat should know the bar before writing a line.
-4. **Tooling from the milestone, not a store.** The optional milestone
-   `- tools:` line (see grammar § Milestone law) is projected verbatim.
-   Whoever works a milestone writes down what it actually needs; the next
-   seat inherits it. Pattern, not store.
+4. **Capabilities from the milestone, not a store.** The optional milestone
+   `- tools:` line (see grammar § Milestone law) records applicable
+   capabilities. Shadow selects the smallest relevant installed capability or
+   records a native fallback in a bounded `CAPABILITIES` block. Each entry
+   carries the local resolution (`present`, `absent`, `stale`, `off`, or an
+   advisory `warning`), the
+   selected capability, version/detail when available, the milestone reason,
+   and the native fallback. Resolution is read-only and never gates the packet;
+   invoking a capability never counts as proof.
 5. **Person-gated rows are named** so a seat never claims one.
 6. **Budget is enforced, not hoped.** Optional parts drop from the bottom
-   (rails → contradictions → gates → DoD → tools) until the block fits;
+   (rails → contradictions → gates → DoD → capabilities → tools) until the block fits;
    the pointer and the resume never drop; a resume row that alone exceeds
    the budget is a hard error pointing back at READ-FIT. The char count
    prints to stderr on every run.
-7. **Deterministic.** No LLM, no network. Same plan, same block. Model
+7. **Deterministic.** No LLM, no network, no resolved-state write. Same plan,
+   local board revision, capability mounts, bucket bindings, and PATH produce
+   the same block. Model
    judgment stays in the native hosts, per the platform boundary.
 8. **The pointer never lies about the ref.** amp reads the working tree, so
    when the plan has uncommitted edits the pointer is marked
@@ -53,17 +60,15 @@ starting pointer, never the Outcome's scope or stopping condition.
 ## Usage
 
 ```bash
-shadow amp                       # goal block for the cwd repo's PLAN.md
-shadow amp --repo ~/Development/resplit-ios
-shadow amp --task '~dd44'        # target one row
-shadow amp --max-chars 2000      # tighter paste budget
+shadow amp --entity <board-entity-id> --by codex-mac
+shadow amp --repo ~/Development/resplit-ios --by codex-mac
+shadow amp --repo . --task '~dd44' --by codex-mac
+shadow amp --repo . --by codex-mac --max-chars 2000
 ```
 
-Exit codes: `0` block printed; `1` nothing to project — either every task is
-complete (mint the successor — goal chaining) or the plan is stalled with
-open rows that are only person-gated, blocked, or waiting on unmet `needs:`
-(stderr names which and how many) — or the resume row itself exceeds the
-budget; `2` no plan or invalid usage.
+Exit codes: `0` owned block printed; `1` no matching live claim, the claimed
+checkpoint needs recovery rather than work, or the checkpoint exceeds the
+budget; `2` no plan/entity or invalid usage.
 
 ## What amp deliberately does not do
 
@@ -74,3 +79,19 @@ budget; `2` no plan or invalid usage.
   the plan, where the next projection picks it up.
 - It does not call a model. Sharpening prose is a host's job; amp's job is
   that the pointer, resume, proof, and rails are exact.
+- It does not hand planning, delegation, or review dispatch to an extension
+  pack. A `superpowers` bucket request never selects the pack root. Because one
+  packet can resume on Claude, Codex, or Cursor, a leaf found only in Claude's
+  plugin cache is source evidence, not a cross-host invocation. Amp records
+  only a concrete installed whole leaf compatible with Shadow's boundary —
+  verification-before-completion, test-driven-development,
+  systematic-debugging, or receiving-code-review — and selects the
+  host-neutral Shadow Method adaptation. Brainstorm and
+  request-review ideas are adapted disciplines inside Shadow Method, not
+  selected plugin leaves. If no compatible whole leaf is installed, or the
+  optional resolver fails, the packet records a warning and uses the native
+  host plus Shadow Method.
+- It never repeats an unsafe pack invocation from `- tools:`. `/superpowers`
+  and every non-compatible Superpowers leaf are projected as Shadow Method
+  intent or fallback; ordinary project tools such as `/craft` remain byte-for-
+  byte intact.

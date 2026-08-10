@@ -1,9 +1,16 @@
 # Native hosts
 
-Shadow supports `codex`, `claude-code`, and `cursor`. You choose the host
-directly: `shadow host run --host <name>` is the complete sealed path. There
-is no roster, route, or seat layer in front of it, and Shadow cannot verify
-or guarantee the provider model or billing tier inside a host.
+Shadow's sealed host runner supports `codex`, `claude-code`, and `cursor`. You
+choose the host directly: `shadow host run --host <name>` is the complete
+sealed path. There is no roster, route, or seat layer in front of it, and
+Shadow cannot verify or guarantee the provider model or billing tier inside a
+host.
+
+Cold directive activation is a narrower surface. Shadow manages a marker block
+in Claude Code's `CLAUDE.md` and Codex's `AGENTS.md`. Cursor user rules live in
+application settings; no reviewed file/API convention exists, so Shadow marks
+Cursor cold activation **unsupported** instead of inventing a path and calling
+it installed. Cursor's skill mount and sealed host-run remain supported.
 
 Every run requires an exact clean Git worktree, a frozen task file, a task
 ID, and one or more exact allowed paths. Scope escape, missing receipt,

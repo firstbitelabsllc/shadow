@@ -1,7 +1,7 @@
 {
   "name": "shadow",
-  "version": "0.1.0",
-  "description": "Durable plan, proof, and resume for AI coding work: one PLAN.md per repository, a goal block that points at it, and bounded native-host execution.",
+  "version": "0.2.0",
+  "description": "One private computer board coordinates project priorities, entity PLAN.md shards, owned claims, proof, resume, and bounded native-host execution.",
   "author": {
     "name": "First Bite Labs"
   },

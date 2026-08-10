@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print chief-of-staff briefs from repository-owned PLAN.md files."""
+"""Read this computer's board and project its canonical entity plans."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 import sys
 
@@ -14,11 +15,11 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
 
-from browser.server import (  # noqa: E402
-    SKIP_DIRS, discover_plans, is_live, is_plan_root, is_portfolio_child,
-    live_plans, repo_plans,
-)
+import shadow_root_board as _board  # noqa: E402
+import shadow_board_import as _import  # noqa: E402
 
 # The v4 grammar parser lives in shadow-amp; status reuses it so the two
 # projections can never disagree about what the current milestone or resume
@@ -38,7 +39,21 @@ sys.modules.setdefault("shadow_lint", _lint)
 _lint_spec.loader.exec_module(_lint)
 
 
-def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
+def plain_name(value: str) -> str:
+    return re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", " ".join(value.split()))
+
+
+def v4_brief(
+    plan_path: Path,
+    display_path: str | None = None,
+    resume_id: str | None = None,
+    *,
+    hide_internal: bool = False,
+    claimed: set[str] | None = None,
+    plan_text: str | None = None,
+    parsed: dict | None = None,
+    claims: list[dict] | None = None,
+) -> dict | None:
     """Render a v4-grammar plan into a bounded status record, or None if the
     plan does not carry a v4 Brief (legacy plans fall through to the old view).
 
@@ -46,16 +61,20 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
     path and the record must keep it, so a portfolio board never prints the
     operator's home directory (legacy records are relative for the same
     reason) and both plan versions render one path format."""
-    try:
-        text = plan_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    plan = _amp._parse(text)
+    if plan_text is None:
+        if not _board.regular_plan(plan_path):
+            return None
+        try:
+            plan_text = plan_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+    plan = parsed if parsed is not None else _amp._parse(plan_text)
+    plan["claimed"] = claimed or {claim["row"] for claim in (claims or [])}
     brief = plan["brief"]
     if "Project" not in brief or "Mode" not in brief:
         return None
     milestones = plan["milestones"]
-    selected = _amp._select(plan, None)
+    selected = _amp._select(plan, resume_id)
     # The milestone line derives from the SELECTED row's milestone — the same
     # one amp's goal block names — never independently. (An in_progress row in
     # a later milestone outranks an earlier milestone's needs-blocked pending
@@ -74,7 +93,9 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
     # render as "every task complete; mint the successor" — hiding real work.
     # Lint is additive here: the brief still renders (an operator needs it),
     # but a blocking finding is stated and completion is never claimed.
-    blocking = [f for f in _lint.lint_plan(text) if f.get("severity") == "blocking"]
+    blocking = [
+        f for f in _lint.lint_plan(plan_text) if f.get("severity") == "blocking"
+    ]
     record: dict = {
         "schema": "shadow.status.v4-brief",
         "lint_blocking": len(blocking),
@@ -82,6 +103,14 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
                        f"{blocking[0].get('detail')}") if blocking else None,
         "path": display_path or str(plan_path),
         "project": brief["Project"],
+        "entity_name": next(
+            (
+                plain_name(line[2:])[:120]
+                for line in plan_text.splitlines()
+                if line.startswith("# ") and line[2:].strip()
+            ),
+            brief["Project"].replace("-", " "),
+        ),
         "mode": brief["Mode"],
         "priority": brief.get("Priority"),
         "contradictions_open": len(plan["contradictions"]),
@@ -89,9 +118,19 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
     if current:
         done = sum(1 for r in current["rows"] if r["state"] == "completed")
         record["milestone"] = f"{current['title']} ({done}/{len(current['rows'])} done)"
+        if hide_internal:
+            record["milestone_human"] = plain_name(current["title"])
+    record["milestones"] = milestone_rotation(
+        plan,
+        resume_id,
+        claims or [],
+        hide_internal=hide_internal,
+    )
     if selected:
         _, row = selected
         record["resume"] = f"[{row['state']}] {row['text']} {row['id']}"
+        if hide_internal:
+            record["resume_human"] = f"[{row['state']}] {row['text']}"
         record["proof"] = row["fields"].get("proof", "MISSING")
     else:
         # Nothing selectable has two very different meanings: the plan is
@@ -113,15 +152,146 @@ def v4_brief(plan_path: Path, display_path: str | None = None) -> dict | None:
     return record
 
 
-def render_v4(record: dict) -> str:
+def milestone_rotation(
+    plan: dict,
+    resume_id: str | None,
+    claims: list[dict],
+    *,
+    hide_internal: bool = False,
+) -> list[dict]:
+    """Every live milestone and checkpoint, derived from one parsed plan."""
+    owners: dict[str, list[str]] = {}
+    for claim in claims:
+        owners.setdefault(claim["row"], []).append(claim["owner"])
+    reachable = set(_amp._candidate_ids(plan))
+    rotation = []
+    for milestone in plan["milestones"]:
+        checkpoints = []
+        for row in milestone["rows"]:
+            row_owners = sorted(set(owners.get(row["id"], [])))
+            is_resume = row["id"] == resume_id
+            if row["state"] == "completed" and not row_owners and not is_resume:
+                continue
+            availability = (
+                "claimed" if row_owners else
+                "blocked" if row["state"] == "blocked" else
+                "reachable" if row["id"] in reachable else
+                "waiting"
+            )
+            checkpoints.append(
+                {
+                    "id": row["id"],
+                    "state": row["state"],
+                    "text": row["text"],
+                    "availability": availability,
+                    "resume": is_resume,
+                    "owners": row_owners,
+                }
+            )
+        open_milestone = any(
+            row["state"] != "completed" for row in milestone["rows"]
+        )
+        if not open_milestone and not checkpoints:
+            continue
+        counts = {
+            state: sum(1 for row in milestone["rows"] if row["state"] == state)
+            for state in ("pending", "in_progress", "blocked", "completed")
+        }
+        title = milestone["title"]
+        rotation.append(
+            {
+                "title": title,
+                "title_human": (
+                    plain_name(title)
+                    if hide_internal else title
+                ),
+                "counts": counts,
+                "current": any(row["resume"] for row in checkpoints),
+                "resume": next(
+                    (row["id"] for row in checkpoints if row["resume"]), None
+                ),
+                "owners": sorted(
+                    {owner for row in checkpoints for owner in row["owners"]}
+                ),
+                "checkpoints": checkpoints,
+            }
+        )
+    return rotation
+
+
+def render_v4(record: dict, seat: str | None = None) -> str:
     lines = [
-        f"{record['project']} — {record['path']}",
+        f"{record['project'].replace('-', ' ')} — {record.get('entity_name', record['project'])}",
+        f"  Entity plan: {record['path']}",
         f"  Mode: {record['mode']}"
         + (f" | Priority: {record['priority']}" if record.get("priority") else ""),
     ]
-    if record.get("milestone"):
+    if record.get("milestone_human"):
+        lines.append(f"  Current outcome: {record['milestone_human']}")
+    elif record.get("milestone"):
         lines.append(f"  Milestone: {record['milestone']}")
-    lines.append(f"  Resume: {record['resume']}")
+    if record.get("milestones"):
+        lines.append("  Milestone rotation:")
+        for milestone in record["milestones"]:
+            counts = milestone["counts"]
+            total = sum(counts.values())
+            marker = "current" if milestone["current"] else "open"
+            owner = (
+                f" | Owner: {', '.join(milestone['owners'])}"
+                if milestone["owners"] else ""
+            )
+            lines.append(
+                f"    {marker}: {milestone.get('title_human', milestone['title'])} "
+                f"({counts['completed']}/{total} done){owner}"
+            )
+            for checkpoint in milestone["checkpoints"]:
+                checkpoint_owner = (
+                    f" | Owner: {', '.join(checkpoint['owners'])}"
+                    if checkpoint["owners"] else ""
+                )
+                lines.append(
+                    f"      [{checkpoint['state']}/{checkpoint['availability']}] "
+                    f"{checkpoint['text']}{checkpoint_owner}"
+                )
+    lines.append(f"  Resume: {record.get('resume_human', record['resume'])}")
+    live_claims = sorted(
+        record.get("live_claims", []),
+        key=lambda claim: (claim["owner"] != seat if seat else False, claim["row"]),
+    )
+    for claim in live_claims:
+        lines.append(
+            f"  In flight: [{claim['state']}] {claim['text']} "
+            f"| Owner: {claim['owner']}"
+        )
+        if (
+            record.get("entity")
+            and seat is not None
+            and claim["owner"] == seat
+            and claim["state"] in {"pending", "in_progress"}
+        ):
+            lines.append(
+                f"  Continue: shadow amp --entity {record['entity']} "
+                f"--task {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
+            )
+        elif (
+            record.get("entity")
+            and seat is not None
+            and claim["owner"] == seat
+            and claim["state"] in {"blocked", "completed"}
+        ):
+            lines.append(
+                f"  Recover: shadow return --entity {record['entity']} "
+                f"--row {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
+            )
+    claimable = record.get("next_unclaimed")
+    if not claimable and not record.get("owner"):
+        claimable = record.get("board_resume")
+    if record.get("entity") and claimable:
+        owner = shlex.quote(seat) if seat else "YOUR-STABLE-SEAT"
+        lines.append(
+            f"  Claim: shadow throw --entity {record['entity']} "
+            f"--task {shlex.quote(claimable)} --by {owner}"
+        )
     if record.get("proof"):
         lines.append(f"  Proof: {record['proof']}")
     if record.get("unclean"):
@@ -131,118 +301,213 @@ def render_v4(record: dict) -> str:
     return "\n".join(lines)
 
 
-def visible(records: list[dict], include_all: bool) -> list[dict]:
-    if include_all:
-        return records
-    return [
-        record
-        for record in records
-        if record.get("contract_error")
-        or (record.get("briefing") or {}).get("state") != "finished_with_proof"
-    ]
+def root_board_view(payload: dict) -> dict:
+    """A bounded, path-free rendering of the local authority for JSON output."""
+    entities = {entity["id"]: entity for entity in payload["entities"]}
+    return {
+        "schema": payload["schema"],
+        "revision": payload["revision"],
+        "projects": [
+            {
+                "project": project["id"],
+                "priority": project["priority"],
+                "entities": sum(
+                    1 for entity in payload["entities"]
+                    if entity["project"] == project["id"]
+                ),
+            }
+            for project in payload["projects"]
+        ],
+        "entities": [
+            {
+                "entity": entity["id"],
+                "project": entity["project"],
+                "plan": _board.public_plan_locator(Path(entity["plan"])),
+                "resume": entity["resume"],
+            }
+            for entity in payload["entities"]
+        ],
+        "claims": [
+            {
+                "entity": claim["entity"],
+                "project": entities[claim["entity"]]["project"],
+                "row": claim["row"],
+                "owner": claim["owner"],
+                "claimed_at": claim["claimed_at"],
+                "return_by": claim["return_by"],
+                "recovery": claim["recovery"],
+                "stale": _board.claim_is_stale(claim),
+            }
+            for claim in payload["claims"]
+        ],
+    }
 
 
-def render(records: list[dict]) -> str:
-    if not records:
-        return "No active Shadow Outcome found.\n"
-    blocks = []
-    for record in records:
-        briefing = record.get("briefing")
-        if not briefing:
-            blocks.append(
-                "\n".join(
-                    [
-                        record["title"],
-                        f"  State: needs a valid Brief",
-                        f"  Next: {record.get('contract_error') or 'Add a typed Outcome.'}",
-                    ]
-                )
+def board_records(payload: dict) -> list[dict]:
+    records: list[dict] = []
+    priorities = {project["id"]: project["priority"] for project in payload["projects"]}
+    ordered = sorted(
+        payload["entities"],
+        key=lambda entity: (priorities[entity["project"]], entity["project"], entity["id"]),
+    )
+    for entity in ordered:
+        plan_path = Path(entity["plan"])
+        project = entity["project"]
+        locator = _board.public_plan_locator(plan_path)
+        claims = [
+            claim for claim in payload["claims"] if claim["entity"] == entity["id"]
+        ]
+        entity_claims = {claim["row"] for claim in claims}
+        try:
+            if not _board.regular_plan(plan_path):
+                raise OSError("registered entity plan is not a regular file")
+            text = plan_path.read_text(encoding="utf-8")
+            parsed = _amp._parse(text)
+            record = v4_brief(
+                plan_path,
+                locator,
+                entity["resume"],
+                hide_internal=True,
+                claimed=entity_claims,
+                plan_text=text,
+                parsed=parsed,
+                claims=claims,
+            )
+        except (OSError, UnicodeError):
+            record = None
+        if record is None:
+            records.append(
+                {
+                    "path": locator,
+                    "project": project,
+                    "entity": entity["id"],
+                    "mode": "unknown",
+                    "priority": str(priorities[project]),
+                    "resume": "UNKNOWN — the entity plan is missing or unreadable",
+                    "broken": True,
+                }
             )
             continue
-        lines = [
-            record["title"],
-            f"  State: {briefing['state'].replace('_', ' ')}",
-            f"  Outcome: {record['outcome']['outcome']['summary']}",
-            f"  Now: {record['outcome']['outcome']['current_move']}",
-            f"  Recommendation: {briefing['recommendation']}",
+        record["entity"] = entity["id"]
+        record["board_resume"] = entity["resume"]
+        record["priority"] = str(priorities[project])
+        row_ids = {
+            row["id"]
+            for milestone in (parsed or {"milestones": []})["milestones"]
+            for row in milestone["rows"]
+        }
+        candidates = _amp._candidate_ids(parsed) if parsed is not None else []
+        rows = {
+            row["id"]: row
+            for milestone in (parsed or {"milestones": []})["milestones"]
+            for row in milestone["rows"]
+        }
+        record["live_claims"] = [
+            {
+                "row": claim["row"],
+                "owner": claim["owner"],
+                "state": rows.get(claim["row"], {}).get("state", "unknown"),
+                "text": rows.get(claim["row"], {}).get("text", "UNKNOWN — row missing"),
+            }
+            for claim in claims
         ]
-        for index, option in enumerate(briefing.get("choices") or []):
-            lines.append(f"  {chr(65 + index)}. {option['label']} — {option['consequence']}")
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks) + "\n"
+        issue = _board.entity_integrity(
+            entity,
+            claims,
+            row_ids,
+            candidates,
+        )
+        if issue:
+            record["resume"] = f"UNKNOWN — {issue}"
+            record.pop("resume_human", None)
+            record["broken"] = True
+        owner = next(
+            (
+                claim["owner"]
+                for claim in payload["claims"]
+                if claim["entity"] == entity["id"] and claim["row"] == entity["resume"]
+            ),
+            None,
+        )
+        if owner:
+            record["owner"] = owner
+        record["next_unclaimed"] = next(
+            (row for row in candidates if row not in entity_claims),
+            None,
+        )
+        records.append(record)
+    return records
 
 
-def portfolio_root() -> Path | None:
-    """The durable fallback scan root — same board from ANY working directory.
-
-    Shadow opened in a blank workspace (a fresh chat, a voice session, a
-    scratch dir) must show the same durable plan list as Shadow opened inside
-    a project. "This workspace has no plan — which project should I attach
-    to?" is the failure mode this exists to delete: the wrapping agent had
-    nothing to read, so it asked the person to do Shadow's job.
-
-    Resolution: $SHADOW_PORTFOLIO_ROOT, else ~/Development if it exists.
-    Returns None when neither resolves; callers fall back to cwd behavior.
-    """
-    configured = os.environ.get("SHADOW_PORTFOLIO_ROOT")
-    if configured:
-        candidate = Path(configured).expanduser()
-        return candidate if candidate.is_dir() else None
-    default = Path.home() / "Development"
-    return default if default.is_dir() else None
-
-
-def in_flight(root: Path) -> list[dict]:
-    """Every in_progress row in every plan under root — one master list with as
-    many heads as there are plans. This is the recovery view a cold successor
-    reads after a chat dies holding a dozen conversations: what was claimed,
-    what proof would tell you it finished, and when it was thrown.
-
-    Read from `live_plans`, not `discover_plans`: a plan that demoted itself is
-    not authority on any surface. Recovering a claim out of an archive shell
-    would send a successor to work rows the file itself says are dead."""
+def board_in_flight(payload: dict) -> list[dict]:
     rows: list[dict] = []
-    for record in live_plans(root):
-        path = record.get("path")
-        if not path:
-            continue
-        plan_path = root / path
+    entities = {entity["id"]: entity for entity in payload["entities"]}
+    for claim in payload["claims"]:
+        pointer = entities[claim["entity"]]
+        plan_path = Path(pointer["plan"])
+        project = pointer["project"]
+        locator = _board.public_plan_locator(plan_path)
         try:
-            text = plan_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        plan = _amp._parse(text)
-        project = plan["brief"].get("Project") or plan_path.parent.name
-        stamps: dict[str, str] = {}
-        leads: dict[str, str] = {}
-        for m in re.finditer(
-            r"^- (?P<ts>\S+) THROWN (?P<id>~[0-9a-z]{4})\b(?P<tail>.*)$", text, flags=re.M
-        ):
-            # Last write wins. Progress is append-only, so a row that was
-            # handed back and re-thrown has several THROWN lines; the live
-            # dispatch is the newest one, and an unsigned re-throw must not
-            # keep advertising the previous lead as the owner.
-            stamps[m.group("id")] = m.group("ts")
-            named = re.search(r"\| by: ([^|]+)", m.group("tail"))
-            if named:
-                leads[m.group("id")] = named.group(1).strip()
-            else:
-                leads.pop(m.group("id"), None)
-        for milestone in plan["milestones"]:
-            for row in milestone["rows"]:
-                if row["state"] != "in_progress":
-                    continue
-                rows.append({
+            plan = (
+                _amp._parse(plan_path.read_text(encoding="utf-8"))
+                if _board.regular_plan(plan_path)
+                else None
+            )
+        except (OSError, UnicodeError):
+            plan = None
+        located = next(
+            (
+                (milestone, row)
+                for milestone in (plan or {"milestones": []})["milestones"]
+                for row in milestone["rows"]
+                if row["id"] == claim["row"]
+            ),
+            None,
+        )
+        if located is None:
+            reason = (
+                "the project plan is missing or unreadable"
+                if plan is None
+                else "the claimed row is missing from the project plan"
+            )
+            rows.append(
+                {
                     "project": project,
-                    "plan": path,  # root-relative: never leak the home directory
-                    "milestone": milestone["title"],
-                    "id": row["id"],
-                    "text": row["text"],
-                    "proof": row["fields"].get("proof", "MISSING"),
-                    "thrown_at": stamps.get(row["id"]),
-                    "by": leads.get(row["id"]),
-                    "dispatched": row["id"] in stamps,
-                })
+                    "entity": pointer["id"],
+                    "plan": locator,
+                    "milestone": "entity pointer broken",
+                    "id": claim["row"],
+                    "text": f"UNKNOWN — {reason}",
+                    "proof": f"MISSING — {reason}",
+                    "thrown_at": claim["claimed_at"],
+                    "return_by": claim["return_by"],
+                    "by": claim["owner"],
+                    "dispatched": True,
+                    "broken": True,
+                    "stale": _board.claim_is_stale(claim),
+                }
+            )
+            continue
+        milestone, row = located
+        rows.append(
+            {
+                "project": project,
+                "entity": pointer["id"],
+                "plan": locator,
+                "milestone": milestone["title"],
+                "id": row["id"],
+                "text": row["text"],
+                "proof": row["fields"].get("proof", "MISSING"),
+                "state": row["state"],
+                "recovery": row["state"] in {"blocked", "completed"},
+                "thrown_at": claim["claimed_at"],
+                "return_by": claim["return_by"],
+                "by": claim["owner"],
+                "dispatched": True,
+                "broken": False,
+                "stale": _board.claim_is_stale(claim),
+            }
+        )
     return rows
 
 
@@ -259,209 +524,141 @@ def render_in_flight(rows: list[dict]) -> str:
             # difference between "someone has this" and a name you can address.
             if row.get("by"):
                 kind += f" by {row['by']}"
-            out.append(f"  {row['id']} {row['text']}")
-            out.append(f"       {kind} | {row['milestone']}")
+            if row.get("return_by"):
+                kind += f" | return by {row['return_by']}"
+            if row.get("stale"):
+                kind += " | STALE — probe proof, then adopt, park, or close"
+            out.append(f"  {row['text']}")
+            out.append(f"       {kind} | {plain_name(row['milestone'])}")
             out.append(f"       proof: {row['proof']}")
         out.append("")
     out.append("Probe each proof before assuming a job died — it may have finished after the chat did.")
     return "\n".join(out) + "\n"
 
 
-def _suppression_reason(record: dict) -> str:
-    """Why the board did not render this plan, in the plan's own words.
-
-    Two rules suppress: a duplicate of a repository already read, and a plan
-    that demoted itself. The second quotes the phrase it was demoted on, so the
-    verdict can be argued with instead of merely obeyed.
-    """
-    if record.get("shadowed_by"):
-        return record["shadow_reason"]
-    return f'demoted by its own banner: "{record.get("archive_veto")}"'
-
-
-def _any_plan_file(root: Path) -> Path | None:
-    """A plan this root legally owns, or None.
-
-    Existence only — no parsing — so it distinguishes "no plan at all" (safe to
-    fall back) from "a plan exists but failed ingestion" (never fall back, or a
-    broken plan silently becomes a healthy-looking portfolio board).
-
-    It asks the SAME question discover_plans does. It used to run its own
-    recursive walk, which from $HOME reached a scratch directory several levels
-    down and refused to fall back over a file that root does not own.
-    """
-    if is_plan_root(root):
-        found = repo_plans(root)
-        return found[0] if found else None
-    if not root.is_dir():
-        return None
-    try:
-        children = sorted(root.iterdir())
-    except OSError:
-        return None
-    # Resolved containment, exactly as discover_plans applies it: a symlinked
-    # child is a directory owning a PLAN.md by every cheap test while living
-    # outside the scan root, and fallback must not be decided by a file this
-    # root does not own.
-    here = root.resolve()
-    for child in children:
-        if (child.is_dir() and not child.name.startswith(".")
-                and is_portfolio_child(child, here) and is_plan_root(child)):
-            found = repo_plans(child)
-            if found:
-                return found[0]
-    return None
-
-
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="shadow status", description=__doc__)
     default_root = os.environ.get("SHADOW_DEV_ROOT") or str(Path.cwd())
     result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
-    result.add_argument("--all", action="store_true", help="include finished Outcomes")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
+    result.add_argument("--by", default=None, help="stable seat name for executable next moves")
     result.add_argument(
-        "--shadowed", action="store_true",
-        help="every plan discovery deliberately did not read, and the rule that decided it",
+        "--shadowed",
+        action="store_true",
+        help="inspect plans withheld by canonical election or self-demotion",
     )
     result.add_argument(
         "--in-flight",
         action="store_true",
-        help="every claimed (in_progress) row across the portfolio — the recovery view",
-    )
-    result.add_argument(
-        "--no-portfolio-fallback",
-        action="store_true",
-        help="report an empty scan as empty instead of falling back to the portfolio root",
+        help="every root-board claim across this computer — the recovery view",
     )
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.by:
+        try:
+            _board.validate_owner(args.by)
+        except _board.BoardError as exc:
+            print(f"shadow status: --by is unsafe: {exc}", file=sys.stderr)
+            return 2
     explicit_root = any(a == "--root" or a.startswith("--root=") for a in (argv or sys.argv[1:]))
     root = args.root.expanduser().resolve()
     if not root.is_dir():
         print("shadow status: scan root is not a directory", file=sys.stderr)
         return 2
-    if (
-        not explicit_root
-        and not args.no_portfolio_fallback
-        and not discover_plans(root)
-    ):
-        # discover_plans silently skips a PLAN.md that fails to load (OSError,
-        # UnicodeError, contract crash). An empty result therefore has two
-        # meanings, and only "no plan file exists at all" may fall back —
-        # falling back over a BROKEN local plan would mask the breakage behind
-        # a healthy-looking portfolio board.
-        broken = _any_plan_file(root)
-        if broken is not None:
-            # Name it relative to the root, never absolutely: this line lands
-            # in terminals and pasted issues, and Shadow's own privacy gate
-            # flags an absolute home path anywhere in its output.
-            try:
-                where = broken.relative_to(root).as_posix()
-            except ValueError:
-                where = broken.name
+    root_board = None
+    import_error = None
+    original = root
+    if args.shadowed:
+        try:
+            inspection_root = root if explicit_root else _import.portfolio_root(root)
+            hidden = _import.suppression_receipts(inspection_root)
+        except _board.BoardError as exc:
+            print(f"shadow status: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": hidden}, indent=2))
+        elif not hidden:
+            print("nothing suppressed — every plan discovery enumerated was read")
+        else:
+            for row in hidden:
+                print(f"{row['path']} — {row['reason']}")
+        return 0
+    try:
+        if not explicit_root:
+            root = _import.portfolio_root(root)
+        root_board = _import.reconcile_portfolio(root, _amp)
+    except _board.BoardError as exc:
+        import_error = str(exc)
+        try:
+            root_board = _board.snapshot()
+        except _board.BoardError as board_exc:
             print(
-                f"shadow status: {where} exists but failed to load — fix it "
-                "(shadow lint) or pass --root explicitly; not falling back.",
+                f"shadow status: this computer's root board is unreadable: {board_exc}",
                 file=sys.stderr,
             )
-        else:
-            fallback = portfolio_root()
-            if fallback is not None and fallback.resolve() != root:
-                print(
-                    "shadow status: no plan in this directory — showing the portfolio "
-                    "(set SHADOW_PORTFOLIO_ROOT to change where that is)",
-                    file=sys.stderr,
-                )
-                root = fallback.resolve()
-    if args.shadowed:
-        # The affirmative answer to "why is my plan not on the board". Without
-        # it, suppression is indistinguishable from a plan going missing, and
-        # the only honest thing a narrower board could be accused of is exactly
-        # that. Computed by the same pass that does the suppressing, so the
-        # explanation cannot drift from the behavior.
-        #
-        # Placed AFTER the portfolio fallback, with --in-flight: asked from a
-        # directory holding no plan, "what was suppressed" is a question about
-        # the portfolio the board would have shown, and answering "nothing"
-        # about an empty cwd is the same missing-plan ambiguity this view exists
-        # to kill.
-        #
-        # A self-demoted plan is suppressed by the same board, so it belongs in
-        # the same answer. Otherwise the veto reintroduces exactly the silence
-        # this view was built to end: the plan is simply gone from status, with
-        # nothing naming the phrase that removed it.
-        hidden = [r for r in discover_plans(root, include_shadowed=True)
-                  if r.get("shadowed_by") or r.get("archived")]
-        if args.json:
-            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": [
-                {"path": r["path"], "shadowed_by": r.get("shadowed_by"),
-                 "reason": _suppression_reason(r)} for r in hidden]}, indent=2))
-            return 0
-        if not hidden:
-            print("nothing suppressed — every plan discovery enumerated was read")
-            return 0
-        for row in hidden:
-            print(f"{row['path']} — {_suppression_reason(row)}")
-        return 0
+            return 1
+        if root_board is None:
+            print(
+                f"shadow status: portfolio import failed before a board existed: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            "shadow status: portfolio refresh failed; showing the last-good computer "
+            f"board — {exc}",
+            file=sys.stderr,
+        )
+    if not explicit_root and root != original:
+        print(
+            "shadow status: showing the portfolio for this computer "
+            "(set SHADOW_PORTFOLIO_ROOT to change where that is)",
+            file=sys.stderr,
+        )
     if args.in_flight:
-        rows = in_flight(root)
+        assert root_board is not None
+        rows = board_in_flight(root_board)
         if args.json:
-            print(json.dumps({"schema": "shadow.in-flight.v1", "rows": rows},
-                             indent=2, sort_keys=True))
+            report = {
+                "schema": "shadow.in-flight.v1",
+                "rows": rows,
+                "root_board": root_board_view(root_board),
+            }
+            print(json.dumps(report, indent=2, sort_keys=True))
         else:
             print(render_in_flight(rows), end="")
-        return 0
+        return 1 if import_error or any(row.get("broken") for row in rows) else 0
 
-    # v4 plans first: a grammar-clean plan must never fall through to the
-    # legacy validator and misreport as "needs a valid Brief".
-    legacy_records: list[dict] = []
-    v4_records: list[dict] = []
-    demoted: list[dict] = []
-    for record in discover_plans(root):
-        if not is_live(record):
-            # An archive shell is not authority on this surface either. The
-            # board and the CLI reading the same list but applying different
-            # rules IS the split this milestone closes: one demoted on the
-            # wire, still quoted as current by `shadow status`.
-            demoted.append(record)
-            continue
-        path = record.get("path")
-        # discover_plans emits root-relative paths (browser/server.py keeps
-        # them short for the board); resolve before reading.
-        v4 = v4_brief(root / path, str(path)) if path else None
-        if v4 is not None:
-            v4_records.append(v4)
-        else:
-            legacy_records.append(record)
-    legacy_records = visible(legacy_records, args.all)
-    if demoted and not v4_records and not legacy_records:
-        # Every plan here demoted itself. Printing a bare empty board would be
-        # indistinguishable from "your plan went missing", so the reason is
-        # named on the channel that is not the machine-readable answer.
-        for record in demoted:
-            print(f"shadow status: {record['path']} — {_suppression_reason(record)}",
-                  file=sys.stderr)
+    assert root_board is not None
+    v4_records = board_records(root_board)
+    if not v4_records and import_error is None:
+        try:
+            hidden = _import.suppression_receipts(root)
+        except _board.BoardError:
+            hidden = []
+        for receipt in hidden:
+            if receipt["shadowed_by"] is None:
+                print(
+                    f"shadow status: {receipt['path']} — {receipt['reason']}",
+                    file=sys.stderr,
+                )
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "schema": "shadow.status.v1",
-                    "plans": legacy_records,
-                    "v4_plans": v4_records,
-                },
-                indent=2,
-                sort_keys=True,
-            )
-        )
+        report = {
+            "schema": "shadow.status.v1",
+            "plans": [],
+            "v4_plans": v4_records,
+        }
+        report["root_board"] = root_board_view(root_board)
+        print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        blocks = [render_v4(r) for r in v4_records]
-        if legacy_records:
-            blocks.append(render(legacy_records).rstrip("\n"))
-        print(("\n\n".join(blocks) + "\n") if blocks else render([]), end="")
-    return 0
+        blocks = [f"This computer — root board revision {root_board['revision']}"]
+        blocks.extend(render_v4(record, args.by) for record in v4_records)
+        if not v4_records:
+            blocks.append("No registered Shadow entities on this computer.")
+        print("\n\n".join(blocks) + "\n", end="")
+    return 1 if import_error or any(record.get("broken") for record in v4_records) else 0
 
 
 if __name__ == "__main__":

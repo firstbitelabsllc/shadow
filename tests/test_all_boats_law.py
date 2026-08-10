@@ -76,8 +76,8 @@ class AllBoatsLaw(unittest.TestCase):
         standing = (ROOT / "docs/reference/host-integration.md").read_text(encoding="utf-8")
         amp = (ROOT / "scripts/shadow-amp.py").read_text(encoding="utf-8")
         for text in (standing, amp):
-            self.assertIn("drain every reachable row", text.lower())
-            self.assertIn("fan out safe disjoint", text.lower())
+            self.assertRegex(text.lower(), r"drain(?:ing)? every reachable checkpoint")
+            self.assertIn("path-disjoint claims", text.lower())
             self.assertIn("full acceptance", text.lower())
 
 

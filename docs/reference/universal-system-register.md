@@ -1,21 +1,23 @@
 # Universal-system decision register
 
-Every requirement raised in the two seats' chats (2026-08-09 → 2026-08-10),
-folded durable. Each entry is adopted, rejected with its reason, or deferred
-with an exact wake. Nothing about this milestone may remain chat-only: a
-seat that finds its chat missing here appends, it does not assume.
+This register records the bounded owner decisions and live repository
+contradictions that shape the universal system. Each entry is adopted,
+rejected with its reason, or deferred with an exact wake. Chats are useful
+leads and projections, never a second inventory or authority; a newly proven
+requirement is reconciled here without claiming that every conversation can
+be exhaustively mined.
 
 Sources: `owner` (the directing person; directives dated, not quoted), `claude-seat`, `codex-seat`.
 "Lands in" names the milestone row or surface that carries the decision.
 
 ## Adopted
 
-1. **One root board per COMPUTER; project plans stay authoritative shards.**
+1. **One root board per COMPUTER; entity plans stay authoritative shards.**
    owner directive (2026-08-10): the computer, not the repository, is the
    portfolio authority boundary — and equally, projects and milestones keep
-   their own plans; the board is not a monolith. The board owns priority,
-   claims, owners, and one resume pointer per project; shards own their
-   rows, proof, evidence. Lands in: the Contradictions entry + every
+   their own plans; the board is not a monolith. The board owns project and
+   entity rotation, priority, claims, owners, and one resume pointer per
+   entity; shards own their milestones, checkpoints, proof, and evidence. Lands in: the Contradictions entry + every
    universal-system row.
 2. **Pointers, never copies.** A task's text exists in exactly one file,
    ever; the board references, it never restates. codex-seat ("store each
@@ -50,16 +52,21 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
    highest-cost waste without sacrificing release confidence. Lands in: ~actv.
 8. **Shadow owns the canonical top-level directive block, written only
    through the installer's managed markers so it is iterable forever.**
-   owner directive (2026-08-10): iterability is a requirement, and the
-   owner's machine is the dogfood target with full-overwrite authorization
-   on record for the owner's own files only; reversible because the
-   installer preserves the pre-write state. Lands in: ~actv.
-9. **Extension buckets filled with the fleet's best in-house operators:**
-   brainstorming and code review from the superpowers plugin; design through
-   /craft with /taste carrying the quality bar; delegation through shadow's
-   own host-run. No external agent products; published patterns (e.g.
-   Devin's) are studied into Method. owner. Correction on record: /impeccable
-   was retired INTO /taste (2026-07-25) — /taste is the live name. Lands in: ~bops.
+   owner directive (2026-08-10): iterability is a requirement. The public
+   installer has one managed-marker mode. A private, one-time owner dogfood
+   operation may replace the owner's own host file by reusing the same
+   generated block, atomic replacement, and adjacent backup; it is not a
+   second public installer mode. Lands in: ~actv.
+9. **Extension buckets use compatible leaf disciplines from the fleet's best
+   in-house operators.** Superpowers is never loaded wholesale: only
+   brainstorming reasoning, TDD, debugging, review, and verification ideas
+   are allowlisted. Its approval gate, spec/plan chain, agent dispatch, and
+   execution orchestration conflict with Shadow's no-signoff and row-first
+   delegation laws. Design routes through /craft with /taste carrying the
+   quality bar; delegation stays in Shadow's own claimed host-run. No external
+   agent products are used; published patterns are studied into Method.
+   Correction on record: /impeccable was retired into /taste (2026-07-25) —
+   /taste is the live name. Lands in: ~bops.
 10. **Tiered verification, release-train shaped.** Feature lanes run
     declared focused checks; the trunk runs affected integration checks and
     curates test health (a trunk-cutter responsibility); release candidates
@@ -90,15 +97,17 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     the goal prompt; this file is the proof of the split.
 16. **Slash live legacy surfaces now.** owner directive, verbatim intent:
     remove the vidux plan convention and every live compatibility surface
-    of the pre-rename product name, then reconcile. In flight — see
-    In-flight state below.
+    of the pre-rename product name, then reconcile. Current execution state
+    lives only on the computer board.
 17. **The fixed installer lands first.** It is the delivery vehicle for
     ~actv (writes the block through managed markers without destroying
     symlinked host files). Lands in: ~actv needs ~slnk.
-18. **Two install modes, never conflated.** Strangers get the atomically
-    replaceable managed block; only the owner's own host files may be fully
-    overwritten as dogfood, with backup and an upgrade-converges proof.
-    codex-seat (2026-08-10). Lands in: ~actv.
+18. **One public install mode plus one private dogfood operation, never
+    conflated.** Strangers get the atomically replaceable managed block.
+    Only the owner's own host files may be fully overwritten by the private
+    one-time operation, with backup and an upgrade-converges proof; no public
+    flag or second installer contract exposes it. codex-seat (2026-08-10).
+    Lands in: ~actv.
 19. **GC has teeth.** Enforced byte/row/milestone budgets, return-by on
     every claim, finite claim and GC receipts with successors, dry-run-first
     idempotent cleanup, refusal to delete dirty or provenance-bearing state.
@@ -106,10 +115,14 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     Outcome stops. Closing a receipt exposes and claims the next reachable
     work until full acceptance or exact hard-rail wakes.
     codex-seat (2026-08-10). Lands in: ~gc20.
-20. **Capability selection is amp's job and it is recorded.** Filled
-    buckets alone prove nothing; `shadow amp` deterministically selects and
-    records why, version, fallback, result. codex-seat (2026-08-10).
-    Lands in: ~bops.
+20. **Capability selection is amp's job, is recorded, and never gates on an
+    absent bucket.** Filled buckets alone prove nothing; `shadow amp`
+    deterministically selects an installed compatible capability and records
+    why, version/detail, fallback, and result. Missing, stale, or disabled
+    capabilities warn and select the native host plus Shadow Method fallback;
+    they never block status, install, or claim. Superpowers selection is
+    restricted to the compatible leaves in decision 9. codex-seat
+    (2026-08-10). Lands in: ~bops.
 21. **The universal-system milestone is the only bootstrap.** No competing branch or parallel
     milestone; corrections land as amendments to these rows. Both seats
     (2026-08-10). Lands in: this file's history.
@@ -140,6 +153,44 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     boringly green. This sharpens the two-seat DoD's spirit: one passing run
     is a demo; the gauntlet repeated is the product. Lands in: ~2st8 and
     ~tier, and the Method's standing verification law.
+25. **Proof starts at the first usable slice, not at release.** owner
+    directive (2026-08-10): team agents attack the real verbs, run focused
+    proof, and dogfood Shadow on Shadow as soon as a mechanism can be used.
+    Each bounded independent review happens before the next layer expands;
+    its surviving failures become repairs or owned rows immediately. Early
+    green is evidence for that slice, never a substitute for the repeated
+    whole-system gauntlet. Lands in: ~tier, Method, and the gauntlet order.
+26. **The operating hierarchy is computer → project → entity → milestone →
+    checkpoint.** owner correction (2026-08-10). A project groups related
+    work across repositories. An entity is one independently steerable,
+    durable plan. Its `###` milestones are bounded outcome stages; their
+    task rows are claimable, provable checkpoints. The root board rotates
+    every reachable entity and projects each current milestone/checkpoint;
+    it never collapses a project to one opaque row or copies checkpoint text
+    out of the entity plan. Lands in: root-board schema/projection, status,
+    browser, amp, grammar, and the repeated gauntlet.
+27. **Release is a pressure-aware project train across entities.** owner
+    direction (2026-08-10): one fixed nightly verification train always runs
+    to catch rot; an optional second configured daily window and an automatic
+    early train run only when measured backlog pressure crosses a checked-in
+    threshold. Deterministic inputs are accepted-change count since the last
+    reachable release, oldest-change age, severity, and changed-path risk—not
+    mood. Zero accepted changes suppresses only the early feature train, not
+    nightly verification. A train validates accepted trunk changes through
+    project integration, the repeated gauntlet, and a stranger-install stage.
+    It records only those CI observations; merge, deployment, and live dogfood
+    remain separate receipts in the owning entity plan and are never inferred
+    from a green train. Failure returns to its owning checkpoint and blocks
+    unrelated entities only when an explicit dependency requires it. Lands in:
+    ~tier, Method, release fixtures, and the repeated gauntlet.
+
+28. **Cursor support is split honestly at the surface boundary.** Cursor's
+    skill mount and sealed native `shadow host run` path are supported. Cold
+    directive activation is unsupported because Cursor has no reviewed,
+    writable user-rule file surface on this machine; Shadow does not invent a
+    `.cursor/rules` convention or tell the operator to verify it by hand. Wake:
+    Cursor documents a real user-rule surface that survives a cold-session
+    proof. Lands in: host verification, native-host documentation, and ~actv.
 
 ## Rejected
 
@@ -166,17 +217,7 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
 
 1. **Multi-machine live sharing of the board.** Wake: ~2st8 passes on one
    machine.
-2. **Cursor activation.** Owned by the existing ~curs row (M15) — real
-   surface proven by a cold session, or honestly unsupported. Not restated
-   here.
-3. **Per-repo verify.yaml rollout to product repositories.** Wake: ~tier
+2. **Per-repo verify.yaml rollout to product repositories.** Wake: ~tier
    fixture proof green; product pilots are separately claimed rows.
-4. **The five-waste measurements.** Wake: the local telemetry half (M14)
+3. **The five-waste measurements.** Wake: the local telemetry half (M14)
    lands; until then the five stay labeled hypotheses.
-
-## In-flight state
-
-Coordination detail for in-flight lanes lives on the board rows themselves
-(M15 ~slnk is in progress; the legacy-surface removal and the prior
-session-closeout each have an owner and a written resume move). This public
-register records decisions, not machine state.

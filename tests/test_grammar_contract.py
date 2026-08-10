@@ -44,7 +44,11 @@ class GrammarContractTests(unittest.TestCase):
         text = AGENT.read_text(encoding="utf-8")
         for anchor in (
             "plan file",
-            "task",
+            "computer board",
+            "project",
+            "entity",
+            "milestone",
+            "checkpoint",
             "explore",
             "ship",
             "Defer is a write",
@@ -59,7 +63,7 @@ class GrammarContractTests(unittest.TestCase):
         # Standard vocabulary only: the old fun terms must not resurface in law.
         agent = AGENT.read_text(encoding="utf-8")
         grammar = GRAMMAR.read_text(encoding="utf-8")
-        for banned in ("the Method", "Operator Brief", "checkpoint row", "gate pair", "posture", "Entity:", "BOX ", "VERDICT "):
+        for banned in ("Operator Brief", "gate pair", "posture", "BOX ", "VERDICT "):
             self.assertNotIn(banned, agent, banned)
             self.assertNotIn(banned, grammar, banned)
 
