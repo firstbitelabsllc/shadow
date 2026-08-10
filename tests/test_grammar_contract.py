@@ -65,16 +65,17 @@ class GrammarContractTests(unittest.TestCase):
         goal_skill = GOAL_SKILL.read_text(encoding="utf-8")
         normalized_goal = " ".join(goal_skill.split())
 
-        self.assertIn("`skills/goal/SKILL.md` is the one owner", root_skill)
+        self.assertIn("`skills/goal/SKILL.md` owns goal shaping", root_skill)
         self.assertNotIn("Outcome: <plain result>", root_skill)
         for anchor in (
-            "100-200 word launcher",
-            "Planning is not a stopping condition",
-            "finite mechanical finish line",
-            "one relevant human authority boundary or none",
-            "Reversible work is execution-authorized by default",
+            "A goal is a pointer, not a plan",
+            "60-100 words",
+            "Stop after planning only when explicitly asked",
+            "details stay in PLAN.md",
+            "one relevant human boundary or none",
         ):
             self.assertIn(anchor, normalized_goal, anchor)
+        self.assertNotIn("100-200 word", root_skill + goal_skill)
         self.assertNotIn("do not touch <prohibited paths>", goal_skill)
 
     def test_only_shadow_is_an_invented_name(self) -> None:
