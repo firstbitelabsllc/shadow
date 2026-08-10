@@ -69,6 +69,12 @@ function renderBoardBriefCard(plan) {
     if (brief?.state === 'unmigrated') {
       card.append(el('h2', { text: 'Written before the current plan grammar' }));
       card.append(el('p', { text: 'This plan has content but no task rows Shadow can read. Migrate it with shadow init --here, or leave it as history.' }));
+      // A pre-grammar plan can also carry a broken v3 Outcome. Staying silent
+      // about that error would send the owner migrating when the real defect
+      // is in the Brief they already have.
+      if (plan.contract_error) {
+        card.append(el('p', { text: `Its Brief also has an Outcome Shadow could not read: ${plan.contract_error}` }));
+      }
     } else {
       card.append(el('h2', { text: 'This plan has no readable tasks yet' }));
       card.append(el('p', { text: plan.contract_error || 'Add a ## Tasks section with milestone rows, then refresh.' }));
