@@ -303,6 +303,10 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--all", action="store_true", help="include finished Outcomes")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
     result.add_argument(
+        "--shadowed", action="store_true",
+        help="every plan discovery deliberately did not read, and the rule that decided it",
+    )
+    result.add_argument(
         "--in-flight",
         action="store_true",
         help="every claimed (in_progress) row across the portfolio — the recovery view",
@@ -322,6 +326,24 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         print("shadow status: scan root is not a directory", file=sys.stderr)
         return 2
+    if args.shadowed:
+        # The affirmative answer to "why is my plan not on the board". Without
+        # it, suppression is indistinguishable from a plan going missing, and
+        # the only honest thing a narrower board could be accused of is exactly
+        # that. Computed by the same pass that does the suppressing, so the
+        # explanation cannot drift from the behavior.
+        hidden = [r for r in discover_plans(root, include_shadowed=True) if r.get("shadowed_by")]
+        if args.json:
+            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": [
+                {"path": r["path"], "shadowed_by": r["shadowed_by"],
+                 "reason": r["shadow_reason"]} for r in hidden]}, indent=2))
+            return 0
+        if not hidden:
+            print("nothing suppressed — every plan discovery enumerated was read")
+            return 0
+        for row in hidden:
+            print(f"{row['path']} — {row['shadow_reason']}")
+        return 0
     if (
         not explicit_root
         and not args.no_portfolio_fallback
