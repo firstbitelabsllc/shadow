@@ -282,5 +282,31 @@ class TheSubsetRefusesWhatItCannotParse(unittest.TestCase):
                 self.assertIn(f"shadow.yaml:{line}:", result.stderr)
 
 
+class NoSelectorKeys(unittest.TestCase):
+    def test_provider_model_account_and_credential_keys_are_never_ignored(self) -> None:
+        cases = {
+            "provider": "native-host",
+            "model": "host-default",
+            "account": "host-owned",
+            "credential": "host-managed",
+        }
+        for key, value in cases.items():
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as dirname:
+                repo = git_repo(Path(dirname))
+                (repo / "shadow.yaml").write_text(
+                    f"version: 1\n{key}: {value}\n",
+                    encoding="utf-8",
+                )
+
+                result = run_config(repo)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(
+                    "shadow config: shadow.yaml:2: unsupported declaration",
+                    result.stderr,
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
