@@ -140,7 +140,7 @@ def lead_review_passes(worktree: Path, proof: list[str], timeout_seconds: int) -
     dirt = [
         line
         for line in status.stdout.splitlines()
-        if line.strip() and not line[3:].startswith((".shadow/", ".pilot-puppy/"))
+        if line.strip() and not line[3:].startswith(".shadow/")
         and not line[3:].startswith("__pycache__/") and "/__pycache__/" not in line[3:]
     ]
     return not dirt
