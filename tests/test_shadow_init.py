@@ -36,12 +36,18 @@ class InitTests(unittest.TestCase):
             repo = self.make_repo(Path(dirname))
             result = run("--here", cwd=repo)
             record = plan_record(repo / "PLAN.md", repo)
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "created PLAN.md\n")
         self.assertIsNone(record["contract_error"])
         self.assertEqual(record["briefing"]["state"], "needs_you")
         self.assertEqual(len(record["briefing"]["choices"]), 3)
         self.assertNotIn(dirname, json.dumps(record))
+        self.assertIn("Complete the full declared outcome", plan)
+        self.assertIn("every safe reachable lane", plan)
+        self.assertIn("- Option A ID: derive-and-execute", plan)
+        self.assertNotIn("smallest", plan.lower())
+        self.assertNotIn(" ".join(("one", "bounded")), plan.lower())
 
     def test_refuses_to_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

@@ -50,6 +50,8 @@ class GoalVerb(unittest.TestCase):
             "mint the",                       # goal chaining
             "shadow throw",                   # dispatch law: nothing leaves unclaimed
             "not a death certificate",        # and the reading that broke it twice
+            "Drain every reachable row",      # selected row starts work; it never caps it
+            "fan out safe disjoint rows",     # independent lanes rise together
         ):
             self.assertIn(clause, text, f"standing goal lost: {clause}")
 
