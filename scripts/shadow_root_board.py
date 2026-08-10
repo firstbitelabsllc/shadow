@@ -1745,17 +1745,27 @@ def section_lines(text: str, section: str) -> list[str]:
     return result
 
 
+PROGRESS_PROOF_RECEIPT_RE = re.compile(
+    r"^- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z "
+    r"(?P<row>~[0-9a-z]{4}) PROOF (?P<proof>.+) -> (?P<result>.+)$"
+)
+
+
+def progress_proof_receipt(line: str) -> tuple[str, str, str] | None:
+    """Parse one canonical receipt line for lint and claim-return parity."""
+    match = PROGRESS_PROOF_RECEIPT_RE.match(line)
+    if match is None:
+        return None
+    return match.group("row"), match.group("proof"), match.group("result")
+
+
 def progress_proof_receipts(text: str, row: str) -> list[tuple[str, str]]:
     """Parse only the row's canonical Progress receipts, never notes elsewhere."""
     receipts: list[tuple[str, str]] = []
-    pattern = re.compile(
-        rf"^- \d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z "
-        rf"{re.escape(row)} PROOF (?P<proof>.+) -> (?P<result>.+)$"
-    )
     for line in section_lines(text, "Progress"):
-        match = pattern.match(line)
-        if match is not None:
-            receipts.append((match.group("proof"), match.group("result")))
+        receipt = progress_proof_receipt(line)
+        if receipt is not None and receipt[0] == row:
+            receipts.append((receipt[1], receipt[2]))
     return receipts
 
 
