@@ -34,6 +34,7 @@ import argparse
 import errno
 import importlib.util
 import os
+import stat
 from pathlib import Path
 import sys
 import tempfile
@@ -156,7 +157,17 @@ def _canonical(path: Path) -> Path:
     return target
 
 
-def _atomic_write(path: Path, text: str, *, mode: int | None) -> None:
+# Test seam, called once in apply() between resolution and the final write.
+# The delete-and-swap races below are real but their window is milliseconds;
+# a probabilistic test would pass for years while the guard rotted. Setting
+# this hook lets a test mutate the filesystem deterministically inside the
+# window. Never set outside tests; costs one None-check in production.
+_test_between_resolve_and_write = None
+
+
+def _atomic_write(path: Path, text: str, *, mode: int | None,
+                  expect: os.stat_result | None = None,
+                  expect_absent: bool = False) -> None:
     """Replace `path` in one step, never leaving it partially written.
 
     Same directory so the rename is atomic: os.replace across filesystems is
@@ -175,6 +186,35 @@ def _atomic_write(path: Path, text: str, *, mode: int | None) -> None:
             stream.write(text)
         if mode is not None:
             os.chmod(temporary, mode)
+        if expect is not None:
+            # The path was resolved earlier and the world kept moving. If the
+            # file vanished, renaming would silently recreate it where the
+            # person may have deliberately removed it; if something else was
+            # put there — above all a fresh symlink — renaming would replace
+            # it, which for a link is this feature's own defect one level
+            # down. Identity is the inode, not the content: a same-bytes file
+            # swapped in is still not the file that was resolved.
+            try:
+                current = os.lstat(path)
+            except FileNotFoundError:
+                raise ValueError(
+                    f"{path} vanished after it was resolved; nothing was written"
+                ) from None
+            if not stat.S_ISREG(current.st_mode):
+                raise ValueError(
+                    f"{path} was replaced by something that is not a regular file "
+                    "after it was resolved; refusing to overwrite it"
+                )
+            if (current.st_dev, current.st_ino) != (expect.st_dev, expect.st_ino):
+                raise ValueError(
+                    f"{path} changed identity after it was resolved; rerun so the "
+                    "write sees what is there now"
+                )
+        elif expect_absent and os.path.lexists(path):
+            raise ValueError(
+                f"{path} appeared while the install was writing it; rerun so the "
+                "write sees what is there now"
+            )
         os.replace(temporary, path)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
@@ -208,10 +248,12 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
             action = "refreshed" if current.startswith(BEGIN) else "adopted"
 
     mode: int | None = None
+    identity: os.stat_result | None = None
     if not existed:
         target.parent.mkdir(parents=True, exist_ok=True)
     else:
-        mode = target.stat().st_mode & 0o7777
+        identity = os.lstat(target)
+        mode = identity.st_mode & 0o7777
         # Beside the canonical file, not beside the link. These are the
         # canonical file's bytes, and a copy left next to the link reads as a
         # backup OF the link — so the obvious recovery, `cp CLAUDE.md.bak-shadow
@@ -220,10 +262,27 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
         # also leave one backup of it rather than one per link, each snapshotting
         # a different moment and only the first of them pre-shadow.
         backup = target.with_suffix(target.suffix + ".bak-shadow")
-        if not backup.exists():
-            _atomic_write(backup, text, mode=mode)
 
-    _atomic_write(target, new, mode=mode)
+    made_backup = False
+    if existed and not backup.exists():
+        _atomic_write(backup, text, mode=mode)
+        made_backup = True
+
+    if _test_between_resolve_and_write is not None:
+        _test_between_resolve_and_write()
+
+    try:
+        _atomic_write(target, new, mode=mode, expect=identity,
+                      expect_absent=not existed)
+    except BaseException:
+        # All-or-nothing includes the backup. One that this run created
+        # alongside a write that never landed records a change that never
+        # happened, and its existence makes the NEXT run skip backing up the
+        # state that actually preceded it. A pre-existing backup is somebody's
+        # earlier state and is never touched.
+        if made_backup:
+            backup.unlink(missing_ok=True)
+        raise
     return action
 
 

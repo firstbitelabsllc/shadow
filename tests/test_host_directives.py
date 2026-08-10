@@ -416,3 +416,140 @@ class CursorIsNotInvented(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWindowBetweenResolveAndWriteIsGuarded(unittest.TestCase):
+    """The world keeps moving after the symlink resolves.
+
+    Between resolution and the rename, the target can be deleted or swapped.
+    Renaming anyway would recreate a file someone deliberately removed, or —
+    the sharp case — destroy a fresh symlink planted at the resolved path,
+    which is this feature's own defect one level down. The races are
+    real but their window is milliseconds, so these tests drive the module's
+    explicit seam (`_test_between_resolve_and_write`) instead of racing
+    threads: a probabilistic test would pass for years while the guard rotted.
+
+    Identity is the inode, not the content: a same-bytes file swapped in is
+    still not the file that was resolved.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.target = root / "repo" / "DIRECTIVES.md"
+        self.target.parent.mkdir()
+        self.target.write_text("owner text\n", encoding="utf-8")
+        self.link = root / "CLAUDE.md"
+        self.link.symlink_to(self.target)
+
+    def tearDown(self) -> None:
+        hd._test_between_resolve_and_write = None
+        self._tmp.cleanup()
+
+    def _mutate(self, action) -> None:
+        hd._test_between_resolve_and_write = action
+
+    def test_a_target_deleted_inside_the_window_is_not_recreated(self) -> None:
+        self._mutate(lambda: self.target.unlink())
+        with self.assertRaisesRegex(ValueError, "vanished after it was resolved"):
+            hd.apply(self.link, BLOCK)
+        self.assertFalse(self.target.exists(),
+                         "the write recreated a file that was deliberately removed")
+
+    def test_a_symlink_planted_inside_the_window_is_not_destroyed(self) -> None:
+        elsewhere = self.target.parent / "elsewhere.md"
+        elsewhere.write_text("someone else's file\n", encoding="utf-8")
+
+        def swap() -> None:
+            self.target.unlink()
+            self.target.symlink_to(elsewhere)
+
+        self._mutate(swap)
+        with self.assertRaisesRegex(ValueError, "not a regular file"):
+            hd.apply(self.link, BLOCK)
+        self.assertTrue(self.target.is_symlink(), "the planted link was destroyed")
+        self.assertEqual(elsewhere.read_text(encoding="utf-8"), "someone else's file\n")
+
+    def test_a_same_content_file_swapped_inside_the_window_is_refused(self) -> None:
+        original = self.target.read_text(encoding="utf-8")
+
+        def swap() -> None:
+            self.target.unlink()
+            self.target.write_text(original, encoding="utf-8")  # same bytes, new inode
+
+        self._mutate(swap)
+        with self.assertRaisesRegex(ValueError, "changed identity"):
+            hd.apply(self.link, BLOCK)
+
+    def test_a_file_appearing_during_a_fresh_create_is_not_clobbered(self) -> None:
+        fresh = Path(self._tmp.name) / "codex" / "AGENTS.md"
+
+        def plant() -> None:
+            fresh.parent.mkdir(parents=True, exist_ok=True)
+            fresh.write_text("someone got here first\n", encoding="utf-8")
+
+        self._mutate(plant)
+        with self.assertRaisesRegex(ValueError, "appeared while the install was writing"):
+            hd.apply(fresh, BLOCK)
+        self.assertEqual(fresh.read_text(encoding="utf-8"), "someone got here first\n")
+
+    def test_the_undisturbed_path_still_writes_through(self) -> None:
+        # A guard that fires on everything is as useless as one that never
+        # fires. With no mutation, the write lands in the target and the link
+        # survives.
+        self.assertEqual(hd.apply(self.link, BLOCK), "added")
+        self.assertTrue(self.link.is_symlink())
+        self.assertIn(hd.BEGIN, self.target.read_text(encoding="utf-8"))
+
+
+class AFailedWriteLeavesNoNewBackup(unittest.TestCase):
+    """All-or-nothing includes the backup.
+
+    The prior failure test only failed BACKUP creation. If the backup lands
+    and the final replace then fails, a fresh `.bak-shadow` records a change
+    that never happened — and its existence makes the NEXT run skip backing
+    up the state that actually preceded it. A backup made by this run is
+    removed on failure; a pre-existing backup is somebody's earlier state and
+    is never touched.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.target = root / "repo" / "DIRECTIVES.md"
+        self.target.parent.mkdir()
+        self.target.write_text("owner text\n", encoding="utf-8")
+        self.link = root / "CLAUDE.md"
+        self.link.symlink_to(self.target)
+        self.backup = self.target.with_suffix(self.target.suffix + ".bak-shadow")
+
+    def tearDown(self) -> None:
+        hd._test_between_resolve_and_write = None
+        self._tmp.cleanup()
+
+    def _fail_the_final_write(self) -> None:
+        # Deleting the target inside the window makes the final write refuse
+        # AFTER the backup was created — exactly the ordering under test.
+        hd._test_between_resolve_and_write = lambda: self.target.unlink()
+
+    def test_a_backup_made_this_run_is_removed_when_the_write_fails(self) -> None:
+        self._fail_the_final_write()
+        with self.assertRaises(ValueError):
+            hd.apply(self.link, BLOCK)
+        self.assertFalse(self.backup.exists(),
+                         "a backup survived a write that never landed")
+
+    def test_a_pre_existing_backup_is_never_touched(self) -> None:
+        self.backup.write_text("an earlier state\n", encoding="utf-8")
+        self._fail_the_final_write()
+        with self.assertRaises(ValueError):
+            hd.apply(self.link, BLOCK)
+        self.assertEqual(self.backup.read_text(encoding="utf-8"), "an earlier state\n")
+
+    def test_no_temp_file_survives_the_failure(self) -> None:
+        self._fail_the_final_write()
+        with self.assertRaises(ValueError):
+            hd.apply(self.link, BLOCK)
+        leftovers = [p.name for p in self.target.parent.iterdir()
+                     if p.name.startswith(".shadow-")]
+        self.assertEqual(leftovers, [])
