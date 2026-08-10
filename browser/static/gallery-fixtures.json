@@ -28,10 +28,5 @@
   "label": "Empty — a plan with nothing readable yet",
   "expected_state": "empty",
   "plan": "# Fresh start\n\nNothing here yet.\n"
- },
- "v3-decision": {
-  "label": "v3 plan — the rich brief with a waiting decision",
-  "expected_state": "working",
-  "plan": "# Release notes\n\n## Brief\n\n- Outcome ID: ship-release-notes\n- Outcome Revision: 7\n- Outcome Updated At: 2026-08-03T02:00:00Z\n- Outcome State: needs_input\n- Outcome: Publish release notes people can trust.\n- Next: Choose the final review depth.\n- Decision ID: choose-review-depth\n- Decision: How should we finish the review?\n- Option A ID: ship-now\n- Option A: Ship now\n- Option A Consequence: Use the accepted proof and finish today.\n- Option B ID: cold-review\n- Option B: Run a cold review\n- Option B Consequence: Spend one bounded pass on independent judgment.\n- Option C ID: hold-release\n- Option C: Hold the release\n- Option C Consequence: Keep the Outcome open until new evidence exists.\n- Proof ID: focused-tests\n- Proof: tests/test_browser.py\n- Proof Summary: Browser contract tests pass.\n- Proof Delivery: delivered\n\n## Tasks\n\n### M1 — Notes shipped\n- [in_progress] the draft covers every merged change ~ge01 | proof: cmd npm run notes:check\n- [pending] the notes are published ~ge02 (DoD) | proof: gate owner re-observes the site\n"
  }
 }

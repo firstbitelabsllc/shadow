@@ -1,8 +1,8 @@
 """The one canonical home of the secret- and private-path shapes.
 
 Every runtime surface that refuses secret-shaped or machine-private values
-imports from here; tests/shadow-outcome-validate.py keeps its own deliberately
-independent transcription as the second implementation that catches drift.
+imports from here. Focused scrub tests keep independent adversarial examples
+that catch a weakened shape.
 """
 
 from __future__ import annotations

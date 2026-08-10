@@ -22,30 +22,23 @@ CSS = (ROOT / "browser" / "static" / "style.css").read_text(encoding="utf-8")
 class BrowserShellContract(unittest.TestCase):
     def test_one_product_identity_and_one_application_script(self) -> None:
         self.assertIn("<title>Shadow</title>", HTML)
-        self.assertIn("Your coding chief of staff", HTML)
+        self.assertIn("Your durable local workboard", HTML)
         self.assertEqual(len(re.findall(r"<script ", HTML)), 1)
 
-    def test_reads_plans_and_only_sends_explicit_local_choices(self) -> None:
+    def test_reads_plans_and_has_no_browser_write_channel(self) -> None:
         self.assertIn("fetch('/api/plans')", APP)
-        self.assertIn("fetch('/api/decision'", APP)
+        self.assertNotIn("fetch('/api/decision'", APP)
         self.assertNotIn("/api/drive", APP)
-        self.assertIn("entity: plan.entity", APP)
-        self.assertIn("root_board_revision: state.boardRevision", APP)
         self.assertIn("id=\"board-warning\"", HTML)
         self.assertIn("boardWarning.hidden = !state.warning", APP)
         self.assertNotIn("localStorage", APP)
         self.assertNotIn("WebSocket", APP)
 
-    def test_names_the_brief_and_choices_in_everyday_language(self) -> None:
-        self.assertIn("text: 'Now'", APP)
-        self.assertIn("row('Change', briefing.changed)", APP)
-        self.assertIn("text: 'Choose what happens next'", APP)
-        self.assertIn("text: 'How Shadow can help'", APP)
-        self.assertIn("'Drive the full outcome'", APP)
-        self.assertIn("'Fan out safe work'", APP)
-        self.assertIn("full acceptance stops the outcome", APP)
-        self.assertIn("only exact hard rails pause it earlier", APP)
-        self.assertIn("briefing.proof ? 'Proof' : 'Proof not available yet'", APP)
+    def test_names_the_v4_board_in_everyday_language(self) -> None:
+        self.assertIn("'Current milestone'", APP)
+        self.assertIn("row('Latest change', brief.latest_change)", APP)
+        self.assertIn("row('Done means'", APP)
+        self.assertNotIn("Choose what happens next", APP)
         # PROVEN FALSE GREEN (2026-08-09): this guard was written as
         # `assertNotIn("text: 'planner'", APP)`, but app.js never writes a role
         # as a literal `text:` value — the labels come from an array via
@@ -115,3 +108,26 @@ class NoNodeDependency(unittest.TestCase):
                       "  # tests fail if npm/npx appears",
                       '"""Public-readiness identity (npm removed):'):
             self.assertFalse(invocation.search(quiet.split("#", 1)[0]), quiet)
+
+
+class RetiredV3HasNoRuntimeSurface(unittest.TestCase):
+    def test_the_v3_outcome_and_decision_stack_is_absent(self) -> None:
+        retired = (
+            "browser/chief_of_staff.py",
+            "browser/decision_mode.py",
+            "browser/outcome_source.py",
+            "scripts/shadow-outcome-validate.py",
+            "docs/reference/chief-of-staff.md",
+            "docs/reference/decision-mode.md",
+            "docs/reference/outcome-choice.md",
+            "docs/reference/plan-fields.md",
+            "examples/outcome-choice",
+            "schemas/chief-of-staff.v1.json",
+            "schemas/decision-choice.v1.json",
+            "schemas/decision-receipt.v1.json",
+            "schemas/outcome-choice.v1.json",
+        )
+        for relative in retired:
+            self.assertFalse((ROOT / relative).exists(), relative)
+        self.assertNotIn("/api/decision", APP)
+        self.assertNotIn("choices", APP)

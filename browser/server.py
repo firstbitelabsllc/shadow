@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -12,9 +11,7 @@ import os
 from pathlib import Path
 import re
 import signal
-import subprocess
 import sys
-import tempfile
 import threading
 from typing import Any
 from urllib.parse import urlparse
@@ -27,14 +24,8 @@ if str(SCRIPTS) not in sys.path:
 
 try:
     from board_projection import project_board_brief
-    from chief_of_staff import project_chief_of_staff
-    from decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
-    from outcome_source import OutcomeSourceError, project_plan_outcome
 except ModuleNotFoundError:
     from browser.board_projection import project_board_brief
-    from browser.chief_of_staff import project_chief_of_staff
-    from browser.decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
-    from browser.outcome_source import OutcomeSourceError, project_plan_outcome
 from shadow_scrub_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
 from shadow_scrub_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
 from shadow_root_board import (
@@ -57,7 +48,6 @@ _AMP_SPEC.loader.exec_module(shadow_amp)
 PRODUCT = "Shadow"
 STATIC = Path(__file__).resolve().parent / "static"
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
-MAX_REQUEST_BYTES = 16 * 1024
 MAX_PLAN_BYTES = _root_board.MAX_PLAN_BYTES
 MAX_PLANS = 250
 SKIP_DIRS = frozenset({".git", ".shadow", ".venv", "venv", "node_modules", "dist", "build"})
@@ -426,24 +416,9 @@ def record_from_text(text: str, relative: str, title_fallback: str) -> dict[str,
     TEXTS run through THIS function — precomputed briefs would drift from the
     projection the moment either changed."""
     brief = operator_brief(text)
-    outcome = None
-    decision = None
-    chief = None
-    error = None
-    # The v4 board brief is TOTAL — every readable plan gets one. The v3
-    # typed-Outcome contract is attempted only for a plan that still carries
-    # its keys; its absence is the current grammar, not an error. Before this
-    # split, every v4 plan on a machine failed "outcome must be a string" and
-    # the board rendered nothing it existed to show.
+    # The v4 board brief is TOTAL: readable v4 plans, pre-grammar notes, and
+    # empty files all project to an honest card instead of a parser error.
     board = project_board_brief(text)
-    if "outcome" in brief:
-        try:
-            outcome = project_plan_outcome(brief)
-            decision = project_decision(outcome)
-            plan_summary = {"latest_change": latest_progress(text)} if latest_progress(text) else None
-            chief = project_chief_of_staff(outcome, plan_brief=plan_summary)
-        except (OutcomeSourceError, DecisionInputError) as exc:
-            error = str(exc)
     return {
         "id": hashlib.sha256(relative.encode("utf-8")).hexdigest()[:16],
         "path": relative,
@@ -453,11 +428,7 @@ def record_from_text(text: str, relative: str, title_fallback: str) -> dict[str,
         "milestone": milestone_of(brief),
         "tasks": checkpoint_counts(text),
         "lint": lint_summary(text),
-        "outcome": outcome,
-        "decision": decision,
-        "briefing": chief,
         "board": board,
-        "contract_error": error,
     }
 
 
@@ -895,10 +866,10 @@ def discover_plans(
                     record["_retired_plan"] = veto_receipt["plan"]
                     record["_retired_state"] = veto_receipt["expected_state"]
             records.append(record)
-    rank = {"needs_you": 0, "blocked": 1, "working": 2, "not_delivered": 3, "finished_with_proof": 4}
+    rank = {"working": 0, "ready": 1, "blocked": 2, "unmigrated": 3, "empty": 4, "resting": 5}
     records.sort(
         key=lambda item: (
-            rank.get((item.get("briefing") or {}).get("state"), 5),
+            rank.get((item.get("board") or {}).get("state"), 6),
             item.get("title", "").lower(),
             item["path"],
         )
@@ -922,115 +893,17 @@ def is_live(record: dict[str, Any]) -> bool:
 def live_plans(root: Path, *, fail_on_skipped: bool = False) -> list[dict[str, Any]]:
     """What the board is allowed to render as authority.
 
-    Annotating a demoted record is not a demotion: the projections iterate the
+    Annotating a demoted record is not a demotion: projections iterate the
     served list and never read `archived`, so a vetoed archive shell would keep
-    its card, its live briefing and its decision buttons. The one place that
-    cannot be forgotten is the wire — a record the browser never receives
-    cannot render as authority in any view, present or future.
+    its card. The one place that cannot be forgotten is the wire — a record the
+    browser never receives cannot render as authority in any view, present or
+    future.
     """
     return [
         record
         for record in discover_plans(root, fail_on_skipped=fail_on_skipped)
         if is_live(record)
     ]
-
-
-def resolve_plan(root: Path, value: Any) -> Path:
-    if not isinstance(value, str) or not value or "\x00" in value:
-        raise BrowserError("plan path is required")
-    relative = Path(value)
-    if relative.is_absolute() or ".." in relative.parts:
-        raise BrowserError("plan path must be relative")
-    root = root.resolve()
-    candidate = root
-    for part in relative.parts:
-        candidate /= part
-        if candidate.is_symlink():
-            raise BrowserError("plan path must not contain symlinks")
-    candidate = candidate.resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError as exc:
-        raise BrowserError("plan path escapes the scan root") from exc
-    if candidate.name != "PLAN.md":
-        raise BrowserError("plan path must name PLAN.md")
-    read_plan(candidate)
-    return candidate
-
-
-def repository_root(plan: Path) -> Path:
-    plan = plan.resolve()
-    result = subprocess.run(
-        ["git", "-C", str(plan.parent), "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise BrowserError("plan is not inside a Git worktree")
-    repo = Path(result.stdout.strip()).resolve()
-    try:
-        plan.relative_to(repo)
-    except ValueError as exc:
-        raise BrowserError("plan escapes its Git worktree") from exc
-    return repo
-
-
-
-def write_decision_receipt(plan: Path, document: dict[str, Any], option_id: Any, revision: Any) -> dict[str, Any]:
-    plan = plan.resolve()
-    if isinstance(revision, bool) or not isinstance(revision, int):
-        raise BrowserError("revision must be an integer")
-    choice = build_choice(document, option_id)
-    choice["revision"] = revision
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    result = receive_choice(document, choice, updated_at=now)
-    repo = repository_root(plan)
-    relative_plan = plan.relative_to(repo).as_posix()
-    core = {
-        "schema": "shadow.local-decision.v1",
-        "plan": relative_plan,
-        "outcome_id": result["receipt"]["outcome_id"],
-        "decision_id": result["receipt"]["ask_id"],
-        "option_id": result["receipt"]["option_id"],
-        "observed_revision": result["receipt"]["observed_revision"],
-        "authority_revision": result["receipt"]["authority_revision"],
-        "state": result["receipt"]["state"],
-        "reason": result["receipt"]["reason"],
-    }
-    encoded_core = json.dumps(core, sort_keys=True, separators=(",", ":"))
-    identifier = hashlib.sha256(encoded_core.encode("utf-8")).hexdigest()[:16]
-    payload = {**core, "receipt_id": identifier, "recorded_at": now}
-    directory = repo / ".shadow" / "evidence"
-    if (repo / ".shadow").is_symlink() or directory.is_symlink():
-        raise BrowserError("evidence path must not be a symlink")
-    directory.mkdir(parents=True, exist_ok=True)
-    destination = directory / f"decision-{identifier}.json"
-    if destination.is_symlink():
-        raise BrowserError("decision receipt must not be a symlink")
-    if destination.exists():
-        current = json.loads(destination.read_text(encoding="utf-8"))
-        if current.get("receipt_id") != identifier:
-            raise BrowserError("decision receipt collision")
-        return current
-    fd, temporary = tempfile.mkstemp(prefix=".decision.", dir=directory)
-    temporary_path = Path(temporary)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            os.link(temporary_path, destination)
-        except FileExistsError:
-            current = json.loads(destination.read_text(encoding="utf-8"))
-            if current.get("receipt_id") != identifier:
-                raise BrowserError("decision receipt collision")
-            return current
-    finally:
-        temporary_path.unlink(missing_ok=True)
-    return payload
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1085,16 +958,6 @@ class Handler(BaseHTTPRequestHandler):
         # An allow-listed proxy hostname owns its own outer port.
         return hostname in self.server.extra_hosts
 
-    def _same_origin(self) -> bool:
-        origin = self.headers.get("Origin")
-        if not origin:
-            return False
-        parsed = urlparse(origin)
-        host = (parsed.hostname or "").lower()
-        if parsed.scheme == "http" and host in {"127.0.0.1", "localhost", "::1"}:
-            return parsed.port == self.server.server_address[1]
-        return parsed.scheme == "https" and host in self.server.extra_hosts
-
     def do_HEAD(self) -> None:  # noqa: N802
         self.do_GET()
 
@@ -1138,71 +1001,6 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"product": PRODUCT, "plans": gallery_records()})
             return
         self._json(404, {"error": "not found"})
-
-    def do_POST(self) -> None:  # noqa: N802
-        endpoint = urlparse(self.path).path
-        if endpoint != "/api/decision":
-            self._json(404, {"error": "not found"})
-            return
-        if not self._loopback() or not self._valid_host() or not self._same_origin():
-            self._json(403, {"error": "local changes require this loopback browser"})
-            return
-        if self.headers.get_content_type() != "application/json":
-            self._json(415, {"error": "application/json required"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            length = -1
-        if not 0 < length <= MAX_REQUEST_BYTES:
-            self._json(413, {"error": "request exceeds the bounded limit"})
-            return
-        try:
-            payload = json.loads(self.rfile.read(length))
-            if not isinstance(payload, dict) or set(payload) != {
-                "entity", "root_board_revision", "option_id", "revision"
-            }:
-                raise BrowserError("decision request has unknown or missing fields")
-            refreshed, warning = _board_payload(self.scan_root, self.board_home)
-            if warning is not None:
-                raise BrowserError(
-                    "computer board refresh failed; resolve the displayed warning and reload"
-                )
-            if refreshed["revision"] != payload["root_board_revision"]:
-                raise BrowserError("root board changed; refresh before writing")
-            try:
-                with _root_board.locked_entity_plan_by_id_at_revision(
-                    payload["entity"],
-                    revision=payload["root_board_revision"],
-                    home=self.board_home,
-                ) as plan:
-                    record = record_from_text(
-                        read_plan(plan),
-                        _root_board.public_plan_locator(plan),
-                        plan.parent.name,
-                    )
-                    if record["outcome"] is None:
-                        raise BrowserError(
-                            record["contract_error"] or "plan has no typed Outcome"
-                        )
-                    receipt = write_decision_receipt(
-                        plan,
-                        record["outcome"],
-                        payload["option_id"],
-                        payload["revision"],
-                    )
-            except _root_board.BoardError as exc:
-                raise BrowserError(str(exc)) from exc
-            self._json(200, {"ok": True, "receipt": receipt})
-        except (BrowserError, DecisionInputError) as exc:
-            self._json(400, {"error": str(exc)})
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            # Never reflect raw exception text: an OSError carries the full
-            # absolute path, and the browser must never receive paths.
-            self._json(
-                400,
-                {"error": "Shadow could not read or update that plan on this computer."},
-            )
 
     def log_message(self, format: str, *args: Any) -> None:
         if os.environ.get("SHADOW_BROWSER_QUIET") != "1":

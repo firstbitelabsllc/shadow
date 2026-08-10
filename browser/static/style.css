@@ -33,37 +33,16 @@ main:focus { outline: none; }
 .card > * { margin-left: clamp(24px, 5vw, 56px); margin-right: clamp(24px, 5vw, 56px); }
 .card-head { margin: 0; padding: 24px clamp(24px, 5vw, 56px); display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line); }
 .status { border-radius: 999px; padding: 7px 11px; background: var(--accent-soft); color: var(--accent); font-size: .76rem; font-weight: 750; text-transform: uppercase; }
-.state-needs_you .status, .state-blocked .status { background: var(--warm-soft); color: var(--warm); }
+.state-blocked .status { background: var(--warm-soft); color: var(--warm); }
 .state-ready .status, .state-working .status { background: var(--good-soft, #e4f2e7); color: var(--good, #256a3a); }
 .state-resting .status { opacity: 0.65; }
 .project-name { color: var(--muted); font-weight: 650; }
 .card > .eyebrow { margin-top: 42px; }
 .card h2 { max-width: 16ch; margin-top: 0; margin-bottom: 18px; font-size: clamp(2rem, 5vw, 4.2rem); line-height: 1.02; letter-spacing: -.055em; }
-.current { margin-top: 0; margin-bottom: 42px; color: var(--muted); font-size: clamp(1.05rem, 2vw, 1.3rem); line-height: 1.55; }
-.role-guide { margin-top: 0; margin-bottom: 42px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: color-mix(in srgb, var(--accent-soft) 34%, var(--surface)); }
-.role-guide .eyebrow { margin-bottom: 14px; }
-.role-guide-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
-.role-guide-item { min-width: 0; padding: 12px; border-radius: 12px; background: var(--surface); }
-.role-guide-item dt { color: var(--muted); font-size: .8rem; font-weight: 650; line-height: 1.35; }
-.role-guide-item dd { margin: 5px 0 0; color: var(--accent); font-weight: 800; }
-.role-guide-note { margin: 16px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
 .brief { margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--line); }
 .brief-row { display: grid; grid-template-columns: 150px 1fr; gap: 22px; padding: 22px 0; border-bottom: 1px solid var(--line); }
 .brief dt { color: var(--muted); font-size: .82rem; font-weight: 700; }
 .brief dd { margin: 0; line-height: 1.5; }
-.choices { margin: 0; padding: 34px clamp(24px, 5vw, 56px); background: color-mix(in srgb, var(--warm-soft) 50%, var(--surface)); }
-.choice { width: 100%; display: flex; align-items: center; gap: 16px; margin: 10px 0; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
-.choice:hover { border-color: var(--accent); transform: translateY(-1px); }
-.choice:disabled { opacity: .58; cursor: default; transform: none; }
-.choice-letter { flex: 0 0 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
-.choice-copy strong, .choice-copy small { display: block; }
-.choice-copy small { margin-top: 3px; color: var(--muted); line-height: 1.4; }
-.choice-question { margin: -2px 0 14px; line-height: 1.5; }
-.choice-status { min-height: 1.4em; margin: 16px 0 0; color: var(--muted); font-size: .88rem; }
-.proof { margin-top: 0; margin-bottom: 0; padding: 24px clamp(24px, 5vw, 56px) 30px; border-top: 1px solid var(--line); }
-.proof summary { cursor: pointer; font-weight: 700; }
-.proof p { color: var(--muted); }
-.proof code { overflow-wrap: anywhere; }
 .empty { padding: 54px; }
 .empty h2 { max-width: 18ch; }
 .loading, .error { color: var(--muted); }
@@ -77,12 +56,10 @@ main:focus { outline: none; }
   .project { min-width: 180px; }
   .card { border-radius: 20px; }
   .brief-row { grid-template-columns: 1fr; gap: 7px; }
-  .role-guide-list { grid-template-columns: 1fr; }
   .card h2 { font-size: clamp(2rem, 11vw, 3.3rem); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .choice { transition: transform 120ms ease, border-color 120ms ease; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -108,7 +85,7 @@ main:focus { outline: none; }
 .board-now { margin: 0; font-size: 0.8rem; opacity: 0.8; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .meter { margin: 0; font-size: 0.8rem; display: flex; gap: 0.6rem; }
 .meter-blocked { color: #a03d2e; }
-.board-decision { margin: 0; font-size: 0.8rem; font-weight: 600; }
+.board-contradiction { margin: 0; font-size: 0.8rem; font-weight: 600; }
 @media (max-width: 760px) {
   .board { padding: 0.75rem; }
   .board-card { flex-basis: 11rem; }

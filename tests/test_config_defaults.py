@@ -20,12 +20,6 @@ PLAN = """# Demo
 - Project: demo
 - Mode: ship
 - Priority: 2
-- Outcome ID: ship-demo
-- Outcome Revision: 1
-- Outcome Updated At: 2026-08-03T03:00:00Z
-- Outcome State: working
-- Outcome: Ship the demo.
-- Next: Run the next bounded check.
 
 ## Tasks
 

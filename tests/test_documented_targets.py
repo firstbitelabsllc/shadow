@@ -22,14 +22,9 @@ TARGET = re.compile(
     r"((?:assets|bin|browser|docs|examples|guides|hooks|references|schemas|scripts|tests)"
     r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*/?)"
 )
-# Design specs and implementation plans are proposal records: they name the
-# targets a future implementation would create, so their paths are not shipped
-# instructions and need not exist in this checkout. The plan archive is the
-# mirror case — it names paths that USED to exist and were deliberately
+# The plan archive names paths that USED to exist and were deliberately
 # removed; requiring them back would forbid ever deleting a file.
 PROPOSAL_PREFIXES = (
-    "docs/superpowers/specs/",
-    "docs/superpowers/plans/",
     "docs/plan-archive/",
 )
 
@@ -76,6 +71,28 @@ class DocumentedTargetTests(unittest.TestCase):
             text=True, check=False,
         ).stdout
         self.assertNotIn("--all", status)
+
+
+class RetiredDesignRecordsDoNotShip(unittest.TestCase):
+    def test_retired_superpowers_design_records_and_their_exceptions_are_gone(self) -> None:
+        self.assertFalse((ROOT / "docs" / "superpowers").exists())
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertNotIn("docs/superpowers/", attributes)
+        self.assertNotIn("docs/superpowers/specs/", PROPOSAL_PREFIXES)
+        self.assertNotIn("docs/superpowers/plans/", PROPOSAL_PREFIXES)
+        all_boats = (ROOT / "tests" / "test_all_boats_law.py").read_text(encoding="utf-8")
+        self.assertNotIn('Path("docs/superpowers")', all_boats)
+
+    def test_current_method_configuration_and_bucket_instructions_remain(self) -> None:
+        expected = {
+            "docs/reference/method.md": "Attack, then refute",
+            "docs/reference/config.md": "shadow.yaml",
+            "docs/reference/buckets.md": "Extension buckets",
+        }
+        for relative, expected_text in expected.items():
+            with self.subTest(document=relative):
+                text = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn(expected_text, text)
 
 
 if __name__ == "__main__":

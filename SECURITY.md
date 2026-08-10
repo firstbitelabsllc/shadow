@@ -7,13 +7,13 @@ days.
 
 ## Security boundary
 
-- The browser binds only to loopback, serves three allowlisted static files,
-  reads regular non-symlink `PLAN.md` files under its selected root, and accepts
-  one same-origin A/B/C endpoint.
+- The browser binds only to loopback, serves allowlisted static files, and
+  reads regular non-symlink `PLAN.md` files reached through the computer board.
+  It exposes no write endpoint.
 - Browser responses and local receipts exclude prompts, transcripts,
   credentials, provider payloads, and absolute private paths.
-- Local decision and checkpoint receipts use exclusive atomic creation inside
-  the selected Git project. Repeating the same decision is idempotent.
+- Root-board claim and checkpoint transactions use a same-computer advisory
+  lock plus atomic replacement; readers see the complete old or new board.
 - Native-host work requires a clean exact Git worktree, a frozen task file, an
   explicit path allowlist, a timeout, and one closed receipt. Any scope escape
   or missing proof fails closed.

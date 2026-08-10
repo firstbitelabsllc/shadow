@@ -26,7 +26,7 @@ function renderProjects() {
   for (const plan of state.plans) {
     const button = el('button', { className: plan.id === state.selected ? 'project active' : 'project', type: 'button' });
     button.append(el('strong', { text: plan.title }));
-    const status = plan.briefing?.state || plan.board?.state || 'unreadable';
+    const status = plan.board?.state || 'unreadable';
     button.append(el('span', { text: status.replaceAll('_', ' ') }));
     button.addEventListener('click', () => {
       state.selected = plan.id;
@@ -43,30 +43,6 @@ function row(label, value) {
   return wrapper;
 }
 
-async function choose(plan, option) {
-  const status = document.getElementById('choice-status');
-  status.textContent = 'Saving your choice on this computer…';
-  const response = await fetch('/api/decision', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      entity: plan.entity,
-      root_board_revision: state.boardRevision,
-      option_id: option.id,
-      revision: plan.outcome.revision,
-    }),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Choice could not be saved.');
-  if (data.receipt && data.receipt.state && data.receipt.state !== 'received') {
-    status.textContent = 'The plan changed since you loaded it — refreshing; choose again.';
-    load();
-    return;
-  }
-  status.textContent = 'Choice saved. Nothing starts until you ask.';
-  document.querySelectorAll('.choice').forEach((button) => { button.disabled = true; });
-}
-
 function renderBoardBriefCard(plan) {
   const brief = plan.board;
   if (!brief || brief.state === 'empty' || brief.state === 'unmigrated') {
@@ -75,15 +51,9 @@ function renderBoardBriefCard(plan) {
     if (brief?.state === 'unmigrated') {
       card.append(el('h2', { text: 'Written before the current plan grammar' }));
       card.append(el('p', { text: 'This plan has content but no task rows Shadow can read. Migrate it with shadow init --here, or leave it as history.' }));
-      // A pre-grammar plan can also carry a broken v3 Outcome. Staying silent
-      // about that error would send the owner migrating when the real defect
-      // is in the Brief they already have.
-      if (plan.contract_error) {
-        card.append(el('p', { text: `Its Brief also has an Outcome Shadow could not read: ${plan.contract_error}` }));
-      }
     } else {
       card.append(el('h2', { text: 'This plan has no readable tasks yet' }));
-      card.append(el('p', { text: plan.contract_error || 'Add a ## Tasks section with milestone rows, then refresh.' }));
+      card.append(el('p', { text: 'Add a ## Tasks section with milestone rows, then refresh.' }));
     }
     main.append(card);
     return;
@@ -100,7 +70,7 @@ function renderBoardBriefCard(plan) {
   for (const milestone of rotationOf(plan)) appendMilestone(card, milestone);
   if (brief.contradictions_open) {
     card.append(el('p', {
-      className: 'board-decision',
+      className: 'board-contradiction',
       text: `${brief.contradictions_open} open contradiction${brief.contradictions_open === 1 ? '' : 's'} — read before landing work`,
     }));
   }
@@ -122,83 +92,7 @@ function renderPlan(plan) {
     main.append(card);
     return;
   }
-  if (!plan.outcome || !plan.briefing) {
-    renderBoardBriefCard(plan);
-    return;
-  }
-  const outcome = plan.outcome.outcome;
-  const briefing = plan.briefing;
-  const card = el('article', { className: `card state-${briefing.state}` });
-  const head = el('div', { className: 'card-head' });
-  head.append(el('span', { className: 'status', text: briefing.state.replaceAll('_', ' ') }));
-  head.append(el('span', { className: 'project-name', text: plan.title }));
-  card.append(head);
-  card.append(el('p', { className: 'eyebrow', text: 'Outcome' }));
-  card.append(el('h2', { text: outcome.summary }));
-  card.append(el('p', { className: 'eyebrow', text: 'Now' }));
-  card.append(el('p', { className: 'current', text: outcome.current_move }));
-  for (const milestone of rotationOf(plan)) appendMilestone(card, milestone);
-
-  const roleGuide = el('section', { className: 'role-guide' });
-  roleGuide.append(el('p', { className: 'eyebrow', text: 'How Shadow can help' }));
-  const roles = el('dl', { className: 'role-guide-list' });
-  [
-    ['Drive the full outcome', 'Continue through every reachable requirement.'],
-    ['Fan out safe work', 'Claim path-disjoint lanes and integrate their proof.'],
-    ['Fix every proven defect', 'Keep going until acceptance or an exact hard rail.'],
-    ['Raise every surface', 'Apply the required design, reliability, and release gates.'],
-  ].forEach(([work, explanation]) => {
-    const item = el('div', { className: 'role-guide-item' });
-    item.append(el('dt', { text: work }), el('dd', { text: explanation }));
-    roles.append(item);
-  });
-  roleGuide.append(roles);
-  roleGuide.append(el('p', {
-    className: 'role-guide-note',
-    text: 'Shadow uses supported local coding tools autonomously after durable claims; full acceptance stops the outcome, and only exact hard rails pause it earlier.',
-  }));
-  card.append(roleGuide);
-
-  const brief = el('dl', { className: 'brief' });
-  brief.append(row('Change', briefing.changed));
-  brief.append(row('Why it matters', briefing.matters));
-  brief.append(row('Recommendation', briefing.recommendation));
-  card.append(brief);
-
-  if (briefing.choices.length) {
-    const choices = el('section', { className: 'choices' });
-    choices.append(el('p', { className: 'eyebrow', text: 'Choose what happens next' }));
-    choices.append(el('p', { className: 'choice-question', text: briefing.blocker || 'Choose the next move' }));
-    briefing.choices.forEach((option, index) => {
-      const button = el('button', { className: 'choice', type: 'button' });
-      button.disabled = Boolean(state.warning);
-      button.append(el('span', { className: 'choice-letter', text: String.fromCharCode(65 + index) }));
-      const copy = el('span', { className: 'choice-copy' });
-      copy.append(el('strong', { text: option.label }), el('small', { text: option.consequence }));
-      button.append(copy);
-      button.addEventListener('click', async () => {
-        try { await choose(plan, option); } catch (error) { document.getElementById('choice-status').textContent = error.message; }
-      });
-      choices.append(button);
-    });
-    choices.append(el('p', {
-      id: 'choice-status',
-      className: 'choice-status',
-      text: state.warning ? 'Refresh the computer board before choosing.' : 'Nothing changes until you choose.',
-    }));
-    card.append(choices);
-  }
-
-  const proof = el('details', { className: 'proof' });
-  proof.append(el('summary', { text: briefing.proof ? 'Proof' : 'Proof not available yet' }));
-  if (briefing.proof) {
-    proof.append(el('p', { text: briefing.proof.verification_summary }));
-    proof.append(el('code', { text: briefing.proof.locator }));
-  } else {
-    proof.append(el('p', { text: 'The plan does not name verified proof yet.' }));
-  }
-  card.append(proof);
-  main.append(card);
+  renderBoardBriefCard(plan);
 }
 
 function laneName(plan) {
@@ -253,8 +147,8 @@ function appendMilestone(card, milestone) {
   card.append(group);
 }
 
-// The board is a read-only projection: its only interactive element is
-// card-select. Decisions stay in the per-plan Briefs view.
+// The browser is a read-only projection. Cards only select which committed
+// plan view to inspect; plan and board writes stay in Shadow's CLI verbs.
 function renderBoard() {
   board.replaceChildren();
   const lanes = new Map();
@@ -280,7 +174,7 @@ function renderBoard() {
       top.append(el('strong', { text: plan.title }));
       if (plan.mode) top.append(el('span', { className: `mode-chip mode-${plan.mode}`, text: plan.mode }));
       card.append(top);
-      const status = plan.briefing?.state || plan.board?.state || 'unreadable';
+      const status = plan.board?.state || 'unreadable';
       card.append(el('span', { className: 'board-state', text: status.replaceAll('_', ' ') }));
       for (const milestone of rotationOf(plan)) appendMilestone(card, milestone);
       if (plan.lint) {
@@ -297,9 +191,6 @@ function renderBoard() {
       if (counts) {
         const meter = checkpointMeter(counts);
         if (meter) card.append(meter);
-      }
-      if (plan.briefing?.choices?.length) {
-        card.append(el('p', { className: 'board-decision', text: 'A decision is waiting for you' }));
       }
       card.addEventListener('click', () => {
         state.selected = plan.id;

@@ -19,23 +19,6 @@ PLAN = """# Demo
 - Project: demo
 - Mode: ship
 - Priority: 2
-- Outcome ID: ship-demo
-- Outcome Revision: 1
-- Outcome Updated At: 2026-08-03T03:00:00Z
-- Outcome State: needs_input
-- Outcome: Ship the demo.
-- Next: Choose the review depth.
-- Decision ID: choose-review
-- Decision: How should we review it?
-- Option A ID: focused-check
-- Option A: Focused check
-- Option A Consequence: Run only the direct regression.
-- Option B ID: full-check
-- Option B: Full check
-- Option B Consequence: Run every local test.
-- Option C ID: stop-now
-- Option C: Stop now
-- Option C Consequence: Leave the result unshipped.
 
 ## Tasks
 
@@ -58,7 +41,7 @@ class StatusTests(unittest.TestCase):
             check=False,
         )
 
-    def test_text_is_a_brief_with_abc(self) -> None:
+    def test_text_is_a_v4_checkpoint_brief(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             (root / "PLAN.md").write_text(PLAN, encoding="utf-8")

@@ -20,38 +20,17 @@ PLAN = """# Release notes
 - Project: release-notes
 - Mode: ship
 - Priority: 2
-- Outcome ID: ship-release-notes
-- Outcome Revision: 7
-- Outcome Updated At: 2026-08-03T02:00:00Z
-- Outcome State: needs_input
-- Outcome: Publish release notes people can trust.
-- Next: Choose the final review depth.
-- Decision ID: choose-review-depth
-- Decision: How should we finish the review?
-- Option A ID: ship-now
-- Option A: Ship now
-- Option A Consequence: Use the accepted proof and finish today.
-- Option B ID: cold-review
-- Option B: Run a cold review
-- Option B Consequence: Apply independent judgment across every relevant surface.
-- Option C ID: hold-release
-- Option C: Hold the release
-- Option C Consequence: Keep the Outcome open until new evidence exists.
-- Proof ID: focused-tests
-- Proof: tests/test_browser.py
-- Proof Summary: Browser contract tests pass.
-- Proof Delivery: delivered
 
 ## Tasks
 
-### Release notes decision
+### Release notes
 
-- [pending] Choose the final review depth ~aa11 | proof: read tests/test_browser.py -> passes
-- [pending] Decision receipt is durable ~bb22 (DoD) | proof: read .shadow/evidence -> recorded
+- [pending] Draft covers the shipped changes ~aa11 | proof: read tests/test_browser.py -> passes
+- [pending] Release notes are published ~bb22 (DoD) | proof: read published notes -> visible
 
 ## Progress
 
-- 2026-08-03: The bounded implementation is ready for a decision.
+- 2026-08-03: The bounded implementation is ready for review.
 """
 
 
@@ -74,56 +53,6 @@ class BrowserTests(unittest.TestCase):
         git(repo, "commit", "-qm", "fixture")
         return repo, plan
 
-    def test_plan_projection_has_one_brief_and_three_choices(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            record = server.plan_record(plan, repo)
-        self.assertIsNone(record["contract_error"])
-        self.assertEqual(record["outcome"]["revision"], 7)
-        self.assertEqual(record["briefing"]["state"], "needs_you")
-        self.assertEqual(
-            [item["id"] for item in record["briefing"]["choices"]],
-            ["ship-now", "cold-review", "hold-release"],
-        )
-        self.assertEqual(record["briefing"]["proof"]["locator"], "tests/test_browser.py")
-        self.assertNotIn(dirname, json.dumps(record))
-
-
-
-
-
-    def test_decision_receipt_is_project_local_bounded_and_idempotent(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            document = server.plan_record(plan, repo)["outcome"]
-            first = server.write_decision_receipt(plan, document, "cold-review", 7)
-            second = server.write_decision_receipt(plan, document, "cold-review", 7)
-            receipt = repo / ".shadow" / "evidence" / f"decision-{first['receipt_id']}.json"
-            self.assertEqual(first["receipt_id"], second["receipt_id"])
-            self.assertTrue(receipt.is_file())
-            self.assertEqual(first["state"], "received")
-            self.assertNotIn(dirname, receipt.read_text(encoding="utf-8"))
-            self.assertEqual(len(list(receipt.parent.glob("*.json"))), 1)
-
-    def test_stale_revision_is_recorded_as_superseded(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            document = server.plan_record(plan, repo)["outcome"]
-            receipt = server.write_decision_receipt(plan, document, "ship-now", 6)
-        self.assertEqual(receipt["state"], "superseded")
-        self.assertEqual(receipt["reason"], "stale_revision")
-
-    def test_plan_resolution_rejects_escape_and_symlink(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, plan = self.make_repo(Path(dirname))
-            with self.assertRaises(server.BrowserError):
-                server.resolve_plan(repo, "../PLAN.md")
-            link = repo / "linked" / "PLAN.md"
-            link.parent.mkdir()
-            link.symlink_to(plan)
-            with self.assertRaises(server.BrowserError):
-                server.resolve_plan(repo, "linked/PLAN.md")
-
     def test_scan_skips_hidden_state_and_returns_no_absolute_root(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, _ = self.make_repo(Path(dirname))
@@ -135,7 +64,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(records[0]["path"], "project/PLAN.md")
         self.assertNotIn(dirname, json.dumps(records))
 
-    def test_browser_reads_and_writes_only_the_computer_board_entity(self) -> None:
+    def test_browser_reads_only_the_computer_board_entity(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             portfolio = Path(dirname)
             home = portfolio / "home"
@@ -195,29 +124,7 @@ class BrowserTests(unittest.TestCase):
                 self.assertEqual(record["owner"], "seat-a")
                 self.assertEqual(record["board"]["state"], "working")
 
-                body = json.dumps(
-                    {
-                        "entity": identity,
-                        "root_board_revision": payload["root_board_revision"],
-                        "option_id": "cold-review",
-                        "revision": 7,
-                    }
-                )
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.request(
-                    "POST",
-                    "/api/decision",
-                    body=body,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Origin": f"http://127.0.0.1:{port}",
-                    },
-                )
-                decided = connection.getresponse()
-                receipt = json.loads(decided.read())
-                connection.close()
-                self.assertEqual(decided.status, 200, receipt)
-                self.assertTrue((canonical / ".shadow" / "evidence").is_dir())
+                self.assertFalse((canonical / ".shadow" / "evidence").exists())
                 self.assertFalse((sibling / ".shadow" / "evidence").exists())
 
                 returned = server._root_board.release(
@@ -320,7 +227,7 @@ class BrowserTests(unittest.TestCase):
         )
         self.assertEqual(
             source.count("for (const milestone of rotationOf(plan))"),
-            3,
+            2,
         )
         self.assertNotIn("const milestoneTitle = plan.board?.milestone", source)
 
@@ -354,144 +261,6 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(records[0]["milestones"], [])
         self.assertNotIn("External authority", json.dumps(records[0]))
 
-    def test_decision_post_refuses_a_last_good_board_when_refresh_warns(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            root = Path(dirname)
-            home = root / "home"
-            home.mkdir()
-            repo, _ = self.make_repo(root)
-            payload, _, warning = server.board_plan_records(repo, home)
-            self.assertIsNone(warning)
-            identity = payload["entities"][0]["id"]
-            broken = repo / "broken" / "PLAN.md"
-            broken.parent.mkdir()
-            broken.write_bytes(b"\xff\xfe")
-
-            service = server.Server(("127.0.0.1", 0), repo, home=home)
-            service.RequestHandlerClass.log_message = lambda *args: None
-            thread = threading.Thread(target=service.serve_forever, daemon=True)
-            thread.start()
-            port = service.server_address[1]
-            try:
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.request("GET", "/api/plans")
-                response = connection.getresponse()
-                current = json.loads(response.read())
-                connection.close()
-                self.assertEqual(response.status, 200, current)
-                self.assertIsNotNone(current["warning"])
-                self.assertEqual(current["root_board_revision"], payload["revision"])
-
-                body = json.dumps(
-                    {
-                        "entity": identity,
-                        "root_board_revision": current["root_board_revision"],
-                        "option_id": "cold-review",
-                        "revision": 7,
-                    }
-                )
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.request(
-                    "POST",
-                    "/api/decision",
-                    body=body,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Origin": f"http://127.0.0.1:{port}",
-                    },
-                )
-                refused = connection.getresponse()
-                error = json.loads(refused.read())
-                connection.close()
-
-                self.assertEqual(refused.status, 400, error)
-                self.assertIn("refresh failed", error["error"])
-                self.assertFalse((repo / ".shadow" / "evidence").exists())
-            finally:
-                service.shutdown()
-                service.server_close()
-                thread.join(timeout=2)
-
-    def test_decision_receipt_holds_board_cas_until_receipt_is_durable(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            root = Path(dirname)
-            home = root / "home"
-            home.mkdir()
-            repo, plan = self.make_repo(root)
-            payload, _, warning = server.board_plan_records(repo, home)
-            self.assertIsNone(warning)
-            identity = payload["entities"][0]["id"]
-            original_receipt = server.write_decision_receipt
-            original_flock = server._root_board.fcntl.flock
-            mutation_attempted = threading.Event()
-            mutation_done = threading.Event()
-            mutation_threads: list[threading.Thread] = []
-
-            def observed_flock(descriptor: int, operation: int) -> None:
-                if (
-                    mutation_threads
-                    and threading.current_thread() is mutation_threads[0]
-                    and operation & server._root_board.fcntl.LOCK_EX
-                ):
-                    mutation_attempted.set()
-                original_flock(descriptor, operation)
-
-            def wrapped_receipt(*args, **kwargs):
-                def mutate_priority() -> None:
-                    server._root_board.set_priority(plan, 1, home=home)
-                    mutation_done.set()
-
-                worker = threading.Thread(target=mutate_priority)
-                mutation_threads.append(worker)
-                worker.start()
-                self.assertTrue(mutation_attempted.wait(2), "mutator never reached the board CAS")
-                self.assertFalse(mutation_done.is_set(), "board changed before receipt durability")
-                return original_receipt(*args, **kwargs)
-
-            service = server.Server(("127.0.0.1", 0), repo, home=home)
-            service.RequestHandlerClass.log_message = lambda *args: None
-            service_thread = threading.Thread(target=service.serve_forever, daemon=True)
-            service_thread.start()
-            port = service.server_address[1]
-            try:
-                body = json.dumps(
-                    {
-                        "entity": identity,
-                        "root_board_revision": payload["revision"],
-                        "option_id": "cold-review",
-                        "revision": 7,
-                    }
-                )
-                with mock.patch.object(
-                    server._root_board.fcntl, "flock", side_effect=observed_flock
-                ), mock.patch.object(
-                    server, "write_decision_receipt", side_effect=wrapped_receipt
-                ):
-                    connection = http.client.HTTPConnection("127.0.0.1", port)
-                    connection.request(
-                        "POST",
-                        "/api/decision",
-                        body=body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Origin": f"http://127.0.0.1:{port}",
-                        },
-                    )
-                    response = connection.getresponse()
-                    receipt = json.loads(response.read())
-                    connection.close()
-                self.assertEqual(response.status, 200, receipt)
-                mutation_threads[0].join(timeout=2)
-                self.assertTrue(mutation_done.is_set())
-                self.assertEqual(
-                    server._root_board.snapshot(home=home)["revision"],
-                    payload["revision"] + 1,
-                )
-                self.assertTrue((repo / ".shadow" / "evidence").is_dir())
-            finally:
-                service.shutdown()
-                service.server_close()
-                service_thread.join(timeout=2)
 
     def test_deleted_claimed_row_is_a_loud_broken_board_not_a_working_card(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -539,58 +308,9 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(records[0]["board"]["state"], "broken")
             self.assertIn("missing or unreadable", records[0]["contract_error"])
 
-    def test_decision_write_rejects_a_stale_board_revision_and_entity_id(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            root = Path(dirname)
-            home = root / "home"
-            home.mkdir()
-            repo, plan = self.make_repo(root)
-            payload, _, warning = server.board_plan_records(repo, home)
-            self.assertIsNone(warning)
-            identity = payload["entities"][0]["id"]
-            server._root_board.set_priority(plan, 1, home=home)
-            with self.assertRaisesRegex(server.BrowserError, "changed"):
-                server.board_entity_plan(identity, payload["revision"], home)
-
-            current = server._root_board.snapshot(home=home)
-            self.assertIsNotNone(current)
-            git(repo, "remote", "add", "origin", "git@example.invalid:org/moved.git")
-            with self.assertRaisesRegex(server.BrowserError, "stale"):
-                server.board_entity_plan(identity, current["revision"], home)
 
     def test_non_loopback_bind_is_rejected(self) -> None:
         self.assertEqual(server.main(["--host", "0.0.0.0", "--port", "7191", "--root", "."]), 2)
-
-    def test_http_rejects_foreign_host_and_missing_write_origin(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, _ = self.make_repo(Path(dirname))
-            service = server.Server(("127.0.0.1", 0), repo)
-            service.RequestHandlerClass.log_message = lambda *args: None
-            thread = threading.Thread(target=service.serve_forever, daemon=True)
-            thread.start()
-            port = service.server_address[1]
-            try:
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.putrequest("GET", "/", skip_host=True)
-                connection.putheader("Host", "example.invalid")
-                connection.endheaders()
-                self.assertEqual(connection.getresponse().status, 403)
-                connection.close()
-
-                body = json.dumps({
-                    "entity": "0" * 64,
-                    "root_board_revision": 0,
-                    "option_id": "ship-now",
-                    "revision": 7,
-                })
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.request("POST", "/api/decision", body=body, headers={"Content-Type": "application/json"})
-                self.assertEqual(connection.getresponse().status, 403)
-                connection.close()
-            finally:
-                service.shutdown()
-                service.server_close()
-                thread.join(timeout=2)
 
 
     def test_stylesheet_uses_only_its_own_design_tokens(self) -> None:
@@ -618,56 +338,6 @@ class BrowserTests(unittest.TestCase):
                 service.server_close()
                 thread.join(timeout=2)
 
-    def test_allow_listed_proxy_host_reads_and_decides(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, _ = self.make_repo(Path(dirname).resolve())
-            payload, _, warning = server.board_plan_records(repo, repo)
-            self.assertIsNone(warning)
-            identity = payload["entities"][0]["id"]
-            service = server.Server(
-                ("127.0.0.1", 0), repo, frozenset({"studio.tailnet.example.ts.net"})
-            )
-            service.RequestHandlerClass.log_message = lambda *args: None
-            thread = threading.Thread(target=service.serve_forever, daemon=True)
-            thread.start()
-            port = service.server_address[1]
-            try:
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.putrequest("GET", "/api/health", skip_host=True)
-                # The proxy owns its own outer port; no port in the Host header.
-                connection.putheader("Host", "Studio.Tailnet.Example.TS.NET")
-                connection.endheaders()
-                self.assertEqual(connection.getresponse().status, 200)
-                connection.close()
-
-                body = json.dumps({
-                    "entity": identity,
-                    "root_board_revision": payload["revision"],
-                    "option_id": "cold-review",
-                    "revision": 7,
-                })
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.putrequest("POST", "/api/decision", skip_host=True)
-                connection.putheader("Host", "studio.tailnet.example.ts.net")
-                connection.putheader("Origin", "https://studio.tailnet.example.ts.net")
-                connection.putheader("Content-Type", "application/json")
-                connection.putheader("Content-Length", str(len(body)))
-                connection.endheaders()
-                connection.send(body.encode("utf-8"))
-                self.assertEqual(connection.getresponse().status, 200)
-                connection.close()
-
-                # A hostname NOT on the allowlist still gets refused.
-                connection = http.client.HTTPConnection("127.0.0.1", port)
-                connection.putrequest("GET", "/api/health", skip_host=True)
-                connection.putheader("Host", "evil.example.net")
-                connection.endheaders()
-                self.assertEqual(connection.getresponse().status, 403)
-                connection.close()
-            finally:
-                service.shutdown()
-                service.server_close()
-                thread.join(timeout=2)
 
     def test_non_loopback_bind_is_still_rejected_with_allow_host(self) -> None:
         self.assertEqual(
@@ -697,48 +367,6 @@ class BrowserTests(unittest.TestCase):
     def test_http_server_header_carries_the_product_name(self) -> None:
         self.assertTrue(server.Handler.server_version.startswith("Shadow/"))
 
-    def test_post_errors_never_reflect_exception_text(self) -> None:
-        with tempfile.TemporaryDirectory() as dirname:
-            repo, _ = self.make_repo(Path(dirname).resolve())
-            board, _, warning = server.board_plan_records(repo, repo)
-            self.assertIsNone(warning)
-            identity = board["entities"][0]["id"]
-            service = server.Server(("127.0.0.1", 0), repo)
-            service.RequestHandlerClass.log_message = lambda *args: None
-            thread = threading.Thread(target=service.serve_forever, daemon=True)
-            thread.start()
-            port = service.server_address[1]
-            try:
-                failure = PermissionError(
-                    f"[Errno 13] Permission denied: '{repo}/.shadow/evidence'"
-                )
-                body = json.dumps({
-                    "entity": identity,
-                    "root_board_revision": board["revision"],
-                    "option_id": "ship-now",
-                    "revision": 7,
-                })
-                with mock.patch.object(server, "write_decision_receipt", side_effect=failure):
-                    connection = http.client.HTTPConnection("127.0.0.1", port)
-                    connection.request(
-                        "POST",
-                        "/api/decision",
-                        body=body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Origin": f"http://127.0.0.1:{port}",
-                        },
-                    )
-                    response = connection.getresponse()
-                    payload = json.loads(response.read())
-                    connection.close()
-                self.assertEqual(response.status, 400)
-                self.assertNotIn(str(repo), payload["error"])
-                self.assertNotIn("Errno", payload["error"])
-            finally:
-                service.shutdown()
-                service.server_close()
-                thread.join(timeout=2)
 
     def test_titles_block_every_canonical_private_path_and_secret_shape(self) -> None:
         # Secret-shaped fixtures are assembled at runtime so the tracked
@@ -758,34 +386,6 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(server.title(heading + "\n", "client-repo"), "Client Repo", heading)
         self.assertEqual(server.title("# Ship the release notes\n", "client-repo"), "Ship the release notes")
 
-    def test_brief_and_outcome_filters_block_secret_shapes(self) -> None:
-        from browser import chief_of_staff, outcome_source
-
-        secret_shaped = (
-            "rotate " + "AKIA" + "IOSFODNN7EXAMPLE" + " today",
-            "revoke " + "xoxb-" + "1234567890-ABCDEFGHIJKLMNOP",
-            "replace " + "sk-ant-" + "api03-abcdefghijkl",
-        )
-        for value in secret_shaped:
-            with self.assertRaises(chief_of_staff.DecisionInputError, msg=value):
-                chief_of_staff._public_text(value, "changed")
-            self.assertIsNotNone(outcome_source.SECRET_SHAPE_RE.search(value), value)
-        self.assertEqual(
-            chief_of_staff._public_text("shipped the release notes", "changed"),
-            "shipped the release notes",
-        )
-
-    def test_browser_secret_shapes_carry_the_canonical_left_guard(self) -> None:
-        # shadow-lint accepts hyphenated English because the canonical
-        # SECRET_SHAPE_RE guards `sk-` on the left.  The browser transcriptions
-        # must agree, or a plan passes lint and then fails board projection.
-        from browser import chief_of_staff, outcome_source
-
-        prose = "task-mismatched risk-mitigation smoke green"
-        self.assertIsNone(outcome_source.SECRET_SHAPE_RE.search(prose), prose)
-        self.assertIsNone(chief_of_staff.PRIVATE_TEXT_RE.search(prose), prose)
-        self.assertEqual(chief_of_staff._public_text(prose, "changed"), prose)
-        self.assertEqual(outcome_source._text(prose, "changed"), prose)
 
 
 
@@ -852,8 +452,9 @@ class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
 
     def test_a_v4_plan_without_the_retired_outcome_key_is_not_an_error(self) -> None:
         record = self._record(BOARD_PLAN)
-        self.assertIsNone(record["contract_error"],
-                          "the retired v3 key's absence was reported as a defect")
+        self.assertNotIn("contract_error", record)
+        self.assertNotIn("briefing", record)
+        self.assertNotIn("outcome", record)
         board = record["board"]
         self.assertEqual(board["state"], "working")
         self.assertEqual(board["milestone"]["title"], "M1 — Gift flow live")
@@ -862,18 +463,6 @@ class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
         self.assertIn("Checkout smoke green", board["milestone"]["current"])
         self.assertEqual(board["milestone"]["dod"]["state"], "pending")
 
-    def test_a_v3_plan_still_gets_its_rich_briefing(self) -> None:
-        record = self._record(PLAN)
-        self.assertIsNone(record["contract_error"])
-        self.assertIsNotNone(record["briefing"])
-        self.assertIsNotNone(record["board"])
-
-    def test_a_v3_plan_with_malformed_outcome_still_reports_its_error(self) -> None:
-        broken = PLAN.replace("- Outcome State: needs_input", "- Outcome State: vibing")
-        record = self._record(broken)
-        self.assertIsNotNone(record["contract_error"],
-                             "a malformed v3 contract must still be named")
-        self.assertIsNotNone(record["board"], "the board brief is total even then")
 
     def test_states_ready_blocked_and_resting_derive_from_the_rows(self) -> None:
         ready = BOARD_PLAN.replace("- [in_progress]", "- [pending]")
@@ -887,7 +476,7 @@ class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
     def test_a_plan_with_no_tasks_is_an_honest_empty_not_a_crash(self) -> None:
         record = self._record("# Just notes\n\nno sections at all\n")
         self.assertEqual(record["board"]["state"], "empty")
-        self.assertIsNone(record["contract_error"])
+        self.assertNotIn("contract_error", record)
 
     def test_a_pre_grammar_plan_reads_unmigrated_not_empty(self) -> None:
         essay = "# Old plan\n\n## Goal\n" + "\n".join(
@@ -942,11 +531,6 @@ class TheGalleryShowsEveryStateHonestly(unittest.TestCase):
         self.assertNotIn("<style", html,
                          "inline styles are discarded by style-src 'self'; use style.css")
 
-    def test_the_v3_rich_brief_has_a_fixture_with_choices(self) -> None:
-        rich = [r for r in server.gallery_records() if r["briefing"]]
-        self.assertTrue(rich, "no fixture exercises the v3 rich brief card")
-        self.assertTrue(any(r["briefing"]["choices"] for r in rich),
-                        "no fixture shows a waiting decision")
 
     def test_the_gallery_page_and_api_are_served(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

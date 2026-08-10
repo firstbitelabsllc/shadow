@@ -71,9 +71,6 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("scripts/shadow-config-cli.py", "scripts/shadow_config.py"), (
         "tests.test_config_defaults", "tests.test_config_parser", "tests.test_config_bindings", "tests.test_extension_buckets",
     )),
-    (("scripts/shadow-outcome-validate.py", "browser/outcome_source.py", "browser/decision_mode.py"), (
-        "tests.test_outcome_source", "tests.test_outcome_choice", "tests.test_decision_mode",
-    )),
     (("scripts/shadow-public-ready-grep-gate.py", "scripts/shadow_scrub_lib.py", "SECURITY.md"), (
         "tests.test_public_ready_grep_gate", "tests.test_secret_scan_workflow",
     )),

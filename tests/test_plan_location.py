@@ -634,7 +634,7 @@ class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
     def test_a_vetoed_plan_never_reaches_the_browser(self) -> None:
         # Annotating the record is not a demotion: both projections iterate the
         # served list without reading `archived`, so a card the wire still
-        # carries keeps its live briefing and its decision buttons.
+        # carries remains a live board entry.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._repo(root, "thing", "git@github.com:acme/thing.git")

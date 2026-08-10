@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import subprocess
 import sys
@@ -31,7 +30,7 @@ class InitTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         return repo
 
-    def test_creates_one_typed_plan_at_git_root(self) -> None:
+    def test_creates_one_v4_plan_at_git_root(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo = self.make_repo(Path(dirname))
             result = run("--here", cwd=repo)
@@ -39,13 +38,17 @@ class InitTests(unittest.TestCase):
             plan = (repo / "PLAN.md").read_text(encoding="utf-8")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "created PLAN.md\n")
-        self.assertIsNone(record["contract_error"])
-        self.assertEqual(record["briefing"]["state"], "needs_you")
-        self.assertEqual(len(record["briefing"]["choices"]), 3)
-        self.assertNotIn(dirname, json.dumps(record))
-        self.assertIn("Complete the full declared outcome", plan)
-        self.assertIn("every safe reachable lane", plan)
-        self.assertIn("- Option A ID: derive-and-execute", plan)
+        self.assertTrue(record["lint"]["parse_ok"])
+        self.assertEqual(record["lint"]["blocking"], 0)
+        self.assertEqual(record["project"], "useful-project")
+        self.assertEqual(record["mode"], "explore")
+        self.assertEqual(record["board"]["priority"], "3")
+        self.assertNotIn(dirname, str(record))
+        self.assertIn("the full product outcome, scenario matrix", plan)
+        self.assertIn("every reachable row is proven", plan)
+        self.assertNotIn("Outcome ID:", plan)
+        self.assertNotIn("Decision ID:", plan)
+        self.assertNotIn("Option A:", plan)
         self.assertNotIn("smallest", plan.lower())
         self.assertNotIn(" ".join(("one", "bounded")), plan.lower())
 

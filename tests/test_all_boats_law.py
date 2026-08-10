@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parent.parent
 ARCHIVE_ROOTS = (
     Path("docs/archive"),
     Path("docs/plan-archive"),
-    Path("docs/superpowers"),
 )
 TEXT_SUFFIXES = {".md", ".py", ".js", ".svg"}
 

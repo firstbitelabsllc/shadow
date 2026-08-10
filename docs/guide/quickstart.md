@@ -8,10 +8,9 @@ shadow throw --repo . --task '~a1b2' --by "your-seat" # atomic claim + packet
 shadow browse --root .
 ```
 
-Fill the generated Brief. The root board stores only that plan pointer, row id,
-priority, and owner. The browser renders the same Outcome,
-briefing, proof, and A/B/C options after every restart because `PLAN.md` is the
-source.
+Fill the generated task rows. The root board stores only that plan pointer, row
+id, priority, and owner. The browser renders the same milestones, checkpoints,
+proof state, and claims after every restart because `PLAN.md` is the source.
 
 Write work as tasks—a verifiable state plus a typed proof:
 

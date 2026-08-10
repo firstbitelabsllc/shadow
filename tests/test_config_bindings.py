@@ -28,12 +28,6 @@ PLAN = """# Config bindings
 - Project: config-bindings
 - Mode: ship
 - Priority: 2
-- Outcome ID: config-bindings
-- Outcome Revision: 1
-- Outcome Updated At: 2026-08-10T17:00:00Z
-- Outcome State: working
-- Outcome: Prove config reaches its bounded consumers.
-- Next: Run the binding proof.
 
 ## Tasks
 
