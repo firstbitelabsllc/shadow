@@ -237,47 +237,48 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
         seat_dir.mkdir(parents=True)
         shim = seat_dir / "shadow"
         shim.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json, os, pathlib, sys\n"
-        f"home = pathlib.Path({str(home)!r})\n"
-        f"portfolio = pathlib.Path({str(portfolio)!r})\n"
-        f"real = {str(SHADOW)!r}\n"
-        f"seat = {bound_seat!r}\n"
-        "args = sys.argv[1:]\n"
-        "if '--by' not in args:\n"
-        "    raise SystemExit(2)\n"
-        "try:\n"
-        "    if args[args.index('--by') + 1] != seat:\n"
-        "        raise SystemExit(2)\n"
-        "except IndexError:\n"
-        "    raise SystemExit(2)\n"
-        "if not args or args[0] not in {'status', 'throw', 'accept'}:\n"
-        "    raise SystemExit(2)\n"
-        "if args[0] == 'status':\n"
-        "    if '--root' in args or '--shadowed' in args:\n"
-        "        raise SystemExit(2)\n"
-        "    if '--by' in args:\n"
-        "        try:\n"
-        "            board = json.loads((home / '.shadow/board.json').read_text(encoding='utf-8'))\n"
-        "            owners = sorted(c.get('owner') for c in board.get('claims', []) if isinstance(c, dict))\n"
-        "            with (home / '.two-seat-status-audit.jsonl').open('a', encoding='utf-8') as stream:\n"
-        "                stream.write(json.dumps({'seat': seat, 'owners': owners}, sort_keys=True) + '\\n')\n"
-        "        except (IndexError, OSError, ValueError, json.JSONDecodeError):\n"
-        "            raise SystemExit(2)\n"
-        "else:\n"
-        "    if '--repo' not in args:\n"
-        "        raise SystemExit(2)\n"
-        "    try:\n"
-        "        candidate = pathlib.Path(args[args.index('--repo') + 1]).resolve(strict=True)\n"
-        "    except (IndexError, OSError):\n"
-        "        raise SystemExit(2)\n"
-        "    allowed = {(portfolio / 'alpha').resolve(), (portfolio / 'beta').resolve()}\n"
-        "    if candidate not in allowed:\n"
-        "        raise SystemExit(2)\n"
-        "env = dict(os.environ)\n"
-        "env['HOME'] = str(home)\n"
-        "env['SHADOW_PORTFOLIO_ROOT'] = str(portfolio)\n"
-        "os.execve(real, [real, *args], env)\n",
+            "#!/usr/bin/env python3\n"
+            "import json, os, pathlib, subprocess, sys\n"
+            f"home = pathlib.Path({str(home)!r})\n"
+            f"portfolio = pathlib.Path({str(portfolio)!r})\n"
+            f"real = {str(SHADOW)!r}\n"
+            f"seat = {bound_seat!r}\n"
+            "args = sys.argv[1:]\n"
+            "if not args or args[0] not in {'status', 'throw', 'accept'}:\n"
+            "    raise SystemExit(2)\n"
+            "if args.count('--by') != 1:\n"
+            "    raise SystemExit(2)\n"
+            "try:\n"
+            "    if args[args.index('--by') + 1] != seat:\n"
+            "        raise SystemExit(2)\n"
+            "except IndexError:\n"
+            "    raise SystemExit(2)\n"
+            "if args[0] == 'status':\n"
+            "    if any(value == '--root' or value.startswith('--root=') or value == '--shadowed' or value.startswith('--shadowed=') for value in args):\n"
+            "        raise SystemExit(2)\n"
+            "elif args.count('--repo') != 1:\n"
+            "    raise SystemExit(2)\n"
+            "else:\n"
+            "    try:\n"
+            "        candidate = pathlib.Path(args[args.index('--repo') + 1]).resolve(strict=True)\n"
+            "    except (IndexError, OSError):\n"
+            "        raise SystemExit(2)\n"
+            "    allowed = {(portfolio / 'alpha').resolve(), (portfolio / 'beta').resolve()}\n"
+            "    if candidate not in allowed:\n"
+            "        raise SystemExit(2)\n"
+            "env = dict(os.environ)\n"
+            "env['HOME'] = str(home)\n"
+            "env['SHADOW_PORTFOLIO_ROOT'] = str(portfolio)\n"
+            "result = subprocess.run([real, *args], env=env)\n"
+            "try:\n"
+            "    board = json.loads((home / '.shadow/board.json').read_text(encoding='utf-8'))\n"
+            "    owners = sorted(c.get('owner') for c in board.get('claims', []) if isinstance(c, dict))\n"
+            "    event = {'seat': seat, 'session': os.getsid(0), 'verb': args[0], 'returncode': result.returncode, 'owners': owners}\n"
+            "    with (home / '.two-seat-command-audit.jsonl').open('a', encoding='utf-8') as stream:\n"
+            "        stream.write(json.dumps(event, sort_keys=True) + '\\n')\n"
+            "except (OSError, ValueError, json.JSONDecodeError):\n"
+            "    raise SystemExit(2)\n"
+            "raise SystemExit(result.returncode)\n",
             encoding="utf-8",
         )
         shim.chmod(0o700)
@@ -363,21 +364,35 @@ def claim_history(home: Path) -> dict[str, str]:
     raise HarnessError("seat_overlap_missing")
 
 
-def peer_observation(home: Path) -> None:
+def peer_observation(home: Path, sessions: dict[str, int]) -> None:
     try:
         entries = [
             json.loads(line)
-            for line in (home / ".two-seat-status-audit.jsonl").read_text(encoding="utf-8").splitlines()
+            for line in (home / ".two-seat-command-audit.jsonl").read_text(encoding="utf-8").splitlines()
         ]
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise HarnessError("seat_overlap_missing") from exc
-    observed = {
-        entry.get("seat")
-        for entry in entries
-        if isinstance(entry, dict) and set(entry.get("owners", [])) == set(SEATS)
-    }
-    if observed != set(SEATS):
-        raise HarnessError("seat_overlap_missing")
+    for seat in SEATS:
+        own = [
+            entry for entry in entries
+            if isinstance(entry, dict) and entry.get("seat") == seat
+        ]
+        if any(entry.get("session") != sessions[seat] for entry in own):
+            raise HarnessError("seat_overlap_missing")
+        successful = {
+            entry.get("verb")
+            for entry in own
+            if entry.get("session") == sessions[seat] and entry.get("returncode") == 0
+        }
+        observed_peer = any(
+            entry.get("verb") == "status"
+            and entry.get("session") == sessions[seat]
+            and entry.get("returncode") == 0
+            and set(entry.get("owners", [])) == set(SEATS)
+            for entry in own
+        )
+        if successful < {"status", "throw", "accept"} or not observed_peer:
+            raise HarnessError("seat_overlap_missing")
 
 
 def exact_scratch_entities(home: Path, portfolio: Path) -> None:
@@ -530,8 +545,6 @@ def main(argv: list[str] | None = None) -> int:
                     for future in futures:
                         future.result()
             facts, completed = final_facts(home, portfolio, env, initial)
-            if args.live:
-                peer_observation(home)
             public["board"] = facts
             public["seats"] = [
                 {"name": seat, "completed": completed.get(seat, False)}
@@ -539,6 +552,11 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if facts["completed"] != 2 or facts["claims"] != 0:
                 raise HarnessError("partial_completion")
+            if args.live:
+                peer_observation(
+                    home,
+                    {seat: result.session_id for seat, result, _ in host_results},
+                )
             public["status"] = "pass"
             public["failure"] = None
             code = 0

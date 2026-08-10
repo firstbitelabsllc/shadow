@@ -16,6 +16,7 @@ from typing import Mapping, Sequence
 class ProcessResult:
     returncode: int
     timed_out: bool
+    session_id: int
 
 
 def _drain_group(process: subprocess.Popen[bytes]) -> None:
@@ -59,4 +60,8 @@ def run_bounded(
             _drain_group(process)
             if process.poll() is None:
                 process.wait()
-        return ProcessResult(returncode=returncode, timed_out=timed_out)
+        return ProcessResult(
+            returncode=returncode,
+            timed_out=timed_out,
+            session_id=process.pid,
+        )
