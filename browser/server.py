@@ -232,7 +232,36 @@ def _origin_of(repo: Path) -> str:
         )
     except (OSError, subprocess.SubprocessError):
         return str(repo)
-    return result.stdout.strip() or str(repo)
+    return _normalized_origin(result.stdout.strip()) or str(repo)
+
+
+def _normalized_origin(origin: str) -> str:
+    """One repository, one key, however the remote is spelled.
+
+    `git@github.com:acme/thing.git` and `https://github.com/acme/thing` are the
+    same repository. The key was the raw URL string, so they were two keys and
+    both checkouts rendered — the board reported two projects where one exists.
+    `_origin_repo_name` already understood they were the same repo; the dedup
+    key did not.
+
+    Deliberately textual: no network, no `git ls-remote`, so it is the same
+    answer offline and on any machine.
+
+    Only the hostname is case-folded, because only the hostname is defined to
+    be case-insensitive. A path is not: `/srv/git/Foo.git` and
+    `/srv/git/foo.git` are two repositories on a case-sensitive filesystem, and
+    folding the whole string would give them one key — collapsing a real
+    project off the board, which is the very failure this normalization exists
+    to prevent, inverted.
+    """
+    if not origin:
+        return ""
+    text = origin.strip().rstrip("/").removesuffix(".git")
+    text = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", text)
+    text = re.sub(r"^[^/@]+@", "", text)          # user[:password]@
+    text = re.sub(r"^([^/:]+):(?!/)", r"\1/", text)  # scp-style host:path
+    host, slash, path = text.partition("/")
+    return host.lower() + slash + path
 
 
 def _origin_repo_name(origin: str) -> str:
@@ -303,9 +332,32 @@ def repo_plans(repo: Path) -> list[Path]:
         for path in sorted(repo.glob(pattern)):
             # A glob that escapes through a symlink is the one way a
             # repo-relative pattern still reaches outside its own repo.
-            if path.is_file() and path not in found and here in path.resolve().parents:
-                found.append(path)
+            if not (path.is_file() and path not in found and here in path.resolve().parents):
+                continue
+            if _pruned_segment(path.relative_to(repo)):
+                continue
+            found.append(path)
     return found
+
+
+def _pruned_segment(relative: Path) -> str | None:
+    """The directory that disqualifies a declared-glob hit, if any.
+
+    `Path.glob` descends into dot-directories, so a single declared
+    `**/PLAN.md` reached into `.worktrees/`, `node_modules/`, and every
+    vendored copy — putting a worktree pool and a dependency's template plan
+    on the board as if they were projects. `SKIP_DIRS` already named exactly
+    these directories and had no readers at all; this makes it load-bearing
+    rather than adding a second list to drift from it.
+
+    Only the declared-glob expansion is filtered. A repo's own root plan is
+    never subject to this, and the portfolio walk prunes hidden children of
+    its own accord.
+    """
+    for segment in relative.parts[:-1]:
+        if segment in SKIP_DIRS or segment.startswith("."):
+            return segment
+    return None
 
 
 def is_repo(path: Path) -> bool:
@@ -374,11 +426,14 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
         # replace the canonical checkout's plan with a stale copy — observed on
         # the reference machine against this very repository. Prefer the
         # checkout whose directory name matches the origin's repository name,
-        # then the one whose plan was touched most recently.
+        # then the one whose plan was touched most recently. The comparison is
+        # case-folded on both sides: the normalized origin is lowercased, so a
+        # `Thing` directory cloned from `.../thing` would otherwise lose the
+        # tie-break to whatever mtime and alphabetical order happened to pick.
         candidates = sorted(
             found,
             key=lambda repo: (
-                repo.name != _origin_repo_name(_origin_of(repo)),
+                repo.name.lower() != _origin_repo_name(_origin_of(repo)).lower(),
                 -_plan_mtime(repo),
                 repo.name,
             ),
