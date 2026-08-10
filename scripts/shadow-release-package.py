@@ -68,6 +68,7 @@ REQUIRED_FILES = {
     "docs/reference/chief-of-staff.md",
     "docs/reference/commands.md",
     "docs/reference/grammar.md",
+    "docs/reference/method.md",
     "docs/reference/host-integration.md",
     "docs/reference/native-hosts.md",
     "docs/reference/outcome-choice.md",
