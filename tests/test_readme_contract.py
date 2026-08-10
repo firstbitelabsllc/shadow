@@ -26,6 +26,8 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "Active tasks: none",
             "Proof boundaries",
             "Host integration",
+            "scripts/shadow-verify-two-seat.py",
+            "--live --goal-file",
         )
         for phrase in required:
             self.assertIn(phrase, text)

@@ -53,6 +53,24 @@ scripts/shadow-verify-host.sh --host claude-code --by claude
 scripts/shadow-verify-host.sh --host codex --by codex --live
 ```
 
+To prove two independent seats can coordinate instead of merely describe one
+board, run the sealed disposable harness. Its default uses deterministic local
+seat drivers and no model quota. Live mode is explicit and requires one frozen
+seat-neutral goal file; it runs Claude and Codex only inside a fresh scratch
+HOME and two disposable local repositories:
+
+```bash
+scripts/shadow-python.sh scripts/shadow-verify-two-seat.py --json
+scripts/shadow-python.sh scripts/shadow-verify-two-seat.py \
+  --live --goal-file ./frozen-goal.txt --json
+```
+
+The receipt proves the shared goal hash/ref, two distinct historical owners,
+overlapping peer-visible claims, two completed proofs, and zero orphan claims.
+Live mode also requires the running checkout to be clean and exactly at the
+freshly fetched ref. The harness never completes the person-observed gate on
+its own.
+
 ## First run: one complete handoff
 
 Run this from a Git project. The only placeholder you replace is the stable
