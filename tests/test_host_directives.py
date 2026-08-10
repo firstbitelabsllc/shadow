@@ -48,6 +48,53 @@ class OneSource(unittest.TestCase):
         self.assertTrue(BLOCK.startswith("## Shadow "))
 
 
+class RemovalLeavesThePersonsTextAlone(unittest.TestCase):
+    """The audited floor: --remove takes out at most what adding introduced.
+
+    An unbounded newline strip once ate the person's own blank lines
+    (A\\n\\n<block>\\n\\nB\\n came back as A\\nB\\n) — an independent audit
+    caught it as an in-contract violation. These tests pin the bounded rule:
+    one newline after the block, one newline of the separator before it,
+    nothing else.
+    """
+
+    def _apply_remove(self, tmp: Path, content: str) -> str:
+        path = tmp / "CLAUDE.md"
+        path.write_text(content, encoding="utf-8")
+        self.assertEqual(hd.apply(path, BLOCK, remove=True), "removed")
+        return path.read_text(encoding="utf-8")
+
+    def test_the_persons_blank_lines_survive_removal(self) -> None:
+        # The audit's exact failing input.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._apply_remove(
+                Path(tmp), "A\n\n" + hd.managed(BLOCK) + "\n\nB\n")
+            self.assertEqual(out, "A\n\nB\n")
+
+    def test_add_then_remove_is_an_exact_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            path.write_text("A\n", encoding="utf-8")
+            self.assertEqual(hd.apply(path, BLOCK), "added")
+            self.assertEqual(hd.apply(path, BLOCK, remove=True), "removed")
+            self.assertEqual(path.read_text(encoding="utf-8"), "A\n")
+
+    def test_a_block_opening_the_file_leaves_the_rest_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._apply_remove(
+                Path(tmp), hd.managed(BLOCK) + "\n\nB\n")
+            self.assertEqual(out, "\nB\n")
+
+    def test_a_created_file_gets_no_backup_because_there_is_nothing_to_back_up(self) -> None:
+        # The other audited sentence: the backup copies PRE-EXISTING bytes;
+        # a file created from nothing must not leave a phantom backup.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            self.assertEqual(hd.apply(path, BLOCK), "created")
+            self.assertFalse(
+                path.with_suffix(path.suffix + ".bak-shadow").exists())
+
+
 class WritesTheBlock(unittest.TestCase):
     def _file(self, tmp: Path, contents: str | None) -> Path:
         path = tmp / "CLAUDE.md"
@@ -422,9 +469,6 @@ class CursorIsNotInvented(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Cursor is not written", result.stdout)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 def _swap_with_distinct_inode(path: Path, content: str) -> None:
@@ -1127,3 +1171,7 @@ class AFailedWriteLeavesNoNewBackup(unittest.TestCase):
         leftovers = [q.name for q in self.target.parent.iterdir()
                      if q.name.startswith(".shadow-")]
         self.assertEqual(leftovers, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

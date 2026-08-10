@@ -10,8 +10,9 @@ The contract, in order of how much it matters:
 1. **Never lose the person's text.** A host instruction file is hand-written
    and often long. Every write goes to a temp file in the same directory and
    is renamed over the target, so a crash leaves either the old file or the new
-   one, never a truncated one. The first write also leaves a `.bak-shadow`
-   copy. A host file that is a symlink is written THROUGH — the canonical file
+   one, never a truncated one. The first write to a file that already existed
+   also leaves a `.bak-shadow` copy of its pre-shadow bytes; a file created
+   from nothing has nothing to back up and gets none. A host file that is a symlink is written THROUGH — the canonical file
    it points at is what changes, and the link is still a link afterwards.
 
 ### Concurrency and durability model — what this promises, and what it does not
@@ -71,8 +72,12 @@ over-promise here would be a lie about someone's hand-written instructions:
    markers existed has an unmarked copy; that exact region is wrapped rather
    than duplicated. An older revision, whose last line no longer matches, has
    no discernible end — that is refused out loud, not guessed at.
-5. **Removable.** `--remove` takes the block and its markers out and leaves the
-   surrounding text as it was.
+5. **Removable.** `--remove` takes the block and its markers out together
+   with, at most, the blank-line separator adding it introduced — one newline
+   after the block and one before it when the block was preceded by a blank
+   line. Everything else is untouched, but a separator is indistinguishable
+   from a blank line the person typed, so one such line can come out with the
+   block; a file that never ended in a newline gains one on the round trip.
 
 Cursor is deliberately absent: its user rules live in application settings, not
 a file, so writing `~/.cursor/rules/shadow.md` would invent a convention. That
@@ -615,7 +620,16 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
                     path, target, pinned, identity, "absent")
                 return "absent"
             head, tail = text[: span[0]], text[span[1] :]
-            new = (head.rstrip("\n") + "\n" + tail.lstrip("\n")) if head.strip() else tail.lstrip("\n")
+            # Take out at most what adding introduced: the one newline appended
+            # after the block, and one newline of the separator before it. An
+            # unbounded strip here once ate the person's own blank lines
+            # (A\n\n<block>\n\nB\n came back as A\nB\n) — the exact loss
+            # this module exists to prevent.
+            if tail.startswith("\n"):
+                tail = tail[1:]
+            if head.endswith("\n\n"):
+                head = head[:-1]
+            new = head + tail
             action = "removed"
         else:
             wanted = managed(block)
