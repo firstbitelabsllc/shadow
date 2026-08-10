@@ -83,8 +83,32 @@ def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> sub
         raise HarnessError("fixture_failed") from exc
 
 
+def git_environment() -> dict[str, str]:
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("GIT_")
+    }
+    env.update({
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_TERMINAL_PROMPT": "0",
+    })
+    return env
+
+
 def git(cwd: Path, *args: str) -> str:
-    result = run(["git", *args], cwd)
+    result = run(
+        [
+            "git",
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "maintenance.autoDetach=false",
+            "-c", "gc.autoDetach=false",
+            *args,
+        ],
+        cwd,
+        git_environment(),
+    )
     if result.returncode:
         raise HarnessError("fixture_failed")
     return result.stdout.strip()
@@ -95,10 +119,22 @@ def source_ref(live: bool) -> str:
         configured = git(ROOT, "config", "--get", "remote.origin.url")
         if normalized_origin(configured) != CANONICAL_ORIGIN:
             raise HarnessError("source_origin_mismatch")
-        fetched = run(["git", "fetch", "origin", "main", "--quiet"], ROOT)
+        fetched = run(
+            [
+                "git",
+                "-c", "core.hooksPath=/dev/null",
+                "fetch", "origin", "main", "--quiet",
+            ],
+            ROOT,
+            git_environment(),
+        )
         if fetched.returncode:
             raise HarnessError("source_fetch_failed")
-    result = run(["git", "rev-parse", "origin/main"], ROOT)
+    result = run(
+        ["git", "-c", "core.hooksPath=/dev/null", "rev-parse", "origin/main"],
+        ROOT,
+        git_environment(),
+    )
     if result.returncode == 0:
         value = result.stdout.strip()
     else:
@@ -152,7 +188,7 @@ def mint_repo(scratch: Path, portfolio: Path, name: str, priority: int) -> Path:
 
 
 def sealed_environment() -> dict[str, str]:
-    env = dict(os.environ)
+    env = git_environment()
     for name in (
         "SHADOW_ROOT",
         "SHADOW_PORTFOLIO_ROOT",
@@ -360,7 +396,11 @@ def claim_history(home: Path) -> dict[str, str]:
     commits = git(board_repo, "rev-list", "--reverse", "HEAD").splitlines()
     expected_rows = set(ROW_BY_PROJECT.values())
     for commit in commits:
-        shown = run(["git", "show", f"{commit}:board.json"], board_repo)
+        shown = run(
+            ["git", "-c", "core.hooksPath=/dev/null", "show", f"{commit}:board.json"],
+            board_repo,
+            git_environment(),
+        )
         if shown.returncode:
             raise HarnessError("board_unavailable")
         try:
