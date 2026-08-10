@@ -329,6 +329,23 @@ def origin_repo_name(origin: str) -> str:
     return tail.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
 
 
+def public_entity_locator(identity: object) -> str:
+    """Name one logical entity without deriving display data from its private pointer."""
+    if not isinstance(identity, str) or not ENTITY_ID.fullmatch(identity):
+        raise BoardError("public entity locator requires one logical entity id")
+    return f"entity@{identity[:12]}/PLAN.md"
+
+
+def public_copy_locator(identity: object, display: object) -> str:
+    """Name one discovered checkout without emitting its machine-owned path."""
+    if not isinstance(identity, str) or not ENTITY_ID.fullmatch(identity):
+        raise BoardError("public copy locator requires one logical entity id")
+    if not isinstance(display, str) or not display:
+        raise BoardError("public copy locator requires one discovered plan label")
+    digest = hashlib.sha256(f"{identity}\0{display}".encode("utf-8")).hexdigest()[:12]
+    return f"copy@{digest}/PLAN.md"
+
+
 def public_plan_locator(plan: Path) -> str:
     """Return a stable human locator without exposing an absolute home path."""
     candidate = Path(os.path.abspath(plan))

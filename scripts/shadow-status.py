@@ -573,12 +573,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"shadow status: {exc}", file=sys.stderr)
             return 1
         if args.json:
-            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": receipts}, indent=2))
+            public_rows = [receipt.as_dict() for receipt in receipts]
+            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": public_rows}, indent=2))
         elif not receipts:
             print("nothing suppressed — every plan discovery enumerated was read")
         else:
-            for row in receipts:
-                print(f"{row['path']} — {row['reason']}")
+            for receipt in receipts:
+                print(f"{receipt.path} — {receipt.reason}")
         return 0
     try:
         if not explicit_root:
@@ -633,9 +634,9 @@ def main(argv: list[str] | None = None) -> int:
         except _board.BoardError:
             receipts = []
         for receipt in receipts:
-            if receipt["shadowed_by"] is None:
+            if receipt.shadowed_by is None:
                 print(
-                    f"shadow status: {receipt['path']} — {receipt['reason']}",
+                    f"shadow status: {receipt.path} — {receipt.reason}",
                     file=sys.stderr,
                 )
     if args.json:

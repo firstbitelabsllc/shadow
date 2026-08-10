@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import os
 from pathlib import Path
@@ -24,6 +25,22 @@ THROWN = re.compile(
     flags=re.M,
 )
 OWNER = re.compile(r"\| by: (?P<owner>[^|]+)")
+
+
+@dataclass(frozen=True)
+class SuppressionReceipt:
+    """The complete public shape of one inspectable discovery suppression."""
+
+    path: str
+    shadowed_by: str | None
+    reason: str
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {
+            "path": self.path,
+            "shadowed_by": self.shadowed_by,
+            "reason": self.reason,
+        }
 
 
 def portfolio_root(fallback: Path) -> Path:
@@ -169,6 +186,10 @@ def reconcile_portfolio(
             root,
             fail_on_skipped=True,
             registered_plans=registered,
+            repairable_plans={
+                identity: pointer
+                for identity, (pointer, _) in repairable.items()
+            },
             retired_registered=set(registered_retired),
             capture_tokens=True,
         )
@@ -282,7 +303,7 @@ def suppression_receipts(
     amp: ModuleType,
     *,
     home: Path | None = None,
-) -> list[dict[str, str | None]]:
+) -> list[SuppressionReceipt]:
     """Bounded, public reasons discovery withheld a plan from authority."""
     from browser.server import (
         BrowserError,
@@ -292,7 +313,7 @@ def suppression_receipts(
         operator_brief,
     )
 
-    registered, registered_retired, _ = _registered_state(
+    registered, registered_retired, repairable = _registered_state(
         amp,
         home=home,
         archive_veto_text=_archive_veto_text,
@@ -307,56 +328,48 @@ def suppression_receipts(
             include_shadowed=True,
             fail_on_skipped=True,
             registered_plans=registered,
+            repairable_plans={
+                identity: pointer
+                for identity, (pointer, _) in repairable.items()
+            },
             retired_registered=set(registered_retired),
             capture_tokens=True,
         )
     except BrowserError as exc:
         raise board.BoardError(f"portfolio inspection refused: {exc}") from exc
-    receipts: list[dict[str, str | None]] = []
+    receipts: list[SuppressionReceipt] = []
     archived_identities: set[str] = set()
     for record in records:
+        identity = record.get("_logical_entity")
         if record.get("shadowed_by"):
-            receipts.append(
-                {
-                    "path": record["path"],
-                    "shadowed_by": record["shadowed_by"],
-                    "reason": record["shadow_reason"],
-                }
-            )
+            receipts.append(SuppressionReceipt(
+                path=board.public_copy_locator(identity, record["path"]),
+                shadowed_by=board.public_entity_locator(identity),
+                reason="same logical entity as the elected portfolio checkout",
+            ))
         elif record.get("archived"):
-            if record.get("_logical_entity"):
-                archived_identities.add(record["_logical_entity"])
-            receipts.append(
-                {
-                    "path": record["path"],
-                    "shadowed_by": None,
-                    "reason": "demoted by its own non-executable archive shell banner",
-                }
-            )
+            if identity:
+                archived_identities.add(identity)
+            receipts.append(SuppressionReceipt(
+                path=board.public_copy_locator(identity, record["path"]),
+                shadowed_by=None,
+                reason="demoted by its own non-executable archive shell banner",
+            ))
         elif record.get("_registered_pointer"):
-            canonical = registered.get(record.get("_logical_entity"))
-            if canonical is None:
+            if identity not in registered:
                 continue
-            receipts.append(
-                {
-                    "path": record["path"],
-                    "shadowed_by": board.public_plan_locator(canonical),
-                    "reason": (
-                        "same logical entity already has one healthy registered "
-                        "computer-board locator"
-                    ),
-                }
-            )
+            receipts.append(SuppressionReceipt(
+                path=board.public_copy_locator(identity, record["path"]),
+                shadowed_by=board.public_entity_locator(identity),
+                reason=(
+                    "same logical entity already has one healthy registered "
+                    "computer-board locator"
+                ),
+            ))
     for identity in sorted(set(registered_retired).difference(archived_identities)):
-        pointer_value = registered_retired[identity].get("plan")
-        if not isinstance(pointer_value, str):
-            continue
-        pointer = Path(pointer_value)
-        receipts.append(
-            {
-                "path": board.public_plan_locator(pointer),
-                "shadowed_by": None,
-                "reason": "demoted by its own non-executable archive shell banner",
-            }
-        )
+        receipts.append(SuppressionReceipt(
+            path=board.public_entity_locator(identity),
+            shadowed_by=None,
+            reason="demoted by its own non-executable archive shell banner",
+        ))
     return receipts

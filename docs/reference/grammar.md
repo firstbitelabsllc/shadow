@@ -100,7 +100,8 @@ Import is all-or-nothing: an unreadable, malformed, oversized, symlinked, or
 non-regular unknown or unsafely aliased legal candidate fails loudly and leaves
 the board unchanged. The sole exception is the same-identity sibling of one
 healthy registered locator described above; `shadow status --shadowed` names
-that suppression without exposing its absolute machine path.
+that suppression with stable opaque entity/copy locators, without exposing a
+checkout path or a secret-shaped directory name.
 
 One logical entity per `(normalized origin, repo-relative plan path)`. A
 worktree or clone resolves to the same identity as its main checkout and never

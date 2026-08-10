@@ -990,10 +990,43 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             )
             self.assertEqual(hidden.returncode, 0, hidden.stderr)
             receipt = json.loads(hidden.stdout)["rows"][0]
-            self.assertEqual(receipt["path"], "shadow/PLAN.md")
-            self.assertTrue(receipt["shadowed_by"])
+            self.assertEqual(set(receipt), {"path", "shadowed_by", "reason"})
+            self.assertRegex(receipt["path"], r"^copy@[0-9a-f]{12}/PLAN\.md$")
+            self.assertRegex(
+                receipt["shadowed_by"], r"^entity@[0-9a-f]{12}/PLAN\.md$"
+            )
             self.assertIn("registered", receipt["reason"])
             self.assertNotIn(str(Path(tmp)), json.dumps(receipt))
+
+    def test_public_suppression_receipt_hashes_a_secret_shaped_checkout_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            secret_name = "ghp_" + ("A" * 24)
+            poisoned = fixture["portfolio"] / secret_name
+            git(
+                fixture["healthy"],
+                "worktree",
+                "move",
+                str(fixture["sibling"]),
+                str(poisoned),
+            )
+
+            inspected = run(
+                fixture["home"],
+                "status",
+                "--shadowed",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(inspected.returncode, 0, inspected.stderr)
+            row = json.loads(inspected.stdout)["rows"][0]
+            self.assertEqual(set(row), {"path", "shadowed_by", "reason"})
+            self.assertRegex(row["path"], r"^copy@[0-9a-f]{12}/PLAN\.md$")
+            self.assertRegex(row["shadowed_by"], r"^entity@[0-9a-f]{12}/PLAN\.md$")
+            self.assertNotIn(secret_name, json.dumps(row))
+            self.assertNotIn(str(Path(tmp)), json.dumps(row))
 
     def test_same_identity_archive_veto_retires_the_registered_entity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1251,6 +1284,47 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
                 fixture["board_path"].read_bytes(),
             )
 
+    def test_broken_canonical_named_registered_checkout_repairs_from_valid_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+            registered = project(portfolio, name="shadow", display_name="shadow")
+            git(registered, "remote", "add", "origin", self.REMOTE)
+            seeded = run(home, "status", "--root", str(registered), "--json")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            before = board(home)
+            sibling = portfolio / "shadow-worktree"
+            git(registered, "worktree", "add", "--quiet", "--detach", str(sibling), "HEAD")
+            (registered / "PLAN.md").write_bytes(b"\xff\xfe")
+            git(registered, "add", "PLAN.md")
+            git(registered, "commit", "--quiet", "-m", "break canonical checkout")
+
+            repaired = run(
+                home,
+                "status",
+                "--json",
+                cwd=blank,
+                extra_env={"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            )
+
+            self.assertEqual(repaired.returncode, 0, repaired.stderr)
+            payload = board(home)
+            self.assertEqual(payload["revision"], before["revision"] + 1)
+            self.assertEqual(payload["entities"][0]["plan"], str((sibling / "PLAN.md").resolve()))
+            self.assertFalse(json.loads(repaired.stdout)["v4_plans"][0].get("broken", False))
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(home / ".shadow"), "show", "HEAD:board.json"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                (home / ".shadow" / "board.json").read_bytes(),
+            )
+
     def test_unsafe_registered_plan_declaration_repairs_to_a_valid_same_identity_sibling(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._pair(Path(tmp))
@@ -1400,6 +1474,9 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             rows = json.loads(inspected.stdout)["rows"]
             self.assertEqual(inspected.returncode, 0, inspected.stderr)
             self.assertEqual(len(rows), 1)
+            self.assertEqual(set(rows[0]), {"path", "shadowed_by", "reason"})
+            self.assertRegex(rows[0]["path"], r"^copy@[0-9a-f]{12}/PLAN\.md$")
+            self.assertIsNone(rows[0]["shadowed_by"])
             self.assertIn("non-executable archive shell", rows[0]["reason"])
             self.assertNotIn(private, json.dumps(rows))
 

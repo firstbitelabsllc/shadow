@@ -685,6 +685,7 @@ def discover_plans(
     include_shadowed: bool = False,
     fail_on_skipped: bool = False,
     registered_plans: dict[str, Path] | None = None,
+    repairable_plans: dict[str, Path] | None = None,
     retired_registered: set[str] | None = None,
     capture_tokens: bool = False,
 ) -> list[dict[str, Any]]:
@@ -702,6 +703,10 @@ def discover_plans(
     registered = {
         identity: Path(path).resolve()
         for identity, path in (registered_plans or {}).items()
+    }
+    repairable = {
+        identity: Path(os.path.abspath(path))
+        for identity, path in (repairable_plans or {}).items()
     }
     # key -> the root-relative path that won it, so a suppressed record can
     # name its winner instead of just vanishing.
@@ -782,6 +787,19 @@ def discover_plans(
             key = (origin, (prefix / relative).as_posix())
             identity = _root_board.logical_entity_id(*key)
             registered_plan = registered.get(identity)
+            repairable_plan = repairable.get(identity)
+            candidate_plan = Path(os.path.abspath(path))
+            alternatives = instances.get(key, [])
+            if (
+                repairable_plan is not None
+                and candidate_plan == repairable_plan
+                and any(Path(os.path.abspath(item)) != repairable_plan for item in alternatives)
+            ):
+                # A broken registered checkout is the state being repaired, not
+                # the authority that may prevent a healthy same-identity sibling
+                # from entering the repair transaction. With no alternative it
+                # remains a strict import failure and the last-good board stays red.
+                continue
             registered_retirement = identity in (retired_registered or set())
             registered_override = (
                 registered_plan
@@ -850,6 +868,8 @@ def discover_plans(
                         display = relative.as_posix()
                     raise BrowserError(f"{display}: {reason}") from exc
                 continue
+            if capture_tokens:
+                record.setdefault("_logical_entity", identity)
             # One logical plan per (origin, repo-relative path): a worktree or
             # clone is the same plan as its main checkout, not a second card.
             if key in seen:
@@ -862,8 +882,6 @@ def discover_plans(
                     record["shadow_reason"] = f"same repository as {seen[key]}"
                     shadowed.append(record)
                 continue
-            if capture_tokens:
-                record.setdefault("_logical_entity", identity)
             seen[key] = record["path"]
             if registered_override is None:
                 veto_receipt = _archive_veto_receipt(instances.get(key, [path]))
