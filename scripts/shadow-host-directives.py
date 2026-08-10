@@ -12,7 +12,11 @@ The contract, in order of how much it matters:
    is renamed over the target, so a crash leaves either the old file or the new
    one, never a truncated one. The first write to a file that already existed
    also leaves a `.bak-shadow` copy of its pre-shadow bytes; a file created
-   from nothing has nothing to back up and gets none. A host file that is a symlink is written THROUGH — the canonical file
+   from nothing has nothing to back up and gets none. If the backup name is
+   already taken, whatever bears it is KEPT and no new backup is made —
+   usually that is a prior run's backup, the one copy that is genuinely
+   pre-shadow; either way never-clobber wins over backup-freshness, and the
+   write proceeds without a fresh copy. A host file that is a symlink is written THROUGH — the canonical file
    it points at is what changes, and the link is still a link afterwards.
 
 ### Concurrency and durability model — what this promises, and what it does not
