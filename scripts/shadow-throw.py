@@ -338,13 +338,32 @@ def main(argv: list[str] | None = None) -> int:
     committed = recorded.stdout if recorded is not None and recorded.returncode == 0 else ""
     if committed != body:
         rolled_back = rollback_claim()
+        if rolled_back:
+            outcome = "The commit was rolled back and the plan restored; nothing was dispatched."
+        else:
+            # No rollback, but the working tree cannot be left holding whatever
+            # damaged the commit — an empty or half-written PLAN.md on disk is
+            # read as the board by every later shadow command in this checkout.
+            # Resync to HEAD rather than to this run's pre-throw copy: HEAD is
+            # the one version that is also somebody's committed history, so it
+            # is the only content this process can restore without overwriting
+            # a concurrent seat's landed plan. The pre-throw bytes stay
+            # recoverable from `head_before`, which the operator is handed.
+            resynced = git(repo, "checkout", "HEAD", "--", "PLAN.md", check=False).returncode == 0
+            outcome = (
+                "The commit could NOT be rolled back safely (HEAD is not this run's commit, so "
+                "resetting would orphan somebody else's work). "
+                + ("The working tree was resynced to HEAD, so no half-written plan is left on "
+                   "disk. " if resynced
+                   else "The working tree could NOT be resynced to HEAD — PLAN.md on disk may be "
+                        "half-written. ")
+                + (f"The plan as it stood before this run is `git show {head_before}:PLAN.md`. "
+                   if head_before else "")
+                + "Inspect HEAD before throwing again."
+            )
         print("shadow throw: the commit does not match the plan this run wrote — refusing to "
               "push a plan other seats would read as authority. Recorded "
-              f"{len(committed)} chars against {len(body)} written. "
-              + ("The commit was rolled back and the plan restored; nothing was dispatched."
-                 if rolled_back
-                 else "The commit could NOT be rolled back safely (HEAD has moved on) — "
-                      "inspect HEAD before throwing again."),
+              f"{len(committed)} chars against {len(body)} written. " + outcome,
               file=sys.stderr)
         return 1
 

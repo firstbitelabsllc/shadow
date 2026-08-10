@@ -497,6 +497,21 @@ class ThrowIsGatedOnAReadbackOfTheCommit(unittest.TestCase):
                 ["git", "-C", str(repo), "log", "--format=%s"],
                 capture_output=True, text=True, check=True).stdout
             self.assertIn("other seat", log, "the other seat's commit was orphaned by a reset")
+            # Declining the rollback must not leave the half-written plan on
+            # disk: the working tree is resynced to HEAD, which is the one
+            # version that is also somebody's committed history.
+            head_plan = subprocess.run(
+                ["git", "-C", str(repo), "show", "HEAD:PLAN.md"],
+                capture_output=True, text=True, check=True).stdout
+            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), head_plan,
+                             "the working tree was left out of step with HEAD")
+            self.assertEqual(
+                subprocess.run(["git", "-C", str(repo), "status", "--porcelain", "--", "PLAN.md"],
+                               capture_output=True, text=True, check=True).stdout.strip(), "",
+                "PLAN.md was left dirty by a run that dispatched nothing")
+            # And the operator is handed the pre-throw bytes, not just told to
+            # go looking.
+            self.assertIn("before this run is `git show", result.stderr)
 
     def test_the_readback_gate_passes_a_healthy_throw(self) -> None:
         # A guard that fires on everything is as useless as one that never
