@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -342,8 +343,10 @@ class ColdSeatsResumeThroughBoardEntityIds(unittest.TestCase):
                 for line in next_move.stdout.splitlines()
                 if "Claim: " in line
             ).replace("shadow ", f"{shlex.quote(str(CLI))} ", 1)
+            shell = shutil.which("zsh") or shutil.which("bash")
+            self.assertIsNotNone(shell, "claim-command proof needs a tilde-expanding shell")
             second = subprocess.run(
-                ["/bin/zsh", "-lc", rendered],
+                [shell, "-lc", rendered],
                 cwd=unrelated,
                 env={**os.environ, "HOME": str(home)},
                 capture_output=True,
