@@ -478,6 +478,11 @@ class TheGalleryShowsEveryStateHonestly(unittest.TestCase):
         # (Found by review: completed rows lacked their PROOF receipts.)
         for record in server.gallery_records():
             if record["expected_state"] in {"working", "ready", "blocked", "resting"}:
+                # The card goes red on EITHER arm of the production condition
+                # (`!parse_ok || blocking`), so the golden holds both.
+                self.assertTrue(
+                    record["lint"]["parse_ok"],
+                    f"fixture {record['gallery_name']} fails to parse and would render as an error card")
                 self.assertEqual(
                     record["lint"]["blocking"], 0,
                     f"fixture {record['gallery_name']} lints red and would render as an error card")
