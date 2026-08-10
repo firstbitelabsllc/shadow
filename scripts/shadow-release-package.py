@@ -54,6 +54,7 @@ REQUIRED_FILES = {
     "scripts/shadow_root_board.py",
     "scripts/shadow-host-directives.py",
     "scripts/shadow-buckets.py",
+    "scripts/shadow_config.py",
     "scripts/shadow-verify-host.sh",
     "scripts/shadow-verify-two-seat.py",
     "scripts/shadow_process_lib.py",
@@ -297,6 +298,7 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         if clause not in goal:
             raise RuntimeError(f"installed standing goal lost: {clause}")
     expected_help = {
+        "config": ("--explain", "shadow.yaml"),
         "status": ("--by OWNER", "--in-flight"),
         "amp": ("--entity ID", "--by OWNER"),
         "throw": ("--entity ID", "--by OWNER"),
