@@ -38,7 +38,11 @@ over-promise here would be a lie about someone's hand-written instructions:
   `.bak-shadow` is made with `link(2)`, which the kernel refuses atomically if
   the name is already taken — nothing is ever clobbered into existence, and on
   any failure the pre-write state is preserved (the backup is kept and named in
-  the error). *Symlink survival*: a symlinked host file stays a symlink; its
+  the error). Exclusivity holds AT the create instant; the instant after it, a
+  swap of the freshly created file is the same last-writer-wins floor as the
+  rename path (the post-create re-check catches a non-regular replacement, and
+  a regular-file swap there is undetectable by construction). *Symlink
+  survival*: a symlinked host file stays a symlink; its
   canonical target receives the bytes.
 - **Best-effort.** *Identity re-verification*: from the moment the resolved file
   is pinned (an `O_RDONLY|O_NOFOLLOW` descriptor, whose link count reads zero the
