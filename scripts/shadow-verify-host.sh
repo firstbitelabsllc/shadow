@@ -184,14 +184,18 @@ fi
 #    opened. If that returns nothing, the host asks "which project?" — the one
 #    question this whole milestone exists to make unnecessary.
 SCRATCH="$(mktemp -d)"
-BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status 2>/dev/null)"
+BOARD_STATUS=0
+BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status 2>/dev/null)" || BOARD_STATUS=$?
 rmdir "${SCRATCH}" 2>/dev/null || true
-if [[ -z "${BOARD}" ]]; then
+RESUME="$(sed -n 's/^ *Resume: //p' <<<"${BOARD}" | grep -vE '^none([[:space:]]|$)' | head -1 || true)"
+if [[ "${BOARD_STATUS}" -ne 0 ]]; then
+  bad "the board refresh fails from an unrelated directory — a cold session would start from stale authority"
+elif [[ -z "${BOARD}" ]]; then
   bad "the board is empty from an unrelated directory — a cold session has nothing to open"
-elif ! grep -q 'Resume:' <<<"${BOARD}"; then
-  bad "the board names no resume row — a session would have nothing to take"
+elif [[ -z "${RESUME}" ]]; then
+  bad "the board names no reachable resume checkpoint — a session would have nothing to take"
 else
-  ok "the board is reachable from an unrelated directory, with a resume row"
+  ok "the board is reachable from an unrelated directory, with a reachable resume checkpoint"
 fi
 
 # 7. The live tier. Only this proves a SESSION loads the skill; everything
@@ -211,7 +215,7 @@ else
     codex)       OUT="$("${BIN}" exec "${PROMPT}" 2>&1)" ;;
     cursor)      OUT="$("${BIN}" -p "${PROMPT}" 2>&1)" ;;
   esac
-  EXPECTED="$("${SHADOW_CMD}" status 2>/dev/null | sed -n 's/^ *Resume: //p' | head -1)"
+  EXPECTED="${RESUME}"
   if [[ -n "${EXPECTED}" ]] && grep -qF "${EXPECTED:0:40}" <<<"${OUT}"; then
     ok "a cold ${HOST} session found the board unprompted and named the resume row"
   else

@@ -836,6 +836,832 @@ class LogicalIdentityOutranksCheckoutPaths(unittest.TestCase):
             self.assertEqual(len(payload["claims"]), 1)
 
 
+class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
+    REMOTE = "git@example.invalid:team/shadow.git"
+    BANNER = (
+        "**[verified 2026-07-29: HISTORICAL ROUTING CONFIRMED — this root plan "
+        "remains a non-executable archive shell; do not revive or update this file.]**"
+    )
+
+    def _pair(self, root: Path) -> dict:
+        home = root / "home"
+        portfolio = root / "portfolio"
+        blank = root / "blank"
+        home.mkdir()
+        portfolio.mkdir()
+        blank.mkdir()
+        healthy = project(root, name="installed-shadow", display_name="shadow")
+        git(healthy, "remote", "add", "origin", self.REMOTE)
+        registered = run(home, "status", "--root", str(healthy), "--json")
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        sibling = portfolio / "shadow"
+        git(healthy, "worktree", "add", "--quiet", "--detach", str(sibling), "HEAD")
+        board_path = home / ".shadow" / "board.json"
+        board_head = subprocess.run(
+            ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return {
+            "home": home,
+            "portfolio": portfolio,
+            "blank": blank,
+            "healthy": healthy,
+            "sibling": sibling,
+            "env": {"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            "board_path": board_path,
+            "board_bytes": board_path.read_bytes(),
+            "board_head": board_head,
+            "revision": board(home)["revision"],
+        }
+
+    def _registered_alias_pair(self, root: Path) -> dict:
+        home = root / "home"
+        portfolio = root / "portfolio"
+        blank = root / "blank"
+        for path in (home, portfolio, blank):
+            path.mkdir()
+        aliases = [
+            project(root, name="first-shadow", display_name="shadow"),
+            project(root, name="second-shadow", display_name="shadow"),
+        ]
+        for index, alias in enumerate(aliases, start=1):
+            git(
+                alias,
+                "remote",
+                "add",
+                "origin",
+                f"git@example.invalid:team/shadow-alias-{index}.git",
+            )
+            registered = run(home, "status", "--root", str(alias), "--json")
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+        self.assertEqual(len(board(home)["entities"]), 2)
+
+        # Model migration debt without fabricating board bytes: two independently
+        # registered checkouts later acquire the same durable Git identity.
+        for alias in aliases:
+            git(alias, "remote", "set-url", "origin", self.REMOTE)
+        demoted = aliases[1] / "PLAN.md"
+        demoted.write_text(
+            demoted.read_text(encoding="utf-8").replace(
+                "# Project\n", f"# Project\n\n{self.BANNER}\n", 1
+            ),
+            encoding="utf-8",
+        )
+        git(aliases[1], "add", "PLAN.md")
+        git(aliases[1], "commit", "--quiet", "-m", "self demote one alias")
+        board_path = home / ".shadow" / "board.json"
+        board_head = subprocess.run(
+            ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return {
+            "home": home,
+            "portfolio": portfolio,
+            "blank": blank,
+            "aliases": aliases,
+            "demoted": demoted,
+            "env": {"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            "board_path": board_path,
+            "board_bytes": board_path.read_bytes(),
+            "board_head": board_head,
+            "revision": board(home)["revision"],
+        }
+
+    def _assert_board_unchanged(self, fixture: dict) -> None:
+        self.assertEqual(fixture["board_path"].read_bytes(), fixture["board_bytes"])
+        head = subprocess.run(
+            ["git", "-C", str(fixture["home"] / ".shadow"), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertEqual(head, fixture["board_head"])
+
+    def _importer_and_amp(self):
+        import shadow_board_import as importer
+
+        name = f"shadow_status_pointer_test_{id(self)}"
+        spec = importlib.util.spec_from_file_location(
+            name, ROOT / "scripts" / "shadow-status.py"
+        )
+        assert spec and spec.loader
+        status = importlib.util.module_from_spec(spec)
+        sys.modules[name] = status
+        spec.loader.exec_module(status)
+        return importer, status._amp
+
+    def test_healthy_registered_pointer_suppresses_an_unreadable_same_identity_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            plan = fixture["sibling"] / "PLAN.md"
+            plan.write_bytes(b"\xff\xfe")
+            git(fixture["sibling"], "add", "PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "break stale sibling")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("portfolio refresh failed", result.stderr)
+            report = json.loads(result.stdout)
+            self.assertFalse(report["v4_plans"][0].get("broken", False))
+            self.assertEqual(
+                board(fixture["home"])["entities"][0]["plan"],
+                str((fixture["healthy"] / "PLAN.md").resolve()),
+            )
+            self._assert_board_unchanged(fixture)
+
+            hidden = run(
+                fixture["home"],
+                "status",
+                "--shadowed",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+            self.assertEqual(hidden.returncode, 0, hidden.stderr)
+            receipt = json.loads(hidden.stdout)["rows"][0]
+            self.assertEqual(set(receipt), {"path", "shadowed_by", "reason"})
+            self.assertRegex(receipt["path"], r"^copy@[0-9a-f]{12}/PLAN\.md$")
+            self.assertRegex(
+                receipt["shadowed_by"], r"^entity@[0-9a-f]{12}/PLAN\.md$"
+            )
+            self.assertIn("registered", receipt["reason"])
+            self.assertNotIn(str(Path(tmp)), json.dumps(receipt))
+
+    def test_public_suppression_receipt_hashes_a_secret_shaped_checkout_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            secret_name = "ghp_" + ("A" * 24)
+            poisoned = fixture["portfolio"] / secret_name
+            git(
+                fixture["healthy"],
+                "worktree",
+                "move",
+                str(fixture["sibling"]),
+                str(poisoned),
+            )
+
+            inspected = run(
+                fixture["home"],
+                "status",
+                "--shadowed",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(inspected.returncode, 0, inspected.stderr)
+            row = json.loads(inspected.stdout)["rows"][0]
+            self.assertEqual(set(row), {"path", "shadowed_by", "reason"})
+            self.assertRegex(row["path"], r"^copy@[0-9a-f]{12}/PLAN\.md$")
+            self.assertRegex(row["shadowed_by"], r"^entity@[0-9a-f]{12}/PLAN\.md$")
+            self.assertNotIn(secret_name, json.dumps(row))
+            self.assertNotIn(str(Path(tmp)), json.dumps(row))
+
+    def test_same_identity_archive_veto_retires_the_registered_entity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            plan = fixture["sibling"] / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "# Project\n", f"# Project\n\n{self.BANNER}\n", 1
+                ),
+                encoding="utf-8",
+            )
+            git(fixture["sibling"], "add", "PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "demote sibling")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = board(fixture["home"])
+            self.assertEqual(payload["entities"], [])
+            self.assertEqual(payload["projects"], [])
+            self.assertEqual(payload["claims"], [])
+            self.assertEqual(payload["revision"], fixture["revision"] + 1)
+            self.assertEqual(json.loads(result.stdout)["v4_plans"], [])
+
+            hidden = run(
+                fixture["home"],
+                "status",
+                "--shadowed",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+            self.assertEqual(hidden.returncode, 0, hidden.stderr)
+            self.assertIn(
+                "non-executable archive shell",
+                json.dumps(json.loads(hidden.stdout)["rows"]).lower(),
+            )
+
+    def test_one_self_demoted_registered_alias_retires_the_whole_logical_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._registered_alias_pair(Path(tmp))
+
+            retired = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(retired.returncode, 0, retired.stderr)
+            payload = board(fixture["home"])
+            self.assertEqual(payload["revision"], fixture["revision"] + 1)
+            self.assertEqual(payload["entities"], [])
+            self.assertEqual(payload["projects"], [])
+            self.assertEqual(payload["claims"], [])
+            self.assertEqual(json.loads(retired.stdout)["v4_plans"], [])
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(fixture["home"] / ".shadow"),
+                        "show",
+                        "HEAD:board.json",
+                    ],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                fixture["board_path"].read_bytes(),
+            )
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(fixture["home"] / ".shadow"),
+                        "status",
+                        "--porcelain",
+                        "--",
+                        "board.json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+                "",
+            )
+
+    def test_registered_alias_retirement_source_is_byte_cas_protected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._registered_alias_pair(Path(tmp))
+            importer, amp = self._importer_and_amp()
+            demoted = fixture["demoted"]
+            exact_source = demoted.read_bytes()
+            real_reconcile = importer.board.reconcile
+
+            def mutate_then_reconcile(*args, **kwargs):
+                demoted.write_bytes(exact_source.replace(b"archive shell", b"active shell"))
+                return real_reconcile(*args, **kwargs)
+
+            importer.board.reconcile = mutate_then_reconcile
+            try:
+                with self.assertRaisesRegex(
+                    importer.board.BoardError,
+                    "self-demotion source changed during reconciliation",
+                ):
+                    importer.reconcile_portfolio(
+                        fixture["portfolio"], amp, home=fixture["home"]
+                    )
+            finally:
+                importer.board.reconcile = real_reconcile
+                demoted.write_bytes(exact_source)
+            self._assert_board_unchanged(fixture)
+
+    def test_healthy_registered_pointer_suppresses_a_symlink_same_identity_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            plan = fixture["sibling"] / "PLAN.md"
+            plan.unlink()
+            plan.symlink_to(fixture["healthy"] / "PLAN.md")
+            git(fixture["sibling"], "add", "PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "link stale sibling")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(json.loads(result.stdout)["v4_plans"][0].get("broken", False))
+            self._assert_board_unchanged(fixture)
+
+    def test_registered_root_owns_declared_nested_plan_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            root_plan = fixture["sibling"] / "PLAN.md"
+            text = root_plan.read_text(encoding="utf-8")
+            root_plan.write_text(
+                text.replace("- Mode: ship\n", "- Mode: ship\n- Plans: plans/*/PLAN.md\n"),
+                encoding="utf-8",
+            )
+            rogue = fixture["sibling"] / "plans" / "rogue"
+            rogue.mkdir(parents=True)
+            (rogue / "PLAN.md").write_text(
+                text.replace("- Project: shadow", "- Project: rogue"),
+                encoding="utf-8",
+            )
+            git(fixture["sibling"], "add", "PLAN.md", "plans/rogue/PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "widen stale scope")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                [entity["project"] for entity in board(fixture["home"])["entities"]],
+                ["shadow"],
+            )
+            self._assert_board_unchanged(fixture)
+
+    def test_an_unknown_unreadable_candidate_still_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            unknown = project(fixture["portfolio"], name="unknown")
+            git(unknown, "remote", "add", "origin", "git@example.invalid:team/unknown.git")
+            (unknown / "PLAN.md").write_bytes(b"\xff\xfe")
+            git(unknown, "add", "PLAN.md")
+            git(unknown, "commit", "--quiet", "-m", "break unknown")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("portfolio import refused", result.stderr)
+            self.assertIn("unknown/PLAN.md", result.stderr)
+            self._assert_board_unchanged(fixture)
+
+    def test_an_unknown_secret_named_candidate_fails_closed_without_leaking_its_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            # Build a clearly synthetic token shape at runtime: this test is
+            # proving the scrubber, not storing a credential in its fixture.
+            poisoned_name = bytes.fromhex("67 68 70 5f").decode("ascii") + ("A" * 24)
+            unknown = project(fixture["portfolio"], name=poisoned_name)
+            git(unknown, "remote", "add", "origin", "git@example.invalid:team/unknown.git")
+            (unknown / "PLAN.md").write_bytes(b"\xff\xfe")
+            git(unknown, "add", "PLAN.md")
+            git(unknown, "commit", "--quiet", "-m", "break secret-named copy")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            public = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("portfolio import refused", result.stderr)
+            self.assertRegex(result.stderr, r"copy@[0-9a-f]{12}/PLAN\.md")
+            self.assertNotIn(poisoned_name, public)
+            self.assertNotIn(str(Path(tmp)), public)
+            self._assert_board_unchanged(fixture)
+
+    def test_a_broken_registered_pointer_cannot_suppress_an_unreadable_same_identity_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            plan = fixture["sibling"] / "PLAN.md"
+            plan.write_bytes(b"\xff\xfe")
+            git(fixture["sibling"], "add", "PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "break candidate")
+            (fixture["healthy"] / "PLAN.md").unlink()
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("shadow/PLAN.md", result.stderr)
+            self.assertTrue(json.loads(result.stdout)["v4_plans"][0]["broken"])
+            self._assert_board_unchanged(fixture)
+
+    def test_an_unhealthy_registered_pointer_repairs_without_moving_its_reachable_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            sibling_plan = fixture["sibling"] / "PLAN.md"
+            text = sibling_plan.read_text(encoding="utf-8")
+            rows = [line for line in text.splitlines() if line.startswith("- [pending]")]
+            reordered = text.replace(
+                "\n".join(rows),
+                "\n".join([rows[1].replace(" | needs: ~aa11", ""), rows[0]]),
+            )
+            sibling_plan.write_text(reordered, encoding="utf-8")
+            git(fixture["sibling"], "add", "PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "reorder valid sibling")
+            (fixture["healthy"] / "PLAN.md").write_bytes(b"\xff\xfe")
+
+            result = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = board(fixture["home"])
+            self.assertEqual(payload["revision"], fixture["revision"] + 1)
+            self.assertEqual(payload["entities"][0]["plan"], str(sibling_plan.resolve()))
+            self.assertEqual(payload["entities"][0]["resume"], "~aa11")
+            self.assertFalse(json.loads(result.stdout)["v4_plans"][0].get("broken", False))
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(fixture["home"] / ".shadow"), "show", "HEAD:board.json"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                fixture["board_path"].read_bytes(),
+            )
+
+    def test_broken_canonical_named_registered_checkout_repairs_from_valid_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+            registered = project(portfolio, name="shadow", display_name="shadow")
+            git(registered, "remote", "add", "origin", self.REMOTE)
+            seeded = run(home, "status", "--root", str(registered), "--json")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            before = board(home)
+            sibling = portfolio / "shadow-worktree"
+            git(registered, "worktree", "add", "--quiet", "--detach", str(sibling), "HEAD")
+            (registered / "PLAN.md").write_bytes(b"\xff\xfe")
+            git(registered, "add", "PLAN.md")
+            git(registered, "commit", "--quiet", "-m", "break canonical checkout")
+
+            repaired = run(
+                home,
+                "status",
+                "--json",
+                cwd=blank,
+                extra_env={"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            )
+
+            self.assertEqual(repaired.returncode, 0, repaired.stderr)
+            payload = board(home)
+            self.assertEqual(payload["revision"], before["revision"] + 1)
+            self.assertEqual(payload["entities"][0]["plan"], str((sibling / "PLAN.md").resolve()))
+            self.assertFalse(json.loads(repaired.stdout)["v4_plans"][0].get("broken", False))
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(home / ".shadow"), "show", "HEAD:board.json"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                (home / ".shadow" / "board.json").read_bytes(),
+            )
+
+    def test_a_lone_broken_registered_checkout_still_fails_closed(self) -> None:
+        # The repair bypass exists only because a same-identity copy can carry
+        # the plan instead. With no alternative, skipping the broken checkout
+        # would silently drop a registered entity, so it stays a hard refusal.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+            registered = project(portfolio, name="shadow", display_name="shadow")
+            git(registered, "remote", "add", "origin", self.REMOTE)
+            seeded = run(home, "status", "--root", str(registered), "--json")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            before = board(home)
+            (registered / "PLAN.md").write_bytes(b"\xff\xfe")
+            git(registered, "add", "PLAN.md")
+            git(registered, "commit", "--quiet", "-m", "break the only checkout")
+
+            refused = run(
+                home,
+                "status",
+                "--json",
+                cwd=blank,
+                extra_env={"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            )
+
+            self.assertEqual(refused.returncode, 1)
+            self.assertIn("shadow/PLAN.md", refused.stderr)
+            self.assertEqual(board(home), before)
+
+    def test_unsafe_registered_plan_declaration_repairs_to_a_valid_same_identity_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            registered_plan = fixture["healthy"] / "PLAN.md"
+            registered_plan.write_text(
+                registered_plan.read_text(encoding="utf-8").replace(
+                    "- Mode: ship\n",
+                    "- Mode: ship\n- Plans: /absolute/PLAN.md\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            git(fixture["healthy"], "add", "PLAN.md")
+            git(fixture["healthy"], "commit", "--quiet", "-m", "unsafe plan declaration")
+
+            repaired = run(
+                fixture["home"],
+                "status",
+                "--json",
+                cwd=fixture["blank"],
+                extra_env=fixture["env"],
+            )
+
+            self.assertEqual(repaired.returncode, 0, repaired.stderr)
+            payload = board(fixture["home"])
+            self.assertEqual(payload["revision"], fixture["revision"] + 1)
+            self.assertEqual(
+                payload["entities"][0]["plan"],
+                str((fixture["sibling"] / "PLAN.md").resolve()),
+            )
+            self.assertNotIn("/absolute/PLAN.md", repaired.stdout)
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(fixture["home"] / ".shadow"),
+                        "show",
+                        "HEAD:board.json",
+                    ],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                fixture["board_path"].read_bytes(),
+            )
+
+    def test_unreadable_registered_pointer_repairs_to_a_valid_same_identity_sibling(self) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("chmod unreadability is asserted on macOS")
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            registered_plan = fixture["healthy"] / "PLAN.md"
+            original_mode = registered_plan.stat().st_mode & 0o7777
+            try:
+                os.chmod(registered_plan, 0)
+                if os.access(registered_plan, os.R_OK):
+                    self.skipTest("this account can read chmod-000 files")
+                repaired = run(
+                    fixture["home"],
+                    "status",
+                    "--json",
+                    cwd=fixture["blank"],
+                    extra_env=fixture["env"],
+                )
+            finally:
+                os.chmod(registered_plan, original_mode)
+
+            self.assertEqual(repaired.returncode, 0, repaired.stderr)
+            payload = board(fixture["home"])
+            self.assertEqual(payload["revision"], fixture["revision"] + 1)
+            self.assertEqual(
+                payload["entities"][0]["plan"],
+                str((fixture["sibling"] / "PLAN.md").resolve()),
+            )
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(fixture["home"] / ".shadow"),
+                        "show",
+                        "HEAD:board.json",
+                    ],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                fixture["board_path"].read_bytes(),
+            )
+
+    def test_one_oversized_registered_pointer_is_broken_in_status_and_browser(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            empty = root / "empty"
+            blank = root / "blank"
+            for path in (home, empty, blank):
+                path.mkdir()
+            repo = project(root, name="installed-shadow", display_name="shadow")
+            git(repo, "remote", "add", "origin", self.REMOTE)
+            seeded = run(home, "status", "--root", str(repo), "--json")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            with (repo / "PLAN.md").open("a", encoding="utf-8") as stream:
+                stream.write("\n<!-- " + ("x" * 1_000_000) + " -->\n")
+            scope = {"SHADOW_PORTFOLIO_ROOT": str(empty)}
+
+            terminal = run(home, "status", "--json", cwd=blank, extra_env=scope)
+            from browser.server import board_plan_records
+
+            browser_payload, records, warning = board_plan_records(empty, home)
+
+            self.assertEqual(terminal.returncode, 1, terminal.stderr)
+            terminal_payload = json.loads(terminal.stdout)
+            self.assertTrue(terminal_payload["v4_plans"][0]["broken"])
+            self.assertEqual(browser_payload["revision"], terminal_payload["root_board"]["revision"])
+            self.assertTrue(records[0]["broken"])
+            self.assertIn("broken", warning or "")
+
+    def test_registered_self_demotion_is_private_inspectable_and_retires_without_a_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+            repo = project(root, name="installed-shadow", display_name="shadow")
+            git(repo, "remote", "add", "origin", self.REMOTE)
+            seeded = run(home, "status", "--root", str(repo), "--json")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            before = board(home)
+            private = "/" + "Users/owner/private/worktree"
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "# Project\n",
+                    "# Project\n\n"
+                    f"This root plan at {private} remains a non-executable archive shell; "
+                    "do not revive.\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "self demote")
+
+            inspected = run(home, "status", "--root", str(repo), "--shadowed", "--json")
+            rows = json.loads(inspected.stdout)["rows"]
+            self.assertEqual(inspected.returncode, 0, inspected.stderr)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(set(rows[0]), {"path", "shadowed_by", "reason"})
+            self.assertRegex(rows[0]["path"], r"^copy@[0-9a-f]{12}/PLAN\.md$")
+            self.assertIsNone(rows[0]["shadowed_by"])
+            self.assertIn("non-executable archive shell", rows[0]["reason"])
+            self.assertNotIn(private, json.dumps(rows))
+
+            retired = run(
+                home,
+                "status",
+                "--json",
+                cwd=blank,
+                extra_env={"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            )
+            self.assertEqual(retired.returncode, 0, retired.stderr)
+            payload = board(home)
+            self.assertEqual(payload["revision"], before["revision"] + 1)
+            self.assertEqual(payload["entities"], [])
+            self.assertEqual(payload["projects"], [])
+
+    def test_live_seed_edit_between_parse_and_reconcile_is_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            importer, amp = self._importer_and_amp()
+            plan = fixture["healthy"] / "PLAN.md"
+            original = plan.read_text(encoding="utf-8")
+            plan.write_text(original.replace("~aa11", "~cc33"), encoding="utf-8")
+            git(fixture["healthy"], "add", "PLAN.md")
+            git(fixture["healthy"], "commit", "--quiet", "-m", "parsed snapshot")
+            real_reconcile = importer.board.reconcile
+
+            def mutate_then_reconcile(*args, **kwargs):
+                plan.write_text(original.replace("~aa11", "~dd44"), encoding="utf-8")
+                return real_reconcile(*args, **kwargs)
+
+            importer.board.reconcile = mutate_then_reconcile
+            try:
+                with self.assertRaisesRegex(
+                    importer.board.BoardError, "changed during reconciliation"
+                ):
+                    importer.reconcile_portfolio(
+                        fixture["portfolio"], amp, home=fixture["home"]
+                    )
+            finally:
+                importer.board.reconcile = real_reconcile
+            self._assert_board_unchanged(fixture)
+
+    def test_first_import_live_seed_edit_leaves_no_board_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            repo = project(portfolio, name="shadow", display_name="shadow")
+            importer, amp = self._importer_and_amp()
+            plan = repo / "PLAN.md"
+            parsed_source = plan.read_text(encoding="utf-8")
+            real_reconcile = importer.board.reconcile
+
+            def mutate_then_reconcile(*args, **kwargs):
+                plan.write_text(
+                    parsed_source.replace("~aa11", "~cc33"), encoding="utf-8"
+                )
+                return real_reconcile(*args, **kwargs)
+
+            importer.board.reconcile = mutate_then_reconcile
+            try:
+                with self.assertRaisesRegex(
+                    importer.board.BoardError, "changed during reconciliation"
+                ):
+                    importer.reconcile_portfolio(portfolio, amp, home=home)
+            finally:
+                importer.board.reconcile = real_reconcile
+            self.assertFalse((home / ".shadow").exists())
+
+    def test_retirement_and_repair_predicates_refuse_lost_updates(self) -> None:
+        for transition in ("retirement", "repair"):
+            with self.subTest(transition=transition), tempfile.TemporaryDirectory() as tmp:
+                fixture = self._pair(Path(tmp))
+                importer, amp = self._importer_and_amp()
+                plan = fixture["healthy"] / "PLAN.md"
+                original = plan.read_text(encoding="utf-8")
+                if transition == "retirement":
+                    plan.write_text(
+                        original.replace("# Project\n", f"# Project\n\n{self.BANNER}\n", 1),
+                        encoding="utf-8",
+                    )
+                else:
+                    plan.write_bytes(b"\xff\xfe")
+                real_reconcile = importer.board.reconcile
+
+                def heal_then_reconcile(*args, **kwargs):
+                    plan.write_text(original, encoding="utf-8")
+                    return real_reconcile(*args, **kwargs)
+
+                importer.board.reconcile = heal_then_reconcile
+                try:
+                    with self.assertRaisesRegex(
+                        importer.board.BoardError,
+                        "changed during reconciliation",
+                    ):
+                        importer.reconcile_portfolio(
+                            fixture["portfolio"], amp, home=fixture["home"]
+                        )
+                finally:
+                    importer.board.reconcile = real_reconcile
+                self._assert_board_unchanged(fixture)
+
+    def test_crlf_plan_snapshot_and_default_discovery_never_leak_internal_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root, display_name="project")
+            plan = repo / "PLAN.md"
+            plan.write_bytes(plan.read_bytes().replace(b"\n", b"\r\n"))
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "crlf authority")
+
+            imported = run(home, "status", "--root", str(repo), "--json")
+            from browser.server import discover_plans
+
+            raw = discover_plans(repo)
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            self.assertFalse(any(key.startswith("_") for key in raw[0]))
+            self.assertNotIn(str(root), json.dumps(raw))
+
+
 class PortfolioReconciliationIsBoundedAndComplete(unittest.TestCase):
     def test_first_claim_does_not_hide_another_portfolio_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

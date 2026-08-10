@@ -65,8 +65,8 @@ def v4_brief(
         if not _board.regular_plan(plan_path):
             return None
         try:
-            plan_text = plan_path.read_text(encoding="utf-8")
-        except OSError:
+            plan_text = _board.read_plan_text(plan_path)
+        except _board.BoardError:
             return None
     plan = parsed if parsed is not None else _amp._parse(plan_text)
     plan["claimed"] = claimed or {claim["row"] for claim in (claims or [])}
@@ -359,9 +359,7 @@ def board_records(payload: dict) -> list[dict]:
         ]
         entity_claims = {claim["row"] for claim in claims}
         try:
-            if not _board.regular_plan(plan_path):
-                raise OSError("registered entity plan is not a regular file")
-            text = plan_path.read_text(encoding="utf-8")
+            text = _board.read_plan_text(plan_path)
             parsed = _amp._parse(text)
             record = v4_brief(
                 plan_path,
@@ -373,7 +371,7 @@ def board_records(payload: dict) -> list[dict]:
                 parsed=parsed,
                 claims=claims,
             )
-        except (OSError, UnicodeError):
+        except (_board.BoardError, OSError, UnicodeError):
             record = None
         if record is None:
             records.append(
@@ -448,12 +446,8 @@ def board_in_flight(payload: dict) -> list[dict]:
         project = pointer["project"]
         locator = _board.public_plan_locator(plan_path)
         try:
-            plan = (
-                _amp._parse(plan_path.read_text(encoding="utf-8"))
-                if _board.regular_plan(plan_path)
-                else None
-            )
-        except (OSError, UnicodeError):
+            plan = _amp._parse(_board.read_plan_text(plan_path))
+        except (_board.BoardError, OSError, UnicodeError):
             plan = None
         located = next(
             (
@@ -574,17 +568,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.shadowed:
         try:
             inspection_root = root if explicit_root else _import.portfolio_root(root)
-            hidden = _import.suppression_receipts(inspection_root)
+            receipts = _import.suppression_receipts(inspection_root, _amp)
         except _board.BoardError as exc:
             print(f"shadow status: {exc}", file=sys.stderr)
             return 1
         if args.json:
-            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": hidden}, indent=2))
-        elif not hidden:
+            public_rows = [receipt.as_dict() for receipt in receipts]
+            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": public_rows}, indent=2))
+        elif not receipts:
             print("nothing suppressed — every plan discovery enumerated was read")
         else:
-            for row in hidden:
-                print(f"{row['path']} — {row['reason']}")
+            for receipt in receipts:
+                print(f"{receipt.path} — {receipt.reason}")
         return 0
     try:
         if not explicit_root:
@@ -635,13 +630,13 @@ def main(argv: list[str] | None = None) -> int:
     v4_records = board_records(root_board)
     if not v4_records and import_error is None:
         try:
-            hidden = _import.suppression_receipts(root)
+            receipts = _import.suppression_receipts(root, _amp)
         except _board.BoardError:
-            hidden = []
-        for receipt in hidden:
-            if receipt["shadowed_by"] is None:
+            receipts = []
+        for receipt in receipts:
+            if receipt.shadowed_by is None:
                 print(
-                    f"shadow status: {receipt['path']} — {receipt['reason']}",
+                    f"shadow status: {receipt.path} — {receipt.reason}",
                     file=sys.stderr,
                 )
     if args.json:

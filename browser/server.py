@@ -58,7 +58,7 @@ PRODUCT = "Shadow"
 STATIC = Path(__file__).resolve().parent / "static"
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
 MAX_REQUEST_BYTES = 16 * 1024
-MAX_PLAN_BYTES = 1_000_000
+MAX_PLAN_BYTES = _root_board.MAX_PLAN_BYTES
 MAX_PLANS = 250
 SKIP_DIRS = frozenset({".git", ".shadow", ".venv", "venv", "node_modules", "dist", "build"})
 FIELD_RE = re.compile(r"^\s*-\s*([^:]+):\s*(.*?)\s*$")
@@ -149,11 +149,10 @@ def latest_progress(text: str) -> str | None:
 
 
 def read_plan(path: Path) -> str:
-    if path.is_symlink() or not path.is_file() or path.name != "PLAN.md":
-        raise BrowserError("plan must be a regular non-symlink PLAN.md")
-    if path.stat().st_size > MAX_PLAN_BYTES:
-        raise BrowserError("plan exceeds the bounded size limit")
-    return path.read_text(encoding="utf-8")
+    try:
+        return _root_board.read_plan_text(path)
+    except _root_board.BoardError as exc:
+        raise BrowserError(str(exc)) from exc
 
 
 def project_of(brief: dict[str, str], relative: str) -> str:
@@ -510,6 +509,35 @@ ARCHIVE_VETO_RE = re.compile(
     re.IGNORECASE,
 )
 VETO_SCAN_LINES = 40
+PUBLIC_ARCHIVE_VETO = "non-executable archive shell"
+
+
+def _archive_veto_text(text: str) -> str | None:
+    """Return the matched self-demotion from one already frozen plan snapshot."""
+    head = "\n".join(text.splitlines()[:VETO_SCAN_LINES])
+    found = ARCHIVE_VETO_RE.search(head)
+    return found.group(0) if found else None
+
+
+def _archive_veto_receipt(paths: list[Path]) -> dict[str, Any] | None:
+    """Freeze the exact source whose self-demotion retires a logical plan."""
+    for candidate in paths:
+        state, content = _root_board.plan_state_snapshot(candidate)
+        if content is None:
+            continue
+        # The veto is deliberately a first-lines verdict. A malformed or
+        # oversized tail cannot revive a file whose bounded ASCII head has
+        # already demoted the whole plan; the state token still CASes the
+        # complete bounded snapshot and file metadata before retirement.
+        text = content[:65_536].decode("utf-8", errors="ignore")
+        found = _archive_veto_text(text)
+        if found:
+            return {
+                "match": found,
+                "plan": str(candidate.resolve()),
+                "expected_state": state,
+            }
+    return None
 
 
 def _archive_veto(paths: list[Path]) -> str | None:
@@ -521,18 +549,8 @@ def _archive_veto(paths: list[Path]) -> str | None:
     that content decide whether the logical plan is authority. The reader that
     demotes must be no more permissive than the reader that renders.
     """
-    for candidate in paths:
-        if candidate.is_symlink() or not candidate.is_file() or candidate.name != "PLAN.md":
-            continue
-        try:
-            with candidate.open(encoding="utf-8") as handle:
-                head = "".join(next(handle, "") for _ in range(VETO_SCAN_LINES))
-        except (OSError, UnicodeError):
-            continue
-        found = ARCHIVE_VETO_RE.search(head)
-        if found:
-            return found.group(0)
-    return None
+    receipt = _archive_veto_receipt(paths)
+    return receipt["match"] if receipt else None
 MAX_DECLARED_GLOBS = 3
 
 
@@ -566,14 +584,17 @@ def declared_plan_globs(plan_text: str) -> list[str]:
     return globs
 
 
-def repo_plans(repo: Path) -> list[Path]:
+def repo_plans(repo: Path, *, declaration_plan: Path | None = None) -> list[Path]:
     """This root's own plan, plus anything that plan declares."""
     root_plan = repo / "PLAN.md"
     if not (root_plan.exists() or root_plan.is_symlink()):
         return []
     found = {root_plan}
     try:
-        text = read_plan(root_plan)
+        # A uniquely healthy registered root is already the computer's
+        # authority. Its declaration, not a stale sibling's, decides which
+        # nested shards that sibling may contribute to bounded discovery.
+        text = read_plan(declaration_plan or root_plan)
     except (BrowserError, OSError, UnicodeError):
         return [root_plan]
     # BOTH sides resolved. Comparing an unresolved repo against resolved
@@ -663,6 +684,10 @@ def discover_plans(
     *,
     include_shadowed: bool = False,
     fail_on_skipped: bool = False,
+    registered_plans: dict[str, Path] | None = None,
+    repairable_plans: dict[str, Path] | None = None,
+    retired_registered: set[str] | None = None,
+    capture_tokens: bool = False,
 ) -> list[dict[str, Any]]:
     """Every plan the portfolio can legally see.
 
@@ -675,6 +700,14 @@ def discover_plans(
     """
     records: list[dict[str, Any]] = []
     shadowed: list[dict[str, Any]] = []
+    registered = {
+        identity: Path(path).resolve()
+        for identity, path in (registered_plans or {}).items()
+    }
+    repairable = {
+        identity: Path(os.path.abspath(path))
+        for identity, path in (repairable_plans or {}).items()
+    }
     # key -> the root-relative path that won it, so a suppressed record can
     # name its winner instead of just vanishing.
     seen: dict[tuple[str, str], str] = {}
@@ -724,16 +757,64 @@ def discover_plans(
     # unelected divergent copy at resplit-ios-deploy-watcher. Reading just the
     # winner cannot see that, so the verdict is sought across the whole key,
     # which is already enumerated here.
+    plans_by_repo: dict[Path, list[Path]] = {}
+    identities: dict[Path, tuple[str, Path]] = {}
+    for repo in candidates:
+        origin, root_relative = _root_board.plan_identity_parts(repo / "PLAN.md")
+        prefix = Path(root_relative).parent
+        identities[repo] = (origin, prefix)
+        root_identity = _root_board.logical_entity_id(origin, root_relative)
+        if root_identity in (retired_registered or set()):
+            plans_by_repo[repo] = [repo / "PLAN.md"]
+        else:
+            plans_by_repo[repo] = repo_plans(
+                repo,
+                declaration_plan=registered.get(root_identity),
+            )
+
     instances: dict[tuple[str, str], list[Path]] = {}
     for repo in candidates:
-        for path in repo_plans(repo):
+        origin, prefix = identities[repo]
+        for path in plans_by_repo[repo]:
+            logical_relative = (prefix / path.relative_to(repo)).as_posix()
             instances.setdefault(
-                (_origin_of(repo), str(path.relative_to(repo))), []).append(path)
+                (origin, logical_relative), []).append(path)
 
     for repo in candidates:
-        for path in repo_plans(repo):
+        origin, prefix = identities[repo]
+        for path in plans_by_repo[repo]:
             relative = path.relative_to(repo)
-            key = (_origin_of(repo), relative.as_posix())
+            key = (origin, (prefix / relative).as_posix())
+            identity = _root_board.logical_entity_id(*key)
+            registered_plan = registered.get(identity)
+            repairable_plan = repairable.get(identity)
+            candidate_plan = Path(os.path.abspath(path))
+            alternatives = instances.get(key, [])
+            if (
+                repairable_plan is not None
+                and candidate_plan == repairable_plan
+                and any(Path(os.path.abspath(item)) != repairable_plan for item in alternatives)
+            ):
+                # A broken registered checkout is the state being repaired, not
+                # the authority that may prevent a healthy same-identity sibling
+                # from entering the repair transaction. With no alternative it
+                # remains a strict import failure and the last-good board stays red.
+                continue
+            registered_retirement = identity in (retired_registered or set())
+            registered_override = (
+                registered_plan
+                if registered_plan is not None
+                and Path(os.path.abspath(path)) != registered_plan
+                else None
+            )
+            veto_receipt = None
+            veto = None
+            if registered_override is not None and not registered_retirement:
+                veto_paths = list(instances.get(key, [path]))
+                if registered_plan not in veto_paths:
+                    veto_paths.append(registered_plan)
+                veto_receipt = _archive_veto_receipt(veto_paths)
+                veto = veto_receipt["match"] if veto_receipt else None
             # Deduplicate before reading. A broken ghost checkout must not veto
             # the healthy canonical copy that already won this logical key.
             if key in seen and not include_shadowed:
@@ -744,7 +825,36 @@ def discover_plans(
                     "close, archive, or split the import scope"
                 )
             try:
-                record = plan_record(path, root)
+                if registered_retirement:
+                    display = path.relative_to(root).as_posix()
+                    record = {
+                        "path": display,
+                        "archived": True,
+                        "archive_veto": PUBLIC_ARCHIVE_VETO,
+                    }
+                    if capture_tokens:
+                        record["_logical_entity"] = identity
+                elif registered_override is not None:
+                    display = path.relative_to(root).as_posix()
+                    if veto:
+                        record = {
+                            "path": display,
+                            "archived": True,
+                            "archive_veto": PUBLIC_ARCHIVE_VETO,
+                        }
+                    else:
+                        record = record_from_text(
+                            read_plan(registered_override),
+                            display,
+                            path.parent.name,
+                        )
+                    # Internal only. Import turns it into a canonical seed and
+                    # inspection turns it into a public suppression receipt.
+                    if capture_tokens:
+                        record["_registered_pointer"] = True
+                        record["_logical_entity"] = identity
+                else:
+                    record = plan_record(path, root)
             except (BrowserError, OSError, UnicodeError, ValueError) as exc:
                 if fail_on_skipped:
                     reason = (
@@ -756,8 +866,11 @@ def discover_plans(
                         display = path.relative_to(root).as_posix()
                     except ValueError:
                         display = relative.as_posix()
-                    raise BrowserError(f"{display}: {reason}") from exc
+                    public_display = _root_board.public_discovery_locator(identity, display)
+                    raise BrowserError(f"{public_display}: {reason}") from exc
                 continue
+            if capture_tokens:
+                record.setdefault("_logical_entity", identity)
             # One logical plan per (origin, repo-relative path): a worktree or
             # clone is the same plan as its main checkout, not a second card.
             if key in seen:
@@ -771,16 +884,22 @@ def discover_plans(
                     shadowed.append(record)
                 continue
             seen[key] = record["path"]
-            veto = _archive_veto(instances.get(key, [path]))
+            if registered_override is None:
+                veto_receipt = _archive_veto_receipt(instances.get(key, [path]))
+                veto = veto_receipt["match"] if veto_receipt else None
             if veto:
                 record["archived"] = True
-                record["archive_veto"] = veto
+                record["archive_veto"] = PUBLIC_ARCHIVE_VETO
+                assert veto_receipt is not None
+                if capture_tokens:
+                    record["_retired_plan"] = veto_receipt["plan"]
+                    record["_retired_state"] = veto_receipt["expected_state"]
             records.append(record)
     rank = {"needs_you": 0, "blocked": 1, "working": 2, "not_delivered": 3, "finished_with_proof": 4}
     records.sort(
         key=lambda item: (
             rank.get((item.get("briefing") or {}).get("state"), 5),
-            item["title"].lower(),
+            item.get("title", "").lower(),
             item["path"],
         )
     )
