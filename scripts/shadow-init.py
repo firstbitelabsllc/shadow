@@ -54,7 +54,7 @@ def plan_text(repo: Path, now: str) -> str:
 - Next: Derive the complete acceptance matrix from repository evidence, then claim and execute every safe reachable lane.
 - Decision ID: define-full-outcome
 - Decision: What complete product outcome and acceptance matrix govern this project?
-- Option A ID: inspect-current-state
+- Option A ID: derive-and-execute
 - Option A: Derive and execute
 - Option A Consequence: Read current source, plans, reports, and real surfaces; record the full matrix and start every safe disjoint lane.
 - Option B ID: execute-declared-outcome

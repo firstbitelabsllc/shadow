@@ -86,7 +86,7 @@ def _recommendation(state: str, *, has_proof: bool, has_choice: bool) -> str:
         return "Review the non-delivery proof before retrying."
     if state == "finished_with_proof":
         return "Review the proof and keep the outcome closed."
-    return "Continue the current move."
+    return "Continue through every reachable requirement."
 
 
 def project_chief_of_staff(document: Any, *, plan_brief: Any = None) -> dict[str, Any]:
