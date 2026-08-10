@@ -150,7 +150,8 @@ authentication, model, and billing choices.
 - [Commands](docs/reference/commands.md) — every verb and flag
 - [Host integration](docs/reference/host-integration.md) — cold-start behavior
 - [Native hosts](docs/reference/native-hosts.md) — sealed runs and activation
-- [Method and grammar](docs/reference/grammar.md) — durable plan rules
+- [Method](docs/reference/method.md) — the operating cycle and adversarial step
+- [Plan grammar](docs/reference/grammar.md) — durable plan rules
 - [Amp](docs/reference/amp.md) · [Buckets](docs/reference/buckets.md)
 - [Privacy](docs/reference/privacy.md) · [Other-computer handoff](docs/guide/other-computer-handoff.md)
 
