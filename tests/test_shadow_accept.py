@@ -978,9 +978,11 @@ class ShadowAcceptTests(unittest.TestCase):
             self.assertEqual(claimed.returncode, 0, claimed.stderr)
             before_plan = (repo / "PLAN.md").read_text(encoding="utf-8")
             original_git_completed = accept.git_completed
+            commit_invocations: list[tuple[str, ...]] = []
 
             def refuse_project_commit(target: Path, *args: str, **kwargs):
                 if "commit" in args:
+                    commit_invocations.append(args)
                     return subprocess.CompletedProcess(args, 1, "", "commit refused")
                 return original_git_completed(target, *args, **kwargs)
 
@@ -1000,6 +1002,16 @@ class ShadowAcceptTests(unittest.TestCase):
         self.assertEqual(before_plan, after_plan)
         self.assertEqual(commits, "1")
         self.assertEqual(staged, [])
+        self.assertEqual(
+            commit_invocations[0][:9],
+            (
+                "-c", "core.hooksPath=/dev/null",
+                "-c", "commit.gpgSign=false",
+                "-c", "maintenance.autoDetach=false",
+                "-c", "gc.autoDetach=false",
+                "commit",
+            ),
+        )
 
     def test_a_failed_commit_restores_a_staged_plan_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

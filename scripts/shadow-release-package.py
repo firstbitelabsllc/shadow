@@ -233,6 +233,24 @@ def pack(root: Path, destination: Path) -> tuple[dict[str, Any], Path, str]:
     return manifest, tarball, digest
 
 
+def commit_disposable_fixture(project: Path) -> None:
+    """Seed the stranger-install repo without leaving Git maintenance behind."""
+    command(
+        [
+            "git",
+            "-c",
+            "maintenance.autoDetach=false",
+            "-c",
+            "gc.autoDetach=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "seed installed lifecycle",
+        ],
+        project,
+    )
+
+
 def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
     """Prove a stranger can install from the archive with Git, Bash, Python —
     exactly the path install.sh documents."""
@@ -324,7 +342,7 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         encoding="utf-8",
     )
     command(["git", "add", "PLAN.md"], project)
-    command(["git", "commit", "--quiet", "-m", "seed installed lifecycle"], project)
+    commit_disposable_fixture(project)
     lifecycle_env = {**env, "SHADOW_PORTFOLIO_ROOT": str(project)}
     command([str(cli), "status", "--root", str(project), "--by", "release-seat", "--json"], project, env=lifecycle_env)
     command([str(cli), "throw", "--repo", str(project), "--task", "~aa11", "--by", "release-seat"], project, env=lifecycle_env)

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -546,6 +547,79 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
                 ).stdout,
                 board_path.read_bytes(),
             )
+
+    def test_local_board_commit_waits_for_automatic_git_maintenance(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "shadow_root_board_commit_test", BOARD_MODULE
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        calls: list[tuple[str, ...]] = []
+
+        def observe_git(_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            return subprocess.CompletedProcess(
+                ["git", *args],
+                1 if args[:2] == ("diff", "--cached") else 0,
+                "",
+                "",
+            )
+
+        original_git = module._git
+        module._git = observe_git
+        try:
+            module._commit(Path("/unused"), "shadow board: deterministic receipt")
+        finally:
+            module._git = original_git
+
+        self.assertEqual(
+            calls[-1][:9],
+            (
+                "-c", "core.hooksPath=/dev/null",
+                "-c", "commit.gpgSign=false",
+                "-c", "maintenance.autoDetach=false",
+                "-c", "gc.autoDetach=false",
+                "commit",
+            ),
+        )
+
+    def test_real_board_commit_joins_automatic_git_maintenance(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "shadow_root_board_trace_test", BOARD_MODULE
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "board"
+            root.mkdir()
+            git(root, "init", "--quiet")
+            git(root, "config", "user.name", "Trace Test")
+            git(root, "config", "user.email", "trace@example.invalid")
+            (root / "board.json").write_text("{}\n", encoding="utf-8")
+            trace = Path(tmp) / "git-trace.json"
+
+            with mock.patch.dict(os.environ, {"GIT_TRACE2_EVENT": str(trace)}):
+                module._commit(root, "shadow board: trace maintenance")
+
+            events = [json.loads(line) for line in trace.read_text().splitlines()]
+            maintenance_argv = [
+                event["argv"]
+                for event in events
+                if event.get("event") == "child_start"
+                and (
+                    event.get("argv", [])[:4]
+                    == ["git", "maintenance", "run", "--auto"]
+                    or event.get("argv", [])[:3] == ["git", "gc", "--auto"]
+                )
+            ]
+            self.assertTrue(maintenance_argv)
+            # Modern Git spells the foreground choice `--no-detach`; older
+            # Git inherits gc.autoDetach=false and emits no detach flag.
+            self.assertTrue(all("--detach" not in argv for argv in maintenance_argv))
 
 
 class LogicalIdentityOutranksCheckoutPaths(unittest.TestCase):

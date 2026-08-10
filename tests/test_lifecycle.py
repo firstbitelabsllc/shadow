@@ -87,10 +87,15 @@ def make_nested_repo(root: Path) -> tuple[Path, Path]:
     return repo, entity
 
 
-def run(repo: Path, *args: str) -> tuple[subprocess.CompletedProcess[str], dict]:
+def run(
+    repo: Path,
+    *args: str,
+    extra_env: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], dict]:
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--repo", str(repo), *args, "--json"],
         cwd=repo,
+        env={**os.environ, **(extra_env or {})},
         capture_output=True,
         text=True,
         check=False,
@@ -171,8 +176,15 @@ class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
             hook.write_text("#!/bin/sh\nexit 91\n", encoding="utf-8")
             hook.chmod(0o755)
             before_head = git(repo, "rev-parse", "HEAD")
+            trace = Path(dirname) / "lifecycle-git-trace.json"
 
-            result, report = run(repo, "--apply", "--milestone", "Finished work")
+            result, report = run(
+                repo,
+                "--apply",
+                "--milestone",
+                "Finished work",
+                extra_env={"GIT_TRACE2_EVENT": str(trace)},
+            )
 
             self.assertEqual(result.returncode, 0, (result.stderr, report))
             self.assertEqual(report["action"], "archived")
@@ -198,6 +210,30 @@ class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
                 plan,
             )
             self.assertEqual(report["successor"], "Next work")
+            events = [json.loads(line) for line in trace.read_text().splitlines()]
+            commit_argv = next(
+                event["argv"]
+                for event in events
+                if event.get("event") == "start"
+                and "shadow: archive milestone finished-work" in event.get("argv", [])
+            )
+            commit_index = commit_argv.index("commit")
+            self.assertLess(commit_argv.index("maintenance.autoDetach=false"), commit_index)
+            self.assertLess(commit_argv.index("gc.autoDetach=false"), commit_index)
+            maintenance_argv = [
+                event["argv"]
+                for event in events
+                if event.get("event") == "child_start"
+                and (
+                    event.get("argv", [])[:4]
+                    == ["git", "maintenance", "run", "--auto"]
+                    or event.get("argv", [])[:3] == ["git", "gc", "--auto"]
+                )
+            ]
+            self.assertTrue(maintenance_argv)
+            # Modern Git spells the foreground choice `--no-detach`; older
+            # Git inherits gc.autoDetach=false and emits no detach flag.
+            self.assertTrue(all("--detach" not in argv for argv in maintenance_argv))
             lint = subprocess.run(
                 [sys.executable, str(LINT), str(repo / "PLAN.md")],
                 cwd=repo,
