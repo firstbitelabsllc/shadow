@@ -38,6 +38,12 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         selected = ci.select_paths(["CHANGELOG.md"])
         self.assertTrue(selected.release_contract)
 
+    def test_retirement_schema_runs_lifecycle_and_release_proof(self) -> None:
+        selected = ci.select_paths(["schemas/retirement-manifest.v1.json"])
+        self.assertFalse(selected.run_all)
+        self.assertIn("tests.test_lifecycle", selected.modules)
+        self.assertTrue(selected.release_contract)
+
     def test_unknown_or_empty_changes_fall_back_to_full(self) -> None:
         for paths in ([], ["new-unmapped-root/file.xyz"]):
             selected = ci.select_paths(paths)

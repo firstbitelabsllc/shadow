@@ -20,6 +20,7 @@ from typing import Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
+import shadow_root_board as _board  # noqa: E402
 
 
 LEGAL_MODES: Final = {"explore", "ship"}
@@ -176,6 +177,22 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
     lines = text.splitlines()
     sections = _sections(lines)
     today = today or date.today()
+    budget = _board.hot_plan_budget(text.encode("utf-8"))
+    for dimension in budget["exceeded"]:
+        check = {
+            "bytes": "HOT-PLAN-BYTES",
+            "task_rows": "HOT-PLAN-ROWS",
+            "milestones": "HOT-PLAN-MILESTONES",
+        }[dimension]
+        findings.append(
+            _finding(
+                check,
+                0,
+                "blocking",
+                f"{dimension} is {budget[dimension]} (limit {budget['limits'][dimension]}); "
+                "archive one proven milestone with shadow lifecycle",
+            )
+        )
 
     # Section dispatch is exact-string: a typo'd or missing canonical heading
     # would otherwise exempt everything under it from every check, silently.
