@@ -266,8 +266,20 @@ def gallery_records() -> list[dict[str, Any]]:
 # a self-verdict: the words a person writes when they mean "stop working this
 # file". Matched case-insensitively over the first lines only, where a banner
 # lives — a phrase quoted deep in Progress is a record, not a verdict.
+#
+# The demotion phrase alone is not enough either. A live plan can open with
+# "do not revive the old service" or call a component "a historical shell":
+# true sentences about something else. So the phrase only counts when it is
+# bound, inside one sentence, to a subject naming THIS plan — the difference
+# between describing an archive and being one.
+_VETO_SELF = r"this(?:\s+[a-z][a-z-]*){0,3}\s+(?:plan|file|document)\b"
+_VETO_DEMOTION = (
+    r"non-executable(?:\s+archive)?(?:\s+shell)?|archive shell|historical shell"
+    r"|do not revive|do not update"
+)
 ARCHIVE_VETO_RE = re.compile(
-    r"non-executable archive shell|do not revive|archive shell|historical shell",
+    rf"(?:{_VETO_SELF})[^.\n]{{0,80}}?(?:{_VETO_DEMOTION})"
+    rf"|(?:{_VETO_DEMOTION})[^.\n]{{0,80}}?(?:{_VETO_SELF})",
     re.IGNORECASE,
 )
 VETO_SCAN_LINES = 40
@@ -549,6 +561,18 @@ def discover_plans(root: Path) -> list[dict[str, Any]]:
     return records
 
 
+def live_plans(root: Path) -> list[dict[str, Any]]:
+    """What the board is allowed to render as authority.
+
+    Annotating a demoted record is not a demotion: the projections iterate the
+    served list and never read `archived`, so a vetoed archive shell would keep
+    its card, its live briefing and its decision buttons. The one place that
+    cannot be forgotten is the wire — a record the browser never receives
+    cannot render as authority in any view, present or future.
+    """
+    return [record for record in discover_plans(root) if not record.get("archived")]
+
+
 def resolve_plan(root: Path, value: Any) -> Path:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise BrowserError("plan path is required")
@@ -730,7 +754,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/plans":
-            self._json(200, {"product": PRODUCT, "plans": discover_plans(self.scan_root)})
+            self._json(200, {"product": PRODUCT, "plans": live_plans(self.scan_root)})
             return
         if parsed.path == "/api/gallery":
             self._json(200, {"product": PRODUCT, "plans": gallery_records()})
