@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +57,17 @@ class ReleasePackageTests(unittest.TestCase):
 
     def test_lifecycle_command_ships_with_the_dispatcher(self) -> None:
         self.assertIn("scripts/shadow-lifecycle.py", mod.REQUIRED_FILES)
+
+    def test_disposable_fixture_commit_waits_for_git_maintenance(self) -> None:
+        project = Path("/unused-fixture")
+        with mock.patch.object(mod, "command") as observed:
+            mod.commit_disposable_fixture(project)
+
+        argv, cwd = observed.call_args.args
+        commit_index = argv.index("commit")
+        self.assertEqual(cwd, project)
+        self.assertLess(argv.index("maintenance.autoDetach=false"), commit_index)
+        self.assertLess(argv.index("gc.autoDetach=false"), commit_index)
 
     def test_second_skill_or_private_stream_fails(self) -> None:
         plugin, pack, tracked = baseline()
