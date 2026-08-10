@@ -131,6 +131,18 @@ class ShadowLintTests(unittest.TestCase):
         self.assertIn("HOT-PLAN-ROWS", blocking(rows))
         self.assertIn("HOT-PLAN-MILESTONES", blocking(milestones))
 
+    def test_row_shaped_history_does_not_consume_the_tasks_budget(self) -> None:
+        history = "".join(
+            f"- [pending] retained historical row {index} ~{index:04x} | proof: cmd true\n"
+            for index in range(lint._board.HOT_PLAN_MAX_TASK_ROWS + 1)
+        )
+        plan = CLEAN_PLAN + "\n## Historical task snapshots\n\n" + history
+
+        measured = lint._board.hot_plan_budget(plan.encode("utf-8"))
+
+        self.assertEqual(measured["task_rows"], 3)
+        self.assertNotIn("task_rows", measured["exceeded"])
+
     def test_box_lifecycle_checks(self) -> None:
         no_end = CLEAN_PLAN.replace(" | ends: 2026-08-07", "")
         self.assertIn("SPIKE-NO-END", blocking(no_end))

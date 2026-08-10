@@ -274,7 +274,7 @@ def hot_plan_budget(content: bytes) -> dict:
             continue
         if line.startswith("### "):
             milestone_count += 1
-        if HOT_TASK_ROW_RE.fullmatch(line):
+        if in_tasks and HOT_TASK_ROW_RE.fullmatch(line):
             task_rows += 1
     values = {
         "bytes": len(content),
