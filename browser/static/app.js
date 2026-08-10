@@ -27,7 +27,7 @@ function renderProjects() {
     const button = el('button', { className: plan.id === state.selected ? 'project active' : 'project', type: 'button' });
     button.append(el('strong', { text: plan.title }));
     const status = plan.briefing?.state || plan.board?.state || 'unreadable';
-    button.append(el('span', { text: status.replaceAll('_', ' ') }));
+    button.append(stateChip(status));
     button.addEventListener('click', () => {
       state.selected = plan.id;
       render();
@@ -40,6 +40,49 @@ function renderProjects() {
 function row(label, value) {
   const wrapper = el('div', { className: 'brief-row' });
   wrapper.append(el('dt', { text: label }), el('dd', { text: value || 'Not available yet' }));
+  return wrapper;
+}
+
+// "3 hours ago" — a card never prints an ISO stamp at a person.
+function relativeTime(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const seconds = Math.round((Date.now() - then) / 1000);
+  if (seconds < 60) return 'just now';
+  const units = [[31536000, 'year'], [2592000, 'month'], [604800, 'week'], [86400, 'day'], [3600, 'hour'], [60, 'minute']];
+  for (const [size, name] of units) {
+    if (Math.abs(seconds) >= size) {
+      const count = Math.round(seconds / size);
+      return `${count} ${name}${count === 1 ? '' : 's'} ago`;
+    }
+  }
+  return 'just now';
+}
+
+function stateChip(state) {
+  const chip = el('span', { className: `status state-chip state-${state}`, text: state.replaceAll('_', ' ') });
+  return chip;
+}
+
+function latestChangeRow(change) {
+  // Old plans (and old servers) sent a bare string; render it as-is rather
+  // than a blank row, but never invent structure for it.
+  const wrapper = el('div', { className: 'brief-row' });
+  wrapper.append(el('dt', { text: 'Latest change' }));
+  const dd = el('dd', { className: 'change' });
+  if (typeof change === 'string') {
+    dd.append(el('span', { text: change }));
+  } else {
+    const meta = el('p', { className: 'change-meta' });
+    const when = relativeTime(change.when);
+    if (when) meta.append(el('span', { className: 'change-when', text: when }));
+    if (change.kind) meta.append(el('span', { className: 'change-kind', text: change.kind }));
+    if (meta.childElementCount) dd.append(meta);
+    if (change.summary) dd.append(el('p', { className: 'change-summary', text: change.summary }));
+    if (!dd.childElementCount) dd.append(el('span', { text: 'Not available yet' }));
+  }
+  wrapper.append(dd);
   return wrapper;
 }
 
@@ -95,18 +138,29 @@ function renderBoardBriefCard(plan) {
   card.append(head);
   if (brief.priority) {
     card.append(el('p', { className: 'eyebrow', text: 'Priority' }));
-    card.append(el('h2', { text: brief.priority }));
+    // A bare number or code is data, not a headline — keep the hero type
+    // for priorities that actually say something.
+    const spoken = String(brief.priority).trim();
+    card.append(el(spoken.length > 8 ? 'h2' : 'p', {
+      className: spoken.length > 8 ? '' : 'current',
+      text: spoken,
+    }));
   }
   for (const milestone of rotationOf(plan)) appendMilestone(card, milestone);
   if (brief.contradictions_open) {
-    card.append(el('p', {
-      className: 'board-decision',
-      text: `${brief.contradictions_open} open contradiction${brief.contradictions_open === 1 ? '' : 's'} — read before landing work`,
+    const notice = el('p', { className: 'notice' });
+    notice.append(el('span', {
+      className: 'notice-count',
+      text: String(brief.contradictions_open),
     }));
+    notice.append(el('span', {
+      text: `open contradiction${brief.contradictions_open === 1 ? '' : 's'} to read before landing work`,
+    }));
+    card.append(notice);
   }
   if (brief.latest_change) {
     const change = el('dl', { className: 'brief' });
-    change.append(row('Latest change', brief.latest_change));
+    change.append(latestChangeRow(brief.latest_change));
     card.append(change);
   }
   main.append(card);
@@ -235,11 +289,19 @@ function appendMilestone(card, milestone) {
   const checkpoints = Array.isArray(milestone.checkpoints) ? milestone.checkpoints : [];
   if (checkpoints.length) {
     for (const checkpoint of checkpoints) {
-      const owner = checkpoint.owners?.length ? ` · ${checkpoint.owners.join(', ')}` : '';
-      group.append(el('p', {
-        className: 'board-now',
-        text: `${checkpoint.state.replaceAll('_', ' ')} · ${checkpoint.availability}: ${checkpoint.text}${owner}`,
-      }));
+      const line = el('p', { className: 'board-now checkpoint' });
+      line.append(stateChip(checkpoint.state));
+      // availability repeats the state for blocked rows; say it only when
+      // it adds something (claimed by whom, or reachable/waiting).
+      const extras = [];
+      if (checkpoint.availability === 'claimed' && checkpoint.owners?.length) {
+        extras.push(`claimed by ${checkpoint.owners.join(', ')}`);
+      } else if (!['claimed', checkpoint.state].includes(checkpoint.availability)) {
+        extras.push(checkpoint.availability);
+      }
+      const suffix = extras.length ? ` — ${extras.join(', ')}` : '';
+      line.append(el('span', { text: ` ${checkpoint.text}${suffix}` }));
+      group.append(line);
     }
   } else {
     const now = milestone.current || milestone.next;
@@ -247,7 +309,13 @@ function appendMilestone(card, milestone) {
   }
   if (milestone.dod) {
     const dod = el('dl', { className: 'brief' });
-    dod.append(row('Done means', `${milestone.dod.text} (${milestone.dod.state.replaceAll('_', ' ')})`));
+    const wrapper = el('div', { className: 'brief-row' });
+    wrapper.append(el('dt', { text: 'Done means' }));
+    const dd = el('dd', { className: 'dod' });
+    dd.append(el('span', { className: 'dod-text', text: milestone.dod.text }));
+    dd.append(stateChip(milestone.dod.state));
+    wrapper.append(dd);
+    dod.append(wrapper);
     group.append(dod);
   }
   card.append(group);
