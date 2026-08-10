@@ -35,6 +35,21 @@ PLAN = """# Demo
 """
 
 
+def git_repo(root: Path) -> Path:
+    repo = root / "repo"
+    repo.mkdir()
+    (repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
+    for args in (
+        ("init", "--quiet"),
+        ("config", "user.email", "shadow-test@example.invalid"),
+        ("config", "user.name", "Shadow Test"),
+        ("add", "PLAN.md"),
+        ("commit", "--quiet", "-m", "seed"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+    return repo
+
+
 class ConfigDefaultsTests(unittest.TestCase):
     def test_this_repositorys_plan_enters_its_own_computer_board(self) -> None:
         with tempfile.TemporaryDirectory() as home:
@@ -163,6 +178,70 @@ class ConfigDefaultsTests(unittest.TestCase):
             self.assertEqual(args.root, "/tmp/flag-root")
             self.assertEqual(args.host, "127.0.0.1")
             self.assertEqual(args.port, 8124)
+
+
+class RepoLocalConfigDefaults(unittest.TestCase):
+    def run_config(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(CLI), "config", "--explain", "--json", *args],
+            cwd=repo,
+            env={**os.environ, "SHADOW_ROOT": str(ROOT)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_one_repo_local_config_is_read_from_the_git_root(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = git_repo(root)
+            nested = repo / "nested" / "work"
+            nested.mkdir(parents=True)
+            (root / "shadow.yaml").write_text("not: this one\n", encoding="utf-8")
+            (repo / "shadow.yaml").write_text("version: 1\n", encoding="utf-8")
+
+            result = self.run_config(nested)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout),
+                {
+                    "schema": "shadow.config.explain.v1",
+                    "source": "shadow.yaml",
+                    "version": 1,
+                    "bindings": {},
+                },
+            )
+
+    def test_no_config_uses_builtin_defaults_without_creating_state(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = git_repo(Path(dirname))
+            before = subprocess.run(
+                ["git", "-C", str(repo), "status", "--porcelain=v1", "-z"],
+                capture_output=True,
+                check=True,
+            ).stdout
+
+            result = self.run_config(repo)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout),
+                {
+                    "schema": "shadow.config.explain.v1",
+                    "source": "built-in",
+                    "version": 1,
+                    "bindings": {},
+                },
+            )
+            self.assertFalse((repo / "shadow.yaml").exists())
+            self.assertFalse((repo / ".shadow").exists())
+            after = subprocess.run(
+                ["git", "-C", str(repo), "status", "--porcelain=v1", "-z"],
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(after, before)
 
 
 if __name__ == "__main__":
