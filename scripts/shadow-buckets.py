@@ -32,6 +32,9 @@ import sys
 from typing import Any, Final
 
 ROOT: Final = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+from shadow_config import ConfigError, load_config  # noqa: E402
 DOC: Final = ROOT / "docs" / "reference" / "buckets.md"
 KINDS: Final = ("pack", "skill", "builtin")
 LINE_RE: Final = re.compile(
@@ -118,7 +121,28 @@ def _resolve_builtin(bucket: dict[str, str], home: Path) -> tuple[str, str]:
     return "pass", f"builtin, ruling intact in {bucket['default']}"
 
 
-def resolve(bucket: dict[str, str], home: Path | None = None) -> tuple[str, str]:
+def configured_default(bucket: dict[str, str], repo: Path | None = None) -> str:
+    """Return the reviewed binding name, without resolving or storing it."""
+    if repo is None:
+        return bucket["default"]
+    config = load_config(repo)
+    bindings = config.get("buckets", {})
+    if not isinstance(bindings, dict):
+        raise ConfigError(Path(repo) / "shadow.yaml", 1, "buckets must be a mapping")
+    binding = bindings.get(bucket["name"], bucket["default"])
+    if not isinstance(binding, str) or not binding:
+        raise ConfigError(
+            Path(repo) / "shadow.yaml", 1,
+            f"buckets.{bucket['name']} must be a nonempty string",
+        )
+    return binding
+
+
+def resolve(
+    bucket: dict[str, str],
+    home: Path | None = None,
+    repo: Path | None = None,
+) -> tuple[str, str]:
     """(state, detail) for one bucket. Never writes anything."""
     home = home or Path.home()
     override = os.environ.get(f"SHADOW_BUCKET_{bucket['name'].upper().replace('-', '_')}")
@@ -128,14 +152,19 @@ def resolve(bucket: dict[str, str], home: Path | None = None) -> tuple[str, str]
             return "pass", f"off by {variable} — the emptiness is deliberate"
         return ("pass", f"bound by {variable}") if Path(override).exists() else (
             "fail", f"{variable} points at nothing")
+    effective = dict(bucket)
+    binding = configured_default(bucket, repo)
+    if binding.strip().lower() == "off":
+        return "pass", f"off by shadow.yaml buckets.{bucket['name']}"
+    effective["default"] = binding
     return {"pack": _resolve_pack, "skill": _resolve_skill, "builtin": _resolve_builtin}[
-        bucket["kind"]](bucket, home)
+        effective["kind"]](effective, home)
 
 
-def checks(home: Path | None = None) -> list[dict[str, Any]]:
+def checks(home: Path | None = None, repo: Path | None = None) -> list[dict[str, Any]]:
     results = []
     for bucket in declared():
-        state, detail = resolve(bucket, home)
+        state, detail = resolve(bucket, home, repo)
         results.append({"name": f"bucket: {bucket['name']}", "state": state, "detail": detail})
     return results
 
@@ -146,8 +175,13 @@ def main(argv: list[str] | None = None) -> int:
         description="Report which extension buckets are filled on this machine.",
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--repo", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
-    results = checks()
+    try:
+        results = checks(repo=args.repo)
+    except ConfigError as exc:
+        print(f"shadow buckets: {exc}", file=sys.stderr)
+        return 1
     if not results:
         print("shadow buckets: no buckets declared in docs/reference/buckets.md", file=sys.stderr)
         return 1

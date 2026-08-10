@@ -559,6 +559,7 @@ def _resolve_capability(
     declared: list[dict[str, str]],
     api: object | None,
     superpowers: tuple[dict[str, str], frozenset[str], str | None] | None = None,
+    repo: Path | None = None,
 ) -> tuple[str, str]:
     leaves, catalog, _snapshot_error = superpowers or _superpowers_snapshot(home)
     superpowers_off = (
@@ -593,7 +594,7 @@ def _resolve_capability(
     )
     if bucket is not None and api is not None:
         try:
-            resolved = api.resolve(bucket, home)
+            resolved = api.resolve(bucket, home, repo) if repo is not None else api.resolve(bucket, home)
         except Exception as error:  # an optional extension can never abort amp
             return (
                 "warning",
@@ -632,6 +633,7 @@ def capability_block(
     tools: str,
     home: Path | None = None,
     superpowers: tuple[dict[str, str], frozenset[str], str | None] | None = None,
+    repo: Path | None = None,
 ) -> str | None:
     """Resolve milestone-declared capabilities. Pure read; absence never gates."""
     api = _bucket_api()
@@ -688,9 +690,20 @@ def capability_block(
         )
     for name in requests:
         state, detail = _resolve_capability(
-            name, active_home, declared, api, superpowers
+            name, active_home, declared, api, superpowers, repo
         )
-        selected = f"/{name}" if state == "present" else "native host + Shadow Method"
+        selected_name = name
+        if state == "present" and api is not None and repo is not None:
+            bucket = next(
+                (item for item in declared if name in {item["name"], item["default"]}),
+                None,
+            )
+            if bucket is not None:
+                try:
+                    selected_name = api.configured_default(bucket, repo)
+                except Exception:
+                    selected_name = name
+        selected = f"/{selected_name}" if state == "present" else "native host + Shadow Method"
         scope = ""
         if name == "superpowers":
             compatible = (
@@ -778,7 +791,12 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     if plan.get("entity_id"):
         board_line += f" Entity: {plan['entity_id']}."
     if plan.get("seat_owner"):
-        board_line += f" Seat: {plan['seat_owner']}."
+        seat = str(plan["seat_owner"])
+        display = plan.get("seat_display_name")
+        board_line += f" Seat: {display} ({seat})." if display else f" Seat: {seat}."
+        lenses = plan.get("seat_lenses")
+        if isinstance(lenses, list) and lenses:
+            board_line += f" Preferred lenses: {', '.join(str(item) for item in lenses)}."
     authority = (
         f"AUTHORITY: {pointer} — section \"### {milestone['title']}\".\n"
         f"{board_line}\n"
@@ -817,7 +835,7 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
         projected_tools = _project_tools(milestone["tools"], catalog)
         optional.append(("TOOLS", f"TOOLS: {projected_tools}"))
         capabilities = capability_block(
-            milestone["tools"], active_home, superpowers
+            milestone["tools"], active_home, superpowers, repo
         )
         if capabilities:
             optional.append(("CAPABILITIES", capabilities))

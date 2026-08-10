@@ -355,8 +355,12 @@ class ColdSeatsResumeThroughBoardEntityIds(unittest.TestCase):
             ).replace("shadow ", f"{shlex.quote(str(CLI))} ", 1)
             shell = shutil.which("zsh") or shutil.which("bash")
             self.assertIsNotNone(shell, "claim-command proof needs a tilde-expanding shell")
+            # A plain shell expands the quoted command exactly as printed.
+            # A login shell also sources the owner's machine profile, which can
+            # launch unrelated background setup under this scratch HOME and
+            # race TemporaryDirectory teardown after the Shadow proof passed.
             second = subprocess.run(
-                [shell, "-lc", rendered],
+                [shell, "-c", rendered],
                 cwd=unrelated,
                 env={**os.environ, "HOME": str(home)},
                 capture_output=True,

@@ -1446,6 +1446,10 @@ class NeedsIsAReadinessGate(unittest.TestCase):
             "\"import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
             "- [completed] dep ~ee55 | proof: cmd true\n"
             f"- [in_progress] x.txt says hello ~ab12 | needs: ~ee55 | proof: {proof}",
+        ).replace(
+            "- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command\n",
+            "- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command\n"
+            "- 2026-08-06T10:00:01Z ~ee55 PROOF true -> completed dependency\n",
         )
         with tempfile.TemporaryDirectory() as dirname:
             repo = make_repo(Path(dirname).resolve())
@@ -1476,6 +1480,36 @@ class NeedsIsAReadinessGate(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("still needs ~cd34", result.stdout + result.stderr)
             self.assertIn("[in_progress] x.txt", plan.read_text(encoding="utf-8"))
+
+
+class AcceptUsesTheEnforcersRowGrammar(unittest.TestCase):
+    """The only flip path must not accept a plan its row enforcer refuses."""
+
+    def test_an_unrelated_malformed_row_blocks_the_selected_flip(self) -> None:
+        # `find_row` can still locate ~ab12, and its proof would pass.  Before
+        # this check accept ignored the second row entirely while lint blocked
+        # it, so the only completion path could commit a plan its own grammar
+        # had already rejected.
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve())
+            plan = repo / "PLAN.md"
+            malformed = plan.read_text(encoding="utf-8").replace(
+                "## Progress\n",
+                "## Worklane boundary\n\n"
+                "- [pending] malformed unrelated row ~zz99 | proof: prose only\n\n"
+                "## Progress\n",
+            )
+            plan.write_text(malformed, encoding="utf-8")
+            git(repo, "commit", "-qam", "add malformed row outside tasks")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("row grammar blocks acceptance", result.stderr)
+            after = plan.read_text(encoding="utf-8")
+            self.assertIn("- [in_progress] x.txt says hello ~ab12", after)
+            self.assertNotIn("~ab12 PROOF", after)
+            self.assertEqual(git(repo, "rev-list", "--count", "HEAD"), "2")
 
 
 class ShellOperatorsInAProofAreRefused(unittest.TestCase):
@@ -1573,3 +1607,32 @@ class AcceptReadsAProgressHeadingTheWayLintDoes(unittest.TestCase):
 
     def test_a_different_word_starting_with_progress_is_not_a_progress_section(self) -> None:
         self.assertIsNone(accept.PROGRESS_HEADING_RE.search("## Progressive\n"))
+
+
+class AcceptNeverCommitsAPlanLintBlocks(unittest.TestCase):
+    """The flip path cannot turn a grammar-invalid plan into a commit.
+
+    The proof is deliberately valid.  The unrelated illegal mode is the
+    existing blocker that lint reports, and accept used to ignore it, append
+    its receipt, and commit the whole invalid PLAN.md.
+    """
+
+    def test_a_blocking_plan_finding_refuses_the_flip_before_the_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve())
+            plan = repo / "PLAN.md"
+            invalid = plan.read_text(encoding="utf-8").replace(
+                "- Mode: ship", "- Mode: not-a-mode"
+            )
+            plan.write_text(invalid, encoding="utf-8")
+            git(repo, "commit", "-qam", "plan lint blocker")
+            before_head = git(repo, "rev-parse", "HEAD")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("shadow lint", result.stderr)
+            self.assertIn("MODE-ILLEGAL", result.stderr)
+            self.assertEqual(plan.read_text(encoding="utf-8"), invalid)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), before_head)
+            self.assertNotIn("~ab12 PROOF", invalid)

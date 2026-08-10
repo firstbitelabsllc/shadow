@@ -115,6 +115,11 @@ END: Final = "<!-- shadow:goal:end -->"
 # The heading the block always starts with. Used to find an unmarked copy left
 # by someone who pasted it before markers existed.
 ANCHOR: Final = "## Shadow "
+TEMP_PREFIX: Final = ".shadow-host-directives-"
+TEMP_SUFFIX: Final = ".tmp"
+TEMP_RE: Final = re.compile(
+    rf"^{re.escape(TEMP_PREFIX)}(?P<pid>[1-9][0-9]*)-[A-Za-z0-9_]+{re.escape(TEMP_SUFFIX)}$"
+)
 
 def _markdown_cells(line: str) -> list[str] | None:
     """Return the cells in one ordinary Markdown table row, if it is one."""
@@ -183,6 +188,26 @@ def supported_activation_targets(
 # Compatibility for focused callers and the CLI argument choices. The value is
 # derived from docs/reference/native-hosts.md, never hand-maintained here.
 HOSTS: Final = supported_activation_targets()
+
+
+class ApplyResult(str):
+    """One successful directive operation, with the file it actually touched.
+
+    `str` compatibility keeps the narrow `apply()` API used by focused callers:
+    an added result still compares equal to ``"added"``. The CLI needs more
+    than that action word, though. A host path can be a symlink into a private
+    canonical source, so saying only ``added: claude`` conceals the file whose
+    bytes changed and the recovery copy beside it.
+    """
+
+    target: Path
+    backup: Path | None
+
+    def __new__(cls, action: str, *, target: Path, backup: Path | None = None) -> "ApplyResult":
+        result = super().__new__(cls, action)
+        result.target = target
+        result.backup = backup
+        return result
 
 
 def standing_goal(doc: Path | None = None) -> str:
@@ -359,6 +384,71 @@ def _fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
+def _temp_name_for_pid(pid: int) -> str:
+    """A recognizably Shadow-owned atomic-write temp name for one process.
+
+    The random suffix still comes from `mkstemp`; the PID is deliberately in
+    the stable part so a later apply can distinguish a crashed writer from a
+    concurrent one without ever guessing about generic `.shadow-*.tmp` files.
+    """
+    return f"{TEMP_PREFIX}{pid}-residue{TEMP_SUFFIX}"
+
+
+def _temp_prefix() -> str:
+    return f"{TEMP_PREFIX}{os.getpid()}-"
+
+
+def _pid_is_dead(pid: int) -> bool:
+    """True only when the kernel says this PID no longer exists.
+
+    Permission failures and every other uncertainty are treated as live. That
+    leaves harmless residue rather than deleting a concurrent writer's bytes.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _sweep_stale_temps(directory: Path) -> None:
+    """Remove only regular, same-user temps from a conclusively dead Shadow run.
+
+    A generic `.shadow-*.tmp` has no owner identity and is therefore never
+    touched. The exact current writer's PID is live throughout its apply, so a
+    second concurrent apply retains its temp. If a PID cannot be checked, the
+    safe outcome is to retain the file for a later run.
+    """
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return
+    uid = os.getuid()
+    for entry in entries:
+        matched = TEMP_RE.fullmatch(entry.name)
+        if matched is None:
+            continue
+        try:
+            metadata = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != uid
+            or metadata.st_nlink != 1
+            or not _pid_is_dead(int(matched.group("pid")))
+        ):
+            continue
+        try:
+            os.unlink(entry.path)
+        except OSError:
+            # A concurrent rename, unlink, or permission change means the
+            # proof observed above is no longer enough. Leave it alone.
+            continue
+
+
 def _host_reads(host: Path) -> Path:
     """The file the host pathname leads to RIGHT NOW.
 
@@ -450,7 +540,9 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     overwritten, ever. Returns False when the name was already taken, which
     for a backup means "someone's backup exists; keep it".
     """
-    handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=".shadow-", suffix=".tmp")
+    handle, temporary = tempfile.mkstemp(
+        dir=str(path.parent), prefix=_temp_prefix(), suffix=TEMP_SUFFIX
+    )
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
             stream.write(text)
@@ -500,8 +592,11 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
 
     FRESH path: link(2), which refuses atomically if anything appeared.
     """
+    _sweep_stale_temps(path.parent)
     if expect is not None:
-        handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=".shadow-", suffix=".tmp")
+        handle, temporary = tempfile.mkstemp(
+            dir=str(path.parent), prefix=_temp_prefix(), suffix=TEMP_SUFFIX
+        )
         try:
             with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
                 stream.write(text)
@@ -649,6 +744,7 @@ def _private_full_file(path: Path, block: str) -> str:
     generated-block upgrades converge without rewriting that backup.
     """
     target = _canonical(path)
+    _sweep_stale_temps(target.parent)
     pinned: int | None = None
     backup_pinned: int | None = None
     try:
@@ -761,8 +857,8 @@ def _private_full_file(path: Path, block: str) -> str:
         if pinned is not None:
             os.close(pinned)
 
-def apply(path: Path, block: str, *, remove: bool = False) -> str:
-    """Write the block into `path`. Returns what happened, for the caller."""
+def apply(path: Path, block: str, *, remove: bool = False) -> ApplyResult:
+    """Write the block into `path`, returning the action and actual target."""
     # No is_symlink() snapshot is taken here, deliberately. A host pathname is
     # mutable: a regular file can become a symlink, and a symlink a regular
     # file, between this line and the commit. Every success path therefore
@@ -770,6 +866,7 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
     # a boolean captured up front would only make one of those two transitions
     # invisible.
     target = _canonical(path)
+    _sweep_stale_temps(target.parent)
     if _test_between_resolve_and_snapshot is not None:
         _test_between_resolve_and_snapshot()
     # The snapshot is the FIRST act on the resolved target, and it is a
@@ -838,7 +935,7 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
             if span is None:
                 _refuse_unless_host_still_leads_to_pin(
                     path, target, pinned, identity, "absent")
-                return "absent"
+                return ApplyResult("absent", target=target)
             head, tail = text[: span[0]], text[span[1] :]
             # Take out at most what adding introduced: the one newline appended
             # after the block, and one newline of the separator before it. An
@@ -862,11 +959,12 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
                 if current == wanted:
                     _refuse_unless_host_still_leads_to_pin(
                         path, target, pinned, identity, "current")
-                    return "current"
+                    return ApplyResult("current", target=target)
                 new = text[: span[0]] + wanted + text[span[1] :]
                 action = "refreshed" if current.startswith(BEGIN) else "adopted"
 
         mode: int | None = None
+        backup: Path | None = None
         if not existed:
             target.parent.mkdir(parents=True, exist_ok=True)
         else:
@@ -908,7 +1006,12 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
                     f"{exc}; the pre-write state is preserved at {backup}"
                 ) from exc
             raise
-        return action
+        # `_place_exclusive` keeps an existing backup as deliberately as a new
+        # one. Say where it is while the successful write is still observable;
+        # a link's target is the only honest recovery surface, never the host
+        # pathname the user originally supplied.
+        retained_backup = backup if backup is not None and os.path.lexists(backup) else None
+        return ApplyResult(action, target=target, backup=retained_backup)
     finally:
         if pinned is not None:
             os.close(pinned)
@@ -945,12 +1048,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"skipped:   {name} (no host directory)")
             continue
         try:
-            action = apply(path, block, remove=args.remove)
+            result = apply(path, block, remove=args.remove)
         except (OSError, ValueError) as exc:
             print(f"failed:    {name}: {exc}", file=sys.stderr)
             status = 1
             continue
-        print(f"{action + ':':10} {name}")
+        detail = f"{str(result) + ':':10} {name} -> {result.target}"
+        if result.backup is not None:
+            detail += f" (backup retained: {result.backup})"
+        print(detail)
     print("\nCursor is not written: its user rules live in application settings, not a file.")
     return status
 

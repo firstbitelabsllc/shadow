@@ -28,6 +28,7 @@ from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 
 SCHEMA = "shadow.root-board.v1"
 DEFAULT_CLAIM_HOURS = 8
+DEFAULT_CLAIM_RETURN_MINUTES = DEFAULT_CLAIM_HOURS * 60
 COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
 ROW_ID = re.compile(r"~[0-9a-z]{4}")
@@ -1103,6 +1104,7 @@ def claim(
     now: datetime | None = None,
     adopt_expired: bool = False,
     expected_plan: dict[str, str] | None = None,
+    claim_return_minutes: int = DEFAULT_CLAIM_RETURN_MINUTES,
     home: Path | None = None,
 ) -> dict:
     if not regular_plan(plan):
@@ -1115,8 +1117,14 @@ def claim(
     if isinstance(priority, bool) or priority not in range(1, 6):
         raise BoardError("project priority must be 1-5")
     owner = validate_owner(owner)
+    if (
+        isinstance(claim_return_minutes, bool)
+        or not isinstance(claim_return_minutes, int)
+        or claim_return_minutes not in range(1, 10_081)
+    ):
+        raise BoardError("claim return minutes must be an integer from 1 to 10080")
     claimed = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    returned = claimed + timedelta(hours=DEFAULT_CLAIM_HOURS)
+    returned = claimed + timedelta(minutes=claim_return_minutes)
     if expected_plan is not None:
         preflight_plan, preflight_content = committed_plan_snapshot(plan)
         if preflight_plan != expected_plan:

@@ -431,5 +431,37 @@ class StyleGuardTests(unittest.TestCase):
         self.assertEqual(done.stdout.strip(), "", "an unreadable transcript must not block work")
 
 
+class TheFenceExemptionIsBounded(unittest.TestCase):
+    def setUp(self) -> None:
+        self.guard = _load()
+
+    def test_only_a_closed_fence_beside_the_menu_earns_the_exemption(self) -> None:
+        nearby = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n\n"
+            "```\n"
+            "A rewrites hashes; B retains them.\n"
+            "```\n"
+        )
+        later = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n\n"
+            "Both paths are ready, but neither has started.\n"
+            "The test output follows for reference.\n\n"
+            "```\n"
+            "32 passed in 0.14s\n"
+            "```\n"
+        )
+        unclosed = "- **A** — rebase\n- **B** — merge\n\n```\nnot a drawing yet\n"
+        unclosed_before_menu = "```\nnot a drawing yet\n- **A** — rebase\n- **B** — merge\n"
+        self.assertFalse(self.guard.violations(nearby))
+        self.assertTrue(self.guard.violations(later),
+                        "a fence after the menu's prose cannot pay for the menu")
+        self.assertTrue(self.guard.violations(unclosed),
+                        "a fence must close before it can show the reader anything")
+        self.assertTrue(self.guard.violations(unclosed_before_menu),
+                        "an unclosed opener must not hide the menu below it")
+
+
 if __name__ == "__main__":
     unittest.main()

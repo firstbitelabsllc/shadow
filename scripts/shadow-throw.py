@@ -25,6 +25,7 @@ sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
+from shadow_config import ConfigError, load_config  # noqa: E402
 
 
 BY_MAX: Final = 40
@@ -59,6 +60,29 @@ def _priority(plan: dict) -> int:
 def _repo_for(plan_path: Path) -> Path:
     top = git(plan_path.parent, "rev-parse", "--show-toplevel")
     return Path(top.stdout.strip()).resolve() if top.returncode == 0 else plan_path.parent
+
+
+def _config_preferences(repo: Path, owner: str) -> tuple[int, str | None, list[str]]:
+    config = load_config(repo)
+    durability = config.get("durability", {})
+    if not isinstance(durability, dict):
+        raise ConfigError(repo / "shadow.yaml", 1, "durability must be a mapping")
+    minutes = durability.get("claim_return_minutes", _board.DEFAULT_CLAIM_RETURN_MINUTES)
+    if isinstance(minutes, bool) or not isinstance(minutes, int):
+        raise ConfigError(repo / "shadow.yaml", 1, "durability.claim_return_minutes must be an integer")
+    leads = config.get("leads", {})
+    if not isinstance(leads, dict):
+        raise ConfigError(repo / "shadow.yaml", 1, "leads must be a mapping")
+    lead = leads.get(owner, {})
+    if not isinstance(lead, dict):
+        raise ConfigError(repo / "shadow.yaml", 1, f"leads.{owner} must be a mapping")
+    display = lead.get("display_name")
+    if display is not None and not isinstance(display, str):
+        raise ConfigError(repo / "shadow.yaml", 1, f"leads.{owner}.display_name must be a string")
+    lenses = lead.get("default_lenses", [])
+    if not isinstance(lenses, list) or not all(isinstance(item, str) for item in lenses):
+        raise ConfigError(repo / "shadow.yaml", 1, f"leads.{owner}.default_lenses must be a string list")
+    return minutes, display, lenses
 
 
 def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str, str]]:
@@ -180,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with _board.project_lock(plan_path):
             repo, plan, plan_token = _validated_target(plan_path, args.task)
+            claim_return_minutes, seat_display_name, seat_lenses = _config_preferences(repo, args.by)
             if not args.entity:
                 # Normalize/register this exact bounded entity before claiming.
                 # This also rekeys a stored entity after its Git origin changes, so
@@ -208,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             plan["entity_id"] = state["entity"]["id"]
             plan["seat_owner"] = args.by
+            plan["seat_display_name"] = seat_display_name
+            plan["seat_lenses"] = seat_lenses
             # Prove the final block fits before taking a claim. A concurrent board
             # write may advance this preview; the claimed block is rebuilt below
             # from the transaction's actual revision.
@@ -220,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
                 priority=_priority(plan),
                 adopt_expired=args.adopt_expired,
                 expected_plan=plan_token,
+                claim_return_minutes=claim_return_minutes,
             )
             payload = receipt["payload"]
             claimed = receipt["claim"]
@@ -229,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
             plan["root_priority"] = project["priority"]
             plan["entity_id"] = entity["id"]
             plan["seat_owner"] = claimed["owner"]
+            plan["seat_display_name"] = seat_display_name
+            plan["seat_lenses"] = seat_lenses
             block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
     except _board.AlreadyClaimed as exc:
         print(
@@ -236,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    except (_board.BoardError, LookupError, ValueError) as exc:
+    except (_board.BoardError, ConfigError, LookupError, ValueError) as exc:
         print(f"shadow throw: claim refused: {exc}", file=sys.stderr)
         return 1
 

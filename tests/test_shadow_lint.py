@@ -411,6 +411,13 @@ class RowGrammarRunsWhereverAcceptWouldFlip(unittest.TestCase):
     def test_a_clean_plan_is_still_clean(self) -> None:
         self.assertEqual(_checks(CLEAN_PLAN) - {"SECTION-MISSING", "TS-ORDER"}, set())
 
+    def test_the_shared_row_law_exports_only_the_blocking_row_findings(self) -> None:
+        findings = lint.row_grammar_findings(self.OUTSIDE)
+        self.assertEqual({finding["check"] for finding in findings}, {
+            "ID-DUP", "PROOF-CLASS", "ROW-SHAPE", "PROOF-MISSING"
+        })
+        self.assertTrue(all(finding["severity"] == "blocking" for finding in findings))
+
 
 class EverySectionLookupIsPrefixMatched(unittest.TestCase):
     """PR #272 prefix-fixed Deferred and left every sibling exact-string."""

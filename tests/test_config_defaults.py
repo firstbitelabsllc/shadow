@@ -215,5 +215,39 @@ class TheSubsetRefusesWhatItCannotParse(unittest.TestCase):
         self.assertIn("unsupported YAML", result.stderr)
 
 
+class NoSelectorKeys(unittest.TestCase):
+    def test_provider_model_account_credential_and_equivalent_keys_refuse_at_any_depth(self) -> None:
+        forbidden = (
+            "provider",
+            "MODEL-ID",
+            "account_name",
+            "credential-file",
+            "api_key",
+            "access-token",
+            "client_secret",
+            "host_route",
+            "seat_selector",
+            "execution_profile",
+        )
+        for key in forbidden:
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory)
+                subprocess.run(["git", "-C", str(repo), "init", "--quiet"], check=True)
+                (repo / "shadow.yaml").write_text(
+                    f"leads:\n  codex:\n    {key}: placeholder\n",
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [str(CLI), "config", "--explain", "--repo", str(repo)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("shadow.yaml:3:", result.stderr)
+                self.assertIn(f"configuration key '{key}' is refused", result.stderr)
+                self.assertNotIn("placeholder", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

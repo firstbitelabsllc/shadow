@@ -179,6 +179,23 @@ class WritesTheBlock(unittest.TestCase):
             self.assertEqual(backup.read_text(encoding="utf-8"), BEFORE)
 
 
+class TheBackupKeepsTheModeOfTheFileItCopied(unittest.TestCase):
+    def test_the_retained_backup_keeps_the_existing_host_file_mode(self) -> None:
+        # A fresh temp file is 0600, so a 0644 host file can quietly become
+        # private. The opposite default publishes a 0600 host file at 0644.
+        for mode in (0o600, 0o644):
+            with self.subTest(oct(mode)), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "CLAUDE.md"
+                path.write_text(BEFORE, encoding="utf-8")
+                path.chmod(mode)
+
+                self.assertEqual(hd.apply(path, BLOCK), "added")
+
+                backup = path.with_suffix(path.suffix + ".bak-shadow")
+                self.assertEqual(path.stat().st_mode & 0o777, mode)
+                self.assertEqual(backup.stat().st_mode & 0o777, mode)
+
+
 class ASymlinkedHostFileIsWrittenThrough(unittest.TestCase):
     """One canonical directive file, linked from each host that reads one.
 
@@ -379,6 +396,39 @@ class ASymlinkedHostFileIsWrittenThrough(unittest.TestCase):
                              sorted([canonical.name, backup.name]),
                              "no temp file may survive the failure")
             self.assertEqual([p.name for p in link.parent.iterdir()], [link.name])
+
+
+class ALinkedWriteDisclosesTargetAndBackup(unittest.TestCase):
+    """A linked install must identify the real source and its recovery copy."""
+
+    def test_the_cli_names_the_resolved_target_and_retained_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            host = home / ".claude"
+            host.mkdir(parents=True)
+            target = root / "private-source" / "DIRECTIVES.md"
+            target.parent.mkdir()
+            target.write_text(BEFORE, encoding="utf-8")
+            link = host / "CLAUDE.md"
+            link.symlink_to(target)
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--host", "claude"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={**os.environ, "HOME": str(home)},
+            )
+
+            resolved_target = target.resolve()
+            backup = resolved_target.with_suffix(resolved_target.suffix + ".bak-shadow")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"claude -> {resolved_target}", result.stdout)
+            self.assertIn(f"backup retained: {backup}", result.stdout)
+            self.assertNotIn(f"-> {link}", result.stdout)
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(backup.read_text(encoding="utf-8"), BEFORE)
 
 
 class RefusesRatherThanGuesses(unittest.TestCase):
@@ -1254,6 +1304,30 @@ class AFailedWriteRetainsItsBackup(unittest.TestCase):
         leftovers = [q.name for q in self.target.parent.iterdir()
                      if q.name.startswith(".shadow-")]
         self.assertEqual(leftovers, [])
+
+
+class StaleTempResidueIsSweptSafely(unittest.TestCase):
+    def test_next_apply_sweeps_only_a_dead_runs_owned_temp(self) -> None:
+        # A kill after mkstemp but before rename leaves complete bytes under a
+        # Shadow-owned, PID-bearing name. The next apply may sweep it because
+        # the PID is gone. Its own PID stands in for a concurrent live apply;
+        # an old generic .shadow-*.tmp has no provable Shadow owner and stays.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "CLAUDE.md"
+            target.write_text("owner text\n", encoding="utf-8")
+            dead = root / hd._temp_name_for_pid(999_999_999)
+            live = root / hd._temp_name_for_pid(os.getpid())
+            legacy = root / ".shadow-unattributed.tmp"
+            for residue in (dead, live, legacy):
+                residue.write_text("complete but never renamed\n", encoding="utf-8")
+
+            self.assertEqual(hd.apply(target, BLOCK), "added")
+
+            self.assertFalse(dead.exists(), "a dead Shadow writer's temp was stranded")
+            self.assertTrue(live.exists(), "a live writer's temp was deleted")
+            self.assertTrue(legacy.exists(), "an unattributed temp was guessed to be Shadow's")
+
 
 class TheAuditedByteFidelity(unittest.TestCase):
     """Round-2 audit blockers, pinned.

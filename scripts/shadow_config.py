@@ -41,6 +41,31 @@ DEFAULT_CONFIG: Final[dict[str, ConfigValue]] = {
 _KEY_RE: Final = re.compile(r"[A-Za-z][A-Za-z0-9_-]*\Z")
 _INTEGER_RE: Final = re.compile(r"(?:0|[1-9][0-9]*)\Z")
 _FORBIDDEN_SCALAR_PREFIXES: Final = ("[", "{", "&", "*", "!", "|", ">", "@", "`")
+# A configuration file may state reviewed method preferences, never choose a
+# native runtime or carry the material needed to authenticate one.  Normalize
+# punctuation and case before matching so ``api-key``, ``api_key``, and
+# ``APIKey`` cannot create three accidental escape hatches.
+_REFUSED_KEY_FRAGMENTS: Final = (
+    "provider",
+    "model",
+    "account",
+    "credential",
+    "token",
+    "secret",
+    "password",
+    "passphrase",
+    "apikey",
+    "accesskey",
+    "privatekey",
+    "route",
+    "host",
+    "selector",
+    "profile",
+    "seat",
+    "executor",
+    "runtime",
+    "binary",
+)
 
 
 class ConfigError(ValueError):
@@ -128,6 +153,113 @@ def _mapping_entry(source: _Line, path: Path) -> tuple[str, str]:
     if value and not value.startswith(" "):
         raise ConfigError(path, source.number, "a colon in a mapping must be followed by a space")
     return key, value.strip()
+
+
+def _refused_key(key: str) -> bool:
+    """Whether ``key`` could select/authenticate a native host or secret."""
+    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
+    return any(fragment in normalized for fragment in _REFUSED_KEY_FRAGMENTS)
+
+
+def _refuse_selector_or_secret_keys(text: str, path: Path) -> None:
+    """Fail closed for forbidden keys at every mapping depth.
+
+    The syntax parser intentionally returns a generic AST so the config
+    schema can evolve without a second parser.  This safety boundary is kept
+    beside loading instead: every actual ``shadow.yaml`` load performs it,
+    while a caller that only parses source can still inspect unsupported-key
+    candidates in a test or future schema diagnostic.
+    """
+    for source in _source_lines(text, path):
+        if source.content == "-" or source.content.startswith("- "):
+            continue
+        key, _ = _mapping_entry(source, path)
+        if _refused_key(key):
+            raise ConfigError(
+                path,
+                source.number,
+                f"configuration key '{key}' is refused: provider, model, account, "
+                "credential, selector, and secret bindings belong to native hosts",
+            )
+
+
+def _mapping_line_numbers(text: str, path: Path) -> dict[tuple[str, ...], int]:
+    """Map each mapping path to its source line for schema diagnostics."""
+    stack: list[tuple[int, str]] = []
+    result: dict[tuple[str, ...], int] = {}
+    for source in _source_lines(text, path):
+        if source.content == "-" or source.content.startswith("- "):
+            continue
+        key, _ = _mapping_entry(source, path)
+        while stack and stack[-1][0] >= source.indent:
+            stack.pop()
+        current = tuple(item[1] for item in stack) + (key,)
+        result[current] = source.number
+        stack.append((source.indent, key))
+    return result
+
+
+def _validate_config(parsed: dict[str, ConfigValue], text: str, path: Path) -> None:
+    """Validate the complete v1 schema so no reviewed key is silently ignored."""
+    lines = _mapping_line_numbers(text, path)
+
+    def fail(parts: tuple[str, ...], detail: str) -> None:
+        raise ConfigError(path, lines.get(parts, 1), detail)
+
+    allowed_top = {"version", "leads", "method", "buckets", "durability"}
+    for key in parsed:
+        if key not in allowed_top:
+            fail((key,), f"unknown configuration key '{key}'")
+    version = parsed.get("version", 1)
+    if isinstance(version, bool) or version != 1:
+        fail(("version",), "version must be the integer 1")
+
+    method = parsed.get("method", {})
+    if not isinstance(method, dict):
+        fail(("method",), "method must be a mapping")
+    for key in method:
+        if key != "adversarial_lenses":
+            fail(("method", key), f"unknown method key '{key}'")
+    lenses = method.get("adversarial_lenses", DEFAULT_CONFIG["method"]["adversarial_lenses"])
+    if not isinstance(lenses, list) or not lenses or not all(isinstance(item, str) and item for item in lenses):
+        fail(("method", "adversarial_lenses"), "method.adversarial_lenses must be a nonempty string list")
+
+    durability = parsed.get("durability", {})
+    if not isinstance(durability, dict):
+        fail(("durability",), "durability must be a mapping")
+    for key in durability:
+        if key != "claim_return_minutes":
+            fail(("durability", key), f"unknown durability key '{key}'")
+    minutes = durability.get("claim_return_minutes", DEFAULT_CONFIG["durability"]["claim_return_minutes"])
+    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes not in range(1, 10_081):
+        fail(("durability", "claim_return_minutes"), "durability.claim_return_minutes must be an integer from 1 to 10080")
+
+    buckets = parsed.get("buckets", {})
+    if not isinstance(buckets, dict):
+        fail(("buckets",), "buckets must be a mapping")
+    for name, binding in buckets.items():
+        if not isinstance(binding, str) or not binding:
+            fail(("buckets", name), f"buckets.{name} must be a nonempty string")
+
+    leads = parsed.get("leads", {})
+    if not isinstance(leads, dict):
+        fail(("leads",), "leads must be a mapping")
+    allowed_lead = {"display_name", "handle", "default_lenses"}
+    for owner, preference in leads.items():
+        if not isinstance(preference, dict):
+            fail(("leads", owner), f"leads.{owner} must be a mapping")
+        for key in preference:
+            if key not in allowed_lead:
+                fail(("leads", owner, key), f"unknown lead preference '{key}'")
+        for key in ("display_name", "handle"):
+            value = preference.get(key)
+            if value is not None and (not isinstance(value, str) or not value):
+                fail(("leads", owner, key), f"leads.{owner}.{key} must be a nonempty string")
+        lead_lenses = preference.get("default_lenses", [])
+        if not isinstance(lead_lenses, list) or not all(
+            isinstance(item, str) and item for item in lead_lenses
+        ):
+            fail(("leads", owner, "default_lenses"), f"leads.{owner}.default_lenses must be a string list")
 
 
 def _parse_block(
@@ -245,4 +377,7 @@ def load_config(start: Path) -> dict[str, ConfigValue]:
         text = config.read_text(encoding="utf-8")
     except OSError as exc:
         raise ConfigError(config, 1, f"cannot read configuration: {exc.strerror or exc}") from exc
-    return _merge(DEFAULT_CONFIG, parse_config(text, config))
+    parsed = parse_config(text, config)
+    _refuse_selector_or_secret_keys(text, config)
+    _validate_config(parsed, text, config)
+    return _merge(DEFAULT_CONFIG, parsed)

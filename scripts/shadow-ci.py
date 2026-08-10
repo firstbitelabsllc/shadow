@@ -69,7 +69,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     )),
     (("scripts/shadow-buckets.py",), ("tests.test_extension_buckets", "tests.test_amp")),
     (("scripts/shadow-config-cli.py", "scripts/shadow_config.py"), (
-        "tests.test_config_defaults", "tests.test_config_parser", "tests.test_extension_buckets",
+        "tests.test_config_defaults", "tests.test_config_parser", "tests.test_config_bindings", "tests.test_extension_buckets",
     )),
     (("scripts/shadow-outcome-validate.py", "browser/outcome_source.py", "browser/decision_mode.py"), (
         "tests.test_outcome_source", "tests.test_outcome_choice", "tests.test_decision_mode",

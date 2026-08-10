@@ -44,6 +44,21 @@ ENDS_RE: Final = re.compile(r"\| ends: (?P<date>\S+)\s*$")
 # flips follow the same shape. This is what pairs a completed row to evidence.
 PROOF_LINE_RE: Final = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
 MAX_LINE_CHARS: Final = 2_000
+# This is the row law rather than the plan-wide policy law.  `shadow accept`
+# imports this named surface before it flips a row: copying these checks into
+# another parser is how the enforcer and the only completion path drifted.
+ROW_GRAMMAR_CHECKS: Final = frozenset({
+    "ROWS-WITHOUT-TASKS",
+    "ROW-SHAPE",
+    "ID-DUP",
+    "PROOF-MISSING",
+    "PROOF-CLASS",
+    "PROOF-UNPARSEABLE",
+    "PROOF-SHELL-OPERATOR",
+    "PROOF-ARGV0",
+    "NEEDS-SHAPE",
+    "NEEDS-DANGLE",
+})
 
 
 def _finding(check: str, line: int, severity: str, detail: str) -> dict:
@@ -172,6 +187,21 @@ def _has_section(sections: dict[str, list[tuple[int, str]]], name: str) -> bool:
     return any(h == name or h.startswith(name + " ") for h in sections)
 
 
+def row_grammar_findings(text: str, *, root: Path | None = None) -> list[dict]:
+    """Return the blocking row-law findings a completion must also refuse.
+
+    This is deliberately a projection of ``lint_plan`` rather than a second
+    parser.  The plan enforcer remains the sole definition of task shape; the
+    flip path merely asks it for the subset that says whether any row is safe
+    to interpret as a task.
+    """
+    return [
+        finding
+        for finding in lint_plan(text, root=root)
+        if finding["severity"] == "blocking" and finding["check"] in ROW_GRAMMAR_CHECKS
+    ]
+
+
 def lint_plan(text: str, *, today: date | None = None, root: Path | None = None) -> list[dict]:
     findings: list[dict] = []
     lines = text.splitlines()
@@ -272,7 +302,7 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
         if "".join(f" | {key}: {value}" for key, value in pairs) != tail:
             findings.append(_finding("ROW-SHAPE", number, "blocking", "tail has residue outside `| key: value` fields"))
         if len(pairs) != len({key for key, _ in pairs}):
-            findings.append(_finding("ROW-SHAPE", number, "blocking", "a tail field key repeats"))
+            findings.append(_finding("ROW-SHAPE", number, "blocking", "the row repeats a tail field key"))
         fields = dict(pairs)
         proof = fields.get("proof", "").strip()
         if not proof:

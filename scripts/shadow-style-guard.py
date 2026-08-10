@@ -95,7 +95,7 @@ def closing_menu(text):
 
 def _closing_marks(lines):
     """Where the closing menu's options sit, or nothing if it is not a menu."""
-    marks = [i for i, line in enumerate(lines) if OPTION.match(line)]
+    marks = _option_marks(lines)
     if not marks:
         return []
     if not _still_offering(_ending(lines, marks[-1])):
@@ -149,7 +149,7 @@ def _indent(line):
     return len(line) - len(line.lstrip())
 
 
-def _passage(lines, first):
+def _passage_start(lines, first):
     """The menu and what is presented with it, not everything above it.
 
     A drawing earns the pass by showing what the options ARE, so it has to be
@@ -170,7 +170,83 @@ def _passage(lines, first):
                 break
             crossed = True
         start -= 1
-    return "\n".join(lines[start:])
+    return start
+
+
+def _passage(lines, first):
+    return "\n".join(lines[_passage_start(lines, first):])
+
+
+def _fence_open(line):
+    """Return the delimiter for one conventional Markdown code-fence opener."""
+    stripped = line.lstrip(" \t")
+    if not stripped.startswith("```"):
+        return ""
+    delimiter = len(stripped) - len(stripped.lstrip("`"))
+    return "`" * delimiter
+
+
+def _fence_close(lines, start, delimiter):
+    for end in range(start + 1, len(lines)):
+        if lines[end].lstrip(" \t").strip() == delimiter:
+            return end
+    return None
+
+
+def _option_marks(lines):
+    """Option headings in prose, never A:/B: labels inside a real code fence."""
+    marks = []
+    index = 0
+    while index < len(lines):
+        delimiter = _fence_open(lines[index])
+        if delimiter:
+            closing = _fence_close(lines, index, delimiter)
+            if closing is not None:
+                index = closing + 1
+                continue
+        if OPTION.match(lines[index]):
+            marks.append(index)
+        index += 1
+    return marks
+
+
+def _complete_fence(lines):
+    """Whether these lines contain a nonempty, closed Markdown fence.
+
+    A bare triple-backtick substring is not a drawing. It might be inline prose,
+    an unclosed fence, or the opening token of a later unrelated code block.
+    """
+    for start, line in enumerate(lines):
+        delimiter = _fence_open(line)
+        if not delimiter:
+            continue
+        end = _fence_close(lines, start, delimiter)
+        if end is not None:
+            return any(line.strip() for line in lines[start + 1:end])
+    return False
+
+
+def _fence_beside_menu(lines, marks):
+    """A fence can explain a menu before, inside, or immediately after it.
+
+    The older substring check walked through the rest of the report, so a test
+    fence many paragraphs after a bare A/B bought the exemption. The forward
+    side stops at the first nonblank non-option-tail line: that is the point
+    where the reader has left the menu behind.
+    """
+    first, last = marks[0], marks[-1]
+    if _complete_fence(lines[_passage_start(lines, first):last + 1]):
+        return True
+    tail = _ending(lines, last)
+    while tail and not tail[0].strip():
+        tail = tail[1:]
+    delimiter = _fence_open(tail[0]) if tail else ""
+    if not delimiter:
+        return False
+    end = _fence_close(tail, 0, delimiter)
+    if end is not None:
+        return any(line.strip() for line in tail[1:end])
+    return False
 
 
 def violations(text):
@@ -179,7 +255,7 @@ def violations(text):
     if len({OPTION.match(lines[i]).group(1) for i in marks}) < 2:
         return []
     passage = _passage(lines, marks[0])
-    if "```" in passage or TABLE.search(passage):
+    if _fence_beside_menu(lines, marks) or TABLE.search(passage):
         return []
     return [
         "an A/B/C with no drawing, fenced block, or table beside it — "

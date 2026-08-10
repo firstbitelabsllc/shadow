@@ -36,6 +36,13 @@ _amp = importlib.util.module_from_spec(_AMP_SPEC)
 sys.modules.setdefault("shadow_accept_amp", _amp)
 _AMP_SPEC.loader.exec_module(_amp)
 
+_LINT_SPEC = importlib.util.spec_from_file_location(
+    "shadow_accept_lint", ROOT / "scripts" / "shadow-lint.py"
+)
+_lint = importlib.util.module_from_spec(_LINT_SPEC)
+sys.modules.setdefault("shadow_accept_lint", _lint)
+_LINT_SPEC.loader.exec_module(_lint)
+
 
 ROW_ID_RE = re.compile(r"^~[0-9a-z]{4}$")
 # Unanchored twin for scanning a `needs:` value, which holds several ids.
@@ -105,6 +112,27 @@ def _shell_operators(command: str) -> list[str]:
 
 class AcceptError(ValueError):
     """Fail closed; nothing was changed."""
+
+
+def enforce_row_grammar(plan_text: str, repo: Path) -> None:
+    """Refuse the exact row-law findings the canonical enforcer reports.
+
+    A plan can reach accept without a prior lint invocation.  In particular,
+    accept scans every line when it selects a row, so a malformed row outside
+    ``## Tasks`` must not be invisible here just because it is not the row the
+    caller requested.  Calling the enforcer's projection keeps one grammar
+    definition instead of two regex implementations that slowly disagree.
+    """
+    findings = _lint.row_grammar_findings(plan_text, root=repo)
+    if not findings:
+        return
+    summary = "; ".join(
+        f"{finding['check']} on line {finding['line']}: {finding['detail']}"
+        for finding in findings
+    )
+    raise AcceptError(
+        "the plan's row grammar blocks acceptance; run shadow lint first: " + summary
+    )
 
 
 def proof_argv(command: str) -> list[str]:
@@ -421,6 +449,32 @@ def completed_plan_text(
     return updated[: next_heading + 1] + proof_line + updated[next_heading + 1 :]
 
 
+def blocking_lint_findings(plan_text: str, root: Path) -> list[dict]:
+    """Return blockers the plan enforcer would reject after this flip.
+
+    Acceptance is the only automated writer of a completed task.  Checking
+    the exact candidate text here keeps it from committing a PLAN.md whose
+    grammar is already rejected, including a blocker introduced by its new
+    receipt.
+    """
+    return [
+        finding
+        for finding in _lint.lint_plan(plan_text, root=root)
+        if finding["severity"] == "blocking"
+    ]
+
+
+def enforce_plan_lint(plan_text: str, root: Path) -> None:
+    """Refuse a PLAN.md before accept can spend proof time or commit it."""
+    lint_blocks = blocking_lint_findings(plan_text, root)
+    if not lint_blocks:
+        return
+    checks = ", ".join(
+        f"{finding['check']} on line {finding['line']}" for finding in lint_blocks
+    )
+    raise AcceptError(f"the plan is blocked by shadow lint: {checks}; nothing was changed")
+
+
 def _receipt_stamps(plan_text: str, row_id: str, argv: list[str]) -> list[str]:
     expected = re.escape(shlex.join(argv))
     pattern = re.compile(
@@ -639,6 +693,8 @@ def main(argv: list[str] | None = None) -> int:
             plan_text = plan_bytes.decode("utf-8")
         except (_board.BoardError, AcceptError, OSError, UnicodeError) as exc:
             raise AcceptError(f"plan must be one committed authority before proof: {exc}") from exc
+        enforce_row_grammar(plan_text, repo)
+        enforce_plan_lint(plan_text, plan_path.parent)
         _, row_line, state, proof, needs = find_row(plan_text, row_id)
         claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
         if state == "completed":
@@ -740,6 +796,8 @@ def main(argv: list[str] | None = None) -> int:
             raise AcceptError(f"plan cannot be frozen after the proof: {exc}") from exc
         if fresh_token != plan_token:
             raise AcceptError("the committed project plan changed while the proof ran; retry")
+        enforce_row_grammar(plan_text, repo)
+        enforce_plan_lint(plan_text, plan_path.parent)
         _, _, fresh_state, fresh_proof, fresh_needs = find_row(plan_text, row_id)
         # Any state move during the run is somebody else's judgment about this
         # row — completed, or blocked because the work is not done. Overwriting
@@ -763,6 +821,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         updated = completed_plan_text(plan_text, row_id, argv_proof, stamp)
+        enforce_plan_lint(updated, plan_path.parent)
         completed_plan = _amp._parse(updated)
         completed_plan["claimed"] = set()
         resumes = _amp._candidate_ids(completed_plan)

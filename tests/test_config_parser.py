@@ -62,11 +62,11 @@ durability:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / ".git").mkdir()
-            (root / "shadow.yaml").write_text("version: 2\n", encoding="utf-8")
+            (root / "shadow.yaml").write_text("version: 1\n", encoding="utf-8")
             nested = root / "a" / "b"
             nested.mkdir(parents=True)
             self.assertEqual(shadow_config.find_config(nested), (root / "shadow.yaml").resolve())
-            self.assertEqual(shadow_config.load_config(nested)["version"], 2)
+            self.assertEqual(shadow_config.load_config(nested)["version"], 1)
 
     def test_unknown_keys_are_available_to_the_later_schema_validator(self) -> None:
         parsed = shadow_config.parse_config("provider: forbidden-later\n", Path("fixture.yaml"))
