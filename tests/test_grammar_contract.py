@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AGENT = ROOT / "AGENT.md"
 GRAMMAR = ROOT / "docs" / "reference" / "grammar.md"
 SKILL = ROOT / "SKILL.md"
+GOAL_SKILL = ROOT / "skills" / "goal" / "SKILL.md"
 
 
 class GrammarContractTests(unittest.TestCase):
@@ -58,6 +59,23 @@ class GrammarContractTests(unittest.TestCase):
             "read-only",
         ):
             self.assertIn(anchor, text, anchor)
+
+    def test_goal_compiler_keeps_launchers_bounded_and_plan_owned(self) -> None:
+        root_skill = SKILL.read_text(encoding="utf-8")
+        goal_skill = GOAL_SKILL.read_text(encoding="utf-8")
+        normalized_goal = " ".join(goal_skill.split())
+
+        self.assertIn("`skills/goal/SKILL.md` is the one owner", root_skill)
+        self.assertNotIn("Outcome: <plain result>", root_skill)
+        for anchor in (
+            "100-200 word launcher",
+            "Planning is not a stopping condition",
+            "finite mechanical finish line",
+            "one relevant human authority boundary or none",
+            "Reversible work is execution-authorized by default",
+        ):
+            self.assertIn(anchor, normalized_goal, anchor)
+        self.assertNotIn("do not touch <prohibited paths>", goal_skill)
 
     def test_only_shadow_is_an_invented_name(self) -> None:
         # Standard vocabulary only: the old fun terms must not resurface in law.
