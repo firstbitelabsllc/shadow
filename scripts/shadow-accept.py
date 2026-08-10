@@ -28,6 +28,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+from shadow_cmd_proof import script_operand_issue  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_accept_amp", ROOT / "scripts" / "shadow-amp.py"
@@ -717,6 +718,12 @@ def main(argv: list[str] | None = None) -> int:
         git_completed(repo, "worktree", "prune", timeout=15)
         review = create_lead_review_worktree(repo, pool, row_id.lstrip("~"), head)
         try:
+            script_issue = script_operand_issue(
+                argv_proof,
+                review / plan_relative.parent,
+            )
+            if script_issue:
+                raise AcceptError(f"the proof's {script_issue}; nothing was changed")
             passed = lead_review_passes(
                 review,
                 argv_proof,
