@@ -83,7 +83,7 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   # untouched, an unmarked copy is adopted rather than duplicated, and
   # `shadow goal --remove` takes it back out.
   python3 "${ROOT}/scripts/shadow-host-directives.py" \
-    || echo "note:      standing goal not written; run: shadow goal --install" >&2
+    || echo "note:      some hosts did not take the standing goal — see the failed: lines above; fix and run: shadow goal --install" >&2
 fi
 
 case ":${PATH}:" in

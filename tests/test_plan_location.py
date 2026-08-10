@@ -16,6 +16,7 @@ So: enumerate project roots, never walk directories.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -27,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from browser.server import (  # noqa: E402
-    declared_plan_globs, discover_plans, is_plan_root, repo_plans,
+    declared_plan_globs, discover_plans, is_plan_root, live_plans, repo_plans,
 )
 
 PLAN = """# {name}
@@ -357,3 +358,341 @@ class ADuplicateNeverBecomesASecondRow(unittest.TestCase):
             for hidden in (".worktrees/pool/PLAN.md", "node_modules/pkg/PLAN.md", "dist/PLAN.md"):
                 self.assertNotIn(hidden, paths,
                                  f"discovery read a copy under a pruned directory: {hidden}")
+
+
+class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
+    """The demotion can live on the copy no rule elects.
+
+    Measured on this machine: `resplit-ios/PLAN.md` wins election on every
+    structural rule — its directory name matches its origin, `.git` is a real
+    directory, it is a portfolio-root child. Its "non-executable archive
+    shell ... do not revive" banner exists ONLY on the divergent copy at
+    `resplit-ios-deploy-watcher`, which nothing elects:
+
+        grep -c "non-executable" resplit-ios/PLAN.md                 -> 0
+        grep -c "non-executable" resplit-ios-deploy-watcher/PLAN.md  -> 1
+
+    So the board reads the undemoted twin as the project's authority while the
+    verdict sits in a file it never opens. A check that reads only the elected
+    file cannot see this; the verdict has to be sought across every instance
+    of a dedup key, which the key already enumerates.
+    """
+
+    BANNER = ("**[verified 2026-07-29: HISTORICAL ROUTING CONFIRMED — this root plan remains a "
+              "non-executable archive shell. do not revive or update the historical task rows "
+              "below.]**")
+
+    def _repo(self, root: Path, name: str, origin: str, banner: str = "") -> Path:
+        repo = root / name
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "PLAN.md").write_text(
+            f"# Demo\n\n{banner}\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n"
+            "## Tasks\n\n### M\n- [pending] a row ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n"
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE seeded\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
+        return repo
+
+    def test_a_veto_on_an_unelected_copy_demotes_the_elected_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")               # elected, no banner
+            self._repo(root, "thing-watcher", "git@github.com:acme/thing.git", self.BANNER)
+
+            found = discover_plans(root)
+            self.assertEqual(len(found), 1, "dedup regressed")
+            record = found[0]
+            self.assertTrue(record.get("archived"),
+                            "the elected plan renders as live authority while a copy of it "
+                            "says 'non-executable archive shell, do not revive'")
+            self.assertIn("non-executable", record.get("archive_veto", "").lower())
+
+    def test_a_plan_with_no_veto_anywhere_stays_authority(self) -> None:
+        # A guard that demotes everything is as useless as one that never fires.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            self._repo(root, "thing-watcher", "git@github.com:acme/thing.git")
+            record = discover_plans(root)[0]
+            self.assertFalse(record.get("archived"), "a healthy plan was demoted")
+
+    def test_the_veto_is_found_on_the_elected_file_too(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git", self.BANNER)
+            self.assertTrue(discover_plans(root)[0].get("archived"))
+
+    def test_the_word_archive_in_ordinary_prose_does_not_demote(self) -> None:
+        # `docs/plan-archive/` and "archive the milestone" are everywhere in a
+        # healthy plan. Only a self-demotion counts.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git",
+                       "The shipping commit moves the block to docs/plan-archive/<slug>.md.")
+            self.assertFalse(discover_plans(root)[0].get("archived"))
+
+    def test_a_demotion_phrase_aimed_at_something_else_does_not_demote(self) -> None:
+        # The phrases are true sentences about other things in a live plan: the
+        # milestone retires a service, or names a component for what it is. A
+        # verdict is a plan demoting ITSELF, so the phrase only counts when its
+        # subject is this plan.
+        for prose in (
+            "Do not revive the old deploy service — the watcher replaced it.",
+            "The deploy watcher is a historical shell we delete in M18.",
+            "Cut over from the archive shell that fronts the legacy bucket.",
+            # "this <thing> plan" is a plan of work, not this file: a row that
+            # holds one back is scheduling, not a self-verdict.
+            "Do not update this deployment plan until the watcher cuts over.",
+            "This rollout plan is a historical shell of the M12 sequence.",
+        ):
+            with self.subTest(prose=prose), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._repo(root, "thing", "git@github.com:acme/thing.git", prose)
+                record = discover_plans(root)[0]
+                self.assertFalse(record.get("archived"),
+                                 f"a live plan was demoted by prose about something else: "
+                                 f"{record.get('archive_veto')!r}")
+
+    def test_a_symlinked_copy_cannot_demote_from_outside_the_portfolio(self) -> None:
+        # A root PLAN.md is admitted on is_file(), which a symlink satisfies,
+        # so a sibling checkout could point its plan anywhere and have that
+        # content decide authority. read_plan refuses a symlinked plan; the
+        # veto reader has to refuse it too, or out-of-boundary text demotes a
+        # plan the board would otherwise render.
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            watcher = self._repo(root, "thing-watcher", "git@github.com:acme/thing.git")
+            planted = Path(outside) / "PLAN.md"
+            planted.write_text(f"# Demo\n\n{self.BANNER}\n", encoding="utf-8")
+            (watcher / "PLAN.md").unlink()
+            (watcher / "PLAN.md").symlink_to(planted)
+
+            record = discover_plans(root)[0]
+            self.assertFalse(record.get("archived"),
+                             "a file outside the portfolio decided the plan's authority: "
+                             f"{record.get('archive_veto')!r}")
+
+    def test_a_vetoed_plan_never_reaches_the_browser(self) -> None:
+        # Annotating the record is not a demotion: both projections iterate the
+        # served list without reading `archived`, so a card the wire still
+        # carries keeps its live briefing and its decision buttons.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            self._repo(root, "thing-watcher", "git@github.com:acme/thing.git", self.BANNER)
+            self._repo(root, "other", "git@github.com:acme/other.git")
+
+            demoted = [record for record in discover_plans(root) if record.get("archived")]
+            self.assertEqual([record["path"] for record in demoted], ["thing/PLAN.md"],
+                             "veto regressed")
+            served = live_plans(root)
+            self.assertEqual([record["path"] for record in served], ["other/PLAN.md"],
+                             "the board was served a plan a copy of it demotes")
+
+    def test_a_healthy_portfolio_is_served_whole(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            self._repo(root, "other", "git@github.com:acme/other.git")
+            self.assertEqual(len(live_plans(root)), 2)
+
+
+class TheTerminalObeysTheVetoToo(unittest.TestCase):
+    """`shadow status` is the other surface that answers "what is authority".
+
+    Serving the browser from `live_plans` closed one path. The CLI kept reading
+    `discover_plans`, so the same archive shell the wire refused to send was
+    still printed at a terminal as a current plan, and `--in-flight` still
+    handed out its claimed rows for recovery. That is the resplit-ios split
+    re-created one surface over, which is worse than never having filtered: the
+    two answers now disagree.
+    """
+
+    STATUS = ROOT / "scripts" / "shadow-status.py"
+    BANNER = ("**[verified 2026-07-29: HISTORICAL ROUTING CONFIRMED — this root plan remains a "
+              "non-executable archive shell. do not revive or update the historical task rows "
+              "below.]**")
+
+    def _repo(self, root: Path, name: str, origin: str, banner: str = "") -> Path:
+        repo = root / name
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "PLAN.md").write_text(
+            f"# {name}\n\n{banner}\n\n## Brief\n\n- Project: {name}\n- Mode: ship\n\n"
+            "## Tasks\n\n### M\n"
+            f"- [in_progress] a claimed row in {name} ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n"
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE seeded\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
+        return repo
+
+    def _status(self, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(self.STATUS), "--root", str(root), *args],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+
+    def _portfolio(self, root: Path) -> None:
+        self._repo(root, "shell", "git@github.com:acme/shell.git", self.BANNER)
+        self._repo(root, "live", "git@github.com:acme/live.git")
+
+    def test_an_archive_shell_is_not_printed_as_a_current_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._portfolio(root)
+            result = self._status(root, "--json", "--all")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            served = json.loads(result.stdout)
+            paths = [row.get("path") for row in served["plans"] + served["v4_plans"]]
+            self.assertIn("live/PLAN.md", paths, "the healthy plan stopped rendering")
+            self.assertNotIn("shell/PLAN.md", paths,
+                             "the CLI quotes a plan the wire refuses to send")
+
+    def test_a_claim_inside_an_archive_shell_is_not_handed_to_a_successor(self) -> None:
+        # The worst form of the split: recovery reads `--in-flight` to find out
+        # what to pick up, so a row from a file that says "do not revive" is
+        # not merely noise: it is work actively dispatched against a verdict.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._portfolio(root)
+            result = self._status(root, "--in-flight", "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plans = {row["plan"] for row in json.loads(result.stdout)["rows"]}
+            self.assertEqual(plans, {"live/PLAN.md"})
+
+    def test_the_demotion_is_inspectable_rather_than_silent(self) -> None:
+        # A plan that vanishes with no reason is the ambiguity `--shadowed`
+        # exists to end, so the veto has to answer there in the plan's own words.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._portfolio(root)
+            result = self._status(root, "--shadowed", "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rows = {row["path"]: row["reason"] for row in json.loads(result.stdout)["rows"]}
+            self.assertIn("shell/PLAN.md", rows,
+                          "a demoted plan is simply gone, with nothing naming the phrase")
+            self.assertIn("non-executable archive shell", rows["shell/PLAN.md"].lower())
+
+    def test_a_directory_holding_only_a_shell_says_why_it_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "shell", "git@github.com:acme/shell.git", self.BANNER)
+            result = self._status(root, "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["v4_plans"], [])
+            self.assertIn("non-executable archive shell", result.stderr.lower())
+
+
+class ClassificationIsDeterministic(unittest.TestCase):
+    """The same portfolio must classify the same way, twice and anywhere.
+
+    Two things could make it drift, and both were measured on this machine
+    rather than imagined:
+
+    Filesystem iteration order. `pilot-puppy` sorts BEFORE `shadow` and shares
+    its dedup key exactly — same origin, same repo-relative path — so a
+    first-seen winner would elect a plan that contains the string "shadow"
+    zero times and claims authority over the whole portfolio. The candidate
+    sort's `repo.name != _origin_repo_name(...)` term is what stops that, and
+    it is a set-membership test, so listing order cannot reach it.
+
+    Modification time. `git checkout` and worktree creation rewrite mtimes
+    wholesale — `resplit-ios/PLAN.md` reads 2026-06-28 while the file is
+    unmodified on main — so mtime is a fact about the last checkout, never
+    about liveness. It may break ties; it must never decide classification.
+    """
+
+    PLAN = ("# T\n\n## Brief\n\n- Project: t\n- Mode: ship\n\n## Tasks\n\n### M\n"
+            "- [pending] a row ~aa11 | proof: cmd true\n"
+            "- [pending] ships ~bb22 (DoD) | proof: read x -> y\n\n"
+            "## Progress\n\n- 2026-08-09T00:00:00Z NOTE seeded\n")
+
+    def _build(self, root: Path, order: list[str], mtimes: dict[str, int]) -> None:
+        """One fixture, built in a caller-chosen order with chosen mtimes."""
+        for name in order:
+            repo = root / name
+            repo.mkdir(parents=True)
+            (repo / "PLAN.md").write_text(self.PLAN, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                            "git@github.com:acme/thing.git"], check=True)
+            stamp = mtimes[name]
+            os.utime(repo / "PLAN.md", (stamp, stamp))
+
+    def _observe(self, root: Path) -> list[tuple]:
+        """Everything a reader could see, made root-relative."""
+        return [
+            (r["path"], r.get("shadowed_by"), r.get("shadow_reason"),
+             bool(r.get("archived")))
+            for r in discover_plans(root, include_shadowed=True)
+        ]
+
+    def test_listing_order_and_mtimes_cannot_change_the_answer(self) -> None:
+        forward = ["thing", "thing-copy", "another-copy"]
+        backward = list(reversed(forward))
+        # Permuted so the mtime ranking is inverted between the two runs.
+        early = {"thing": 1_600_000_000, "thing-copy": 1_700_000_000, "another-copy": 1_650_000_000}
+        late = {"thing": 1_700_000_000, "thing-copy": 1_600_000_000, "another-copy": 1_650_000_000}
+
+        observations = []
+        for order, mtimes in ((forward, early), (backward, late),
+                              (backward, early), (forward, late)):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._build(root, order, mtimes)
+                observations.append(self._observe(root))
+                observations.append(self._observe(root))  # second run, same root
+
+        first = observations[0]
+        for index, observed in enumerate(observations[1:], start=1):
+            self.assertEqual(observed, first,
+                             f"run {index} classified differently — order or mtime reached the answer")
+
+    def test_the_canonical_name_decides_and_not_the_newest_file(self) -> None:
+        # The measured pilot-puppy case: the directory whose name matches the
+        # origin wins even when a sibling's plan is newer. Deleting that term
+        # from the sort is what turns this red.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "zzz-newer-copy"],
+                        {"thing": 1_600_000_000, "zzz-newer-copy": 1_900_000_000})
+            rendered = [r for r in discover_plans(root, include_shadowed=True)
+                        if not r.get("shadowed_by")]
+            self.assertEqual(len(rendered), 1)
+            self.assertTrue(rendered[0]["path"].startswith("thing/"),
+                            f"the newer copy won: {rendered[0]['path']}")
+
+    def test_every_suppressed_plan_is_reported_with_the_rule_that_suppressed_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "thing-copy"],
+                        {"thing": 1_600_000_000, "thing-copy": 1_600_000_000})
+            shadowed = [r for r in discover_plans(root, include_shadowed=True)
+                        if r.get("shadowed_by")]
+            self.assertEqual(len(shadowed), 1)
+            self.assertTrue(shadowed[0]["shadow_reason"],
+                            "a plan was suppressed with no reason a reader could act on")
+            self.assertTrue(shadowed[0]["shadowed_by"].startswith("thing/"))
+
+    def test_the_flag_off_output_is_unchanged(self) -> None:
+        # The migration must be a no-op for anyone not asking for the extra view.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "thing-copy"],
+                        {"thing": 1_600_000_000, "thing-copy": 1_600_000_000})
+            self.assertEqual(discover_plans(root),
+                             [r for r in discover_plans(root, include_shadowed=True)
+                              if not r.get("shadowed_by")])
+
+    def test_no_reason_string_leaks_an_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build(root, ["thing", "thing-copy"],
+                        {"thing": 1_600_000_000, "thing-copy": 1_600_000_000})
+            for record in discover_plans(root, include_shadowed=True):
+                for field in ("path", "shadowed_by", "shadow_reason"):
+                    value = record.get(field) or ""
+                    self.assertNotIn(str(root), value,
+                                     f"{field} leaked an absolute path, so the answer is machine-specific")
