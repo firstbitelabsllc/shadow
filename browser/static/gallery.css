@@ -1,0 +1,7 @@
+/* Gallery-only layout. Served as a file because every response carries
+   `style-src 'self'` with no nonce or hash — an inline <style> block would be
+   discarded by the browser and the gallery would lose its grid. */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem; padding: 1.5rem; }
+.gallery-cell h3 { margin: 0 0 0.5rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+.gallery-cell .stage { border: 1px dashed rgba(128,128,128,0.35); border-radius: 12px; padding: 0.75rem; }
+.gallery-note { padding: 0 1.5rem; opacity: 0.75; max-width: 60rem; }
