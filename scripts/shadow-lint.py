@@ -62,6 +62,13 @@ def _finding(check: str, line: int, severity: str, detail: str) -> dict:
 # ran. Validating the class word alone cannot see that; the argv can.
 SHELL_PUNCTUATION: Final = "();<>|&"
 SHELLS: Final = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
+# `cmd node scripts/x.mjs` resolves argv[0] to a real `node` and stops there, so a
+# proof naming a script THAT DOES NOT EXIST lints clean and fails only when accept
+# runs it. That is the same rotted receipt PROOF-ARGV0 exists to catch, one token
+# to the right. Three such proofs reached a released plan before this check.
+INTERPRETERS: Final = frozenset({
+    "node", "nodejs", "python", "python3", "ruby", "perl", "php", "deno", "bun",
+})
 
 
 def _shell_script_index(argv: list[str]) -> int:
@@ -137,6 +144,34 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
         return [_finding("PROOF-ARGV0", number, "warning",
                          f"`{argv[0]}` is not on this machine's PATH, so this proof cannot run "
                          "here — install it or name an in-tree path")]
+    findings = _check_script_argument(argv, number, root)
+    if findings:
+        return findings
+    return []
+
+
+def _check_script_argument(argv: list[str], number: int, root: Path | None) -> list[dict]:
+    """The script an interpreter is told to run must exist, same as argv[0].
+
+    Scoped to the SCRIPT position on purpose. Checking every path-shaped token
+    would flag `--out build/report.json`, an output the proof is meant to
+    CREATE, and turn a legitimate proof into a false accusation. The script is
+    the first non-flag token carrying a separator: `-m unittest` names a module
+    and is skipped, `--json` is a flag, `scripts/x.mjs` is a path claim the
+    repository can answer.
+    """
+    if root is None or argv[0] not in INTERPRETERS:
+        return []
+    for token in argv[1:]:
+        if token.startswith("-"):
+            continue
+        if "/" not in token:
+            return []  # a module or subcommand, not a path this file can answer
+        if _resolves(token, root):
+            return []
+        return [_finding("PROOF-SCRIPT", number, "blocking",
+                         f"`{argv[0]}` is told to run `{token}`, which is not in this "
+                         "repository, so this proof can never pass")]
     return []
 
 

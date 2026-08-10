@@ -579,6 +579,35 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
         # Guessing would turn an unknowable into a false accusation.
         self.assertNotIn("PROOF-ARGV0", _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md")))
 
+    def test_interpreter_script_argument_must_exist(self):
+        # `cmd node scripts/x.mjs` resolved only `node` and stopped, so a proof
+        # naming a script that does not exist linted clean and failed only when
+        # accept ran it. Three such proofs reached a released plan.
+        text = self._plan("cmd node scripts/operating-reset/nope.mjs")
+        self.assertIn("PROOF-SCRIPT", _checks(text, root=ROOT))
+        self.assertEqual(
+            ["blocking"],
+            [f["severity"] for f in lint.lint_plan(text, root=ROOT) if f["check"] == "PROOF-SCRIPT"])
+
+    def test_interpreter_script_that_exists_is_clean(self):
+        self.assertNotIn("PROOF-SCRIPT", _checks(self._plan("cmd python3 scripts/shadow-lint.py PLAN.md"), root=ROOT))
+
+    def test_module_and_flag_arguments_are_not_script_claims(self):
+        # `-m unittest` names a module, not a path; flags are not scripts. Neither
+        # is answerable by the repository, so neither may be accused.
+        self.assertNotIn("PROOF-SCRIPT", _checks(self._plan("cmd python3 -m unittest discover"), root=ROOT))
+        self.assertNotIn("PROOF-SCRIPT", _checks(self._plan("cmd node --version"), root=ROOT))
+
+    def test_output_paths_are_never_treated_as_scripts(self):
+        # `--out build/report.json` is an output the proof CREATES. Flagging it
+        # would turn a working proof into a false accusation.
+        self.assertNotIn(
+            "PROOF-SCRIPT",
+            _checks(self._plan("cmd python3 scripts/shadow-lint.py --out build/does-not-exist.json"), root=ROOT))
+
+    def test_non_interpreter_argv0_keeps_its_own_rule(self):
+        self.assertNotIn("PROOF-SCRIPT", _checks(self._plan("cmd git status"), root=ROOT))
+
     def test_an_ordinary_proof_is_untouched(self) -> None:
         self.assertNotIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd true")))
         self.assertNotIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd true")))
