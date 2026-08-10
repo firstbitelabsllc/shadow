@@ -472,6 +472,21 @@ class TheGalleryShowsEveryStateHonestly(unittest.TestCase):
         self.assertEqual(producible - covered, set(),
                          "a state the board can show has no fixture — the catalog is incomplete")
 
+    def test_normal_state_fixtures_lint_clean_so_cards_render_normally(self) -> None:
+        # A blocking lint finding puts the red error treatment on the card, so
+        # a "normal" state fixture that lints red is showing the WRONG state.
+        # (Found by review: completed rows lacked their PROOF receipts.)
+        for record in server.gallery_records():
+            if record["expected_state"] in {"working", "ready", "blocked", "resting"}:
+                self.assertEqual(
+                    record["lint"]["blocking"], 0,
+                    f"fixture {record['gallery_name']} lints red and would render as an error card")
+
+    def test_the_gallery_page_carries_no_inline_style_the_csp_would_discard(self) -> None:
+        html = (server.STATIC / "gallery.html").read_text(encoding="utf-8")
+        self.assertNotIn("<style", html,
+                         "inline styles are discarded by style-src 'self'; use style.css")
+
     def test_the_v3_rich_brief_has_a_fixture_with_choices(self) -> None:
         rich = [r for r in server.gallery_records() if r["briefing"]]
         self.assertTrue(rich, "no fixture exercises the v3 rich brief card")
