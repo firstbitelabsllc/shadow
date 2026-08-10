@@ -10,8 +10,9 @@ a demo; this file exists so the run can be repeated until it is boringly
 green.
 
 What one gauntlet run proves, in order:
-1.  discovery: `shadow status` sees each real plan once — the worktree ghost
-    copy of a repo collapses into it, the pre-grammar essay does not crash it;
+1.  discovery: `shadow status` sees each real plan once — a second checkout of
+    a repo, sitting in the portfolio beside it, collapses into it, and the
+    pre-grammar essay does not crash it;
 2.  projection: the browser's plan API renders every mock plan with its true
     board state;
 3.  dispatch: seat A claims a row with `shadow throw`; the claim commit
@@ -141,8 +142,11 @@ class TheGauntlet(unittest.TestCase):
             # --- the portfolio: two real repos, one ghost, one pre-grammar ---
             alpha, alpha_bare = self._mint_repo(home, "alpha", 1)
             beta, _ = self._mint_repo(home, "beta", 2)
-            ghost = dev / "alpha-worktrees" / "stale-lane"
-            ghost.mkdir(parents=True)
+            # The ghost must sit where discovery actually looks: a direct
+            # child of the portfolio owning its own root PLAN.md. Buried a
+            # level down it is never enumerated, and step 1 would pass even if
+            # deduplication regressed entirely.
+            ghost = dev / "alpha-stale-lane"
             git(home, "clone", "-q", str(alpha_bare), str(ghost))
             legacy = dev / "old-notes"
             legacy.mkdir(parents=True)
@@ -151,10 +155,19 @@ class TheGauntlet(unittest.TestCase):
 
             # --- 1. discovery: each repo once; the ghost collapses ---
             plans = server.discover_plans(dev)
+            self.assertTrue(
+                (ghost / "PLAN.md").is_file(),
+                "the ghost must own a plan discovery could have counted twice",
+            )
             projects = sorted(p["project"] for p in plans)
             self.assertEqual(
                 projects, ["alpha", "beta", "old-notes"],
                 f"discovery must see each repo exactly once, got {projects}",
+            )
+            paths = {p["project"]: p["path"] for p in plans}
+            self.assertEqual(
+                paths["alpha"], "alpha/PLAN.md",
+                "the canonical checkout must win over its stale twin",
             )
 
             # --- 2. projection: true states, pre-grammar named honestly ---
