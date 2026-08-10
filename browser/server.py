@@ -272,7 +272,15 @@ def gallery_records() -> list[dict[str, Any]]:
 # true sentences about something else. So the phrase only counts when it is
 # bound, inside one sentence, to a subject naming THIS plan — the difference
 # between describing an archive and being one.
-_VETO_SELF = r"this(?:\s+[a-z][a-z-]*){0,3}\s+(?:plan|file|document)\b"
+#
+# The qualifiers between "this" and the noun are a closed list, not any word:
+# "this deployment plan" or "this rollout plan" names a plan of work, and a row
+# saying "do not update this deployment plan yet" is scheduling, not a verdict.
+# Only a phrase that can mean the file being read counts.
+_VETO_SELF = (
+    r"this\s+(?:root\s+|top-level\s+|entire\s+|whole\s+|repo(?:sitory)?\s+"
+    r"|milestone\s+|shadow\s+)*(?:plan(?:\.md)?|file|document)\b"
+)
 _VETO_DEMOTION = (
     r"non-executable(?:\s+archive)?(?:\s+shell)?|archive shell|historical shell"
     r"|do not revive|do not update"

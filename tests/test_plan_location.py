@@ -440,6 +440,10 @@ class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
             "Do not revive the old deploy service — the watcher replaced it.",
             "The deploy watcher is a historical shell we delete in M18.",
             "Cut over from the archive shell that fronts the legacy bucket.",
+            # "this <thing> plan" is a plan of work, not this file: a row that
+            # holds one back is scheduling, not a self-verdict.
+            "Do not update this deployment plan until the watcher cuts over.",
+            "This rollout plan is a historical shell of the M12 sequence.",
         ):
             with self.subTest(prose=prose), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
