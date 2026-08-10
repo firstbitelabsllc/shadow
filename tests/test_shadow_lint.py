@@ -525,3 +525,39 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
     def test_an_ordinary_proof_is_untouched(self) -> None:
         self.assertNotIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd true")))
         self.assertNotIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd true")))
+
+
+class ThisRepositorysOwnPlanSurvivesTheGate(unittest.TestCase):
+    """The regression that would have turned every CI matrix job red.
+
+    argv0 resolution first consulted `shutil.which` and blocked on a miss.
+    `PLAN.md` carries `proof: cmd shadow status ...`, and the workflow checks
+    out the repository without installing `shadow` — so the gate would have
+    failed on a plan that is fine, everywhere except a developer's laptop.
+
+    Pinned against the real file the gate runs on, with a root supplied, which
+    is how `main()` calls it. A synthetic fixture would not have caught it.
+    """
+
+    def test_the_real_plan_has_no_blocking_finding(self) -> None:
+        findings = lint.lint_plan((ROOT / "PLAN.md").read_text(encoding="utf-8"), root=ROOT)
+        blocking = [f for f in findings if f["severity"] == "blocking"]
+        self.assertEqual(blocking, [], f"the gate would reject this repository's own plan: {blocking}")
+
+    def test_no_finding_depends_on_what_is_installed(self) -> None:
+        # An empty PATH is the CI runner at its most bare. Whatever lint says
+        # about this plan, it must say the same thing there — otherwise the
+        # verdict is about the machine, not the plan.
+        import os
+        plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
+        before = {(f["check"], f["line"], f["severity"]) for f in lint.lint_plan(plan, root=ROOT)}
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = ""
+        try:
+            after = {(f["check"], f["line"], f["severity"]) for f in lint.lint_plan(plan, root=ROOT)}
+        finally:
+            os.environ["PATH"] = saved
+        blocking_before = {f for f in before if f[2] == "blocking"}
+        blocking_after = {f for f in after if f[2] == "blocking"}
+        self.assertEqual(blocking_before, blocking_after,
+                         "the gate's exit code changes with the machine's PATH")
