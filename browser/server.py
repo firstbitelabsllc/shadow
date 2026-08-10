@@ -293,12 +293,27 @@ def _board_plan_record(
     locator = _root_board.public_plan_locator(plan)
     text = ""
     parsed = None
+    stale_commits = _root_board.local_default_behind(plan)
+    if stale_commits:
+        record = record_from_text("", locator, entity["project"])
+        record["contract_error"] = (
+            f"The registered entity checkout is {stale_commits} commit(s) behind "
+            "its cached origin default."
+        )
+        record["stale"] = True
+        record["broken"] = True
+        record["board"]["state"] = "broken"
+    else:
+        record = None
     try:
-        if not _root_board.regular_plan(plan):
+        if record is not None:
+            pass
+        elif not _root_board.regular_plan(plan):
             raise BrowserError("registered entity plan is missing, unreadable, or a symlink")
-        text = read_plan(plan)
-        parsed = shadow_amp._parse(text)
-        record = record_from_text(text, locator, entity["project"])
+        else:
+            text = read_plan(plan)
+            parsed = shadow_amp._parse(text)
+            record = record_from_text(text, locator, entity["project"])
     except (BrowserError, OSError, UnicodeError, ValueError):
         record = record_from_text("", locator, entity["project"])
         record["contract_error"] = "The registered entity plan is missing or unreadable."
@@ -734,25 +749,69 @@ def discover_plans(
         origin, root_relative = _root_board.plan_identity_parts(repo / "PLAN.md")
         prefix = Path(root_relative).parent
         identities[repo] = (origin, prefix)
+
+    # Elect the root authority before reading any Brief. A losing duplicate's
+    # bytes are not a fallback parser input: malformed or stale copies may be
+    # inspected as suppressed paths, but only the registered pointer or the
+    # deterministic elected checkout declares nested plans.
+    canonical_roots: dict[str, Path] = {}
+    root_staleness: dict[str, int] = {}
+    for repo in candidates:
+        origin, prefix = identities[repo]
+        root_relative = (prefix / "PLAN.md").as_posix()
         root_identity = _root_board.logical_entity_id(origin, root_relative)
-        if root_identity in (retired_registered or set()):
+        canonical_roots.setdefault(
+            root_identity, registered.get(root_identity, repo / "PLAN.md")
+        )
+    for identity, source in canonical_roots.items():
+        root_staleness[identity] = _root_board.local_default_behind(source)
+
+    for repo in candidates:
+        origin, prefix = identities[repo]
+        root_relative = (prefix / "PLAN.md").as_posix()
+        root_identity = _root_board.logical_entity_id(origin, root_relative)
+        if (
+            root_identity in (retired_registered or set())
+            or root_staleness.get(root_identity, 0)
+        ):
             plans_by_repo[repo] = [repo / "PLAN.md"]
         else:
             plans_by_repo[repo] = repo_plans(
                 repo,
-                declaration_plan=registered.get(root_identity),
+                declaration_plan=canonical_roots[root_identity],
             )
 
     instances: dict[tuple[str, str], list[Path]] = {}
     for repo in candidates:
         origin, prefix = identities[repo]
+        root_identity = _root_board.logical_entity_id(
+            origin, (prefix / "PLAN.md").as_posix()
+        )
         for path in plans_by_repo[repo]:
             logical_relative = (prefix / path.relative_to(repo)).as_posix()
             instances.setdefault(
                 (origin, logical_relative), []).append(path)
 
+    # The veto is identity-wide, but its bounded byte scan happens once per
+    # logical plan. Repeating the same all-copies scan for every ghost makes a
+    # portfolio with N duplicate checkouts cost O(N^2) reads.
+    veto_receipts: dict[tuple[str, str], dict[str, Any] | None] = {}
+    for key, paths in instances.items():
+        identity = _root_board.logical_entity_id(*key)
+        if identity in (retired_registered or set()):
+            veto_receipts[key] = None
+            continue
+        veto_paths = list(paths)
+        registered_plan = registered.get(identity)
+        if registered_plan is not None and registered_plan not in veto_paths:
+            veto_paths.append(registered_plan)
+        veto_receipts[key] = _archive_veto_receipt(veto_paths)
+
     for repo in candidates:
         origin, prefix = identities[repo]
+        root_identity = _root_board.logical_entity_id(
+            origin, (prefix / "PLAN.md").as_posix()
+        )
         for path in plans_by_repo[repo]:
             relative = path.relative_to(repo)
             key = (origin, (prefix / relative).as_posix())
@@ -778,26 +837,35 @@ def discover_plans(
                 and Path(os.path.abspath(path)) != registered_plan
                 else None
             )
-            veto_receipt = None
-            veto = None
-            if registered_override is not None and not registered_retirement:
-                veto_paths = list(instances.get(key, [path]))
-                if registered_plan not in veto_paths:
-                    veto_paths.append(registered_plan)
-                veto_receipt = _archive_veto_receipt(veto_paths)
-                veto = veto_receipt["match"] if veto_receipt else None
-            # Deduplicate before reading. A broken ghost checkout must not veto
-            # the healthy canonical copy that already won this logical key.
-            if key in seen and not include_shadowed:
+            veto_receipt = veto_receipts.get(key)
+            veto = veto_receipt["match"] if veto_receipt else None
+            # Deduplicate before parsing. A losing copy contributes only its
+            # bounded path and identity-wide veto; its Brief cannot widen
+            # discovery or poison an inspection request.
+            if key in seen:
+                if include_shadowed:
+                    display = path.relative_to(root).as_posix()
+                    record = {
+                        "path": display,
+                        "shadowed_by": seen[key],
+                        "shadow_reason": f"same repository as {seen[key]}",
+                    }
+                    if capture_tokens:
+                        record["_logical_entity"] = identity
+                    shadowed.append(record)
                 continue
             if len(seen) >= MAX_PLANS:
                 raise BrowserError(
                     f"portfolio exposes more than {MAX_PLANS} logical plans; "
                     "close, archive, or split the import scope"
                 )
+            display = path.relative_to(root).as_posix()
+            stale_commits = root_staleness.get(root_identity, 0)
             try:
-                if registered_retirement:
-                    display = path.relative_to(root).as_posix()
+                # A self-demotion is an explicit identity-wide veto. It wins
+                # over freshness because keeping an old live board entity for
+                # an archived plan would revive the exact authority it retired.
+                if registered_retirement or veto:
                     record = {
                         "path": display,
                         "archived": True,
@@ -805,20 +873,20 @@ def discover_plans(
                     }
                     if capture_tokens:
                         record["_logical_entity"] = identity
+                elif stale_commits:
+                    record = {
+                        "path": display,
+                        "stale": True,
+                        "stale_commits": stale_commits,
+                    }
+                    if capture_tokens:
+                        record["_source_stale_commits"] = stale_commits
                 elif registered_override is not None:
-                    display = path.relative_to(root).as_posix()
-                    if veto:
-                        record = {
-                            "path": display,
-                            "archived": True,
-                            "archive_veto": PUBLIC_ARCHIVE_VETO,
-                        }
-                    else:
-                        record = record_from_text(
-                            read_plan(registered_override),
-                            display,
-                            path.parent.name,
-                        )
+                    record = record_from_text(
+                        read_plan(registered_override),
+                        display,
+                        path.parent.name,
+                    )
                     # Internal only. Import turns it into a canonical seed and
                     # inspection turns it into a public suppression receipt.
                     if capture_tokens:
@@ -842,25 +910,8 @@ def discover_plans(
                 continue
             if capture_tokens:
                 record.setdefault("_logical_entity", identity)
-            # One logical plan per (origin, repo-relative path): a worktree or
-            # clone is the same plan as its main checkout, not a second card.
-            if key in seen:
-                # Suppression is a real answer, and a reader who cannot see it
-                # has no way to tell "identical copy dropped" from "a plan I
-                # needed went missing". The record is already built above, so
-                # surfacing it costs a field, not a second parse.
-                if include_shadowed:
-                    record["shadowed_by"] = seen[key]
-                    record["shadow_reason"] = f"same repository as {seen[key]}"
-                    shadowed.append(record)
-                continue
             seen[key] = record["path"]
-            if registered_override is None:
-                veto_receipt = _archive_veto_receipt(instances.get(key, [path]))
-                veto = veto_receipt["match"] if veto_receipt else None
             if veto:
-                record["archived"] = True
-                record["archive_veto"] = PUBLIC_ARCHIVE_VETO
                 assert veto_receipt is not None
                 if capture_tokens:
                     record["_retired_plan"] = veto_receipt["plan"]
@@ -887,7 +938,7 @@ def is_live(record: dict[str, Any]) -> bool:
     the browser wire and `shadow status`. A second surface re-spelling
     `not record["archived"]` is how the two drift back apart.
     """
-    return not record.get("archived")
+    return not record.get("archived") and not record.get("stale")
 
 
 def live_plans(root: Path, *, fail_on_skipped: bool = False) -> list[dict[str, Any]]:

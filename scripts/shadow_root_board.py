@@ -442,6 +442,66 @@ def origin_of(repo: Path) -> str:
     return str(repo.resolve())
 
 
+def local_default_behind(plan_path: Path) -> int:
+    """Known missing commits against a cached origin default, without a fetch.
+
+    Diverged or ahead branches are active lanes rather than stale copies. A
+    missing repository or cached default is unknown and returns zero; callers
+    must never describe that as a freshness proof.
+    """
+    git_env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(plan_path.parent), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            env=git_env,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    if top.returncode or not top.stdout.strip():
+        return 0
+    repo = Path(top.stdout.strip())
+    target = None
+    for ref in ("refs/remotes/origin/HEAD", "refs/remotes/origin/main"):
+        try:
+            resolved = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--verify", f"{ref}^{{commit}}"],
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if resolved.returncode == 0:
+            target = ref
+            break
+    if target is None:
+        return 0
+    try:
+        relation = subprocess.run(
+            ["git", "-C", str(repo), "rev-list", "--left-right", "--count", f"HEAD...{target}"],
+            capture_output=True,
+            text=True,
+            env=git_env,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    if relation.returncode:
+        return 0
+    try:
+        ahead, behind = (int(value) for value in relation.stdout.split())
+    except (TypeError, ValueError):
+        return 0
+    return behind if ahead == 0 and behind > 0 else 0
+
+
 def origin_repo_name(origin: str) -> str:
     tail = origin.rstrip("/").removesuffix(".git")
     return tail.rsplit("/", 1)[-1].rsplit(":", 1)[-1]

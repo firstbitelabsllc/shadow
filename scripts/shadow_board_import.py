@@ -204,6 +204,12 @@ def reconcile_portfolio(
         if not relative:
             continue
         plan_path = Path(os.path.abspath(root / relative))
+        if record.get("stale"):
+            count = record.get("stale_commits", "one or more")
+            raise board.BoardError(
+                f"{relative} is {count} commit(s) behind its cached origin default; "
+                "last-good board preserved"
+            )
         if not is_live(record):
             identity = record.get("_logical_entity") or board.entity_id(plan_path)
             registered_retirement = registered_retired.get(identity)
@@ -411,6 +417,17 @@ def suppression_receipts(
                 reason=(
                     "same logical entity already has one healthy registered "
                     "computer-board locator"
+                ),
+            ))
+        if record.get("_source_stale_commits"):
+            count = record["_source_stale_commits"]
+            receipts.append(SuppressionReceipt(
+                path=board.public_entity_locator(identity),
+                shadowed_by=None,
+                reason=(
+                    f"elected checkout is {count} commit(s) behind its cached "
+                    "origin default; update or explicitly keep the lane before "
+                    "treating its plan as current"
                 ),
             ))
     for identity in sorted(set(registered_retired).difference(archived_identities)):

@@ -120,6 +120,10 @@ def _validated_target(
     try:
         canonical_task = _amp.resolve_row_selector(plan, task)
     except _amp.SelectorError as exc:
+        if task.startswith("~") and str(exc).startswith("no task carries selector "):
+            raise _board.BoardError(
+                f"no task carries {task} in the stored canonical project plan"
+            ) from exc
         if "duplicated in the plan" in str(exc):
             unclean = _amp.unclean_note(plan)
             if unclean:

@@ -357,6 +357,24 @@ def board_records(payload: dict) -> list[dict]:
             claim for claim in payload["claims"] if claim["entity"] == entity["id"]
         ]
         entity_claims = {claim["row"] for claim in claims}
+        stale_commits = _board.local_default_behind(plan_path)
+        if stale_commits:
+            records.append(
+                {
+                    "path": locator,
+                    "project": project,
+                    "entity": entity["id"],
+                    "mode": "unknown",
+                    "priority": str(priorities[project]),
+                    "resume": (
+                        f"STALE — checkout is {stale_commits} commit(s) behind "
+                        "its cached origin default"
+                    ),
+                    "stale": True,
+                    "broken": True,
+                }
+            )
+            continue
         try:
             text = _board.read_plan_text(plan_path)
             parsed = _amp._parse(text)

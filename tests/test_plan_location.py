@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -31,6 +32,8 @@ from browser.server import (  # noqa: E402
     BrowserError, MAX_PLAN_BYTES, MAX_PLANS, declared_plan_globs, discover_plans,
     is_plan_root, live_plans, repo_plans,
 )
+import browser.server as browser_server  # noqa: E402
+import shadow_root_board as board  # noqa: E402
 
 STATUS = ROOT / "scripts" / "shadow-status.py"
 
@@ -218,6 +221,208 @@ class OneLogicalPlan(unittest.TestCase):
             os.utime(root / "aaa-old-name" / "PLAN.md", (2_000_000_000, 2_000_000_000))
             paths = [r["path"] for r in discover_plans(root)]
             self.assertEqual(paths, ["Thing/PLAN.md"])
+
+
+class EveryProjectResolvesToOneCanonicalPlan(unittest.TestCase):
+    def _git_repo(self, root: Path, name: str, origin: str) -> Path:
+        repo = make(root, name)
+        subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "shadow@test.invalid"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Shadow Test"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "remote", "add", "origin", origin], check=True
+        )
+        subprocess.run(["git", "-C", str(repo), "add", "PLAN.md"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+        return repo
+
+    def _leave_cached_default_one_commit_ahead(self, repo: Path) -> None:
+        base = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        plan = repo / "PLAN.md"
+        plan.write_text(plan.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "commit", "-qam", "remote advance"], check=True)
+        remote = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "-C", str(repo), "update-ref", "refs/remotes/origin/main", remote],
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(repo), "reset", "--hard", "-q", base], check=True)
+
+    def test_one_origin_and_plan_path_produces_one_elected_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            origin = "git@example.invalid:team/thing.git"
+            self._git_repo(root, "thing", origin)
+            duplicate = self._git_repo(root, "thing-copy", origin)
+            (duplicate / "PLAN.md").write_bytes(b"\xff losing duplicate is not authority\n")
+
+            records = discover_plans(
+                root,
+                include_shadowed=True,
+                capture_tokens=True,
+                fail_on_skipped=True,
+            )
+
+            elected = [record for record in records if not record.get("shadowed_by")]
+            shadowed = [record for record in records if record.get("shadowed_by")]
+            self.assertEqual(len(elected), 1)
+            self.assertEqual(len(shadowed), 1)
+            self.assertEqual(elected[0]["_logical_entity"], shadowed[0]["_logical_entity"])
+            self.assertFalse(elected[0].get("stale"), "missing cached refs are unknown, not stale")
+
+    def test_registered_pointer_wins_before_a_duplicate_is_parsed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            origin = "git@example.invalid:team/thing.git"
+            registered = self._git_repo(root, "thing-registered", origin)
+            duplicate = self._git_repo(root, "thing", origin)
+            (duplicate / "PLAN.md").write_text("not a plan\n", encoding="utf-8")
+            identity = board.entity_id(registered / "PLAN.md")
+
+            records = discover_plans(
+                root,
+                registered_plans={identity: registered / "PLAN.md"},
+                capture_tokens=True,
+                fail_on_skipped=True,
+            )
+
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["_logical_entity"], identity)
+            self.assertTrue(records[0].get("_registered_pointer"))
+
+    def test_cleanly_behind_elected_checkout_is_reported_from_local_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._git_repo(root, "thing", "git@example.invalid:team/thing.git")
+            home = root / "home"
+            home.mkdir()
+            seeded = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root), "--json"],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            board_path = home / ".shadow" / "board.json"
+            board_before = board_path.read_bytes()
+            plan = repo / "PLAN.md"
+            self._leave_cached_default_one_commit_ahead(repo)
+            plan.write_bytes(b"\xff stale bytes must never be parsed\n")
+            stale_bytes = plan.read_bytes()
+
+            record = discover_plans(root, capture_tokens=True)[0]
+
+            self.assertTrue(record.get("stale"))
+            self.assertEqual(record.get("stale_commits"), 1)
+            self.assertNotIn("board", record)
+
+            shown = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root), "--shadowed", "--json"],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(shown.returncode, 0, shown.stderr)
+            reasons = [item["reason"] for item in json.loads(shown.stdout)["rows"]]
+            self.assertTrue(any("1 commit(s) behind" in reason for reason in reasons))
+
+            ordinary = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root), "--json"],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ordinary.returncode, 1)
+            self.assertIn("behind its cached origin default", ordinary.stderr)
+            records = json.loads(ordinary.stdout)["v4_plans"]
+            self.assertEqual(len(records), 1)
+            self.assertTrue(records[0]["stale"])
+            self.assertTrue(records[0]["broken"])
+            self.assertEqual(board_path.read_bytes(), board_before)
+            self.assertEqual(plan.read_bytes(), stale_bytes)
+
+    def test_each_repository_uses_its_own_root_freshness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stale = self._git_repo(root, "alpha", "git@example.invalid:team/alpha.git")
+            self._git_repo(root, "zeta", "git@example.invalid:team/zeta.git")
+            self._leave_cached_default_one_commit_ahead(stale)
+            (stale / "PLAN.md").write_bytes(b"\xff stale bytes must never be parsed\n")
+
+            records = discover_plans(root, capture_tokens=True, fail_on_skipped=True)
+            by_path = {record["path"]: record for record in records}
+
+            self.assertTrue(by_path["alpha/PLAN.md"].get("stale"))
+            self.assertNotIn("board", by_path["alpha/PLAN.md"])
+            self.assertIn("board", by_path["zeta/PLAN.md"])
+            self.assertFalse(by_path["zeta/PLAN.md"].get("stale"))
+
+    def test_archive_veto_outranks_staleness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            origin = "git@example.invalid:team/thing.git"
+            elected = self._git_repo(root, "thing", origin)
+            duplicate = self._git_repo(root, "thing-copy", origin)
+            with (duplicate / "PLAN.md").open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\nThis root plan remains a non-executable archive shell; do not revive.\n"
+                )
+            self._leave_cached_default_one_commit_ahead(elected)
+
+            record = discover_plans(root, capture_tokens=True)[0]
+
+            self.assertTrue(record.get("archived"))
+            self.assertFalse(record.get("stale"))
+            self.assertIn("non-executable", record.get("archive_veto", ""))
+
+    def test_identity_wide_veto_is_scanned_once_for_duplicate_copies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            origin = "git@example.invalid:team/thing.git"
+            for name in ("thing", "thing-copy-a", "thing-copy-b"):
+                self._git_repo(root, name, origin)
+
+            with mock.patch(
+                "browser.server._archive_veto_receipt",
+                wraps=browser_server._archive_veto_receipt,
+            ) as veto:
+                records = discover_plans(root, include_shadowed=True)
+
+            self.assertEqual(len(records), 3)
+            self.assertEqual(veto.call_count, 1)
+
+    def test_git_freshness_probe_disables_lazy_fetch_and_is_bounded(self) -> None:
+        completed = [
+            subprocess.CompletedProcess([], 0, "/tmp/repo\n", ""),
+            subprocess.CompletedProcess([], 0, "abc123\n", ""),
+            subprocess.CompletedProcess([], 0, "0 1\n", ""),
+        ]
+        with mock.patch("shadow_root_board.subprocess.run", side_effect=completed) as run:
+            self.assertEqual(board.local_default_behind(Path("/tmp/repo/PLAN.md")), 1)
+
+        self.assertEqual(run.call_count, 3)
+        for call in run.call_args_list:
+            self.assertEqual(call.kwargs["env"]["GIT_NO_LAZY_FETCH"], "1")
+            self.assertEqual(call.kwargs["timeout"], 5)
 
     def test_two_paths_differing_only_in_case_are_two_repositories(self) -> None:
         # A hostname is case-insensitive; a path is not. `/srv/git/Foo.git` and
