@@ -1078,14 +1078,14 @@ class ACompletedWriteIsFsyncedToDisk(unittest.TestCase):
         self.assertTrue(kinds["dir"], "the link(2) create was not made durable (no directory fsync)")
 
 
-class AFailedWriteLeavesNoNewBackup(unittest.TestCase):
-    """All-or-nothing includes the backup, and removal is by identity.
+class AFailedWriteRetainsItsBackup(unittest.TestCase):
+    """On any failure the pre-write state is preserved — the backup stays.
 
-    A backup created by this run is removed when the final write fails — it
-    records a change that never happened, and its existence makes the NEXT
-    run skip backing up the state that actually preceded it. Removal checks
-    the inode: whatever else now answers to the pathname is a bystander, and
-    deleting it would turn a refused write into a destroyed file.
+    Deleting the backup on failure was tried and audited into the ground:
+    removal is a pathname operation, so it can race a concurrent writer and
+    destroy a file this run did not create — and after a failed write the
+    backup may be the only surviving copy of the pre-write state. A kept
+    backup is never wrong, only redundant; the error names where it is.
     """
 
     def setUp(self) -> None:
@@ -1183,6 +1183,22 @@ class TheAuditedByteFidelity(unittest.TestCase):
 
     def tearDown(self) -> None:
         hd._test_between_snapshot_and_read = None
+
+    def test_prose_between_an_exact_heading_and_final_line_is_never_adopted(self) -> None:
+        # Round-4 audit: a person whose own text opens with the block's exact
+        # heading and later contains its exact final line used to have that
+        # whole region wrapped — and the NEXT install replaced their prose
+        # with the official block. Shape is not evidence: refuse out loud.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            lines = BLOCK.splitlines()
+            impostor = lines[0] + "\n\nMy own private notes.\n\n" + lines[-1] + "\n"
+            original = "before\n\n" + impostor + "\nafter\n"
+            path.write_text(original, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "not the shipped block"):
+                hd.apply(path, BLOCK)
+            self.assertEqual(path.read_text(encoding="utf-8"), original,
+                             "a refusal must leave the file untouched")
 
     def test_a_crlf_file_keeps_its_line_endings_and_its_backup_is_byte_exact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

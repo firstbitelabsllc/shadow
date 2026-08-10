@@ -73,9 +73,11 @@ over-promise here would be a lie about someone's hand-written instructions:
    for byte.
 3. **Idempotent.** Writing twice changes nothing the second time.
 4. **Adopt an unmarked copy.** Anyone who pasted the block by hand before
-   markers existed has an unmarked copy; that exact region is wrapped rather
-   than duplicated. An older revision, whose last line no longer matches, has
-   no discernible end — that is refused out loud, not guessed at.
+   markers existed has an unmarked copy; an EXACT copy is wrapped rather
+   than duplicated. Anything else is refused out loud, never guessed at: an
+   older revision whose last line changed has no discernible end, and text
+   that merely opens and closes like the block may be the person's own
+   writing — shape is not evidence either way.
 5. **Removable.** `--remove` takes the block and its markers out together
    with, at most, the blank-line separator adding it introduced — one newline
    after the block and one before it when the block was preceded by a blank
@@ -152,8 +154,11 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
         # rather than guess how far the block ran — a wrong guess eats their
         # text, and that is the one outcome this module exists to prevent.
         raise ValueError("found the begin marker with no end marker; fix the file by hand")
-    # Unmarked legacy copy: adopt exactly the region matching the shipped block
-    # or an earlier revision of it, identified by its heading and last line.
+    # Unmarked legacy copy: adopt ONLY an exact copy of the shipped block.
+    # Head and tail lines locate a candidate region; its bytes must equal the
+    # block before it is claimed, because a person's own prose between an
+    # exact heading and an exact final line is indistinguishable by shape,
+    # and wrapping it would let the next install replace their text.
     head = block.splitlines()[0]
     start = text.find(head)
     if start == -1:
@@ -171,6 +176,14 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
             "found an unmarked copy of the standing goal whose last line has changed, "
             "so where it ends is a guess; delete that block by hand, or wrap it in the "
             f"markers ({BEGIN.split(' —')[0]} … {END}), then rerun"
+        )
+    region = text[start : end + len(tail_line)]
+    if region != block:
+        raise ValueError(
+            "found the standing goal's heading and final line with text between "
+            "them that is not the shipped block — it may be your own writing, so "
+            "nothing is adopted or replaced; wrap the copy in the markers "
+            f"({BEGIN.split(' —')[0]} … {END}) or remove it by hand, then rerun"
         )
     return start, end + len(tail_line)
 
