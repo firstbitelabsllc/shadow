@@ -25,7 +25,7 @@ Sources: `owner` (Leo, verbatim where quoted), `claude-seat`, `codex-seat`.
 4. **Claim mutex: advisory lock around read-claim-write, reusing the
    installer's crash-safe atomic write discipline.** Cooperating seats only;
    a process that ignores the lock is documented out of contract.
-   claude-seat. Lands in: ~lock.
+   claude-seat. Lands in: ~root (the claim half of the board row).
 5. **Import is bounded and provenance-preserving, consuming the shipped
    dedup and archive-veto machinery; ghost copies are excluded by
    construction.** Measured basis: 7,768 PLAN.md files on this machine,
@@ -76,7 +76,7 @@ Sources: `owner` (Leo, verbatim where quoted), `claude-seat`, `codex-seat`.
     plan costs a session. Lands in: Method.
 14. **Seat-neutral goal + SHA handshake.** The goal prompt assigns nothing
     by name; every seat prints the goal's SHA-256 and its fetched ref, then
-    claims — one writer per row. codex-seat. Lands in: the goal prompt + ~lock.
+    claims — one writer per row. codex-seat. Lands in: the goal prompt + ~root.
 15. **The goal prompt is a pointer.** owner: "this work is clearly too much
     for a goal prompt." Requirements live in this register and the M20 rows;
     the prompt names the milestone and the rails, nothing else. Lands in:
