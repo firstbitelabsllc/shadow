@@ -453,6 +453,52 @@ class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
         self.assertEqual(self._record(with_contra)["board"]["contradictions_open"], 1)
 
 
+class TheGalleryShowsEveryStateHonestly(unittest.TestCase):
+    """The gallery is the in-house component catalog: fixture plan TEXTS run
+    through the production pipeline. Each fixture names the state it must
+    project to, and this class holds that promise — the golden that stops the
+    catalog from drifting into decoration."""
+
+    def test_every_fixture_projects_to_its_named_state(self) -> None:
+        for record in server.gallery_records():
+            self.assertEqual(
+                record["board"]["state"], record["expected_state"],
+                f"fixture {record['gallery_name']} promises "
+                f"{record['expected_state']!r} but projects {record['board']['state']!r}")
+
+    def test_every_board_state_the_projection_can_produce_has_a_fixture(self) -> None:
+        producible = {"working", "ready", "blocked", "resting", "unmigrated", "empty"}
+        covered = {r["board"]["state"] for r in server.gallery_records()}
+        self.assertEqual(producible - covered, set(),
+                         "a state the board can show has no fixture — the catalog is incomplete")
+
+    def test_the_v3_rich_brief_has_a_fixture_with_choices(self) -> None:
+        rich = [r for r in server.gallery_records() if r["briefing"]]
+        self.assertTrue(rich, "no fixture exercises the v3 rich brief card")
+        self.assertTrue(any(r["briefing"]["choices"] for r in rich),
+                        "no fixture shows a waiting decision")
+
+    def test_the_gallery_page_and_api_are_served(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            service = server.Server(("127.0.0.1", 0), Path(dirname))
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", "/gallery")
+                page = connection.getresponse()
+                self.assertEqual(page.status, 200)
+                self.assertIn("gallery.js", page.read().decode("utf-8"))
+                connection.request("GET", "/api/gallery")
+                payload = json.loads(connection.getresponse().read().decode("utf-8"))
+                self.assertGreaterEqual(len(payload["plans"]), 6)
+                connection.close()
+            finally:
+                service.shutdown()
+
+
 class BoardProjectionTests(unittest.TestCase):
     def make_board_repo(self, root: Path, plan_text: str) -> tuple[Path, Path]:
         repo = root / "repo"
