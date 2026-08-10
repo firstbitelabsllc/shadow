@@ -453,6 +453,26 @@ class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
                                  f"a live plan was demoted by prose about something else: "
                                  f"{record.get('archive_veto')!r}")
 
+    def test_a_symlinked_copy_cannot_demote_from_outside_the_portfolio(self) -> None:
+        # A root PLAN.md is admitted on is_file(), which a symlink satisfies,
+        # so a sibling checkout could point its plan anywhere and have that
+        # content decide authority. read_plan refuses a symlinked plan; the
+        # veto reader has to refuse it too, or out-of-boundary text demotes a
+        # plan the board would otherwise render.
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            watcher = self._repo(root, "thing-watcher", "git@github.com:acme/thing.git")
+            planted = Path(outside) / "PLAN.md"
+            planted.write_text(f"# Demo\n\n{self.BANNER}\n", encoding="utf-8")
+            (watcher / "PLAN.md").unlink()
+            (watcher / "PLAN.md").symlink_to(planted)
+
+            record = discover_plans(root)[0]
+            self.assertFalse(record.get("archived"),
+                             "a file outside the portfolio decided the plan's authority: "
+                             f"{record.get('archive_veto')!r}")
+
     def test_a_vetoed_plan_never_reaches_the_browser(self) -> None:
         # Annotating the record is not a demotion: both projections iterate the
         # served list without reading `archived`, so a card the wire still
