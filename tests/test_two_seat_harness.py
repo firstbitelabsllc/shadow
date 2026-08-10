@@ -1,0 +1,384 @@
+"""Black-box proof for the sealed two-seat acceptance harness.
+
+The harness is valuable only if its cheap default cannot spend host quota and
+its live tier proves the same behavior without touching the operator's HOME or
+portfolio.  The native hosts below are deterministic test doubles, but they
+drive the real Shadow status, throw, and accept verbs against the disposable
+portfolio minted by the production harness.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import textwrap
+import time
+import unittest
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / "scripts" / "shadow-verify-two-seat.py"
+PYTHON = ROOT / "scripts" / "shadow-python.sh"
+GOAL = """Outcome: prove two seats share one root board.
+Authority: the scratch repositories and board created by the sealed harness.
+Resume: claim the highest reachable unclaimed checkpoint with your stable seat.
+Proof: run the row proof and accept it; do not leave an orphan claim.
+"""
+GOAL_SHA256 = hashlib.sha256(GOAL.encode("utf-8")).hexdigest()
+
+
+def command(script: Path, *args: str) -> list[str]:
+    return [str(script.parent / "shadow-python.sh"), str(script), *args]
+
+
+def run_harness(
+    script: Path,
+    home: Path,
+    *args: str,
+    extra_env: dict[str, str] | None = None,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "SHADOW_PORTFOLIO_ROOT": str(home / "operator-portfolio"),
+    }
+    env.update(extra_env or {})
+    return subprocess.run(
+        command(script, *args),
+        cwd=str(script.parent.parent),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
+
+
+def receipt(result: subprocess.CompletedProcess[str]) -> dict:
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise AssertionError(
+            f"stdout must be exactly one closed JSON receipt, got:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        ) from error
+
+
+def assert_closed_receipt(test: unittest.TestCase, data: dict, forbidden: list[str]) -> None:
+    test.assertEqual(
+        set(data),
+        {"schema", "status", "mode", "goal_sha256", "origin_main", "seats", "board", "failure"},
+    )
+    test.assertEqual(
+        set(data["board"]),
+        {"initial_revision", "final_revision", "completed", "claims"},
+    )
+    encoded = json.dumps(data, sort_keys=True)
+    for secret in forbidden:
+        test.assertNotIn(secret, encoded)
+    test.assertNotIn("PLAN.md", encoded)
+    test.assertNotIn("[pending]", encoded)
+    test.assertNotIn("prompt", encoded.lower())
+    test.assertNotIn("transcript", encoded.lower())
+
+
+class Fixture:
+    """One operator HOME plus an isolated source clone with a local origin."""
+
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+        self.operator_home = self.root / "operator-home"
+        self.operator_home.mkdir()
+        self.operator_portfolio = self.operator_home / "operator-portfolio"
+        self.operator_portfolio.mkdir()
+        self.sentinel = self.operator_home / ".shadow" / "root-board.json"
+        self.sentinel.parent.mkdir()
+        self.sentinel.write_text('{"operator":"untouched"}\n', encoding="utf-8")
+        self.goal = self.root / "frozen-goal.txt"
+        self.goal.write_text(GOAL, encoding="utf-8")
+        self.checkout = self.root / "source"
+        shutil.copytree(ROOT, self.checkout, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+        self._git(self.checkout, "init", "-q")
+        self._git(self.checkout, "config", "user.name", "Two Seat Fixture")
+        self._git(self.checkout, "config", "user.email", "fixture@example.invalid")
+        self._git(self.checkout, "add", "-A")
+        self._git(self.checkout, "commit", "-qm", "fixture source")
+        self.origin = self.root / "origin.git"
+        self._git(self.root, "init", "-q", "--bare", str(self.origin))
+        self._git(self.checkout, "remote", "add", "origin", str(self.origin))
+        self._git(self.checkout, "push", "-q", "-u", "origin", "HEAD:main")
+        self._git(self.origin, "symbolic-ref", "HEAD", "refs/heads/main")
+        self.origin_main = self._git(self.checkout, "rev-parse", "HEAD").stdout.strip()
+
+    @staticmethod
+    def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=False
+        )
+        if result.returncode:
+            raise AssertionError(result.stdout + result.stderr)
+        return result
+
+    @property
+    def script(self) -> Path:
+        return self.checkout / "scripts" / SCRIPT.name
+
+    def assert_operator_state_untouched(self, test: unittest.TestCase) -> None:
+        test.assertEqual(self.sentinel.read_text(encoding="utf-8"), '{"operator":"untouched"}\n')
+        test.assertEqual(list(self.operator_portfolio.iterdir()), [])
+
+
+HOST_BODY = r'''#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+SEAT = __SEAT__
+MODE = os.environ.get("SHADOW_TEST_HOST_MODE", "complete")
+HOME = Path(os.environ["HOME"])
+PORTFOLIO = Path(os.environ["SHADOW_PORTFOLIO_ROOT"])
+SHADOW = os.environ["SHADOW_TEST_REAL_SHADOW"]
+MARKER = Path(os.environ["SHADOW_TEST_INVOCATIONS"])
+MARKER.parent.mkdir(parents=True, exist_ok=True)
+with MARKER.open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps({
+        "seat": SEAT,
+        "argv": sys.argv[1:],
+        "cwd": str(Path.cwd().resolve()),
+        "home": str(HOME.resolve()),
+        "portfolio": str(PORTFOLIO.resolve()),
+    }, sort_keys=True) + "\n")
+
+if MODE == "nonzero" and SEAT == "claude":
+    raise SystemExit(23)
+if MODE == "timeout" and SEAT == "claude":
+    child = subprocess.Popen(
+        ["sh", "-c", "trap 'printf drained > \"$SHADOW_TEST_DRAINED\"; exit 0' TERM INT; while :; do sleep 1; done"],
+        env=os.environ,
+    )
+    time.sleep(30)
+if MODE == "complete_descendant":
+    subprocess.Popen(
+        ["sh", "-c", "trap 'printf drained >> \"$SHADOW_TEST_DRAINED\"; exit 0' TERM INT; while :; do sleep 1; done"],
+        env=os.environ,
+    )
+
+def shadow(*args):
+    return subprocess.run(
+        [SHADOW, *args], capture_output=True, text=True, check=False,
+        env=os.environ,
+    )
+
+claimed = None
+deadline = time.monotonic() + 15
+while claimed is None and time.monotonic() < deadline:
+    status = shadow("status", "--json", "--by", SEAT)
+    if status.returncode:
+        raise SystemExit(31)
+    data = json.loads(status.stdout)
+    for plan in data["v4_plans"]:
+        row = plan.get("next_unclaimed")
+        if not row:
+            continue
+        repo = PORTFOLIO / plan["project"]
+        thrown = shadow("throw", "--repo", str(repo), "--task", row, "--by", SEAT)
+        if thrown.returncode == 0:
+            claimed = (repo, row)
+            break
+    if claimed is None:
+        time.sleep(0.05)
+if claimed is None:
+    raise SystemExit(32)
+
+(HOME / ("claimed-" + SEAT)).write_text("yes", encoding="utf-8")
+peer = "codex" if SEAT == "claude" else "claude"
+while not (HOME / ("claimed-" + peer)).exists() and time.monotonic() < deadline:
+    time.sleep(0.05)
+
+if MODE == "drift" and SEAT == "claude":
+    shadow("priority", "--repo", str(claimed[0]), "--value", "5")
+if MODE not in ("partial", "orphan") or SEAT != "claude":
+    accepted = shadow("accept", "--repo", str(claimed[0]), "--row", claimed[1], "--by", SEAT)
+    if accepted.returncode:
+        raise SystemExit(33)
+
+all_args = " ".join(sys.argv[1:])
+goal = re.search(r"\b[0-9a-f]{64}\b", all_args)
+refs = re.findall(r"\b[0-9a-f]{40}\b", all_args)
+identity = ((goal.group(0) if goal else "0" * 64) + "\n" + (refs[-1] if refs else "0" * 40) + "\n")
+if MODE == "identity" and SEAT == "claude":
+    identity = ("f" * 64) + "\n" + (refs[-1] if refs else "0" * 40) + "\n"
+
+out = None
+for index, arg in enumerate(sys.argv[:-1]):
+    if arg == "--output-last-message":
+        out = Path(sys.argv[index + 1])
+if out:
+    out.write_text(identity, encoding="utf-8")
+else:
+    sys.stdout.write(identity)
+'''
+
+
+def fake_hosts(root: Path) -> tuple[Path, Path, Path, Path]:
+    bindir = root / "fake-hosts"
+    bindir.mkdir()
+    marker = root / "host-invocations.txt"
+    drained = root / "descendant-drained.txt"
+    paths = []
+    for seat in ("claude", "codex"):
+        path = bindir / seat
+        path.write_text(HOST_BODY.replace("__SEAT__", repr(seat)), encoding="utf-8")
+        path.chmod(0o755)
+        paths.append(path)
+    return paths[0], paths[1], marker, drained
+
+
+class OfflineDefaultIsSealed(unittest.TestCase):
+    def test_default_spends_no_host_quota_and_leaves_operator_state_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            claude, codex, marker, _ = fake_hosts(root)
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--goal-file", str(fixture.goal), "--json",
+                extra_env={
+                    "SHADOW_CLAUDE_CODE_BIN": str(claude),
+                    "SHADOW_CODEX_BIN": str(codex),
+                    "SHADOW_TEST_INVOCATIONS": str(marker),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists(), "offline default invoked a native host")
+            data = receipt(result)
+            self.assertEqual(data["status"], "pass")
+            self.assertEqual(data["mode"], "offline")
+            self.assertEqual(data["goal_sha256"], GOAL_SHA256)
+            self.assertEqual(data["board"]["completed"], 2)
+            self.assertEqual(data["board"]["claims"], 0)
+            self.assertTrue(all(seat["completed"] for seat in data["seats"]))
+            fixture.assert_operator_state_untouched(self)
+            assert_closed_receipt(self, data, [str(root), GOAL, "fixture source"])
+
+
+class LiveTwoSeatProof(unittest.TestCase):
+    def _run(self, mode: str = "complete", timeout_seconds: int = 10):
+        context = tempfile.TemporaryDirectory()
+        root = Path(context.name).resolve()
+        fixture = Fixture(root)
+        claude, codex, marker, drained = fake_hosts(root)
+        result = run_harness(
+            fixture.script,
+            fixture.operator_home,
+            "--live", "--goal-file", str(fixture.goal),
+            "--timeout-seconds", str(timeout_seconds), "--json",
+            extra_env={
+                "SHADOW_CLAUDE_CODE_BIN": str(claude),
+                "SHADOW_CODEX_BIN": str(codex),
+                "SHADOW_TEST_REAL_SHADOW": str(fixture.checkout / "bin" / "shadow"),
+                "SHADOW_TEST_INVOCATIONS": str(marker),
+                "SHADOW_TEST_DRAINED": str(drained),
+                "SHADOW_TEST_HOST_MODE": mode,
+            },
+            timeout=max(30, timeout_seconds + 15),
+        )
+        return context, root, fixture, marker, drained, result
+
+    def test_two_stable_seats_complete_disjoint_rows_with_one_shared_identity(self) -> None:
+        context, root, fixture, marker, _, result = self._run()
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            invocations = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(sorted(call["seat"] for call in invocations), ["claude", "codex"])
+            for call in invocations:
+                argv = " ".join(call["argv"])
+                self.assertNotIn(str(fixture.operator_home), argv)
+                self.assertNotIn(str(ROOT), argv)
+                scratch_home = Path(call["home"])
+                scratch_portfolio = Path(call["portfolio"])
+                scratch_cwd = Path(call["cwd"])
+                self.assertTrue(scratch_home.is_relative_to(scratch_cwd))
+                self.assertTrue(scratch_portfolio.is_relative_to(scratch_cwd))
+                self.assertTrue((scratch_home / ".shadow").is_dir())
+                if call["seat"] == "codex":
+                    self.assertIn("--skip-git-repo-check", call["argv"])
+            data = receipt(result)
+            self.assertEqual(data["status"], "pass")
+            self.assertEqual(data["mode"], "live")
+            self.assertEqual(data["goal_sha256"], GOAL_SHA256)
+            self.assertEqual(data["origin_main"], fixture.origin_main)
+            self.assertEqual([seat["name"] for seat in data["seats"]], ["claude", "codex"])
+            self.assertTrue(all(seat["completed"] for seat in data["seats"]))
+            self.assertEqual(data["board"]["completed"], 2)
+            self.assertEqual(data["board"]["claims"], 0)
+            self.assertGreater(data["board"]["final_revision"], data["board"]["initial_revision"])
+            fixture.assert_operator_state_untouched(self)
+            assert_closed_receipt(self, data, [str(root), GOAL, "the feature is being built"])
+
+    def test_successful_host_exit_also_drains_background_descendants(self) -> None:
+        context, _, fixture, _, drained, result = self._run("complete_descendant")
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            deadline = time.monotonic() + 3
+            while (not drained.exists() or len(drained.read_text(encoding="utf-8")) < 14) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertEqual(drained.read_text(encoding="utf-8"), "draineddrained")
+            fixture.assert_operator_state_untouched(self)
+
+    def test_timeout_is_inconclusive_and_drains_the_entire_host_group(self) -> None:
+        context, _, fixture, _, drained, result = self._run("timeout", timeout_seconds=1)
+        with context:
+            self.assertNotEqual(result.returncode, 0)
+            data = receipt(result)
+            self.assertEqual(data["status"], "inconclusive")
+            self.assertEqual(data["failure"], "host_timeout")
+            deadline = time.monotonic() + 3
+            while not drained.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertEqual(drained.read_text(encoding="utf-8"), "drained")
+            fixture.assert_operator_state_untouched(self)
+
+    def test_nonzero_identity_drift_and_partial_completion_never_turn_green(self) -> None:
+        expectations = {
+            "nonzero": "host_failed",
+            "identity": "identity_mismatch",
+            "drift": "board_drift",
+            "partial": "partial_completion",
+        }
+        for mode, failure in expectations.items():
+            with self.subTest(mode=mode):
+                context, root, fixture, _, _, result = self._run(mode)
+                with context:
+                    self.assertNotEqual(result.returncode, 0)
+                    data = receipt(result)
+                    self.assertEqual(data["status"], "inconclusive")
+                    self.assertEqual(data["failure"], failure)
+                    if mode == "partial":
+                        self.assertGreater(data["board"]["claims"], 0)
+                    fixture.assert_operator_state_untouched(self)
+                    assert_closed_receipt(self, data, [str(root), GOAL, "the feature is being built"])
+
+
+class CommandSurfaceIsFailClosed(unittest.TestCase):
+    def test_live_requires_a_goal_file_and_timeout_is_positive(self) -> None:
+        for args in (("--live", "--json"), ("--timeout-seconds", "0", "--json")):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as dirname:
+                home = Path(dirname).resolve()
+                result = run_harness(SCRIPT, home, *args)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
