@@ -326,24 +326,6 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         print("shadow status: scan root is not a directory", file=sys.stderr)
         return 2
-    if args.shadowed:
-        # The affirmative answer to "why is my plan not on the board". Without
-        # it, suppression is indistinguishable from a plan going missing, and
-        # the only honest thing a narrower board could be accused of is exactly
-        # that. Computed by the same pass that does the suppressing, so the
-        # explanation cannot drift from the behavior.
-        hidden = [r for r in discover_plans(root, include_shadowed=True) if r.get("shadowed_by")]
-        if args.json:
-            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": [
-                {"path": r["path"], "shadowed_by": r["shadowed_by"],
-                 "reason": r["shadow_reason"]} for r in hidden]}, indent=2))
-            return 0
-        if not hidden:
-            print("nothing suppressed — every plan discovery enumerated was read")
-            return 0
-        for row in hidden:
-            print(f"{row['path']} — {row['shadow_reason']}")
-        return 0
     if (
         not explicit_root
         and not args.no_portfolio_fallback
@@ -377,6 +359,30 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 root = fallback.resolve()
+    if args.shadowed:
+        # The affirmative answer to "why is my plan not on the board". Without
+        # it, suppression is indistinguishable from a plan going missing, and
+        # the only honest thing a narrower board could be accused of is exactly
+        # that. Computed by the same pass that does the suppressing, so the
+        # explanation cannot drift from the behavior.
+        #
+        # Placed AFTER the portfolio fallback, with --in-flight: asked from a
+        # directory holding no plan, "what was suppressed" is a question about
+        # the portfolio the board would have shown, and answering "nothing"
+        # about an empty cwd is the same missing-plan ambiguity this view exists
+        # to kill.
+        hidden = [r for r in discover_plans(root, include_shadowed=True) if r.get("shadowed_by")]
+        if args.json:
+            print(json.dumps({"schema": "shadow.shadowed.v1", "rows": [
+                {"path": r["path"], "shadowed_by": r["shadowed_by"],
+                 "reason": r["shadow_reason"]} for r in hidden]}, indent=2))
+            return 0
+        if not hidden:
+            print("nothing suppressed — every plan discovery enumerated was read")
+            return 0
+        for row in hidden:
+            print(f"{row['path']} — {row['shadow_reason']}")
+        return 0
     if args.in_flight:
         rows = in_flight(root)
         if args.json:
