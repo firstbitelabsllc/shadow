@@ -73,6 +73,7 @@ ALLOWED_STATIC = {
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/static/gallery.js": ("gallery.js", "text/javascript; charset=utf-8"),
     "/static/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/static/gallery.css": ("gallery.css", "text/css; charset=utf-8"),
 }
 
 DEV_ROOT = Path.home() / "Development"
