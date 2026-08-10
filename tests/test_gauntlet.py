@@ -13,12 +13,13 @@ What one gauntlet run proves, in order:
 1.  discovery: `shadow status` sees each real plan once — a second checkout of
     a repo, sitting in the portfolio beside it, collapses into it, and the
     pre-grammar essay does not crash it;
-2.  projection: the browser's plan API renders every mock plan with its true
-    board state;
-3.  dispatch: seat A claims a row with `shadow throw`; the claim commit
-    reaches the bare remote;
-4.  reachability: seat B — a separate clone, told nothing but the remote —
-    fetches and sees WHO claimed WHICH row;
+2.  projection: status and the browser dereference the same canonical
+    computer-board entities;
+3.  dispatch: two named seats atomically claim disjoint rows in different
+    entities without mutating either project plan;
+4.  reachability: a cold seat in another clone sees WHO claimed WHICH row from
+    the same local computer board — the remote project plan never becomes a
+    competing claim ledger;
 5.  acceptance: `shadow accept` reruns the row's cmd proof in a clean
     checkout and flips it with its paired PROOF line, pushed;
 6.  honesty: the flip is visible to seat B only after the push, and the
@@ -120,7 +121,7 @@ class TheGauntlet(unittest.TestCase):
         plan.write_text(
             PLAN_TEMPLATE.format(
                 title=f"{name} plan", project=name, n=n,
-                priority=f"{name} ships its feature",
+                priority=n,
                 milestone=f"{name} feature live",
             ),
             encoding="utf-8",
@@ -136,24 +137,31 @@ class TheGauntlet(unittest.TestCase):
 
     def test_one_full_pass(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
-            home = Path(dirname)
-            dev = home / "Development"
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            dev = root / "Development"
+            shadow_env = {
+                **os.environ,
+                "HOME": str(home),
+                "SHADOW_PORTFOLIO_ROOT": str(dev),
+            }
 
             # --- the portfolio: two real repos, one ghost, one pre-grammar ---
-            alpha, alpha_bare = self._mint_repo(home, "alpha", 1)
-            beta, _ = self._mint_repo(home, "beta", 2)
+            alpha, alpha_bare = self._mint_repo(root, "alpha", 1)
+            beta, _ = self._mint_repo(root, "beta", 2)
             # The ghost must sit where discovery actually looks: a direct
             # child of the portfolio owning its own root PLAN.md. Buried a
             # level down it is never enumerated, and step 1 would pass even if
             # deduplication regressed entirely.
             ghost = dev / "alpha-stale-lane"
-            git(home, "clone", "-q", str(alpha_bare), str(ghost))
+            git(root, "clone", "-q", str(alpha_bare), str(ghost))
             legacy = dev / "old-notes"
             legacy.mkdir(parents=True)
             (legacy / "PLAN.md").write_text(PRE_GRAMMAR, encoding="utf-8")
             git(legacy, "init", "-q")
 
-            # --- 1. discovery: each repo once; the ghost collapses ---
+            # --- 1. discovery/import: each repo once; the ghost collapses ---
             plans = server.discover_plans(dev)
             self.assertTrue(
                 (ghost / "PLAN.md").is_file(),
@@ -169,39 +177,82 @@ class TheGauntlet(unittest.TestCase):
                 paths["alpha"], "alpha/PLAN.md",
                 "the canonical checkout must win over its stale twin",
             )
+            status = run(
+                [str(SHADOW), "status", "--root", str(dev), "--json"],
+                root,
+                env=shadow_env,
+            )
+            self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+            status_payload = json.loads(status.stdout)
+            self.assertEqual(
+                {item["project"] for item in status_payload["root_board"]["entities"]},
+                {"alpha", "beta"},
+            )
+            self.assertEqual(status_payload["plans"], [])
 
-            # --- 2. projection: true states, pre-grammar named honestly ---
-            by_project = {p["project"]: p for p in plans}
+            # --- 2. projection: browser and status share the board entities ---
+            board_payload, cards, warning = server.board_plan_records(dev, home)
+            self.assertIsNone(warning)
+            self.assertEqual(board_payload["revision"], status_payload["root_board"]["revision"])
+            self.assertEqual({card["project"] for card in cards}, {"alpha", "beta"})
+            by_project = {card["project"]: card for card in cards}
             self.assertEqual(by_project["alpha"]["board"]["state"], "ready")
             self.assertEqual(by_project["beta"]["board"]["state"], "ready")
-            self.assertEqual(by_project["old-notes"]["board"]["state"], "unmigrated")
-            self.assertIsNone(by_project["alpha"]["contract_error"])
-
-            # --- 3. dispatch: seat A claims alpha's in_progress row ---
-            thrown = run(
-                [str(SHADOW), "throw", "--repo", str(alpha), "--task", "~aa12",
-                 "--by", "seat-a", "--note", "gauntlet claim"],
-                alpha,
+            self.assertEqual(
+                next(plan for plan in plans if plan["project"] == "old-notes")["board"]["state"],
+                "unmigrated",
             )
-            self.assertEqual(thrown.returncode, 0, thrown.stdout + thrown.stderr)
 
-            # The claim moved the board: alpha reads "working" on re-discovery.
-            re_projected = {p["project"]: p for p in server.discover_plans(dev)}
-            self.assertEqual(re_projected["alpha"]["board"]["state"], "working")
+            # --- 3. dispatch: two seats claim disjoint entity rows ---
+            thrown_a = run(
+                [str(SHADOW), "throw", "--repo", str(alpha), "--task", "~aa12",
+                 "--by", "seat-a"],
+                alpha,
+                env=shadow_env,
+            )
+            thrown_b = run(
+                [str(SHADOW), "throw", "--repo", str(beta), "--task", "~aa22",
+                 "--by", "seat-b"],
+                beta,
+                env=shadow_env,
+            )
+            self.assertEqual(thrown_a.returncode, 0, thrown_a.stdout + thrown_a.stderr)
+            self.assertEqual(thrown_b.returncode, 0, thrown_b.stdout + thrown_b.stderr)
+            board_payload, cards, warning = server.board_plan_records(dev, home)
+            self.assertIsNone(warning)
+            self.assertEqual(
+                {(claim["row"], claim["owner"]) for claim in board_payload["claims"]},
+                {("~aa12", "seat-a"), ("~aa22", "seat-b")},
+            )
+            by_project = {card["project"]: card for card in cards}
+            self.assertEqual(by_project["alpha"]["owner"], "seat-a")
+            self.assertEqual(by_project["beta"]["owner"], "seat-b")
 
-            # --- 4. reachability: seat B sees WHO claimed WHAT, cold ---
-            seat_b = home / "seat-b" / "alpha"
+            # --- 4. reachability: a cold clone sees claims through the board ---
+            seat_b = root / "seat-b" / "alpha"
             seat_b.parent.mkdir(parents=True)
-            git(home, "clone", "-q", str(alpha_bare), str(seat_b))
+            git(root, "clone", "-q", str(alpha_bare), str(seat_b))
             b_plan = (seat_b / "PLAN.md").read_text(encoding="utf-8")
-            self.assertIn("THROWN", b_plan, "the claim did not reach the remote")
-            self.assertIn("seat-a", b_plan, "the claim does not name its seat")
-            self.assertIn("~aa12", b_plan, "the claim does not name its row")
+            self.assertNotIn("THROWN", b_plan)
+            self.assertNotIn("seat-a", b_plan)
+            in_flight = run(
+                [str(SHADOW), "status", "--in-flight", "--json"],
+                seat_b,
+                env=shadow_env,
+            )
+            self.assertEqual(in_flight.returncode, 0, in_flight.stdout + in_flight.stderr)
+            cold_rows = json.loads(in_flight.stdout)["rows"]
+            self.assertEqual(
+                {(row["id"], row["by"]) for row in cold_rows},
+                {("~aa12", "seat-a"), ("~aa22", "seat-b")},
+            )
 
             # --- 5. acceptance: the cmd proof reruns clean and flips ---
             accepted = run(
-                [str(SHADOW), "accept", "--repo", str(alpha), "--row", "~aa12"],
+                [str(SHADOW), "accept", "--repo", str(alpha), "--row", "~aa12",
+                 "--by", "seat-a"],
                 alpha,
+                env=shadow_env,
             )
             self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
             flipped = (alpha / "PLAN.md").read_text(encoding="utf-8")
@@ -214,6 +265,17 @@ class TheGauntlet(unittest.TestCase):
             b_after = (seat_b / "PLAN.md").read_text(encoding="utf-8")
             self.assertIn("- [completed] the feature is being built ~aa12", b_after)
             self.assertIn("~aa12 PROOF", b_after)
+            remaining = json.loads(
+                run(
+                    [str(SHADOW), "status", "--in-flight", "--json"],
+                    seat_b,
+                    env=shadow_env,
+                ).stdout
+            )["rows"]
+            self.assertEqual(
+                [(row["id"], row["by"]) for row in remaining],
+                [("~aa22", "seat-b")],
+            )
 
 
 if __name__ == "__main__":

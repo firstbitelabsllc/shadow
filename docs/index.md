@@ -15,15 +15,16 @@ hero:
 
 features:
   - title: Calm briefing
-    details: One Outcome, what changed, why it matters, proof, and at most A/B/C.
+    details: Project priority, every reachable entity and milestone, current claims, proof, and exact next moves.
   - title: Durable truth
-    details: PLAN.md survives sessions and remains the only work authority.
+    details: The computer board coordinates; entity PLAN.md files keep work and proof.
   - title: Use your own tools
     details: Shadow prepares a clear handoff to the coding tools you already use, without taking over.
 ---
 
 ![Shadow's board](./assets/board-desktop.png)
 
-*The board: one card per project, with its mode, status, lint result, and task
-counts. Running locally against a demo portfolio — Sunrise Bakery, Orbit, and
-Fieldnotes are fictional projects; unedited screenshot of v4.0.x.*
+*The historical v4 screenshot below shows one card per project. The current
+board groups cards by project and projects every entity's reachable milestones
+and checkpoints without copying their text out of the entity plan. Sunrise
+Bakery, Orbit, and Fieldnotes are fictional demo projects.*

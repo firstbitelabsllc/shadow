@@ -67,6 +67,7 @@ main:focus { outline: none; }
 .empty { padding: 54px; }
 .empty h2 { max-width: 18ch; }
 .loading, .error { color: var(--muted); }
+.board-warning { margin: 0; padding: 14px clamp(20px, 4vw, 64px); background: var(--warm-soft); color: var(--warm); font-weight: 750; }
 
 @media (max-width: 760px) {
   .topbar { min-height: 86px; padding: 18px 20px; }

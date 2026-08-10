@@ -6,14 +6,16 @@ description: "Shape a loose ask into a complete executable Shadow goal brief: ga
 # Shape a goal
 
 Turn a loose request into a complete executable brief before it becomes plan
-tasks. This skill owns prompt shaping only — the owning `PLAN.md` keeps plan,
-proof, claims, and resume authority.
+checkpoints. This skill owns prompt shaping only. The computer board keeps
+global project priority, entity pointers, claims, owners, and resume; each
+entity's `PLAN.md` keeps milestone, checkpoint, detail, and proof authority.
 
 ## Method
 
-1. **Gather** what makes the full goal executable: repository instructions,
-   the owning `PLAN.md`, every relevant active claim and reachable row, git
-   state, and the files, errors, or surfaces the request names.
+1. **Gather** what makes the full goal executable: the computer board,
+   repository instructions, the owning entity `PLAN.md`, every relevant active
+   claim and reachable checkpoint, Git state, and the files, errors, or
+   surfaces the request names.
 2. **Synthesize** the brief: a plain-language Outcome; the authority
    (which `PLAN.md` at which ref); the active and ranked reachable work;
    every surface required by the Outcome plus prohibited paths; concrete
@@ -27,13 +29,15 @@ proof, claims, and resume authority.
 
 ```text
 Outcome: <plain result>.
-Authority: <repo + PLAN.md> at <ref — fetch first, state your ref>.
-Resume: <all owned in-progress work, then ranked reachable rows; fan out disjoint work>.
+Authority: <computer board revision for coordination> + <entity PLAN.md at committed ref>.
+Resume: <all checkpoints owned by this stable seat, then ranked reachable checkpoints>.
 Scope: <every surface required by the Outcome>; do not touch <prohibited paths>.
 Proof: <focused checks per lane>, <affected integration>, <real surfaces>.
-Policy: PLAN.md is the only plan/proof/resume layer; park blocked rows
-with exact wakes and continue every reachable row; stop only when full
-acceptance is mechanically true or every remainder is hard-rail blocked.
+Policy: the computer board owns project priority, entity pointers, claims,
+owners, and resume; each entity PLAN.md owns milestones, checkpoints, detail,
+and proof. Park blockers with exact wakes and continue every reachable
+checkpoint; stop only when full acceptance is mechanically true or every
+remainder is hard-rail blocked.
 ```
 
 ## When the request is a steer, not a task

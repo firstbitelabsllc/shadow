@@ -3,6 +3,7 @@
 # This replaces npm's `files` field (removed 2026-08-09) — same guarantee,
 # no package manager: the artifact stays small, public, and installable.
 .github/            export-ignore
+scripts/shadow-ci.py export-ignore
 tests/              export-ignore
 .gitattributes      export-ignore
 .gitleaks.toml      export-ignore

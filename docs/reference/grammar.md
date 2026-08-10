@@ -1,9 +1,9 @@
 # Shadow — plan file grammar
 
-Machine-readable grammar for `AGENT.md`. Every construct is a heading, list
-line, or grep over `PLAN.md`. Nothing requires a registry, database, daemon,
-queue, or writable board. `scripts/shadow-lint.py` is the enforcer: it runs
-in the test gate and before any mode flip is honored.
+Machine-readable grammar for `AGENT.md`. Project work remains headings and
+list lines in `PLAN.md`; the computer root board is one bounded JSON pointer
+ledger. Nothing requires a database, daemon, queue, or scheduler.
+`scripts/shadow-lint.py` enforces project plans.
 
 ## Sections, in order
 
@@ -30,7 +30,6 @@ in the test gate and before any mode flip is honored.
 - <ts> MODE explore->ship | harness: <name>
 - <ts> SPIKE ~ab12 <exploration question> | ends: <YYYY-MM-DD>
 - <ts> DECISION ~ab12 keep|kill|promote -> <one line>
-- <ts> THROWN ~ab12 <task text> | note: <why, <=200 chars>
 - <ts> STRUCT <edit> | trigger: <why>
 - <ts> STEER auto <option> | <reason>
 ```
@@ -43,12 +42,38 @@ project view is the grep across them.
 
 ## Plan location
 
-**`PLAN.md` at a project root is the only authority** — the directory you would
-open to work on the thing. Nothing above it is a plan.
+**Each entity's `PLAN.md` owns its milestone/checkpoint rows, proof, and
+evidence.** The computer authority is the local Git repository at `~/.shadow`.
+Its `board.json` groups entities under projects and owns global project
+priority, claims/owners, entity pointers, and exactly one resume checkpoint id
+per entity. It never stores checkpoint text, proof, milestone detail, or
+evidence.
 
-Git is not required. The point of enumerating roots is boundedness, not a
-version-control test; a plan in a plain directory is still a plan. Git identity
-is used only for deduplication, and the path stands in when there is none.
+The local file wins immediately. A private remote may be pushed separately as
+optional asynchronous recovery and may lag; it never gates or overrides a
+local write. Same-computer writers serialize a fresh read, decision, atomic
+replace, and local Git receipt under one advisory lock. Process death releases
+the lock; readers see either the complete old file or the complete new file.
+
+Every claim records `claimed_at`, `return_by`, and the fixed recovery action:
+probe its proof, then adopt, park with one wake, or close it. Staleness is
+derived when the board is read; no heartbeat, daemon, or automatic reassignment
+exists.
+
+Lifecycle changes are explicit transactions. `throw --adopt-expired` may
+replace an overdue claim only after its proof was probed. `return --by` closes
+only that owner's claim and accepts exactly three durable states: a completed
+row with its PROOF receipt, a blocked row with one Deferred wake naming the
+row, or an owner handback of pending/in-progress work. A healthy stored
+entity-plan pointer remains the canonical local locator; another branch or
+worktree cannot claim checkpoint text absent from it. If that pointer breaks,
+a valid checkout of the same logical entity repairs it during bounded
+reconciliation.
+
+Discovery may show a plain-directory plan as read-only material, but actionable
+entities are Git-backed: claim, proof, acceptance, publication, and durable
+logical identity require a committed plan snapshot. A missing or unreadable Git
+context fails closed instead of silently changing identity to a local path.
 
 A repository may declare additional plan locations in its root plan, as **one**
 Brief line carrying at most **three** comma-separated globs:
@@ -57,26 +82,31 @@ Brief line carrying at most **three** comma-separated globs:
 - Plans: plans/*/PLAN.md, skills/*/PLAN.md
 ```
 
-Repo-relative only — no absolute path, no `..`, no leading `/`. Nothing else in
-the repository is scanned, so a worktree pool, a vendored copy, or an archive
-directory cannot enter the board by accident.
+Repo-relative only — no absolute path, `..`, leading `/`, recursive `**`, or
+symlink traversal. Nothing else in the repository is scanned, so a worktree
+pool, vendored copy, or archive cannot enter the board by accident.
 
-Enumeration walks **project roots, not directories**: the portfolio root's
+Bounded discovery walks **project roots, not directories**: the portfolio root's
 immediate children that own a `PLAN.md`, each asked for its own plan plus its
-declared globs. There is no recursive search, so there is no cap, no
-silent truncation, and no way for a directory outside the portfolio to be read.
+declared globs. There is no recursive search, and both each repository and the
+whole import have a hard 250-plan admission budget. Overflow fails loudly; it
+is never truncated, and no directory outside the portfolio is read.
+Import is all-or-nothing: an unreadable, malformed, oversized, symlinked, or
+non-regular legal candidate fails loudly and leaves the board unchanged.
 
-One logical plan per `(origin remote, repo-relative path)`. A worktree or a
-clone resolves to the same key as its main checkout and never renders twice.
+One logical entity per `(normalized origin, repo-relative plan path)`. A
+worktree or clone resolves to the same identity as its main checkout and never
+renders twice. The `Project:` slug groups related entities and owns their shared
+global priority; every entity retains its own pointer and resume checkpoint.
 
 Why the rule is shaped this way, measured on the reference machine 2026-08-09:
 7,250 `PLAN.md` files exist under the portfolio root; a recursive scan reaches
 777 of them, 665 of which are byte-identical copies of 196 originals. Repo-root
 alone would be simpler, but it would orphan 36 live nested plans that real work
-depends on, so the declared-glob line exists to keep exactly those visible. A
-central index of plan locations is banned — it is a second store, it cannot be
-`git fetch`ed per repository, and it goes stale independently of everything it
-points at.
+depends on, so the declared-glob line exists to keep exactly those visible.
+Discovery is an import source, not authority. Once registered, an entity is
+reached through the computer board while checkpoint facts remain only in its
+plan.
 
 ## Task law
 
@@ -93,7 +123,7 @@ points at.
 - Every new task answers two questions before it lands: why now, and what
   does it contradict? A live conflict becomes a Contradictions row.
 - A task flips completed only in the same commit as its PROOF line;
-  `shadow accept --row` reruns a `cmd` proof in a clean detached checkout
+  `shadow accept --row ... --by <seat>` reruns a `cmd` proof in a clean detached checkout
   and is the only code path that flips a task.
 
 ## Milestone law
@@ -112,22 +142,18 @@ ignores it.
 
 ## Dispatch law
 
-`THROWN ~hash` records that a task left the chat for another conversation —
-another host, a workflow, a seat on another machine, or a batch of agents the
-current chat launched itself. Only `shadow throw` writes it, in the same commit
-as the `pending -> in_progress` flip. The
-thrown row's `proof:` is its completion predicate: a row with no proof cannot
-be thrown, because nobody could tell whether the job finished. A row carrying
-a THROWN line is excluded from auto-resume selection; one without is a
-hand-claimed resume target. Liveness is never asserted — probe the proof,
-never a process.
+`shadow throw` is the only public claim path. It validates the pointed entity
+checkpoint and proof, then atomically records `(entity, row id, owner, claimed at,
+return by, recovery action)`
+in the computer board. It does not flip or copy the entity checkpoint. Two local
+seats claiming one target produce exactly one winner; the loser re-reads the
+persisted claim and is told its owner. `shadow status --in-flight` joins the
+pointer back to entity text and proof at read time. Liveness is never asserted
+—probe the entity-owned proof, never a process.
 
-`| by: <lead>` on that line records WHO claimed it, and `shadow status
---in-flight` renders it. It lives in the tail, after the id: the thrown-row
-scan anchors on `^- <ts> THROWN ~hash`, so anything inserted ahead of the id
-makes every claim invisible to auto-resume-skip. A lead is free text — a file
-of legal names would be the roster v4 deleted, and would make an unlisted
-seat's honest claim illegal. An unsigned claim still reads as claimed.
+Historical `THROWN` lines, if present in an imported plan, are provenance only
+and never own live claims or resume selection. Each logical entity consumes
+that historical ownership at most once when it first enters the board.
 
 `- <ts> NOTE @<lead> <text>` is how one lead addresses another. Progress is
 append-only and serialized by fast-forward, so simultaneous notes are a push
@@ -152,9 +178,29 @@ knowledge or writes `LESSON none — <why>`.
 
 ## ARCHIVE
 
-The shipping commit moves the milestone's `###` block, its proof lines, and
-its Progress lines to `docs/plan-archive/<slug>.md`, leaving one tombstone
-task. Moves only; deletion and regeneration are banned.
+The hot plan is bounded at **256 KiB**, **128 task rows**, and **32 milestone
+headings**. `shadow lifecycle` reports those checked-in limits without writing
+by default. An over-budget report exits non-zero; limits are product law, not
+environment knobs.
+
+`shadow lifecycle --apply --repo <entity-directory> --milestone '<exact heading>'`
+moves one fully completed milestone's exact `###` block and every Progress
+item referencing its ids to the `docs/plan-archive/<safe-slug>.md` adjacent to
+that entity's plan. Root and declared nested entities use the same transaction;
+Git pathspecs remain relative to their shared repository root. Satisfied
+`needs:` references are folded, and the live block becomes one non-task
+tombstone pointer, so lint and rotation no longer treat archived ids as live.
+A deterministic `STRUCT` receipt names the next open milestone (or records that
+none remains), so compaction never erases the rotation handoff.
+The plan and archive are atomically replaced and land in one local commit with
+hooks and signing disabled. Repeating that exact apply reports already archived
+and changes nothing.
+
+Apply refuses a dirty plan or target archive, symlinks, an existing archive
+with different provenance, a malformed or unproven milestone, and a non-Git
+plan. Worktree or snapshot retirement is unsupported until a versioned,
+Shadow-owned manifest defines the exact target and deletion provenance; the
+command reports that boundary and never guesses or recursively deletes.
 
 ## LINT
 
@@ -168,8 +214,8 @@ SPIKE-EXPIRED-NO-DECISION; SHIP-OVER-OPEN-SPIKE; ORPHAN-DECISION (warning).
 
 ## BOARD
 
-Read-only projection of `- Project:` greps. A lane groups one project's
-plans; a card renders counts, the lint chip, the Contradictions count, and
-the current milestone — derived at read time. An unparseable plan renders as
-a red card, never best-effort counts. The moment any surface lets a viewer
-write a task or schedule work, it is a banned second store.
+The root board is writable only through its claim/lifecycle transaction and
+contains pointer metadata only. Human status and the browser dereference those
+pointers and render project rows without copying them. An unparseable or
+missing pointed plan fails loudly; no dashboard or scan becomes competing
+authority.

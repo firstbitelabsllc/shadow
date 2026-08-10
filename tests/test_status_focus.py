@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,9 @@ PLAN = """# Demo
 
 ## Brief
 
+- Project: demo
+- Mode: ship
+- Priority: 2
 - Outcome ID: ship-demo
 - Outcome Revision: 1
 - Outcome Updated At: 2026-08-03T03:00:00Z
@@ -32,14 +36,23 @@ PLAN = """# Demo
 - Option C ID: stop-now
 - Option C: Stop now
 - Option C Consequence: Leave the result unshipped.
+
+## Tasks
+
+### Demo release
+- [pending] Choose the review depth ~aa11 | proof: read tests/test_status_focus.py -> passes
+- [pending] Demo is released ~bb22 (DoD) | proof: read demo -> visible
 """
 
 
 class StatusTests(unittest.TestCase):
     def run_status(self, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        home = root / ".test-home" if root.is_dir() else Path("/tmp")
+        home.mkdir(parents=True, exist_ok=True)
         return subprocess.run(
             [sys.executable, str(STATUS), "--root", str(root), *args],
             cwd=ROOT,
+            env={**os.environ, "HOME": str(home)},
             capture_output=True,
             text=True,
             check=False,
@@ -51,9 +64,10 @@ class StatusTests(unittest.TestCase):
             (root / "PLAN.md").write_text(PLAN, encoding="utf-8")
             result = self.run_status(root)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Outcome: Ship the demo.", result.stdout)
-        self.assertIn("A. Focused check", result.stdout)
-        self.assertIn("C. Stop now", result.stdout)
+        self.assertIn("demo —", result.stdout)
+        self.assertIn("Mode: ship", result.stdout)
+        self.assertIn("Choose the review depth", result.stdout)
+        self.assertNotIn("A. Focused check", result.stdout)
         self.assertNotIn(dirname, result.stdout)
 
     def test_json_is_bounded_and_path_relative(self) -> None:
@@ -63,7 +77,9 @@ class StatusTests(unittest.TestCase):
             result = self.run_status(root, "--json")
             payload = json.loads(result.stdout)
         self.assertEqual(payload["schema"], "shadow.status.v1")
-        self.assertEqual(payload["plans"][0]["path"], "PLAN.md")
+        self.assertEqual(payload["plans"], [])
+        self.assertEqual(payload["v4_plans"][0]["project"], "demo")
+        self.assertEqual(len(payload["root_board"]["entities"]), 1)
         self.assertNotIn(dirname, result.stdout)
 
     def test_invalid_root_fails_cleanly(self) -> None:
@@ -109,8 +125,9 @@ class StatusV4Tests(StatusTests):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("demo", result.stdout)
             self.assertIn("Mode: ship", result.stdout)
-            self.assertIn("M1 — live milestone (1/3 done)", result.stdout)
-            self.assertIn("Resume: [pending] the ready row ~bb22", result.stdout)
+            self.assertIn("Current outcome: live milestone", result.stdout)
+            self.assertIn("Resume: [pending] the ready row", result.stdout)
+            self.assertIn("--task '~bb22'", result.stdout)
             self.assertNotIn("outcome must be a string", result.stdout)
             self.assertNotIn("needs a valid Brief", result.stdout)
 
@@ -123,6 +140,7 @@ class StatusV4Tests(StatusTests):
             result = subprocess.run(
                 [sys.executable, str(STATUS), "--root", str(root)],
                 cwd=dirname if dirname != str(ROOT) else "/",
+                env={**os.environ, "HOME": str(root / ".home")},
                 capture_output=True,
                 text=True,
                 check=False,
@@ -164,7 +182,7 @@ class StatusV4Tests(StatusTests):
             (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
             text = self.run_status(root)
             payload = json.loads(self.run_status(root, "--json").stdout)
-        self.assertEqual(payload["v4_plans"][0]["path"], "PLAN.md")
+        self.assertTrue(payload["v4_plans"][0]["path"].endswith("/PLAN.md"))
         self.assertNotIn(dirname, text.stdout)
 
     def test_unreadable_rows_are_surfaced_not_swallowed(self) -> None:
@@ -182,9 +200,10 @@ class StatusV4Tests(StatusTests):
             root = Path(dirname)
             (root / "PLAN.md").write_text(broken, encoding="utf-8")
             result = self.run_status(root)
-        self.assertNotIn("every task complete", result.stdout)
-        self.assertIn("Plan health:", result.stdout)
-        self.assertIn("shadow lint", result.stdout)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("portfolio import failed", result.stderr)
+        self.assertIn("does not read clean", result.stderr)
 
 
 class StatusPortfolioFallbackTests(unittest.TestCase):
@@ -201,6 +220,7 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
             env = dict(_os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+            env["HOME"] = blank
             env.pop("SHADOW_DEV_ROOT", None)
             result = subprocess.run(
                 [sys.executable, str(STATUS)],
@@ -216,9 +236,10 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             self.assertIn("showing the portfolio", result.stderr)
             self.assertNotIn(str(Path.home()), result.stderr)
             self.assertIn("Mode: ship", result.stdout)
-            self.assertIn("Resume: [pending] the ready row ~bb22", result.stdout)
+            self.assertIn("Resume: [pending] the ready row", result.stdout)
+            self.assertIn("--task '~bb22'", result.stdout)
 
-    def test_explicit_root_never_falls_back(self) -> None:
+    def test_explicit_root_changes_import_scope_but_never_hides_the_board(self) -> None:
         import os as _os
 
         with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
@@ -227,6 +248,16 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
             env = dict(_os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+            env["HOME"] = blank
+            initialized = subprocess.run(
+                [sys.executable, str(STATUS)],
+                cwd=blank,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertIn("Mode: ship", initialized.stdout)
             result = subprocess.run(
                 [sys.executable, str(STATUS), "--root", blank],
                 env=env,
@@ -235,7 +266,8 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
                 check=False,
             )
             self.assertNotIn("showing the portfolio", result.stderr)
-            self.assertNotIn("Mode: ship", result.stdout)
+            self.assertIn("Mode: ship", result.stdout)
+            self.assertIn("root board revision", result.stdout)
 
     def test_a_symlinked_child_does_not_decide_the_fallback(self) -> None:
         # discover_plans refuses a symlinked child because it resolves outside
@@ -257,6 +289,7 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
             env = dict(_os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+            env["HOME"] = blank
             env.pop("SHADOW_DEV_ROOT", None)
             result = subprocess.run(
                 [sys.executable, str(STATUS)],
@@ -265,7 +298,7 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             self.assertNotIn("failed to load", result.stderr)
             self.assertIn("showing the portfolio", result.stderr)
 
-    def test_opt_out_flag_keeps_empty_empty(self) -> None:
+    def test_retired_board_bypass_flag_is_rejected(self) -> None:
         import os as _os
 
         with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
@@ -279,7 +312,8 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertNotIn("showing the portfolio", result.stderr)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unrecognized arguments", result.stderr)
 
 
 V4_TWO_MILESTONES = """# Demo v4 two
@@ -291,11 +325,11 @@ V4_TWO_MILESTONES = """# Demo v4 two
 
 ## Tasks
 
-### M1 — everything here is needs-blocked
+### m20 — everything here is needs-blocked
 - [pending] blocked row ~aa11 | proof: cmd true | needs: ~cc33
 - [pending] blocked closer ~bb22 (DoD) | proof: read x -> y | needs: ~aa11
 
-### M2 — where the live work actually is
+### m21 — where the live work actually is
 - [in_progress] the live row ~cc33 | proof: cmd npm run gate
 - [pending] closer ~dd44 (DoD) | proof: read site -> renders | needs: ~cc33
 
@@ -306,7 +340,7 @@ V4_TWO_MILESTONES = """# Demo v4 two
 
 
 class StatusMatchesAmpTests(unittest.TestCase):
-    def test_milestone_line_names_the_resumed_rows_milestone(self) -> None:
+    def test_rotation_shows_every_open_milestone_and_marks_the_resume(self) -> None:
         # Bugbot (PR #263, High): status labeled the plan with the FIRST open
         # milestone while amp resumed an in_progress row in a LATER one —
         # breaking the shared-parser guarantee. The Milestone line must name
@@ -316,18 +350,96 @@ class StatusMatchesAmpTests(unittest.TestCase):
             (root / "PLAN.md").write_text(V4_TWO_MILESTONES, encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, str(STATUS), "--root", str(root)],
+                env={**os.environ, "HOME": str(root / ".home")},
                 capture_output=True, text=True, check=False,
             )
-            self.assertIn("Resume: [in_progress] the live row ~cc33", result.stdout)
-            self.assertIn("Milestone: M2 — where the live work actually is", result.stdout)
-            self.assertNotIn("Milestone: M1", result.stdout)
+            self.assertIn("Resume: [in_progress] the live row", result.stdout)
+            self.assertIn("Current outcome: where the live work actually is", result.stdout)
+            self.assertIn("open: everything here is needs-blocked", result.stdout)
+            self.assertIn("current: where the live work actually is", result.stdout)
+            self.assertIn("[pending/waiting] blocked row", result.stdout)
+            self.assertIn("[in_progress/reachable] the live row", result.stdout)
+            self.assertIn("--task '~cc33'", result.stdout)
+            self.assertNotIn("m20", result.stdout)
+            self.assertNotIn("m21", result.stdout)
+
+            json_result = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root), "--json"],
+                env={**os.environ, "HOME": str(root / ".json-home")},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(json_result.returncode, 0, json_result.stderr)
+            payload = json.loads(json_result.stdout)
+            milestones = payload["v4_plans"][0]["milestones"]
+            self.assertEqual(
+                [milestone["title_human"] for milestone in milestones],
+                [
+                    "everything here is needs-blocked",
+                    "where the live work actually is",
+                ],
+            )
+            self.assertFalse(milestones[0]["current"])
+            self.assertTrue(milestones[1]["current"])
+            self.assertEqual(milestones[1]["resume"], "~cc33")
+            self.assertEqual(
+                [row["availability"] for row in milestones[0]["checkpoints"]],
+                ["waiting", "waiting"],
+            )
+
+    def test_by_prints_continue_only_for_that_seats_claims(self) -> None:
+        throw = ROOT / "scripts" / "shadow-throw.py"
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / ".home"
+            home.mkdir()
+            claimable = V4_TWO_MILESTONES.replace(" | needs: ~cc33", "")
+            (root / "PLAN.md").write_text(claimable, encoding="utf-8")
+            for command in (
+                ("init", "-q"),
+                ("config", "user.email", "test@example.invalid"),
+                ("config", "user.name", "Test"),
+                ("add", "PLAN.md"),
+                ("commit", "-qm", "fixture"),
+            ):
+                subprocess.run(["git", "-C", str(root), *command], check=True)
+            env = {**os.environ, "HOME": str(home)}
+            registered = subprocess.run(
+                [sys.executable, str(STATUS), "--root", str(root)],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            for task, seat in (("~aa11", "seat-a"), ("~cc33", "seat-b")):
+                claimed = subprocess.run(
+                    [
+                        sys.executable, str(throw), "--repo", str(root),
+                        "--task", task, "--by", seat,
+                    ],
+                    env=env, capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            result = subprocess.run(
+                [
+                    sys.executable, str(STATUS), "--root", str(root),
+                    "--by", "seat-a",
+                ],
+                env=env, capture_output=True, text=True, check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        continuations = [
+            line for line in result.stdout.splitlines() if "Continue:" in line
+        ]
+        self.assertEqual(len(continuations), 1)
+        self.assertIn("--by seat-a", continuations[0])
+        self.assertNotIn("seat-b", continuations[0])
+        for line in (line for line in result.stdout.splitlines() if "~" in line):
+            self.assertRegex(line, r"shadow (?:amp|throw|return) ")
 
 
 class StatusBrokenPlanTests(unittest.TestCase):
-    def test_broken_local_plan_blocks_fallback_and_says_why(self) -> None:
-        # Bugbot (PR #263, Medium): discover_plans silently skips a PLAN.md
-        # that raises during ingestion, so the fallback could mask a BROKEN
-        # local plan behind a healthy portfolio board.
+    def test_broken_cwd_plan_cannot_shadow_the_computer_board(self) -> None:
         import os as _os
         import stat as _stat
 
@@ -338,12 +450,14 @@ class StatusBrokenPlanTests(unittest.TestCase):
             try:
                 env = dict(_os.environ)
                 env["SHADOW_PORTFOLIO_ROOT"] = portfolio
+                env["HOME"] = blank
                 result = subprocess.run(
                     [sys.executable, str(STATUS)],
                     cwd=blank, env=env, capture_output=True, text=True, check=False,
                 )
-                self.assertIn("failed to load", result.stderr)
-                self.assertNotIn("showing the portfolio", result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("showing the portfolio", result.stderr)
+                self.assertNotIn("unreadable", result.stdout)
             finally:
                 plan.chmod(_stat.S_IRUSR | _stat.S_IWUSR)
 
@@ -354,13 +468,46 @@ class AmpRelativePlanTests(unittest.TestCase):
         # so `shadow amp --repo /x --plan PLAN.md` run from a directory with
         # its OWN PLAN.md read the wrong file.
         AMP = ROOT / "scripts" / "shadow-amp.py"
-        with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as cwd:
+        THROW = ROOT / "scripts" / "shadow-throw.py"
+        with (
+            tempfile.TemporaryDirectory() as repo,
+            tempfile.TemporaryDirectory() as cwd,
+            tempfile.TemporaryDirectory() as home,
+        ):
             (Path(repo) / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
             decoy = V4_PLAN.replace("- Project: demo", "- Project: decoy")
             (Path(cwd) / "PLAN.md").write_text(decoy, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", repo], check=True)
+            subprocess.run(["git", "-C", repo, "add", "PLAN.md"], check=True)
+            subprocess.run(
+                [
+                    "git", "-C", repo,
+                    "-c", "user.name=Shadow Test",
+                    "-c", "user.email=shadow@example.invalid",
+                    "commit", "-qm", "fixture",
+                ],
+                check=True,
+            )
+            env = {**os.environ, "HOME": home}
+            registered = subprocess.run(
+                [sys.executable, str(STATUS), "--root", repo],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            claimed = subprocess.run(
+                [
+                    sys.executable, str(THROW), "--repo", repo,
+                    "--task", "~bb22", "--by", "seat-a",
+                ],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
             result = subprocess.run(
-                [sys.executable, str(AMP), "--repo", repo, "--plan", "PLAN.md"],
-                cwd=cwd, capture_output=True, text=True, check=False,
+                [
+                    sys.executable, str(AMP), "--repo", repo,
+                    "--plan", "PLAN.md", "--by", "seat-a",
+                ],
+                cwd=cwd, env=env, capture_output=True, text=True, check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("/goal demo", result.stdout)
@@ -399,11 +546,12 @@ class StatusLintBlockingTests(unittest.TestCase):
             (root / "PLAN.md").write_text(self.HIDDEN_WORK, encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, str(STATUS), "--root", str(root)],
+                env={**os.environ, "HOME": str(root / ".home")},
                 capture_output=True, text=True, check=False)
-            self.assertNotIn("mint the successor", result.stdout)
-            self.assertIn("cannot be trusted", result.stdout)
-            # and the operator is still told the plan is unhealthy
-            self.assertIn("Plan health", result.stdout)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("portfolio import failed", result.stderr)
+            self.assertIn("does not read clean", result.stderr)
 
     def test_clean_complete_plan_still_mints_the_successor(self) -> None:
         # Flipping the states is not enough to make a plan complete: since
@@ -421,5 +569,6 @@ class StatusLintBlockingTests(unittest.TestCase):
             (root / "PLAN.md").write_text(done, encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, str(STATUS), "--root", str(root)],
+                env={**os.environ, "HOME": str(root / ".home")},
                 capture_output=True, text=True, check=False)
             self.assertNotIn("cannot be trusted", result.stdout)

@@ -26,16 +26,19 @@ and proof mechanics underneath them.
 
 Shadow supports every claimed lane needed by the current Outcome; its own open
 proof must not stop another product from shipping reachable work in that
-product's canonical plan. Drain the reachable queue, fan out safe disjoint
-lanes, integrate proof, and keep choosing successors. A task boundary protects
+product's canonical plan. Drain the reachable queue, fan out safe path-disjoint
+claims, integrate proof, and keep choosing successors. A checkpoint boundary protects
 ownership and reviewability; it is never a session, campaign, or ambition cap.
 
 ## Start every cycle
 
-1. Read repository instructions and the repository-owned `PLAN.md`.
-2. Inspect the exact Git revision, worktree state, and proof named by the plan.
-3. Resume every locally owned in-progress row; otherwise claim the highest
-   reachable work and fan out path-disjoint rows when useful.
+1. Establish one stable public seat name and run `shadow status --by <seat>`;
+   the computer board supplies global priority, ownership, entity pointers,
+   and resume from any directory.
+2. Read the selected entity's repository instructions and committed `PLAN.md`,
+   then inspect its exact Git revision, worktree state, and named proof.
+3. Resume every checkpoint owned by that seat; otherwise atomically claim the
+   highest reachable checkpoint and fan out path-disjoint claims when useful.
 4. Drive claimed lanes to recorded results and run their real repository gates.
 5. Record each result, proof, uncertainty, blocked wake, and reachable
    successor in `PLAN.md`.
@@ -58,13 +61,15 @@ Deliver the goal ready to paste:
 
 ```text
 Outcome: <plain result>.
-Authority: <repo + PLAN.md> at <ref — fetch first, state your ref>.
-Resume: <all owned in-progress work, then ranked reachable rows; fan out disjoint work>.
+Authority: <computer board revision for coordination> + <entity PLAN.md at committed ref>.
+Resume: <all checkpoints owned by this stable seat, then ranked reachable checkpoints>.
 Scope: <every surface required by the Outcome>; do not touch <prohibited paths>.
 Proof: <focused checks per lane>, <affected integration>, <real surfaces>.
-Policy: PLAN.md is the only plan/proof/resume layer; park blocked rows
-with exact wakes and continue every reachable row; stop only when the full
-acceptance behavior is mechanically true or every remainder is hard-rail blocked.
+Policy: the computer board owns project priority, entity pointers, claims,
+owners, and resume; each entity PLAN.md owns milestones, checkpoints, detail,
+and proof. Park blockers with exact wakes and continue every reachable
+checkpoint; stop only when full acceptance is mechanically true or every
+remainder is hard-rail blocked.
 ```
 
 Quality gate before delivery: a fresh session could start without asking
@@ -72,13 +77,12 @@ what the task means; every line changes an implementation or safety
 decision; "done", "merged", "live", and "proven" stay distinct; the brief
 is shorter than the context it replaces.
 
-`shadow amp --repo <project>` projects this block deterministically from the
-repository's own plan — pointer, resume row, proof, milestone tooling —
-within one paste budget; the judgment above is what you add on top of it. amp
-reads a file and cannot see the conversation, so what you add is exactly what
-only the chat holds: the person's verbatim words, what was already tried and
-refuted, and the constraint they added mid-session. Put that in the owning
-`PLAN.md` in the same move or it did not happen.
+`shadow throw --repo <project> --task '~id' --by <seat>` atomically claims the
+checkpoint and returns its deterministic starting block. `shadow amp` resumes
+only a checkpoint the named seat already owns. The block points at the entity
+plan — committed ref, checkpoint, proof, and milestone capabilities — within
+one paste budget. Put any new durable requirement from the conversation in the
+owning `PLAN.md` in the same move or it did not happen.
 
 When the request is a loose steer rather than a task ("use adversaries", "dial
 in jordan mode", "focus on details"), translate it with
@@ -110,7 +114,7 @@ in a task receipt.
 
 ## Flip a task
 
-`shadow accept --row ~hash --repo <project>` is the only code path that flips
+`shadow accept --row '~hash' --repo <project> --by <seat>` is the only code path that flips
 a task to completed: it reruns the task's `cmd` proof in a detached clean
 checkout of HEAD and, only on a pass, rewrites the task and appends its
 paired PROOF line in one commit carrying `PLAN.md` alone. `read` and `gate`
@@ -158,7 +162,8 @@ message, and never re-send an option the person has ignored — repetition means
 the framing failed, so rewrite it.
 
 Hide implementation detail unless it changes the decision. The browser is a
-loopback projection of the same plan; Markdown remains authority.
+loopback projection of the computer board joined to entity plans; it never
+becomes authority.
 
 ## Extension buckets
 
@@ -170,9 +175,11 @@ cycle, claims a row, or carries proof, and no plan verb reads it.
 
 ## Boundaries
 
-Shadow owns a single product identity, a single `PLAN.md` authority, and a
-project-local evidence path. Native Codex, Claude Code, and Cursor own model
-authentication and execution. Do not add a router, daemon, scheduler, cloud
-executor, credential relay, transcript store, or parallel status database.
+Shadow owns a single product identity and one authority hierarchy: the
+per-computer root board for coordination, entity `PLAN.md` files for milestone
+and checkpoint detail/proof, and project-local evidence paths. Native Codex,
+Claude Code, and Cursor own model authentication and execution. Do not add a
+router, daemon, scheduler, cloud executor, credential relay, transcript store,
+or parallel status database.
 Thermo and Ponytail remain separate review disciplines rather than runtime
 roles.

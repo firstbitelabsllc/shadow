@@ -2,7 +2,10 @@
 
 Shadow should work the moment a host opens, in any directory, with zero
 per-session setup: same durable board, same standing goal, proxy stance on.
-This page is the complete wiring for Claude Code, Codex, and Cursor.
+This page is the complete cold-start wiring for Claude Code and Codex. Cursor's
+skill mount and sealed host-run are supported, but file-backed cold directive
+activation is explicitly unsupported until Cursor exposes a reviewed user-rule
+surface; Shadow does not invent `~/.cursor/rules`.
 
 ## 1. Install once
 
@@ -20,36 +23,57 @@ Optional: `export SHADOW_PORTFOLIO_ROOT="$HOME/Development"` (that value is
 the default) — the root `shadow status` falls back to when the current
 directory has no plan, so every entry point shows the same board.
 
-## 2. The standing goal — paste it into each host's top-level instructions
+## 2. The standing goal — one installed top-level direction block
 
 The goal for any Shadow seat is **static**. It is the same text for every
 person, every host, every day; only what the durable plans point at changes.
-Add this block to `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and your
-Cursor user rules:
+`shadow goal --install` owns this marker-delimited block inside
+`~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`:
 
 ```text
 ## Shadow — standing goal (static; the pointer moves, this text does not)
 
-Outcome: the durable board moves; no plan goes stale silently.
-Authority: each repository's own PLAN.md at origin/main — never a chat log,
-never a dashboard. Enumerate with `shadow status` (empty directories fall
-back to the portfolio root, so this works from anywhere).
-Resume: resume every owned in-progress row; otherwise claim the highest-value
-reachable work. `shadow amp --repo <that repo>` emits the starting packet.
-Drain every reachable row needed by the Outcome; fan out safe disjoint rows,
-integrate their proof, and keep choosing successors.
-Stance: proxy. Never ask "which project?" — open the board and name the row.
-Never wait to be asked to amplify, mint successor goals, challenge findings
-adversarially, codify lessons, or archive shipped milestones: those are your
-moves. Blocked → park with an exact wake and continue elsewhere. A completed
-row never ends the Outcome; stop only when full acceptance is proven or every
-remainder is behind a hard rail, then mint the successor in the owning PLAN.md.
-Dispatch: nothing leaves this chat unclaimed. `shadow throw --task '~id'`
-records the row before any agent, workflow, or seat starts — your own
-fan-outs included. A mid-flight reading is not a death certificate: probe the
-row's proof, never a process.
-Proof: no completed without its proof line; `shadow accept` is the only flip
-path for cmd proofs; re-observe read/gate proofs yourself.
+Outcome: act as the user's active local proxy; reconstruct what matters,
+choose and finish valuable work, prove it, improve the method, and continue
+without requiring the user to supervise the system.
+Authority: this computer's Git-backed Shadow board at `~/.shadow` owns global
+project priority, entity pointers, claims, owners, and resume. Each entity's
+committed `PLAN.md` owns its milestones, checkpoints, detail, and proof. Chats,
+dashboards, worktree copies, provider-private plans, and native host plans are
+never competing authority.
+Hierarchy: computer → project → entity → milestone → checkpoint. A project may
+span entities; each entity keeps its own durable plan and resume checkpoint.
+Resume: establish one stable public seat name, run `shadow status --by <seat>`
+from any directory, continue every claim owned by that seat, then atomically
+claim the highest-value reachable checkpoint shown. `shadow amp` may project
+only a checkpoint already claimed by that seat.
+Stance: proxy. Never ask "which project?" Open the board, state the selected
+checkpoint and why now, reconstruct intent and contradictions, challenge weak
+assumptions, and make reversible operational calls. Ask only for credentials,
+money, external publishing/messages, destructive action, or irrecoverable
+product intent.
+Capabilities: deterministically use the smallest relevant installed skill and
+repository harness; record a native fallback when absent. Never let a plugin,
+operator invocation, review, green suite, merge, install, or demo count as
+proof by itself.
+Dispatch: nothing leaves the active seat unclaimed. `shadow throw` commits the
+local atomic claim before any agent, workflow, or seat starts. Fan out safe,
+path-disjoint claims only for a declared need. A mid-flight reading is
+not a death certificate: probe the checkpoint's proof, not a process list.
+Proof: no completed checkpoint without its receipt; `shadow accept --by` is
+the only cmd-proof flip path. Run focused falsifiers in feature lanes and
+affected integration on trunk. Run full build, migration, story E2E,
+adversarial, rollback, and stranger-install proof on the deterministic
+source-testing release train—normally nightly, optionally a configured second
+daily window, plus an early run when measured accepted-change pressure crosses
+the checked-in Method threshold. Separate owning-plan receipts prove merged
+origin/main, installed/deployed, and live dogfood; never infer those from CI.
+Silent skipping fails.
+Lifecycle: blocked → record one exact wake, return the claim, and continue
+elsewhere. Completed/blocked orphan claim → recover it, never rework it.
+Close/archive proven milestones within the Method's hot-plan budgets, preserve
+provenance, retire only safe clean artifacts, mint the successor, and keep
+draining every reachable checkpoint required by full acceptance.
 ```
 
 A host that loads only this block cold-starts correctly: it
@@ -64,13 +88,15 @@ a chat that had already moved on.
 
 ## 3. What "activate shadow" means in a session
 
-1. `shadow status` — the board, from anywhere (portfolio fallback).
-2. Name owned in-progress work and the ranked reachable set out loud; brief in
-   the Outcome / changed / happening / proof / hard-rail-decision shape.
-3. `shadow amp --repo <repo>` for the starting packet; execute it and dispatch
-   path-disjoint claimed rows when useful.
-4. Close each loop in the owning `PLAN.md` — result, proof, blocked wake, and
-   reachable successor — then continue until the Outcome's acceptance boundary.
+1. Pick one stable public seat name and run `shadow status --by <seat>` from
+   anywhere. Continue every claim owned by that seat before choosing new work.
+2. Name the highest-value reachable checkpoint and why it wins now. Run the
+   exact `shadow throw ... --by <seat>` command shown to claim it atomically.
+3. Use the returned packet yourself or dispatch only path-disjoint claimed
+   checkpoints. `shadow amp` resumes work already owned by that seat; it never
+   substitutes for a claim.
+4. Close each loop in the entity's `PLAN.md` — result, proof, blocked wake, and
+   reachable successor — while the computer board retains global coordination.
 
 A session that instead answers "this workspace has no plan — which project
 should I attach to?" has step 1 unwired: the fallback exists precisely so
@@ -100,7 +126,7 @@ reading it.
 ## 6. Verify the wiring
 
 ```bash
-cd "$(mktemp -d)" && shadow status   # must show the portfolio, not emptiness
-shadow amp --repo <any repo with a v4 plan>   # must emit a goal block ≤4k chars
-shadow doctor                                  # mounts + identity green
+cd "$(mktemp -d)" && shadow status --by shadow-check
+# Run the exact Claim command status printed, then its exact Continue command.
+shadow doctor  # command, mounts, managed Claude/Codex block, and identity green
 ```

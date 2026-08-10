@@ -42,16 +42,22 @@ class GoalVerb(unittest.TestCase):
         # Each of these is a decision a cold host would otherwise get wrong.
         text = emit().stdout
         for clause in (
-            "PLAN.md",                        # where truth lives
-            "shadow status",                  # how to enumerate it
-            "shadow amp",                     # how to get the row's block
+            "~/.shadow",                      # the computer coordination authority
+            "PLAN.md",                        # entity detail and proof authority
+            "shadow status --by",             # stable-seat cold resume
+            "shadow amp",                     # owned-checkpoint projection
             'Never ask "which project?"',     # the proxy stance
-            "shadow accept",                  # the only flip path
-            "mint the",                       # goal chaining
+            "shadow accept --by",             # the only cmd-proof flip path
+            "mint the successor",             # goal chaining
             "shadow throw",                   # dispatch law: nothing leaves unclaimed
             "not a death certificate",        # and the reading that broke it twice
-            "Drain every reachable row",      # selected row starts work; it never caps it
-            "fan out safe disjoint rows",     # independent lanes rise together
+            "draining every reachable checkpoint", # one checkpoint never caps the goal
+            "path-disjoint claims",            # independent lanes rise together
+            "nightly",                        # deterministic expensive-proof train
+            "accepted-change pressure",       # early train uses accepted trunk evidence
+            "stranger-install",               # CI proves only its bounded install surface
+            "never infer those from CI",      # merge/deploy/live remain separate receipts
+            "native host plans",              # disposable UI, never authority
         ):
             self.assertIn(clause, text, f"standing goal lost: {clause}")
 

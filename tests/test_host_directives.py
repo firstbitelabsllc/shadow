@@ -400,7 +400,10 @@ class RefusesRatherThanGuesses(unittest.TestCase):
         # or one of their own paragraphs opening "Word: ", reads exactly like
         # block text. Stopping early leaves half a stale copy behind; reaching
         # further eats their writing. Say so and let the person draw the line.
-        stale = BLOCK.replace("re-observe read/gate proofs yourself.", "re-check them yourself.")
+        stale = BLOCK.replace(
+            "draining every reachable checkpoint required by full acceptance.",
+            "draining only the first reachable checkpoint.",
+        )
         self.assertNotEqual(stale.splitlines()[-1], BLOCK.splitlines()[-1])
         for name, contents in {
             "plain": BEFORE + stale + AFTER,
@@ -421,7 +424,10 @@ class RefusesRatherThanGuesses(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             claude = Path(tmp) / ".claude" / "CLAUDE.md"
             claude.parent.mkdir(parents=True)
-            stale = BLOCK.replace("re-observe read/gate proofs yourself.", "re-check them yourself.")
+            stale = BLOCK.replace(
+                "draining every reachable checkpoint required by full acceptance.",
+                "draining only the first reachable checkpoint.",
+            )
             claude.write_text(BEFORE + stale, encoding="utf-8")
             (Path(tmp) / ".codex").mkdir()
             result = subprocess.run(
@@ -1233,7 +1239,87 @@ class TheAuditedByteFidelity(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "gained a hard link"):
                 hd.apply(path, BLOCK)
 
+class ActivationIsByteIdenticalAcrossSupportedHosts(unittest.TestCase):
+    def test_both_public_hosts_receive_the_exact_generated_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            claude = root / "CLAUDE.md"
+            codex = root / "AGENTS.md"
+            for path in (claude, codex):
+                path.write_text("# owner text\n\n", encoding="utf-8")
+                self.assertEqual(hd.apply(path, BLOCK), "added")
+                text = path.read_text(encoding="utf-8")
+                start = text.index(hd.BEGIN)
+                end = text.index(hd.END, start) + len(hd.END)
+                self.assertEqual(text[start:end], hd.managed(BLOCK))
 
+
+class DogfoodOverwriteBacksUpAndConverges(unittest.TestCase):
+    def test_owner_takeover_keeps_the_first_backup_and_converges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "AGENTS.md"
+            original = "# owner rules\n"
+            path.write_text(original, encoding="utf-8")
+
+            self.assertEqual(hd._private_full_file(path, BLOCK), "replaced")
+            self.assertEqual(path.read_text(encoding="utf-8"), hd.managed(BLOCK) + "\n")
+            backup = path.with_suffix(path.suffix + ".bak-shadow-full")
+            self.assertEqual(backup.read_text(encoding="utf-8"), original)
+            self.assertEqual(hd._private_full_file(path, BLOCK), "current")
+
+            newer = BLOCK.replace("Outcome:", "Outcome: current —")
+            self.assertEqual(hd._private_full_file(path, newer), "replaced")
+            self.assertEqual(path.read_text(encoding="utf-8"), hd.managed(newer) + "\n")
+            self.assertEqual(backup.read_text(encoding="utf-8"), original)
+
+        help_text = subprocess.run(
+            [sys.executable, str(SCRIPT), "--help"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertNotIn("full", help_text.lower())
+
+    def test_owner_takeover_writes_through_a_symlink_and_keeps_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "canonical.md"
+            original = "# canonical owner rules\n"
+            target.write_text(original, encoding="utf-8")
+            link = root / "AGENTS.md"
+            link.symlink_to(target)
+
+            self.assertEqual(hd._private_full_file(link, BLOCK), "replaced")
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(target.read_text(encoding="utf-8"), hd.managed(BLOCK) + "\n")
+            backup = target.with_suffix(target.suffix + ".bak-shadow-full")
+            self.assertEqual(backup.read_text(encoding="utf-8"), original)
+
+    def test_owner_takeover_refuses_a_dangling_backup_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "AGENTS.md"
+            original = "# irreplaceable owner rules\n"
+            path.write_text(original, encoding="utf-8")
+            backup = path.with_suffix(path.suffix + ".bak-shadow-full")
+            backup.symlink_to(Path(tmp) / "missing-owner-backup")
+
+            with self.assertRaisesRegex(ValueError, "could not preserve"):
+                hd._private_full_file(path, BLOCK)
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+            self.assertTrue(backup.is_symlink())
+
+    def test_owner_takeover_refuses_an_unrelated_preexisting_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "AGENTS.md"
+            original = "# current owner rules\n"
+            path.write_text(original, encoding="utf-8")
+            backup = path.with_suffix(path.suffix + ".bak-shadow-full")
+            backup.write_text("# somebody else's bytes\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "could not preserve"):
+                hd._private_full_file(path, BLOCK)
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+            self.assertEqual(backup.read_text(encoding="utf-8"), "# somebody else's bytes\n")
 
 if __name__ == "__main__":
     unittest.main()

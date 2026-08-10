@@ -33,6 +33,7 @@ MAX_UNPACKED_BYTES = 2_000_000
 REQUIRED_FILES = {
     ".claude-plugin/plugin.json",
     "AGENT.md",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md",
     "SECURITY.md",
@@ -45,6 +46,11 @@ REQUIRED_FILES = {
     # `shadow amp` and `shadow throw` exited 2 with "can't open file".
     "scripts/shadow-amp.py",
     "scripts/shadow-throw.py",
+    "scripts/shadow-return.py",
+    "scripts/shadow-priority.py",
+    "scripts/shadow-lifecycle.py",
+    "scripts/shadow_board_import.py",
+    "scripts/shadow_root_board.py",
     "scripts/shadow-host-directives.py",
     "scripts/shadow-buckets.py",
     "scripts/shadow-verify-host.sh",
@@ -56,6 +62,8 @@ REQUIRED_FILES = {
     "browser/static/index.html",
     "browser/static/style.css",
     "docs/reference/chief-of-staff.md",
+    "docs/reference/grammar.md",
+    "docs/reference/host-integration.md",
     "docs/reference/native-hosts.md",
     "docs/reference/outcome-choice.md",
     "examples/outcome-choice/example.json",
@@ -98,6 +106,14 @@ def normalize(value: str) -> str:
 
 def source_version(root: Path) -> str:
     return (root / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
+
+
+def changelog_version(root: Path) -> str:
+    text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    match = re.search(r"^## ([0-9]+\.[0-9]+\.[0-9]+)\b", text, re.MULTILINE)
+    if match is None:
+        raise RuntimeError("CHANGELOG has no release heading")
+    return match.group(1)
 
 
 def forbidden(path: str) -> bool:
@@ -156,8 +172,12 @@ def validate_release_candidate(
     return errors
 
 
-def command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
+def command(
+    command: list[str], cwd: Path, *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        command, cwd=cwd, env=env, capture_output=True, text=True, check=False
+    )
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
         raise RuntimeError(f"{' '.join(command)} failed: {detail}")
@@ -221,12 +241,105 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
     command(["tar", "-xf", str(tarball), "-C", str(consumer)], root)
     bin_dir = root / "bin"
     bin_dir.mkdir()
-    command(["bash", str(consumer / "install.sh"), "--bin-dir", str(bin_dir), "--no-skills"], consumer)
+    home = root / "home"
+    home.mkdir()
+    for host in (".claude", ".agents", ".cursor", ".codex"):
+        (home / host).mkdir()
+    native_host = bin_dir / "codex"
+    native_host.write_text("#!/bin/sh\nprintf 'codex stranger-proof\\n'\n", encoding="utf-8")
+    native_host.chmod(0o755)
+    env = os.environ.copy()
+    env.update({
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "XDG_CACHE_HOME": str(home / ".cache"),
+        "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}",
+    })
+    command(
+        ["bash", str(consumer / "install.sh"), "--bin-dir", str(bin_dir)],
+        consumer,
+        env=env,
+    )
     cli = bin_dir / "shadow"
-    version = command([str(cli), "--version"], consumer).stdout.strip()
+    version = command([str(cli), "--version"], consumer, env=env).stdout.strip()
     if version != expected_version:
         raise RuntimeError("installed command version does not match source")
-    command([str(cli), "help"], consumer)
+    if source_version(consumer) != expected_version or changelog_version(consumer) != expected_version:
+        raise RuntimeError("installed VERSION and top changelog release do not match")
+    plugin = json.loads((consumer / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    if plugin.get("version") != expected_version:
+        raise RuntimeError("installed plugin version does not match source")
+    goal = command([str(cli), "goal"], consumer, env=env).stdout
+    for clause in ("~/.shadow", "project → entity → milestone → checkpoint", "shadow status --by"):
+        if clause not in goal:
+            raise RuntimeError(f"installed standing goal lost: {clause}")
+    expected_help = {
+        "status": ("--by OWNER", "--in-flight"),
+        "amp": ("--entity ID", "--by OWNER"),
+        "throw": ("--entity ID", "--by OWNER"),
+        "return": ("--entity ID", "--by OWNER"),
+        "accept": ("--by OWNER", "--row '~hash'"),
+        "lifecycle": ("--apply", "--milestone 'exact heading'"),
+    }
+    for verb, clauses in expected_help.items():
+        output = command([str(cli), "help", verb], consumer, env=env).stdout
+        for clause in clauses:
+            if clause not in output:
+                raise RuntimeError(f"installed help {verb} lost: {clause}")
+    for mount in (
+        home / ".claude" / "skills" / "shadow",
+        home / ".agents" / "skills" / "shadow",
+        home / ".cursor" / "skills" / "shadow",
+    ):
+        if not mount.is_symlink() or mount.resolve() != consumer.resolve():
+            raise RuntimeError(f"installed skill mount is missing or stale: {mount.parent.parent.name}")
+    for instructions in (
+        home / ".claude" / "CLAUDE.md",
+        home / ".codex" / "AGENTS.md",
+    ):
+        text = instructions.read_text(encoding="utf-8")
+        if goal.strip() not in text or text.count("<!-- shadow:goal:begin") != 1:
+            raise RuntimeError("installed host instructions lost the managed standing goal")
+    doctor = json.loads(command([str(cli), "doctor", "--json"], consumer, env=env).stdout)
+    if not doctor.get("ok"):
+        raise RuntimeError("installed doctor did not accept the stranger installation")
+
+    project = root / "installed-project"
+    project.mkdir()
+    command(["git", "init", "--quiet"], project)
+    command(["git", "config", "user.name", "Shadow Stranger"], project)
+    command(["git", "config", "user.email", "shadow-stranger@example.invalid"], project)
+    (project / "PLAN.md").write_text(
+        "# Project\n\n"
+        "## Brief\n\n"
+        "- Project: stranger-proof\n"
+        "- Mode: ship\n"
+        "- Priority: 2\n\n"
+        "## Tasks\n\n"
+        "### Installed lifecycle\n"
+        "- [pending] claim and prove through the installed command ~aa11 | proof: cmd true\n"
+        "- [pending] return remains owner-safe ~bb22 (DoD) | proof: cmd true | needs: ~aa11\n\n"
+        "## Progress\n\n"
+        "- 2026-08-10T00:00:00Z NOTE stranger install fixture\n",
+        encoding="utf-8",
+    )
+    command(["git", "add", "PLAN.md"], project)
+    command(["git", "commit", "--quiet", "-m", "seed installed lifecycle"], project)
+    lifecycle_env = {**env, "SHADOW_PORTFOLIO_ROOT": str(project)}
+    command([str(cli), "status", "--root", str(project), "--by", "release-seat", "--json"], project, env=lifecycle_env)
+    command([str(cli), "throw", "--repo", str(project), "--task", "~aa11", "--by", "release-seat"], project, env=lifecycle_env)
+    packet = command([str(cli), "amp", "--repo", str(project), "--task", "~aa11", "--by", "release-seat"], project, env=lifecycle_env).stdout
+    if "/goal" not in packet:
+        raise RuntimeError("installed claim did not produce its owned packet")
+    command([str(cli), "accept", "--repo", str(project), "--row", "~aa11", "--by", "release-seat", "--no-push"], project, env=lifecycle_env)
+    command([str(cli), "throw", "--repo", str(project), "--task", "~bb22", "--by", "release-seat"], project, env=lifecycle_env)
+    command([str(cli), "return", "--repo", str(project), "--row", "~bb22", "--by", "release-seat"], project, env=lifecycle_env)
+    board = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
+    if board["claims"]:
+        raise RuntimeError("installed lifecycle left a claim behind")
+    completed = (project / "PLAN.md").read_text(encoding="utf-8")
+    if "[completed] claim and prove" not in completed or "~aa11 PROOF" not in completed:
+        raise RuntimeError("installed accept did not persist its completion proof")
 
 
 def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool = False) -> dict[str, Any]:
