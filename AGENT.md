@@ -75,6 +75,21 @@ The two questions before any new checkpoint lands are: “why now—is this need
 or am I merely exploring?” and “what does this contradict?” A real conflict
 opens a Contradictions entry; it is never diluted into vague prose.
 
+Five incidents from 2026-08-10 remain standing checks:
+
+- Liveness is proven by the artifact, never the process — one live worker was
+  declared dead while a dead worker was treated as alive until their proofs
+  and branch commits were probed.
+- A worktree path is not a lane — an L4 worker launched into a detached
+  directory had no branch or pull request on which its work could land.
+- An accusation grounds on the merge-base diff, never the tip diff — a
+  two-dot comparison nearly charged a clean worker with changes made on main.
+- Every read names its ref, and an unfetched tree is presumed stale — a
+  checkout 1,697 commits behind main falsely reported that its repository had
+  no root plan.
+- Green fixtures prove the fixtures, never the field — initialized-picker
+  fixtures passed while the uninitialized L4 gift path remained unintercepted.
+
 ## Modes, deferral, and milestones
 
 Explore is bounded thinking time. A spike names its question and end date and
