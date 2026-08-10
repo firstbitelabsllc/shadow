@@ -1670,4 +1670,4 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T22:16:11Z ~cfg1 PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults -> pass (accept)
 - 2026-08-10T22:27:06Z ~yml2 PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults.TheSubsetRefusesWhatItCannotParse -> pass (accept)
 - 2026-08-10T22:32:30Z ~noks PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults.NoSelectorKeys -> pass (accept)
-- 2026-08-10T22:39:12Z ~advm PROOF read docs/reference/method.md names attack-then-refute and the built-in thermo/ponytail lenses; `shadow config --explain` prints that step and lens set; SKILL.md still says Thermo and Ponytail are separate review disciplines rather than runtime roles
+- 2026-08-10T22:39:12Z ~advm PROOF read docs/reference/method.md, `shadow config --explain`, and SKILL.md -> method names attack-then-refute and built-in thermo/ponytail lenses; config prints the active step and lens set; SKILL keeps both as review disciplines rather than runtime roles
