@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from browser.server import (  # noqa: E402
-    declared_plan_globs, discover_plans, is_plan_root, repo_plans,
+    declared_plan_globs, discover_plans, is_plan_root, live_plans, repo_plans,
 )
 
 PLAN = """# {name}
@@ -430,3 +430,45 @@ class AnArchiveShellNeverRendersAsAuthority(unittest.TestCase):
             self._repo(root, "thing", "git@github.com:acme/thing.git",
                        "The shipping commit moves the block to docs/plan-archive/<slug>.md.")
             self.assertFalse(discover_plans(root)[0].get("archived"))
+
+    def test_a_demotion_phrase_aimed_at_something_else_does_not_demote(self) -> None:
+        # The phrases are true sentences about other things in a live plan: the
+        # milestone retires a service, or names a component for what it is. A
+        # verdict is a plan demoting ITSELF, so the phrase only counts when its
+        # subject is this plan.
+        for prose in (
+            "Do not revive the old deploy service — the watcher replaced it.",
+            "The deploy watcher is a historical shell we delete in M18.",
+            "Cut over from the archive shell that fronts the legacy bucket.",
+        ):
+            with self.subTest(prose=prose), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._repo(root, "thing", "git@github.com:acme/thing.git", prose)
+                record = discover_plans(root)[0]
+                self.assertFalse(record.get("archived"),
+                                 f"a live plan was demoted by prose about something else: "
+                                 f"{record.get('archive_veto')!r}")
+
+    def test_a_vetoed_plan_never_reaches_the_browser(self) -> None:
+        # Annotating the record is not a demotion: both projections iterate the
+        # served list without reading `archived`, so a card the wire still
+        # carries keeps its live briefing and its decision buttons.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            self._repo(root, "thing-watcher", "git@github.com:acme/thing.git", self.BANNER)
+            self._repo(root, "other", "git@github.com:acme/other.git")
+
+            demoted = [record for record in discover_plans(root) if record.get("archived")]
+            self.assertEqual([record["path"] for record in demoted], ["thing/PLAN.md"],
+                             "veto regressed")
+            served = live_plans(root)
+            self.assertEqual([record["path"] for record in served], ["other/PLAN.md"],
+                             "the board was served a plan a copy of it demotes")
+
+    def test_a_healthy_portfolio_is_served_whole(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo(root, "thing", "git@github.com:acme/thing.git")
+            self._repo(root, "other", "git@github.com:acme/other.git")
+            self.assertEqual(len(live_plans(root)), 2)
