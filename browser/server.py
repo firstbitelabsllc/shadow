@@ -529,7 +529,32 @@ def _archive_veto_text(text: str) -> str | None:
 
 
 def _archive_veto_receipt(paths: list[Path]) -> dict[str, Any] | None:
-    """Freeze the exact source whose self-demotion retires a logical plan."""
+    """Freeze the exact source whose self-demotion retires a logical plan.
+
+    The verdict is sought across every copy of one logical plan, because a
+    demotion can sit on a copy no structural rule elects. But "any copy, ever"
+    reads history as if it were the present: a checkout parked on a pre-reset
+    commit keeps serving the banner its repository has since replaced, and it
+    then retires a project whose current plan is live. Measured on the
+    reference machine — `resplit-ios/PLAN.md` at a 2026-06-24 commit demoted
+    the whole identity while `resplit-ios-authority/PLAN.md` at 2026-08-10
+    carried the live plan, so every ordinary reconcile dropped the entity and
+    its claims off the board.
+
+    So a demotion stands unless a STRICTLY newer committed copy of the same
+    plan declines to repeat it. Strictly: a tie, an unknown commit time on
+    either side, or any git failure leaves the demotion in force, so the only
+    behaviour that changes is the case where the repository has provably moved
+    on. A plan that really did retire itself is unaffected — its demotion is
+    its newest word, which is exactly what this compares.
+
+    Boundary: a scratch checkout committing directly under the portfolio root
+    could outrank a repository's canonical copy. The worktree contract already
+    keeps lane checkouts out of that root; this is not defended here.
+    """
+    receipt: dict[str, Any] | None = None
+    newest_demoted: int | None = None
+    newest_live: int | None = None
     for candidate in paths:
         state, content = _root_board.plan_state_snapshot(candidate)
         if content is None:
@@ -540,13 +565,30 @@ def _archive_veto_receipt(paths: list[Path]) -> dict[str, Any] | None:
         # complete bounded snapshot and file metadata before retirement.
         text = content[:65_536].decode("utf-8", errors="ignore")
         found = _archive_veto_text(text)
+        committed = _root_board.plan_commit_time(candidate)
         if found:
-            return {
-                "match": found,
-                "plan": str(candidate.resolve()),
-                "expected_state": state,
-            }
-    return None
+            if receipt is None:
+                receipt = {
+                    "match": found,
+                    "plan": str(candidate.resolve()),
+                    "expected_state": state,
+                }
+            if committed is None:
+                # An undatable demotion can never be proven superseded.
+                newest_demoted = None
+                break
+            newest_demoted = max(newest_demoted or committed, committed)
+        elif committed is not None:
+            newest_live = max(newest_live or committed, committed)
+    if receipt is None:
+        return None
+    if (
+        newest_demoted is not None
+        and newest_live is not None
+        and newest_live > newest_demoted
+    ):
+        return None
+    return receipt
 
 
 def _archive_veto(paths: list[Path]) -> str | None:

@@ -465,6 +465,30 @@ def plan_mtime(repo: Path) -> float:
         return 0.0
 
 
+def plan_commit_time(plan: Path) -> int | None:
+    """Commit time of the last commit that touched this exact plan file.
+
+    Filesystem mtime cannot order two copies of one logical plan: a checkout,
+    a `git worktree add`, or a `disk-clean` sweep restamps a file without
+    changing a word of it. Commit time is the only ordering that survives
+    those, so it is what decides which copy is speaking for the identity now.
+
+    `None` means "no opinion", never "old": a file outside a repository, an
+    untracked plan, a partial clone missing the commit, or a git failure all
+    land here so callers can fall back to current behaviour instead of
+    treating an unreadable copy as the oldest one.
+    """
+    plan = Path(os.path.abspath(plan))
+    result = _git(plan.parent, "log", "-1", "--format=%ct", "--", str(plan))
+    if result.returncode != 0:
+        return None
+    raw = result.stdout.strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[str, str]:
     """Resolve logical identity fields without reading the PLAN.md body."""
     if require_regular and not regular_plan(plan):
