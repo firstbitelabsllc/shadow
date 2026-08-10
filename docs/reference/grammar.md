@@ -54,7 +54,7 @@ A repository may declare additional plan locations in its root plan, as **one**
 Brief line carrying at most **three** comma-separated globs:
 
 ```text
-- Plans: plans/*/PLAN.md, vidux/**/PLAN.md, skills/*/PLAN.md
+- Plans: plans/*/PLAN.md, skills/*/PLAN.md
 ```
 
 Repo-relative only — no absolute path, no `..`, no leading `/`. Nothing else in
