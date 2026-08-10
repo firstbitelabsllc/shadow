@@ -203,6 +203,20 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     disjoint rows and leaves no orphan claim. Lands in: ~2st8, host
     verification, and the repeated gauntlet.
 
+30. **The final two-seat observation is one sealed, reproducible harness.**
+    A default run is offline and spends no host quota. Live mode is explicit
+    and accepts one frozen seat-neutral goal file, fetches origin/main once,
+    and gives two stable named native seats only that shared identity. It uses
+    a fresh canonical temporary HOME, disposable local Git repositories and
+    remotes, bounded host process groups, and the real Shadow status, claim,
+    proof, and accept verbs. It refuses the operator's HOME, root board, and
+    product repositories; timeout, board drift, identity mismatch, partial
+    completion, or any orphan claim is inconclusive rather than green. Its
+    public receipt contains the shared goal hash/ref and final board facts but
+    no paths, prompts, transcripts, provider/account data, or row text. The
+    harness never flips the person-observed gate itself. Lands in: ~2st8,
+    native-host verification, package proof, and the shareable operator guide.
+
 ## Rejected
 
 1. **The machine ledger as a monolith absorbing every task** (codex-seat
