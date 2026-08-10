@@ -87,7 +87,9 @@ class ReleasePackageTests(unittest.TestCase):
 
     def test_reviewed_config_template_is_release_required(self) -> None:
         self.assertIn("shadow.example.yaml", mod.REQUIRED_FILES)
+        self.assertIn("shadow.machine.example.yaml", mod.REQUIRED_FILES)
         self.assertTrue((ROOT / "shadow.example.yaml").is_file())
+        self.assertTrue((ROOT / "shadow.machine.example.yaml").is_file())
 
     def test_disposable_fixture_commit_waits_for_git_maintenance(self) -> None:
         project = Path("/unused-fixture")

@@ -24,7 +24,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shadow priority: no plan at {plan}", file=sys.stderr)
         return 2
     try:
-        payload = board.set_priority(plan, args.value)
+        board_root = board.configured_root()
+        board.assert_entity_board(plan.parent, root=board_root)
+        payload = board.set_priority(plan, args.value, root=board_root)
     except (OSError, UnicodeError, board.BoardError) as exc:
         print(f"shadow priority: {exc}", file=sys.stderr)
         return 1

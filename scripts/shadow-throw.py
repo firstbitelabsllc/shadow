@@ -25,7 +25,12 @@ sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
-from shadow_config import ConfigError, LOCAL_CONFIG, load_config  # noqa: E402
+from shadow_config import (  # noqa: E402
+    ConfigError,
+    LOCAL_CONFIG,
+    assert_expected_board_root,
+    load_config,
+)
 
 
 BY_MAX: Final = 40
@@ -62,7 +67,13 @@ def _repo_for(plan_path: Path) -> Path:
     return Path(top.stdout.strip()).resolve() if top.returncode == 0 else plan_path.parent
 
 
-def _config_preferences(repo: Path, owner: str) -> tuple[int, str | None, list[str]]:
+def _config_preferences(
+    repo: Path,
+    owner: str,
+    board_root: Path | None = None,
+) -> tuple[int, str | None, list[str]]:
+    selected_root = board_root or _board.configured_root()
+    assert_expected_board_root(repo, selected_root)
     config = load_config(repo)
     durability = config.get("durability", {})
     if not isinstance(durability, dict):
@@ -79,7 +90,10 @@ def _config_preferences(repo: Path, owner: str) -> tuple[int, str | None, list[s
     display = lead.get("display_name")
     if display is not None and not isinstance(display, str):
         raise ConfigError(repo / LOCAL_CONFIG, 1, f"leads.{owner}.display_name must be a string")
-    lenses = lead.get("default_lenses", [])
+    method = config.get("method", {})
+    if not isinstance(method, dict):
+        raise ConfigError(repo / LOCAL_CONFIG, 1, "method must be a mapping")
+    lenses = lead.get("default_lenses", method.get("adversarial_lenses", []))
     if not isinstance(lenses, list) or not all(isinstance(item, str) for item in lenses):
         raise ConfigError(repo / LOCAL_CONFIG, 1, f"leads.{owner}.default_lenses must be a string list")
     return minutes, display, lenses
@@ -150,6 +164,11 @@ def main(argv: list[str] | None = None) -> int:
         help="after probing proof, atomically replace an overdue owner claim",
     )
     args = parser.parse_args(argv)
+    try:
+        board_root = _board.configured_root()
+    except _board.BoardError as exc:
+        print(f"shadow throw: claim refused: {exc}", file=sys.stderr)
+        return 1
 
     if args.entity and args.repo:
         print("shadow throw: use either --entity or --repo, not both", file=sys.stderr)
@@ -160,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             print("shadow throw: --entity wants a 64-character board id", file=sys.stderr)
             return 2
         try:
-            resolved = _board.resolve_entity(args.entity)
+            resolved = _board.resolve_entity(args.entity, root=board_root)
         except _board.BoardError as exc:
             print(f"shadow throw: claim refused: {exc}", file=sys.stderr)
             return 1
@@ -182,11 +201,14 @@ def main(argv: list[str] | None = None) -> int:
         repo = unresolved_repo.resolve()
         plan_path = repo / "PLAN.md"
         try:
-            existing = _board.entity_state(plan_path)
+            _board.assert_entity_board(repo, root=board_root)
+            existing = _board.entity_state(plan_path, root=board_root)
             if existing is not None and existing["entity"] is not None:
-                plan_path = _board.canonical_plan(plan_path, repair_missing=True)
+                plan_path = _board.canonical_plan(
+                    plan_path, repair_missing=True, root=board_root
+                )
                 repo = _repo_for(plan_path)
-                state = _board.entity_state(plan_path)
+                state = _board.entity_state(plan_path, root=board_root)
         except _board.BoardError as exc:
             print(f"shadow throw: claim refused: {exc}", file=sys.stderr)
             return 1
@@ -204,7 +226,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with _board.project_lock(plan_path):
             repo, plan, plan_token = _validated_target(plan_path, args.task)
-            claim_return_minutes, seat_display_name, seat_lenses = _config_preferences(repo, args.by)
+            _board.assert_entity_board(repo, root=board_root)
+            claim_return_minutes, seat_display_name, seat_lenses = _config_preferences(
+                repo, args.by, board_root
+            )
             if not args.entity:
                 # Normalize/register this exact bounded entity before claiming.
                 # This also rekeys a stored entity after its Git origin changes, so
@@ -219,8 +244,9 @@ def main(argv: list[str] | None = None) -> int:
                         }
                     ],
                     [],
+                    root=board_root,
                 )
-                state = _board.entity_state(plan_path)
+                state = _board.entity_state(plan_path, root=board_root)
             if state is None or state["entity"] is None:
                 if args.entity:
                     raise _board.BoardError("entity is not registered on this computer")
@@ -248,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
                 adopt_expired=args.adopt_expired,
                 expected_plan=plan_token,
                 claim_return_minutes=claim_return_minutes,
+                root=board_root,
             )
             payload = receipt["payload"]
             claimed = receipt["claim"]

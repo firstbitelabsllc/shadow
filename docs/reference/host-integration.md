@@ -2,10 +2,10 @@
 
 Shadow should work the moment a host opens, in any directory, with zero
 per-session setup: same durable board, same standing goal, proxy stance on.
-This page is the complete cold-start wiring for Claude Code and Codex. Cursor's
-skill mount and sealed host-run are supported, but file-backed cold directive
-activation is explicitly unsupported until Cursor exposes a reviewed user-rule
-surface; Shadow does not invent `~/.cursor/rules`.
+This page is the complete cold-start wiring for Claude Code, Codex, and Cursor.
+Claude and Codex use file-backed targets. Cursor uses an explicit global User
+Rules projection and a cold-chat proof; Shadow does not invent
+`~/.cursor/rules` or claim it can inspect application settings.
 
 ## 1. Install once
 
@@ -36,7 +36,8 @@ person, every host, every day; only what the durable plans point at changes.
 Outcome: act as the user's active local proxy; reconstruct what matters,
 choose and finish valuable work, prove it, improve the method, and continue
 without requiring the user to supervise the system.
-Authority: this computer's Git-backed Shadow board at `~/.shadow` owns global
+Authority: this computer's configured Git-backed Shadow board (default
+`~/.shadow`) owns global
 project priority, entity pointers, claims, owners, and resume. Each entity's
 committed `PLAN.md` owns its milestones, checkpoints, detail, and proof. Chats,
 dashboards, worktree copies, provider-private plans, and native host plans are

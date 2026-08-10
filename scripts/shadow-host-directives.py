@@ -85,16 +85,17 @@ over-promise here would be a lie about someone's hand-written instructions:
    from a blank line the person typed, so one such line can come out with the
    block; a file that never ended in a newline gains one on the round trip.
 
-Cursor is deliberately absent, by decision: its user-level rules live in
-application settings, not a file, so writing `~/.cursor/rules/shadow.md` would
-invent a convention. The decision, its evidence, and its reopen condition are
-recorded in docs/reference/native-hosts.md § Activation surfaces.
+Cursor is deliberately absent from file writes: its user-level rules live in
+application settings, not a documented file. Machine configuration may declare
+the `user_rules` projection; Shadow then prints a hash receipt for the manual
+application action and never claims it inspected or changed Cursor settings.
 """
 
 from __future__ import annotations
 
 import argparse
 import errno
+import hashlib
 import importlib.util
 import os
 import stat
@@ -213,6 +214,88 @@ def supported_activation_targets(
 # Compatibility for focused callers and the CLI argument choices. The value is
 # derived from docs/reference/native-hosts.md, never hand-maintained here.
 HOSTS: Final = supported_activation_targets()
+
+
+def _machine_config() -> dict:
+    """Read bootstrap configuration from the installed Shadow checkout only."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "shadow_config_for_host_directives", ROOT / "scripts" / "shadow_config.py"
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("could not load scripts/shadow_config.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.load_machine_config(ROOT)
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        raise ValueError(f"machine configuration is invalid: {exc}") from exc
+
+
+def configured_directive_topology(*, home: Path | None = None) -> dict:
+    """Return the installed checkout's directive topology.
+
+    An absent source retains the shipped file-target convention.  Once a
+    source is declared, its two targets are declarations to verify, never
+    paths Shadow is authorized to create or replace with links.
+    """
+    config = _machine_config()
+    declared = config.get("directives", {})
+    if not isinstance(declared, dict):
+        raise ValueError("machine directives configuration is not a mapping")
+    source = declared.get("source")
+    targets = declared.get("targets", {})
+    projections = declared.get("projections", {})
+    if source is None:
+        return {
+            "source": None,
+            "targets": supported_activation_targets(home=home),
+            "projections": {},
+        }
+
+    def expand(value: str) -> Path:
+        if value.startswith("~/"):
+            return (home or Path.home()).resolve() / value[2:]
+        return Path(value)
+
+    return {
+        "source": expand(source),
+        "targets": {name: expand(value) for name, value in targets.items()},
+        "projections": dict(projections),
+    }
+
+
+def projection_sha256(block: str) -> str:
+    """The reproducible receipt for a manual application-settings projection."""
+    return hashlib.sha256(block.encode("utf-8")).hexdigest()
+
+
+def verify_declared_topology(source: Path, targets: dict[str, Path]) -> None:
+    """Require pre-existing Claude/Codex links to the declared source."""
+    if not source.is_file() or source.is_symlink():
+        raise ValueError(f"directive source {source} must be an existing regular file")
+    if set(targets) != {"claude", "codex"}:
+        raise ValueError("configured directive topology requires exactly claude and codex targets")
+    canonical = source.resolve()
+    for name, target in sorted(targets.items()):
+        if not os.path.lexists(target):
+            raise ValueError(
+                f"directive target {name} ({target}) is missing; create its link to "
+                f"{source} yourself, then rerun"
+            )
+        if not target.is_symlink():
+            raise ValueError(
+                f"directive target {name} ({target}) is not a symlink; configured shared-source "
+                "mode requires a pre-existing personal link and never accepts a regular-file alias"
+            )
+        try:
+            actual = Path(os.path.realpath(target, strict=True))
+        except OSError as exc:
+            raise ValueError(f"directive target {name} ({target}) does not resolve: {exc}") from exc
+        if actual != canonical:
+            raise ValueError(
+                f"directive target {name} ({target}) resolves to {actual}, expected {canonical}; "
+                "Shadow does not create or replace personal links"
+            )
 
 
 class ApplyResult(str):
@@ -1051,7 +1134,8 @@ def main(argv: list[str] | None = None) -> int:
     # long-lived import and `main()`, and the current documented support list
     # must be the list this invocation writes.
     try:
-        targets = supported_activation_targets()
+        topology = configured_directive_topology()
+        targets = topology["targets"]
     except ValueError as exc:
         print(f"shadow goal: {exc}", file=sys.stderr)
         return 1
@@ -1070,23 +1154,50 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     status = 0
-    for name in args.host or sorted(targets):
-        path = targets[name]
-        if not path.parent.is_dir():
-            # The host is not installed on this machine. Not an error.
-            print(f"skipped:   {name} (no host directory)")
-            continue
+    source = topology["source"]
+    if source is not None and args.host:
+        print(
+            "failed:    configured directive topology: --host is unavailable with a shared "
+            "directive source; install or remove Claude and Codex together",
+            file=sys.stderr,
+        )
+        return 1
+    selected = {name: targets[name] for name in (args.host or sorted(targets))}
+    if source is not None:
         try:
-            result = apply(path, block, remove=args.remove)
+            verify_declared_topology(source, selected)
+            result = apply(source, block, remove=args.remove)
         except (OSError, ValueError) as exc:
-            print(f"failed:    {name}: {exc}", file=sys.stderr)
-            status = 1
-            continue
-        detail = f"{str(result) + ':':10} {name} -> {result.target}"
-        if result.backup is not None:
-            detail += f" (backup retained: {result.backup})"
-        print(detail)
-    print("\nCursor is not written: its user rules live in application settings, not a file.")
+            print(f"failed:    configured directive topology: {exc}", file=sys.stderr)
+            return 1
+        for name, path in selected.items():
+            detail = f"{str(result) + ':':10} {name} -> {path} -> {result.target}"
+            if result.backup is not None:
+                detail += f" (backup retained: {result.backup})"
+            print(detail)
+    else:
+        for name, path in selected.items():
+            if not path.parent.is_dir():
+                # The host is not installed on this machine. Not an error.
+                print(f"skipped:   {name} (no host directory)")
+                continue
+            try:
+                result = apply(path, block, remove=args.remove)
+            except (OSError, ValueError) as exc:
+                print(f"failed:    {name}: {exc}", file=sys.stderr)
+                status = 1
+                continue
+            detail = f"{str(result) + ':':10} {name} -> {result.target}"
+            if result.backup is not None:
+                detail += f" (backup retained: {result.backup})"
+            print(detail)
+    if topology["projections"].get("cursor") == "user_rules":
+        print(
+            "\nCursor user_rules projection is manual and read-only to Shadow; "
+            f"expected standing-goal sha256: {projection_sha256(block)}"
+        )
+    else:
+        print("\nCursor is not written: declare directives.projections.cursor: user_rules for a manual projection receipt.")
     return status
 
 

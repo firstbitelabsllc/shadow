@@ -8,7 +8,10 @@ and guessing where an unmarked block ends eats the paragraph after it.
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr, redirect_stdout
+import hashlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import stat
@@ -571,6 +574,132 @@ class CursorIsNotInvented(unittest.TestCase):
             self.assertIn("Cursor is not written", result.stdout)
 
 
+class ConfiguredDirectiveTopologyIsVerifiedNotInvented(unittest.TestCase):
+    def _config(self, root: Path) -> dict:
+        return {
+            "directives": {
+                "source": str(root / "private" / "DIRECTIVES.md"),
+                "targets": {
+                    "claude": str(root / "home" / ".claude" / "CLAUDE.md"),
+                    "codex": str(root / "home" / ".codex" / "AGENTS.md"),
+                },
+                "projections": {"cursor": "user_rules"},
+            }
+        }
+
+    def test_declared_paths_come_from_machine_config_not_the_docs_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(hd, "_machine_config", return_value=self._config(root)), mock.patch.object(
+                hd, "supported_activation_targets", side_effect=AssertionError("docs fallback used")
+            ):
+                topology = hd.configured_directive_topology()
+            self.assertEqual(topology["source"], root / "private" / "DIRECTIVES.md")
+            self.assertEqual(set(topology["targets"]), {"claude", "codex"})
+            self.assertEqual(topology["projections"], {"cursor": "user_rules"})
+
+    def test_missing_or_misdirected_targets_are_refused_without_creating_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "private" / "DIRECTIVES.md"
+            source.parent.mkdir()
+            source.write_text("owner text\n", encoding="utf-8")
+            target = root / "home" / ".claude" / "CLAUDE.md"
+            missing_codex = root / "home" / ".codex" / "AGENTS.md"
+            with self.assertRaisesRegex(ValueError, "missing; create its link"):
+                hd.verify_declared_topology(source, {"claude": target, "codex": missing_codex})
+            self.assertFalse(os.path.lexists(target))
+
+            target.parent.mkdir(parents=True)
+            wrong = root / "wrong.md"
+            wrong.write_text("wrong\n", encoding="utf-8")
+            target.symlink_to(wrong)
+            with self.assertRaisesRegex(ValueError, "does not create or replace personal links"):
+                hd.verify_declared_topology(source, {"claude": target, "codex": target})
+            self.assertEqual(target.resolve(), wrong.resolve())
+            self.assertEqual(wrong.read_text(encoding="utf-8"), "wrong\n")
+
+    def test_regular_file_aliases_are_not_accepted_as_personal_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "DIRECTIVES.md"
+            source.write_text("owner text\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "is not a symlink"):
+                hd.verify_declared_topology(source, {"claude": source, "codex": source})
+
+    def test_host_filtered_shared_source_install_and_remove_are_refused_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self._config(root)
+            source = Path(config["directives"]["source"])
+            source.parent.mkdir()
+            for raw in config["directives"]["targets"].values():
+                target = Path(raw)
+                target.parent.mkdir(parents=True)
+                target.symlink_to(source)
+
+            for arguments, contents in (
+                (["--host", "claude"], "# owner rules\n"),
+                (["--remove", "--host", "claude"], hd.managed(BLOCK) + "\n"),
+            ):
+                with self.subTest(arguments=arguments):
+                    source.write_text(contents, encoding="utf-8")
+                    stderr = io.StringIO()
+                    with mock.patch.object(hd, "_machine_config", return_value=config), redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                        self.assertEqual(hd.main(arguments), 1)
+                    self.assertIn("--host is unavailable with a shared directive source", stderr.getvalue())
+                    self.assertEqual(source.read_text(encoding="utf-8"), contents)
+
+    def test_host_filter_cannot_bypass_a_broken_sibling_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self._config(root)
+            source = Path(config["directives"]["source"])
+            source.parent.mkdir()
+            source.write_text("# owner rules\n", encoding="utf-8")
+            claude = Path(config["directives"]["targets"]["claude"])
+            claude.parent.mkdir(parents=True)
+            claude.symlink_to(source)
+            codex = Path(config["directives"]["targets"]["codex"])
+            self.assertFalse(os.path.lexists(codex))
+
+            stderr = io.StringIO()
+            with mock.patch.object(hd, "_machine_config", return_value=config), redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                self.assertEqual(hd.main(["--host", "claude"]), 1)
+            self.assertIn("--host is unavailable with a shared directive source", stderr.getvalue())
+            self.assertEqual(source.read_text(encoding="utf-8"), "# owner rules\n")
+
+    def test_install_writes_the_canonical_source_once_and_keeps_personal_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self._config(root)
+            source = Path(config["directives"]["source"])
+            source.parent.mkdir()
+            source.write_text("# owner rules\n", encoding="utf-8")
+            targets = config["directives"]["targets"]
+            for raw in targets.values():
+                target = Path(raw)
+                target.parent.mkdir(parents=True)
+                target.symlink_to(source)
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch.object(hd, "_machine_config", return_value=config), redirect_stdout(stdout), redirect_stderr(stderr):
+                self.assertEqual(hd.main([]), 0, stderr.getvalue())
+
+            text = source.read_text(encoding="utf-8")
+            self.assertEqual(text.count(hd.BEGIN), 1)
+            for raw in targets.values():
+                target = Path(raw)
+                self.assertTrue(target.is_symlink())
+                self.assertEqual(target.resolve(), source.resolve())
+            self.assertIn("Cursor user_rules projection is manual", stdout.getvalue())
+            self.assertIn(hd.projection_sha256(BLOCK), stdout.getvalue())
+
+    def test_cursor_receipt_hash_is_derived_and_no_cursor_path_is_written(self) -> None:
+        expected = hashlib.sha256(BLOCK.encode("utf-8")).hexdigest()
+        self.assertEqual(hd.projection_sha256(BLOCK), expected)
+
+
 class EverySupportedHostIsActivated(unittest.TestCase):
     """Every documented cold target gets the one generated standing-goal block."""
 
@@ -640,12 +769,12 @@ Cursor cold activation is unsupported.
             self.assertTrue(target.is_file())
             self.assertIn(BLOCK, target.read_text(encoding="utf-8"))
 
-    def test_current_documented_list_excludes_unsupported_cursor(self) -> None:
+    def test_current_documented_list_keeps_cursor_out_of_file_targets(self) -> None:
         targets = hd.supported_activation_targets()
         self.assertEqual(sorted(targets), ["claude", "codex"])
         self.assertNotIn("cursor", targets)
         native_hosts = (ROOT / "docs" / "reference" / "native-hosts.md").read_text(encoding="utf-8")
-        self.assertIn("Cursor is not activated, by decision", native_hosts)
+        self.assertIn("Cursor uses a projection, not a file target", native_hosts)
 
 
 

@@ -44,7 +44,7 @@ class SuppressionReceipt:
 
 
 def portfolio_root(fallback: Path) -> Path:
-    configured = os.environ.get("SHADOW_PORTFOLIO_ROOT") or os.environ.get("SHADOW_DEV_ROOT")
+    configured = os.environ.get("SHADOW_PORTFOLIO_ROOT")
     if configured:
         candidate = Path(configured).expanduser().resolve()
         if not candidate.is_dir():
@@ -69,6 +69,7 @@ def _registered_state(
     amp: ModuleType,
     *,
     home: Path | None,
+    board_root: Path,
     archive_veto_text,
     declared_globs,
     operator_brief,
@@ -78,7 +79,7 @@ def _registered_state(
     trusted: dict[str, Path] = {}
     retired: dict[str, dict] = {}
     repairable: dict[str, tuple[Path, str]] = {}
-    for identity, pointers in board.registered_locator_index(home=home).items():
+    for identity, pointers in board.registered_locator_index(root=board_root).items():
         frozen = {
             pointer: board.plan_state_snapshot(pointer)
             for pointer in sorted(pointers, key=str)
@@ -158,6 +159,7 @@ def reconcile_portfolio(
     amp: ModuleType,
     *,
     home: Path | None = None,
+    board_root: Path | None = None,
 ) -> dict:
     """Import exactly the plans returned by shipped bounded discovery."""
     from browser.server import (
@@ -170,11 +172,13 @@ def reconcile_portfolio(
         read_plan,
     )
 
+    selected_root = board_root or board.configured_root(home=home)
     seeds: list[dict] = []
     historical: list[dict] = []
     registered, registered_retired, repairable = _registered_state(
         amp,
         home=home,
+        board_root=selected_root,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
         operator_brief=operator_brief,
@@ -225,6 +229,7 @@ def reconcile_portfolio(
                 raise board.BoardError(
                     f"{relative}: registered board locator changed during import"
                 )
+        board.assert_entity_board(source_path.parent, root=selected_root)
         try:
             text = read_plan(source_path)
         except (BrowserError, OSError, UnicodeError) as exc:
@@ -294,7 +299,7 @@ def reconcile_portfolio(
         historical,
         retired_entities=sorted(retired),
         retired_sources=list(retired.values()),
-        home=home,
+        root=selected_root,
     )
 
 
@@ -303,6 +308,7 @@ def suppression_receipts(
     amp: ModuleType,
     *,
     home: Path | None = None,
+    board_root: Path | None = None,
 ) -> list[SuppressionReceipt]:
     """Bounded, public reasons discovery withheld a plan from authority."""
     from browser.server import (
@@ -313,9 +319,11 @@ def suppression_receipts(
         operator_brief,
     )
 
+    selected_root = board_root or board.configured_root(home=home)
     registered, registered_retired, repairable = _registered_state(
         amp,
         home=home,
+        board_root=selected_root,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
         operator_brief=operator_brief,

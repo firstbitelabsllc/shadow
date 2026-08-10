@@ -157,9 +157,8 @@ class StatusV4Tests(StatusTests):
             self.assertEqual(payload["v4_plans"][0]["project"], "demo")
 
     def test_v4_paths_stay_relative_to_the_scan_root(self) -> None:
-        # Codex (PR #263, P2): v4 records printed an absolute path while
-        # legacy records stayed root-relative, leaking the operator's home
-        # directory onto a portfolio board.
+        # Codex (PR #263, P2): v4 records printed an absolute path, leaking the
+        # operator's home directory onto a portfolio board.
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
@@ -204,7 +203,6 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             env = dict(_os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
             env["HOME"] = blank
-            env.pop("SHADOW_DEV_ROOT", None)
             result = subprocess.run(
                 [sys.executable, str(STATUS)],
                 cwd=blank,
@@ -273,7 +271,6 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             env = dict(_os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
             env["HOME"] = blank
-            env.pop("SHADOW_DEV_ROOT", None)
             result = subprocess.run(
                 [sys.executable, str(STATUS)],
                 cwd=str(work), env=env, capture_output=True, text=True, check=False,

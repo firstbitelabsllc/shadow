@@ -144,10 +144,9 @@ def host_goal_checks() -> list[dict[str, Any]]:
     which project") each passed the whole suite and shipped, because no
     executable read a host file. Read-only — it repairs nothing.
 
-    The supported list and paths come from native-hosts.md through the same
-    reader the installer uses. Cursor is absent by decision: its user rules
-    live in application settings, not a file, so asserting a path here would
-    invent a convention.
+    The paths come through the same installed-machine configuration reader the
+    installer uses. Cursor remains a manual application-settings projection:
+    doctor reports the expected hash but cannot claim to have inspected a GUI.
     """
     block = standing_goal()
     if not block:
@@ -160,15 +159,20 @@ def host_goal_checks() -> list[dict[str, Any]]:
             raise ImportError("could not load shadow-host-directives.py")
         directives = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(directives)
-        targets = directives.supported_activation_targets(home=Path.home())
+        topology = directives.configured_directive_topology(home=Path.home())
+        targets = topology["targets"]
+        source = topology["source"]
+        if source is not None:
+            directives.verify_declared_topology(source, targets)
     except (ImportError, OSError, ValueError) as exc:
         return [check("standing goal: supported hosts", "fail", str(exc))]
     anchor = block.splitlines()[0]
     results = []
     for label, path in sorted(targets.items()):
         name = f"standing goal: {label}"
+        read_path = source if source is not None else path
         try:
-            text = path.read_text(encoding="utf-8")
+            text = read_path.read_text(encoding="utf-8")
         except OSError:
             # A missing host file is that host not being configured, not a
             # broken install — warn, never fail. Still say the fix: a warning
@@ -193,6 +197,14 @@ def host_goal_checks() -> list[dict[str, Any]]:
             results.append(check(name, "fail", "stale copy — replace it with: shadow goal --install"))
         else:
             results.append(check(name, "warn", "not pasted — add it with: shadow goal --install"))
+    if topology["projections"].get("cursor") == "user_rules":
+        results.append(check(
+            "standing goal: cursor",
+            "warn",
+            "manual Cursor user_rules projection declared; Shadow cannot inspect application settings",
+            projection="user_rules",
+            expected_sha256=directives.projection_sha256(block),
+        ))
     return results
 
 

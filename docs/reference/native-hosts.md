@@ -7,10 +7,10 @@ Shadow cannot verify or guarantee the provider model or billing tier inside a
 host.
 
 Cold directive activation is a narrower surface. Shadow manages a marker block
-in Claude Code's `CLAUDE.md` and Codex's `AGENTS.md`. Cursor user rules live in
-application settings; no reviewed file/API convention exists, so Shadow marks
-Cursor cold activation **unsupported** instead of inventing a path and calling
-it installed. Cursor's skill mount and sealed host-run remain supported.
+in Claude Code's `CLAUDE.md` and Codex's `AGENTS.md`. Cursor cold activation is
+an explicit projection into global User Rules through Cursor's own application
+surface. Shadow emits the exact block and derived hash, but does not invent a
+file path, write private application settings, or claim it inspected them.
 
 Every run requires an exact clean Git worktree, a frozen task file, a task
 ID, and one or more exact allowed paths. Scope escape, missing receipt,
@@ -40,34 +40,21 @@ the map is a mirror for people, and it is yours.
 ## Supported cold-activation targets
 
 Activation is distinct from delegation. Any supported host can RUN a sealed
-task; activation is the standing-goal block `shadow goal --install` writes
-into a host's own instruction file so a fresh chat opens the board without
-being asked. This table is the product's one supported cold-activation list:
-the installer writes every row, and doctor checks every row. `Host selector`
-is the exact `shadow goal --install --host` value; `Activation file` is the
-documented file the host reads.
+task; activation is the standing-goal block that lets a fresh chat open the
+board without being asked. This table lists file-backed targets. When machine
+configuration declares a canonical source, both targets must already resolve
+to it; otherwise these built-in paths remain the default.
 
 | Host selector | Activation file |
 | --- | --- |
 | claude | `~/.claude/CLAUDE.md` |
 | codex | `~/.codex/AGENTS.md` |
 
-**Cursor is not activated, by decision (2026-08-10).** Cursor's user-level
-rules live in the application's settings interface, not in a file: its own
-rules documentation (cursor.com/docs/context/rules, read 2026-08-10) documents
-project-scoped surfaces only — `.cursor/rules/*.mdc` and `AGENTS.md` in a
-project root — and describes User Rules as configured through the Customize
-interface, with no user-level file path. A local probe agrees: `~/.cursor`
-holds no rules directory and no instruction file the application documents
-reading. Writing `~/.cursor/rules/shadow.md` or `~/.cursor/AGENTS.md` would
-invent a convention and then report success for wiring that does nothing —
-the exact false-green shape this project refuses.
-
-What a Cursor user does instead: put the standing goal block in a repository's
-own `AGENTS.md`, which Cursor does read at the project root. That is a
-per-repository choice made in that repository, not an install target —
-Shadow's installer writes user-level files only.
-
-This decision reverses nothing and closes silently-implied support: if Cursor
-ships a documented user-level instruction file, the decision reopens with that
-citation.
+**Cursor uses a projection, not a file target.** Declare
+`directives.projections.cursor: user_rules` in the installed Shadow checkout's
+ignored machine config. `shadow goal --install` prints the exact standing-goal
+block and SHA-256 for a one-time Cursor-native User Rules action; `shadow
+doctor` reports that expectation as manual and unobserved. A fresh uncoached
+Cursor chat is the activation proof. Writing `~/.cursor/rules/shadow.md` or
+`~/.cursor/AGENTS.md` would still be a false green because neither is a
+documented user-level activation file.

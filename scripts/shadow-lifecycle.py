@@ -25,6 +25,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+from shadow_config import load_config  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
@@ -728,14 +729,16 @@ def claim_successor(plan: Path, owner: str, target_row: str | None) -> dict:
 
     amp = amp_module()
     try:
-        reconcile_portfolio(plan.parent, amp, home=Path.home())
+        board_root = _board.configured_root()
+        _board.assert_entity_board(plan.parent, root=board_root)
+        reconcile_portfolio(plan.parent, amp, board_root=board_root)
         token, payload = _board.committed_plan_snapshot(plan)
         text = payload.decode("utf-8")
         parsed = amp._parse(text)
         unclean = amp.unclean_note(parsed)
         if unclean:
             raise LifecycleError(f"compacted plan cannot re-enter the board: {unclean}")
-        state = _board.entity_state(plan, home=Path.home())
+        state = _board.entity_state(plan, root=board_root)
         parsed["claimed"] = set()
         candidates = amp._candidate_ids(parsed)
         if target_row is None:
@@ -768,6 +771,12 @@ def claim_successor(plan: Path, owner: str, target_row: str | None) -> dict:
             }
         project = parsed["brief"].get("Project")
         priority = int(parsed["brief"].get("Priority", "3"))
+        durability = load_config(plan.parent).get("durability", {})
+        claim_return_minutes = (
+            durability.get("claim_return_minutes", _board.DEFAULT_CLAIM_RETURN_MINUTES)
+            if isinstance(durability, dict)
+            else _board.DEFAULT_CLAIM_RETURN_MINUTES
+        )
         receipt = _board.claim(
             plan,
             target_row,
@@ -775,7 +784,8 @@ def claim_successor(plan: Path, owner: str, target_row: str | None) -> dict:
             project=project,
             priority=priority,
             expected_plan=token,
-            home=Path.home(),
+            claim_return_minutes=claim_return_minutes,
+            root=board_root,
         )
     except (_board.BoardError, KeyError, TypeError, UnicodeError, ValueError) as exc:
         if isinstance(exc, LifecycleError):
@@ -1068,9 +1078,12 @@ def assert_retirement_receipt_immutable(
 def retirement_paths(
     plan: Path,
     manifest_sha: str,
+    *,
+    board_root: Path | None = None,
 ) -> tuple[Path, Path]:
     receipt = plan.parent / "docs" / "plan-archive" / "retirements" / f"{manifest_sha}.json"
-    private_root = Path.home().resolve() / ".shadow" / "retirements"
+    selected_root = board_root or _board.configured_root()
+    private_root = _board.validated_root(root=selected_root) / "retirements"
     if private_root.is_symlink() or (private_root.exists() and not private_root.is_dir()):
         raise LifecycleError("private retirement journal directory is unsafe")
     journal = private_root / f"{manifest_sha}.applying.json"
@@ -1226,11 +1239,16 @@ def read_retirement_journal(
 def inspect_retirement(
     repo_value: Path,
     manifest_path: Path,
+    *,
+    board_root: Path | None = None,
 ) -> tuple[dict, dict | None]:
+    selected_root = board_root or _board.configured_root()
     repo, plan, token, text = committed_snapshot(repo_value)
     manifest, manifest_sha = load_retirement_manifest(manifest_path)
     target_spec = manifest["target"]
-    receipt_path, journal_path = retirement_paths(plan, manifest_sha)
+    receipt_path, journal_path = retirement_paths(
+        plan, manifest_sha, board_root=selected_root
+    )
     ensure_no_symlink(repo, Path(token["relative"]).parent / receipt_path.relative_to(plan.parent))
     before = measure(text)
     base = {
@@ -1474,11 +1492,15 @@ def apply_retirement(
     *,
     expected: str,
     owner: str,
+    board_root: Path | None = None,
 ) -> dict:
+    selected_root = board_root or _board.configured_root()
     plan = repo_value.expanduser().resolve() / "PLAN.md"
     try:
         with _board.project_lock(plan):
-            report, operation = inspect_retirement(repo_value, manifest_path)
+            report, operation = inspect_retirement(
+                repo_value, manifest_path, board_root=selected_root
+            )
             if report.get("cas") != expected:
                 raise LifecycleError("lifecycle dry-run CAS changed; rerun without --apply")
             if operation is None:
@@ -1524,7 +1546,9 @@ def apply_retirement(
                     0o600,
                 )
             was_recovery = operation["recover"]
-            _, revalidated = inspect_retirement(repo_value, manifest_path)
+            _, revalidated = inspect_retirement(
+                repo_value, manifest_path, board_root=selected_root
+            )
             if (
                 revalidated is None
                 or revalidated.get("receipt_complete")
@@ -1546,7 +1570,9 @@ def apply_retirement(
             kind = operation["manifest"]["target"]["kind"]
             if kind == "worktree":
                 if os.path.lexists(target):
-                    _, final_operation = inspect_retirement(repo_value, manifest_path)
+                    _, final_operation = inspect_retirement(
+                        repo_value, manifest_path, board_root=selected_root
+                    )
                     if (
                         final_operation is None
                         or final_operation.get("receipt_complete")
@@ -1928,6 +1954,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.by:
             _board.validate_owner(args.by)
         repo = args.repo or Path.cwd()
+        board_root = _board.configured_root()
+        _board.assert_entity_board(repo, root=board_root)
         if args.retirement_manifest:
             report = (
                 apply_retirement(
@@ -1935,9 +1963,12 @@ def main(argv: list[str] | None = None) -> int:
                     args.retirement_manifest,
                     expected=args.expect,
                     owner=args.by,
+                    board_root=board_root,
                 )
                 if args.apply
-                else inspect_retirement(repo, args.retirement_manifest)[0]
+                else inspect_retirement(
+                    repo, args.retirement_manifest, board_root=board_root
+                )[0]
             )
         else:
             report = (
@@ -1945,7 +1976,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.apply
                 else inspect(repo, args.milestone)[0]
             )
-    except (LifecycleError, OSError, UnicodeError) as exc:
+    except (LifecycleError, OSError, UnicodeError, _board.BoardError) as exc:
         report = {
             "schema": "shadow.lifecycle.v1",
             "ok": False,

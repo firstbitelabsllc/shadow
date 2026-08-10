@@ -208,6 +208,7 @@ def commit_completed_plan(
     original_text: str,
     updated_text: str,
     resumes: list[str],
+    board_root: Path,
 ) -> None:
     """Create one exact project commit while preserving unrelated index state."""
     plan_pathspec = str(plan_relative)
@@ -225,6 +226,7 @@ def commit_completed_plan(
                 row_id,
                 owner,
                 expected_plan=plan_token,
+                root=board_root,
             )
         except _board.BoardError as exc:
             raise AcceptError(f"the owned claim changed before its proof could land: {exc}") from exc
@@ -279,6 +281,7 @@ def commit_completed_plan(
             expected_plan=completed_token,
             expected_text=completed_text,
             expected_claim=claim_token,
+            root=board_root,
         )
 
 
@@ -664,6 +667,8 @@ def main(argv: list[str] | None = None) -> int:
     repo = args.repo.resolve()
     row_id = args.row.strip()
     try:
+        board_root = _board.configured_root()
+        _board.assert_entity_board(repo, root=board_root)
         if ROW_ID_RE.fullmatch(row_id) is None:
             raise AcceptError("row must be a ~hash id, four base36 chars")
         try:
@@ -672,10 +677,13 @@ def main(argv: list[str] | None = None) -> int:
             raise AcceptError(f"--by is unsafe: {exc}") from exc
         try:
             requested_plan = repo / "PLAN.md"
-            state = _board.entity_state(requested_plan)
+            state = _board.entity_state(requested_plan, root=board_root)
             owned_claim(state, row_id, owner)
-            plan_path = _board.canonical_plan(requested_plan, repair_missing=True)
-            state = _board.entity_state(plan_path)
+            plan_path = _board.canonical_plan(
+                requested_plan, repair_missing=True, root=board_root
+            )
+            _board.assert_entity_board(plan_path.parent, root=board_root)
+            state = _board.entity_state(plan_path, root=board_root)
         except _board.BoardError as exc:
             raise AcceptError(f"the computer board's project pointer is unusable: {exc}") from exc
         top = git_completed(plan_path.parent, "rev-parse", "--show-toplevel")
@@ -696,7 +704,7 @@ def main(argv: list[str] | None = None) -> int:
         enforce_row_grammar(plan_text, repo)
         enforce_plan_lint(plan_text, plan_path.parent)
         _, row_line, state, proof, needs = find_row(plan_text, row_id)
-        claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+        claim = owned_claim(_board.entity_state(plan_path, root=board_root), row_id, owner)
         if state == "completed":
             if git_completed(
                 repo, "status", "--porcelain", "--", str(plan_relative)
@@ -724,6 +732,7 @@ def main(argv: list[str] | None = None) -> int:
                             resumes=_amp._candidate_ids(parsed),
                             expected_plan=plan_token,
                             expected_text=plan_text,
+                            root=board_root,
                         )
                 except _board.BoardError as exc:
                     raise AcceptError(
@@ -836,6 +845,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_text,
                 updated,
                 resumes,
+                board_root,
             )
         except _board.BoardError as exc:
             raise AcceptError(

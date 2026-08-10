@@ -1,0 +1,10 @@
+# Recommended machine bootstrap only. Run `shadow config --init-machine` from
+# the installed Shadow checkout to copy this into its ignored .shadow/machine.yaml.
+# To use one canonical directive source, replace null and add the exact existing
+# Claude/Codex symlinks plus `projections: {cursor: user_rules}` in block form;
+# `shadow config --explain-machine` shows the resolved declaration.
+version: 1
+board:
+  root: null
+directives:
+  source: null

@@ -185,12 +185,11 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     ~tier, Method, release fixtures, and the repeated gauntlet.
 
 28. **Cursor support is split honestly at the surface boundary.** Cursor's
-    skill mount and sealed native `shadow host run` path are supported. Cold
-    directive activation is unsupported because Cursor has no reviewed,
-    writable user-rule file surface on this machine; Shadow does not invent a
-    `.cursor/rules` convention or tell the operator to verify it by hand. Wake:
-    Cursor documents a real user-rule surface that survives a cold-session
-    proof. Lands in: host verification, native-host documentation, and ~actv.
+    skill mount, sealed native `shadow host run` path, and global User Rules
+    projection are supported. Shadow emits the exact block and expected hash,
+    but does not invent a `.cursor/rules` convention, write the application
+    setting, or claim to inspect it. A fresh cold Cursor session is the proof.
+    Lands in: host verification, native-host documentation, and ~actv.
 
 ## Rejected
 

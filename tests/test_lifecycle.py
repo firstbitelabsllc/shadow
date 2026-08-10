@@ -1816,9 +1816,13 @@ class RetirementJournalRecovery(unittest.TestCase):
             original_inspect = lifecycle.inspect_retirement
             calls = 0
 
-            def inject_after_second_inspect(repo: Path, manifest: Path):
+            def inject_after_second_inspect(
+                repo: Path,
+                manifest: Path,
+                **kwargs: object,
+            ):
                 nonlocal calls
-                result = original_inspect(repo, manifest)
+                result = original_inspect(repo, manifest, **kwargs)
                 calls += 1
                 if calls == 2:
                     (target / "ignored.tmp").write_text("late ignored dirt\n", encoding="utf-8")

@@ -15,9 +15,9 @@ bash install.sh && PATH="$HOME/.local/bin:$PATH" shadow doctor
 
 Git, Bash, Python 3.10+, one native host (Claude Code, Codex, or Cursor). No Node, no npm — the
 clone *is* the install, `git pull` is the update. The installer writes its managed standing-goal
-block into Claude and Codex automatically. Cursor's skill mount and sealed host runner work, but
-cold directive activation is unsupported until Cursor exposes a reviewed writable user-rule
-surface; Shadow does not invent one or ask you to paste into an unverified setting.
+block into Claude and Codex automatically. Cursor uses an explicit global User Rules projection:
+Shadow prints the exact block and hash without inventing a file or pretending it inspected the
+application setting; a fresh uncoached Cursor chat is the activation proof.
 
 The installer prints a Doctor command that puts its selected `--bin-dir` first; use it before
 adding `~/.local/bin` to your shell `PATH` permanently.
@@ -37,6 +37,7 @@ shadow return --row '~ab12' --by codex # proven finish, blocked wake, or handbac
 shadow priority --value 1      # change global project rank without editing its plan
 shadow accept --repo . --row '~ab12' --by codex # prove, flip, publish, close claim
 shadow config --init-local     # copy the reviewed template to ignored local preferences
+shadow config --init-machine   # in Shadow checkout: create ignored machine bootstrap
 ```
 
 Also `init --here`, `lint`, `browse`, `host run`, `doctor`.
@@ -44,7 +45,8 @@ Also `init --here`, `lint`, `browse`, `host run`, `doctor`.
 ## Three ideas
 
 **One board per computer, entity plans underneath projects.** The hierarchy is computer →
-project → entity → milestone → checkpoint. `~/.shadow/board.json` owns global project priority,
+project → entity → milestone → checkpoint. The configured board's `board.json` (by default
+`~/.shadow/board.json`) owns global project priority,
 claims, owners, entity pointers, and one resume checkpoint per entity. Each entity's `PLAN.md`
 owns its milestone and checkpoint text, proof, and evidence. The board points; it never copies.
 

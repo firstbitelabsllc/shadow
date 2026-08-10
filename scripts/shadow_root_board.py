@@ -57,13 +57,67 @@ class AlreadyClaimed(BoardError):
         self.owner = owner
 
 
-def _directory(home: Path | None = None) -> Path:
-    return (home or Path.home()).resolve() / ".shadow"
+def configured_root(*, home: Path | None = None) -> Path:
+    """Resolve one machine board, preserving ``home=`` as a test seam."""
+    if home is not None:
+        return home.resolve() / ".shadow"
+    try:
+        from shadow_config import machine_board_root
+
+        selected = machine_board_root()
+        historical = Path.home().resolve() / ".shadow"
+        if selected != historical and (
+            (historical / BOARD_NAME).exists() or (historical / ".git").exists()
+        ):
+            raise BoardError(
+                "configured board root differs from the existing ~/.shadow board; "
+                "migrate or retire the old board explicitly before switching"
+            )
+        return selected
+    except BoardError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise BoardError(f"machine board configuration is invalid: {exc}") from exc
 
 
-def _safe_root(home: Path | None = None) -> Path:
+def assert_entity_board(
+    entity_start: Path,
+    *,
+    home: Path | None = None,
+    root: Path | None = None,
+) -> Path:
+    """Resolve the machine board and check one entity's optional assertion."""
+    if home is not None and root is not None:
+        raise BoardError("board root and home test seam are mutually exclusive")
+    selected = Path(root) if root is not None else configured_root(home=home)
+    try:
+        from shadow_config import assert_expected_board_root
+
+        assert_expected_board_root(entity_start, selected, home=home)
+    except (OSError, ValueError) as exc:
+        raise BoardError(f"entity board assertion is invalid: {exc}") from exc
+    return selected
+
+
+def _directory(home: Path | None = None, root: Path | None = None) -> Path:
+    if home is not None and root is not None:
+        raise BoardError("board root and home test seam are mutually exclusive")
+    return Path(root) if root is not None else configured_root(home=home)
+
+
+def _safe_root(home: Path | None = None, root: Path | None = None) -> Path:
     """Resolve one private board directory without following a relocated root."""
-    root = _directory(home)
+    declared = _directory(home, root)
+    lexical = Path(os.path.abspath(declared))
+    cursor = Path(lexical.anchor)
+    for component in lexical.parts[1:]:
+        cursor /= component
+        try:
+            if cursor.is_symlink():
+                raise BoardError("root board path must not contain a symlink component")
+        except OSError as exc:
+            raise BoardError("root board directory is unsafe or unavailable") from exc
+    root = lexical.resolve(strict=False)
     if root.is_symlink() or (root.exists() and not root.is_dir()):
         raise BoardError("root board directory must be a real private directory")
     try:
@@ -72,6 +126,11 @@ def _safe_root(home: Path | None = None) -> Path:
     except OSError as exc:
         raise BoardError("root board directory is unsafe or unavailable") from exc
     return root
+
+
+def validated_root(*, home: Path | None = None, root: Path | None = None) -> Path:
+    """Expose the board path safety boundary to sibling local-state consumers."""
+    return _safe_root(home, root)
 
 
 def _empty() -> dict:
@@ -789,8 +848,11 @@ def _commit(root: Path, message: str) -> None:
 
 
 @contextmanager
-def _transaction(home: Path | None = None) -> Iterator[tuple[Path, Path, dict]]:
-    root = _safe_root(home)
+def _transaction(
+    home: Path | None = None,
+    root: Path | None = None,
+) -> Iterator[tuple[Path, Path, dict]]:
+    root = _safe_root(home, root)
     try:
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(root, 0o700)
@@ -840,13 +902,13 @@ def _transaction(home: Path | None = None) -> Iterator[tuple[Path, Path, dict]]:
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
-def ensure(*, home: Path | None = None) -> dict:
-    with _transaction(home) as (_, _, payload):
+def ensure(*, home: Path | None = None, root: Path | None = None) -> dict:
+    with _transaction(home, root) as (_, _, payload):
         return json.loads(json.dumps(payload))
 
 
-def snapshot(*, home: Path | None = None) -> dict | None:
-    root = _safe_root(home)
+def snapshot(*, home: Path | None = None, root: Path | None = None) -> dict | None:
+    root = _safe_root(home, root)
     git_dir = root / ".git"
     if git_dir.is_symlink() or (git_dir.exists() and not git_dir.is_dir()):
         raise BoardError("root board Git directory must not be a symlink or file")
@@ -868,9 +930,11 @@ def _identity_index(payload: dict) -> dict[str, list[dict]]:
     return result
 
 
-def registered_locator_index(*, home: Path | None = None) -> dict[str, tuple[Path, ...]]:
+def registered_locator_index(
+    *, home: Path | None = None, root: Path | None = None
+) -> dict[str, tuple[Path, ...]]:
     """Current logical identities and every locator the board stores for each."""
-    payload = snapshot(home=home)
+    payload = snapshot(home=home, root=root)
     if payload is None:
         return {}
     return {
@@ -913,9 +977,10 @@ def entity_state(
     *,
     exact_on_conflict: bool = False,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> dict | None:
     """Return the project grouping and exact entity addressed by one PLAN."""
-    payload = snapshot(home=home)
+    payload = snapshot(home=home, root=root)
     if payload is None:
         return None
     entity = _entity_for(payload, plan, exact_on_conflict=exact_on_conflict)
@@ -946,9 +1011,11 @@ def _state_for_entity(payload: dict, entity: dict | None) -> dict:
     }
 
 
-def entity_state_by_id(identity: str, *, home: Path | None = None) -> dict | None:
+def entity_state_by_id(
+    identity: str, *, home: Path | None = None, root: Path | None = None
+) -> dict | None:
     """Resolve a board-issued entity id, refusing stale ids after identity moves."""
-    resolved = resolve_entity(identity, home=home)
+    resolved = resolve_entity(identity, home=home, root=root)
     return resolved["state"] if resolved is not None else None
 
 
@@ -988,9 +1055,10 @@ def resolve_entity(
     *,
     revision: int | None = None,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> dict | None:
     """Return one entity state and pointer from the same validated board snapshot."""
-    payload = snapshot(home=home)
+    payload = snapshot(home=home, root=root)
     if payload is None:
         return None
     return _resolve_entity_payload(payload, identity, revision=revision)
@@ -1002,9 +1070,10 @@ def locked_entity_plan_by_id_at_revision(
     *,
     revision: int,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> Iterator[Path]:
     """Hold the board CAS while one bounded external receipt is written."""
-    with _transaction(home) as (_, _, payload):
+    with _transaction(home, root) as (_, _, payload):
         resolved = _resolve_entity_payload(payload, identity, revision=revision)
         if resolved is None:
             raise BoardError("this computer has no Shadow board yet")
@@ -1013,9 +1082,11 @@ def locked_entity_plan_by_id_at_revision(
         yield resolved["plan"]
 
 
-def canonical_plan_by_id(identity: str, *, home: Path | None = None) -> Path:
+def canonical_plan_by_id(
+    identity: str, *, home: Path | None = None, root: Path | None = None
+) -> Path:
     """Return the regular canonical pointer for one current board entity id."""
-    return canonical_plan_by_id_at_revision(identity, home=home)
+    return canonical_plan_by_id_at_revision(identity, home=home, root=root)
 
 
 def canonical_plan_by_id_at_revision(
@@ -1023,9 +1094,10 @@ def canonical_plan_by_id_at_revision(
     *,
     revision: int | None = None,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> Path:
     """Resolve one current entity from one board snapshot, optionally as a CAS."""
-    resolved = resolve_entity(identity, revision=revision, home=home)
+    resolved = resolve_entity(identity, revision=revision, home=home, root=root)
     if resolved is None:
         raise BoardError("this computer has no Shadow board yet")
     if resolved["plan"] is None:
@@ -1074,6 +1146,7 @@ def canonical_plan(
     repair_missing: bool = False,
     exact_on_conflict: bool = False,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> Path:
     """Resolve a logical plan through the board without moving its pointer."""
     if not regular_plan(plan):
@@ -1083,6 +1156,7 @@ def canonical_plan(
         candidate,
         exact_on_conflict=exact_on_conflict,
         home=home,
+        root=root,
     )
     if state is None or state["entity"] is None:
         return candidate
@@ -1106,6 +1180,7 @@ def claim(
     expected_plan: dict[str, str] | None = None,
     claim_return_minutes: int = DEFAULT_CLAIM_RETURN_MINUTES,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> dict:
     if not regular_plan(plan):
         raise BoardError("claim target must be a regular, non-symlink PLAN.md")
@@ -1132,7 +1207,7 @@ def claim(
     else:
         preflight_content = read_plan_bytes(plan)
     assert_hot_plan_budget(preflight_content)
-    with _transaction(home) as (root, path, payload):
+    with _transaction(home, root) as (board_root, path, payload):
         if expected_plan is not None:
             observed, observed_content = committed_plan_snapshot(plan)
             if observed != expected_plan:
@@ -1193,7 +1268,7 @@ def claim(
         payload["revision"] += 1
         _validate(payload)
         _write(path, payload)
-        _commit(root, f"shadow board: claim {row}")
+        _commit(board_root, f"shadow board: claim {row}")
         snapshot = json.loads(json.dumps(payload))
         return {
             "payload": snapshot,
@@ -1214,6 +1289,7 @@ def reconcile(
     retired_entities: list[str] | None = None,
     retired_sources: list[dict] | None = None,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> dict:
     """Atomically import bounded discovery into pointer-only local authority.
 
@@ -1403,7 +1479,7 @@ def reconcile(
     assert_seed_content()
     assert_repair_states()
     assert_retired_content()
-    with _transaction(home) as (root, path, payload):
+    with _transaction(home, root) as (board_root, path, payload):
         assert_seed_content()
         assert_repair_states()
         assert_retired_content()
@@ -1688,7 +1764,7 @@ def reconcile(
         payload["revision"] = original_payload["revision"] + 1
         _validate(payload)
         _write(path, payload)
-        _commit(root, "shadow board: reconcile bounded portfolio")
+        _commit(board_root, "shadow board: reconcile bounded portfolio")
         return json.loads(json.dumps(payload))
 
 
@@ -1780,6 +1856,7 @@ def _reserve_claim_receipt(
     expected_plan: dict[str, str] | None = None,
     protect_until: datetime | None = None,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> dict:
     """Return one exact owned claim, optionally extending its bounded lease."""
     if not regular_plan(plan):
@@ -1788,7 +1865,7 @@ def _reserve_claim_receipt(
         raise BoardError("claim completion target must carry one row id")
     owner = validate_owner(owner)
     plan = plan.resolve()
-    with _transaction(home) as (root, path, payload):
+    with _transaction(home, root) as (board_root, path, payload):
         if expected_plan is not None:
             observed, _ = committed_plan_snapshot(plan)
             if observed != expected_plan:
@@ -1814,7 +1891,7 @@ def _reserve_claim_receipt(
                 payload["revision"] += 1
                 _validate(payload)
                 _write(path, payload)
-                _commit(root, f"shadow board: reserve completion {row}")
+                _commit(board_root, f"shadow board: reserve completion {row}")
         receipt = json.loads(json.dumps(claim))
         receipt["revision"] = payload["revision"]
         return receipt
@@ -1828,6 +1905,7 @@ def reserve_completion(
     expected_plan: dict[str, str],
     now: datetime | None = None,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> dict:
     """Keep the current owner live for one bounded project-commit window."""
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -1838,6 +1916,7 @@ def reserve_completion(
         expected_plan=expected_plan,
         protect_until=current + timedelta(minutes=COMPLETION_RESERVATION_MINUTES),
         home=home,
+        root=root,
     )
 
 
@@ -1852,15 +1931,16 @@ def release(
     expected_text: str | None = None,
     expected_claim: dict | None = None,
     home: Path | None = None,
+    root: Path | None = None,
 ) -> tuple[dict, bool] | None:
     if not regular_plan(plan):
         raise BoardError("claim return requires a regular, non-symlink PLAN.md")
     plan = plan.resolve()
     if owner is not None:
         owner = validate_owner(owner)
-    if snapshot(home=home) is None:
+    if snapshot(home=home, root=root) is None:
         return None
-    with _transaction(home) as (root, path, payload):
+    with _transaction(home, root) as (board_root, path, payload):
         if expected_plan is not None:
             observed, observed_bytes = committed_plan_snapshot(plan)
             try:
@@ -1915,15 +1995,21 @@ def release(
         payload["revision"] += 1
         _validate(payload)
         _write(path, payload)
-        _commit(root, f"shadow board: release {row}")
+        _commit(board_root, f"shadow board: release {row}")
         return json.loads(json.dumps(payload)), True
 
 
-def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict:
+def set_priority(
+    plan: Path,
+    priority: int,
+    *,
+    home: Path | None = None,
+    root: Path | None = None,
+) -> dict:
     """Change global project priority through the board transaction."""
     if isinstance(priority, bool) or priority not in range(1, 6):
         raise BoardError("project priority must be 1-5")
-    with _transaction(home) as (root, path, payload):
+    with _transaction(home, root) as (board_root, path, payload):
         entity = _entity_for(payload, plan)
         if entity is None:
             raise BoardError("entity is not registered on this computer")
@@ -1937,12 +2023,14 @@ def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict
         payload["revision"] += 1
         _validate(payload)
         _write(path, payload)
-        _commit(root, f"shadow board: set project priority {priority}")
+        _commit(board_root, f"shadow board: set project priority {priority}")
         return json.loads(json.dumps(payload))
 
 
-def claimed_rows(plan: Path, *, home: Path | None = None) -> set[str]:
-    state = entity_state(plan, home=home)
+def claimed_rows(
+    plan: Path, *, home: Path | None = None, root: Path | None = None
+) -> set[str]:
+    state = entity_state(plan, home=home, root=root)
     return (
         {item["row"] for item in state["claims"]}
         if state is not None and state["entity"] is not None

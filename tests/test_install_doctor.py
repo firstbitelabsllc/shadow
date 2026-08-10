@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -8,7 +9,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 
 def activation_targets(home: Path) -> dict[str, Path]:
@@ -96,6 +99,48 @@ class DoctorNamesEverySupportedHostThatDidNotReceiveTheDirective(unittest.TestCa
                 self.assertEqual(missing["state"], "warn")
                 self.assertIn("no host instruction file", missing["detail"])
                 self.assertIn("shadow goal --install", missing["detail"])
+
+
+class DoctorReportsCursorProjectionWithoutClaimingGUIInspection(unittest.TestCase):
+    def test_cursor_projection_is_a_manual_hash_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "DIRECTIVES.md"
+            source.write_text(doctor_block := subprocess.run(
+                [str(CLI), "goal"], cwd=ROOT, capture_output=True, text=True, check=True
+            ).stdout.strip(), encoding="utf-8")
+
+            fake = SimpleNamespace(
+                configured_directive_topology=lambda **_: {
+                    "source": source,
+                    "targets": {"claude": source, "codex": source},
+                    "projections": {"cursor": "user_rules"},
+                },
+                verify_declared_topology=lambda _source, _targets: None,
+                projection_sha256=lambda block: hashlib.sha256(block.encode("utf-8")).hexdigest(),
+            )
+            loader = SimpleNamespace(exec_module=lambda _module: None)
+            spec = SimpleNamespace(loader=loader)
+            doctor = import_doctor_module()
+            with mock.patch.object(doctor.importlib.util, "spec_from_file_location", return_value=spec), mock.patch.object(
+                doctor.importlib.util, "module_from_spec", return_value=fake
+            ):
+                checks = {item["name"]: item for item in doctor.host_goal_checks()}
+
+        cursor = checks["standing goal: cursor"]
+        self.assertEqual(cursor["state"], "warn")
+        self.assertEqual(cursor["projection"], "user_rules")
+        self.assertEqual(cursor["expected_sha256"], hashlib.sha256(doctor_block.encode()).hexdigest())
+        self.assertIn("cannot inspect application settings", cursor["detail"])
+
+
+def import_doctor_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("shadow_doctor_projection_test", DOCTOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TheGateUsesTheResolvedPythonNotBarePython3(unittest.TestCase):

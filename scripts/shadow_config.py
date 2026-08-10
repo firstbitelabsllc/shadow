@@ -23,13 +23,16 @@ from typing import Any, Final
 ConfigValue = str | int | bool | None | list["ConfigValue"] | dict[str, "ConfigValue"]
 
 LOCAL_CONFIG: Final = Path(".shadow/local.yaml")
+MACHINE_CONFIG: Final = Path(".shadow/machine.yaml")
 RECOMMENDED_TEMPLATE: Final = Path("shadow.example.yaml")
+MACHINE_TEMPLATE: Final = Path("shadow.machine.example.yaml")
 
 # These are the behavior-equivalent defaults.  ``load_config`` always returns
 # a fresh deep copy, so a caller can never turn a read into process state by
 # mutating its result.
 DEFAULT_CONFIG: Final[dict[str, ConfigValue]] = {
     "version": 1,
+    "computer": {"expected_board_root": None},
     "leads": {},
     "method": {
         "adversarial_lenses": [
@@ -43,6 +46,16 @@ DEFAULT_CONFIG: Final[dict[str, ConfigValue]] = {
     },
     "buckets": {},
     "durability": {"claim_return_minutes": 480},
+}
+
+MACHINE_DEFAULT_CONFIG: Final[dict[str, ConfigValue]] = {
+    "version": 1,
+    "board": {"root": None},
+    "directives": {
+        "source": None,
+        "targets": {},
+        "projections": {},
+    },
 }
 
 _KEY_RE: Final = re.compile(r"[A-Za-z][A-Za-z0-9_-]*\Z")
@@ -213,13 +226,82 @@ def _validate_config(parsed: dict[str, ConfigValue], text: str, path: Path) -> N
     def fail(parts: tuple[str, ...], detail: str) -> None:
         raise ConfigError(path, lines.get(parts, 1), detail)
 
-    allowed_top = {"version", "leads", "method", "buckets", "durability"}
+    allowed_top = {
+        "version",
+        "board",
+        "computer",
+        "directives",
+        "leads",
+        "method",
+        "buckets",
+        "durability",
+    }
     for key in parsed:
         if key not in allowed_top:
             fail((key,), f"unknown configuration key '{key}'")
     version = parsed.get("version", 1)
     if isinstance(version, bool) or version != 1:
         fail(("version",), "version must be the integer 1")
+
+    def declared_path(parts: tuple[str, ...], value: ConfigValue) -> None:
+        if value is None:
+            return
+        if not isinstance(value, str) or not value:
+            fail(parts, f"{'.'.join(parts)} must be null or a nonempty path string")
+        if not (value.startswith("/") or value.startswith("~/")):
+            fail(parts, f"{'.'.join(parts)} must be absolute or home-relative")
+        if ".." in Path(value.removeprefix("~/")).parts:
+            fail(parts, f"{'.'.join(parts)} must not contain '..'")
+
+    board = parsed.get("board", {})
+    if not isinstance(board, dict):
+        fail(("board",), "board must be a mapping")
+    for key in board:
+        if key != "root":
+            fail(("board", key), f"unknown board key '{key}'")
+    declared_path(("board", "root"), board.get("root"))
+
+    computer = parsed.get("computer", {})
+    if not isinstance(computer, dict):
+        fail(("computer",), "computer must be a mapping")
+    for key in computer:
+        if key != "expected_board_root":
+            fail(("computer", key), f"unknown computer assertion '{key}'")
+    declared_path(("computer", "expected_board_root"), computer.get("expected_board_root"))
+
+    directives = parsed.get("directives", {})
+    if not isinstance(directives, dict):
+        fail(("directives",), "directives must be a mapping")
+    for key in directives:
+        if key not in {"source", "targets", "projections"}:
+            fail(("directives", key), f"unknown directives key '{key}'")
+    source = directives.get("source")
+    declared_path(("directives", "source"), source)
+    targets = directives.get("targets", {})
+    if not isinstance(targets, dict):
+        fail(("directives", "targets"), "directives.targets must be a mapping")
+    for name, value in targets.items():
+        if name not in {"claude", "codex"}:
+            fail(("directives", "targets", name), f"unknown directive target '{name}'")
+        declared_path(("directives", "targets", name), value)
+    projections = directives.get("projections", {})
+    if not isinstance(projections, dict):
+        fail(("directives", "projections"), "directives.projections must be a mapping")
+    for name, value in projections.items():
+        if name != "cursor":
+            fail(("directives", "projections", name), f"unknown directive projection '{name}'")
+        if value != "user_rules":
+            fail(
+                ("directives", "projections", name),
+                "directives.projections.cursor must be 'user_rules'",
+            )
+    if source is None and (targets or projections):
+        fail(("directives",), "directive targets and projections require directives.source")
+    if source is not None and set(targets) != {"claude", "codex"}:
+        fail(
+            ("directives", "targets"),
+            "directives.source requires exactly claude and codex targets",
+        )
 
     method = parsed.get("method", {})
     if not isinstance(method, dict):
@@ -251,17 +333,21 @@ def _validate_config(parsed: dict[str, ConfigValue], text: str, path: Path) -> N
     leads = parsed.get("leads", {})
     if not isinstance(leads, dict):
         fail(("leads",), "leads must be a mapping")
-    allowed_lead = {"display_name", "handle", "default_lenses"}
+    allowed_lead = {"display_name", "default_lenses"}
     for owner, preference in leads.items():
         if not isinstance(preference, dict):
             fail(("leads", owner), f"leads.{owner} must be a mapping")
         for key in preference:
             if key not in allowed_lead:
                 fail(("leads", owner, key), f"unknown lead preference '{key}'")
-        for key in ("display_name", "handle"):
-            value = preference.get(key)
-            if value is not None and (not isinstance(value, str) or not value):
-                fail(("leads", owner, key), f"leads.{owner}.{key} must be a nonempty string")
+        display_name = preference.get("display_name")
+        if display_name is not None and (
+            not isinstance(display_name, str) or not display_name
+        ):
+            fail(
+                ("leads", owner, "display_name"),
+                f"leads.{owner}.display_name must be a nonempty string",
+            )
         lead_lenses = preference.get("default_lenses", [])
         if not isinstance(lead_lenses, list) or not all(
             isinstance(item, str) and item for item in lead_lenses
@@ -361,9 +447,10 @@ def config_paths(start: Path) -> tuple[Path, Path, Path]:
     return root, root / LOCAL_CONFIG, root / RECOMMENDED_TEMPLATE
 
 
-def find_config(start: Path) -> Path | None:
-    """Find exactly the current repository's machine-local override, if any."""
-    _, config, _ = config_paths(start)
+def find_config(start: Path, *, scope: str = "entity") -> Path | None:
+    """Find exactly the selected ignored configuration surface, if any."""
+    root, entity_config, _ = config_paths(start)
+    config = entity_config if scope == "entity" else root / MACHINE_CONFIG
     return config if config.is_file() else None
 
 
@@ -376,24 +463,30 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _require_local_contract(root: Path, config: Path) -> None:
+def _require_local_contract(
+    root: Path,
+    config: Path,
+    relative: Path = LOCAL_CONFIG,
+    *,
+    init_action: str = "--init-local",
+) -> None:
     """Refuse an effective config Git could publish or one already tracked."""
-    relative = LOCAL_CONFIG.as_posix()
-    if _git(root, "ls-files", "--error-unmatch", "--", relative).returncode == 0:
+    relative_name = relative.as_posix()
+    if _git(root, "ls-files", "--error-unmatch", "--", relative_name).returncode == 0:
         raise ConfigError(config, 1, "effective configuration must not be tracked by Git")
-    ignored = _git(root, "check-ignore", "--quiet", "--no-index", "--", relative)
+    ignored = _git(root, "check-ignore", "--quiet", "--no-index", "--", relative_name)
     if ignored.returncode != 0:
         raise ConfigError(
             config,
             1,
-            "effective configuration is not locally ignored; run 'shadow config --init-local'",
+            f"effective configuration is not locally ignored; run 'shadow config {init_action}'",
         )
 
 
-def _exclude_path(root: Path) -> Path:
+def _exclude_path(root: Path, effective: Path = LOCAL_CONFIG) -> Path:
     result = _git(root, "rev-parse", "--git-path", "info/exclude")
     if result.returncode:
-        raise ConfigError(root / LOCAL_CONFIG, 1, "repository Git exclusion path is unavailable")
+        raise ConfigError(root / effective, 1, "repository Git exclusion path is unavailable")
     path = Path(result.stdout.strip())
     if not path.is_absolute():
         path = root / path
@@ -442,17 +535,17 @@ def _create_atomic(path: Path, text: str, mode: int) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def _install_local_exclude(root: Path) -> tuple[Path, bool, str, str, int, bool]:
-    exclude = _exclude_path(root)
+def _install_local_exclude(root: Path, effective: Path = LOCAL_CONFIG) -> tuple[Path, bool, str, str, int, bool]:
+    exclude = _exclude_path(root, effective)
     try:
         if exclude.is_symlink():
-            raise ConfigError(root / LOCAL_CONFIG, 1, "repository Git exclude file must not be a symlink")
+            raise ConfigError(root / effective, 1, "repository Git exclude file must not be a symlink")
         existed = exclude.exists()
         current = exclude.read_text(encoding="utf-8") if existed else ""
         mode = stat.S_IMODE(exclude.stat().st_mode) if existed else 0o600
     except (OSError, UnicodeError) as exc:
-        raise ConfigError(root / LOCAL_CONFIG, 1, f"cannot read repository Git exclude: {exc}") from exc
-    rule = f"/{LOCAL_CONFIG.as_posix()}"
+        raise ConfigError(root / effective, 1, f"cannot read repository Git exclude: {exc}") from exc
+    rule = f"/{effective.as_posix()}"
     changed = rule not in current.splitlines()
     updated = current
     if changed:
@@ -463,7 +556,7 @@ def _install_local_exclude(root: Path) -> tuple[Path, bool, str, str, int, bool]
             _write_atomic(exclude, updated, mode)
         except OSError as exc:
             raise ConfigError(
-                root / LOCAL_CONFIG,
+                root / effective,
                 1,
                 f"cannot update repository Git exclude: {exc}",
             ) from exc
@@ -495,33 +588,72 @@ def _rollback_local_exclude(receipt: tuple[Path, bool, str, str, int, bool]) -> 
         return
 
 
-def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
-    """Create an ignored effective config from the repository's reviewed template."""
+def _validate_scope(
+    parsed: dict[str, ConfigValue],
+    text: str,
+    path: Path,
+    *,
+    scope: str,
+) -> None:
+    refused = (
+        ("board", "directives")
+        if scope == "entity"
+        else ("computer", "leads", "method", "buckets", "durability")
+    )
+    label = "an entity config" if scope == "entity" else "machine bootstrap"
+    lines = _mapping_line_numbers(text, path)
+    for key in refused:
+        if key in parsed:
+            raise ConfigError(
+                path,
+                lines.get((key,), 1),
+                f"{key} is {'machine bootstrap configuration' if scope == 'entity' else 'entity configuration'} "
+                f"and is refused in {label}",
+            )
+
+
+def _initialize_config(
+    start: Path,
+    *,
+    template_name: Path,
+    scope: str,
+    action: str,
+    allow_shipped_fallback: bool,
+    effective_name: Path,
+) -> tuple[Path, Path, bool]:
+    """Create one ignored scoped config through the shared no-overwrite path."""
     root = _repo_root(Path(start))
     if root is None:
-        raise ConfigError(Path(start).resolve() / LOCAL_CONFIG, 1, "--init-local requires a Git repository")
-    _, config, repository_template = config_paths(root)
-    shipped_template = Path(__file__).resolve().parent.parent / RECOMMENDED_TEMPLATE
+        raise ConfigError(
+            Path(start).resolve() / effective_name,
+            1,
+            f"{action} requires a Git repository",
+        )
+    config = root / effective_name
+    repository_template = root / template_name
+    shipped_template = Path(__file__).resolve().parent.parent / template_name
     if repository_template.exists() or repository_template.is_symlink():
-        if _git(root, "ls-files", "--error-unmatch", "--", RECOMMENDED_TEMPLATE.as_posix()).returncode:
+        if _git(root, "ls-files", "--error-unmatch", "--", template_name.as_posix()).returncode:
             raise ConfigError(
                 repository_template,
                 1,
-                "repository-specific recommended template must be tracked by Git",
+                "recommended template must be tracked by Git",
             )
         if (
-            _git(root, "cat-file", "-e", f"HEAD:{RECOMMENDED_TEMPLATE.as_posix()}").returncode
-            or _git(root, "diff", "--quiet", "--", RECOMMENDED_TEMPLATE.as_posix()).returncode
-            or _git(root, "diff", "--cached", "--quiet", "--", RECOMMENDED_TEMPLATE.as_posix()).returncode
+            _git(root, "cat-file", "-e", f"HEAD:{template_name.as_posix()}").returncode
+            or _git(root, "diff", "--quiet", "--", template_name.as_posix()).returncode
+            or _git(root, "diff", "--cached", "--quiet", "--", template_name.as_posix()).returncode
         ):
             raise ConfigError(
                 repository_template,
                 1,
-                "repository-specific recommended template must match its committed HEAD bytes",
+                "recommended template must match its committed HEAD bytes",
             )
         template = repository_template
-    else:
+    elif allow_shipped_fallback:
         template = shipped_template
+    else:
+        raise ConfigError(repository_template, 1, "recommended machine template is missing")
     try:
         metadata = template.lstat()
         if not stat.S_ISREG(metadata.st_mode):
@@ -534,6 +666,7 @@ def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
     parsed = parse_config(text, template)
     _refuse_selector_or_secret_keys(text, template)
     _validate_config(parsed, text, template)
+    _validate_scope(parsed, text, template, scope=scope)
 
     if config.is_symlink():
         raise ConfigError(config, 1, "effective configuration must not be a symlink")
@@ -543,7 +676,7 @@ def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
         raise ConfigError(config, 1, "effective configuration parent must be a directory")
     if config.exists() and not config.is_file():
         raise ConfigError(config, 1, "effective configuration must be a regular file")
-    if _git(root, "ls-files", "--error-unmatch", "--", LOCAL_CONFIG.as_posix()).returncode == 0:
+    if _git(root, "ls-files", "--error-unmatch", "--", effective_name.as_posix()).returncode == 0:
         raise ConfigError(config, 1, "effective configuration must not be tracked by Git")
     if config.exists():
         try:
@@ -553,6 +686,7 @@ def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
         existing = parse_config(existing_text, config)
         _refuse_selector_or_secret_keys(existing_text, config)
         _validate_config(existing, existing_text, config)
+        _validate_scope(existing, existing_text, config, scope=scope)
 
     ignore_probe = _git(
         root,
@@ -560,7 +694,7 @@ def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
         "--verbose",
         "--no-index",
         "--",
-        LOCAL_CONFIG.as_posix(),
+        effective_name.as_posix(),
     )
     if ignore_probe.returncode and ignore_probe.stdout.strip():
         raise ConfigError(
@@ -568,7 +702,7 @@ def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
             1,
             "repository ignore rules expose the effective configuration; remove the negation",
         )
-    receipt = _install_local_exclude(root)
+    receipt = _install_local_exclude(root, effective_name)
     try:
         if _git(
             root,
@@ -576,7 +710,7 @@ def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
             "--quiet",
             "--no-index",
             "--",
-            LOCAL_CONFIG.as_posix(),
+            effective_name.as_posix(),
         ).returncode:
             raise ConfigError(
                 config,
@@ -591,11 +725,36 @@ def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
                 raise
             except OSError as exc:
                 raise ConfigError(config, 1, f"cannot create effective configuration: {exc}") from exc
-        _require_local_contract(root, config)
+        _require_local_contract(root, config, effective_name, init_action=action)
     except Exception:
         _rollback_local_exclude(receipt)
         raise
     return config, template, created
+
+
+def initialize_local_config(start: Path) -> tuple[Path, Path, bool]:
+    """Create an ignored entity config from its reviewed repository template."""
+    return _initialize_config(
+        start,
+        template_name=RECOMMENDED_TEMPLATE,
+        scope="entity",
+        action="--init-local",
+        allow_shipped_fallback=True,
+        effective_name=LOCAL_CONFIG,
+    )
+
+
+def initialize_machine_config(root: Path | None = None) -> tuple[Path, Path, bool]:
+    """Create the installed checkout's ignored machine-bootstrap config."""
+    installed = root or Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent))
+    return _initialize_config(
+        installed,
+        template_name=MACHINE_TEMPLATE,
+        scope="machine",
+        action="--init-machine",
+        allow_shipped_fallback=False,
+        effective_name=MACHINE_CONFIG,
+    )
 
 
 def _merge(defaults: dict[str, ConfigValue], supplied: dict[str, ConfigValue]) -> dict[str, ConfigValue]:
@@ -610,21 +769,31 @@ def _merge(defaults: dict[str, ConfigValue], supplied: dict[str, ConfigValue]) -
     return result
 
 
-def load_config(start: Path) -> dict[str, ConfigValue]:
+def load_config(start: Path, *, scope: str = "entity") -> dict[str, ConfigValue]:
     """Load the current repo's config, or a fresh behavior-equivalent default."""
-    root, local_path, _ = config_paths(start)
-    if _git(root, "ls-files", "--error-unmatch", "--", LOCAL_CONFIG.as_posix()).returncode == 0:
+    if scope not in {"entity", "machine"}:
+        raise ValueError("configuration scope must be 'entity' or 'machine'")
+    root, entity_path, _ = config_paths(start)
+    relative_path = LOCAL_CONFIG if scope == "entity" else MACHINE_CONFIG
+    local_path = entity_path if scope == "entity" else root / MACHINE_CONFIG
+    if _git(root, "ls-files", "--error-unmatch", "--", relative_path.as_posix()).returncode == 0:
         raise ConfigError(local_path, 1, "effective configuration must not be tracked by Git")
     if local_path.is_symlink():
         raise ConfigError(local_path, 1, "effective configuration must not be a symlink")
     if local_path.exists() and not local_path.is_file():
         raise ConfigError(local_path, 1, "effective configuration must be a regular file")
-    config = find_config(start)
+    config = find_config(start, scope=scope)
+    defaults = DEFAULT_CONFIG if scope == "entity" else MACHINE_DEFAULT_CONFIG
     if config is None:
-        return deepcopy(DEFAULT_CONFIG)
+        return deepcopy(defaults)
     if config.is_symlink():
         raise ConfigError(config, 1, "effective configuration must not be a symlink")
-    _require_local_contract(root, local_path)
+    _require_local_contract(
+        root,
+        local_path,
+        relative_path,
+        init_action="--init-local" if scope == "entity" else "--init-machine",
+    )
     try:
         text = config.read_text(encoding="utf-8")
     except OSError as exc:
@@ -632,4 +801,97 @@ def load_config(start: Path) -> dict[str, ConfigValue]:
     parsed = parse_config(text, config)
     _refuse_selector_or_secret_keys(text, config)
     _validate_config(parsed, text, config)
-    return _merge(DEFAULT_CONFIG, parsed)
+    if scope == "entity":
+        for key in ("board", "directives"):
+            if key in parsed:
+                lines = _mapping_line_numbers(text, config)
+                raise ConfigError(
+                    config,
+                    lines.get((key,), 1),
+                    f"{key} is machine bootstrap configuration and is refused in an entity config",
+                )
+    else:
+        for key in ("computer", "leads", "method", "buckets", "durability"):
+            if key in parsed:
+                lines = _mapping_line_numbers(text, config)
+                raise ConfigError(
+                    config,
+                    lines.get((key,), 1),
+                    f"{key} is entity configuration and is refused in machine bootstrap",
+                )
+    return _merge(defaults, parsed)
+
+
+def load_machine_config(root: Path | None = None) -> dict[str, ConfigValue]:
+    """Load the installed checkout's one machine-bootstrap declaration."""
+    installed = root or Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent))
+    return load_config(installed, scope="machine")
+
+
+def expand_declared_path(value: str, *, home: Path | None = None) -> Path:
+    """Resolve one already-validated absolute or home-relative declaration."""
+    if value.startswith("~/"):
+        return (home or Path.home()).resolve() / value[2:]
+    return Path(value)
+
+
+def machine_board_root(
+    installed_root: Path | None = None,
+    *,
+    home: Path | None = None,
+) -> Path:
+    """Resolve the installed Shadow checkout's one board-root declaration.
+
+    The caller may pass ``home`` only to make ``~/`` and the historical
+    ``~/.shadow`` default deterministic in tests.  Repository configuration
+    never selects this path.
+    """
+    config = load_machine_config(installed_root)
+    board = config.get("board", {})
+    if not isinstance(board, dict):
+        raise ConfigError(
+            (installed_root or Path(os.environ.get("SHADOW_ROOT", "."))) / MACHINE_CONFIG,
+            1,
+            "board must be a mapping",
+        )
+    declared = board.get("root")
+    if declared is None:
+        return (home or Path.home()).resolve() / ".shadow"
+    if not isinstance(declared, str):
+        raise ConfigError(
+            (installed_root or Path(os.environ.get("SHADOW_ROOT", "."))) / MACHINE_CONFIG,
+            1,
+            "board.root must be null or a nonempty path string",
+        )
+    # Preserve the declared component chain until the board safety boundary
+    # has checked every existing parent for symlinks.
+    return expand_declared_path(declared, home=home)
+
+
+def assert_expected_board_root(
+    entity_start: Path,
+    actual_root: Path,
+    *,
+    home: Path | None = None,
+) -> None:
+    """Fail when an entity's local assertion names a different machine board."""
+    config = load_config(entity_start, scope="entity")
+    computer = config.get("computer", {})
+    if not isinstance(computer, dict):
+        raise ConfigError(Path(entity_start) / LOCAL_CONFIG, 1, "computer must be a mapping")
+    declared = computer.get("expected_board_root")
+    if declared is None:
+        return
+    if not isinstance(declared, str):
+        raise ConfigError(
+            Path(entity_start) / LOCAL_CONFIG,
+            1,
+            "computer.expected_board_root must be null or a nonempty path string",
+        )
+    expected = expand_declared_path(declared, home=home).resolve()
+    if expected != Path(actual_root).resolve():
+        raise ConfigError(
+            Path(entity_start) / LOCAL_CONFIG,
+            1,
+            "computer.expected_board_root does not match this computer's configured board root",
+        )

@@ -68,7 +68,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_release_package", "tests.test_grammar_contract", "tests.test_standing_goal",
     )),
     (("scripts/shadow-buckets.py",), ("tests.test_extension_buckets", "tests.test_amp")),
-    (("scripts/shadow-config-cli.py", "scripts/shadow_config.py", "shadow.example.yaml"), (
+    (("scripts/shadow-config-cli.py", "scripts/shadow_config.py", "shadow.example.yaml", "shadow.machine.example.yaml"), (
         "tests.test_config_defaults", "tests.test_config_parser", "tests.test_config_bindings",
         "tests.test_extension_buckets", "tests.test_release_package",
     )),
@@ -94,6 +94,7 @@ RELEASE_PATHS = (
     ".github/workflows/ci.yml",
     "scripts/shadow-release-package.py",
     "shadow.example.yaml",
+    "shadow.machine.example.yaml",
     "schemas/retirement-manifest.v1.json",
     ".gitattributes",
     "CHANGELOG.md",

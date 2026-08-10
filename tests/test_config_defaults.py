@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -13,7 +14,15 @@ from browser import server
 
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "shadow"
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import shadow_config
+
+
 LOCAL_CONFIG = Path(".shadow/local.yaml")
+MACHINE_CONFIG = Path(".shadow/machine.yaml")
 PLAN = """# Demo
 
 ## Brief
@@ -90,7 +99,7 @@ class ConfigDefaultsTests(unittest.TestCase):
             env = {
                 key: value
                 for key, value in os.environ.items()
-                if key not in {"SHADOW_PORTFOLIO_ROOT", "SHADOW_DEV_ROOT"}
+                if key != "SHADOW_PORTFOLIO_ROOT"
             }
             env["HOME"] = home
             result = subprocess.run(
@@ -125,7 +134,7 @@ class ConfigDefaultsTests(unittest.TestCase):
             env = {
                 key: value
                 for key, value in os.environ.items()
-                if key not in {"SHADOW_PORTFOLIO_ROOT", "SHADOW_DEV_ROOT"}
+                if key != "SHADOW_PORTFOLIO_ROOT"
             }
             env["HOME"] = home
             result = subprocess.run(
@@ -139,7 +148,7 @@ class ConfigDefaultsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("broken/PLAN.md: project Priority must be 1-5", result.stderr)
 
-    def test_status_uses_dev_root_env_and_cli_flag_wins(self) -> None:
+    def test_status_ignores_obsolete_dev_root_env_and_cli_flag_wins(self) -> None:
         with (
             tempfile.TemporaryDirectory() as dirname,
             tempfile.TemporaryDirectory() as override,
@@ -147,6 +156,11 @@ class ConfigDefaultsTests(unittest.TestCase):
         ):
             root = Path(dirname)
             (root / "PLAN.md").write_text(PLAN, encoding="utf-8")
+            override_root = Path(override)
+            (override_root / "PLAN.md").write_text(
+                PLAN.replace("- Project: demo", "- Project: override"),
+                encoding="utf-8",
+            )
             result = subprocess.run(
                 [str(CLI), "status", "--json"],
                 cwd=ROOT,
@@ -158,7 +172,7 @@ class ConfigDefaultsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
             self.assertEqual(report["plans"], [])
-            self.assertEqual(report["v4_plans"][0]["project"], "demo")
+            self.assertNotIn("demo", {plan["project"] for plan in report["v4_plans"]})
 
             result = subprocess.run(
                 [str(CLI), "status", "--json", "--root", override],
@@ -171,14 +185,15 @@ class ConfigDefaultsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
             self.assertEqual(report["plans"], [])
-            self.assertEqual(report["v4_plans"][0]["project"], "demo")
+            projects = {plan["project"] for plan in report["v4_plans"]}
+            self.assertIn("override", projects)
+            self.assertNotIn("demo", projects)
 
     def test_browser_defaults_use_environment_and_flags_override(self) -> None:
         with tempfile.TemporaryDirectory() as portfolio, patch.dict(
             os.environ,
             {
                 "SHADOW_PORTFOLIO_ROOT": portfolio,
-                "SHADOW_DEV_ROOT": "/tmp/losing-legacy-root",
                 "SHADOW_BROWSER_HOST": "localhost",
                 "SHADOW_BROWSER_PORT": "8123",
             },
@@ -263,6 +278,173 @@ class NoSelectorKeys(unittest.TestCase):
                 self.assertIn(".shadow/local.yaml:3:", result.stderr)
                 self.assertIn(f"configuration key '{key}' is refused", result.stderr)
                 self.assertNotIn("placeholder", result.stderr)
+
+
+class ConsumerOverridesStayInsideTheDeclaredBoundary(unittest.TestCase):
+    def _write_local(self, root: Path, text: str, *, scope: str = "entity") -> Path:
+        subprocess.run(["git", "-C", str(root), "init", "--quiet"], check=True)
+        relative = LOCAL_CONFIG if scope == "entity" else MACHINE_CONFIG
+        exclude = root / ".git/info/exclude"
+        with exclude.open("a", encoding="utf-8") as stream:
+            stream.write(f"/{relative.as_posix()}\n")
+        local = root / relative
+        local.parent.mkdir(exist_ok=True)
+        local.write_text(text, encoding="utf-8")
+        return local
+
+    def test_entity_scope_accepts_only_consumer_preferences_and_board_assertion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_local(
+                root,
+                """version: 1
+computer:
+  expected_board_root: ~/shadow-board
+leads:
+  codex:
+    display_name: Codex
+    default_lenses:
+      - integration
+method:
+  adversarial_lenses:
+    - correctness
+    - privacy
+buckets:
+  taste: taste
+  future: future
+durability:
+  claim_return_minutes: 90
+""",
+            )
+            loaded = shadow_config.load_config(root, scope="entity")
+
+        self.assertEqual(loaded["computer"]["expected_board_root"], "~/shadow-board")
+        self.assertEqual(loaded["leads"]["codex"]["display_name"], "Codex")
+        self.assertEqual(loaded["method"]["adversarial_lenses"], ["correctness", "privacy"])
+        self.assertEqual(loaded["buckets"], {"taste": "taste", "future": "future"})
+        self.assertEqual(loaded["durability"]["claim_return_minutes"], 90)
+        self.assertNotIn("board", loaded)
+        self.assertNotIn("directives", loaded)
+
+    def test_entity_scope_refuses_machine_board_and_directive_topology(self) -> None:
+        cases = {
+            "board": "board:\n  root: ~/shadow-board\n",
+            "directives": """directives:
+  source: ~/leo/AGENTS.md
+  targets:
+    claude: ~/.claude/CLAUDE.md
+    codex: ~/.codex/AGENTS.md
+  projections:
+    cursor: user_rules
+""",
+        }
+        for key, text in cases.items():
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                local = self._write_local(root, text)
+                with self.assertRaises(shadow_config.ConfigError) as raised:
+                    shadow_config.load_config(root, scope="entity")
+                self.assertEqual(raised.exception.path, local.resolve())
+                self.assertEqual(raised.exception.line, 1)
+                self.assertIn(f"{key} is machine bootstrap configuration", raised.exception.detail)
+
+    def test_machine_scope_accepts_one_board_and_exact_directive_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_local(
+                root,
+                """version: 1
+board:
+  root: ~/shadow-board
+directives:
+  source: ~/leo/AGENTS.md
+  targets:
+    claude: ~/.claude/CLAUDE.md
+    codex: ~/.codex/AGENTS.md
+  projections:
+    cursor: user_rules
+""",
+                scope="machine",
+            )
+            loaded = shadow_config.load_machine_config(root)
+
+        self.assertEqual(loaded["board"]["root"], "~/shadow-board")
+        self.assertEqual(loaded["directives"]["source"], "~/leo/AGENTS.md")
+        self.assertEqual(
+            loaded["directives"]["targets"],
+            {"claude": "~/.claude/CLAUDE.md", "codex": "~/.codex/AGENTS.md"},
+        )
+        self.assertEqual(loaded["directives"]["projections"], {"cursor": "user_rules"})
+        self.assertNotIn("computer", loaded)
+        self.assertNotIn("leads", loaded)
+        self.assertNotIn("method", loaded)
+        self.assertNotIn("buckets", loaded)
+        self.assertNotIn("durability", loaded)
+
+    def test_machine_scope_refuses_entity_preferences(self) -> None:
+        cases = {
+            "computer": "computer:\n  expected_board_root: ~/shadow-board\n",
+            "leads": "leads:\n  codex:\n    display_name: Codex\n",
+            "method": "method:\n  adversarial_lenses:\n    - correctness\n",
+            "buckets": "buckets:\n  taste: taste\n",
+            "durability": "durability:\n  claim_return_minutes: 90\n",
+        }
+        for key, text in cases.items():
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                local = self._write_local(root, text, scope="machine")
+                with self.assertRaises(shadow_config.ConfigError) as raised:
+                    shadow_config.load_machine_config(root)
+                self.assertEqual(raised.exception.path, local.resolve())
+                self.assertEqual(raised.exception.line, 1)
+                self.assertIn(f"{key} is entity configuration", raised.exception.detail)
+
+    def test_cursor_is_a_named_manual_projection_not_a_target_or_hash(self) -> None:
+        refused = {
+            "cursor-target": """directives:
+  source: ~/leo/AGENTS.md
+  targets:
+    claude: ~/.claude/CLAUDE.md
+    codex: ~/.codex/AGENTS.md
+    cursor: ~/.cursor/rules
+""",
+            "cursor-file": """directives:
+  source: ~/leo/AGENTS.md
+  targets:
+    claude: ~/.claude/CLAUDE.md
+    codex: ~/.codex/AGENTS.md
+  projections:
+    cursor: ~/.cursor/rules
+""",
+            "stored-hash": """directives:
+  source: ~/leo/AGENTS.md
+  targets:
+    claude: ~/.claude/CLAUDE.md
+    codex: ~/.codex/AGENTS.md
+  projections:
+    cursor: user_rules
+  expected_hash: deadbeef
+""",
+        }
+        for name, text in refused.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self._write_local(root, text, scope="machine")
+                with self.assertRaises(shadow_config.ConfigError):
+                    shadow_config.load_machine_config(root)
+
+    def test_absent_scopes_return_separate_minimal_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "-C", str(root), "init", "--quiet"], check=True)
+            entity = shadow_config.load_config(root, scope="entity")
+            machine = shadow_config.load_machine_config(root)
+
+        self.assertEqual(
+            set(entity),
+            {"version", "computer", "leads", "method", "buckets", "durability"},
+        )
+        self.assertEqual(set(machine), {"version", "board", "directives"})
 
 
 class TheRecommendedTemplateIsNotEffectiveConfig(unittest.TestCase):
@@ -633,6 +815,129 @@ class InitNeverStagesLocalConfig(unittest.TestCase):
             self.assertNotIn(LOCAL_CONFIG.as_posix(), cached_names)
             self.assertEqual(tracked.read_text(encoding="utf-8"), "unstaged\n")
             self.assertEqual((repo / "unrelated.txt").read_text(encoding="utf-8"), "mine\n")
+
+
+class MachineBootstrapTemplateIsSeparate(unittest.TestCase):
+    TEMPLATE = """# Machine bootstrap only.\nversion: 1\nboard:\n  root: null\ndirectives:\n  source: null\n"""
+
+    def _installed_checkout(self, directory: str) -> Path:
+        root = Path(directory)
+        subprocess.run(["git", "-C", str(root), "init", "--quiet"], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.email", "shadow-test@example.invalid"], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.name", "Shadow Test"], check=True)
+        (root / "shadow.machine.example.yaml").write_text(self.TEMPLATE, encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "shadow.machine.example.yaml"], check=True)
+        subprocess.run(["git", "-C", str(root), "commit", "--quiet", "-m", "seed"], check=True)
+        return root
+
+    def _config_command(self, *args: str) -> list[str]:
+        return [
+            str(ROOT / "scripts" / "shadow-python.sh"),
+            str(ROOT / "scripts" / "shadow-config-cli.py"),
+            *args,
+        ]
+
+    def test_init_machine_uses_only_the_installed_machine_template(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            installed = self._installed_checkout(directory)
+            result = subprocess.run(
+                self._config_command("--init-machine", "--json"),
+                env={**os.environ, "SHADOW_ROOT": str(installed)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["scope"], "machine")
+            self.assertEqual(payload["template"], "shadow.machine.example.yaml")
+            effective = installed / MACHINE_CONFIG
+            self.assertEqual(
+                shadow_config.parse_config(effective.read_text(encoding="utf-8")),
+                shadow_config.parse_config(self.TEMPLATE),
+            )
+            self.assertEqual(
+                set(shadow_config.parse_config(effective.read_text(encoding="utf-8"))),
+                {"version", "board", "directives"},
+            )
+            self.assertNotIn(
+                MACHINE_CONFIG.as_posix(),
+                subprocess.run(
+                    ["git", "-C", str(installed), "status", "--short", "--untracked-files=all"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+            )
+
+    def test_explain_machine_reads_the_installed_checkout_not_the_consumer(self) -> None:
+        with tempfile.TemporaryDirectory() as installed_directory, tempfile.TemporaryDirectory() as consumer_directory:
+            installed = self._installed_checkout(installed_directory)
+            initialized = subprocess.run(
+                self._config_command("--init-machine"),
+                env={**os.environ, "SHADOW_ROOT": str(installed)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(initialized.returncode, 0, initialized.stderr)
+            (installed / MACHINE_CONFIG).write_text(
+                "version: 1\nboard:\n  root: ~/shadow-board\ndirectives:\n  source: null\n",
+                encoding="utf-8",
+            )
+            consumer = Path(consumer_directory)
+            subprocess.run(["git", "-C", str(consumer), "init", "--quiet"], check=True)
+            explained = subprocess.run(
+                self._config_command("--explain-machine", "--repo", str(consumer), "--json"),
+                env={**os.environ, "SHADOW_ROOT": str(installed)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(explained.returncode, 0, explained.stderr)
+            payload = json.loads(explained.stdout)
+            self.assertEqual(payload["scope"], "machine")
+            self.assertEqual(payload["config"]["board"]["root"], "~/shadow-board")
+            self.assertEqual(payload["root"], str(installed.resolve()))
+
+    def test_installed_checkout_can_hold_independent_entity_and_machine_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            installed = self._installed_checkout(directory)
+            (installed / "shadow.example.yaml").write_text(
+                "version: 1\ndurability:\n  claim_return_minutes: 31\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(installed), "add", "shadow.example.yaml"], check=True)
+            subprocess.run(["git", "-C", str(installed), "commit", "--quiet", "-m", "entity template"], check=True)
+            env = {**os.environ, "SHADOW_ROOT": str(installed)}
+            machine = subprocess.run(
+                self._config_command("--init-machine"), env=env,
+                capture_output=True, text=True, check=False,
+            )
+            entity = subprocess.run(
+                self._config_command("--init-local", "--repo", str(installed)), env=env,
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(machine.returncode, 0, machine.stderr)
+            self.assertEqual(entity.returncode, 0, entity.stderr)
+            self.assertTrue((installed / MACHINE_CONFIG).is_file())
+            self.assertTrue((installed / LOCAL_CONFIG).is_file())
+            self.assertEqual(
+                shadow_config.load_machine_config(installed)["board"]["root"], None
+            )
+            self.assertEqual(
+                shadow_config.load_config(installed)["durability"]["claim_return_minutes"], 31
+            )
+
+    def test_machine_config_must_be_locally_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            installed = self._installed_checkout(directory)
+            effective = installed / MACHINE_CONFIG
+            effective.parent.mkdir()
+            effective.write_text(self.TEMPLATE, encoding="utf-8")
+            with self.assertRaises(shadow_config.ConfigError) as raised:
+                shadow_config.load_machine_config(installed)
+            self.assertIn("shadow config --init-machine", raised.exception.detail)
 
 
 if __name__ == "__main__":

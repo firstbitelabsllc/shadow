@@ -38,8 +38,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shadow return: --by is unsafe: {exc}", file=sys.stderr)
         return 2
     try:
+        board_root = board.configured_root()
+        if not args.entity:
+            board.assert_entity_board((args.repo or Path(".")).resolve(), root=board_root)
         if args.entity:
-            resolved = board.resolve_entity(args.entity)
+            resolved = board.resolve_entity(args.entity, root=board_root)
             if resolved is None or resolved["plan"] is None:
                 raise board.BoardError("this entity is not registered on the computer board")
             state = resolved["state"]
@@ -49,14 +52,18 @@ def main(argv: list[str] | None = None) -> int:
             if not board.regular_plan(plan_path):
                 print(f"shadow return: no regular, non-symlink plan at {plan_path}", file=sys.stderr)
                 return 2
-            state = board.entity_state(plan_path, exact_on_conflict=True)
+            state = board.entity_state(
+                plan_path, exact_on_conflict=True, root=board_root
+            )
             if state is None or state["entity"] is None:
                 raise board.BoardError("this entity is not registered on the computer board")
             plan_path = board.canonical_plan(
                 plan_path,
                 repair_missing=True,
                 exact_on_conflict=True,
+                root=board_root,
             )
+        board.assert_entity_board(plan_path.parent, root=board_root)
         with board.project_lock(plan_path):
             plan_token, plan_bytes = board.committed_plan_snapshot(plan_path)
             plan_text = plan_bytes.decode("utf-8")
@@ -94,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
                 reason=reason,
                 expected_plan=plan_token,
                 expected_text=plan_text,
+                root=board_root,
             )
     except (OSError, UnicodeError, board.BoardError) as exc:
         print(f"shadow return: {exc}", file=sys.stderr)

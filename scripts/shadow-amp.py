@@ -916,10 +916,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shadow amp: --by is unsafe: {exc}", file=sys.stderr)
         return 2
 
+    try:
+        board_root = _board.configured_root()
+    except _board.BoardError as exc:
+        print(f"shadow amp: {exc}", file=sys.stderr)
+        return 1
+
     state = None
     if args.entity:
         try:
-            resolved = _board.resolve_entity(args.entity)
+            resolved = _board.resolve_entity(args.entity, root=board_root)
         except _board.BoardError as exc:
             print(f"shadow amp: {exc}", file=sys.stderr)
             return 1
@@ -929,6 +935,11 @@ def main(argv: list[str] | None = None) -> int:
         state = resolved["state"]
         plan_path = resolved["plan"]
         repo = plan_path.parent
+        try:
+            _board.assert_entity_board(repo, root=board_root)
+        except _board.BoardError as exc:
+            print(f"shadow amp: {exc}", file=sys.stderr)
+            return 1
     else:
         repo = Path(args.repo or ".").resolve()
         if args.plan:
@@ -948,7 +959,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.entity:
         try:
-            state = _board.entity_state(plan_path)
+            _board.assert_entity_board(repo, root=board_root)
+            state = _board.entity_state(plan_path, root=board_root)
             if state is not None and state["entity"] is None:
                 print(
                     "shadow amp: this entity is not registered on this computer; "
@@ -957,7 +969,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             if state is not None:
-                plan_path = _board.canonical_plan(plan_path)
+                plan_path = _board.canonical_plan(plan_path, root=board_root)
         except _board.BoardError as exc:
             print(f"shadow amp: this computer's root board is unreadable: {exc}", file=sys.stderr)
             return 1

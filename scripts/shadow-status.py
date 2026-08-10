@@ -55,12 +55,11 @@ def v4_brief(
     claims: list[dict] | None = None,
 ) -> dict | None:
     """Render a v4-grammar plan into a bounded status record, or None if the
-    plan does not carry a v4 Brief (legacy plans fall through to the old view).
+    plan does not carry a v4 Brief.
 
     `display_path` is what the record shows: discovery hands us a root-relative
     path and the record must keep it, so a portfolio board never prints the
-    operator's home directory (legacy records are relative for the same
-    reason) and both plan versions render one path format."""
+    operator's home directory and every record renders one path format."""
     if plan_text is None:
         if not _board.regular_plan(plan_path):
             return None
@@ -532,7 +531,7 @@ def render_in_flight(rows: list[dict]) -> str:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="shadow status", description=__doc__)
-    default_root = os.environ.get("SHADOW_DEV_ROOT") or str(Path.cwd())
+    default_root = str(Path.cwd())
     result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
     result.add_argument("--by", default=None, help="stable seat name for executable next moves")
@@ -565,10 +564,17 @@ def main(argv: list[str] | None = None) -> int:
     root_board = None
     import_error = None
     original = root
+    try:
+        board_root = _board.configured_root()
+    except _board.BoardError as exc:
+        print(f"shadow status: {exc}", file=sys.stderr)
+        return 1
     if args.shadowed:
         try:
             inspection_root = root if explicit_root else _import.portfolio_root(root)
-            receipts = _import.suppression_receipts(inspection_root, _amp)
+            receipts = _import.suppression_receipts(
+                inspection_root, _amp, board_root=board_root
+            )
         except _board.BoardError as exc:
             print(f"shadow status: {exc}", file=sys.stderr)
             return 1
@@ -584,11 +590,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not explicit_root:
             root = _import.portfolio_root(root)
-        root_board = _import.reconcile_portfolio(root, _amp)
+        root_board = _import.reconcile_portfolio(root, _amp, board_root=board_root)
     except _board.BoardError as exc:
         import_error = str(exc)
         try:
-            root_board = _board.snapshot()
+            root_board = _board.snapshot(root=board_root)
         except _board.BoardError as board_exc:
             print(
                 f"shadow status: this computer's root board is unreadable: {board_exc}",
@@ -630,7 +636,9 @@ def main(argv: list[str] | None = None) -> int:
     v4_records = board_records(root_board)
     if not v4_records and import_error is None:
         try:
-            receipts = _import.suppression_receipts(root, _amp)
+            receipts = _import.suppression_receipts(
+                root, _amp, board_root=board_root
+            )
         except _board.BoardError:
             receipts = []
         for receipt in receipts:

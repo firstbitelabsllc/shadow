@@ -107,6 +107,7 @@ class ConfigBindsTasteDurabilityAndLeads(unittest.TestCase):
             ("version: 2\n", ".shadow/local.yaml:1: version must be the integer 1"),
             ("durability:\n  claim_return_minutes: soon\n", ".shadow/local.yaml:2: durability.claim_return_minutes"),
             ("leads:\n  alice:\n    display: Alice\n", ".shadow/local.yaml:3: unknown lead preference 'display'"),
+            ("leads:\n  alice:\n    handle: alice\n", ".shadow/local.yaml:3: unknown lead preference 'handle'"),
         )
         for source, expected in cases:
             with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
