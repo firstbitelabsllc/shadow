@@ -189,10 +189,13 @@ knowledge or writes `LESSON none — <why>`.
 
 The hot plan is bounded at **256 KiB**, **128 task rows**, and **32 milestone
 headings**. `shadow lifecycle` reports those checked-in limits without writing
-by default. An over-budget report exits non-zero; limits are product law, not
-environment knobs.
+by default. A budget-only over-limit report exits non-zero; a preview that
+proves one legal monotonic repair exits zero so its CAS can be applied. Limits
+are product law, not environment knobs.
 
-`shadow lifecycle --apply --repo <entity-directory> --milestone '<exact heading>'`
+`shadow lifecycle --repo <entity-directory> --milestone '<exact heading>'`
+makes no change and emits a content CAS. Repeating that command with
+`--apply --expect <cas> --by <seat>`
 moves one fully completed milestone's exact `###` block and every Progress
 item referencing its ids to the `docs/plan-archive/<safe-slug>.md` adjacent to
 that entity's plan. Root and declared nested entities use the same transaction;
@@ -200,16 +203,46 @@ Git pathspecs remain relative to their shared repository root. Satisfied
 `needs:` references are folded, and the live block becomes one non-task
 tombstone pointer, so lint and rotation no longer treat archived ids as live.
 A deterministic `STRUCT` receipt names the next open milestone (or records that
-none remains), so compaction never erases the rotation handoff.
-The plan and archive are atomically replaced and land in one local commit with
-hooks and signing disabled. Repeating that exact apply reports already archived
-and changes nothing.
+none remains), so compaction never erases the rotation handoff. If the plan is
+still over a limit, an apply is legal only when every already exceeded
+dimension is non-increasing, at least one exceeded dimension shrinks, and no
+previously safe dimension crosses its limit; the next lifecycle pass remains
+the successor. Once the
+plan is within every limit, the operation records the first reachable row or
+`null`, then reconciles the entity and claims that exact row for the named seat
+when it is still reachable and unclaimed.
+The plan and archive use same-directory atomic replacement and land in one local
+commit with hooks and signing disabled. An interrupted half-state is recoverable
+only when every surviving byte regenerates exactly from the original CAS. The
+live tombstone and archive header carry the same SHA-256 body digest, source
+HEAD, PLAN blob, operation CAS, and operation-bound successor row. Repeating the
+exact apply with its original CAS validates the unique lifecycle introduction,
+reports already archived, and never advances to another row; committed
+marker-preserving tampering refuses.
 
 Apply refuses a dirty plan or target archive, symlinks, an existing archive
 with different provenance, a malformed or unproven milestone, and a non-Git
-plan. Worktree or snapshot retirement is unsupported until a versioned,
-Shadow-owned manifest defines the exact target and deletion provenance; the
-command reports that boundary and never guesses or recursively deletes.
+plan. Normal lint, portfolio import, and claim paths enforce the same hot-plan
+limits before mutating the computer board; lifecycle is the repair door.
+
+Worktree and snapshot deletion use the strict
+`schemas/retirement-manifest.v1.json` contract. The command never discovers a
+target. A worktree manifest pins one absolute registered non-primary linked
+worktree, its exact HEAD, and the authority ref that already contains it. A
+snapshot manifest pins one immediate child of an absolute root, the same
+logical entity, exact HEAD, UTC expiry, and a recovery ref in the authority
+repository. Dry run refuses staged, tracked, untracked, ignored, conflicted,
+and dirty submodule state; proves exact identity, recoverability, and a
+non-symlink, non-authority target; then emits a CAS. Linked worktrees containing
+any submodule are intentionally ineligible because Git cannot remove them
+safely without force; clean snapshots may contain submodules.
+Apply rechecks those facts
+under the project lifecycle lock, writes a private crash journal, removes a
+linked worktree without force or quarantines then deletes the exact snapshot
+inode, and commits a path-free receipt containing the operation-bound successor
+row in the entity plan's adjacent `docs/plan-archive` retirement-receipt
+directory. Missing, dirty, unlanded, unexpired, moved,
+replaced, broad, or provenance-bearing targets refuse without mutation.
 
 ## LINT
 
@@ -218,7 +251,8 @@ across reruns. Checks: task shape; ID-DUP; NEEDS-DANGLE; NEEDS-SHAPE;
 PROOF-MISSING / PROOF-CLASS / PROOF-SECRET; DOD-COUNT; DOD-EARLY;
 DEFER-NO-WAKE; MODE-ILLEGAL (legacy `Spike|Defer|Challenge|Broad|Close`
 values included); TS-ORDER (warning); READ-FIT (warning, lines over 2,000
-chars); SECTION-MISSING (warning); SPIKE-NO-END; SPIKE-DUP;
+chars); HOT-PLAN-BYTES; HOT-PLAN-ROWS; HOT-PLAN-MILESTONES;
+SECTION-MISSING (warning); SPIKE-NO-END; SPIKE-DUP;
 SPIKE-EXPIRED-NO-DECISION; SHIP-OVER-OPEN-SPIKE; ORPHAN-DECISION (warning).
 
 ## BOARD

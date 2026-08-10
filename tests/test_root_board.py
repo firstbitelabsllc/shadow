@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "shadow"
 BOARD_MODULE = ROOT / "scripts" / "shadow_root_board.py"
 PROOF_SENTINEL = "PROOF-MUST-NOT-ENTER-THE-BOARD"
+HOT_PLAN_LIMIT = 256 * 1024
 sys.path.insert(0, str(ROOT / "scripts"))
 
 
@@ -81,6 +82,14 @@ def run(
 
 def board(home: Path) -> dict:
     return json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
+
+
+def make_plan_over_budget(repo: Path) -> None:
+    plan = repo / "PLAN.md"
+    with plan.open("a", encoding="utf-8") as stream:
+        stream.write("\n<!-- " + ("x" * HOT_PLAN_LIMIT) + " -->\n")
+    git(repo, "add", "PLAN.md")
+    git(repo, "commit", "--quiet", "-m", "exceed the hot-plan byte budget")
 
 
 class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
@@ -1814,6 +1823,88 @@ class ImportExcludesGhostCopiesByConstruction(unittest.TestCase):
             )
             self.assertNotIn("ghost", observed.stdout)
             self.assertNotIn("stale-shared", observed.stdout)
+
+
+class HotPlanBudgetsGateNormalBoardEntry(unittest.TestCase):
+    def _board_snapshot(self, home: Path) -> tuple[bytes, str]:
+        board_path = home / ".shadow" / "board.json"
+        head = subprocess.run(
+            ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return board_path.read_bytes(), head
+
+    def _assert_board_snapshot(
+        self,
+        home: Path,
+        expected: tuple[bytes, str],
+    ) -> None:
+        board_bytes, head = expected
+        self.assertEqual((home / ".shadow" / "board.json").read_bytes(), board_bytes)
+        current = subprocess.run(
+            ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertEqual(current, head)
+
+    def test_normal_portfolio_import_refuses_an_over_budget_hot_plan_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+            anchor = project(portfolio, name="anchor", display_name="anchor")
+            seeded = run(home, "status", "--root", str(anchor), "--json", cwd=blank)
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            oversized = project(portfolio, name="oversized", display_name="oversized")
+            make_plan_over_budget(oversized)
+            before = self._board_snapshot(home)
+
+            imported = run(
+                home,
+                "status",
+                "--json",
+                cwd=blank,
+                extra_env={"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            )
+
+            self.assertEqual(imported.returncode, 1, imported.stdout + imported.stderr)
+            self.assertRegex(imported.stderr.lower(), r"budget|hot plan|limit")
+            self._assert_board_snapshot(home, before)
+
+    def test_normal_claim_refuses_an_over_budget_hot_plan_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            anchor = project(root, name="anchor", display_name="anchor")
+            seeded = run(home, "status", "--root", str(anchor), "--json", cwd=anchor)
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            oversized = project(root, name="oversized", display_name="oversized")
+            make_plan_over_budget(oversized)
+            before = self._board_snapshot(home)
+
+            claimed = run(
+                home,
+                "throw",
+                "--repo",
+                str(oversized),
+                "--task",
+                "~aa11",
+                "--by",
+                "budget-seat",
+                cwd=anchor,
+            )
+
+            self.assertEqual(claimed.returncode, 1, claimed.stdout + claimed.stderr)
+            self.assertRegex(claimed.stderr.lower(), r"budget|hot plan|limit")
+            self._assert_board_snapshot(home, before)
 
 
 class HistoricalClaimsAreConsumedOnce(unittest.TestCase):

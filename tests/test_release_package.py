@@ -57,6 +57,33 @@ class ReleasePackageTests(unittest.TestCase):
 
     def test_lifecycle_command_ships_with_the_dispatcher(self) -> None:
         self.assertIn("scripts/shadow-lifecycle.py", mod.REQUIRED_FILES)
+        self.assertIn("schemas/retirement-manifest.v1.json", mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "help", "lifecycle"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        for clause in (
+            "--milestone 'exact heading'",
+            "--retirement-manifest /ABS/manifest.json",
+            "--expect CAS",
+            "--by SEAT",
+        ):
+            self.assertIn(clause, output.stdout)
+        argparse_help = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "shadow-lifecycle.py"), "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(argparse_help.returncode, 0, argparse_help.stderr)
+        self.assertIn("retire one exact manifested artifact", argparse_help.stdout)
+        for option in ("--retirement-manifest", "--expect", "--by"):
+            self.assertIn(option, argparse_help.stdout)
 
     def test_disposable_fixture_commit_waits_for_git_maintenance(self) -> None:
         project = Path("/unused-fixture")

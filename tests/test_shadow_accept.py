@@ -212,6 +212,75 @@ class ShadowAcceptTests(unittest.TestCase):
         self.assertEqual(claim[0]["claimed_at"], claimed_at)
         return candidates[0]
 
+    def test_review_worktree_cleanup_refuses_all_dirt_and_never_uses_force(self) -> None:
+        for dirty_kind in ("tracked", "staged", "untracked", "ignored"):
+            with self.subTest(dirty_kind=dirty_kind), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname).resolve()
+                repo = make_repo(root)
+                (repo / ".gitignore").write_text("ignored.tmp\n", encoding="utf-8")
+                git(repo, "add", ".gitignore")
+                git(repo, "commit", "-qm", "ignore generated review artifact")
+                review = root / "review"
+                git(repo, "worktree", "add", "--detach", str(review), "HEAD")
+                if dirty_kind == "tracked":
+                    artifact = review / "x.txt"
+                    artifact.write_text("changed\n", encoding="utf-8")
+                elif dirty_kind == "staged":
+                    artifact = review / "staged.txt"
+                    artifact.write_text("staged\n", encoding="utf-8")
+                    git(review, "add", "staged.txt")
+                elif dirty_kind == "untracked":
+                    artifact = review / "untracked.txt"
+                    artifact.write_text("untracked\n", encoding="utf-8")
+                else:
+                    artifact = review / "ignored.tmp"
+                    artifact.write_text("ignored\n", encoding="utf-8")
+                artifact_bytes = artifact.read_bytes()
+
+                with self.assertRaises(accept.AcceptError):
+                    accept.remove_review_worktree(repo, review)
+
+                self.assertTrue(review.is_dir())
+                self.assertEqual(artifact.read_bytes(), artifact_bytes)
+                self.assertIn(str(review), git(repo, "worktree", "list", "--porcelain"))
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            review = root / "clean-review"
+            git(repo, "worktree", "add", "--detach", str(review), "HEAD")
+            original = accept.git_completed
+            calls: list[tuple[str, ...]] = []
+
+            def observe(target: Path, *args: str, **kwargs):
+                calls.append(args)
+                return original(target, *args, **kwargs)
+
+            with mock.patch.object(accept, "git_completed", side_effect=observe):
+                accept.remove_review_worktree(repo, review)
+
+            removal = next(args for args in calls if args[:2] == ("worktree", "remove"))
+            self.assertEqual(removal, ("worktree", "remove", "--", str(review)))
+            self.assertNotIn("--force", removal)
+            self.assertFalse(review.exists())
+
+    def test_python_review_proof_suppresses_bytecode_and_stays_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            (repo / "proof_module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            git(repo, "add", "proof_module.py")
+            git(repo, "commit", "-qm", "add proof module")
+
+            self.assertTrue(
+                accept.lead_review_passes(
+                    repo,
+                    [sys.executable, "-c", "import proof_module; assert proof_module.VALUE == 1"],
+                    10,
+                )
+            )
+            self.assertFalse((repo / "__pycache__").exists())
+
     def test_crash_after_completed_plan_replace_is_recovered_by_retry(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
