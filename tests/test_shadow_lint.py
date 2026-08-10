@@ -65,6 +65,26 @@ class ShadowLintTests(unittest.TestCase):
         second = lint.lint_plan(CLEAN_PLAN)
         self.assertEqual(first, second)
 
+    def test_completed_receipt_shape_matches_claim_return(self) -> None:
+        malformed = CLEAN_PLAN.replace(
+            "2026-08-05T10:00:00Z ~ab12 PROOF npm run test:pdp -> pass",
+            "2026-08-10T22:39:12Z ~ab12 PROOF npm run test:pdp",
+        )
+
+        self.assertEqual(
+            lint._board.progress_proof_receipts(malformed, "~ab12"),
+            [],
+        )
+        self.assertIn("PROOF-RECEIPT-SHAPE", blocking(malformed))
+        self.assertIn("COMPLETED-NO-PROOF", blocking(malformed))
+        self.assertNotIn("COMPLETED-NO-PROOF", blocking(CLEAN_PLAN))
+
+    def test_pre_cutover_receipt_prose_remains_accepted(self) -> None:
+        legacy = CLEAN_PLAN.replace("npm run test:pdp -> pass", "npm run test:pdp")
+
+        self.assertNotIn("PROOF-RECEIPT-SHAPE", blocking(legacy))
+        self.assertNotIn("COMPLETED-NO-PROOF", blocking(legacy))
+
     def test_duplicate_row_ids_are_blocking(self) -> None:
         plan = CLEAN_PLAN.replace("~cd34 |", "~ab12 |", 1)
         self.assertIn("ID-DUP", blocking(plan))

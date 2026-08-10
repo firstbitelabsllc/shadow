@@ -34,15 +34,20 @@ ROW_LOOSE_RE: Final = re.compile(r"^- \[[^\]]*\] ")
 FIELD_RE: Final = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
 NEEDS_VALUE_RE: Final = re.compile(r"~[0-9a-z]{4}(?:[,\s]+~[0-9a-z]{4})*")
 PROOF_CLASS_RE: Final = re.compile(r"^(?:cmd|read|gate) \S")
+PROOF_RECEIPT_PREFIX_RE: Final = re.compile(
+    r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
+    r"(?P<id>~[0-9a-z]{4}) PROOF\b"
+)
+# Older plans shipped receipt prose before claim return owned one canonical
+# shape. Preserve those historical completions; receipts from this cutover on
+# must be accepted by the same parser claim return uses.
+STRICT_PROOF_RECEIPT_SINCE: Final = "2026-08-10T22:39:12Z"
 MODE_RE: Final = re.compile(r"^- Mode: (?P<value>.+)$")
 HASH_RE: Final = re.compile(r"~[0-9a-z]{4}\b")
 TS_RE: Final = re.compile(r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ")
 SPIKE_RE: Final = re.compile(r"^- \S+ SPIKE (?P<id>~[0-9a-z]{4}) (?P<text>.+)$")
 DECISION_RE: Final = re.compile(r"^- \S+ DECISION (?P<id>~[0-9a-z]{4}) (?:keep|kill|promote)\b")
 ENDS_RE: Final = re.compile(r"\| ends: (?P<date>\S+)\s*$")
-# `shadow accept` writes "- <ts> <id> PROOF <argv> -> pass (accept)", and hand
-# flips follow the same shape. This is what pairs a completed row to evidence.
-PROOF_LINE_RE: Final = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
 MAX_LINE_CHARS: Final = 2_000
 
 
@@ -400,17 +405,36 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
     # lines linted clean, and status then reported "every task complete; mint
     # the successor". Shape was checked; truth was not. A completed row must
     # name its receipt in Progress — that pairing is the whole contract.
-    proven = {
-        m.group("id")
-        for _, line in _section(sections, "Progress")
-        if (m := PROOF_LINE_RE.match(line))
-    }
+    # Claim return owns the canonical receipt grammar. Reuse it here so every
+    # new manual read/gate flip that lint accepts is also releasable. Historical
+    # receipts before the cutover retain their already-landed meaning.
+    proven: set[str] = set()
+    for number, line in _section(sections, "Progress"):
+        prefix = PROOF_RECEIPT_PREFIX_RE.match(line)
+        if prefix is None:
+            continue
+        receipt = _board.progress_proof_receipt(line)
+        if receipt is not None:
+            proven.add(receipt[0])
+            continue
+        if prefix.group("ts") < STRICT_PROOF_RECEIPT_SINCE:
+            proven.add(prefix.group("id"))
+            continue
+        findings.append(
+            _finding(
+                "PROOF-RECEIPT-SHAPE",
+                number,
+                "blocking",
+                "proof receipt must be '<ts> <id> PROOF <proof> -> <result>'",
+            )
+        )
     for row_id, (number, state) in ids.items():
         if state == "completed" and row_id not in proven:
             findings.append(
                 _finding(
                     "COMPLETED-NO-PROOF", number, "blocking",
-                    f"{row_id} is completed with no '<ts> {row_id} PROOF ...' line in ## Progress; "
+                    f"{row_id} is completed with no '<ts> {row_id} PROOF <proof> -> <result>' "
+                    "line in ## Progress; "
                     "run `shadow accept` for a cmd proof, or re-observe a read/gate proof and "
                     "append the line with the flip",
                 )
