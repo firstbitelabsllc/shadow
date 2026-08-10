@@ -36,6 +36,77 @@ PLAN = """# Demo
 
 
 class ConfigDefaultsTests(unittest.TestCase):
+    def test_this_repositorys_plan_enters_its_own_computer_board(self) -> None:
+        with tempfile.TemporaryDirectory() as home:
+            home_path = Path(home)
+            repo = home_path / "Development" / "shadow"
+            repo.mkdir(parents=True)
+            (repo / "PLAN.md").write_text(
+                (ROOT / "PLAN.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            for args in (
+                ("init", "--quiet"),
+                ("config", "user.email", "shadow-test@example.invalid"),
+                ("config", "user.name", "Shadow Test"),
+                ("add", "PLAN.md"),
+                ("commit", "--quiet", "-m", "seed"),
+            ):
+                subprocess.run(["git", "-C", str(repo), *args], check=True)
+            scratch = home_path / "blank"
+            scratch.mkdir()
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if key not in {"SHADOW_PORTFOLIO_ROOT", "SHADOW_DEV_ROOT"}
+            }
+            env["HOME"] = home
+            result = subprocess.run(
+                [str(CLI), "status", "--json"],
+                cwd=scratch,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            entities = report["root_board"]["entities"]
+            self.assertTrue(
+                any(entity["project"] == "shadow" for entity in entities),
+                "Shadow's shipped PLAN.md must be importable by Shadow itself",
+            )
+
+    def test_an_invalid_priority_names_the_offending_plan(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as dirname,
+            tempfile.TemporaryDirectory() as home,
+        ):
+            home_path = Path(home)
+            root = home_path / "Development"
+            broken = root / "broken"
+            broken.mkdir(parents=True)
+            (broken / "PLAN.md").write_text(
+                PLAN.replace("- Priority: 2", "- Priority: urgent"),
+                encoding="utf-8",
+            )
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if key not in {"SHADOW_PORTFOLIO_ROOT", "SHADOW_DEV_ROOT"}
+            }
+            env["HOME"] = home
+            result = subprocess.run(
+                [str(CLI), "status", "--json"],
+                cwd=Path(dirname),
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("broken/PLAN.md: project Priority must be 1-5", result.stderr)
+
     def test_status_uses_dev_root_env_and_cli_flag_wins(self) -> None:
         with (
             tempfile.TemporaryDirectory() as dirname,
