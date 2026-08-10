@@ -106,7 +106,7 @@ sections that stood here until 2026-08-09 are archived at
 ### M13 — what the adversarial pass found, fixed
 
 - tools: 44 agents, 5 attack lanes over ref 88c758c, every finding refutation-tested before it landed here; 33 survived and 5 were killed. Ranked by cost if left. The full report is the ~adv9 PROOF line
-- [pending] `shadow throw` can never commit or push a truncated PLAN.md: both writes go through a temp file and atomic rename, and the commit is read back before the push ~atom | proof: cmd scripts/shadow-python.sh -m unittest tests.test_throw.ThrowNeverCommitsATruncatedPlan tests.test_throw
+- [completed] `shadow throw` can never commit or push a truncated PLAN.md: both writes go through a temp file and atomic rename, and the commit is read back before the push ~atom | proof: cmd scripts/shadow-python.sh -m unittest tests.test_throw.ThrowNeverCommitsATruncatedPlan tests.test_throw
 - [pending] row grammar is checked wherever accept would flip a row, so the enforcer and the only flip path agree on what a task is ~rows | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.RowGrammarRunsWhereverAcceptWouldFlip tests.test_shadow_lint
 - [pending] a cmd proof is validated as argv: shell operators are refused unless argv is a shell with -c, and argv zero must resolve ~argv | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.ACmdProofIsValidatedAsArgv tests.test_shadow_lint tests.test_shadow_accept
 - [pending] every section lookup is prefix-matched, so a suffixed heading cannot silently drop a blocking check ~pfix | proof: cmd scripts/shadow-python.sh -m unittest tests.test_shadow_lint.EverySectionLookupIsPrefixMatched tests.test_shadow_lint | needs: ~rows
@@ -1512,3 +1512,4 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T00:40:44Z THROWN ~cfg1 shadow reads one repo-local config file, and a machine that has none behaves identically to today | by: codex | note: fan-out: bounded config-default implementation
 - 2026-08-10T00:40:45Z THROWN ~pyv3 the documented install path works on a stock machine whose bare python3 is too old, and the README step it prints does not turn a good install into a doctor FAIL | by: codex | note: fan-out: stock-Python install and doctor compatibility
 - 2026-08-10T00:40:47Z THROWN ~hdop an unmarked standing-goal block is adopted only when the region really is the shipped block or a known earlier revision of it, so a drifted or customized heading is refused by name instead of silently overwritten | by: codex | note: fan-out: conservative standing-goal adoption hardening
+- 2026-08-10T00:42:04Z ~atom PROOF scripts/shadow-python.sh -m unittest tests.test_throw.ThrowNeverCommitsATruncatedPlan tests.test_throw -> pass (accept)
