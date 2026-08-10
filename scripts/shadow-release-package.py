@@ -54,6 +54,8 @@ REQUIRED_FILES = {
     "scripts/shadow-host-directives.py",
     "scripts/shadow-buckets.py",
     "scripts/shadow-verify-host.sh",
+    "scripts/shadow-verify-two-seat.py",
+    "scripts/shadow_process_lib.py",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
     "browser/outcome_source.py",
@@ -329,6 +331,23 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
     doctor = json.loads(command([str(cli), "doctor", "--json"], consumer, env=env).stdout)
     if not doctor.get("ok"):
         raise RuntimeError("installed doctor did not accept the stranger installation")
+    two_seat = json.loads(command(
+        [
+            str(consumer / "scripts" / "shadow-python.sh"),
+            str(consumer / "scripts" / "shadow-verify-two-seat.py"),
+            "--json",
+        ],
+        consumer,
+        env=env,
+    ).stdout)
+    if (
+        two_seat.get("schema") != "shadow.two-seat-verification.v1"
+        or two_seat.get("status") != "pass"
+        or two_seat.get("mode") != "offline"
+        or two_seat.get("board", {}).get("completed") != 2
+        or two_seat.get("board", {}).get("claims") != 0
+    ):
+        raise RuntimeError("installed two-seat harness did not complete its offline proof")
 
     project = root / "installed-project"
     project.mkdir()

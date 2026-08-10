@@ -14,6 +14,13 @@ exactly `name` and a `status` of `pass` or `fail`, with a bound test-name
 length and the same secret/path checks before it is written under
 `.shadow/evidence/`.
 
+The two-seat verification receipt is also closed. It contains only its schema,
+offline/live status, the shared goal SHA-256 and fetched source ref, stable
+public seat completion booleans, bounded board revision/count facts, and one
+fixed failure code or `null`. It never contains a temporary or operator path,
+row prose, the goal text, prompts, transcripts, host diagnostics, or provider,
+account, model, session, and billing data.
+
 The private per-computer board must store absolute canonical entity pointers so
 local commands can dereference them without guessing. `~/.shadow` is mode 0700,
 `board.json` is mode 0600, those paths never enter public locators or portable

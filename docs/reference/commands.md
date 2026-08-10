@@ -48,6 +48,27 @@ board drift is inconclusive, never green. This is the only check that proves a
 default — a skipped check says so rather than leaving a green run implying it
 happened.
 
+## Verifying two seats coordinate
+
+The two-seat harness is a specialist release check rather than an everyday
+board verb:
+
+```bash
+scripts/shadow-python.sh scripts/shadow-verify-two-seat.py --json
+scripts/shadow-python.sh scripts/shadow-verify-two-seat.py \
+  --live --goal-file ./frozen-goal.txt --timeout-seconds 120 --json
+```
+
+The offline default invokes no native host. It creates a canonical temporary
+HOME, two disposable Git repositories with local bare remotes, and one board;
+two deterministic seats then use the real `status`, `throw`, and `accept`
+paths. Explicit `--live` spends host quota and gives Claude and Codex the same
+frozen goal hash and one freshly fetched `origin/main` ref. Both host process
+groups are bounded and drained on every exit. Identity mismatch, timeout,
+board drift, partial completion, or any orphan claim is inconclusive, never
+green. The temporary tree is removed on exit, and the harness reports evidence
+for the person-observed gate without flipping that gate itself.
+
 ## Two things that bite on the first try
 
 **Quote task ids.** Ids look like `~ab12`, and in zsh — the default macOS shell —

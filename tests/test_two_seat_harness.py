@@ -157,6 +157,7 @@ with MARKER.open("a", encoding="utf-8") as stream:
         "cwd": str(Path.cwd().resolve()),
         "home": str(HOME.resolve()),
         "portfolio": str(PORTFOLIO.resolve()),
+        "board_exists": (HOME / ".shadow").is_dir(),
     }, sort_keys=True) + "\n")
 
 if MODE == "nonzero" and SEAT == "claude":
@@ -311,7 +312,7 @@ class LiveTwoSeatProof(unittest.TestCase):
                 scratch_cwd = Path(call["cwd"])
                 self.assertTrue(scratch_home.is_relative_to(scratch_cwd))
                 self.assertTrue(scratch_portfolio.is_relative_to(scratch_cwd))
-                self.assertTrue((scratch_home / ".shadow").is_dir())
+                self.assertTrue(call["board_exists"])
                 if call["seat"] == "codex":
                     self.assertIn("--skip-git-repo-check", call["argv"])
             data = receipt(result)
