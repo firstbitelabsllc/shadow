@@ -160,6 +160,7 @@ def write_manifest(path: Path, payload: dict) -> str:
 
 
 def worktree_retirement_fixture(root: Path) -> dict:
+    root = root.resolve(strict=True)
     repo = make_repo(root, RETIREMENT_PLAN)
     git(repo, "branch", "-M", "main")
     (repo / ".gitignore").write_text("ignored.tmp\n", encoding="utf-8")
@@ -206,6 +207,7 @@ def snapshot_retirement_fixture(
     *,
     expires_at: str = "2000-01-01T00:00:00Z",
 ) -> dict:
+    root = root.resolve(strict=True)
     repo = make_repo(root, RETIREMENT_PLAN)
     git(repo, "branch", "-M", "main")
     remote = "git@example.invalid:team/lifecycle-snapshot.git"
@@ -688,6 +690,7 @@ class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
         )
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("--apply --repo PATH", help_result.stdout)
+        self.assertIn("canonical absolute", help_result.stdout)
 
     def test_nested_entity_archives_adjacent_and_commits_only_its_two_paths(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -972,7 +975,7 @@ class ManifestedWorktreeRetirement(unittest.TestCase):
 
     def test_unmerged_target_created_after_preview_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
-            root = Path(dirname)
+            root = Path(dirname).resolve(strict=True)
             repo = make_repo(root, RETIREMENT_PLAN)
             git(repo, "branch", "-M", "main")
             (repo / "conflict.txt").write_text("base\n", encoding="utf-8")
@@ -1054,7 +1057,7 @@ class ManifestedWorktreeRetirement(unittest.TestCase):
 
     def test_initialized_submodule_worktree_is_refused_before_any_journal(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
-            root = Path(dirname)
+            root = Path(dirname).resolve(strict=True)
             component_parent = root / "component-parent"
             component_parent.mkdir()
             component = make_repo(component_parent, RETIREMENT_PLAN)
@@ -1177,7 +1180,7 @@ class ManifestedWorktreeRetirement(unittest.TestCase):
                 self.subTest(provenance=provenance),
                 tempfile.TemporaryDirectory() as dirname,
             ):
-                root = Path(dirname)
+                root = Path(dirname).resolve(strict=True)
                 fixture = worktree_retirement_fixture(root)
                 repo = fixture["repo"]
                 payload = json.loads(fixture["manifest"].read_text(encoding="utf-8"))
@@ -1228,7 +1231,7 @@ class ManifestedWorktreeRetirement(unittest.TestCase):
 
     def test_linked_authority_cannot_retire_the_shared_stores_primary_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
-            root = Path(dirname)
+            root = Path(dirname).resolve(strict=True)
             primary = make_repo(root, RETIREMENT_PLAN)
             git(primary, "branch", "authority-seat")
             authority = root / "authority-worktree"
