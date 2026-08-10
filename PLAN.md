@@ -5,7 +5,7 @@ This file is the sole plan, proof, and resume authority for Shadow (formerly Pil
 ## Brief
 
 - Project: shadow
-- Mode: ship
+- Mode: explore
 - Priority: 1
 
 Superseded authority: the v3 `Outcome` block, portfolio readback, and platform
@@ -95,14 +95,14 @@ sections that stood here until 2026-08-09 are archived at
 
 ### M12 — local overrides without a second authority
 
-- tools: the fixed half already shipped (standing goal, `--install`, drift check, grammar, proof law). This milestone is only what each consumer may override locally. The repository may ship a recommended template, but the effective file is machine-local, ignored, and never source-controlled. Every row keeps the buckets law: declaration only, zero provider routing, absent is fully functional
+- tools: the fixed half already shipped (standing goal, `--install`, drift check, grammar, proof law). Entity-local preferences and machine-global bootstrap placement are separate scopes inside the same strict schema: the installed Shadow checkout may declare the one computer board and directive topology; an entity checkout may declare leads, lenses, claim duration, buckets, and a fail-closed expected-board assertion, never a different authority. The repository may ship a recommended template, but the effective file is machine-local, ignored, and never source-controlled. Every row keeps the buckets law: declaration only, zero provider routing, absent is fully functional
 - [completed] shadow reads one repo-local config file, and a machine that has none behaves identically to today ~cfg1 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults
 - [completed] the parser refuses the YAML it does not support by naming the file and line, instead of misreading it into a wrong binding ~yml2 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults.TheSubsetRefusesWhatItCannotParse
 - [completed] a provider, model, account, or credential key anywhere in the config is refused, never quietly ignored ~noks | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults.NoSelectorKeys | needs: ~cfg1
 - [completed] the adversarial step is written into the method as attack-then-refute with lens sets the config can name, and the no-runtime-roles boundary still reads true ~advm | proof: read docs/reference/method.md names the step and its default lenses, `shadow config --explain` prints them, and SKILL.md still says Thermo and Ponytail are review disciplines rather than runtime roles
 - [completed] /future is reachable as a declared bucket and goal-minting reads the plan's own LESSON and DECISION rows instead of a new store ~ftur | proof: cmd scripts/shadow-python.sh -m unittest tests.test_extension_buckets.FutureIsADeclaredBucket tests.test_amp.GoalMintingReadsThePlansOwnLessonRows tests.test_extension_buckets tests.test_amp
 - [completed] the tracked artifact is only a recommended `shadow.example.yaml`; the effective override is a machine-local ignored file, and init/explain name both surfaces without ever staging the local one ~locl | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults.TheRecommendedTemplateIsNotEffectiveConfig tests.test_config_defaults.TheEffectiveConfigIsLocallyIgnored tests.test_config_defaults.InitNeverStagesLocalConfig
-- [pending] a consumer can locally override leads, adversarial lenses, durability and board-store placement, capability buckets, and top-level directive source/targets without adding provider, model, account, credential, route, or claim-legality keys ~ovrd | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults.ConsumerOverridesStayInsideTheDeclaredBoundary | needs: ~locl, ~noks
+- [in_progress] entity-local config overrides leads, adversarial lenses, claim duration, capability buckets, and an expected-board assertion; the installed Shadow checkout alone may declare the one machine board root and canonical directive source/Claude-Codex targets plus Cursor user-rules projection, all without provider, model, account, credential, route, or claim-legality keys ~ovrd | proof: cmd scripts/shadow-python.sh -m unittest tests.test_config_defaults.ConsumerOverridesStayInsideTheDeclaredBoundary | needs: ~locl, ~noks
 - [pending] a stranger clone behaves identically with no local file; after copying the recommended template into the ignored local surface it binds the declared overrides; and a tracked effective file or provider key fails closed ~conf (DoD) | proof: cmd bash -c 'set -e; d=$(mktemp -d); trap "rm -rf $d" EXIT; git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; cd "$d/s"; scripts/shadow-python.sh -m unittest discover -s tests -p "test_*.py"; scripts/shadow-python.sh -m unittest tests.test_config_defaults' | needs: ~cfg1, ~yml2, ~noks, ~advm, ~ftur, ~locl, ~ovrd
 
 ### M13 — what the adversarial pass found, fixed
@@ -281,6 +281,18 @@ sections that stood here until 2026-08-09 are archived at
   signs `by:`, still appears in `--in-flight`. The moment the config can make a
   claim illegal it is the roster, and ~noks refuses the keys -- provider,
   model, account, credential -- that made the old roster a router.
+
+- one computer board vs a repo-local `board_store` override | provisional
+  winner: machine bootstrap chooses once; entity configs may only assert |
+  opened 2026-08-10T18:37:13Z
+  `shadow status` must open the computer board from an unrelated directory,
+  before any entity is selected or its local config can be read. Letting two
+  entity worktrees choose different roots would create two claim authorities
+  and make the board depend on ambient cwd. The installed Shadow checkout is
+  the explicit machine bootstrap context: it may declare the one board root
+  and directive topology. Entity configs keep method preferences and may
+  assert the expected root, failing before mutation on mismatch; they never
+  retarget the board or the machine-global installer.
 
 - RESOLVED 2026-08-10T18:14:58Z in favor of no telemetry. The owner clarified
   "keep network telemetry nonexistent" and rejected telemetry as a product
@@ -1678,3 +1690,5 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T18:14:58Z STRUCT Cursor and telemetry decisions corrected | trigger: the owner challenged Cursor's exclusion and rejected network telemetry outright. Cursor's documented global User Rules surface exists in Settings -> Rules and is always applied, so the prior unsupported verdict was too broad; because Cursor documents no global directive-file path, activation is an explicit one-time local projection with a cold-session proof, not an invented installer write. M14 is retired with no replacement and no telemetry code. Contradicts: ~curs' unsupported conclusion and the 2026-08-10T01:20 M14 structure receipt; historical receipts remain provenance, not live direction.
 - 2026-08-10T18:14:58Z DECISION stable claim identities are host-shaped by default: `codex`, `claude`, and `cursor`; lane suffixes are added only for genuine same-host concurrency. `leo` is not an automatic worker seat — the human owner appears at explicit gates and may choose a personal claim identity only when personally operating a row. Configured lead names are display/default preferences, never a legality roster.
 - 2026-08-10T18:33:56Z ~locl PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults.TheRecommendedTemplateIsNotEffectiveConfig tests.test_config_defaults.TheEffectiveConfigIsLocallyIgnored tests.test_config_defaults.InitNeverStagesLocalConfig -> pass (accept)
+- 2026-08-10T18:37:13Z MODE ship->explore | trigger: ~ovrd exposed that repo-local board placement contradicts the accepted one-board/from-any-directory contract; harness: tests.test_config_defaults.ConsumerOverridesStayInsideTheDeclaredBoundary
+- 2026-08-10T18:37:13Z STRUCT ~ovrd splits machine bootstrap from entity preferences | trigger: status resolves the board before any entity config exists, so ambient repo config cannot safely choose machine authority. The installed Shadow checkout owns the single board-root declaration and directive topology; entity configs retain leads/lenses/claim-duration/buckets plus an expected-root assertion. Contradicts: the earlier wording that every consumer locally overrides board-store placement; preserving it would create a second board as soon as two repos disagree.
