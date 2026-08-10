@@ -30,7 +30,7 @@ PLAN = """# Release notes
 - Option A Consequence: Use the accepted proof and finish today.
 - Option B ID: cold-review
 - Option B: Run a cold review
-- Option B Consequence: Spend one bounded pass on independent judgment.
+- Option B Consequence: Apply independent judgment across every relevant surface.
 - Option C ID: hold-release
 - Option C: Hold the release
 - Option C Consequence: Keep the Outcome open until new evidence exists.
@@ -374,6 +374,149 @@ BOARD_PLAN = """# Gift flow live
 
 - 2026-08-05: board fixture ready.
 """
+
+
+class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
+    """The board renders the v4 grammar; a missing v3 Outcome is not a defect.
+
+    The v3 typed-Outcome block was retired from the grammar on 2026-08-09, but
+    the browser kept demanding it — so EVERY current plan on a machine failed
+    "outcome must be a string" and the board rendered a wall of dead cards.
+    These tests pin the split: the v4 board brief is total, and the v3
+    contract can only error for a plan that actually still carries its keys.
+    """
+
+    def _record(self, plan_text: str):
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = root / "repo"
+            plan = repo / "proj" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(plan_text, encoding="utf-8")
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "test@example.invalid")
+            git(repo, "config", "user.name", "Test")
+            git(repo, "add", "proj/PLAN.md")
+            git(repo, "commit", "-qm", "fixture")
+            return server.plan_record(plan, repo)
+
+    def test_a_v4_plan_without_the_retired_outcome_key_is_not_an_error(self) -> None:
+        record = self._record(BOARD_PLAN)
+        self.assertIsNone(record["contract_error"],
+                          "the retired v3 key's absence was reported as a defect")
+        board = record["board"]
+        self.assertEqual(board["state"], "working")
+        self.assertEqual(board["milestone"]["title"], "M1 — Gift flow live")
+        self.assertEqual(board["milestone"]["counts"],
+                         {"pending": 1, "in_progress": 1, "blocked": 0, "completed": 1})
+        self.assertIn("Checkout smoke green", board["milestone"]["current"])
+        self.assertEqual(board["milestone"]["dod"]["state"], "pending")
+
+    def test_a_v3_plan_still_gets_its_rich_briefing(self) -> None:
+        record = self._record(PLAN)
+        self.assertIsNone(record["contract_error"])
+        self.assertIsNotNone(record["briefing"])
+        self.assertIsNotNone(record["board"])
+
+    def test_a_v3_plan_with_malformed_outcome_still_reports_its_error(self) -> None:
+        broken = PLAN.replace("- Outcome State: needs_input", "- Outcome State: vibing")
+        record = self._record(broken)
+        self.assertIsNotNone(record["contract_error"],
+                             "a malformed v3 contract must still be named")
+        self.assertIsNotNone(record["board"], "the board brief is total even then")
+
+    def test_states_ready_blocked_and_resting_derive_from_the_rows(self) -> None:
+        ready = BOARD_PLAN.replace("- [in_progress]", "- [pending]")
+        self.assertEqual(self._record(ready)["board"]["state"], "ready")
+        blocked = BOARD_PLAN.replace("- [in_progress]", "- [blocked]").replace("- [pending]", "- [blocked]")
+        self.assertEqual(self._record(blocked)["board"]["state"], "blocked")
+        resting = (BOARD_PLAN.replace("- [in_progress]", "- [completed]")
+                             .replace("- [pending]", "- [completed]"))
+        self.assertEqual(self._record(resting)["board"]["state"], "resting")
+
+    def test_a_plan_with_no_tasks_is_an_honest_empty_not_a_crash(self) -> None:
+        record = self._record("# Just notes\n\nno sections at all\n")
+        self.assertEqual(record["board"]["state"], "empty")
+        self.assertIsNone(record["contract_error"])
+
+    def test_a_pre_grammar_plan_reads_unmigrated_not_empty(self) -> None:
+        essay = "# Old plan\n\n## Goal\n" + "\n".join(
+            f"line {i} of a real pre-grammar document" for i in range(14)
+        )
+        self.assertEqual(self._record(essay)["board"]["state"], "unmigrated")
+
+    def test_open_contradictions_are_counted_resolved_ones_are_not(self) -> None:
+        with_contra = BOARD_PLAN + (
+            "\n## Contradictions\n\n- one open thing | opened 2026-08-09\n"
+            "- RESOLVED 2026-08-09 in favor of X | winner: X\n"
+        )
+        self.assertEqual(self._record(with_contra)["board"]["contradictions_open"], 1)
+
+
+class TheGalleryShowsEveryStateHonestly(unittest.TestCase):
+    """The gallery is the in-house component catalog: fixture plan TEXTS run
+    through the production pipeline. Each fixture names the state it must
+    project to, and this class holds that promise — the golden that stops the
+    catalog from drifting into decoration."""
+
+    def test_every_fixture_projects_to_its_named_state(self) -> None:
+        for record in server.gallery_records():
+            self.assertEqual(
+                record["board"]["state"], record["expected_state"],
+                f"fixture {record['gallery_name']} promises "
+                f"{record['expected_state']!r} but projects {record['board']['state']!r}")
+
+    def test_every_board_state_the_projection_can_produce_has_a_fixture(self) -> None:
+        producible = {"working", "ready", "blocked", "resting", "unmigrated", "empty"}
+        covered = {r["board"]["state"] for r in server.gallery_records()}
+        self.assertEqual(producible - covered, set(),
+                         "a state the board can show has no fixture — the catalog is incomplete")
+
+    def test_normal_state_fixtures_lint_clean_so_cards_render_normally(self) -> None:
+        # A blocking lint finding puts the red error treatment on the card, so
+        # a "normal" state fixture that lints red is showing the WRONG state.
+        # (Found by review: completed rows lacked their PROOF receipts.)
+        for record in server.gallery_records():
+            if record["expected_state"] in {"working", "ready", "blocked", "resting"}:
+                # The card goes red on EITHER arm of the production condition
+                # (`!parse_ok || blocking`), so the golden holds both.
+                self.assertTrue(
+                    record["lint"]["parse_ok"],
+                    f"fixture {record['gallery_name']} fails to parse and would render as an error card")
+                self.assertEqual(
+                    record["lint"]["blocking"], 0,
+                    f"fixture {record['gallery_name']} lints red and would render as an error card")
+
+    def test_the_gallery_page_carries_no_inline_style_the_csp_would_discard(self) -> None:
+        html = (server.STATIC / "gallery.html").read_text(encoding="utf-8")
+        self.assertNotIn("<style", html,
+                         "inline styles are discarded by style-src 'self'; use style.css")
+
+    def test_the_v3_rich_brief_has_a_fixture_with_choices(self) -> None:
+        rich = [r for r in server.gallery_records() if r["briefing"]]
+        self.assertTrue(rich, "no fixture exercises the v3 rich brief card")
+        self.assertTrue(any(r["briefing"]["choices"] for r in rich),
+                        "no fixture shows a waiting decision")
+
+    def test_the_gallery_page_and_api_are_served(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            service = server.Server(("127.0.0.1", 0), Path(dirname))
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", "/gallery")
+                page = connection.getresponse()
+                self.assertEqual(page.status, 200)
+                self.assertIn("gallery.js", page.read().decode("utf-8"))
+                connection.request("GET", "/api/gallery")
+                payload = json.loads(connection.getresponse().read().decode("utf-8"))
+                self.assertGreaterEqual(len(payload["plans"]), 6)
+                connection.close()
+            finally:
+                service.shutdown()
 
 
 class BoardProjectionTests(unittest.TestCase):

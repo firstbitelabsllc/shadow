@@ -26,10 +26,12 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 try:
+    from board_projection import project_board_brief
     from chief_of_staff import project_chief_of_staff
     from decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
     from outcome_source import OutcomeSourceError, project_plan_outcome
 except ModuleNotFoundError:
+    from browser.board_projection import project_board_brief
     from browser.chief_of_staff import project_chief_of_staff
     from browser.decision_mode import DecisionInputError, build_choice, project_decision, receive_choice
     from browser.outcome_source import OutcomeSourceError, project_plan_outcome
@@ -67,8 +69,11 @@ CHECKPOINT_STATES = ("pending", "in_progress", "blocked", "completed")
 CHECKPOINT_ALIASES = {"x": "completed", "done": "completed", "working": "in_progress"}
 ALLOWED_STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/gallery": ("gallery.html", "text/html; charset=utf-8"),
     "/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/static/gallery.js": ("gallery.js", "text/javascript; charset=utf-8"),
     "/static/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/static/gallery.css": ("gallery.css", "text/css; charset=utf-8"),
 }
 
 DEV_ROOT = Path.home() / "Development"
@@ -191,22 +196,38 @@ def lint_summary(text: str) -> dict[str, Any]:
 def plan_record(path: Path, root: Path) -> dict[str, Any]:
     text = read_plan(path)
     relative = path.relative_to(root).as_posix()
+    return record_from_text(text, relative, path.parent.name)
+
+
+def record_from_text(text: str, relative: str, title_fallback: str) -> dict[str, Any]:
+    """One projection pipeline for real plans and gallery fixtures alike.
+
+    The gallery exists to show every card state from checked-in fixture plan
+    TEXTS run through THIS function — precomputed briefs would drift from the
+    projection the moment either changed."""
     brief = operator_brief(text)
     outcome = None
     decision = None
     chief = None
     error = None
-    try:
-        outcome = project_plan_outcome(brief)
-        decision = project_decision(outcome)
-        plan_summary = {"latest_change": latest_progress(text)} if latest_progress(text) else None
-        chief = project_chief_of_staff(outcome, plan_brief=plan_summary)
-    except (OutcomeSourceError, DecisionInputError) as exc:
-        error = str(exc)
+    # The v4 board brief is TOTAL — every readable plan gets one. The v3
+    # typed-Outcome contract is attempted only for a plan that still carries
+    # its keys; its absence is the current grammar, not an error. Before this
+    # split, every v4 plan on a machine failed "outcome must be a string" and
+    # the board rendered nothing it existed to show.
+    board = project_board_brief(text)
+    if "outcome" in brief:
+        try:
+            outcome = project_plan_outcome(brief)
+            decision = project_decision(outcome)
+            plan_summary = {"latest_change": latest_progress(text)} if latest_progress(text) else None
+            chief = project_chief_of_staff(outcome, plan_brief=plan_summary)
+        except (OutcomeSourceError, DecisionInputError) as exc:
+            error = str(exc)
     return {
         "id": hashlib.sha256(relative.encode("utf-8")).hexdigest()[:16],
         "path": relative,
-        "title": title(text, path.parent.name),
+        "title": title(text, title_fallback),
         "project": project_of(brief, relative),
         "mode": mode_of(brief),
         "milestone": milestone_of(brief),
@@ -215,8 +236,29 @@ def plan_record(path: Path, root: Path) -> dict[str, Any]:
         "outcome": outcome,
         "decision": decision,
         "briefing": chief,
+        "board": board,
         "contract_error": error,
     }
+
+
+GALLERY_FIXTURES = STATIC / "gallery-fixtures.json"
+
+
+def gallery_records() -> list[dict[str, Any]]:
+    """Every card state, from checked-in fixture plan texts, projected by the
+    SAME pipeline real plans use. The fixture file names the state each text
+    must project to; a test holds that promise so the gallery cannot lie."""
+    import json as _json
+
+    entries = _json.loads(GALLERY_FIXTURES.read_text(encoding="utf-8"))
+    records = []
+    for name, entry in entries.items():
+        record = record_from_text(entry["plan"], f"gallery/{name}", name)
+        record["title"] = entry["label"]
+        record["gallery_name"] = name
+        record["expected_state"] = entry["expected_state"]
+        records.append(record)
+    return records
 
 
 def _origin_of(repo: Path) -> str:
@@ -646,6 +688,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/plans":
             self._json(200, {"product": PRODUCT, "plans": discover_plans(self.scan_root)})
+            return
+        if parsed.path == "/api/gallery":
+            self._json(200, {"product": PRODUCT, "plans": gallery_records()})
             return
         self._json(404, {"error": "not found"})
 

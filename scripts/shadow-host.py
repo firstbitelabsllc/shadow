@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run one bounded Shadow task through a native coding host.
+"""Run a claimed Shadow task through a native coding host.
 
 This is deliberately a thin transport seam. It does not choose a provider,
 create a queue, accept a result, or write a durable plan. The caller supplies
-one host, one clean worktree, one task file, and exact allowed paths. The host
-must return one ``shadow.host-receipt.v1`` JSON fence; otherwise the attempt is
+the host, a clean worktree, a task file, and exact allowed paths. The host
+must return a ``shadow.host-receipt.v1`` JSON fence; otherwise the attempt is
 blocked or failed closed.
 """
 
@@ -33,7 +33,6 @@ PROBE_SCHEMA = "shadow.host-probe.v1"
 ATTEMPT_SCHEMA = "shadow.host-attempt.v1"
 HOST_RECEIPT_SCHEMA = "shadow.host-receipt.v1"
 HOSTS = {"codex", "claude-code", "cursor"}
-LEGACY_STATE_DIR = ".pilot-puppy"
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 MAX_CAPTURE_BYTES = 64 * 1024
@@ -159,42 +158,9 @@ def status_paths(repo: Path, *, include_ignored: bool = False) -> list[str]:
     return paths
 
 
-def is_legacy_state_path(path: str) -> bool:
-    """Evidence written before the rename lives in .pilot-puppy/.
-
-    That directory is inert local product state: the host never writes it and
-    never counts it as a project change, so a project that has not migrated its
-    evidence is still a clean assigned worktree.
-    """
-
-    trimmed = path.rstrip("/")
-    return trimmed == LEGACY_STATE_DIR or trimmed.startswith(f"{LEGACY_STATE_DIR}/")
-
-
-def assert_legacy_state_sealed(repo: Path) -> None:
-    """Pre-rename evidence earns its sealing exemption only when it is inert.
-
-    A symlinked or non-directory .pilot-puppy could redirect host writes outside
-    the assigned worktree while Git status still looked clean, so the exemption
-    never applies to one.
-    """
-
-    state = repo / LEGACY_STATE_DIR
-    if state.is_symlink():
-        raise HostError("worktree_unsealed", "pre-rename evidence path must not be a symlink")
-    if not state.exists():
-        return
-    if not state.is_dir():
-        raise HostError("worktree_unsealed", "pre-rename evidence state must be a directory")
-    for path in state.rglob("*"):
-        if path.is_symlink() or not (path.is_dir() or path.is_file()):
-            raise HostError("worktree_unsealed", "pre-rename evidence must contain regular files only")
-
-
 def local_state_snapshot(repo: Path) -> dict[str, str]:
     # Every flow that snapshots product state also exempts pre-rename evidence
     # from its sealing checks, so validate that directory's shape here.
-    assert_legacy_state_sealed(repo)
     state = repo / ".shadow"
     evidence = state / "evidence"
     if state.is_symlink() or evidence.is_symlink():
@@ -719,7 +685,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     state_before = local_state_snapshot(repo)
     before = status_paths(repo)
     source_changes = [
-        path for path in before if path not in state_before and not is_legacy_state_path(path)
+        path for path in before if path not in state_before
     ]
     if source_changes:
         raise HostError("worktree_dirty", "host packet requires a clean assigned worktree")
@@ -731,7 +697,6 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         if not path_allowed(path, allowed)
         and path.rstrip("/") != ".shadow"
         and not path.startswith(".shadow/evidence/")
-        and not is_legacy_state_path(path)
     ]
     if unsafe_ignored:
         raise HostError("worktree_unsealed", "ignored files outside the packet are not allowed")
@@ -818,7 +783,7 @@ def parser() -> argparse.ArgumentParser:
     probe_parser.add_argument("--binary")
     probe_parser.add_argument("--json", action="store_true")
     probe_parser.set_defaults(handler=probe)
-    run_parser = sub.add_parser("run", help="run one bounded packet through one native host")
+    run_parser = sub.add_parser("run", help="run a claimed packet through a native host")
     run_parser.add_argument("--host", choices=sorted(HOSTS), required=True)
     run_parser.add_argument("--binary")
     run_parser.add_argument("--repo", default=os.getcwd())

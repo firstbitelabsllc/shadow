@@ -25,8 +25,8 @@ path:
 shadow accept --repo "$PWD" --row '~ab12'
 ```
 
-For a bounded delegation, freeze one complete task in a file and explicitly
-run a native host:
+For delegation, freeze each complete claimed task in a file and explicitly run
+native hosts over path-disjoint work:
 
 ```bash
 shadow host run \

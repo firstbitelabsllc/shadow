@@ -1,37 +1,39 @@
 ---
 name: goal
-description: "Shape a loose ask into one executable Shadow goal brief: gather, synthesize, cut, deliver a paste-ready block with Outcome, Authority, Resume, Scope, Proof, Policy."
+description: "Shape a loose ask into a complete executable Shadow goal brief: gather, synthesize, cut, deliver a paste-ready block with Outcome, Authority, Resume, Scope, Proof, Policy."
 ---
 
 # Shape a goal
 
-Turn a loose request into one executable brief before it becomes plan
-tasks. This skill owns prompt shaping only — the owning `PLAN.md` keeps
-plan, proof, and resume authority.
+Turn a loose request into a complete executable brief before it becomes plan
+tasks. This skill owns prompt shaping only — the owning `PLAN.md` keeps plan,
+proof, claims, and resume authority.
 
 ## Method
 
-1. **Gather** only what makes the goal executable: repository
-   instructions, the owning `PLAN.md` and its current in-progress task,
-   git state, and the files, errors, or surfaces the request names.
+1. **Gather** what makes the full goal executable: repository instructions,
+   the owning `PLAN.md`, every relevant active claim and reachable row, git
+   state, and the files, errors, or surfaces the request names.
 2. **Synthesize** the brief: a plain-language Outcome; the authority
-   (which `PLAN.md` at which ref); one exact resume move; bounded scope
-   with prohibited paths; concrete acceptance behavior; the cheapest
-   focused proof; hard rails (credentials, publishing, money, external
-   messages).
+   (which `PLAN.md` at which ref); the active and ranked reachable work;
+   every surface required by the Outcome plus prohibited paths; concrete
+   acceptance behavior; focused, integration, and real-surface proof; hard
+   rails (credentials, publishing, money, external messages).
 3. **Cut** filler, duplicate policy, invented phases, recurrence
-   instructions, and "improve everything" scope.
+   instructions, and vague "improve everything" language without an
+   acceptance matrix. Never narrow "everything", "end to end", "all boats
+   rise", or equivalent outcome language into a single task, slice, or campaign.
 4. **Deliver** the goal ready to paste:
 
 ```text
 Outcome: <plain result>.
 Authority: <repo + PLAN.md> at <ref — fetch first, state your ref>.
-Resume: <the current in-progress task or one exact next move>.
-Scope: <bounded files/surfaces>; do not touch <prohibited paths>.
-Proof: <focused command>, <real surface to re-observe>.
-Policy: PLAN.md is the only plan/proof/resume layer; park a blocked
-slice with one exact resume predicate; done only when the acceptance
-behavior is mechanically true.
+Resume: <all owned in-progress work, then ranked reachable rows; fan out disjoint work>.
+Scope: <every surface required by the Outcome>; do not touch <prohibited paths>.
+Proof: <focused checks per lane>, <affected integration>, <real surfaces>.
+Policy: PLAN.md is the only plan/proof/resume layer; park blocked rows
+with exact wakes and continue every reachable row; stop only when full
+acceptance is mechanically true or every remainder is hard-rail blocked.
 ```
 
 ## When the request is a steer, not a task
