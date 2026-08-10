@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,17 @@ def checks(plan: str) -> set[str]:
 
 def blocking(plan: str) -> set[str]:
     return {f["check"] for f in lint.lint_plan(plan) if f["severity"] == "blocking"}
+
+
+def commit_fixture(root: Path, *paths: str) -> None:
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "Shadow Test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "shadow@example.invalid"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(root), "add", "--", *paths], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "proof fixture"], check=True)
 
 
 class ShadowLintTests(unittest.TestCase):
@@ -578,6 +590,133 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
     def test_argv0_is_not_guessed_when_the_root_is_unknown(self) -> None:
         # Guessing would turn an unknowable into a false accusation.
         self.assertNotIn("PROOF-ARGV0", _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md")))
+
+    def test_an_interpreter_cannot_hide_a_missing_repository_script(self) -> None:
+        # Regression: `node` resolved, so lint stopped there even though the
+        # script accept would execute did not exist in the clean checkout.
+        nested_split = "python3 scripts/missing.py"
+        for _ in range(8):
+            nested_split = shlex.join(["env", "-S", nested_split])
+        commands = (
+            "node scripts/operating-reset/missing.mjs",
+            "node missing.mjs",
+            "/usr/bin/python3 scripts/missing.py",
+            "env MODE=test python3 scripts/missing.py",
+            "env -uFOO python3 scripts/missing.py",
+            "/usr/bin/env -i python3 scripts/missing.py",
+            "env -S 'python3 scripts/missing.py'",
+            "env -S 'MODE=x python3 scripts/missing.py'",
+            "env -S '-i python3 scripts/missing.py'",
+            "env -S 'env MODE=x python3 scripts/missing.py'",
+            "env env MODE=x python3 scripts/missing.py",
+            "env env env env env env env env python3 scripts/missing.py",
+            nested_split,
+            "python3 -W ignore scripts/missing.py",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for command in commands:
+                with self.subTest(command=command):
+                    findings = lint.lint_plan(self._plan(f"cmd {command}"), root=Path(tmp))
+                    matching = [
+                        finding for finding in findings if finding["check"] == "PROOF-SCRIPT"
+                    ]
+                    self.assertEqual(
+                        ["blocking"], [finding["severity"] for finding in matching]
+                    )
+
+    def test_an_existing_interpreter_script_and_non_script_modes_remain_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "scripts" / "proof.py"
+            script.parent.mkdir()
+            script.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            commit_fixture(root, "scripts/proof.py")
+            self.assertNotIn(
+                "PROOF-SCRIPT",
+                _checks(self._plan("cmd python3 scripts/proof.py"), root=root),
+            )
+            self.assertNotIn(
+                "PROOF-SCRIPT",
+                _checks(self._plan("cmd python3 -m unittest discover"), root=root),
+            )
+            self.assertNotIn(
+                "PROOF-SCRIPT",
+                _checks(self._plan("cmd node --version"), root=root),
+            )
+            for command in (
+                "python3 -c 'print(123/4)'",
+                "python3 -cprint(1) scripts/missing.py",
+                "python3 -munittest discover",
+                "node -e 'console.log(123/4)'",
+                "node --input-type module --eval 'console.log(1)'",
+                "python3 -X pycache_prefix=build/cache scripts/proof.py",
+                f"env -C {root} git status --short",
+                "env -S 'git --version'",
+                "env -S 'MODE=x git --version'",
+                "env -S 'env MODE=x git --version'",
+            ):
+                with self.subTest(command=command):
+                    self.assertNotIn(
+                        "PROOF-SCRIPT",
+                        _checks(self._plan(f"cmd {command}"), root=root),
+                    )
+
+            for command in (
+                "env -C /tmp python3 scripts/proof.py",
+                "env --chdir=/tmp python3 scripts/proof.py",
+            ):
+                with self.subTest(command=command):
+                    self.assertIn(
+                        "PROOF-SCRIPT",
+                        _checks(self._plan(f"cmd {command}"), root=root),
+                    )
+
+    def test_an_interpreter_script_must_be_a_relative_regular_plan_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "check.py"
+            script.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            commit_fixture(root, "check.py")
+            self.assertNotIn(
+                "PROOF-SCRIPT", _checks(self._plan("cmd python3 check.py"), root=root)
+            )
+            self.assertIn(
+                "PROOF-SCRIPT", _checks(self._plan(f"cmd python3 {script}"), root=root)
+            )
+            self.assertIn(
+                "PROOF-SCRIPT", _checks(self._plan("cmd python3 ../check.py"), root=root)
+            )
+
+    def test_only_a_script_present_as_a_regular_file_in_head_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            script = root / "proof.py"
+            script.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            command = self._plan("cmd python3 proof.py")
+            self.assertIn("PROOF-SCRIPT", _checks(command, root=root))
+            subprocess.run(["git", "-C", str(root), "add", "proof.py"], check=True)
+            self.assertIn("PROOF-SCRIPT", _checks(command, root=root))
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "Shadow Test"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "shadow@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-qm", "committed proof"], check=True
+            )
+            self.assertNotIn("PROOF-SCRIPT", _checks(command, root=root))
+
+    def test_output_paths_are_not_mistaken_for_interpreter_scripts(self) -> None:
+        self.assertNotIn(
+            "PROOF-SCRIPT",
+            _checks(
+                self._plan(
+                    "cmd python3 scripts/shadow-lint.py --out build/not-created-yet.json"
+                ),
+                root=ROOT,
+            ),
+        )
 
     def test_an_ordinary_proof_is_untouched(self) -> None:
         self.assertNotIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd true")))
