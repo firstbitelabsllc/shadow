@@ -50,6 +50,17 @@ def git_repo(root: Path) -> Path:
     return repo
 
 
+def run_config(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(CLI), "config", "--explain", "--json", *args],
+        cwd=repo,
+        env={**os.environ, "SHADOW_ROOT": str(ROOT)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 class ConfigDefaultsTests(unittest.TestCase):
     def test_this_repositorys_plan_enters_its_own_computer_board(self) -> None:
         with tempfile.TemporaryDirectory() as home:
@@ -181,16 +192,6 @@ class ConfigDefaultsTests(unittest.TestCase):
 
 
 class RepoLocalConfigDefaults(unittest.TestCase):
-    def run_config(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [str(CLI), "config", "--explain", "--json", *args],
-            cwd=repo,
-            env={**os.environ, "SHADOW_ROOT": str(ROOT)},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
     def test_one_repo_local_config_is_read_from_the_git_root(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -200,7 +201,7 @@ class RepoLocalConfigDefaults(unittest.TestCase):
             (root / "shadow.yaml").write_text("not: this one\n", encoding="utf-8")
             (repo / "shadow.yaml").write_text("version: 1\n", encoding="utf-8")
 
-            result = self.run_config(nested)
+            result = run_config(nested)
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
@@ -222,7 +223,7 @@ class RepoLocalConfigDefaults(unittest.TestCase):
                 check=True,
             ).stdout
 
-            result = self.run_config(repo)
+            result = run_config(repo)
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
@@ -242,6 +243,43 @@ class RepoLocalConfigDefaults(unittest.TestCase):
                 check=True,
             ).stdout
             self.assertEqual(after, before)
+
+
+class TheSubsetRefusesWhatItCannotParse(unittest.TestCase):
+    def test_supported_comments_do_not_expand_the_subset(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = git_repo(Path(dirname))
+            (repo / "shadow.yaml").write_text(
+                "# repository declaration\n\nversion: 1 # current schema\n",
+                encoding="utf-8",
+            )
+
+            result = run_config(repo)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["version"], 1)
+
+    def test_unsupported_yaml_is_refused_at_the_first_offending_line(self) -> None:
+        cases = {
+            "document marker": ("---\nversion: 1\n", 1),
+            "quoted scalar": ('version: "1"\n', 1),
+            "flow syntax": ("version: [1]\n", 1),
+            "tab separator": ("version:\t1\n", 1),
+            "nested mapping": ("version:\n  major: 1\n", 1),
+            "sequence": ("version: 1\nleads:\n  - codex\n", 2),
+            "unknown key": ("# header\nversion: 1\ntaste: taste\n", 3),
+            "duplicate key": ("version: 1\nversion: 1\n", 2),
+        }
+        for name, (content, line) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as dirname:
+                repo = git_repo(Path(dirname))
+                (repo / "shadow.yaml").write_text(content, encoding="utf-8")
+
+                result = run_config(repo)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(f"shadow.yaml:{line}:", result.stderr)
 
 
 if __name__ == "__main__":
