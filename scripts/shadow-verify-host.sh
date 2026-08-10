@@ -47,6 +47,31 @@ ok()   { printf '  [PASS] %s\n' "$1"; }
 bad()  { printf '  [FAIL] %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 skip() { printf '  [SKIP] %s\n' "$1"; }
 
+board_facts() {
+  python3 -c '
+import json, sys
+
+try:
+    data = json.load(sys.stdin)
+    current = next(
+        plan for plan in data.get("v4_plans", []) if plan.get("board_resume")
+    )
+    revision = data["root_board"]["revision"]
+    project = current["project"]
+    resume = current["board_resume"]
+    work = current["resume_human"]
+    if not isinstance(revision, int) or not project or not resume or not work:
+        raise ValueError
+except (KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError):
+    sys.exit(1)
+
+print(revision)
+print(project)
+print(resume)
+print(work)
+'
+}
+
 # Resolve a command to the real file it ends at, so a symlinked `shadow` on
 # PATH can be compared against this checkout's own binary.
 resolve_cmd() {
@@ -184,15 +209,19 @@ fi
 #    opened. If that returns nothing, the host asks "which project?" — the one
 #    question this whole milestone exists to make unnecessary.
 SCRATCH="$(mktemp -d)"
+trap 'rm -rf -- "${SCRATCH}"' EXIT
 BOARD_STATUS=0
-BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status 2>/dev/null)" || BOARD_STATUS=$?
-rmdir "${SCRATCH}" 2>/dev/null || true
-RESUME="$(sed -n 's/^ *Resume: //p' <<<"${BOARD}" | grep -vE '^none([[:space:]]|$)' | head -1 || true)"
+BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json 2>/dev/null)" || BOARD_STATUS=$?
+BOARD_FACTS="$(printf '%s' "${BOARD}" | board_facts 2>/dev/null || true)"
+BOARD_REVISION="$(sed -n '1p' <<<"${BOARD_FACTS}")"
+BOARD_PROJECT="$(sed -n '2p' <<<"${BOARD_FACTS}")"
+BOARD_RESUME="$(sed -n '3p' <<<"${BOARD_FACTS}")"
+BOARD_WORK="$(sed -n '4p' <<<"${BOARD_FACTS}")"
 if [[ "${BOARD_STATUS}" -ne 0 ]]; then
   bad "the board refresh fails from an unrelated directory — a cold session would start from stale authority"
 elif [[ -z "${BOARD}" ]]; then
   bad "the board is empty from an unrelated directory — a cold session has nothing to open"
-elif [[ -z "${RESUME}" ]]; then
+elif [[ -z "${BOARD_REVISION}" || -z "${BOARD_PROJECT}" || -z "${BOARD_RESUME}" || -z "${BOARD_WORK}" ]]; then
   bad "the board names no reachable resume checkpoint — a session would have nothing to take"
 else
   ok "the board is reachable from an unrelated directory, with a reachable resume checkpoint"
@@ -202,24 +231,116 @@ fi
 #    above proves the pieces are in place for it to.
 if [[ "${LIVE}" -eq 0 ]]; then
   skip "session check (costs model quota) — re-run with --live to prove a cold session resolves the skill"
+elif [[ "${HOST}" == "cursor" ]]; then
+  skip "live session check is unsupported for this host because it has no cold directive activation surface"
 elif ! command -v "${BIN}" >/dev/null 2>&1; then
   bad "${BIN} is not installed, so the session check cannot run"
+elif [[ -z "${BOARD_REVISION}" || -z "${BOARD_PROJECT}" || -z "${BOARD_RESUME}" || -z "${BOARD_WORK}" ]]; then
+  bad "the live session has no current board evidence to verify"
 else
   # The prompt names no command on purpose. Spelling out `shadow status` would
   # let any generic session pass by following instructions; asking only what
   # the work is means the answer can arrive one way — the skill and standing
-  # goal loaded, and the session went to the board on its own.
-  PROMPT='What am I working on right now? Reply with ONLY the single line you would resume, and nothing else.'
-  case "${HOST}" in
-    claude-code) OUT="$("${BIN}" -p "${PROMPT}" 2>&1)" ;;
-    codex)       OUT="$("${BIN}" exec "${PROMPT}" 2>&1)" ;;
-    cursor)      OUT="$("${BIN}" -p "${PROMPT}" 2>&1)" ;;
-  esac
-  EXPECTED="${RESUME}"
-  if [[ -n "${EXPECTED}" ]] && grep -qF "${EXPECTED:0:40}" <<<"${OUT}"; then
-    ok "a cold ${HOST} session found the board unprompted and named the resume row"
+  # goal loaded, and the session went to the board on its own. It names neither
+  # the command, the evidence fields, nor any value the verifier will accept.
+  PROMPT='What am I working on right now?'
+  LIVE_OUT="${SCRATCH}/host-final.txt"
+  LIVE_LOG="${SCRATCH}/host-diagnostics.txt"
+  BOARD_TEXT_FILE="${SCRATCH}/board.txt"
+  BOARD_JSON_FILE="${SCRATCH}/board.json"
+  READ_ONLY_BIN="${SCRATCH}/read-only-bin"
+  LIVE_STATUS=0
+  BOARD_TEXT_STATUS=0
+  (cd "${SCRATCH}" && "${SHADOW_CMD}" status >"${BOARD_TEXT_FILE}" 2>/dev/null) || BOARD_TEXT_STATUS=$?
+  printf '%s' "${BOARD}" >"${BOARD_JSON_FILE}"
+  mkdir "${READ_ONLY_BIN}"
+  cat >"${READ_ONLY_BIN}/shadow" <<'SH'
+#!/bin/sh
+root=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+if [ "${1:-}" != "status" ]; then
+  echo "shadow verifier: only read-only status is available in this session" >&2
+  exit 2
+fi
+shift
+for arg in "$@"; do
+  if [ "$arg" = "--json" ]; then
+    exec cat "$root/board.json"
+  fi
+done
+exec cat "$root/board.txt"
+SH
+  chmod 700 "${READ_ONLY_BIN}/shadow"
+  if [[ "${BOARD_TEXT_STATUS}" -ne 0 ]]; then
+    bad "the human board view could not be frozen for the live session"
   else
-    bad "a cold ${HOST} session did not name the resume row unprompted — it is not loading the skill"
+    case "${HOST}" in
+      claude-code)
+        (cd "${SCRATCH}" && PATH="${READ_ONLY_BIN}:${PATH}" \
+          "${BIN}" --no-session-persistence --permission-mode plan \
+          -p "${PROMPT}") >"${LIVE_OUT}" 2>"${LIVE_LOG}" || LIVE_STATUS=$?
+        ;;
+      codex)
+        (cd "${SCRATCH}" && PATH="${READ_ONLY_BIN}:${PATH}" \
+          "${BIN}" exec --ephemeral --skip-git-repo-check --sandbox read-only \
+          --output-last-message "${LIVE_OUT}" "${PROMPT}") >"${LIVE_LOG}" 2>&1 || LIVE_STATUS=$?
+        ;;
+    esac
+  fi
+  AFTER_STATUS=0
+  AFTER_BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json 2>/dev/null)" || AFTER_STATUS=$?
+  AFTER_FACTS="$(printf '%s' "${AFTER_BOARD}" | board_facts 2>/dev/null || true)"
+  if [[ "${BOARD_TEXT_STATUS}" -ne 0 ]]; then
+    : # The specific failure was already reported without spending host quota.
+  elif [[ "${LIVE_STATUS}" -ne 0 ]]; then
+    bad "the cold ${HOST} session invocation failed"
+  elif [[ "${AFTER_STATUS}" -ne 0 || -z "${AFTER_FACTS}" ]]; then
+    bad "the board could not be re-observed after the live session"
+  elif [[ "${AFTER_FACTS}" != "${BOARD_FACTS}" ]]; then
+    bad "the root board changed during the live session — the result is inconclusive; re-run"
+  elif python3 - "${LIVE_OUT}" "${BOARD_PROJECT}" "${BOARD_WORK}" <<'PY'
+import re
+from pathlib import Path
+import sys
+
+path, project, work = sys.argv[1:]
+try:
+    answer = Path(path).read_text(encoding="utf-8")
+except (OSError, UnicodeError):
+    raise SystemExit(1)
+
+stop = {
+    "after", "also", "and", "are", "before", "being", "blocked", "completed",
+    "current", "from", "have", "into", "only", "pending", "that", "the", "their",
+    "this", "through", "what", "when", "where", "which", "with", "without", "working",
+}
+
+def stems(value: str) -> set[str]:
+    result = set()
+    for token in re.findall(r"[a-z0-9]+", value.lower()):
+        if len(token) < 4 or token in stop:
+            continue
+        for suffix in ("ations", "ation", "ating", "ated", "ates", "ate", "ing", "ed", "es", "s"):
+            if token.endswith(suffix) and len(token) > len(suffix) + 3:
+                token = token[:-len(suffix)]
+                break
+        result.add(token)
+    return result
+
+project_pattern = r"[-_ ]+".join(re.escape(part) for part in project.split("-"))
+project_seen = re.search(
+    rf"(?<![A-Za-z0-9_-]){project_pattern}(?![A-Za-z0-9_-])",
+    answer,
+    re.IGNORECASE,
+)
+expected = stems(work)
+overlap = expected.intersection(stems(answer))
+needed = min(3, len(expected))
+raise SystemExit(0 if project_seen and needed and len(overlap) >= needed else 1)
+PY
+  then
+    ok "a cold ${HOST} session found the board unprompted and described its current work"
+  else
+    bad "a cold ${HOST} session did not identify the current project and work unprompted"
   fi
 fi
 

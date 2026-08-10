@@ -33,7 +33,7 @@ PLAN = """# Fixture
 ## Tasks
 
 ### M1 — live
-- [pending] a row ~aa11 | proof: cmd true
+- [pending] ship the cold activation verifier from a clean clone ~aa11 | proof: cmd true
 
 ## Progress
 
@@ -41,8 +41,9 @@ PLAN = """# Fixture
 """
 
 
-def run(home: Path, host: str = "claude-code",
-        path: str | None = None) -> subprocess.CompletedProcess[str]:
+def run(home: Path, host: str = "claude-code", path: str | None = None,
+        live: bool = False,
+        extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     # A scratch HOME has no ~/Development, so the board check would fail for a
     # reason that has nothing to do with the host's wiring. Point the portfolio
     # at a directory that owns one plan; the verifier is what is under test.
@@ -54,11 +55,16 @@ def run(home: Path, host: str = "claude-code",
     # PATH. The fixture has to say so, or the verifier is right to go red.
     if path is None:
         path = f"{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"
+    command = ["bash", str(SCRIPT), "--host", host]
+    if live:
+        command.append("--live")
+    env = {**os.environ, "HOME": str(home), "PATH": path,
+           "SHADOW_PORTFOLIO_ROOT": str(home / "portfolio")}
+    env.update(extra_env or {})
     return subprocess.run(
-        ["bash", str(SCRIPT), "--host", host],
+        command,
         capture_output=True, text=True, check=False,
-        env={**os.environ, "HOME": str(home), "PATH": path,
-             "SHADOW_PORTFOLIO_ROOT": str(home / "portfolio")},
+        env=env,
     )
 
 
@@ -239,8 +245,8 @@ class EveryCheckCanFail(unittest.TestCase):
             project.mkdir(parents=True)
             project.joinpath("PLAN.md").write_text(
                 PLAN.replace(
-                    "- [pending] a row ~aa11 | proof: cmd true",
-                    "- [blocked] a row ~aa11 | proof: gate owner resume: credentials arrive",
+                    "- [pending] ship the cold activation verifier from a clean clone ~aa11 | proof: cmd true",
+                    "- [blocked] ship the cold activation verifier from a clean clone ~aa11 | proof: gate owner resume: credentials arrive",
                 ).replace(
                     "## Progress",
                     "## Deferred\n\n"
@@ -295,6 +301,163 @@ class CursorIsHonestAboutWhatItCannotCheck(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn("cold directive activation is unsupported", result.stdout)
             self.assertNotIn(".cursor/rules", result.stdout)
+
+
+class LiveSessionEvidenceIsDynamicAndUncoached(unittest.TestCase):
+    def _fake_host(self, home: Path, name: str, body: str) -> str:
+        fake_bin = home / "fake-bin"
+        fake_bin.mkdir(exist_ok=True)
+        command = fake_bin / name
+        command.write_text("#!/bin/sh\nset -eu\n" + body + "\n", encoding="utf-8")
+        command.chmod(0o755)
+        return f"{fake_bin}{os.pathsep}{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"
+
+    def test_a_richer_answer_passes_when_all_dynamic_board_facts_are_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            prompt = home / "prompt.txt"
+            cwd = home / "cwd.txt"
+            path = self._fake_host(
+                home,
+                "claude",
+                """printf '%s' "$*" > "$SHADOW_TEST_PROMPT"
+pwd > "$SHADOW_TEST_CWD"
+printf '%s\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'""",
+            )
+            result = run(
+                home,
+                path=path,
+                live=True,
+                extra_env={"SHADOW_TEST_PROMPT": str(prompt), "SHADOW_TEST_CWD": str(cwd)},
+            )
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+            asked = prompt.read_text(encoding="utf-8")
+            self.assertNotIn("shadow status", asked)
+            self.assertNotIn("root-board", asked)
+            self.assertNotIn("project slug", asked)
+            self.assertNotIn("resume checkpoint", asked)
+            self.assertNotIn("fixture", asked)
+            self.assertNotIn("~aa11", asked)
+            self.assertIn("--no-session-persistence", asked)
+            self.assertIn("--permission-mode plan", asked)
+            self.assertNotEqual(cwd.read_text(encoding="utf-8").strip(), str(ROOT))
+
+    def test_a_humanized_hyphenated_project_slug_is_the_same_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            plan = home / "portfolio" / "project" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(PLAN.replace("Project: fixture", "Project: demo-project"), encoding="utf-8")
+            path = self._fake_host(
+                home,
+                "claude",
+                "printf '%s\\n' 'The demo project is finishing the verifier that activates cold hosts from a fresh checkout.'",
+            )
+            result = run(home, path=path, live=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+
+    def test_the_old_resume_prefix_without_project_identity_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            path = self._fake_host(
+                home,
+                "claude",
+                "printf '%s\\n' '[pending] ship the cold activation verifier from a clean clone ~aa11'",
+            )
+            result = run(home, path=path, live=True)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("did not identify the current project", result.stdout)
+
+    def test_wrong_project_and_vague_or_unrelated_work_each_fail(self) -> None:
+        cases = (
+            "The another project is shipping its cold activation verifier from a clean clone.",
+            "The fixture project has some work in progress.",
+            "The fixture project is reviewing an unrelated payment report.",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                wired(home)
+                path = self._fake_host(home, "claude", f"printf '%s\\n' '{evidence}'")
+                result = run(home, path=path, live=True)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("did not identify the current project", result.stdout)
+
+    def test_any_board_drift_during_the_host_run_is_inconclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            path = self._fake_host(
+                home,
+                "claude",
+                """"$SHADOW_TEST_REAL" priority --repo "$SHADOW_PORTFOLIO_ROOT/project" --value 2 >/dev/null
+printf '%s\n' 'The fixture project is shipping its cold activation verifier from a clean clone.'""",
+            )
+            result = run(
+                home,
+                path=path,
+                live=True,
+                extra_env={"SHADOW_TEST_REAL": str(ROOT / "bin" / "shadow")},
+            )
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("result is inconclusive", result.stdout)
+
+    def test_the_host_cannot_mutate_the_board_through_its_shadow_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            path = self._fake_host(
+                home,
+                "claude",
+                """if shadow priority --repo "$SHADOW_PORTFOLIO_ROOT/project" --value 2 >/dev/null 2>&1; then
+  exit 41
+fi
+printf '%s\n' 'The fixture project is shipping its cold activation verifier from a clean clone.'""",
+            )
+            result = run(home, path=path, live=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+
+    def test_a_nonzero_host_exit_fails_distinctly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            path = self._fake_host(home, "claude", "exit 23")
+            result = run(home, path=path, live=True)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("session invocation failed", result.stdout)
+
+    def test_codex_matches_only_the_final_message_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "codex")
+            path = self._fake_host(
+                home,
+                "codex",
+                """out=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--output-last-message' ]; then out="$2"; shift 2; else shift; fi
+done
+printf '%s\n' 'diagnostic text without evidence'
+printf '%s\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.' > "$out"
+""",
+            )
+            result = run(home, host="codex", path=path, live=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+
+    def test_cursor_live_is_an_explicit_skip_not_a_fake_session_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "cursor")
+            result = run(home, host="cursor", live=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("live session check is unsupported", result.stdout)
 
 
 class TheScriptItself(unittest.TestCase):
