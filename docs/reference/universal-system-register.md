@@ -53,7 +53,7 @@ Sources: `owner` (Leo, verbatim where quoted), `claude-seat`, `codex-seat`.
    /craft with /taste carrying the quality bar; delegation through shadow's
    own host-run. No external agent products; published patterns (e.g.
    Devin's) are studied into Method. owner. Correction on record: /impeccable
-   was retired INTO /taste (2026-07-25) — /taste is the live name. Lands in: ~bkts.
+   was retired INTO /taste (2026-07-25) — /taste is the live name. Lands in: ~bops.
 10. **Tiered verification, release-train shaped.** Feature lanes run
     declared focused checks; the trunk runs affected integration checks and
     curates test health (a trunk-cutter responsibility); release candidates
@@ -81,9 +81,10 @@ Sources: `owner` (Leo, verbatim where quoted), `claude-seat`, `codex-seat`.
     for a goal prompt." Requirements live in this register and the M20 rows;
     the prompt names the milestone and the rails, nothing else. Lands in:
     the goal prompt; this file is the proof of the split.
-16. **Slash live legacy surfaces now.** owner, verbatim: "just fucking slash
-    /vidux plans and pilot puppy and then figure it out." In flight —
-    see In-flight state below.
+16. **Slash live legacy surfaces now.** owner directive, verbatim intent:
+    remove the vidux plan convention and every live compatibility surface
+    of the pre-rename product name, then reconcile. In flight — see
+    In-flight state below.
 17. **The fixed installer lands first.** It is the delivery vehicle for
     ~actv (writes the block through managed markers without destroying
     symlinked host files). Lands in: ~actv needs ~slnk.
