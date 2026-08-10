@@ -480,6 +480,17 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
         self.assertIn("PROOF-SHELL-OPERATOR",
                       _checks(self._plan("cmd bash -c 'true' && false")))
 
+    def test_an_operator_glued_to_its_neighbour_is_still_an_operator(self) -> None:
+        # Codex (PR #282, P1): `shlex.split` returns `done&&` as one token, so
+        # comparing whole tokens saw no offender while accept ran `echo` alone.
+        for proof in ("cmd echo done&& false", "cmd echo done>/missing", "cmd true 2>&1"):
+            with self.subTest(proof=proof):
+                self.assertIn("PROOF-SHELL-OPERATOR", _checks(self._plan(proof)))
+
+    def test_a_quoted_metacharacter_is_a_literal_the_proof_meant_to_pass(self) -> None:
+        # The refusal must not swallow arguments that only look like operators.
+        self.assertNotIn("PROOF-SHELL-OPERATOR", _checks(self._plan("cmd grep -q 'a&&b' f")))
+
     def test_an_unparseable_command_line_is_its_own_finding(self) -> None:
         self.assertIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd echo 'unbalanced")))
 
@@ -487,6 +498,21 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             found = _checks(self._plan("cmd definitely-not-a-real-binary-xyz"), root=Path(tmp))
             self.assertIn("PROOF-ARGV0", found)
+
+    def test_severity_follows_the_evidence_the_finding_rests_on(self) -> None:
+        # Codex (PR #282, P1): this file promises "same text, same findings".
+        # A missing in-tree path is answered by the repository, so it blocks
+        # anywhere. A bare name is answered by PATH, which is not the plan's
+        # text — blocking on it would tie the gate's exit code to whatever the
+        # runner happens to have installed.
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = lint.lint_plan(self._plan("cmd tools/gone.sh"), root=Path(tmp))
+            missing_name = lint.lint_plan(
+                self._plan("cmd definitely-not-a-real-binary-xyz"), root=Path(tmp))
+        self.assertEqual(
+            ["blocking"], [f["severity"] for f in missing_path if f["check"] == "PROOF-ARGV0"])
+        self.assertEqual(
+            ["warning"], [f["severity"] for f in missing_name if f["check"] == "PROOF-ARGV0"])
 
     def test_an_in_tree_path_resolves(self) -> None:
         found = _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md"), root=ROOT)

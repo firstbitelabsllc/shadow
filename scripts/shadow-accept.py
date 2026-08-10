@@ -41,7 +41,7 @@ PROGRESS_HEADING_RE = re.compile(r"^## Progress(?: [^\n]*)?$", re.MULTILINE)
 
 # Kept identical to `scripts/shadow-lint.py`: the enforcer and the only flip
 # path must refuse the same proofs, or one of them is decorative.
-SHELL_OPERATORS = frozenset({"&&", "||", "|", ";", "&", ">", ">>", "<", "<<"})
+SHELL_PUNCTUATION = "();<>|&"
 SHELLS = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
 
 
@@ -60,13 +60,29 @@ def _shell_script_index(argv: list[str]) -> int:
     return -1
 
 
-def _shell_operators(argv: list[str]) -> list[str]:
-    """Shell metacharacters sitting in argument position, worst-first."""
-    script = _shell_script_index(argv)
+def _shell_operators(command: str) -> list[str]:
+    """Unquoted shell metacharacters in argument position, worst-first.
+
+    Comparing whole `shlex.split` tokens missed the operator written without a
+    space: `echo done&& false` splits to `done&&`, which equals no operator, so
+    the check passed while accept still ran `echo` alone. A second parse with
+    `punctuation_chars` is the discriminator the plain argv cannot give — it
+    breaks an unquoted metacharacter out into its own token and leaves a quoted
+    `'a&&b'` whole, which is exactly the difference between an operator a shell
+    would have interpreted and a literal the proof means to pass.
+    """
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return []  # the caller's own shlex.split already refused this text
+    if not tokens:
+        return []
+    script = _shell_script_index(tokens)
     return sorted({
-        token for index, token in enumerate(argv)
-        if index and index != script
-        and (token in SHELL_OPERATORS or token.startswith("$("))
+        token for index, token in enumerate(tokens)
+        if index and index != script and all(char in SHELL_PUNCTUATION for char in token)
     })
 
 
@@ -224,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         # `echo`, exit 0, and flip the row while `shadow` never ran. Lint alone
         # is not enough — a plan can reach accept without lint having run, and
         # two gates that disagree are how the false green got here.
-        offenders = _shell_operators(argv_proof)
+        offenders = _shell_operators(proof[4:])
         if offenders:
             raise AcceptError(
                 f"the proof passes {' '.join(offenders)} to `{argv_proof[0]}` as a literal "

@@ -54,7 +54,7 @@ def _finding(check: str, line: int, severity: str, detail: str) -> dict:
 # `cmd echo done && shadow --version` therefore lints clean, runs `echo`, exits
 # 0, flips the row to completed and writes `-> pass` — while `shadow` never
 # ran. Validating the class word alone cannot see that; the argv can.
-SHELL_OPERATORS: Final = frozenset({"&&", "||", "|", ";", "&", ">", ">>", "<", "<<"})
+SHELL_PUNCTUATION: Final = "();<>|&"
 SHELLS: Final = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
 
 
@@ -73,13 +73,29 @@ def _shell_script_index(argv: list[str]) -> int:
     return -1
 
 
-def _shell_operators(argv: list[str]) -> list[str]:
-    """Shell metacharacters sitting in argument position, worst-first."""
-    script = _shell_script_index(argv)
+def _shell_operators(command: str) -> list[str]:
+    """Unquoted shell metacharacters in argument position, worst-first.
+
+    Comparing whole `shlex.split` tokens missed the operator written without a
+    space: `echo done&& false` splits to `done&&`, which equals no operator, so
+    the check passed while accept still ran `echo` alone. A second parse with
+    `punctuation_chars` is the discriminator the plain argv cannot give — it
+    breaks an unquoted metacharacter out into its own token and leaves a quoted
+    `'a&&b'` whole, which is exactly the difference between an operator a shell
+    would have interpreted and a literal the proof means to pass.
+    """
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return []  # PROOF-UNPARSEABLE owns unbalanced quoting; do not double-report
+    if not tokens:
+        return []
+    script = _shell_script_index(tokens)
     return sorted({
-        token for index, token in enumerate(argv)
-        if index and index != script
-        and (token in SHELL_OPERATORS or token.startswith("$("))
+        token for index, token in enumerate(tokens)
+        if index and index != script and all(char in SHELL_PUNCTUATION for char in token)
     })
 
 
@@ -92,7 +108,7 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
                          f"cmd proof does not parse as a command line: {exc}")]
     if not argv:
         return [_finding("PROOF-UNPARSEABLE", number, "blocking", "cmd proof is empty")]
-    offenders = _shell_operators(argv)
+    offenders = _shell_operators(command)
     if offenders:
         return [_finding("PROOF-SHELL-OPERATOR", number, "blocking",
                          f"{' '.join(offenders)} is passed as a literal argument to "
@@ -103,9 +119,18 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
     # own directory is known — resolving an in-tree path needs it, and guessing
     # would turn an unknowable into a false accusation.
     if root is not None and not _resolves(argv[0], root):
-        return [_finding("PROOF-ARGV0", number, "blocking",
-                         f"`{argv[0]}` is neither in this repository nor on PATH, "
-                         "so this proof can never run")]
+        # Severity follows the evidence. A path is answered by the repository
+        # itself, so the same text gives the same finding anywhere: blocking.
+        # A bare name is answered by this machine's PATH, which is not the
+        # plan's text — blocking on it would make the gate's exit code depend
+        # on what happens to be installed on the runner, against this file's
+        # determinism contract. It is still worth saying out loud.
+        if "/" in argv[0]:
+            return [_finding("PROOF-ARGV0", number, "blocking",
+                             f"`{argv[0]}` is not in this repository, so this proof can never run")]
+        return [_finding("PROOF-ARGV0", number, "warning",
+                         f"`{argv[0]}` is not on this machine's PATH, so this proof cannot run "
+                         "here — install it or name an in-tree path")]
     return []
 
 

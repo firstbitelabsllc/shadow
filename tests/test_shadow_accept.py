@@ -462,11 +462,19 @@ class ShellOperatorsInAProofAreRefused(unittest.TestCase):
         # Bugbot (PR #282, High): exempting the whole argv once `-c` appeared
         # rebuilt the false green inside the sanctioned form. bash runs `true`
         # and takes `&&`, `grep`, ... as positional arguments it never runs.
-        self.assertEqual(
-            ["&&"],
-            accept._shell_operators(["bash", "-c", "true", "&&", "grep", "-q", "nope", "x.txt"]),
-        )
-        self.assertEqual([], accept._shell_operators(["bash", "-c", "set -e; true && true"]))
+        self.assertEqual(["&&"], accept._shell_operators("bash -c 'true' && grep -q nope x.txt"))
+        self.assertEqual([], accept._shell_operators("bash -c 'set -e; true && true'"))
+
+    def test_an_operator_glued_to_its_neighbour_is_still_an_operator(self) -> None:
+        # Codex (PR #282, P1): `shlex.split` returns `done&&`, so comparing
+        # whole tokens saw no offender while accept still ran `echo` alone.
+        self.assertEqual(["&&"], accept._shell_operators("echo done&& false"))
+        self.assertEqual([">"], accept._shell_operators("echo done>/missing"))
+        self.assertEqual([">&"], accept._shell_operators("true 2>&1"))
+
+    def test_a_quoted_metacharacter_is_a_literal_the_proof_meant_to_pass(self) -> None:
+        self.assertEqual([], accept._shell_operators("grep -q 'a&&b' x.txt"))
+        self.assertEqual([], accept._shell_operators("echo 'done > here'"))
 
 
 class AcceptReadsAProgressHeadingTheWayLintDoes(unittest.TestCase):
