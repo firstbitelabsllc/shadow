@@ -1,0 +1,1534 @@
+#!/usr/bin/env python3
+"""One local, Git-backed board for this computer.
+
+Entity plans keep milestone/checkpoint text, proof, and evidence.  This file
+stores only project priority, entity-plan locators and resume checkpoints, and
+claims.  It never becomes a second task authority.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import tempfile
+from typing import Iterator
+from urllib.parse import unquote, urlsplit
+
+from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
+
+
+SCHEMA = "shadow.root-board.v1"
+DEFAULT_CLAIM_HOURS = 8
+COMPLETION_RESERVATION_MINUTES = 10
+RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
+ROW_ID = re.compile(r"~[0-9a-z]{4}")
+ENTITY_ID = re.compile(r"[0-9a-f]{64}")
+PROJECT_ID = re.compile(r"[a-z][a-z0-9-]{1,31}")
+CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+BOARD_NAME = "board.json"
+LOCK_NAME = ".board.lock"
+
+
+class BoardError(ValueError):
+    """The local board is unsafe, malformed, or could not be updated."""
+
+
+class AlreadyClaimed(BoardError):
+    def __init__(self, owner: str):
+        super().__init__(f"claimed by {owner}")
+        self.owner = owner
+
+
+def _directory(home: Path | None = None) -> Path:
+    return (home or Path.home()).resolve() / ".shadow"
+
+
+def _safe_root(home: Path | None = None) -> Path:
+    """Resolve one private board directory without following a relocated root."""
+    root = _directory(home)
+    if root.is_symlink() or (root.exists() and not root.is_dir()):
+        raise BoardError("root board directory must be a real private directory")
+    try:
+        if root.resolve(strict=False) != root:
+            raise BoardError("root board directory must not cross a symlink")
+    except OSError as exc:
+        raise BoardError("root board directory is unsafe or unavailable") from exc
+    return root
+
+
+def _empty() -> dict:
+    return {
+        "schema": SCHEMA,
+        "revision": 0,
+        "projects": [],
+        "entities": [],
+        "claims": [],
+    }
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    command = ["git", "-C", str(root), *args]
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return subprocess.CompletedProcess(command, 124, "", str(exc))
+
+
+def _git_marker(path: Path) -> Path | None:
+    cursor = Path(os.path.abspath(path))
+    while cursor.parent != cursor:
+        marker = cursor / ".git"
+        if marker.exists() or marker.is_symlink():
+            return marker
+        cursor = cursor.parent
+    return None
+
+
+def normalized_origin(origin: str) -> str:
+    """Return one offline identity for common Git remote spellings."""
+    if not origin:
+        return ""
+    text = origin.strip()
+    if "://" in text:
+        parsed = urlsplit(text)
+        scheme = parsed.scheme.lower()
+        host = (parsed.hostname or "").lower()
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
+        if port == {"ssh": 22, "https": 443, "http": 80, "git": 9418}.get(scheme):
+            port = None
+        authority = host + (f":{port}" if port is not None else "")
+        path = parsed.path.rstrip("/").removesuffix(".git")
+        return authority + path
+    # SCP-style and local remotes are not URL-parsed, but query/fragment data
+    # is still never identity or display data. In particular, credential query
+    # parameters must not enter board ids, status, or browser JSON.
+    text = text.split("#", 1)[0].split("?", 1)[0]
+    text = text.rstrip("/").removesuffix(".git")
+    text = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", text)
+    text = re.sub(r"^[^/@]+@", "", text)
+    text = re.sub(r"^([^/:]+):(?!/)", r"\1/", text)
+    host, slash, path = text.partition("/")
+    return host.lower() + slash + path
+
+
+def normalized_repo_origin(repo: Path, origin: str) -> str:
+    """Normalize a configured remote, resolving filesystem forms at the repo."""
+    raw = origin.strip()
+    if not raw:
+        return ""
+    if raw.lower().startswith("file://"):
+        parsed = urlsplit(raw)
+        return f"local-remote:{Path(unquote(parsed.path)).resolve()}"
+    if "://" in raw or re.match(r"^[^/@:]+@?[^/:]+:(?!/)", raw):
+        return normalized_origin(raw)
+    local = Path(raw).expanduser()
+    if not local.is_absolute():
+        local = repo / local
+    return f"local-remote:{local.resolve()}"
+
+
+def regular_plan(plan: Path) -> bool:
+    """A live authority is one canonical regular PLAN.md with no symlink component."""
+    candidate = Path(os.path.abspath(plan))
+    try:
+        if candidate.name != "PLAN.md" or not candidate.is_file() or candidate.is_symlink():
+            return False
+        cursor = candidate.parent
+        while cursor.parent != cursor:
+            # Filesystem-root aliases (macOS /var and /tmp) are outside a
+            # project boundary; canonical storage normalizes them later.
+            if cursor.parent.parent == cursor.parent:
+                break
+            if cursor.is_symlink():
+                return False
+            marker = cursor / ".git"
+            if marker.exists() or marker.is_symlink():
+                return not marker.is_symlink()
+            cursor = cursor.parent
+        return True
+    except OSError:
+        return False
+
+
+def validate_owner(owner: object) -> str:
+    """Return one public-safe seat name or refuse it before persistence."""
+    if (
+        not isinstance(owner, str)
+        or not owner
+        or owner != owner.strip()
+        or not owner.isprintable()
+        or len(owner) > 40
+        or CONTROL.search(owner)
+        or PRIVATE_PATH_RE.search(owner)
+        or SECRET_SHAPE_RE.search(owner)
+    ):
+        raise BoardError(
+            "claim owner must be 1-40 public-safe visible characters"
+        )
+    return owner
+
+
+def origin_of(repo: Path) -> str:
+    marker = _git_marker(repo)
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    origin = (
+        normalized_repo_origin(repo, result.stdout.strip())
+        if result is not None and result.returncode == 0
+        else ""
+    )
+    if origin:
+        return origin
+    # Linked worktrees share one common Git directory even when the repository
+    # has no remote.  The checkout path does not: using it let two worktrees of
+    # one local repository both claim the same logical row.
+    try:
+        common = subprocess.run(
+            [
+                "git", "-C", str(repo), "rev-parse", "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        common = None
+    if common is not None and common.returncode == 0 and common.stdout.strip():
+        common_path = Path(common.stdout.strip())
+        if not common_path.is_absolute():
+            common_path = repo / common_path
+        return f"local-git:{common_path.resolve()}"
+    if marker is not None:
+        raise BoardError("project Git identity could not be read; retry when Git is available")
+    return str(repo.resolve())
+
+
+def origin_repo_name(origin: str) -> str:
+    tail = origin.rstrip("/").removesuffix(".git")
+    return tail.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+
+
+def public_plan_locator(plan: Path) -> str:
+    """Return a stable human locator without exposing an absolute home path."""
+    candidate = Path(os.path.abspath(plan))
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(candidate.parent), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    if result is None or result.returncode or not result.stdout.strip():
+        public = f"{candidate.parent.name}/PLAN.md"
+        if SECRET_SHAPE_RE.search(public) or PRIVATE_PATH_RE.search(public):
+            digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
+            return f"entity@{digest}/PLAN.md"
+        return public
+    repo = Path(result.stdout.strip()).resolve()
+    try:
+        relative = candidate.relative_to(repo).as_posix()
+    except ValueError:
+        relative = candidate.name
+    origin = origin_of(repo)
+    if origin.startswith("local-") or origin.startswith("/"):
+        digest = hashlib.sha256(origin.encode("utf-8")).hexdigest()[:8]
+        prefix = f"{repo.name}@{digest}"
+    else:
+        prefix = origin
+    public = f"{prefix}/{relative}"
+    if SECRET_SHAPE_RE.search(public) or PRIVATE_PATH_RE.search(public):
+        digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
+        return f"entity@{digest}/PLAN.md"
+    return public
+
+
+def plan_mtime(repo: Path) -> float:
+    try:
+        return (repo / "PLAN.md").stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def entity_id(plan: Path) -> str:
+    """Logical entity identity: normalized origin plus repository-relative path."""
+    if not regular_plan(plan):
+        raise BoardError("entity identity requires a regular, non-symlink PLAN.md")
+    plan = plan.resolve()
+    marker = _git_marker(plan.parent)
+    result = _git(plan.parent, "rev-parse", "--show-toplevel")
+    if result.returncode == 0 and result.stdout.strip():
+        repo = Path(result.stdout.strip()).resolve()
+        try:
+            relative = plan.relative_to(repo).as_posix()
+        except ValueError:
+            relative = plan.name
+    elif marker is not None:
+        raise BoardError("project Git identity could not be read; retry when Git is available")
+    else:
+        repo, relative = plan.parent, plan.name
+    logical = f"{origin_of(repo)}\0{relative}".encode("utf-8")
+    return hashlib.sha256(logical).hexdigest()
+
+
+def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
+    """Return the exact PLAN bytes stored at HEAD, independent of worktree dirt."""
+    if not regular_plan(plan):
+        raise BoardError("project plan must be a regular, non-symlink PLAN.md")
+    plan = plan.resolve()
+    top = _git(plan.parent, "rev-parse", "--show-toplevel")
+    if top.returncode or not top.stdout.strip():
+        raise BoardError("project plan must be committed in a Git repository")
+    repo = Path(top.stdout.strip()).resolve()
+    try:
+        relative = plan.relative_to(repo).as_posix()
+    except ValueError as exc:
+        raise BoardError("project plan is outside its Git repository") from exc
+    head = _git(repo, "rev-parse", "HEAD")
+    blob = _git(repo, "rev-parse", f"HEAD:{relative}")
+    if head.returncode or blob.returncode:
+        raise BoardError("project plan is not present at the current Git HEAD")
+    try:
+        frozen = subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "blob", blob.stdout.strip()],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise BoardError("project plan HEAD bytes could not be frozen") from exc
+    if frozen.returncode:
+        raise BoardError("project plan HEAD bytes could not be frozen")
+    head_after = _git(repo, "rev-parse", "HEAD")
+    if head_after.returncode or head_after.stdout.strip() != head.stdout.strip():
+        raise BoardError("project plan ref changed while it was being read; retry")
+    return (
+        {
+            "repo": str(repo),
+            "relative": relative,
+            "head": head.stdout.strip(),
+            "blob": blob.stdout.strip(),
+        },
+        frozen.stdout,
+    )
+
+
+def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
+    """Return worktree bytes and the exact Git object that serves them, or refuse."""
+    token, _ = head_plan_snapshot(plan)
+    repo = Path(token["repo"])
+    relative = token["relative"]
+    status = _git(repo, "status", "--porcelain=v1", "--", relative)
+    if status.returncode:
+        raise BoardError("project plan Git state could not be read")
+    if status.stdout.strip():
+        raise BoardError("project plan or its staged index changed; commit or restore it first")
+    try:
+        content = plan.read_bytes()
+        hashed = subprocess.run(
+            ["git", "-C", str(repo), "hash-object", "--stdin"],
+            input=content,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise BoardError("project plan bytes could not be frozen") from exc
+    if hashed.returncode or hashed.stdout.decode("ascii", errors="ignore").strip() != token["blob"]:
+        raise BoardError("project plan changed or is uncommitted; retry from one committed ref")
+    head_after = _git(repo, "rev-parse", "HEAD")
+    if head_after.returncode or head_after.stdout.strip() != token["head"]:
+        raise BoardError("project plan ref changed while it was being read; retry")
+    return token, content
+
+
+@contextmanager
+def project_lock(plan: Path) -> Iterator[None]:
+    """Serialize one entity plan's local lifecycle across every public verb."""
+    if not regular_plan(plan):
+        raise BoardError("project lifecycle lock requires a regular, non-symlink PLAN.md")
+    common = _git(plan.parent, "rev-parse", "--git-common-dir")
+    if common.returncode or not common.stdout.strip():
+        raise BoardError("project Git common directory could not be resolved")
+    common_dir = Path(common.stdout.strip())
+    if not common_dir.is_absolute():
+        common_dir = (plan.parent / common_dir).resolve()
+    if common_dir.is_symlink() or not common_dir.is_dir():
+        raise BoardError("project Git common directory is unsafe")
+    lock = common_dir / ".shadow-lifecycle.lock"
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock, flags, 0o600)
+    except OSError as exc:
+        raise BoardError("project lifecycle lock is unsafe or unavailable") from exc
+    with os.fdopen(descriptor, "a+") as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def _validate(payload: object) -> dict:
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema", "revision", "projects", "entities", "claims"
+    }:
+        raise BoardError("board has unknown or missing top-level fields")
+    if payload["schema"] != SCHEMA:
+        raise BoardError("board schema is not supported")
+    if isinstance(payload["revision"], bool) or not isinstance(payload["revision"], int):
+        raise BoardError("board revision must be an integer")
+    if payload["revision"] < 0:
+        raise BoardError("board revision cannot be negative")
+    if (
+        not isinstance(payload["projects"], list)
+        or not isinstance(payload["entities"], list)
+        or not isinstance(payload["claims"], list)
+    ):
+        raise BoardError("board projects, entities, and claims must be lists")
+
+    projects: set[str] = set()
+    for project in payload["projects"]:
+        if not isinstance(project, dict) or set(project) != {"id", "priority"}:
+            raise BoardError("projects have unknown or missing fields")
+        if not isinstance(project["id"], str) or PROJECT_ID.fullmatch(project["id"]) is None:
+            raise BoardError("project id must be a lowercase project slug")
+        if project["id"] in projects:
+            raise BoardError("a project is listed more than once")
+        projects.add(project["id"])
+        if isinstance(project["priority"], bool) or project["priority"] not in range(1, 6):
+            raise BoardError("project priority must be 1-5")
+
+    plans: set[str] = set()
+    entities: set[str] = set()
+    for entity in payload["entities"]:
+        if not isinstance(entity, dict) or set(entity) != {
+            "id", "project", "plan", "resume"
+        }:
+            raise BoardError("entity pointers have unknown or missing fields")
+        if not isinstance(entity["id"], str) or ENTITY_ID.fullmatch(entity["id"]) is None:
+            raise BoardError("entity id must be one logical plan hash")
+        if entity["id"] in entities:
+            raise BoardError("a logical entity is listed more than once")
+        entities.add(entity["id"])
+        if not isinstance(entity["project"], str) or entity["project"] not in projects:
+            raise BoardError("entity points outside the registered projects")
+        if (
+            not isinstance(entity["plan"], str)
+            or CONTROL.search(entity["plan"])
+            or not Path(entity["plan"]).is_absolute()
+        ):
+            raise BoardError("entity plan pointers must be absolute paths")
+        if Path(entity["plan"]).name != "PLAN.md":
+            raise BoardError("entity pointers must name PLAN.md")
+        if entity["plan"] in plans:
+            raise BoardError("an entity plan is listed more than once")
+        plans.add(entity["plan"])
+        if entity["resume"] is not None and (
+            not isinstance(entity["resume"], str)
+            or ROW_ID.fullmatch(entity["resume"]) is None
+        ):
+            raise BoardError("entity resume must be one row id or null")
+
+    targets: set[tuple[str, str]] = set()
+    for claim in payload["claims"]:
+        if not isinstance(claim, dict) or set(claim) != {
+            "entity", "row", "owner", "claimed_at", "return_by", "recovery"
+        }:
+            raise BoardError("claims have unknown or missing fields")
+        if not isinstance(claim["entity"], str) or claim["entity"] not in entities:
+            raise BoardError("claim points outside the registered entities")
+        if not isinstance(claim["row"], str) or ROW_ID.fullmatch(claim["row"]) is None:
+            raise BoardError("claim row must be one row id")
+        target = (claim["entity"], claim["row"])
+        if target in targets:
+            raise BoardError("a row has more than one claim")
+        targets.add(target)
+        validate_owner(claim["owner"])
+        claimed_at = _timestamp(claim.get("claimed_at"), "claim time")
+        return_by = _timestamp(claim.get("return_by"), "claim return-by")
+        if return_by <= claimed_at:
+            raise BoardError("claim return-by must be later than its claim time")
+        if claim["recovery"] != RECOVERY_ACTION:
+            raise BoardError("claim recovery action is not supported")
+    return payload
+
+
+def _decode(path: Path) -> dict:
+    if path.is_symlink():
+        raise BoardError("board file must not be a symlink")
+    try:
+        return _validate(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise BoardError("board file is unreadable or malformed") from exc
+
+
+def _read(path: Path) -> dict:
+    return _decode(path)
+
+
+def _timestamp(value: object, label: str) -> datetime:
+    if not isinstance(value, str):
+        raise BoardError(f"{label} must be an ISO8601 Z timestamp")
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise BoardError(f"{label} must be an ISO8601 Z timestamp") from exc
+    return parsed.replace(tzinfo=timezone.utc)
+
+
+def _stamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def claim_is_stale(claim: dict, *, now: datetime | None = None) -> bool:
+    """Derive expiry at read time; no heartbeat or background process."""
+    current = now or datetime.now(timezone.utc)
+    return _timestamp(claim.get("return_by"), "claim return-by") <= current
+
+
+def _replace(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+    os.replace(source, destination)
+
+
+def _write(path: Path, payload: dict) -> None:
+    encoded = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    descriptor, temporary = tempfile.mkstemp(prefix=".board.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _replace(temporary, path)
+        os.chmod(path, 0o600)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _initialize_git(root: Path) -> None:
+    git_dir = root / ".git"
+    if git_dir.is_symlink() or (git_dir.exists() and not git_dir.is_dir()):
+        raise BoardError("root board Git directory must not be a symlink or file")
+    # `git init` is idempotent and repairs a process that died after creating a
+    # partial .git directory. Merely checking is_dir() left that board wedged.
+    result = subprocess.run(
+        ["git", "init", "--quiet", str(root)], capture_output=True, text=True, check=False
+    )
+    if result.returncode:
+        raise BoardError("root board Git repository could not be initialized")
+    index_lock = git_dir / "index.lock"
+    if index_lock.exists() or index_lock.is_symlink():
+        if index_lock.is_symlink() or not index_lock.is_file():
+            raise BoardError("root board Git receipt lock is unsafe")
+        try:
+            index_lock.unlink()
+        except OSError as exc:
+            raise BoardError("root board Git receipt lock could not be recovered") from exc
+    _git(root, "config", "user.name", "Shadow")
+    _git(root, "config", "user.email", "shadow@localhost")
+    exclude = root / ".git" / "info" / "exclude"
+    try:
+        ignored = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        if LOCK_NAME not in ignored.splitlines():
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            exclude.write_text(ignored.rstrip("\n") + f"\n{LOCK_NAME}\n", encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise BoardError("root board Git exclude could not protect its transaction lock") from exc
+
+
+def _commit(root: Path, message: str) -> None:
+    added = _git(root, "add", "--", BOARD_NAME)
+    if added.returncode:
+        raise BoardError("root board could not record its local Git receipt")
+    if not _git(root, "diff", "--cached", "--quiet", "--", BOARD_NAME).returncode:
+        return
+    committed = _git(
+        root,
+        "-c", "core.hooksPath=/dev/null",
+        "-c", "commit.gpgSign=false",
+        "commit", "--quiet", "--only", "-m", message, "--", BOARD_NAME,
+    )
+    if committed.returncode:
+        raise BoardError("root board could not commit its local Git receipt")
+
+
+@contextmanager
+def _transaction(home: Path | None = None) -> Iterator[tuple[Path, Path, dict]]:
+    root = _safe_root(home)
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(root, 0o700)
+    except OSError as exc:
+        raise BoardError("root board directory could not be created or protected") from exc
+    lock = root / LOCK_NAME
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock, flags, 0o600)
+    except OSError as exc:
+        raise BoardError("root board lock is unsafe or unavailable") from exc
+    with os.fdopen(descriptor, "a+") as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        _initialize_git(root)
+        path = root / BOARD_NAME
+        if path.exists() or path.is_symlink():
+            payload = _decode(path)
+            try:
+                os.chmod(path, 0o600)
+            except OSError as exc:
+                raise BoardError("root board file could not be protected") from exc
+            # A process can die after the atomic replace and before its Git
+            # receipt. The local file already counts; the next transaction
+            # repairs history from those authoritative bytes before deciding.
+            _commit(root, "shadow board: recover local authority")
+        else:
+            head = _git(root, "rev-parse", "--verify", "HEAD")
+            if head.returncode == 0:
+                historical = _git(root, "show", f"HEAD:{BOARD_NAME}")
+                if historical.returncode:
+                    raise BoardError(
+                        "root board history exists but HEAD has no recoverable board.json"
+                    )
+                try:
+                    payload = _validate(json.loads(historical.stdout))
+                except json.JSONDecodeError as exc:
+                    raise BoardError("root board history contains malformed board.json") from exc
+                _write(path, payload)
+                _commit(root, "shadow board: restore missing local authority")
+            else:
+                payload = _empty()
+                _write(path, payload)
+                _commit(root, "shadow board: initialize this computer")
+        try:
+            yield root, path, payload
+        finally:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def ensure(*, home: Path | None = None) -> dict:
+    with _transaction(home) as (_, _, payload):
+        return json.loads(json.dumps(payload))
+
+
+def snapshot(*, home: Path | None = None) -> dict | None:
+    root = _safe_root(home)
+    git_dir = root / ".git"
+    if git_dir.is_symlink() or (git_dir.exists() and not git_dir.is_dir()):
+        raise BoardError("root board Git directory must not be a symlink or file")
+    path = root / BOARD_NAME
+    if path.is_file() or path.is_symlink():
+        return _read(path)
+    if (root / ".git").exists():
+        raise BoardError("root board Git history exists but board.json is missing")
+    return None
+
+
+def _identity_index(payload: dict) -> dict[str, list[dict]]:
+    """Index live identities once; stored ids are fallback only for missing plans."""
+    result: dict[str, list[dict]] = {}
+    for entity in payload["entities"]:
+        pointer = Path(entity["plan"])
+        identity = entity_id(pointer) if regular_plan(pointer) else entity["id"]
+        result.setdefault(identity, []).append(entity)
+    return result
+
+
+def _entity_aliases(payload: dict, plan: Path) -> list[dict]:
+    """Every stored locator that currently resolves to one logical entity."""
+    return _identity_index(payload).get(entity_id(plan), [])
+
+
+def _entity_for(
+    payload: dict,
+    plan: Path,
+    *,
+    exact_on_conflict: bool = False,
+) -> dict | None:
+    """Resolve one entity; only return may address an exact alias to recover."""
+    matches = _entity_aliases(payload, plan)
+    if len(matches) > 1:
+        if exact_on_conflict:
+            candidate = str(plan.resolve())
+            exact = [item for item in matches if item["plan"] == candidate]
+            if len(exact) == 1:
+                return exact[0]
+        raise BoardError(
+            "multiple registered entities now resolve to one Git identity; "
+            "return one exact locator's claim, then run status to merge "
+            "byte-identical aliases with disjoint rows"
+        )
+    if matches:
+        return matches[0]
+    return None
+
+
+def entity_state(
+    plan: Path,
+    *,
+    exact_on_conflict: bool = False,
+    home: Path | None = None,
+) -> dict | None:
+    """Return the project grouping and exact entity addressed by one PLAN."""
+    payload = snapshot(home=home)
+    if payload is None:
+        return None
+    entity = _entity_for(payload, plan, exact_on_conflict=exact_on_conflict)
+    return _state_for_entity(payload, entity)
+
+
+def _state_for_entity(payload: dict, entity: dict | None) -> dict:
+    """Copy one bounded entity view from an already validated snapshot."""
+    if entity is None:
+        return {
+            "revision": payload["revision"],
+            "project": None,
+            "entity": None,
+            "claims": [],
+        }
+    project = next(
+        item for item in payload["projects"] if item["id"] == entity["project"]
+    )
+    return {
+        "revision": payload["revision"],
+        "project": json.loads(json.dumps(project)),
+        "entity": json.loads(json.dumps(entity)),
+        "claims": [
+            json.loads(json.dumps(item))
+            for item in payload["claims"]
+            if item["entity"] == entity["id"]
+        ],
+    }
+
+
+def entity_state_by_id(identity: str, *, home: Path | None = None) -> dict | None:
+    """Resolve a board-issued entity id, refusing stale ids after identity moves."""
+    resolved = resolve_entity(identity, home=home)
+    return resolved["state"] if resolved is not None else None
+
+
+def _resolve_entity_payload(
+    payload: dict,
+    identity: str,
+    *,
+    revision: int | None = None,
+) -> dict | None:
+    """Resolve one entity from already validated board bytes."""
+    if not isinstance(identity, str) or ENTITY_ID.fullmatch(identity) is None:
+        raise BoardError("entity id must be one logical plan hash")
+    if revision is not None and payload["revision"] != revision:
+        raise BoardError("root board changed; refresh before writing")
+    entity = next((item for item in payload["entities"] if item["id"] == identity), None)
+    if entity is None:
+        return {"state": _state_for_entity(payload, None), "plan": None}
+    pointer = Path(entity["plan"])
+    if not regular_plan(pointer):
+        raise BoardError("registered entity plan is missing, unreadable, or a symlink")
+    if entity_id(pointer) != identity:
+        raise BoardError("entity id is stale; run shadow status to reconcile the board")
+    aliases = _identity_index(payload).get(identity, [])
+    if len(aliases) != 1 or aliases[0] is not entity:
+        raise BoardError(
+            "entity id has unresolved locator aliases; return conflicting exact claims, "
+            "then run shadow status"
+        )
+    return {
+        "state": _state_for_entity(payload, entity),
+        "plan": pointer.resolve(),
+    }
+
+
+def resolve_entity(
+    identity: str,
+    *,
+    revision: int | None = None,
+    home: Path | None = None,
+) -> dict | None:
+    """Return one entity state and pointer from the same validated board snapshot."""
+    payload = snapshot(home=home)
+    if payload is None:
+        return None
+    return _resolve_entity_payload(payload, identity, revision=revision)
+
+
+@contextmanager
+def locked_entity_plan_by_id_at_revision(
+    identity: str,
+    *,
+    revision: int,
+    home: Path | None = None,
+) -> Iterator[Path]:
+    """Hold the board CAS while one bounded external receipt is written."""
+    with _transaction(home) as (_, _, payload):
+        resolved = _resolve_entity_payload(payload, identity, revision=revision)
+        if resolved is None:
+            raise BoardError("this computer has no Shadow board yet")
+        if resolved["plan"] is None:
+            raise BoardError("entity is not registered on this computer")
+        yield resolved["plan"]
+
+
+def canonical_plan_by_id(identity: str, *, home: Path | None = None) -> Path:
+    """Return the regular canonical pointer for one current board entity id."""
+    return canonical_plan_by_id_at_revision(identity, home=home)
+
+
+def canonical_plan_by_id_at_revision(
+    identity: str,
+    *,
+    revision: int | None = None,
+    home: Path | None = None,
+) -> Path:
+    """Resolve one current entity from one board snapshot, optionally as a CAS."""
+    resolved = resolve_entity(identity, revision=revision, home=home)
+    if resolved is None:
+        raise BoardError("this computer has no Shadow board yet")
+    if resolved["plan"] is None:
+        raise BoardError("entity is not registered on this computer")
+    return resolved["plan"]
+
+
+def entity_integrity(
+    entity: dict,
+    claims: list[dict],
+    row_ids: set[str],
+    candidates: list[str],
+) -> str | None:
+    """One shared status/browser invariant for a board pointer and its rows."""
+    missing = next((claim["row"] for claim in claims if claim["row"] not in row_ids), None)
+    if missing is not None:
+        return f"board claim {missing} is missing from the entity plan"
+    if entity["resume"] is not None and entity["resume"] not in row_ids:
+        return "the board resume is missing from the entity plan"
+    claimed = {claim["row"] for claim in claims}
+    if (
+        entity["resume"] is not None
+        and entity["resume"] not in claimed
+        and entity["resume"] not in candidates
+    ):
+        return "the board resume is neither a live claim nor reachable work"
+    if entity["resume"] is None and any(row not in claimed for row in candidates):
+        return "the board has no resume for reachable work"
+    return None
+
+
+def _choose_resume(current: str | None, candidates: list[str], claimed: set[str]) -> str | None:
+    """Use one resume law after reconcile, return, and crash recovery."""
+    ordered = list(dict.fromkeys(candidates))
+    if current in claimed and current in ordered:
+        return current
+    active = next((row for row in ordered if row in claimed), None)
+    if active is not None:
+        return active
+    return next((row for row in ordered if row not in claimed), None)
+
+
+def canonical_plan(
+    plan: Path,
+    *,
+    repair_missing: bool = False,
+    exact_on_conflict: bool = False,
+    home: Path | None = None,
+) -> Path:
+    """Resolve a logical plan through the board without moving its pointer."""
+    if not regular_plan(plan):
+        raise BoardError("entity plan must be a regular, non-symlink PLAN.md")
+    candidate = plan.resolve()
+    state = entity_state(
+        candidate,
+        exact_on_conflict=exact_on_conflict,
+        home=home,
+    )
+    if state is None or state["entity"] is None:
+        return candidate
+    stored_pointer = Path(state["entity"]["plan"])
+    if not regular_plan(stored_pointer):
+        if repair_missing and regular_plan(candidate):
+            return candidate
+        raise BoardError("stored canonical PLAN.md is missing or unreadable")
+    return stored_pointer.resolve()
+
+
+def claim(
+    plan: Path,
+    row: str,
+    owner: str,
+    *,
+    project: str,
+    priority: int,
+    now: datetime | None = None,
+    adopt_expired: bool = False,
+    expected_plan: dict[str, str] | None = None,
+    home: Path | None = None,
+) -> dict:
+    if not regular_plan(plan):
+        raise BoardError("claim target must be a regular, non-symlink PLAN.md")
+    plan = plan.resolve()
+    if ROW_ID.fullmatch(row) is None:
+        raise BoardError("claim target must carry one row id")
+    if not isinstance(project, str) or PROJECT_ID.fullmatch(project) is None:
+        raise BoardError("project must be a lowercase project slug")
+    if isinstance(priority, bool) or priority not in range(1, 6):
+        raise BoardError("project priority must be 1-5")
+    owner = validate_owner(owner)
+    claimed = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    returned = claimed + timedelta(hours=DEFAULT_CLAIM_HOURS)
+    with _transaction(home) as (root, path, payload):
+        if expected_plan is not None:
+            observed, _ = committed_plan_snapshot(plan)
+            if observed != expected_plan:
+                raise BoardError("project plan changed before the claim committed; retry")
+        entity = _entity_for(payload, plan)
+        identity = entity["id"] if entity is not None else entity_id(plan)
+        target = (identity, row)
+        winner = next(
+            (
+                item
+                for item in payload["claims"]
+                if (item["entity"], item["row"]) == target
+            ),
+            None,
+        )
+        if winner is not None:
+            if not adopt_expired or not claim_is_stale(winner, now=claimed):
+                raise AlreadyClaimed(winner["owner"])
+            # Adoption is an explicit compare-and-swap under the same lock as
+            # the fresh read.  It never silently reassigns a live claim.
+            payload["claims"].remove(winner)
+        grouping = next((item for item in payload["projects"] if item["id"] == project), None)
+        if grouping is None:
+            grouping = {
+                "id": project,
+                "priority": priority,
+            }
+            payload["projects"].append(grouping)
+        if entity is None:
+            entity = {
+                "id": identity,
+                "project": project,
+                "plan": str(plan),
+                "resume": row,
+            }
+            payload["entities"].append(entity)
+        else:
+            entity["resume"] = row
+            if entity["project"] != project:
+                entity["project"] = project
+            if not regular_plan(Path(entity["plan"])):
+                entity["plan"] = str(plan)
+        claim_record = {
+            "entity": identity,
+            "row": row,
+            "owner": owner,
+            "claimed_at": _stamp(claimed),
+            "return_by": _stamp(returned),
+            "recovery": RECOVERY_ACTION,
+        }
+        payload["claims"].append(claim_record)
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, f"shadow board: claim {row}")
+        snapshot = json.loads(json.dumps(payload))
+        return {
+            "payload": snapshot,
+            "entity": next(item for item in snapshot["entities"] if item["id"] == identity),
+            "claim": next(
+                item
+                for item in snapshot["claims"]
+                if (item["entity"], item["row"], item["owner"])
+                == (identity, row, owner)
+            ),
+        }
+
+
+def reconcile(
+    entities: list[dict],
+    legacy_claims: list[dict],
+    *,
+    retired_entities: list[str] | None = None,
+    home: Path | None = None,
+) -> dict:
+    """Atomically import bounded discovery into pointer-only local authority.
+
+    Discovery may add an entity or repair a missing locator. It never replaces
+    a healthy canonical locator, project priority, or that entity's resume with
+    metadata from a sibling checkout. Historical plan claims are consumed once.
+    """
+    retired_ids = set(retired_entities or [])
+    if any(
+        not isinstance(identity, str) or ENTITY_ID.fullmatch(identity) is None
+        for identity in retired_ids
+    ):
+        raise BoardError("retired entities must be logical entity ids")
+    prepared: list[dict] = []
+    for seed in entities:
+        source = Path(seed.get("plan", ""))
+        project = seed.get("project")
+        priority = seed.get("priority")
+        candidates = seed.get("candidates")
+        if not regular_plan(source):
+            raise BoardError("import entity must point to a regular, non-symlink PLAN.md")
+        plan = source.resolve()
+        if not isinstance(project, str) or PROJECT_ID.fullmatch(project) is None:
+            raise BoardError("import project must be a lowercase project slug")
+        if isinstance(priority, bool) or priority not in range(1, 6):
+            raise BoardError("import project priority must be 1-5")
+        if not isinstance(candidates, list) or any(
+            not isinstance(row, str) or ROW_ID.fullmatch(row) is None
+            for row in candidates
+        ):
+            raise BoardError("import candidates must be row ids")
+        prepared.append(
+            {
+                "id": entity_id(plan),
+                "project": project,
+                "plan": str(plan),
+                "priority": priority,
+                "candidates": list(dict.fromkeys(candidates)),
+            }
+        )
+    if len({seed["id"] for seed in prepared}) != len(prepared):
+        raise BoardError("bounded discovery returned a duplicate logical entity")
+    if retired_ids.intersection(seed["id"] for seed in prepared):
+        raise BoardError("bounded discovery marked one entity both live and retired")
+
+    with _transaction(home) as (root, path, payload):
+        original_payload = json.loads(json.dumps(payload))
+        changed = False
+        identity_index = _identity_index(payload)
+        prepared_by_id = {seed["id"]: seed for seed in prepared}
+        original_entities = json.loads(json.dumps(payload["entities"]))
+        original_claims = json.loads(json.dumps(payload["claims"]))
+
+        # Work out every identity transition against immutable old ids, then
+        # replace entities and claims once. Incremental id mutation is unsafe:
+        # in a cycle such as A+B -> C while C -> A, a string-id delete/rekey can
+        # steal C's claims or delete its entity before the merge finishes.
+        final_entities: list[dict] = []
+        old_to_final: dict[str, str] = {}
+        retired_old_ids: set[str] = set()
+        new_ids: set[str] = set()
+        priorities: dict[str, int] = {}
+        for seed in prepared:
+            priorities[seed["project"]] = min(
+                priorities.get(seed["project"], seed["priority"]),
+                seed["priority"],
+            )
+        project_by_id = {project["id"]: project for project in payload["projects"]}
+        for slug, priority in priorities.items():
+            if slug not in project_by_id:
+                grouping = {"id": slug, "priority": priority}
+                payload["projects"].append(grouping)
+                project_by_id[slug] = grouping
+                changed = True
+
+        for identity, aliases in identity_index.items():
+            if identity in retired_ids:
+                retired_old_ids.update(alias["id"] for alias in aliases)
+                continue
+            seed = prepared_by_id.get(identity)
+            if len(aliases) > 1:
+                if seed is None:
+                    for alias in aliases:
+                        final_entities.append(json.loads(json.dumps(alias)))
+                        old_to_final[alias["id"]] = alias["id"]
+                    continue
+                alias_ids = {alias["id"] for alias in aliases}
+                alias_claims = [
+                    claim for claim in original_claims
+                    if claim["entity"] in alias_ids
+                ]
+                rows: dict[str, list[str]] = {}
+                for claim in alias_claims:
+                    rows.setdefault(claim["row"], []).append(claim["owner"])
+                duplicate = next(
+                    ((row, owners) for row, owners in rows.items() if len(owners) > 1),
+                    None,
+                )
+                if duplicate is not None:
+                    row, owners = duplicate
+                    raise BoardError(
+                        f"entity aliases both claim {row} by {', '.join(sorted(owners))}; "
+                        "return one exact locator before convergence"
+                    )
+                try:
+                    seed_bytes = Path(seed["plan"]).read_bytes()
+                except OSError as exc:
+                    raise BoardError("bounded discovery entity became unreadable") from exc
+                for alias in aliases:
+                    pointer = Path(alias["plan"])
+                    owned = [claim for claim in alias_claims if claim["entity"] == alias["id"]]
+                    if not regular_plan(pointer):
+                        if alias["resume"] is not None or owned:
+                            raise BoardError(
+                                "a missing entity alias still owns resume or claim state; "
+                                "restore that exact plan before convergence"
+                            )
+                        continue
+                    try:
+                        if pointer.read_bytes() != seed_bytes:
+                            raise BoardError(
+                                "entity aliases have divergent PLAN.md bytes; converge the "
+                                "plans before their board identities can merge"
+                            )
+                    except OSError as exc:
+                        raise BoardError("an entity alias became unreadable") from exc
+                    if alias["resume"] is not None and alias["resume"] not in seed["candidates"]:
+                        raise BoardError(
+                            f"entity alias resume {alias['resume']} is absent from the converged plan"
+                        )
+                absent_claim = next(
+                    (claim for claim in alias_claims if claim["row"] not in seed["candidates"]),
+                    None,
+                )
+                if absent_claim is not None:
+                    raise BoardError(
+                        f"entity alias claim {absent_claim['row']} is absent from the converged plan"
+                    )
+                source = next(
+                    (alias for alias in aliases if alias["id"] == seed["id"]),
+                    next(
+                        (alias for alias in aliases if alias["plan"] == seed["plan"]),
+                        min(aliases, key=lambda alias: alias["id"]),
+                    ),
+                )
+                entity = json.loads(json.dumps(source))
+                survivor = identity
+                for alias in aliases:
+                    old_to_final[alias["id"]] = survivor
+                entity["id"] = survivor
+                entity["plan"] = seed["plan"]
+                entity["project"] = seed["project"]
+                claimed_rows = {claim["row"] for claim in alias_claims}
+                entity["resume"] = next(
+                    (row for row in seed["candidates"] if row in claimed_rows),
+                    next(iter(seed["candidates"]), None),
+                )
+                final_entities.append(entity)
+                seed["refresh"] = True
+                seed["resolved_id"] = survivor
+                continue
+            source = aliases[0]
+            entity = json.loads(json.dumps(source))
+            old_to_final[source["id"]] = identity
+            entity["id"] = identity
+            if seed is not None:
+                if entity["plan"] != seed["plan"] and not regular_plan(Path(entity["plan"])):
+                    entity["plan"] = seed["plan"]
+                    seed["refresh"] = True
+                else:
+                    # A healthy stored locator remains canonical. Candidate rows
+                    # parsed from another checkout cannot move its resume.
+                    seed["refresh"] = entity["plan"] == seed["plan"]
+                if entity["project"] != seed["project"] and seed["refresh"]:
+                    entity["project"] = seed["project"]
+                seed["resolved_id"] = identity
+            final_entities.append(entity)
+
+        for seed in prepared:
+            if seed["id"] in identity_index:
+                continue
+            if any(entity["id"] == seed["id"] for entity in final_entities):
+                raise BoardError(
+                    "a stale stored entity id blocks this live identity; reconcile the "
+                    "full portfolio before registering it"
+                )
+            entity = {
+                "id": seed["id"],
+                "project": seed["project"],
+                "plan": seed["plan"],
+                "resume": None,
+            }
+            final_entities.append(entity)
+            new_ids.add(entity["id"])
+            seed["refresh"] = True
+            seed["resolved_id"] = entity["id"]
+
+        final_ids = [entity["id"] for entity in final_entities]
+        if len(final_ids) != len(set(final_ids)):
+            raise BoardError(
+                "live entity identities collide with unresolved aliases; reconcile the "
+                "full portfolio before using a narrower import root"
+            )
+        final_claims: list[dict] = []
+        targets: dict[tuple[str, str], list[str]] = {}
+        for old_claim in original_claims:
+            if old_claim["entity"] in retired_old_ids:
+                continue
+            claim = json.loads(json.dumps(old_claim))
+            claim["entity"] = old_to_final[old_claim["entity"]]
+            target = (claim["entity"], claim["row"])
+            targets.setdefault(target, []).append(claim["owner"])
+            final_claims.append(claim)
+        conflict = next(
+            ((target, owners) for target, owners in targets.items() if len(owners) > 1),
+            None,
+        )
+        if conflict is not None:
+            (_, row), owners = conflict
+            raise BoardError(
+                f"entity aliases both claim {row} by {', '.join(sorted(owners))}; "
+                "return one exact locator before convergence"
+            )
+        payload["entities"] = final_entities
+        payload["claims"] = final_claims
+        if payload["entities"] != original_entities or payload["claims"] != original_claims:
+            changed = True
+        by_id = {entity["id"]: entity for entity in payload["entities"]}
+
+        import_ids = new_ids
+        if import_ids:
+            for historical in legacy_claims:
+                plan = Path(historical.get("plan", "")).resolve()
+                entity = _entity_for(payload, plan)
+                identity = entity["id"] if entity is not None else entity_id(plan)
+                row = historical.get("row")
+                owner = historical.get("owner") or "another seat"
+                claimed_at = _timestamp(historical.get("claimed_at"), "legacy claim time")
+                target = (identity, row)
+                if identity not in by_id or ROW_ID.fullmatch(str(row)) is None:
+                    raise BoardError("legacy claim points outside bounded discovery")
+                if identity not in import_ids:
+                    continue
+                if any(
+                    (claim["entity"], claim["row"]) == target
+                    for claim in payload["claims"]
+                ):
+                    continue
+                payload["claims"].append(
+                    {
+                        "entity": identity,
+                        "row": row,
+                        "owner": owner,
+                        "claimed_at": _stamp(claimed_at),
+                        "return_by": _stamp(
+                            claimed_at + timedelta(hours=DEFAULT_CLAIM_HOURS)
+                        ),
+                        "recovery": RECOVERY_ACTION,
+                    }
+                )
+                changed = True
+        claims_by_entity: dict[str, set[str]] = {}
+        for item in payload["claims"]:
+            claims_by_entity.setdefault(item["entity"], set()).add(item["row"])
+        for seed in prepared:
+            if not seed["refresh"]:
+                continue
+            entity = by_id[seed["resolved_id"]]
+            claimed = claims_by_entity.get(entity["id"], set())
+            resume = _choose_resume(entity["resume"], seed["candidates"], claimed)
+            if entity["resume"] != resume:
+                entity["resume"] = resume
+                changed = True
+
+        used_projects = {entity["project"] for entity in payload["entities"]}
+        if any(project["id"] not in used_projects for project in payload["projects"]):
+            payload["projects"] = [
+                project for project in payload["projects"] if project["id"] in used_projects
+            ]
+            changed = True
+
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        if payload == original_payload:
+            return json.loads(json.dumps(payload))
+        payload["revision"] = original_payload["revision"] + 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, "shadow board: reconcile bounded portfolio")
+        return json.loads(json.dumps(payload))
+
+
+def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None) -> None:
+    if text is None:
+        try:
+            text = plan.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise BoardError("claim return needs a readable project plan") from exc
+    row_matches = []
+    for line in text.splitlines():
+        match = re.match(
+            r"^- \[(pending|in_progress|blocked|completed)] .+? "
+            r"(?P<id>~[0-9a-z]{4})(?: \(DoD\))?(?: \| .*)?$",
+            line,
+        )
+        if match is not None and match.group("id") == row:
+            row_matches.append(match)
+    if not row_matches:
+        raise BoardError("claim return row is missing from the project plan")
+    if len(row_matches) != 1:
+        raise BoardError("claim return row id is duplicated in the project plan")
+    row_match = row_matches[0]
+    state = row_match.group(1)
+    if reason == "handback":
+        if state not in {"pending", "in_progress"}:
+            raise BoardError("owner handback requires a pending or in-progress row")
+        return
+    if reason == "completed":
+        if state != "completed" or not progress_proof_receipts(text, row):
+            raise BoardError("completed return requires the completed row and its PROOF receipt")
+        return
+    if reason == "blocked":
+        matching_wakes = []
+        for line in section_lines(text, "Deferred"):
+            match = re.match(r"^- (?P<id>~[0-9a-z]{4})(?:\s|$)", line)
+            if (
+                match is not None
+                and match.group("id") == row
+                and re.search(r"(?:^|\| )wake: \S", line)
+            ):
+                matching_wakes.append(line)
+        if len(matching_wakes) != 1:
+            raise BoardError("blocked return requires one Deferred entry naming the row and wake")
+        if state != "blocked":
+            raise BoardError("blocked return requires the project row to be blocked")
+        return
+    raise BoardError("claim return reason is not supported")
+
+
+def section_lines(text: str, section: str) -> list[str]:
+    """Return body lines from every canonical prefix-matched H2 section."""
+    active = False
+    result: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            name = line[3:].strip()
+            active = name == section or name.startswith(section + " ")
+            continue
+        if active:
+            result.append(line)
+    return result
+
+
+def progress_proof_receipts(text: str, row: str) -> list[tuple[str, str]]:
+    """Parse only the row's canonical Progress receipts, never notes elsewhere."""
+    receipts: list[tuple[str, str]] = []
+    pattern = re.compile(
+        rf"^- \d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z "
+        rf"{re.escape(row)} PROOF (?P<proof>.+) -> (?P<result>.+)$"
+    )
+    for line in section_lines(text, "Progress"):
+        match = pattern.match(line)
+        if match is not None:
+            receipts.append((match.group("proof"), match.group("result")))
+    return receipts
+
+
+def has_accept_proof_receipt(text: str, row: str, argv: list[str]) -> bool:
+    expected = (shlex.join(argv), "pass (accept)")
+    return expected in progress_proof_receipts(text, row)
+
+
+def _reserve_claim_receipt(
+    plan: Path,
+    row: str,
+    owner: str,
+    *,
+    expected_plan: dict[str, str] | None = None,
+    protect_until: datetime | None = None,
+    home: Path | None = None,
+) -> dict:
+    """Return one exact owned claim, optionally extending its bounded lease."""
+    if not regular_plan(plan):
+        raise BoardError("claim completion requires a regular, non-symlink PLAN.md")
+    if ROW_ID.fullmatch(row) is None:
+        raise BoardError("claim completion target must carry one row id")
+    owner = validate_owner(owner)
+    plan = plan.resolve()
+    with _transaction(home) as (root, path, payload):
+        if expected_plan is not None:
+            observed, _ = committed_plan_snapshot(plan)
+            if observed != expected_plan:
+                raise BoardError("project plan changed while its proof ran; retry")
+        entity = _entity_for(payload, plan)
+        if entity is None:
+            raise BoardError("entity is not registered on this computer")
+        claim = next(
+            (
+                item for item in payload["claims"]
+                if (item["entity"], item["row"]) == (entity["id"], row)
+            ),
+            None,
+        )
+        if claim is None:
+            raise BoardError(f"{row} is not claimed; run shadow throw first")
+        if claim["owner"] != owner:
+            raise BoardError(f"claim is owned by {claim['owner']}")
+        if protect_until is not None:
+            protected = protect_until.astimezone(timezone.utc)
+            if _timestamp(claim["return_by"], "claim return-by") < protected:
+                claim["return_by"] = _stamp(protected)
+                payload["revision"] += 1
+                _validate(payload)
+                _write(path, payload)
+                _commit(root, f"shadow board: reserve completion {row}")
+        receipt = json.loads(json.dumps(claim))
+        receipt["revision"] = payload["revision"]
+        return receipt
+
+
+def reserve_completion(
+    plan: Path,
+    row: str,
+    owner: str,
+    *,
+    expected_plan: dict[str, str],
+    now: datetime | None = None,
+    home: Path | None = None,
+) -> dict:
+    """Keep the current owner live for one bounded project-commit window."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return _reserve_claim_receipt(
+        plan,
+        row,
+        owner,
+        expected_plan=expected_plan,
+        protect_until=current + timedelta(minutes=COMPLETION_RESERVATION_MINUTES),
+        home=home,
+    )
+
+
+def release(
+    plan: Path,
+    row: str,
+    *,
+    resumes: list[str] | None = None,
+    owner: str | None = None,
+    reason: str = "completed",
+    expected_plan: dict[str, str] | None = None,
+    expected_text: str | None = None,
+    expected_claim: dict | None = None,
+    home: Path | None = None,
+) -> tuple[dict, bool] | None:
+    if not regular_plan(plan):
+        raise BoardError("claim return requires a regular, non-symlink PLAN.md")
+    plan = plan.resolve()
+    if owner is not None:
+        owner = validate_owner(owner)
+    if snapshot(home=home) is None:
+        return None
+    with _transaction(home) as (root, path, payload):
+        if expected_plan is not None:
+            observed, observed_bytes = committed_plan_snapshot(plan)
+            try:
+                observed_text = observed_bytes.decode("utf-8")
+            except UnicodeError as exc:
+                raise BoardError("claim return needs a UTF-8 project plan") from exc
+            if observed != expected_plan or observed_text != expected_text:
+                raise BoardError("project plan changed before the claim return committed; retry")
+        entity = _entity_for(payload, plan, exact_on_conflict=True)
+        if entity is None:
+            return None
+        identity = entity["id"]
+        claim = next(
+            (
+                item for item in payload["claims"]
+                if (item["entity"], item["row"]) == (identity, row)
+            ),
+            None,
+        )
+        if expected_claim is not None:
+            claim_fields = {
+                key: expected_claim.get(key)
+                for key in ("entity", "row", "owner", "claimed_at", "return_by", "recovery")
+            }
+            if claim is None or any(claim.get(key) != value for key, value in claim_fields.items()):
+                raise BoardError("claim changed before completion could close it; reconcile the proven row")
+        if claim is not None and owner != claim["owner"]:
+            raise BoardError(f"claim is owned by {claim['owner']}")
+        if claim is not None:
+            _release_state(plan, row, reason, text=expected_text)
+        kept = [item for item in payload["claims"] if item is not claim]
+        had_claim = len(kept) != len(payload["claims"])
+        if claim is None:
+            # A repeated owner return after the atomic close is a no-op. There
+            # is no live claim to steal and no half-written resume state to
+            # repair because both changed in the same board transaction.
+            return json.loads(json.dumps(payload)), False
+        if entity["plan"] != str(plan) and not regular_plan(Path(entity["plan"])):
+            entity["plan"] = str(plan)
+        payload["claims"] = kept
+        candidates = resumes or []
+        if any(ROW_ID.fullmatch(candidate) is None for candidate in candidates):
+            raise BoardError("next resume candidates must be row ids")
+        claimed = {
+            item["row"] for item in kept if item["entity"] == identity
+        }
+        resume = _choose_resume(entity["resume"], candidates, claimed)
+        changed = had_claim or entity["resume"] != resume
+        entity["resume"] = resume
+        if not changed:
+            return json.loads(json.dumps(payload)), False
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, f"shadow board: release {row}")
+        return json.loads(json.dumps(payload)), True
+
+
+def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict:
+    """Change global project priority through the board transaction."""
+    if isinstance(priority, bool) or priority not in range(1, 6):
+        raise BoardError("project priority must be 1-5")
+    with _transaction(home) as (root, path, payload):
+        entity = _entity_for(payload, plan)
+        if entity is None:
+            raise BoardError("entity is not registered on this computer")
+        project = next(
+            item for item in payload["projects"] if item["id"] == entity["project"]
+        )
+        if project["priority"] == priority:
+            return json.loads(json.dumps(payload))
+        project["priority"] = priority
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, f"shadow board: set project priority {priority}")
+        return json.loads(json.dumps(payload))
+
+
+def claimed_rows(plan: Path, *, home: Path | None = None) -> set[str]:
+    state = entity_state(plan, home=home)
+    return (
+        {item["row"] for item in state["claims"]}
+        if state is not None and state["entity"] is not None
+        else set()
+    )

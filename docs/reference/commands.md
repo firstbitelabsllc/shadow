@@ -5,12 +5,15 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | Command | Purpose |
 |---|---|
 | `shadow init --here` | Create `PLAN.md` without overwriting one. |
-| `shadow status --root PATH` | Read current plan rows. With no plan in the directory, falls back to the portfolio root so the board is the same from anywhere. |
-| `shadow status --in-flight` | Every row claimed by `throw` across the portfolio, with its proof and throw time — the recovery view after a chat dies. |
-| `shadow goal` | Print the static standing goal to paste into a host's instruction file. Same text every day; only what the plans point at changes. |
-| `shadow amp --repo PATH` | Project a paste-ready starting block that POINTS at the full plan: authority ref, selected row, proof, and proactive rails within the paste budget. |
-| `shadow throw --task '~hash' --by <lead>` | Claim a row before work leaves the chat: refuses proofless, needs-blocked, already-thrown, and mid-merge rows, then flips it, records `THROWN` with your name, commits `PLAN.md` alone, and pushes. If another lead pushed first, recovers onto their revision and says whose row it is. |
-| `shadow accept --row '~hash' --repo PATH` | Rerun one row's `cmd` proof in a clean detached checkout; on success flip the row with its paired PROOF line in one commit — the only code path that flips a row. |
+| `shadow status --by <seat> [--root PATH]` | Read this computer's root board, show every claim owned by the stable seat, then rank reachable entity checkpoints. `--root` changes only the bounded import root; it never bypasses the board. |
+| `shadow status --in-flight` | Every root-board claim on this computer, joined at read time to its project-owned text and proof — the recovery view after a chat dies. |
+| `shadow goal` | Print the static standing goal. The default installer manages it in Claude and Codex. Cursor cold directive activation is unsupported until a reviewed writable user-rule surface exists; its skill mount and sealed host runner remain supported. Same text every day; only board pointers move. |
+| `shadow amp --entity ID --by <seat>` | Resume a paste-ready packet for a checkpoint already claimed by that seat. It never dispatches unclaimed work. |
+| `shadow throw --task '~hash' --by <seat> [--repo PATH\|--entity ID]` | Atomically claim an entity checkpoint before work leaves the seat, then print its packet. The board records pointer, row id, owner, lease, and recovery action; the entity plan is unchanged. `--adopt-expired` replaces only an overdue claim after proof was probed. |
+| `shadow return --row '~hash' --by <seat> [--repo PATH\|--entity ID]` | Idempotently close the named owner's claim after a committed manual proof, a committed blocked state plus one Deferred wake, or an explicit handback; then advance resume without changing the plan. |
+| `shadow priority --value 1..5 --repo PATH` | Change the root-board priority under the same local transaction. The project plan's bootstrap value is unchanged and later discovery cannot overwrite the root decision. |
+| `shadow accept --row '~hash' --repo PATH --by <seat>` | Require that seat's live claim, rerun the committed `cmd` proof in a clean detached checkout, then flip and publish the paired PROOF commit and close the claim. |
+| `shadow lifecycle [--repo PATH] [--milestone 'heading']` | Dry-run the hot-plan byte, task, and milestone budgets. `--repo` names the directory containing an entity's `PLAN.md`, including a declared nested entity. Add `--apply` and one exact completed milestone to move its block and receipts into the adjacent `docs/plan-archive/`, leave a non-task pointer plus a next-milestone rotation receipt, and make one local commit. Repeating the same apply is a no-op. |
 | `shadow lint PLAN.md …` | Check plans against the grammar; blocking findings exit non-zero. |
 | `shadow browse --root PATH` | Start the loopback briefing UI. |
 | `shadow host probe --host HOST` | Check a native host without using it. |
@@ -49,7 +52,7 @@ an unquoted `~ab12` is a home-directory expansion, so the command dies with
 `no such user or named directory: ab12` before Shadow ever runs. Write
 `--task '~ab12'` or `--row "~ab12"`.
 
-**`status` and `browse` take `--root`; `amp`, `throw`, and `accept` take
+**`status` and `browse` take `--root`; `amp`, `throw`, `return`, `priority`, and `accept` take
 `--repo`.** The split is deliberate: `--root` is a directory to scan for many
 plans, `--repo` is one repository whose plan is being read or written. It is
 still easy to reach for the wrong one — the error names the flag it expected.

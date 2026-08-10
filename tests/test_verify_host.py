@@ -250,7 +250,7 @@ class CursorIsHonestAboutWhatItCannotCheck(unittest.TestCase):
             wired(home, "cursor")
             result = run(home, "cursor")
             self.assertEqual(result.returncode, 0, result.stdout)
-            self.assertIn("no file-backed directive", result.stdout)
+            self.assertIn("cold directive activation is unsupported", result.stdout)
             self.assertNotIn(".cursor/rules", result.stdout)
 
 

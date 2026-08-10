@@ -231,12 +231,16 @@ class WiredIntoTheProduct(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(result.stdout.strip())
 
-    def test_no_plan_verb_reads_the_declaration(self) -> None:
-        # A bucket holds no rows, no proof, no status. If throw/accept/amp/status
-        # ever read it, it has become a second queue.
-        for name in ("shadow-throw.py", "shadow-accept.py", "shadow-amp.py", "shadow-status.py"):
+    def test_only_amp_reads_the_declaration_and_never_as_coordination(self) -> None:
+        # A bucket holds no rows, claims, proof, or status. Amp may resolve a
+        # milestone's explicit tools into an optional handoff annotation; the
+        # coordination verbs must never treat the declaration as a queue.
+        for name in ("shadow-throw.py", "shadow-accept.py", "shadow-status.py"):
             source = (ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertNotIn("buckets", source, f"{name} reads the bucket declaration")
+        amp_source = (ROOT / "scripts" / "shadow-amp.py").read_text(encoding="utf-8")
+        self.assertIn("capability_block", amp_source)
+        self.assertNotIn("write_text", amp_source)
 
 
 if __name__ == "__main__":

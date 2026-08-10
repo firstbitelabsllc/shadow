@@ -1,23 +1,28 @@
-"""shadow throw — no conversation leaves the chat before its row is claimed."""
+"""The public claim command is a thin gate onto the computer root board."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
+import io
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from unittest import mock
+
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+import shadow_root_board as board  # noqa: E402
+
 THROW = ROOT / "scripts" / "shadow-throw.py"
 STATUS = ROOT / "scripts" / "shadow-status.py"
-
-_spec = importlib.util.spec_from_file_location("amp_for_throw", ROOT / "scripts" / "shadow-amp.py")
-amp = importlib.util.module_from_spec(_spec)
-sys.modules.setdefault("amp_for_throw", amp)
-_spec.loader.exec_module(amp)
+AMP = ROOT / "scripts" / "shadow-amp.py"
 
 PLAN = """# Demo
 
@@ -25,14 +30,16 @@ PLAN = """# Demo
 
 - Project: demo
 - Mode: ship
+- Priority: 2
 
 ## Tasks
 
-### M1 — the live milestone
+### The live outcome
 - [completed] groundwork ~aa11 | proof: cmd true
-- [pending] the ready row ~bb22 | proof: cmd npm-free gate
-- [pending] blocked by needs ~cc33 | proof: cmd x | needs: ~dd44
-- [pending] no proof at all ~ee55
+- [pending] the ready row ~bb22 | proof: cmd true
+- [pending] blocked by needs ~cc33 | proof: cmd true | needs: ~dd44
+- [pending] the unfinished dependency ~dd44 | proof: cmd true
+- [pending] proof can be removed for a refusal test ~ee55 | proof: cmd true
 - [pending] owner clicks ship ~ff66 (DoD) | proof: gate owner resume: visible
 
 ## Progress
@@ -41,487 +48,385 @@ PLAN = """# Demo
 """
 
 
-def repo_with_plan(tmp: Path, text: str = PLAN) -> Path:
-    subprocess.run(["git", "init", "-q", str(tmp)], check=True)
-    subprocess.run(["git", "-C", str(tmp), "config", "user.email", "t@t"], check=True)
-    subprocess.run(["git", "-C", str(tmp), "config", "user.name", "t"], check=True)
-    (tmp / "PLAN.md").write_text(text, encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp), "add", "PLAN.md"], check=True)
-    subprocess.run(["git", "-C", str(tmp), "commit", "-qm", "plan"], check=True)
-    return tmp
+def fixture(root: Path) -> tuple[Path, Path, dict[str, str]]:
+    repo = root / "repo"
+    home = root / "home"
+    repo.mkdir()
+    home.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    (repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "PLAN.md"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "plan"], check=True)
+    return repo, home, {**os.environ, "HOME": str(home)}
 
 
-def throw(repo: Path, *args: str) -> subprocess.CompletedProcess:
+def run(script: Path, repo: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(THROW), "--repo", str(repo), "--no-push", *args],
-        capture_output=True, text=True, check=False,
+        [sys.executable, str(script), "--repo", str(repo), *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
-class ThrowRefusals(unittest.TestCase):
-    """Every refusal exists because the alternative is a conversation nobody can recover."""
+class ThrowRefusesAmbiguousWork(unittest.TestCase):
+    def test_unknown_needs_blocked_and_proofless_rows_refuse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            cases = (
+                ("~zzzz", "no task carries"),
+                ("~cc33", "still needs ~dd44"),
+            )
+            for row, expected in cases:
+                result = run(THROW, repo, env, "--task", row, "--by", "seat-a")
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(expected, result.stderr)
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    " ~ee55 | proof: cmd true", " ~ee55"
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "remove proof"], check=True)
+            proofless = run(THROW, repo, env, "--task", "~ee55", "--by", "seat-a")
+            self.assertEqual(proofless.returncode, 1)
+            self.assertIn("has no proof", proofless.stderr)
 
-    def test_unknown_row_refuses(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            out = throw(r, "--task", "~zzzz")
-            self.assertEqual(out.returncode, 1)
-            self.assertIn("no task carries ~zzzz", out.stderr)
+    def test_dirty_or_conflicted_plan_refuses_before_the_board_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            (repo / "PLAN.md").write_text(PLAN + "\nunsafe edit\n", encoding="utf-8")
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("uncommitted changes", result.stderr)
+            self.assertFalse((home / ".shadow").exists())
 
-    def test_needs_blocked_row_refuses(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            out = throw(r, "--task", "~cc33")
-            self.assertEqual(out.returncode, 1)
-            self.assertIn("still needs ~dd44", out.stderr)
+    def test_duplicate_target_refuses_before_the_board_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "- [pending] blocked by needs ~cc33",
+                    "- [pending] duplicate target ~bb22 | proof: cmd true\n"
+                    "- [pending] blocked by needs ~cc33",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "duplicate"], check=True)
 
-    def test_proofless_row_refuses(self) -> None:
-        # A thrown row's proof IS its completion predicate; without one, nobody
-        # can tell whether the dispatched job finished.
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            out = throw(r, "--task", "~ee55")
-            self.assertEqual(out.returncode, 1)
-            self.assertIn("has no proof", out.stderr)
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
 
-    def test_double_throw_refuses(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            self.assertEqual(throw(r, "--task", "~bb22").returncode, 0)
-            second = throw(r, "--task", "~bb22")
-            self.assertEqual(second.returncode, 1)
-            self.assertIn("already thrown", second.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("does not read clean", result.stderr)
+            self.assertFalse((home / ".shadow").exists())
 
-    def test_bad_id_shape_exits_2(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            self.assertEqual(throw(r, "--task", "nope").returncode, 2)
-
-
-class ThrowWrites(unittest.TestCase):
-    def test_claims_row_appends_thrown_commits_and_prints_block(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            out = throw(r, "--task", "~bb22", "--note", "handing to a codex seat",
-                        "--timestamp", "2026-08-09T03:00:00Z")
-            self.assertEqual(out.returncode, 0, out.stderr)
-            text = (r / "PLAN.md").read_text(encoding="utf-8")
-            self.assertIn("- [in_progress] the ready row ~bb22", text)
-            self.assertIn("- 2026-08-09T03:00:00Z THROWN ~bb22 the ready row | note: handing to a codex seat", text)
-            # the goal block goes to stdout so the dispatch is copy-pasteable
-            self.assertIn("/goal demo", out.stdout)
-            self.assertIn("RESUME: [in_progress] the ready row ~bb22", out.stdout)
-            # committed, and PLAN.md alone
-            files = subprocess.run(
-                ["git", "-C", str(r), "show", "--name-only", "--format=", "HEAD"],
-                capture_output=True, text=True, check=True).stdout.split()
-            self.assertEqual(files, ["PLAN.md"])
-            self.assertNotIn("nothing to commit", out.stderr)
-
-    def test_working_tree_is_clean_after_throw(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            throw(r, "--task", "~bb22")
-            dirty = subprocess.run(["git", "-C", str(r), "status", "--porcelain"],
-                                   capture_output=True, text=True, check=True).stdout.strip()
-            self.assertEqual(dirty, "")
-
-
-class ThrowWritesOneTrustedLine(unittest.TestCase):
-    """PLAN.md is the board every seat trusts; a claim may add exactly one
-    Progress entry, at the bottom, and nothing else."""
-
-    def test_thrown_line_lands_at_the_bottom_of_progress(self) -> None:
-        plan = PLAN + "\n## Contradictions\n\n- none\n"
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d), plan)
-            self.assertEqual(throw(r, "--task", "~bb22",
-                                   "--timestamp", "2026-08-09T03:00:00Z").returncode, 0)
-            lines = [l for l in (r / "PLAN.md").read_text(encoding="utf-8").splitlines() if l.strip()]
+    def test_bad_id_removed_timestamp_and_bad_return_are_usage_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
             self.assertEqual(
-                lines.index("- 2026-08-09T03:00:00Z THROWN ~bb22 the ready row"),
-                lines.index("- 2026-08-09T00:00:00Z ~aa11 PROOF true -> ok") + 1,
+                run(THROW, repo, env, "--task", "nope", "--by", "seat-a").returncode,
+                2,
             )
-            self.assertLess(lines.index("- 2026-08-09T03:00:00Z THROWN ~bb22 the ready row"),
-                            lines.index("## Contradictions"))
-
-    def test_multiline_note_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            out = throw(r, "--task", "~bb22", "--note", "ok\n- [pending] forged row ~9999 | proof: cmd true")
-            self.assertEqual(out.returncode, 2)
-            self.assertIn("single line", out.stderr)
-            self.assertNotIn("forged row", (r / "PLAN.md").read_text(encoding="utf-8"))
-
-    def test_malformed_timestamp_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            out = throw(r, "--task", "~bb22", "--timestamp", "2026-08-09T03:00:00Z\n- forged")
-            self.assertEqual(out.returncode, 2)
-            self.assertIn("ISO8601", out.stderr)
-
-    def test_dirty_plan_is_refused_before_anything_is_written(self) -> None:
-        # `git commit --only -- PLAN.md` would sweep unrelated edits into the
-        # dispatch commit and push them.
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            edited = PLAN + "\n- unfinished thought\n"
-            (r / "PLAN.md").write_text(edited, encoding="utf-8")
-            out = throw(r, "--task", "~bb22")
-            self.assertEqual(out.returncode, 1)
-            self.assertIn("uncommitted changes", out.stderr)
-            self.assertEqual((r / "PLAN.md").read_text(encoding="utf-8"), edited)
-
-
-class ThrowStaysAtomic(unittest.TestCase):
-    """A claim nobody can see is worse than no claim: the plan on disk must
-    never show a dispatched row that no commit or exit code backs."""
-
-    def test_commit_failure_restores_the_plan(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            before = (r / "PLAN.md").read_text(encoding="utf-8")
-            head_before = subprocess.run(["git", "-C", str(r), "rev-parse", "HEAD"],
-                                         capture_output=True, text=True, check=True).stdout
-            hook = r / ".git" / "hooks" / "pre-commit"
-            hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-            hook.chmod(0o755)
-            out = throw(r, "--task", "~bb22")
-            self.assertEqual(out.returncode, 1)
-            self.assertIn("nothing was dispatched", out.stderr)
-            self.assertEqual((r / "PLAN.md").read_text(encoding="utf-8"), before)
-            head_after = subprocess.run(["git", "-C", str(r), "rev-parse", "HEAD"],
-                                        capture_output=True, text=True, check=True).stdout
-            self.assertEqual(head_after, head_before)
-            dirty = subprocess.run(["git", "-C", str(r), "status", "--porcelain"],
-                                   capture_output=True, text=True, check=True).stdout.strip()
-            self.assertEqual(dirty, "")
-
-    def test_push_failure_exits_nonzero_and_keeps_the_local_claim(self) -> None:
-        # Zero must mean "durably dispatched"; a local-only claim is not that.
-        #
-        # ADJUDICATED 2026-08-09 (two seats pinned opposite behaviors on this
-        # branch): an earlier version of this test asserted the block is STILL
-        # printed on a rejected push. It is now withheld. The block's authority
-        # line instructs a receiving seat to fetch that ref and read the
-        # section — but the claim never reached the remote, so that seat sees
-        # the row as [pending]. Handing over a pointer that advertises content
-        # the ref does not serve is the same defect the amp dirty-plan pointer
-        # was fixed for. Nothing is lost: `shadow amp --task ~id` still emits a
-        # block on demand; `throw`'s contract is claimed AND pushed.
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            subprocess.run(["git", "-C", str(r), "remote", "add", "origin",
-                            str(Path(d) / "nowhere.git")], check=True)
-            out = subprocess.run(
-                [sys.executable, str(THROW), "--repo", str(r), "--task", "~bb22"],
-                capture_output=True, text=True, check=False,
+            result = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--timestamp",
+                "2099-01-01T00:00:00Z",
             )
-            self.assertEqual(out.returncode, 1)
-            self.assertIn("NOT on the remote", out.stderr)
-            self.assertNotIn("RESUME:", out.stdout)
-            # the local claim survives — it is a valid commit, just not shared
-            self.assertIn("- [in_progress] the ready row ~bb22",
-                          (r / "PLAN.md").read_text(encoding="utf-8"))
+            self.assertEqual(result.returncode, 2)
+            result = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--return-by",
+                "not-a-time",
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse((home / ".shadow").exists())
 
 
-class ThrownExcludedFromAutoResume(unittest.TestCase):
-    def test_amp_skips_a_thrown_row_but_honors_explicit_task(self) -> None:
-        # Without this, a fresh seat auto-resumes a row another conversation is
-        # already running — the design would manufacture the double work it
-        # exists to prevent.
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            throw(r, "--task", "~bb22")
-            plan = amp._parse((r / "PLAN.md").read_text(encoding="utf-8"))
-            self.assertIn("~bb22", plan["thrown"])
-            # the property is "auto-resume never lands on a thrown row" — other
-            # pending rows stay selectable, which is the point
-            auto = amp._select(plan, None)
-            self.assertIsNotNone(auto)
-            self.assertNotEqual(auto[1]["id"], "~bb22")
-            picked = amp._select(plan, "~bb22")                  # explicit targeting still works
-            self.assertIsNotNone(picked)
-            self.assertEqual(picked[1]["id"], "~bb22")
+class ThrowUsesTheRootBoard(unittest.TestCase):
+    def test_claim_prints_the_pointer_without_changing_the_project_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            before = (repo / "PLAN.md").read_bytes()
+            head = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "codex")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal demo", result.stdout)
+            self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+                head,
+            )
+            payload = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["claims"][0]["owner"], "codex")
 
-    def test_hand_claimed_in_progress_row_is_still_selected(self) -> None:
-        # An in_progress row WITHOUT a THROWN line is a crash-resume target.
-        text = PLAN.replace("- [pending] the ready row ~bb22", "- [in_progress] the ready row ~bb22")
-        plan = amp._parse(text)
-        self.assertEqual(plan["thrown"], set())
-        picked = amp._select(plan, None)
-        self.assertEqual(picked[1]["id"], "~bb22")
+    def test_second_claim_names_the_persisted_owner_and_amp_skips_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _, env = fixture(Path(tmp))
+            self.assertEqual(
+                run(THROW, repo, env, "--task", "~bb22", "--by", "claude").returncode,
+                0,
+            )
+            losing = run(THROW, repo, env, "--task", "~bb22", "--by", "codex")
+            self.assertEqual(losing.returncode, 1)
+            self.assertIn("claimed by claude", losing.stderr)
+            projected = run(AMP, repo, env)
+            self.assertNotIn("the ready row ~bb22", projected.stdout)
 
+    def test_claim_receipt_cannot_confuse_the_same_owner_and_row_across_entities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first_repo, home, env = fixture(root)
+            second_repo = root / "second"
+            second_repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(second_repo)], check=True)
+            subprocess.run(["git", "-C", str(second_repo), "config", "user.email", "t@t"], check=True)
+            subprocess.run(["git", "-C", str(second_repo), "config", "user.name", "t"], check=True)
+            (second_repo / "PLAN.md").write_text(
+                PLAN.replace("- Project: demo", "- Project: second").replace(
+                    "- Priority: 2", "- Priority: 5"
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(second_repo), "add", "PLAN.md"], check=True)
+            subprocess.run(
+                ["git", "-C", str(second_repo), "commit", "-qm", "plan"],
+                check=True,
+            )
 
-class InFlightView(unittest.TestCase):
-    def test_in_flight_lists_claimed_rows_with_proof_and_origin(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            r = repo_with_plan(root / "demo-repo")
-            throw(r, "--task", "~bb22", "--timestamp", "2026-08-09T03:00:00Z")
-            out = subprocess.run(
-                [sys.executable, str(STATUS), "--root", str(root), "--in-flight", "--json"],
-                capture_output=True, text=True, check=False)
-            payload = json.loads(out.stdout)
-            self.assertEqual(len(payload["rows"]), 1)
-            row = payload["rows"][0]
-            self.assertEqual(row["id"], "~bb22")
-            self.assertEqual(row["project"], "demo")
-            self.assertTrue(row["dispatched"])
-            self.assertEqual(row["thrown_at"], "2026-08-09T03:00:00Z")
-            self.assertIn("npm-free gate", row["proof"])
+            first = run(
+                THROW, first_repo, env, "--task", "~bb22", "--by", "same-seat"
+            )
+            second = run(
+                THROW, second_repo, env, "--task", "~bb22", "--by", "same-seat"
+            )
 
-    def test_empty_portfolio_says_so(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            out = subprocess.run(
-                [sys.executable, str(STATUS), "--root", d, "--in-flight"],
-                capture_output=True, text=True, check=False)
-            self.assertIn("Nothing in flight", out.stdout)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            expected = next(
+                item
+                for item in payload["entities"]
+                if Path(item["plan"]) == (second_repo / "PLAN.md").resolve()
+            )
+            self.assertIn(f"Entity: {expected['id']}.", second.stdout)
+            self.assertIn("Priority: 5", second.stdout)
+            self.assertEqual(
+                [(item["entity"], item["row"], item["owner"]) for item in payload["claims"]],
+                sorted(
+                    [
+                        (item["entity"], item["row"], item["owner"])
+                        for item in payload["claims"]
+                    ]
+                ),
+            )
+            self.assertEqual(len(payload["claims"]), 2)
 
+    def test_a_committed_plan_change_at_claim_time_refuses_without_a_stale_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            spec = importlib.util.spec_from_file_location("shadow_throw_race", THROW)
+            module = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            real_claim = module._board.claim
 
-class ThrowRefusesInvisibleDispatch(unittest.TestCase):
-    """Codex review, PR #268: a rejected push used to warn and return 0, so a
-    caller launched work whose claim never reached the remote — every other
-    seat still saw the row as [pending]. That is precisely the invisibility
-    throw exists to prevent, so it must be fatal."""
+            def race(*args, **kwargs):
+                plan = repo / "PLAN.md"
+                plan.write_text(
+                    plan.read_text(encoding="utf-8").replace(
+                        "the ready row ~bb22 | proof: cmd true",
+                        "the ready row ~bb22 | proof: cmd false",
+                    ),
+                    encoding="utf-8",
+                )
+                subprocess.run(
+                    ["git", "-C", str(repo), "commit", "-qam", "race plan proof"],
+                    check=True,
+                )
+                return real_claim(*args, **kwargs)
 
-    def test_rejected_push_fails_and_withholds_the_goal_block(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            r = repo_with_plan(root / "work")
-            # a bare remote whose pre-receive hook rejects everything
-            bare = root / "remote.git"
-            subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
-            hook = bare / "hooks" / "pre-receive"
-            hook.write_text("#!/bin/sh\necho 'rejected by policy' >&2\nexit 1\n", encoding="utf-8")
-            hook.chmod(0o755)
-            subprocess.run(["git", "-C", str(r), "remote", "add", "origin", str(bare)], check=True)
+            output = io.StringIO()
+            errors = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, env, clear=False),
+                mock.patch.object(module._board, "claim", side_effect=race),
+                redirect_stdout(output),
+                redirect_stderr(errors),
+            ):
+                result = module.main(
+                    ["--repo", str(repo), "--task", "~bb22", "--by", "seat-a"]
+                )
 
-            out = subprocess.run(
-                [sys.executable, str(THROW), "--repo", str(r), "--task", "~bb22"],
-                capture_output=True, text=True, check=False)
+            self.assertEqual(result, 1)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("changed", errors.getvalue())
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
 
-            self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
-            self.assertIn("PUSH REJECTED", out.stderr)
-            self.assertIn("DO NOT LAUNCH THE WORK", out.stderr)
-            # the block must NOT be emitted: emitting it is what let a caller proceed
-            self.assertNotIn("/goal", out.stdout)
+    def test_amp_and_throw_never_emit_remote_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _, env = fixture(Path(tmp))
+            secret = "AKIA" + "IOSFODNN7EXAMPLE"
+            subprocess.run(
+                [
+                    "git", "-C", str(repo), "remote", "add", "origin",
+                    f"https://user:{secret}@github.com/org/repo.git?token={secret}#private",
+                ],
+                check=True,
+            )
 
-    def test_pre_dirty_plan_is_refused_before_any_edit(self) -> None:
-        # `commit --only -- PLAN.md` commits the whole working-tree file, so an
-        # unrelated uncommitted plan edit would ride along with the claim.
-        with tempfile.TemporaryDirectory() as d:
-            r = repo_with_plan(Path(d))
-            (r / "PLAN.md").write_text(
-                (r / "PLAN.md").read_text(encoding="utf-8") + "\n- stray uncommitted edit\n",
-                encoding="utf-8")
-            out = throw(r, "--task", "~bb22")
-            self.assertEqual(out.returncode, 1)
-            self.assertIn("commit or stash them first", out.stderr)
-            # and it did not claim the row on the way out
-            self.assertIn("- [pending] the ready row ~bb22", (r / "PLAN.md").read_text(encoding="utf-8"))
+            claimed = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+            preview = run(AMP, repo, env, "--by", "seat-a")
+
+            self.assertEqual(preview.returncode, 0, preview.stderr)
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            for stream in (preview.stdout, preview.stderr, claimed.stdout, claimed.stderr):
+                self.assertNotIn(secret, stream)
+                self.assertNotIn("token=", stream)
+
+    def test_in_flight_reads_owner_and_proof_from_board_plus_project_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            claimed = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "codex",
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            observed = subprocess.run(
+                [sys.executable, str(STATUS), "--in-flight", "--json"],
+                cwd=home,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            report = json.loads(observed.stdout)
+            self.assertEqual(len(report["rows"]), 1)
+            self.assertEqual(report["rows"][0]["by"], "codex")
+            self.assertEqual(report["rows"][0]["proof"], "cmd true")
+
+    def test_an_expired_claim_requires_explicit_adoption_before_owner_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            board.reconcile(
+                [{"plan": str(repo / "PLAN.md"), "project": "demo", "priority": 2, "candidates": ["~bb22"]}],
+                [],
+                home=home,
+            )
+            board.claim(
+                repo / "PLAN.md",
+                "~bb22",
+                "old-seat",
+                project="demo",
+                priority=2,
+                now=datetime(2000, 1, 1, tzinfo=timezone.utc),
+                home=home,
+            )
+
+            ordinary = run(THROW, repo, env, "--task", "~bb22", "--by", "new-seat")
+            self.assertEqual(ordinary.returncode, 1, ordinary.stderr)
+            self.assertIn("claimed by old-seat", ordinary.stderr)
+
+            adopted = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "new-seat",
+                "--adopt-expired",
+            )
+
+            self.assertEqual(adopted.returncode, 0, adopted.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(len(payload["claims"]), 1)
+            self.assertEqual(payload["claims"][0]["owner"], "new-seat")
+
+    def test_a_caller_supplied_future_clock_cannot_steal_a_live_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            first = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-a",
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+
+            unbounded = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-a",
+                "--return-by",
+                "2098-01-01T00:00:00Z",
+            )
+
+            stolen = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-b",
+                "--timestamp",
+                "2099-01-01T00:00:00Z",
+                "--adopt-expired",
+            )
+            still_live = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-b",
+                "--adopt-expired",
+            )
+
+            self.assertEqual(unbounded.returncode, 2, unbounded.stderr)
+            self.assertEqual(stolen.returncode, 2, stolen.stderr)
+            self.assertEqual(still_live.returncode, 1, still_live.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class ThrowNeverCommitsATruncatedPlan(unittest.TestCase):
-    """The worst defect the 2026-08-09 adversarial pass found.
-
-    `Path.write_text` truncates and then fills. `git commit` hashes the working
-    tree copy. Two `shadow throw` runs in one checkout — the documented
-    two-leads-one-plan case as it actually happens, two chats `cd`'d into one
-    repo — could hash the file mid-truncation, commit the EMPTY blob, and push
-    it as the board every other seat reads. It reported "claimed + pushed"
-    while doing it, and `shadow lint` calls an empty plan clean. Reproduced 3
-    times in 45 same-checkout trials.
-
-    Both halves are pinned here: the write is atomic, and the commit is read
-    back before anything can leave the machine.
-    """
-
-    def test_a_concurrent_reader_never_sees_a_partial_plan(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = repo_with_plan(Path(tmp))
-            plan = repo / "PLAN.md"
-            full = len(plan.read_text(encoding="utf-8"))
-            sizes: list[int] = []
-            stop = False
-
-            import threading
-
-            def poll() -> None:
-                while not stop:
-                    try:
-                        sizes.append(len(plan.read_text(encoding="utf-8")))
-                    except (FileNotFoundError, UnicodeDecodeError):
-                        sizes.append(-1)
-
-            watcher = threading.Thread(target=poll, daemon=True)
-            watcher.start()
-            try:
-                result = throw(repo, "--task", "~bb22")
-            finally:
-                stop = True
-                watcher.join(timeout=5)
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(sizes, "the reader never sampled the plan")
-            # Every sample is a complete file: the original, or the longer
-            # claimed one. Never a prefix, never absent.
-            self.assertFalse([n for n in sizes if n not in (full, len(plan.read_text(encoding="utf-8")))],
-                             f"a reader saw a partial plan; sizes seen: {sorted(set(sizes))}")
-
-    def test_a_temp_file_is_never_left_behind(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = repo_with_plan(Path(tmp))
-            self.assertEqual(throw(repo, "--task", "~bb22").returncode, 0)
-            leftovers = [p.name for p in repo.iterdir() if p.name.startswith(".PLAN.md.")]
-            self.assertFalse(leftovers, f"temp files survived: {leftovers}")
-
-    def test_the_plan_keeps_its_mode(self) -> None:
-        # mkstemp creates 0600. A plan that silently becomes owner-only after a
-        # throw breaks every other reader on a shared checkout.
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = repo_with_plan(Path(tmp))
-            before = (repo / "PLAN.md").stat().st_mode & 0o7777
-            self.assertEqual(throw(repo, "--task", "~bb22").returncode, 0)
-            self.assertEqual((repo / "PLAN.md").stat().st_mode & 0o7777, before)
-
-
-class ThrowIsGatedOnAReadbackOfTheCommit(unittest.TestCase):
-    """A zero-exit commit says git ran, not that it stored the right bytes."""
-
-    def test_a_commit_missing_the_claim_is_refused_and_rolled_back(self) -> None:
-        # Force the exact end state the race produced: the commit git recorded
-        # does not contain the claim. The push must not happen, the commit must
-        # be rolled back, and the plan must come back whole.
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = repo_with_plan(Path(tmp))
-            original = (repo / "PLAN.md").read_text(encoding="utf-8")
-            head_before = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "HEAD"],
-                capture_output=True, text=True, check=True).stdout.strip()
-
-            # A pre-commit hook that empties the staged plan reproduces the
-            # truncation deterministically, without patching the script.
-            hooks = repo / ".git" / "hooks"
-            hooks.mkdir(parents=True, exist_ok=True)
-            hook = hooks / "pre-commit"
-            hook.write_text(
-                "#!/bin/sh\n"
-                "printf '' > PLAN.md\n"
-                "git add PLAN.md\n",
-                encoding="utf-8")
-            hook.chmod(0o755)
-
-            result = throw(repo, "--task", "~bb22")
-
-            self.assertEqual(result.returncode, 1, result.stdout)
-            self.assertIn("does not match the plan this run wrote", result.stderr)
-            self.assertNotIn("/goal", result.stdout,
-                             "the goal block was printed for a dispatch that never became durable")
-            head_after = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "HEAD"],
-                capture_output=True, text=True, check=True).stdout.strip()
-            self.assertEqual(head_after, head_before, "the bad commit was left on HEAD")
-            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), original,
-                             "the plan was not restored")
-
-    def test_a_commit_missing_a_task_row_is_refused_even_with_the_claim_intact(self) -> None:
-        # The damage that a "does it look about right" gate waves through: the
-        # THROWN line survives and most of the characters do, but a task row is
-        # gone. The goal block is built from the in-memory body, so without a
-        # byte-for-byte check the command would report success and push a plan
-        # with rows missing to every other seat.
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = repo_with_plan(Path(tmp))
-            original = (repo / "PLAN.md").read_text(encoding="utf-8")
-            head_before = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "HEAD"],
-                capture_output=True, text=True, check=True).stdout.strip()
-
-            hooks = repo / ".git" / "hooks"
-            hooks.mkdir(parents=True, exist_ok=True)
-            hook = hooks / "pre-commit"
-            hook.write_text(
-                "#!/bin/sh\n"
-                "grep -v '~ff66' PLAN.md > .plan.tmp\n"
-                "mv .plan.tmp PLAN.md\n"
-                "git add PLAN.md\n",
-                encoding="utf-8")
-            hook.chmod(0o755)
-
-            result = throw(repo, "--task", "~bb22")
-
-            self.assertEqual(result.returncode, 1, result.stdout)
-            self.assertIn("does not match the plan this run wrote", result.stderr)
-            self.assertNotIn("/goal", result.stdout,
-                             "a plan missing a task row was dispatched as authority")
-            head_after = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "HEAD"],
-                capture_output=True, text=True, check=True).stdout.strip()
-            self.assertEqual(head_after, head_before, "the damaged commit was left on HEAD")
-            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), original,
-                             "the plan was not restored")
-
-    def test_rollback_is_declined_when_head_is_not_this_runs_commit(self) -> None:
-        # The same-checkout race, from the other side: a second process lands a
-        # commit while this one is committing. Resetting to head_before would
-        # orphan that commit as well as this one, so the claim is left where it
-        # is and the operator is told to look at HEAD.
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = repo_with_plan(Path(tmp))
-
-            # Stands in for the other seat's commit landing in the window
-            # between this run's commit and its readback, damaging the plan on
-            # the way.
-            hooks = repo / ".git" / "hooks"
-            hooks.mkdir(parents=True, exist_ok=True)
-            post = hooks / "post-commit"
-            post.write_text(
-                "#!/bin/sh\n"
-                "printf '' > PLAN.md\n"
-                "git add PLAN.md\n"
-                "git commit -q --no-verify -m 'other seat'\n",
-                encoding="utf-8")
-            post.chmod(0o755)
-
-            result = throw(repo, "--task", "~bb22")
-
-            self.assertEqual(result.returncode, 1, result.stdout)
-            self.assertIn("could NOT be rolled back", result.stderr)
-            self.assertNotIn("/goal", result.stdout)
-            log = subprocess.run(
-                ["git", "-C", str(repo), "log", "--format=%s"],
-                capture_output=True, text=True, check=True).stdout
-            self.assertIn("other seat", log, "the other seat's commit was orphaned by a reset")
-            # Declining the rollback must not leave the half-written plan on
-            # disk: the working tree is resynced to HEAD, which is the one
-            # version that is also somebody's committed history.
-            head_plan = subprocess.run(
-                ["git", "-C", str(repo), "show", "HEAD:PLAN.md"],
-                capture_output=True, text=True, check=True).stdout
-            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), head_plan,
-                             "the working tree was left out of step with HEAD")
-            self.assertEqual(
-                subprocess.run(["git", "-C", str(repo), "status", "--porcelain", "--", "PLAN.md"],
-                               capture_output=True, text=True, check=True).stdout.strip(), "",
-                "PLAN.md was left dirty by a run that dispatched nothing")
-            # And the operator is handed the pre-throw bytes, not just told to
-            # go looking.
-            self.assertIn("before this run is `git show", result.stderr)
-
-    def test_the_readback_gate_passes_a_healthy_throw(self) -> None:
-        # A guard that fires on everything is as useless as one that never
-        # fires. The ordinary path still succeeds.
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = repo_with_plan(Path(tmp))
-            result = throw(repo, "--task", "~bb22")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            committed = subprocess.run(
-                ["git", "-C", str(repo), "show", "HEAD:PLAN.md"],
-                capture_output=True, text=True, check=True).stdout
-            self.assertIn("THROWN ~bb22", committed)
-            self.assertIn("[in_progress]", committed)

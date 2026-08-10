@@ -21,12 +21,13 @@ inside the native host on that computer.
 
 ## The normal loop
 
-1. In the target project, read `PLAN.md` before acting. It is the only Outcome,
-   proof, and resume authority.
-2. Inspect the exact revision and worktree state, resume locally owned
-   in-progress rows, then rank every reachable row.
-3. Claim and dispatch path-disjoint work through supported native hosts. Freeze
-   each task in a file and allow only the exact paths it may change.
+1. Establish one stable seat name and run `shadow status --by <seat>`. The
+   computer board owns global project priority, entity pointers, claims,
+   owners, leases, and entity resume checkpoints.
+2. Resume that seat's claims, then read the selected entity's committed
+   `PLAN.md`, which owns its milestones, checkpoints, detail, and proof.
+3. Atomically claim and dispatch path-disjoint checkpoints through supported
+   native hosts. Freeze each handoff and allow only the exact paths it may change.
 4. Review the diff and reproduce the important test locally. A host receipt is
    evidence, not acceptance by itself.
 5. Record each result, uncertainty, proof, blocked wake, and reachable successor
@@ -75,5 +76,6 @@ shadow doctor
 ```
 
 When handing work to the next computer, pass the repository, exact revision,
-owning `PLAN.md` rows, allowed paths, proof commands, and blocked wakes.
-That is enough context; do not paste a transcript.
+entity plan pointer, claimed checkpoints, allowed paths, proof commands, and
+blocked wakes. That is enough context; do not paste a transcript or copy the
+other computer's root board.

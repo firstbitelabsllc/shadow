@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.0 — 2026-08-10 — one computer board, project plan shards
+
+Shadow now coordinates the whole computer without turning the root into a
+second copy of project work. This deliberately changes public verbs, defaults,
+and local state; it supersedes the pre-board claim protocol described in older
+historical entries below.
+
+- A private Git-backed board at `~/.shadow` owns project priority, entity-plan
+  pointers, claims, owners, leases, and one resume checkpoint per entity.
+  Committed project `PLAN.md` shards remain the only authority for milestones,
+  checkpoint detail, dependencies, and proof.
+- Claims are local, offline, atomic, and owner-specific. `shadow throw` claims
+  before emitting work; `shadow amp` emits only work already owned by its
+  named seat; `shadow return` and `shadow accept --by` close the same claim
+  through bounded, crash-recoverable transactions. PLAN `THROWN` lines and a
+  remote push are no longer the same-computer mutex.
+- `shadow status` and the browser dereference the same canonical board entity
+  from any directory. Duplicate worktrees, broken pointers, stale revisions,
+  malformed imports, and browser refresh warnings fail loudly instead of
+  creating a competing projection. Browser decision receipts hold the board
+  revision until the receipt is durable.
+- The standing host block now states the plain hierarchy: computer, projects,
+  entities, milestones, checkpoints. It requires a stable seat identity,
+  focused falsifiers in feature lanes, and the deterministic release train for
+  full migration, story E2E, adversarial, rollback, install, and live dogfood
+  proof.
+- Verification is tiered rather than rerunning every expensive proof on every
+  change: mapped focused suites run per change; the full Python matrix runs
+  nightly; an optional configured second daily window is explicit; measured
+  accepted-trunk-change pressure can start an earlier train. Each train runs
+  the isolated story E2E twice and the migration, adversarial, lifecycle,
+  rollback, install, and packaging stages with fresh homes. Unknown paths fail
+  safe to the full suite.
+- Root-board files are private, atomically replaced, locally receipted in Git,
+  and recoverable after process death before or after replacement. Canonical
+  project lifecycle locks serialize claim, return, and completion without
+  holding the computer-wide lock across proof execution or project commits.
+
 ## 0.1.0 — 2026-08-09 — renumbered from 4.1.0
 
 Same code, honest number. Shadow's 4.x line counted releases to a registry
