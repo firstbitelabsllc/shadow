@@ -390,6 +390,52 @@ class OfflineDefaultIsSealed(unittest.TestCase):
             self.assertEqual(receipt(result)["status"], "pass")
             fixture.assert_operator_state_untouched(self)
 
+    def test_ambient_git_state_cannot_escape_the_scratch_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            outside = root / "outside-git"
+            outside.mkdir()
+            Fixture._git(outside, "init", "-q")
+            Fixture._git(outside, "config", "user.name", "Outside Git")
+            Fixture._git(outside, "config", "user.email", "outside-git@example.invalid")
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("untouched\n", encoding="utf-8")
+            Fixture._git(outside, "add", "sentinel.txt")
+            Fixture._git(outside, "commit", "-qm", "outside sentinel")
+            before_head = Fixture._git(outside, "rev-parse", "HEAD").stdout.strip()
+            before_tree = sentinel.read_bytes()
+            hook_marker = root / "ambient-hook-ran.txt"
+            hooks = root / "ambient-hooks"
+            hooks.mkdir()
+            hook = hooks / "post-commit"
+            hook.write_text(
+                "#!/bin/sh\n"
+                f"printf used > {str(hook_marker)!r}\n",
+                encoding="utf-8",
+            )
+            hook.chmod(0o755)
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--goal-file", str(fixture.goal), "--json",
+                extra_env={
+                    "GIT_DIR": str(outside / ".git"),
+                    "GIT_WORK_TREE": str(outside),
+                    "GIT_INDEX_FILE": str(outside / ".git" / "index"),
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "core.hooksPath",
+                    "GIT_CONFIG_VALUE_0": str(hooks),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(receipt(result)["status"], "pass")
+            self.assertEqual(Fixture._git(outside, "rev-parse", "HEAD").stdout.strip(), before_head)
+            self.assertEqual(sentinel.read_bytes(), before_tree)
+            self.assertEqual(Fixture._git(outside, "status", "--porcelain").stdout, "")
+            self.assertFalse(hook_marker.exists())
+            fixture.assert_operator_state_untouched(self)
+
 
 class LiveTwoSeatProof(unittest.TestCase):
     def _run(self, mode: str = "complete", timeout_seconds: int = 20):
