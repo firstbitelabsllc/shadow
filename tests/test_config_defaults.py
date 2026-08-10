@@ -36,6 +36,36 @@ PLAN = """# Demo
 
 
 class ConfigDefaultsTests(unittest.TestCase):
+    def test_absent_config_and_reviewed_repo_config_are_both_explainable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            subprocess.run(["git", "-C", str(repo), "init", "--quiet"], check=True)
+            absent = subprocess.run(
+                [str(CLI), "config", "--explain", "--repo", str(repo), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(absent.returncode, 0, absent.stderr)
+            absent_payload = json.loads(absent.stdout)
+            self.assertEqual(absent_payload["source"], "built-in defaults")
+            self.assertEqual(absent_payload["config"]["durability"]["claim_return_minutes"], 480)
+
+            (repo / "shadow.yaml").write_text(
+                "method:\n  adversarial_lenses:\n    - privacy\n",
+                encoding="utf-8",
+            )
+            configured = subprocess.run(
+                [str(CLI), "config", "--explain", "--repo", str(repo), "--json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(configured.returncode, 0, configured.stderr)
+            payload = json.loads(configured.stdout)
+            self.assertEqual(payload["source"], "shadow.yaml")
+            self.assertEqual(payload["config"]["method"]["adversarial_lenses"], ["privacy"])
+
     def test_this_repositorys_plan_enters_its_own_computer_board(self) -> None:
         with tempfile.TemporaryDirectory() as home:
             home_path = Path(home)
@@ -163,6 +193,26 @@ class ConfigDefaultsTests(unittest.TestCase):
             self.assertEqual(args.root, "/tmp/flag-root")
             self.assertEqual(args.host, "127.0.0.1")
             self.assertEqual(args.port, 8124)
+
+
+class TheSubsetRefusesWhatItCannotParse(unittest.TestCase):
+    def test_cli_names_the_file_and_line_for_unsupported_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            subprocess.run(["git", "-C", str(repo), "init", "--quiet"], check=True)
+            (repo / "shadow.yaml").write_text(
+                "method:\n  adversarial_lenses: [privacy, correctness]\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [str(CLI), "config", "--explain", "--repo", str(repo)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("shadow.yaml:2:", result.stderr)
+        self.assertIn("unsupported YAML", result.stderr)
 
 
 if __name__ == "__main__":

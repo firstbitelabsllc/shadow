@@ -1,7 +1,8 @@
 # Reference
 
 - [Commands](commands.md) — every verb, and the two flags that bite first
-- [The Method](grammar.md) — the plan grammar, and the law lint enforces
+- [Plan grammar](grammar.md) — the plan shape and the law lint enforces
+- [Adversarial method](method.md) — attack, refute, repair, and prove
 - [PLAN.md fields](plan-fields.md)
 - [Host integration](host-integration.md) — the static standing goal, and what to paste where
 - [Amp](amp.md) — the goal as a pointer, and what it deliberately will not do

@@ -34,6 +34,9 @@ import shadow_root_board as _board  # noqa: E402
 
 DEFAULT_MAX_CHARS: Final = 4_000
 MAX_GIT_VALUE: Final = 200
+MAX_SUCCESSOR_CONTEXT_CHARS: Final = 800
+MAX_SUCCESSOR_CONTEXT_ITEMS: Final = 6
+MAX_SUCCESSOR_CONTEXT_ITEM_CHARS: Final = 180
 
 ROW_RE: Final = re.compile(
     r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
@@ -45,6 +48,11 @@ TOOLS_RE: Final = re.compile(r"^- tools: (?P<value>.+)$")
 HASH_RE: Final = re.compile(r"~[0-9a-z]{4}\b")
 ROW_SHAPE_RE: Final = re.compile(r"^- \[")
 CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
+LESSON_RE: Final = re.compile(r"^- \S+ LESSON (?P<value>.+)$")
+DECISION_RE: Final = re.compile(
+    r"^- \S+ DECISION (?P<id>~[0-9a-z]{4}) "
+    r"(?P<verdict>keep|kill|promote) -> (?P<value>.+)$"
+)
 CAPABILITY_RE: Final = re.compile(r"(?<![0-9A-Za-z_-])/([a-z][a-z0-9-]{0,31})\b")
 SUPERPOWERS_COMPATIBLE_LEAVES: Final = (
     "verification-before-completion",
@@ -286,7 +294,9 @@ def stall_reason(plan: dict) -> str:
     if not open_rows:
         if unclean:
             return f"{unclean} before chaining a successor over unread work"
-        return "every task complete; mint the successor (goal chaining)"
+        reason = "every task complete; mint the successor (goal chaining)"
+        context = successor_context(plan)
+        return f"{reason}\n{context}" if context else reason
     claimed = plan.get("claimed") or set()
     # A claim is why auto-resume passed over otherwise takeable work, so name
     # that state rather than hiding it inside "other".
@@ -321,6 +331,53 @@ def _clean(value: str, limit: int = MAX_GIT_VALUE) -> str:
     what to work on, never authority over the rails around the work."""
     flat = CONTROL_RE.sub(" ", value).strip()
     return f"{flat[:limit]}…" if len(flat) > limit else flat
+
+
+def successor_context(plan: dict) -> str:
+    """A bounded, read-only seed for the next goal from this plan alone.
+
+    Goal chaining must not grow a second memory store. The only durable inputs
+    are the append-only `LESSON` and `DECISION` receipts already written under
+    this entity's `## Progress`; Tasks and Contradictions remain their own
+    plan surfaces and never become implied successor requirements. Keep the
+    newest receipts, but preserve their on-plan order so equal input always
+    produces equal context.
+    """
+    lines = _sections(plan.get("text", "").splitlines()).get("Progress", [])
+    receipts: list[str] = []
+    for line in lines:
+        lesson = LESSON_RE.match(line)
+        if lesson:
+            value = lesson.group("value").strip()
+            # `LESSON none` proves the close intentionally yielded no reusable
+            # guidance; turning it into a successor instruction invents one.
+            if value.lower() != "none" and not value.lower().startswith("none —"):
+                receipts.append(
+                    f"LESSON: {_clean(value, MAX_SUCCESSOR_CONTEXT_ITEM_CHARS)}"
+                )
+            continue
+        decision = DECISION_RE.match(line)
+        if decision:
+            receipts.append(
+                "DECISION "
+                f"{decision.group('id')} {decision.group('verdict')} -> "
+                f"{_clean(decision.group('value'), MAX_SUCCESSOR_CONTEXT_ITEM_CHARS)}"
+            )
+
+    # Progress is append-only, so the tail is the current durable guidance.
+    receipts = receipts[-MAX_SUCCESSOR_CONTEXT_ITEMS:]
+    if not receipts:
+        return ""
+    prefix = "SUCCESSOR CONTEXT (this plan's Progress only):"
+    kept: list[str] = []
+    size = len(prefix)
+    for receipt in receipts:
+        candidate_size = size + 1 + len(receipt)
+        if candidate_size > MAX_SUCCESSOR_CONTEXT_CHARS:
+            break
+        kept.append(receipt)
+        size = candidate_size
+    return "\n".join([prefix, *kept]) if kept else ""
 
 
 def _git(repo: Path, *args: str) -> str:

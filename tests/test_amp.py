@@ -152,6 +152,34 @@ class AmpSelection(unittest.TestCase):
         self.assertIsNone(amp.unclean_note(amp._parse(PLAN)))
 
 
+class GoalMintingReadsThePlansOwnLessonRows(unittest.TestCase):
+    def test_completed_plan_carries_bounded_progress_lessons_and_decisions_only(self) -> None:
+        done = (
+            PLAN.replace("[pending]", "[completed]").replace("[in_progress]", "[completed]")
+            + "- 2026-08-07T00:02:00Z ~cc33 PROOF suite -> ok\n"
+            + "- 2026-08-07T00:03:00Z ~dd44 PROOF gate -> ok\n"
+            + "- 2026-08-07T00:04:00Z ~ee55 PROOF owner released -> visible\n"
+            + "- 2026-08-07T00:05:00Z ~ff66 PROOF site re-observed -> renders\n"
+            + "- 2026-08-07T00:06:00Z LESSON preserve the narrow proof surface\n"
+            + "- 2026-08-07T00:07:00Z DECISION ~aa11 keep -> use the plan as authority\n"
+        ).replace(
+            "- speed vs proof | provisional winner proof | opened 2026-08-07T00:00:00Z",
+            "- speed vs proof | provisional winner proof | opened 2026-08-07T00:00:00Z\n"
+            "- DECISION ~zz99 kill -> this is not Progress and must not be minted",
+        )
+
+        first = amp.stall_reason(amp._parse(done))
+        second = amp.stall_reason(amp._parse(done))
+
+        self.assertEqual(first, second)
+        self.assertIn("SUCCESSOR CONTEXT (this plan's Progress only):", first)
+        self.assertIn("LESSON: preserve the narrow proof surface", first)
+        self.assertIn("DECISION ~aa11 keep -> use the plan as authority", first)
+        self.assertNotIn("~zz99", first)
+        self.assertNotIn("speed vs proof", first)
+        self.assertLessEqual(len(amp.successor_context(amp._parse(done))), amp.MAX_SUCCESSOR_CONTEXT_CHARS)
+
+
 class AmpPointer(unittest.TestCase):
     def test_repo_metadata_cannot_inject_lines(self) -> None:
         # Cursor security review (PR #263): `remote.origin.url` is repo-owned

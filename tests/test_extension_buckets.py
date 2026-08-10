@@ -57,10 +57,10 @@ class TheDeclaration(unittest.TestCase):
             for field in ("name", "default", "fills", "absent"):
                 self.assertTrue(bucket[field].strip(), f"{bucket['name']}: empty {field}")
 
-    def test_the_three_named_buckets_ship(self) -> None:
+    def test_the_declared_buckets_ship(self) -> None:
         # Dropping one becomes a deliberate test edit, never a silent removal.
         names = {b["name"] for b in buckets.declared()}
-        self.assertEqual(names, {"superpowers", "honcho", "taste"})
+        self.assertEqual(names, {"superpowers", "honcho", "taste", "future"})
 
     def test_names_are_unique(self) -> None:
         names = [b["name"] for b in buckets.declared()]
@@ -241,6 +241,20 @@ class WiredIntoTheProduct(unittest.TestCase):
         amp_source = (ROOT / "scripts" / "shadow-amp.py").read_text(encoding="utf-8")
         self.assertIn("capability_block", amp_source)
         self.assertNotIn("write_text", amp_source)
+
+
+class FutureIsADeclaredBucket(unittest.TestCase):
+    def test_future_is_optional_and_resolves_like_a_mounted_skill(self) -> None:
+        declaration = next(
+            bucket for bucket in buckets.declared() if bucket["name"] == "future"
+        )
+        self.assertEqual(declaration["kind"], "skill")
+        self.assertEqual(declaration["default"], "future")
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(buckets.resolve(declaration, home)[0], "warn")
+            skill(home, "future")
+            self.assertEqual(buckets.resolve(declaration, home)[0], "pass")
 
 
 if __name__ == "__main__":

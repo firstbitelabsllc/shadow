@@ -476,6 +476,83 @@ class CursorIsNotInvented(unittest.TestCase):
             self.assertIn("Cursor is not written", result.stdout)
 
 
+class EverySupportedHostIsActivated(unittest.TestCase):
+    """Every documented cold target gets the one generated standing-goal block."""
+
+    def test_every_supported_host_receives_the_block_and_reruns_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            targets = hd.supported_activation_targets(home=home)
+            for path in targets.values():
+                path.parent.mkdir(parents=True)
+                path.write_text("# owner rules\n", encoding="utf-8")
+
+            first = subprocess.run(
+                [sys.executable, str(SCRIPT)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={**os.environ, "HOME": str(home)},
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+            for selector, path in targets.items():
+                self.assertIn(f"added:     {selector}", first.stdout)
+                self.assertEqual(path.read_text(encoding="utf-8").count(hd.BEGIN), 1)
+                self.assertIn(BLOCK, path.read_text(encoding="utf-8"))
+
+            second = subprocess.run(
+                [sys.executable, str(SCRIPT)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={**os.environ, "HOME": str(home)},
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+            for selector in targets:
+                self.assertIn(f"current:   {selector}", second.stdout)
+
+
+class TheSupportedListInTheDocsDrivesTheWriteTargets(unittest.TestCase):
+    def test_the_documented_list_is_the_only_target_source(self) -> None:
+        # Change the doc in a fixture, not a duplicate Python map. `main()`
+        # must write the newly documented path; otherwise docs merely describe
+        # a second, stale list while installs keep using old targets.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            doc = root / "native-hosts.md"
+            doc.write_text(
+                """# Fixture
+
+| Host selector | Activation file |
+| --- | --- |
+| fixture-host | `~/.fixture/INSTRUCTIONS.md` |
+
+Cursor cold activation is unsupported.
+                """,
+                encoding="utf-8",
+            )
+            (home / ".fixture").mkdir(parents=True)
+            original_home = hd.Path.home
+            with mock.patch.object(hd, "NATIVE_HOSTS_DOC", doc):
+                hd.Path.home = staticmethod(lambda: home)  # type: ignore[assignment]
+                try:
+                    self.assertEqual(hd.main([]), 0)
+                finally:
+                    hd.Path.home = original_home  # type: ignore[assignment]
+
+            target = home / ".fixture" / "INSTRUCTIONS.md"
+            self.assertTrue(target.is_file())
+            self.assertIn(BLOCK, target.read_text(encoding="utf-8"))
+
+    def test_current_documented_list_excludes_unsupported_cursor(self) -> None:
+        targets = hd.supported_activation_targets()
+        self.assertEqual(sorted(targets), ["claude", "codex"])
+        self.assertNotIn("cursor", targets)
+        native_hosts = (ROOT / "docs" / "reference" / "native-hosts.md").read_text(encoding="utf-8")
+        self.assertIn("Cursor is not activated, by decision", native_hosts)
+
+
 
 def _swap_with_distinct_inode(path: Path, content: str) -> None:
     """Replace `path` with a NEW inode holding `content`, deterministically.

@@ -99,12 +99,16 @@ import importlib.util
 import os
 import stat
 from pathlib import Path
+import re
 import sys
 import tempfile
 from typing import Final
 
 ROOT: Final = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 DOC: Final = ROOT / "docs" / "reference" / "host-integration.md"
+NATIVE_HOSTS_DOC: Final = ROOT / "docs" / "reference" / "native-hosts.md"
+
+ACTIVATION_TABLE_HEADER: Final = ("Host selector", "Activation file")
 
 BEGIN: Final = "<!-- shadow:goal:begin — managed by `shadow goal --install`; edits here are overwritten -->"
 END: Final = "<!-- shadow:goal:end -->"
@@ -112,10 +116,73 @@ END: Final = "<!-- shadow:goal:end -->"
 # by someone who pasted it before markers existed.
 ANCHOR: Final = "## Shadow "
 
-HOSTS: Final = {
-    "claude": Path.home() / ".claude" / "CLAUDE.md",
-    "codex": Path.home() / ".codex" / "AGENTS.md",
-}
+def _markdown_cells(line: str) -> list[str] | None:
+    """Return the cells in one ordinary Markdown table row, if it is one."""
+    line = line.strip()
+    if not (line.startswith("|") and line.endswith("|")):
+        return None
+    return [cell.strip() for cell in line[1:-1].split("|")]
+
+
+def supported_activation_targets(
+    doc: Path | None = None, *, home: Path | None = None
+) -> dict[str, Path]:
+    """Read supported cold-activation targets from the public host contract.
+
+    The documentation is deliberately the only list. A second source here
+    once left installation and doctor disagreeing about which cold hosts were
+    supported. The narrow table grammar refuses a malformed edit before it can
+    cause a write to an invented path.
+    """
+    source = doc or NATIVE_HOSTS_DOC
+    try:
+        lines = source.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ValueError(f"cannot read supported cold-activation list in {source}: {exc}") from exc
+
+    header_at = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if _markdown_cells(line) == list(ACTIVATION_TABLE_HEADER)
+        ),
+        None,
+    )
+    if header_at is None:
+        raise ValueError(
+            f"{source} has no supported cold-activation table with "
+            f"{ACTIVATION_TABLE_HEADER[0]!r} and {ACTIVATION_TABLE_HEADER[1]!r} columns"
+        )
+    if header_at + 1 >= len(lines) or _markdown_cells(lines[header_at + 1]) is None:
+        raise ValueError(f"{source}:{header_at + 2} has no activation-table separator")
+
+    base = home or Path.home()
+    targets: dict[str, Path] = {}
+    for line_number, line in enumerate(lines[header_at + 2 :], header_at + 3):
+        cells = _markdown_cells(line)
+        if cells is None:
+            break
+        if len(cells) != 2:
+            raise ValueError(f"{source}:{line_number} has {len(cells)} activation-table columns, expected 2")
+        selector, raw_path = (cell.strip("`").strip() for cell in cells)
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", selector):
+            raise ValueError(f"{source}:{line_number} has invalid host selector {selector!r}")
+        if selector in targets:
+            raise ValueError(f"{source}:{line_number} repeats host selector {selector!r}")
+        if not raw_path.startswith("~/"):
+            raise ValueError(f"{source}:{line_number} must name a home-relative activation file, not {raw_path!r}")
+        relative = Path(raw_path[2:])
+        if not relative.parts or ".." in relative.parts:
+            raise ValueError(f"{source}:{line_number} has unsafe activation file {raw_path!r}")
+        targets[selector] = base / relative
+    if not targets:
+        raise ValueError(f"{source} lists no supported cold-activation targets")
+    return targets
+
+
+# Compatibility for focused callers and the CLI argument choices. The value is
+# derived from docs/reference/native-hosts.md, never hand-maintained here.
+HOSTS: Final = supported_activation_targets()
 
 
 def standing_goal(doc: Path | None = None) -> str:
@@ -848,12 +915,20 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Re-read at invocation time. A user can update the product docs between a
+    # long-lived import and `main()`, and the current documented support list
+    # must be the list this invocation writes.
+    try:
+        targets = supported_activation_targets()
+    except ValueError as exc:
+        print(f"shadow goal: {exc}", file=sys.stderr)
+        return 1
     parser = argparse.ArgumentParser(
         prog="shadow goal --install",
         description="Write the standing goal into each host's instruction file.",
     )
     parser.add_argument("--remove", action="store_true", help="take the block out again")
-    parser.add_argument("--host", action="append", choices=sorted(HOSTS),
+    parser.add_argument("--host", action="append", choices=sorted(targets),
                         help="limit to one host (repeatable); default is every known host")
     args = parser.parse_args(argv)
 
@@ -863,8 +938,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     status = 0
-    for name in args.host or sorted(HOSTS):
-        path = HOSTS[name]
+    for name in args.host or sorted(targets):
+        path = targets[name]
         if not path.parent.is_dir():
             # The host is not installed on this machine. Not an error.
             print(f"skipped:   {name} (no host directory)")

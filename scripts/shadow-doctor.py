@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -143,16 +144,28 @@ def host_goal_checks() -> list[dict[str, Any]]:
     which project") each passed the whole suite and shipped, because no
     executable read a host file. Read-only — it repairs nothing.
 
-    Cursor is absent on purpose: its user rules live in application settings,
-    not a file, so asserting a path here would invent a convention.
+    The supported list and paths come from native-hosts.md through the same
+    reader the installer uses. Cursor is absent by decision: its user rules
+    live in application settings, not a file, so asserting a path here would
+    invent a convention.
     """
     block = standing_goal()
     if not block:
         return [check("standing goal: source", "fail", "no block found in docs/reference/host-integration.md")]
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "shadow_host_directives_for_doctor", ROOT / "scripts" / "shadow-host-directives.py"
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("could not load shadow-host-directives.py")
+        directives = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(directives)
+        targets = directives.supported_activation_targets(home=Path.home())
+    except (ImportError, OSError, ValueError) as exc:
+        return [check("standing goal: supported hosts", "fail", str(exc))]
     anchor = block.splitlines()[0]
     results = []
-    for label, path in (("claude", Path.home() / ".claude" / "CLAUDE.md"),
-                        ("codex", Path.home() / ".codex" / "AGENTS.md")):
+    for label, path in sorted(targets.items()):
         name = f"standing goal: {label}"
         try:
             text = path.read_text(encoding="utf-8")

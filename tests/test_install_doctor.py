@@ -3,9 +3,24 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+
+
+def activation_targets(home: Path) -> dict[str, Path]:
+    """Read the same public supported-list contract a fresh install reads."""
+    import importlib.util
+
+    directives = ROOT / "scripts" / "shadow-host-directives.py"
+    spec = importlib.util.spec_from_file_location("shadow_host_directives_for_test", directives)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.supported_activation_targets(home=home)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +72,101 @@ class DoctorTests(unittest.TestCase):
         result = self.run_doctor()
         self.assertIn("[PASS] product identity", result.stdout)
         self.assertIn("checks without hard failure", result.stdout)
+
+
+class DoctorNamesEverySupportedHostThatDidNotReceiveTheDirective(unittest.TestCase):
+    def test_every_documented_target_has_its_own_actionable_missing_directive_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            targets = activation_targets(home)
+            result = subprocess.run(
+                [sys.executable, str(DOCTOR), "--json"],
+                cwd=ROOT,
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        report = json.loads(result.stdout)
+        checks = {entry["name"]: entry for entry in report["checks"]}
+        self.assertNotIn("standing goal: cursor", checks)
+        for selector in targets:
+            with self.subTest(selector):
+                missing = checks[f"standing goal: {selector}"]
+                self.assertEqual(missing["state"], "warn")
+                self.assertIn("no host instruction file", missing["detail"])
+                self.assertIn("shadow goal --install", missing["detail"])
+
+
+class TheGateUsesTheResolvedPythonNotBarePython3(unittest.TestCase):
+    def test_readme_doctor_step_selects_the_default_installed_command(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn('bash install.sh && PATH="$HOME/.local/bin:$PATH" shadow doctor', readme)
+        self.assertNotIn("bash install.sh && shadow doctor", readme)
+
+    def test_install_and_printed_doctor_command_use_the_versioned_interpreter(self) -> None:
+        candidates = [
+            name
+            for name in ("python3.10", "python3.11", "python3.12", "python3.13", "python3.14")
+            if shutil.which(name)
+        ]
+        if not candidates:
+            self.skipTest("no versioned Python 3.10+ interpreter is installed")
+        versioned = max(candidates, key=lambda name: int(name.rsplit(".", 1)[1]))
+        real_interpreter = Path(shutil.which(versioned) or versioned).resolve()
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            shim_dir = root / "shim-bin"
+            shim_dir.mkdir()
+            marker = root / "versioned-python-was-used"
+            bare_python = shim_dir / "python3"
+            bare_python.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            bare_python.chmod(0o755)
+            resolved_python = shim_dir / versioned
+            resolved_python.write_text(
+                "#!/bin/sh\n"
+                f"printf x >> {shlex.quote(str(marker))}\n"
+                f"exec {shlex.quote(str(real_interpreter))} \"$@\"\n",
+                encoding="utf-8",
+            )
+            resolved_python.chmod(0o755)
+            installed_bin = root / "installed-bin"
+            home = root / "home"
+            home.mkdir()
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{shim_dir}{os.pathsep}{Path(real_interpreter).parent}{os.pathsep}{os.environ.get('PATH', '')}",
+                "SHADOW_PYTHON": "",
+            }
+            install = subprocess.run(
+                ["bash", "install.sh", "--no-skills", "--bin-dir", str(installed_bin)],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            doctor = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f"PATH={shlex.quote(str(installed_bin))}:$PATH shadow doctor --json",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            used_versioned_python = marker.is_file()
+
+        self.assertEqual(install.returncode, 0, install.stderr)
+        self.assertIn(f"next: PATH={installed_bin}:$PATH shadow doctor", install.stdout)
+        self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
+        self.assertTrue(json.loads(doctor.stdout)["ok"])
+        self.assertTrue(used_versioned_python)
 
 
 if __name__ == "__main__":

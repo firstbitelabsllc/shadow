@@ -1,7 +1,55 @@
 # Configuration
 
-Command-line flags are authoritative. These environment variables provide the
-same defaults without another configuration file:
+Shadow reads at most one checked-in `shadow.yaml` at the current Git repository
+root. Its declarations are preferences, never resolved state: no cache,
+timestamp, installation record, claim, task, proof, provider binding, or
+credential is written from configuration. A repository with no file behaves
+identically through built-in defaults.
+
+Use `shadow config --explain` to print the effective values and whether they
+came from `shadow.yaml` or built-in defaults. The supported file shape is a
+strict YAML subset: nested mappings, scalar values, and scalar lists with
+two-space indentation. Unsupported YAML is refused with the filename and line
+instead of being guessed.
+
+```yaml
+version: 1
+leads:
+  codex:
+    display_name: Codex
+    default_lenses:
+      - integration
+      - crash_recovery
+method:
+  adversarial_lenses:
+    - assumptions
+    - correctness
+    - integration
+    - crash_recovery
+    - privacy
+    - stranger_install
+buckets:
+  taste: taste
+  future: future
+durability:
+  claim_return_minutes: 480
+```
+
+`leads` supplies display names, handles, and lens preferences only. An unlisted
+seat remains legal and signs claims normally. `buckets` declares optional
+capability bindings. `durability` bounds claim return time; it does not create a
+heartbeat or scheduler. Provider, model, account, credential, token, host-route,
+and legal-seat selectors are refused anywhere in the document.
+
+Explicit command-line flags remain authoritative. Environment variables are
+machine-local overrides; configuration supplies reviewed repository defaults;
+built-ins are the final fallback:
+
+```text
+flag > environment > shadow.yaml > built-in default
+```
+
+These environment variables remain available:
 
 | Variable | Meaning |
 |---|---|

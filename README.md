@@ -10,7 +10,7 @@ loses work: a chat dying, a machine change, ten conversations at once.
 
 ```bash
 git clone https://github.com/firstbitelabsllc/shadow.git && cd shadow
-bash install.sh && shadow doctor
+bash install.sh && PATH="$HOME/.local/bin:$PATH" shadow doctor
 ```
 
 Git, Bash, Python 3.10+, one native host (Claude Code, Codex, or Cursor). No Node, no npm — the
@@ -18,6 +18,9 @@ clone *is* the install, `git pull` is the update. The installer writes its manag
 block into Claude and Codex automatically. Cursor's skill mount and sealed host runner work, but
 cold directive activation is unsupported until Cursor exposes a reviewed writable user-rule
 surface; Shadow does not invent one or ask you to paste into an unverified setting.
+
+The installer prints a Doctor command that puts its selected `--bin-dir` first; use it before
+adding `~/.local/bin` to your shell `PATH` permanently.
 
 The Claude mount also activates the Brief contract's Stop hook: the mounted
 directory carries `.claude-plugin/plugin.json`, so Claude Code loads it as the

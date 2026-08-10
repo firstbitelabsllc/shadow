@@ -35,9 +35,11 @@ esac
 fail() { echo "install.sh: $*" >&2; exit 1; }
 
 command -v git >/dev/null 2>&1 || fail "git is required"
-command -v python3 >/dev/null 2>&1 || fail "python3 is required (3.10+)"
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
-  || fail "python3 is older than 3.10"
+# Resolve the same interpreter every installed command uses.  A machine may
+# deliberately keep an old bare `python3` for another project while exposing a
+# compatible versioned interpreter such as `python3.12` on PATH.
+PYTHON="$(SHADOW_PYTHON_COMMAND=install "${ROOT}/scripts/shadow-python.sh" --print)" \
+  || fail "a Python 3.10+ interpreter is required"
 [[ -f "${ROOT}/bin/shadow" ]] || fail "run this from a Shadow checkout (bin/shadow not found)"
 
 mkdir -p "${BIN_DIR}"
@@ -82,7 +84,7 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   # This owns only its own marker-delimited block — the rest of the file is
   # untouched, an unmarked copy is adopted rather than duplicated, and
   # `shadow goal --remove` takes it back out.
-  python3 "${ROOT}/scripts/shadow-host-directives.py" \
+  "${PYTHON}" "${ROOT}/scripts/shadow-host-directives.py" \
     || echo "note:      some hosts did not take the standing goal — see the failed: lines above; fix and run: shadow goal --install" >&2
 fi
 
@@ -92,4 +94,4 @@ case ":${PATH}:" in
 esac
 
 echo
-echo "next: shadow doctor"
+printf 'next: PATH=%q:$PATH shadow doctor\n' "${BIN_DIR}"

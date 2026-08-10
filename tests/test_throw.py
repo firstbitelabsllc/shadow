@@ -428,5 +428,109 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             self.assertEqual(payload["claims"][0]["owner"], "seat-a")
 
 
+class ThrowNeverCommitsATruncatedPlan(unittest.TestCase):
+    """A claim changes only the computer board, never entity-plan authority.
+
+    M13 originally described the pre-board implementation, where ``throw``
+    rewrote and committed PLAN.md.  The root-board design deliberately removed
+    that write path: an interrupted board transaction must not turn into a
+    partial project plan, a project commit, or a pasteable dispatch packet.
+    """
+
+    def test_a_successful_claim_leaves_the_committed_project_plan_byte_for_byte_intact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            before = plan.read_bytes()
+            head_before = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal demo", result.stdout)
+            self.assertEqual(plan.read_bytes(), before)
+            head_after = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(head_after, head_before)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "show", "HEAD:PLAN.md"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                before,
+            )
+
+    def test_a_failed_partial_board_transaction_emits_no_packet_or_project_plan_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            before = plan.read_bytes()
+            head_before = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            spec = importlib.util.spec_from_file_location("shadow_throw_partial_board", THROW)
+            module = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            real_write = module._board._write
+
+            def partial_board_then_fail(path: Path, payload: dict) -> None:
+                if payload["claims"]:
+                    # Simulate process/storage failure at the board mutation
+                    # boundary.  The board is deliberately damaged only inside
+                    # this disposable fixture; the assertion is that throw
+                    # neither changes the separate entity plan nor prints a
+                    # packet that would launch work without a persisted claim.
+                    path.write_text('{"claims": [', encoding="utf-8")
+                    raise module._board.BoardError("simulated partial board write")
+                real_write(path, payload)
+
+            output = io.StringIO()
+            errors = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, env, clear=False),
+                mock.patch.object(module._board, "_write", side_effect=partial_board_then_fail),
+                redirect_stdout(output),
+                redirect_stderr(errors),
+            ):
+                result = module.main(
+                    ["--repo", str(repo), "--task", "~bb22", "--by", "seat-a"]
+                )
+
+            self.assertEqual(result, 1)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("simulated partial board write", errors.getvalue())
+            self.assertEqual(plan.read_bytes(), before)
+            head_after = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(head_after, head_before)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "show", "HEAD:PLAN.md"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                before,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -37,16 +37,19 @@ boundary is that it passes no selector and records none — and the first person
 to fill it in would fill it in here. The host CLI configs stay authoritative;
 the map is a mirror for people, and it is yours.
 
-## Activation surfaces — where the standing goal is written
+## Supported cold-activation targets
 
 Activation is distinct from delegation. Any supported host can RUN a sealed
 task; activation is the standing-goal block `shadow goal --install` writes
 into a host's own instruction file so a fresh chat opens the board without
-being asked. The write targets:
+being asked. This table is the product's one supported cold-activation list:
+the installer writes every row, and doctor checks every row. `Host selector`
+is the exact `shadow goal --install --host` value; `Activation file` is the
+documented file the host reads.
 
-| Host | Activation file |
+| Host selector | Activation file |
 | --- | --- |
-| claude-code | `~/.claude/CLAUDE.md` |
+| claude | `~/.claude/CLAUDE.md` |
 | codex | `~/.codex/AGENTS.md` |
 
 **Cursor is not activated, by decision (2026-08-10).** Cursor's user-level
