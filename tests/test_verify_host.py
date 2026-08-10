@@ -42,7 +42,8 @@ PLAN = """# Fixture
 
 
 def run(home: Path, host: str = "claude-code", path: str | None = None,
-        live: bool = False,
+        live: bool = False, by: str | None = None,
+        timeout_seconds: int | None = None,
         extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     # A scratch HOME has no ~/Development, so the board check would fail for a
     # reason that has nothing to do with the host's wiring. Point the portfolio
@@ -58,6 +59,10 @@ def run(home: Path, host: str = "claude-code", path: str | None = None,
     command = ["bash", str(SCRIPT), "--host", host]
     if live:
         command.append("--live")
+    if by:
+        command.extend(["--by", by])
+    if timeout_seconds is not None:
+        command.extend(["--timeout-seconds", str(timeout_seconds)])
     env = {**os.environ, "HOME": str(home), "PATH": path,
            "SHADOW_PORTFOLIO_ROOT": str(home / "portfolio")}
     env.update(extra_env or {})
@@ -340,9 +345,95 @@ printf '%s\n' 'For fixture, I am finishing the verifier that activates cold host
             self.assertNotIn("resume checkpoint", asked)
             self.assertNotIn("fixture", asked)
             self.assertNotIn("~aa11", asked)
+            self.assertIn("seat claude", asked)
             self.assertIn("--no-session-persistence", asked)
             self.assertIn("--permission-mode plan", asked)
             self.assertNotEqual(cwd.read_text(encoding="utf-8").strip(), str(ROOT))
+
+    def test_the_named_seats_claim_outranks_another_projects_global_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            first = home / "portfolio" / "alpha"
+            owned = home / "portfolio" / "zeta"
+            first.mkdir(parents=True)
+            owned.mkdir(parents=True)
+            first.joinpath("PLAN.md").write_text(
+                PLAN.replace("Project: fixture", "Project: alpha").replace(
+                    "ship the cold activation verifier from a clean clone",
+                    "prepare the unrelated alpha report",
+                ),
+                encoding="utf-8",
+            )
+            owned.joinpath("PLAN.md").write_text(
+                PLAN.replace("Project: fixture", "Project: zeta").replace(
+                    "ship the cold activation verifier from a clean clone",
+                    "finish the seat owned zeta verifier",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q", str(owned)], check=True)
+            subprocess.run(["git", "-C", str(owned), "config", "user.name", "Fixture"], check=True)
+            subprocess.run(["git", "-C", str(owned), "config", "user.email", "fixture@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(owned), "add", "--", "PLAN.md"], check=True)
+            subprocess.run(["git", "-C", str(owned), "commit", "-qm", "seed"], check=True)
+            seeded = run(home, by="worker")
+            self.assertEqual(seeded.returncode, 0, seeded.stdout)
+            claim = subprocess.run(
+                [str(ROOT / "bin" / "shadow"), "throw", "--repo", str(owned),
+                 "--task", "~aa11", "--by", "worker"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={**os.environ, "HOME": str(home),
+                     "PATH": f"{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+                     "SHADOW_PORTFOLIO_ROOT": str(home / "portfolio")},
+            )
+            self.assertEqual(claim.returncode, 0, claim.stdout + claim.stderr)
+            path = self._fake_host(
+                home,
+                "claude",
+                "printf '%s\\n' 'The zeta project is finishing the seat owned zeta verifier.'",
+            )
+            result = run(home, path=path, live=True, by="worker")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+
+    def test_a_live_host_timeout_is_bounded_and_inconclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            path = self._fake_host(home, "claude", "sleep 30")
+            result = run(home, path=path, live=True, timeout_seconds=1)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("timed out after 1 second", result.stdout)
+            self.assertIn("inconclusive", result.stdout)
+
+    def test_every_host_exit_drains_its_background_process_group(self) -> None:
+        for exit_status in (0, 23):
+            with self.subTest(exit_status=exit_status), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                wired(home)
+                marker = home / "descendant-terminated.txt"
+                path = self._fake_host(
+                    home,
+                    "claude",
+                    f"""marker="$SHADOW_TEST_MARKER"
+(
+  trap 'printf terminated > "$marker"; exit 0' TERM INT
+  while :; do sleep 1; done
+) &
+printf '%s\\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'
+exit {exit_status}""",
+                )
+                result = run(
+                    home,
+                    path=path,
+                    live=True,
+                    extra_env={"SHADOW_TEST_MARKER": str(marker)},
+                )
+                self.assertEqual(result.returncode, 0 if exit_status == 0 else 1, result.stdout)
+                self.assertEqual(marker.read_text(encoding="utf-8"), "terminated")
 
     def test_a_humanized_hyphenated_project_slug_is_the_same_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -472,6 +563,8 @@ class TheScriptItself(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("offline", result.stdout)
         self.assertIn("--live", result.stdout)
+        self.assertIn("--by", result.stdout)
+        self.assertIn("--timeout-seconds", result.stdout)
 
 
 if __name__ == "__main__":
