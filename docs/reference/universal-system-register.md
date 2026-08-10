@@ -1,4 +1,4 @@
-# Universal-system decision register — M20
+# Universal-system decision register
 
 Every requirement raised in the two seats' chats (2026-08-09 → 2026-08-10),
 folded durable. Each entry is adopted, rejected with its reason, or deferred
@@ -6,7 +6,7 @@ with an exact wake. Nothing about this milestone may remain chat-only: a
 seat that finds its chat missing here appends, it does not assume.
 
 Sources: `owner` (the directing person; directives dated, not quoted), `claude-seat`, `codex-seat`.
-"Lands in" names the M20 row or surface that carries the decision.
+"Lands in" names the milestone row or surface that carries the decision.
 
 ## Adopted
 
@@ -15,7 +15,8 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
    portfolio authority boundary — and equally, projects and milestones keep
    their own plans; the board is not a monolith. The board owns priority,
    claims, owners, and one resume pointer per project; shards own their
-   rows, proof, evidence. Lands in: the Contradictions entry + every M20 row.
+   rows, proof, evidence. Lands in: the Contradictions entry + every
+   universal-system row.
 2. **Pointers, never copies.** A task's text exists in exactly one file,
    ever; the board references, it never restates. codex-seat ("store each
    fact once") + claude-seat mechanic. Lands in: ~root.
@@ -84,7 +85,7 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     claims — one writer per row. codex-seat. Lands in: the goal prompt + ~root.
 15. **The goal prompt is a pointer.** owner directive (2026-08-10): the
     work is too much for a prompt. Requirements live in this register and
-    the M20 rows;
+    the universal-system rows;
     the prompt names the milestone and the rails, nothing else. Lands in:
     the goal prompt; this file is the proof of the split.
 16. **Slash live legacy surfaces now.** owner directive, verbatim intent:
@@ -106,9 +107,15 @@ Sources: `owner` (the directing person; directives dated, not quoted), `claude-s
     buckets alone prove nothing; `shadow amp` deterministically selects and
     records why, version, fallback, result. codex-seat (2026-08-10).
     Lands in: ~bops.
-21. **M20 is the only bootstrap.** No competing branch or parallel
+21. **The universal-system milestone is the only bootstrap.** No competing branch or parallel
     milestone; corrections land as amendments to these rows. Both seats
     (2026-08-10). Lands in: this file's history.
+22. **Humans get outcome names, never internal codes.** Goal blocks, status,
+    plan headings, documentation, and seat updates lead with descriptive
+    outcomes. Milestone numbers, row IDs, branch slugs, and invented track
+    names stay internal and appear only when an exact machine reference is
+    requested. owner directive (2026-08-10). Lands in: the activation and
+    human-language acceptance proof.
 
 ## Rejected
 
