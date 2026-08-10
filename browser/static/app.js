@@ -107,7 +107,7 @@ function renderPlan(plan) {
   roleGuide.append(roles);
   roleGuide.append(el('p', {
     className: 'role-guide-note',
-    text: 'Shadow uses supported local coding tools autonomously after durable claims; only hard rails pause.',
+    text: 'Shadow uses supported local coding tools autonomously after durable claims; full acceptance stops the outcome, and only exact hard rails pause it earlier.',
   }));
   card.append(roleGuide);
 
